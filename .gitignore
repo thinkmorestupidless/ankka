@@ -1,0 +1,13 @@
+target/
+project/target/
+project/project/
+.bsp/
+.bloop/
+.metals/
+.idea/
+*.log
+.DS_Store
+.env
+
+# Local-only Claude settings
+.claude/settings.local.json

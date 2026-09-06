@@ -1,0 +1,221 @@
+package nakka.http
+
+import nakka.core.CommandError
+import nakka.runtime.{NakkaExecutors, NakkaService, RuntimeExtension}
+import nakka.sdk.ComponentClient
+import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.http.scaladsl.Http
+import org.apache.pekko.http.scaladsl.model.*
+
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.util.control.NonFatal
+
+/**
+ * Serves a set of endpoints over HTTP.
+ *
+ * Routing is done directly against `HttpRequest` rather than through pekko-http's
+ * Directives. The routing table is already a value nakka owns — a list of parsed
+ * templates per endpoint — so re-expressing it in a second DSL would add a layer without
+ * adding a capability.
+ */
+final class HttpServer private (
+    factories: Seq[ComponentClient => HttpEndpoint],
+    interface: Option[String],
+    port: Option[Int]
+) extends RuntimeExtension:
+
+  @volatile private var binding: Option[Http.ServerBinding] = None
+
+  def name: String = "http-server"
+
+  def start(service: NakkaService): Unit =
+    given system: ActorSystem[?] = service.system
+    given ExecutionContext       = system.executionContext
+
+    val config = system.settings.config
+    val host   = interface.getOrElse(config.getString("nakka.http.interface"))
+    val bindPort = port.getOrElse(config.getInt("nakka.http.port"))
+    val bodyTimeout = FiniteDuration(
+      config.getDuration("nakka.http.body-timeout").toMillis,
+      java.util.concurrent.TimeUnit.MILLISECONDS
+    )
+
+    val endpoints = factories.map(_(service.componentClient)).toVector
+    validate(endpoints)
+
+    endpoints.foreach { endpoint =>
+      endpoint.routes.foreach { route =>
+        system.log.info("route {} {}{}", route.method, endpoint.prefix, route.template.render)
+      }
+      if endpoint.acl == Acl.DenyAll then
+        system.log.warn(
+          "endpoint '{}' has acl = DenyAll; every request to it will be rejected",
+          endpoint.prefix
+        )
+    }
+
+    val handler = Router(endpoints, bodyTimeout).handle
+
+    val bound = Await.result(
+      Http()(using system).newServerAt(host, bindPort).bind(handler),
+      30.seconds
+    )
+    binding = Some(bound)
+    system.log.info(
+      "nakka http listening on http://{}:{}",
+      bound.localAddress.getHostString,
+      bound.localAddress.getPort
+    )
+
+  override def stop(): Unit =
+    binding.foreach(b => Await.ready(b.terminate(5.seconds), 10.seconds))
+    binding = None
+
+  /** The bound port, useful when the configured port was 0. */
+  def boundPort: Option[Int] = binding.map(_.localAddress.getPort)
+
+  /**
+   * Rejects two endpoints sharing a prefix, and duplicate routes within one endpoint.
+   *
+   * Overlapping prefixes would make dispatch depend on registration order, which is the
+   * kind of thing that works locally and then serves the wrong handler in production.
+   */
+  private def validate(endpoints: Vector[HttpEndpoint]): Unit =
+    val problems = Vector.newBuilder[String]
+
+    endpoints.groupBy(_.prefix).foreach { (prefix, sharing) =>
+      if sharing.sizeIs > 1 then
+        problems += s"${sharing.size} endpoints share the prefix '$prefix'"
+    }
+
+    endpoints.foreach { endpoint =>
+      endpoint.routes.groupBy(r => (r.method, r.template.render)).foreach { (key, duplicated) =>
+        if duplicated.sizeIs > 1 then
+          problems += s"'${endpoint.prefix}' declares ${key._1} ${key._2} ${duplicated.size} times"
+      }
+    }
+
+    val found = problems.result()
+    if found.nonEmpty then
+      throw IllegalArgumentException(
+        found.mkString("invalid nakka http configuration:\n  - ", "\n  - ", "")
+      )
+
+object HttpServer:
+
+  /** Serves `factories` on the configured interface and port. */
+  def of(factories: (ComponentClient => HttpEndpoint)*): HttpServer =
+    new HttpServer(factories, None, None)
+
+  /** Serves on an explicit interface and port; port 0 picks a free one. */
+  def at(interface: String, port: Int)(
+      factories: (ComponentClient => HttpEndpoint)*
+  ): HttpServer =
+    new HttpServer(factories, Some(interface), Some(port))
+
+/** Matches requests to routes and turns handler outcomes into responses. */
+private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteDuration):
+
+  private val HealthPath = Vector("_nakka", "health")
+
+  def handle(request: HttpRequest)(using
+      system: ActorSystem[?],
+      ec: ExecutionContext
+  ): Future[HttpResponse] =
+    val path = request.uri.path.toString.split('/').iterator.filter(_.nonEmpty).toVector
+
+    // Exempt from ACLs because it reveals nothing: liveness probes need to work before
+    // any auth story exists.
+    if path == HealthPath then Future.successful(text(200, "ok"))
+    else
+      endpoints.find(e => path.startsWith(e.prefixPath)) match
+        case None => Future.successful(problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}")))
+        case Some(endpoint) =>
+          if !permitted(endpoint, request, path) then
+            Future.successful(problem(HttpProblem.forbidden("not permitted by this endpoint's acl")))
+          else dispatch(endpoint, request, path.drop(endpoint.prefixPath.size))
+
+  private def permitted(endpoint: HttpEndpoint, request: HttpRequest, path: Vector[String]): Boolean =
+    endpoint.acl match
+      case Acl.DenyAll  => false
+      case Acl.AllowAll => true
+      case Acl.AllowIf(predicate) =>
+        predicate(
+          RequestInfo(
+            request.method.value,
+            s"/${path.mkString("/")}",
+            request.headers.map(h => h.name -> h.value).toMap,
+            None
+          )
+        )
+
+  private def dispatch(endpoint: HttpEndpoint, request: HttpRequest, remaining: Vector[String])(using
+      system: ActorSystem[?],
+      ec: ExecutionContext
+  ): Future[HttpResponse] =
+    val method = request.method.value
+
+    val matched = endpoint.routes.iterator
+      .map(route => route -> route.template.matches(remaining))
+      .collectFirst { case (route, Some(args)) if route.method == method => route -> args }
+
+    matched match
+      case None =>
+        // Distinguish "wrong verb" from "no such path" — a 404 for a POST to a GET-only
+        // route sends the caller looking for a routing bug that is not there.
+        val pathExists = endpoint.routes.exists(_.template.matches(remaining).isDefined)
+        val failure =
+          if pathExists then HttpProblem(405, s"$method not allowed on this path")
+          else HttpProblem.notFound(s"no route for $method ${request.uri.path}")
+        request.discardEntityBytes()
+        Future.successful(problem(failure))
+
+      case Some((route, args)) =>
+        val bodyBytes =
+          if route.needsBody then
+            request.entity.toStrict(bodyTimeout).map(_.data.toArray)
+          else
+            request.discardEntityBytes()
+            Future.successful(Array.emptyByteArray)
+
+        bodyBytes.flatMap { bytes =>
+          // Handlers run on a virtual thread, which is what makes the blocking
+          // `ComponentClient.invoke` inside them free rather than a dispatcher hazard.
+          Future(route.run(args, bytes))(using NakkaExecutors.virtual)
+        }.map { encoded =>
+          HttpResponse(
+            status = StatusCode.int2StatusCode(encoded.status),
+            entity =
+              if encoded.body.isEmpty then HttpEntity.Empty
+              else
+                ContentType.parse(encoded.contentType) match
+                  case Right(contentType) => HttpEntity(contentType, encoded.body)
+                  case Left(_) => HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
+          )
+        }.recover {
+          case failure: HttpProblem => problem(failure)
+          case failure: CommandError => problem(HttpProblem.from(failure))
+          case failure: IllegalArgumentException =>
+            problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
+          case NonFatal(failure) =>
+            system.log.error(s"unhandled failure in ${route.describe}", failure)
+            problem(HttpProblem(500, "internal error"))
+        }
+
+  private def text(status: Int, body: String): HttpResponse =
+    HttpResponse(StatusCode.int2StatusCode(status), entity = HttpEntity(body))
+
+  /** Errors come back as JSON so a client can act on them without scraping prose. */
+  private def problem(failure: HttpProblem): HttpResponse =
+    val escaped = failure.message
+      .replace("\\", "\\\\")
+      .replace("\"", "\\\"")
+      .replace("\n", " ")
+    HttpResponse(
+      StatusCode.int2StatusCode(failure.status),
+      entity = HttpEntity(
+        ContentTypes.`application/json`,
+        s"""{"status":${failure.status},"error":"$escaped"}"""
+      )
+    )

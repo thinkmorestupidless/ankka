@@ -1,0 +1,24 @@
+# Local persistence for the nakka runtime: event journal, snapshots,
+# durable state, view row tables, and projection offsets all live here.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: nakka-postgres
+    environment:
+      POSTGRES_USER: nakka
+      POSTGRES_PASSWORD: nakka
+      POSTGRES_DB: nakka
+    ports:
+      - "5432:5432"
+    volumes:
+      # Canonical DDL, shared with the test kit via the runtime's classpath.
+      - ./modules/runtime/src/main/resources/nakka/ddl:/docker-entrypoint-initdb.d:ro
+      - nakka-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nakka -d nakka"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  nakka-pgdata:

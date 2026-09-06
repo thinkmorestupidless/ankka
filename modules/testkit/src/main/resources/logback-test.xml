@@ -1,0 +1,19 @@
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{20} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Testcontainers talks to the Docker daemon over HTTP; at DEBUG that is thousands
+       of lines per container and it buries the actual assertion failures. -->
+  <logger name="com.github.dockerjava" level="WARN"/>
+  <logger name="org.testcontainers" level="INFO"/>
+  <logger name="org.apache.pekko.cluster" level="WARN"/>
+  <logger name="org.apache.pekko.remote" level="WARN"/>
+  <logger name="org.apache.pekko.persistence" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

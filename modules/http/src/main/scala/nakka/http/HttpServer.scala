@@ -150,28 +150,38 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       endpoints.find(e => path.startsWith(e.prefixPath)) match
         case None => Future.successful(problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}")))
         case Some(endpoint) =>
-          if !permitted(endpoint, request, path) then
+          val context = contextFor(request)
+          if !permitted(endpoint, context) then
             Future.successful(problem(HttpProblem.forbidden("not permitted by this endpoint's acl")))
-          else dispatch(endpoint, request, path.drop(endpoint.prefixPath.size))
+          else dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
 
-  private def permitted(endpoint: HttpEndpoint, request: HttpRequest, path: Vector[String]): Boolean =
+  /**
+   * The request as a handler and an ACL both see it.
+   *
+   * Built once per request and shared: an ACL predicate that inspects a query parameter
+   * should be looking at exactly what the handler will.
+   */
+  private def contextFor(request: HttpRequest): RequestContext =
+    SimpleRequestContext(
+      method = request.method.value,
+      path = request.uri.path.toString,
+      query = QueryParams(request.uri.query().toVector),
+      headers = request.headers.map(header => header.name -> header.value).toVector,
+      remoteAddress = None
+    )
+
+  private def permitted(endpoint: HttpEndpoint, context: RequestContext): Boolean =
     endpoint.acl match
-      case Acl.DenyAll  => false
-      case Acl.AllowAll => true
-      case Acl.AllowIf(predicate) =>
-        predicate(
-          RequestInfo(
-            request.method.value,
-            s"/${path.mkString("/")}",
-            request.headers.map(h => h.name -> h.value).toMap,
-            None
-          )
-        )
+      case Acl.DenyAll            => false
+      case Acl.AllowAll           => true
+      case Acl.AllowIf(predicate) => predicate(context)
 
-  private def dispatch(endpoint: HttpEndpoint, request: HttpRequest, remaining: Vector[String])(using
-      system: ActorSystem[?],
-      ec: ExecutionContext
-  ): Future[HttpResponse] =
+  private def dispatch(
+      endpoint: HttpEndpoint,
+      request: HttpRequest,
+      context: RequestContext,
+      remaining: Vector[String]
+  )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
     val method = request.method.value
 
     val streamMatched = streamRoutesByEndpoint(endpoint.prefix).iterator
@@ -179,7 +189,7 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       .collectFirst { case (route, Some(args)) if route.method == method => route -> args }
 
     streamMatched match
-      case Some((route, args)) => return dispatchStream(route, request, args)
+      case Some((route, args)) => return dispatchStream(route, request, context, args)
       case None                => ()
 
     val matched = routesByEndpoint(endpoint.prefix).iterator
@@ -208,8 +218,11 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
 
         bodyBytes.flatMap { bytes =>
           // Handlers run on a virtual thread, which is what makes the blocking
-          // `ComponentClient.invoke` inside them free rather than a dispatcher hazard.
-          Future(route.run(args, bytes))(using NakkaExecutors.virtual)
+          // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
+          // and what makes the request context safe to hold in a ThreadLocal.
+          Future(RequestScope.withContext(context)(route.run(args, bytes)))(using
+            NakkaExecutors.virtual
+          )
         }.map { encoded =>
           HttpResponse(
             status = StatusCode.int2StatusCode(encoded.status),
@@ -237,10 +250,12 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
    * stream; the elements themselves are pulled by pekko-http as the client reads, so
    * nothing buffers the whole reply.
    */
-  private def dispatchStream(route: StreamRoute, request: HttpRequest, args: Vector[String])(using
-      system: ActorSystem[?],
-      ec: ExecutionContext
-  ): Future[HttpResponse] =
+  private def dispatchStream(
+      route: StreamRoute,
+      request: HttpRequest,
+      context: RequestContext,
+      args: Vector[String]
+  )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
     val bodyBytes =
       if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
       else
@@ -249,7 +264,11 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
 
     bodyBytes
       .flatMap { bytes =>
-        Future(route.run(args, bytes))(using NakkaExecutors.virtual)
+        // The context is scoped around *building* the source, not around draining it:
+        // elements are pulled later, by pekko-http, on another thread entirely.
+        Future(RequestScope.withContext(context)(route.run(args, bytes)))(using
+          NakkaExecutors.virtual
+        )
       }
       .flatMap { source =>
         // JSON-encoded per event: see JsonText for why raw text is not safe here.

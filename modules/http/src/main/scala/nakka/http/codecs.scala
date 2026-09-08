@@ -3,7 +3,12 @@ package nakka.http
 import com.github.plokhotnyuk.jsoniter_scala.core.*
 import nakka.core.Done
 
-/** Converts a raw path segment into a typed handler argument. */
+/**
+ * Converts a raw string parameter into a typed value.
+ *
+ * Used for both path segments and query parameters — the job is identical, so they share
+ * one set of instances rather than two that could drift apart.
+ */
 trait FromPath[A]:
   def name: String
   def parse(raw: String): Either[String, A]
@@ -87,3 +92,6 @@ object ToResponse:
     def status(value: Unit) = 204
     val contentType         = "text/plain"
     def write(value: Unit)  = Array.emptyByteArray
+
+/** Query parameters are parsed by the same instances as path segments. */
+type FromQuery[A] = FromPath[A]

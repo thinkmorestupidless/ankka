@@ -50,17 +50,7 @@ enum Acl:
    * establishing who the caller actually is needs mTLS or a verified token, and a check
    * against a client-settable header would be security theatre. Plug in a real check here.
    */
-  case AllowIf(predicate: RequestInfo => Boolean)
-
-/** The parts of a request an ACL predicate may inspect. */
-final case class RequestInfo(
-    method: String,
-    path: String,
-    headers: Map[String, String],
-    remoteAddress: Option[String]
-):
-  def header(name: String): Option[String] =
-    headers.collectFirst { case (k, v) if k.equalsIgnoreCase(name) => v }
+  case AllowIf(predicate: RequestContext => Boolean)
 
 private[nakka] final case class EncodedResponse(
     status: Int,
@@ -111,6 +101,22 @@ abstract class HttpEndpoint(val prefix: String):
    * thought about who can reach it.
    */
   def acl: Acl
+
+  /**
+   * The request currently being handled.
+   *
+   * Available only on the handler's own thread — see `RequestScope`. Read what you need
+   * before handing work to another thread.
+   */
+  protected def request: RequestContext =
+    RequestScope.currentContext.getOrElse(
+      throw IllegalStateException(
+        "request is only available inside a route handler, on the handler's own thread"
+      )
+    )
+
+  /** Shorthand for `request.query`. */
+  protected def query: QueryParams = request.query
 
   private val collected       = mutable.ListBuffer.empty[Route]
   private val collectedStreams = mutable.ListBuffer.empty[StreamRoute]

@@ -125,6 +125,46 @@ componentClient.forEventSourcedEntity(cartId).call(ShoppingCartEntity.addItem).i
 timers and agent loops all run on virtual threads, so an await parks the virtual thread
 and releases its carrier. Sequential code stays readable *and* cheap.
 
+### Query parameters and headers
+
+Path parameters and the body arrive as typed arguments, because they are structural — a
+route either has them or is not that route. Query parameters and headers are optional,
+repeatable and vary per call, so they are read from the request instead:
+
+```scala
+get("/") { () =>
+  SearchResult(
+    term    = query.required[String]("q"),
+    limit   = query.optional[Int]("limit").getOrElse(20),
+    tags    = query.all[String]("tag").toList,
+    verbose = query.flag("verbose")
+  )
+}
+
+get("/trace") { () => request.header("X-Trace-Id").getOrElse("none") }
+```
+
+`required` fails with a 400 naming the parameter rather than substituting a default — a
+missing parameter the handler needed is the caller's mistake, and silently defaulting
+turns it into a puzzling empty result. The same instances parse query values and path
+segments, so `?limit=abc` yields the same "expected int" message either way. A parameter
+present with no value counts as a set flag, so `?verbose` and `?verbose=true` agree.
+
+`request` is ambient rather than passed — a deliberate exception to nakka's usual
+explicitness, and the same shape entities already use for `currentState`. It is sound
+because each handler runs on its own virtual thread, so there is exactly one request per
+thread and the value is cleared on the way out. The consequence: work handed to *another*
+thread cannot see it, so read what you need before fanning out. For a streaming route
+that means reading parameters while building the source, since its elements are pulled
+later by pekko-http.
+
+The same `RequestContext` is what an ACL predicate inspects, so a check on a header or
+query parameter is looking at exactly what the handler will:
+
+```scala
+val acl: Acl = Acl.AllowIf(context => context.header("X-Api-Key").contains(expected))
+```
+
 ## Agents
 
 ```scala
@@ -263,7 +303,7 @@ loudly* when the script runs out — a test whose model quietly returned a defau
 longer testing what it says.
 
 ```bash
-sbt test          # 210 tests, ~90s, no API key needed
+sbt test          # 231 tests, ~90s, no API key needed
 ```
 
 Integration suites start their own Postgres, and the Kafka suite its own broker, via
@@ -300,8 +340,6 @@ Dependencies run strictly `core → sdk → runtime → {http, agent} → testki
 
 Honest gaps, not oversights:
 
-- **HTTP query parameters and headers in handlers.** ACL predicates see them; handlers
-  do not.
 - **Multi-region.** Single-region only. No replication filters, no `origin` routing.
 - **Control plane.** No CLI, console, or deployment descriptors — this is the SDK and
   runtime, not Akka's hosted platform.

@@ -34,6 +34,11 @@ private[nakka] final class ShardingTransport(
   private given ExecutionContext = system.executionContext
   private given Timeout          = Timeout(askTimeout)
 
+  def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit =
+    sharding
+      .entityRefFor(EntityKeys.forComponent(componentId), entityId)
+      .tell(message.asInstanceOf[EntityProtocol.Command])
+
   def ask(
       componentId: ComponentId,
       entityId: EntityId,

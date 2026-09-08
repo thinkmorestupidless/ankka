@@ -20,6 +20,9 @@ abstract class Agent:
 
   final type Effect[R] = AgentEffect[R]
 
+  /** Return type for a handler that streams its reply. */
+  final type StreamEffect = AgentStreamEffect
+
   /** The declarative interaction API. */
   protected final val effects: AgentEffects = new AgentEffects(() => sessionContext.defaultModel)
 
@@ -65,6 +68,7 @@ object Agent:
   abstract class Companion[A <: Agent](val componentId: ComponentId):
 
     private val bindings = mutable.ListBuffer.empty[HandlerBinding[A]]
+    private val streams  = mutable.ListBuffer.empty[StreamHandle[A, ?]]
 
     def create(ctx: AgentContext): A
 
@@ -97,13 +101,28 @@ object Agent:
     )(using out: Serializer[O]): NoArgHandle[A, O] =
       add(new NoArgHandle[A, O](componentId, MethodName(name), readOnly = false, out, f))
 
+    /**
+     * Registers a handler that streams its reply.
+     *
+     * Kept separate from `command` because the two are reached by different call sites
+     * — `.call(...)` versus `.stream(...)` — and conflating them would let a caller
+     * await a single value from a handler that produces many.
+     */
+    protected final def stream[I](name: String)(
+        f: A => I => AgentStreamEffect
+    )(using in: Serializer[I]): StreamHandle[A, I] =
+      val handle =
+        new StreamHandle[A, I](componentId, MethodName(name), in, (a, i) => f(a)(i))
+      streams += handle
+      handle
+
     private def add[H <: HandlerBinding[A]](handle: H): H =
       bindings += handle
       handle
 
     /** A `def`, not a `val` — see the note on `EventSourcedEntity.Companion`. */
     final def descriptor: AgentDescriptor[A] =
-      val clashes = bindings.groupBy(_.name).collect {
+      val clashes = (bindings.map(_.name) ++ streams.map(_.name)).groupBy(identity).collect {
         case (name, bs) if bs.sizeIs > 1 => s"handler '$name' registered ${bs.size} times"
       }
       if clashes.nonEmpty then
@@ -113,7 +132,14 @@ object Agent:
       if maxToolCallSteps <= 0 then
         throw IllegalArgumentException(s"agent '$componentId' needs a positive maxToolCallSteps")
 
-      AgentDescriptor(componentId, role, maxToolCallSteps, create, bindings.map(b => b.name -> b).toMap)
+      AgentDescriptor(
+        componentId,
+        role,
+        maxToolCallSteps,
+        create,
+        bindings.map(b => b.name -> b).toMap,
+        streams.map(h => h.name -> h).toMap
+      )
 
 /** The registered form of an agent. */
 final case class AgentDescriptor[A <: Agent](
@@ -121,8 +147,28 @@ final case class AgentDescriptor[A <: Agent](
     role: String,
     maxToolCallSteps: Int,
     create: AgentContext => A,
-    handlers: Map[MethodName, HandlerBinding[A]]
+    handlers: Map[MethodName, HandlerBinding[A]],
+    streams: Map[MethodName, StreamHandle[A, ?]]
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Agent
 
   private[nakka] def handler(name: MethodName): Option[HandlerBinding[A]] = handlers.get(name)
+
+  private[nakka] def streamHandler(name: MethodName): Option[StreamHandle[A, ?]] =
+    streams.get(name)
+
+/**
+ * A typed reference to a streaming handler.
+ *
+ * Mirrors `CommandHandle`, but its call site returns a `Source` rather than a value.
+ */
+final class StreamHandle[A, I] private[agent] (
+    val componentId: ComponentId,
+    val name: MethodName,
+    private[agent] val inputSerializer: Serializer[I],
+    private[agent] val run: (A, I) => AgentStreamEffect
+):
+  private[agent] def decodeAndInvoke(agent: A, payload: Array[Byte]): AgentStreamEffect =
+    run(agent, inputSerializer.fromBytes(payload))
+
+  override def toString: String = s"$componentId#$name (streaming)"

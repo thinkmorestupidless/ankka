@@ -77,6 +77,21 @@ private[nakka] final case class Route(
   def describe: String = s"$method ${template.render}"
 
 /**
+ * A route that answers with a stream of text events rather than one response.
+ *
+ * Kept as a separate route kind rather than a `ToResponse` instance because the server
+ * has to treat it differently all the way down: no content length, no buffering, and the
+ * connection stays open.
+ */
+private[nakka] final case class StreamRoute(
+    method: String,
+    template: PathTemplate,
+    needsBody: Boolean,
+    run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?]
+):
+  def describe: String = s"$method ${template.render} (SSE)"
+
+/**
  * An HTTP endpoint: the outermost layer, translating requests into component calls.
  *
  * Routes are declared in the constructor body and collected as they are declared, so the
@@ -97,9 +112,11 @@ abstract class HttpEndpoint(val prefix: String):
    */
   def acl: Acl
 
-  private val collected = mutable.ListBuffer.empty[Route]
+  private val collected       = mutable.ListBuffer.empty[Route]
+  private val collectedStreams = mutable.ListBuffer.empty[StreamRoute]
 
-  private[nakka] def routes: Vector[Route] = collected.toVector
+  private[nakka] def routes: Vector[Route]              = collected.toVector
+  private[nakka] def streamRoutes: Vector[StreamRoute] = collectedStreams.toVector
 
   private val prefixSegments: Vector[String] =
     prefix.split('/').iterator.filter(_.nonEmpty).toVector
@@ -129,6 +146,45 @@ abstract class HttpEndpoint(val prefix: String):
       (args, body) =>
         val value = run(args, body)
         EncodedResponse(response.status(value), response.contentType, response.write(value))
+    )
+
+  /**
+   * Records a server-sent-events route.
+   *
+   * Declared with `sse` rather than `get` because the response is open-ended: the
+   * handler returns a `Source` and the server holds the connection until it completes.
+   */
+  private def addStream(method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
+      run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?]
+  ): Unit =
+    val template = PathTemplate.parse(rawTemplate)
+    if template.arity != arity then
+      throw IllegalArgumentException(
+        s"$method $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
+          s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
+      )
+    collectedStreams += StreamRoute(method, template, needsBody, run)
+
+  /** `GET $prefix$template`, answered as server-sent events. */
+  protected def sse[A: FromPath](template: String)(
+      handler: A => org.apache.pekko.stream.scaladsl.Source[String, ?]
+  ): Unit =
+    addStream("GET", template, 1, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template))
+    )
+
+  /** `GET $prefix$template` with no path parameters, answered as server-sent events. */
+  protected def sse(template: String)(
+      handler: () => org.apache.pekko.stream.scaladsl.Source[String, ?]
+  ): Unit =
+    addStream("GET", template, 0, needsBody = false)((_, _) => handler())
+
+  /** `POST $prefix$template` with a decoded body, answered as server-sent events. */
+  protected def sseBody[A: FromPath, Body: FromBody](template: String)(
+      handler: (A, Body) => org.apache.pekko.stream.scaladsl.Source[String, ?]
+  ): Unit =
+    addStream("POST", template, 1, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
     )
 
   private def pathArg[A](args: Vector[String], index: Int, template: String)(using

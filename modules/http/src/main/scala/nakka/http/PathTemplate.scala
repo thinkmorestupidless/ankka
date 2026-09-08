@@ -25,6 +25,20 @@ final case class PathTemplate(segments: Vector[PathSegment]):
       }
       if matched then Some(extracted.result()) else None
 
+  /**
+   * Ranks this template against others for dispatch.
+   *
+   * Literal segments outrank parameters, position by position, so `/users/me` is tried
+   * before `/users/{id}`. Without this, dispatch would depend on declaration order — a
+   * parameter route declared first would swallow every literal route beside it, which is
+   * the kind of bug that works in one file layout and breaks in another.
+   */
+  private[nakka] def specificity: Vector[Int] =
+    segments.map {
+      case PathSegment.Literal(_) => 0
+      case PathSegment.Param(_)   => 1
+    }
+
   def render: String = segments
     .map {
       case PathSegment.Literal(value) => value

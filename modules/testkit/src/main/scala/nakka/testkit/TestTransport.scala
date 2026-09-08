@@ -60,6 +60,14 @@ final class TestTransport private (
   /** A `ComponentClient` backed by these stubs. */
   def client: ComponentClient = ComponentClient(this)
 
+  /** Streaming is not modelled by the stub transport; use NakkaTestKit for that. */
+  def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit =
+    throw CommandError(
+      s"$componentId does not accept fire-and-forget messages in the unit test kit; " +
+        "use NakkaTestKit for a test that routes them for real",
+      ErrorCode.NotFound
+    )
+
   def ask(
       componentId: ComponentId,
       entityId: EntityId,

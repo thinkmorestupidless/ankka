@@ -21,6 +21,15 @@ trait CallTransport:
       metadata: Metadata
   ): Future[Array[Byte]]
 
+  /**
+   * Sends a message without awaiting a reply.
+   *
+   * `Any` because the message types live in `nakka-runtime`, which the SDK must not
+   * depend on. Used for streaming, where the reply arrives over time through a channel
+   * carried inside the message rather than as a return value.
+   */
+  def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit
+
   /** How long a blocking `invoke` waits before failing with `ErrorCode.Timeout`. */
   def askTimeout: FiniteDuration
 

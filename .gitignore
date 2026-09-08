@@ -5,6 +5,7 @@ project/project/
 .bloop/
 .metals/
 .idea/
+.vscode/
 *.log
 .DS_Store
 .env

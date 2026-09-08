@@ -96,8 +96,17 @@ private[nakka] object KeyValueEntityHost:
             try interpret(binding, entity, invoke, visible)
             finally entity._setContext(None)
 
+      case request: EntityProtocol.InvokeStream =>
+        // See the note in EventSourcedEntityHost: reply, do not drop.
+        request.tokens ! EntityProtocol.StreamFailed(
+          CommandError(
+            s"entity '${descriptor.componentId}' does not support streaming",
+            ErrorCode.BadRequest
+          )
+        )
+        PekkoEffect.noReply
+
       case _ =>
-        // See the note in EventSourcedEntityHost: one protocol, several hosts.
         PekkoEffect.unhandled.thenNoReply()
 
   /** As in the event sourced host, the cast is guarded by what `Companion` accepts. */

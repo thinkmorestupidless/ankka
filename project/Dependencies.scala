@@ -27,6 +27,7 @@ object Dependencies {
 
   val pekkoActorTyped          = pekko("actor-typed")
   val pekkoStream              = pekko("stream")
+  val pekkoStreamTyped         = pekko("stream-typed")
   val pekkoSlf4j               = pekko("slf4j")
   val pekkoClusterTyped        = pekko("cluster-typed")
   val pekkoClusterShardingTyped = pekko("cluster-sharding-typed")

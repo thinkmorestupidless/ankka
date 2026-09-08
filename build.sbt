@@ -97,7 +97,7 @@ lazy val agent = project
   .settings(commonSettings)
   .settings(
     name := "nakka-agent",
-    libraryDependencies ++= Seq(anthropicJava, pekkoHttp)
+    libraryDependencies ++= Seq(anthropicJava, pekkoHttp, pekkoStreamTyped)
   )
 
 /** Unit and integration test support, plus TestModelProvider. */

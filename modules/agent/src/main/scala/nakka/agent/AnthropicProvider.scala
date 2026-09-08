@@ -3,6 +3,8 @@ package nakka.agent
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.JsonValue
+import com.anthropic.core.http.StreamResponse
+import com.anthropic.helpers.MessageAccumulator
 import com.anthropic.models.messages.{
   ContentBlockParam,
   MessageCreateParams,
@@ -16,6 +18,11 @@ import com.anthropic.models.messages.{
   ToolUseBlockParam,
   Message as SdkMessage
 }
+
+import com.anthropic.models.messages.RawMessageStreamEvent
+import org.apache.pekko.NotUsed
+import org.apache.pekko.stream.ActorAttributes
+import org.apache.pekko.stream.scaladsl.Source
 
 import java.util.concurrent.Executors
 import scala.concurrent.{ExecutionContext, Future}
@@ -50,6 +57,27 @@ final class AnthropicProvider private (
 
   def complete(request: ModelRequest): Future[ModelResponse] =
     Future(translate(client.messages().create(build(request))))
+
+  /**
+   * Streams a response as it is generated.
+   *
+   * Text deltas are emitted as they arrive *and* fed to a `MessageAccumulator`, so the
+   * terminal `Completed` chunk carries the same tool calls, stop reason and token usage a
+   * non-streaming call would have returned. A caller gets live tokens without giving up
+   * anything the batch path provides.
+   */
+  override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
+    Source
+      .unfoldResource[Option[ModelChunk], Streaming](
+        () => new Streaming(client.messages().createStreaming(build(request))),
+        state => state.next(),
+        state => state.close()
+      )
+      // `unfoldResource` pulls from a blocking iterator; keeping it off the default
+      // dispatcher stops one slow stream from starving unrelated actors.
+      .withAttributes(ActorAttributes.dispatcher("pekko.actor.default-blocking-io-dispatcher"))
+      .collect { case Some(chunk) => chunk }
+      .mapMaterializedValue(_ => NotUsed)
 
   // ── Request ───────────────────────────────────────────────────────────────
 
@@ -187,7 +215,7 @@ final class AnthropicProvider private (
 
   // ── Response ──────────────────────────────────────────────────────────────
 
-  private def translate(message: SdkMessage): ModelResponse =
+  private[agent] def translate(message: SdkMessage): ModelResponse =
     val text = message
       .content()
       .asScala
@@ -243,6 +271,48 @@ final class AnthropicProvider private (
       cacheReadTokens = reported.cacheReadInputTokens().toScala.map(_.toInt).getOrElse(0),
       cacheWriteTokens = reported.cacheCreationInputTokens().toScala.map(_.toInt).getOrElse(0)
     )
+
+
+  /**
+   * Pulls one SSE event at a time, accumulating the whole message as it goes.
+   *
+   * Mutable and single-threaded by construction: `unfoldResource` guarantees `next` is
+   * never called concurrently for one materialisation.
+   */
+  private[agent] final class Streaming(response: StreamResponse[RawMessageStreamEvent]):
+
+    private val events      = response.stream().iterator()
+    private val accumulator = MessageAccumulator.create()
+    private var finished    = false
+
+    /** `None` ends the stream; `Some(None)` is an event that produces no chunk. */
+    def next(): Option[Option[ModelChunk]] =
+      if events.hasNext then
+        val event = events.next()
+        accumulator.accumulate(event): Unit
+        Some(chunkFor(event))
+      else if !finished then
+        finished = true
+        Some(Some(ModelChunk.Completed(translate(accumulator.message()))))
+      else None
+
+    def close(): Unit = response.close()
+
+    private def chunkFor(event: RawMessageStreamEvent): Option[ModelChunk] =
+      event
+        .contentBlockDelta()
+        .toScala
+        .flatMap(_.delta().text().toScala)
+        .map(delta => ModelChunk.TextDelta(delta.text()))
+        .orElse(
+          // A tool call announces itself before its arguments have streamed in; the
+          // complete arguments arrive with the accumulated message.
+          event
+            .contentBlockStart()
+            .toScala
+            .flatMap(_.contentBlock().toolUse().toScala)
+            .map(block => ModelChunk.ToolCallStarted(ToolCall(block.id(), block.name(), Json.Obj(Map.empty))))
+        )
 
   /** nakka's JSON tree as plain Java values, which is what `JsonValue.from` accepts. */
   private def toJava(value: Json): Any = value match

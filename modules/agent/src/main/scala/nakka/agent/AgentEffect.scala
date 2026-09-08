@@ -101,6 +101,17 @@ final class AgentEffect[R] private[agent] (
   def thenReply(): AgentEffect[String] = with_[String](responseShape = ResponseShape.AsText)
 
   /**
+   * Streams the reply as it is generated.
+   *
+   * Every turn streams, not just the last one. A model often says "let me check the
+   * weather" before calling a tool, and that preamble is real output a reader should see
+   * — withholding it until the tool round-trip finishes is what makes a streaming UI feel
+   * broken.
+   */
+  def thenStream(): AgentStreamEffect =
+    AgentStreamEffect(with_[String](responseShape = ResponseShape.AsText))
+
+  /**
    * Replies with the model's JSON, parsed into `T`.
    *
    * The schema is not sent to the model — say what you want in the system message. This
@@ -188,3 +199,12 @@ object Guardrail:
       override def checkOutput(text: String): Either[String, Unit] =
         if pattern.findFirstIn(text).isEmpty then Right(())
         else Left(s"output rejected by $guardName")
+
+/**
+ * A description of a streaming interaction.
+ *
+ * A distinct type from `AgentEffect` so that `Agent.Companion.stream` accepts only
+ * handlers that actually stream — a streaming call site cannot be pointed at a handler
+ * that returns one value, or the reverse.
+ */
+final class AgentStreamEffect private[agent] (private[agent] val effect: AgentEffect[String])

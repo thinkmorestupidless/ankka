@@ -47,6 +47,17 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
       case WorkflowTimedOut => onWorkflowTimedOut(state)
       case PauseTimedOut    => onPauseTimedOut(state)
 
+      case request: InvokeStream =>
+        // Workflows have no streaming surface. Answering is not optional: a caller
+        // blocked on the token stream would wait indefinitely otherwise.
+        request.tokens ! StreamFailed(
+          CommandError(
+            s"workflow '${descriptor.componentId}' does not support streaming",
+            ErrorCode.BadRequest
+          )
+        )
+        PekkoEffect.none
+
       // Another module's host command, delivered here by mistake. Ignore rather than
       // crash the workflow: it cannot mean anything to this engine.
       case _: ModuleCommand => PekkoEffect.none

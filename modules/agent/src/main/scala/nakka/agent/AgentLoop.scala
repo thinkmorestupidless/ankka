@@ -4,6 +4,9 @@ import nakka.core.*
 import nakka.sdk.ComponentClient
 
 import scala.concurrent.duration.FiniteDuration
+import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.stream.scaladsl.Sink
+
 import scala.concurrent.Await
 import scala.util.control.NonFatal
 
@@ -59,6 +62,143 @@ private[agent] final class AgentLoop(
       // rejected interaction leaves no trace in the conversation.
       if effect.memoryProvider.write then writeHistory(effect, userText, outcome)
       decoded
+
+  /**
+   * Runs the interaction, pushing text to `emit` as it is generated.
+   *
+   * The same loop as `run`, differing only in that each turn is streamed. Tool rounds
+   * stream too — a model's "let me look that up" preamble is output worth showing.
+   *
+   * `emit` may block (it does, to apply backpressure), which is fine: this runs on a
+   * virtual thread.
+   */
+  def runStreaming(
+      effect: AgentStreamEffect,
+      emit: String => Unit
+  )(using system: ActorSystem[?]): Either[CommandError, Unit] =
+    val described = effect.effect
+    described.failure match
+      case Some(rejection) => Left(rejection)
+      case None            => executeStreaming(described, emit)
+
+  private def executeStreaming(
+      effect: AgentEffect[String],
+      emit: String => Unit
+  )(using system: ActorSystem[?]): Either[CommandError, Unit] =
+    val userText = effect.user.getOrElse("")
+
+    for
+      provider <- effect.chosenModel.toRight(
+        CommandError(
+          s"agent '$agentId' has no model: pass one with effects.model(...), or " +
+            "configure a default provider on the AgentRuntime",
+          ErrorCode.Internal
+        )
+      )
+      _ <- checkGuardrails(effect.guards, userText, input = true)
+
+      history = if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
+      prompt  = buildPrompt(effect, history, userText)
+
+      outcome <- streamToolLoop(provider, effect, prompt, emit)
+
+      // Output guardrails run after the fact when streaming: tokens have already been
+      // delivered, so a rejection here stops memory being written but cannot un-send
+      // what the reader saw. Use input guardrails for anything that must never be shown.
+      _ <- checkGuardrails(effect.guards, outcome.response.text, input = false)
+    yield if effect.memoryProvider.write then writeHistory(effect, userText, outcome)
+
+  private def streamToolLoop(
+      provider: ModelProvider,
+      effect: AgentEffect[?],
+      prompt: Vector[ChatMessage],
+      emit: String => Unit
+  )(using system: ActorSystem[?]): Either[CommandError, Outcome] =
+    val tools    = effect.functionTools.map(tool => tool.name -> tool).toMap
+    var messages = prompt
+    var produced = Vector.empty[ChatMessage]
+    var usage    = TokenUsage.zero
+    var steps    = 0
+
+    while true do
+      val request = ModelRequest(
+        settings = ModelSettings(provider.modelName),
+        systemMessage = effect.system,
+        messages = messages,
+        tools = effect.functionTools.map(_.spec)
+      )
+
+      val completed =
+        try
+          Await.result(
+            provider
+              .stream(request)
+              .runWith(
+                Sink.fold(Option.empty[ModelResponse]) { (last, chunk) =>
+                  chunk match
+                    case ModelChunk.TextDelta(text)      => emit(text); last
+                    case ModelChunk.Completed(response)  => Some(response)
+                    case ModelChunk.Failed(error)        => throw ModelCallFailed(provider.name, error)
+                    case ModelChunk.ToolCallStarted(_)   => last
+                }
+              ),
+            modelTimeout
+          )
+        catch
+          case failure: ModelCallFailed =>
+            return Left(CommandError(failure.getMessage, ErrorCode.Unavailable))
+          case _: java.util.concurrent.TimeoutException =>
+            return Left(
+              CommandError(s"${provider.name} did not respond within $modelTimeout", ErrorCode.Timeout)
+            )
+          case NonFatal(failure) =>
+            return Left(
+              CommandError(
+                s"${provider.name} stream failed: ${Option(failure.getMessage).getOrElse(failure.toString)}",
+                ErrorCode.Unavailable
+              )
+            )
+
+      // A stream that ends without a terminal chunk is a provider bug, not an answer.
+      if completed.isEmpty then
+        return Left(
+          CommandError(s"${provider.name} stream ended without completing", ErrorCode.Unavailable)
+        )
+
+      val response = completed.get
+      usage = usage + response.usage
+
+      if response.isRefusal then
+        return Left(
+          CommandError(
+            response.refusalReason.getOrElse(s"${provider.name} declined the request"),
+            ErrorCode.Forbidden
+          )
+        )
+
+      if !response.wantsTools then
+        return Right(Outcome(response, produced :+ ChatMessage.Assistant(response.text), usage))
+
+      steps += 1
+      if steps > descriptor.maxToolCallSteps then
+        return Left(
+          CommandError(
+            s"agent '$agentId' exceeded ${descriptor.maxToolCallSteps} tool-call steps " +
+              "without producing an answer",
+            ErrorCode.Internal
+          )
+        )
+
+      val results  = response.toolCalls.map(call => runTool(tools, call))
+      val newTurns = Vector(
+        ChatMessage.Assistant(response.text, response.toolCalls),
+        ChatMessage.ToolResults(results)
+      )
+      messages = messages ++ newTurns
+      produced = produced ++ newTurns
+    end while
+
+    Left(CommandError("unreachable", ErrorCode.Internal))
 
   // ── Prompt assembly ───────────────────────────────────────────────────────
 

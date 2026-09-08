@@ -1,6 +1,9 @@
 package nakka.agent
 
 import java.util.concurrent.{ConcurrentLinkedQueue, CopyOnWriteArrayList}
+import org.apache.pekko.NotUsed
+import org.apache.pekko.stream.scaladsl.Source
+
 import scala.concurrent.Future
 import scala.jdk.CollectionConverters.*
 
@@ -106,6 +109,33 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
                   "Add expectText/expectToolCall, or a whenUserSays rule."
               )
             )
+
+  /**
+   * Streams the scripted reply word by word.
+   *
+   * The default `stream` implementation would emit the whole reply as one chunk, which
+   * cannot distinguish a genuinely streaming consumer from one that just waits. Splitting
+   * makes ordering and incremental delivery observable in a test.
+   */
+  override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
+    Source
+      .future(complete(request))
+      .flatMapConcat { response =>
+        val deltas =
+          if response.text.isEmpty then Vector.empty
+          else
+            response.text
+              .split(" ")
+              .toVector
+              .zipWithIndex
+              .map((word, index) => ModelChunk.TextDelta(if index == 0 then word else s" $word"))
+
+        Source(
+          deltas ++
+            response.toolCalls.map(ModelChunk.ToolCallStarted(_)) ++
+            Vector(ModelChunk.Completed(response))
+        )
+      }
 
   private def latestUserText(request: ModelRequest): Option[String] =
     request.messages.reverseIterator

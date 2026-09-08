@@ -47,6 +47,22 @@ final class WeatherAgent(context: AgentContext) extends Agent:
       .userMessage(question)
       .thenReplyAs[Forecast]
 
+  /** Streams the reply token by token, tools and all. */
+  def chat(question: String): StreamEffect =
+    effects
+      .systemMessage(WeatherAgent.SystemMessage)
+      .userMessage(question)
+      .tools(WeatherAgent.getWeather)
+      .thenStream()
+
+  /** Streams, but rejected up front — so the caller sees a failed stream, not a hang. */
+  def chatGuarded(question: String): StreamEffect =
+    effects
+      .systemMessage(WeatherAgent.SystemMessage)
+      .userMessage(question)
+      .guardrails(Guardrail.maxInputLength(20))
+      .thenStream()
+
   /** No memory: a one-shot classification should not be coloured by the conversation. */
   def classify(question: String): Effect[String] =
     effects
@@ -102,6 +118,8 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
 
   val whoAmI             = command("who-am-i")(_.whoAmI)
   val ask                = command("ask")(_.ask)
+  val chat               = stream("chat")(_.chat)
+  val chatGuarded        = stream("chat-guarded")(_.chatGuarded)
   val askStructured      = command("ask-structured")(_.askStructured)
   val classify           = command("classify")(_.classify)
   val guarded            = command("guarded")(_.guarded)

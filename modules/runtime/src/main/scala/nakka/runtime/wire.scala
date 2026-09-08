@@ -72,10 +72,46 @@ object EntityProtocol:
   /**
    * Extension point for nakka modules that host their own sharded component kinds.
    *
-   * `Command` stays sealed so the hosts in this module get exhaustivity checking, while
-   * `nakka-agent` — which cannot be a case in this file — can still add the self-messages
-   * its own host needs.
+   * Note the cost: because this sub-trait is not sealed, the compiler treats `Command` as
+   * open and stops reporting non-exhaustive matches over it. Every host must therefore
+   * handle unexpected commands explicitly — and for a streaming request that means
+   * *replying*, since a caller waiting on a token stream would otherwise hang forever.
    */
+  /**
+   * Asks a component to stream its reply.
+   *
+   * Tokens are pushed to `tokens` rather than returned, because a reply that arrives over
+   * time cannot be a return value. An `ActorRef` is used rather than a stream `SourceRef`
+   * for a concrete reason: Pekko binds its stream-ref serializer to the ref classes
+   * themselves, so a `SourceRef` nested inside a message would not serialise — while
+   * `ActorRef` has first-class support and therefore works across nodes.
+   */
+  final case class InvokeStream(
+      method: String,
+      payload: Array[Byte],
+      metadata: Vector[MetaEntry],
+      tokens: ActorRef[StreamToken]
+  ) extends Command
+      with NakkaSerializable
+
+  /** One element of a streamed reply. */
+  sealed trait StreamToken extends NakkaSerializable
+
+  final case class Token(text: String) extends StreamToken
+
+  case object StreamCompleted extends StreamToken
+
+  final case class StreamFailed(message: String, code: String) extends StreamToken:
+    def toCommandError: CommandError =
+      CommandError(
+        message,
+        ErrorCode.values.find(_.toString == code).getOrElse(ErrorCode.Internal)
+      )
+
+  object StreamFailed:
+    def apply(error: CommandError): StreamFailed =
+      StreamFailed(error.message, error.code.toString)
+
   trait ModuleCommand extends Command
 
   sealed trait Reply extends NakkaSerializable

@@ -162,6 +162,44 @@ it, and neither turn acknowledges the other.
 A failing tool comes back to the model as an *error tool result*, not an exception —
 which is what lets it recover, usually by fixing its arguments.
 
+**Streaming.** A handler declared with `stream` returns tokens as they are generated:
+
+```scala
+final class WeatherAgent extends Agent:
+  def chat(question: String): StreamEffect =
+    effects
+      .systemMessage("You are a concise weather assistant.")
+      .userMessage(question)
+      .tools(WeatherAgent.getWeather)
+      .thenStream()
+```
+
+```scala
+componentClient.forAgent(sessionId).stream(WeatherAgent.chat)(question)  // Source[String, NotUsed]
+```
+
+Every turn streams, not just the last: a model that says "let me check the weather"
+before calling a tool is producing real output, and withholding it until the tool
+returns is what makes a streaming UI feel broken.
+
+Tokens are pushed to an `ActorRef` carried inside the request rather than returned, so
+they flow from wherever the session is sharded to wherever the call was made — Pekko
+serializes `ActorRef` natively, which a stream `SourceRef` nested in a message would not.
+The session stays held for the stream's duration, so one conversation cannot interleave
+two streams.
+
+Serve it over HTTP with `sse`:
+
+```scala
+sse("/{session}") { (session: String) =>
+  client.forAgent(SessionId(session)).stream(WeatherAgent.chat)(question)
+}
+```
+
+Each event carries a JSON-encoded string. Raw text in an SSE `data:` field loses a
+leading space to the protocol's own rules and a newline inside a token splits the frame
+— both silent corruptions that only appear on text a model happened to generate.
+
 ## Testing
 
 Two levels, both real.
@@ -187,7 +225,7 @@ loudly* when the script runs out — a test whose model quietly returned a defau
 longer testing what it says.
 
 ```bash
-sbt test          # 177 tests, ~70s, no API key needed
+sbt test          # 197 tests, ~75s, no API key needed
 ```
 
 ## Deliberate divergences from Akka
@@ -198,6 +236,7 @@ sbt test          # 177 tests, ~70s, no API key needed
 | `Entity::method` lambda inspection | typed companion handles | No reflection; call sites checked by the compiler |
 | `@FunctionTool` + reflection | `FunctionTool` builder | Schema and decoder come from one instance and cannot disagree |
 | Bespoke SQL-like view query language | real SQL over a JSON row column | No parser to build, strictly more expressive, indexes are explicit |
+| Route order decides dispatch | literal segments outrank parameters | `/users/me` should not depend on being declared before `/users/{id}` |
 | ACL by absent annotation | abstract `def acl` | An unstated ACL is a decision nobody made |
 | `budget_tokens` / `temperature` | `effort`, adaptive thinking | Current Claude models reject both outright |
 
@@ -220,8 +259,6 @@ Dependencies run strictly `core → sdk → runtime → {http, agent} → testki
 
 Honest gaps, not oversights:
 
-- **Streaming responses.** `ModelProvider.stream` has a working default that emits a
-  completed response; no real SSE token streaming, and no `StreamEffect` on agents.
 - **Broker topics.** Consumers publish through a `MessagePublisher` SPI with a tested
   in-memory implementation. No Kafka publisher ships, and topic-*sourced* components are
   rejected at startup rather than silently never delivering.
@@ -232,6 +269,10 @@ Honest gaps, not oversights:
   runtime, not Akka's hosted platform.
 - **Multi-table views**, view rebuild-on-deploy, and Akka's `@SnapshotHandler`
   projection optimisation.
+- **Streaming caveats.** Output guardrails on a streaming handler run *after* the tokens
+  have been delivered, so they can stop memory being written but cannot un-send what the
+  reader saw — use input guardrails for anything that must never be shown. Only agents
+  stream; entities and workflows reject a streaming request rather than ignoring it.
 
 ## Licence
 

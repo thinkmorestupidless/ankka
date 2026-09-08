@@ -2,8 +2,13 @@ package nakka.agent
 
 import nakka.core.*
 import nakka.runtime.{EntityProtocol, NakkaExecutors, NakkaService, RuntimeExtension}
+import org.apache.pekko.NotUsed
 import nakka.sdk.{ComponentClient, HandlerBinding}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
+import org.apache.pekko.actor.typed.ActorSystem
+import org.apache.pekko.stream.OverflowStrategy
+import org.apache.pekko.stream.scaladsl.Source
+import org.apache.pekko.stream.typed.scaladsl.ActorSource
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
 
@@ -98,6 +103,9 @@ private[agent] object AgentHost:
       reply: EntityProtocol.Reply
   ) extends EntityProtocol.ModuleCommand
 
+  /** Signals that a stream finished, so the session can accept the next request. */
+  private case object StreamFinished extends EntityProtocol.ModuleCommand
+
   private val StashCapacity = 32
 
   def behavior[A <: Agent](
@@ -124,6 +132,22 @@ private[agent] object AgentHost:
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {
+          case request: EntityProtocol.InvokeStream =>
+            descriptor.streamHandler(MethodName(request.method)) match
+              case None =>
+                request.tokens ! EntityProtocol.StreamFailed(
+                  CommandError(
+                    s"no streaming handler '${request.method}' on agent " +
+                      s"'${descriptor.componentId}'",
+                    ErrorCode.NotFound
+                  )
+                )
+                Behaviors.same
+
+              case Some(handle) =>
+                startStream(ctx, descriptor, context, loop, handle, request)
+                busy
+
           case invoke: EntityProtocol.Invoke =>
             descriptor.handler(MethodName(invoke.method)) match
               case None =>
@@ -143,6 +167,18 @@ private[agent] object AgentHost:
         }
 
         def busy: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {
+          case request: EntityProtocol.InvokeStream =>
+            // Streams hold the session for their duration, which is the point: two
+            // overlapping streams on one conversation would interleave their turns.
+            request.tokens ! EntityProtocol.StreamFailed(
+              CommandError(
+                s"session '$sessionId' is busy; use a different session id to stream " +
+                  "concurrently",
+                ErrorCode.Unavailable
+              )
+            )
+            Behaviors.same
+
           case invoke: EntityProtocol.Invoke =>
             if stash.isFull then
               invoke.replyTo ! EntityProtocol.Rejected(
@@ -159,6 +195,9 @@ private[agent] object AgentHost:
 
           case Finished(replyTo, reply) =>
             replyTo ! reply
+            stash.unstashAll(idle)
+
+          case StreamFinished =>
             stash.unstashAll(idle)
 
           case _ => Behaviors.same
@@ -207,6 +246,52 @@ private[agent] object AgentHost:
         )
     }
 
+  /**
+   * Runs a streaming handler, pushing tokens to the caller's ref.
+   *
+   * The session stays held until the stream finishes — `Finished` is only sent at the
+   * end — so a conversation cannot be interleaved mid-stream.
+   */
+  private def startStream[A <: Agent](
+      ctx: ActorContext[EntityProtocol.Command],
+      descriptor: AgentDescriptor[A],
+      context: AgentContext,
+      loop: AgentLoop,
+      handle: StreamHandle[A, ?],
+      request: EntityProtocol.InvokeStream
+  ): Unit =
+    given ActorSystem[?] = ctx.system
+
+    val agent = descriptor.create(context)
+    agent._setContext(Some(context))
+
+    val execution = Future {
+      val effect =
+        try
+          handle
+            .asInstanceOf[StreamHandle[A, Any]]
+            .decodeAndInvoke(agent, request.payload)
+        finally agent._setContext(None)
+
+      loop.runStreaming(effect, text => request.tokens ! EntityProtocol.Token(text)) match
+        case Right(())       => request.tokens ! EntityProtocol.StreamCompleted
+        case Left(rejection) => request.tokens ! EntityProtocol.StreamFailed(rejection)
+    }(using NakkaExecutors.virtual)
+
+    ctx.pipeToSelf(execution) {
+      case Success(_) => StreamFinished
+      case Failure(failure) =>
+        // The loop itself threw rather than returning a rejection; the caller is waiting
+        // on the token stream, so it has to be told.
+        request.tokens ! EntityProtocol.StreamFailed(
+          CommandError(
+            Option(failure.getMessage).getOrElse(failure.toString),
+            ErrorCode.Internal
+          )
+        )
+        StreamFinished
+    }
+
 /** Calls to agents, addressed by session. */
 final class AgentCalls private[agent] (
     transport: nakka.sdk.CallTransport,
@@ -221,6 +306,38 @@ final class AgentCalls private[agent] (
       handle: nakka.sdk.NoArgHandle[A, O]
   ): nakka.sdk.NoArgInvocation[O] =
     nakka.sdk.NoArgInvocation(transport, EntityId(sessionId), handle)
+
+  /**
+   * Streams a handler's reply.
+   *
+   * The `Source` is materialised by the caller and its actor ref sent to the agent, so
+   * tokens flow directly from wherever the session is sharded to wherever this was
+   * called. Nothing buffers the whole reply.
+   */
+  def stream[A <: Agent, I](handle: StreamHandle[A, I])(input: I): Source[String, NotUsed] =
+    ActorSource
+      .actorRef[EntityProtocol.StreamToken](
+        completionMatcher = { case EntityProtocol.StreamCompleted => () },
+        failureMatcher = { case failed: EntityProtocol.StreamFailed => failed.toCommandError },
+        // Tokens are small and the consumer is usually a socket. Failing on overflow
+        // rather than dropping: a silently truncated answer is worse than an error.
+        bufferSize = 1024,
+        overflowStrategy = OverflowStrategy.fail
+      )
+      .mapMaterializedValue { tokens =>
+        transport.tell(
+          handle.componentId,
+          EntityId(sessionId),
+          EntityProtocol.InvokeStream(
+            handle.name,
+            handle.inputSerializer.toBytes(input),
+            Vector.empty,
+            tokens
+          )
+        )
+        NotUsed
+      }
+      .collect { case EntityProtocol.Token(text) => text }
 
 /**
  * Adds `forAgent` to `ComponentClient`.

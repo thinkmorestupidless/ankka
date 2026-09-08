@@ -112,10 +112,21 @@ private[nakka] object EventSourcedEntityHost:
             try interpret(binding, entity, invoke)
             finally entity._setContext(None)
 
+      case request: EntityProtocol.InvokeStream =>
+        // Entities have no streaming surface. Reply rather than drop it, so a caller
+        // waiting on the token stream fails fast instead of hanging.
+        request.tokens ! EntityProtocol.StreamFailed(
+          CommandError(
+            s"entity '${descriptor.componentId}' does not support streaming",
+            ErrorCode.BadRequest
+          )
+        )
+        PekkoEffect.noReply
+
       case _ =>
         // Entities and workflows share one command protocol so the transport needs only
         // one sharding key type. The workflow engine's internal commands are self-sent,
-        // so an entity can never actually receive one — but the match must be total.
+        // so an entity can never actually receive one.
         PekkoEffect.unhandled.thenNoReply()
 
   /**

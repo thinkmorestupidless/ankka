@@ -6,9 +6,13 @@ import nakka.sdk.ComponentClient
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.model.*
+import org.apache.pekko.http.scaladsl.model.sse.ServerSentEvent
+import org.apache.pekko.http.scaladsl.marshalling.sse.EventStreamMarshalling.*
+import org.apache.pekko.http.scaladsl.marshalling.Marshal
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.math.Ordering.Implicits.seqOrdering
 import scala.util.control.NonFatal
 
 /**
@@ -47,6 +51,9 @@ final class HttpServer private (
     endpoints.foreach { endpoint =>
       endpoint.routes.foreach { route =>
         system.log.info("route {} {}{}", route.method, endpoint.prefix, route.template.render)
+      }
+      endpoint.streamRoutes.foreach { route =>
+        system.log.info("route {} {}{} (SSE)", route.method, endpoint.prefix, route.template.render)
       }
       if endpoint.acl == Acl.DenyAll then
         system.log.warn(
@@ -90,7 +97,10 @@ final class HttpServer private (
     }
 
     endpoints.foreach { endpoint =>
-      endpoint.routes.groupBy(r => (r.method, r.template.render)).foreach { (key, duplicated) =>
+      val declared =
+        endpoint.routes.map(r => (r.method, r.template.render)) ++
+          endpoint.streamRoutes.map(r => (r.method, r.template.render))
+      declared.groupBy(identity).foreach { (key, duplicated) =>
         if duplicated.sizeIs > 1 then
           problems += s"'${endpoint.prefix}' declares ${key._1} ${key._2} ${duplicated.size} times"
       }
@@ -116,6 +126,14 @@ object HttpServer:
 
 /** Matches requests to routes and turns handler outcomes into responses. */
 private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteDuration):
+
+  // Sorted once at startup: most specific template first, so a literal segment is never
+  // shadowed by a parameter that happened to be declared earlier.
+  private val routesByEndpoint: Map[String, Vector[Route]] =
+    endpoints.map(e => e.prefix -> e.routes.sortBy(_.template.specificity)).toMap
+
+  private val streamRoutesByEndpoint: Map[String, Vector[StreamRoute]] =
+    endpoints.map(e => e.prefix -> e.streamRoutes.sortBy(_.template.specificity)).toMap
 
   private val HealthPath = Vector("_nakka", "health")
 
@@ -156,7 +174,15 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
   ): Future[HttpResponse] =
     val method = request.method.value
 
-    val matched = endpoint.routes.iterator
+    val streamMatched = streamRoutesByEndpoint(endpoint.prefix).iterator
+      .map(route => route -> route.template.matches(remaining))
+      .collectFirst { case (route, Some(args)) if route.method == method => route -> args }
+
+    streamMatched match
+      case Some((route, args)) => return dispatchStream(route, request, args)
+      case None                => ()
+
+    val matched = routesByEndpoint(endpoint.prefix).iterator
       .map(route => route -> route.template.matches(remaining))
       .collectFirst { case (route, Some(args)) if route.method == method => route -> args }
 
@@ -164,7 +190,8 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       case None =>
         // Distinguish "wrong verb" from "no such path" — a 404 for a POST to a GET-only
         // route sends the caller looking for a routing bug that is not there.
-        val pathExists = endpoint.routes.exists(_.template.matches(remaining).isDefined)
+        val pathExists = endpoint.routes.exists(_.template.matches(remaining).isDefined) ||
+          endpoint.streamRoutes.exists(_.template.matches(remaining).isDefined)
         val failure =
           if pathExists then HttpProblem(405, s"$method not allowed on this path")
           else HttpProblem.notFound(s"no route for $method ${request.uri.path}")
@@ -202,6 +229,39 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
             system.log.error(s"unhandled failure in ${route.describe}", failure)
             problem(HttpProblem(500, "internal error"))
         }
+
+  /**
+   * Serves a route's `Source` as server-sent events.
+   *
+   * The handler is invoked on a virtual thread like any other, but only to *build* the
+   * stream; the elements themselves are pulled by pekko-http as the client reads, so
+   * nothing buffers the whole reply.
+   */
+  private def dispatchStream(route: StreamRoute, request: HttpRequest, args: Vector[String])(using
+      system: ActorSystem[?],
+      ec: ExecutionContext
+  ): Future[HttpResponse] =
+    val bodyBytes =
+      if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
+      else
+        request.discardEntityBytes()
+        Future.successful(Array.emptyByteArray)
+
+    bodyBytes
+      .flatMap { bytes =>
+        Future(route.run(args, bytes))(using NakkaExecutors.virtual)
+      }
+      .flatMap { source =>
+        // JSON-encoded per event: see JsonText for why raw text is not safe here.
+        Marshal(source.map(text => ServerSentEvent(JsonText.encode(text)))).to[HttpResponse]
+      }
+      .recover {
+        case failure: HttpProblem  => problem(failure)
+        case failure: CommandError => problem(HttpProblem.from(failure))
+        case NonFatal(failure) =>
+          system.log.error(s"unhandled failure building ${route.describe}", failure)
+          problem(HttpProblem(500, "internal error"))
+      }
 
   private def text(status: Int, body: String): HttpResponse =
     HttpResponse(StatusCode.int2StatusCode(status), entity = HttpEntity(body))

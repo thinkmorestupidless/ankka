@@ -113,7 +113,8 @@ lazy val testkit = project
       pekkoStreamTestkit,
       pekkoHttpTestkit,
       pekkoPersistenceTestkit,
-      testcontainersPg
+      testcontainersPg,
+      testcontainersKafka
     )
   )
 

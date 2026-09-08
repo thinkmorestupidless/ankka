@@ -31,14 +31,24 @@ import scala.concurrent.{Await, ExecutionContext, Future}
  * — see `DurableStateSourceProvider` for why that is a property of the source rather
  * than a shortcut.
  */
-final class ProjectionRuntime private (publisher: Option[MessagePublisher])
-    extends RuntimeExtension:
+final class ProjectionRuntime private (
+    publisherFactory: Option[ActorSystem[?] => MessagePublisher],
+    subscriberFactory: Option[ActorSystem[?] => MessageSubscriber]
+) extends RuntimeExtension:
+
+  // Factories rather than instances: a Kafka client needs an ActorSystem, which does not
+  // exist until the service starts. Resolved once, in `start`.
+  @volatile private var publisher: Option[MessagePublisher]   = None
+  @volatile private var subscriber: Option[MessageSubscriber] = None
 
   def name: String = "projections"
 
   def start(service: NakkaService): Unit =
     given system: ActorSystem[?] = service.system
     val client                   = service.componentClient
+
+    publisher = publisherFactory.map(_(system))
+    subscriber = subscriberFactory.map(_(system))
 
     val views     = service.registry.components.collect { case v: ViewDescriptor[?, ?, ?] => v }
     val consumers = service.registry.components.collect { case c: ConsumerDescriptor[?, ?, ?] => c }
@@ -76,9 +86,9 @@ final class ProjectionRuntime private (publisher: Option[MessagePublisher])
 
     (views.map(v => v.componentId -> v.source) ++ consumers.map(c => c.componentId -> c.source))
       .foreach {
-        case (id, _: ChangeSource.Topic[?]) =>
-          problems += s"'$id' consumes a broker topic, which this runtime does not yet " +
-            "support (no MessageSubscriber is bundled)"
+        case (id, source: ChangeSource.Topic[?]) if subscriber.isEmpty =>
+          problems += s"'$id' consumes topic '${source.topic}' but no MessageSubscriber " +
+            "was configured; pass one to ProjectionRuntime.withBroker"
         case _ => ()
       }
 
@@ -128,8 +138,12 @@ final class ProjectionRuntime private (publisher: Option[MessagePublisher])
           )
         }
 
-      case ChangeSource.Topic(_, _) =>
-        () // rejected in rejectUnsupported
+      case ChangeSource.Topic(topic, _) =>
+        subscriber.foreach { broker =>
+          val handler = ViewTopicHandler(typed, Database(), client)
+          broker.subscribe(topic, processName, handler.process)
+          system.log.info("view '{}' consuming topic '{}'", typed.componentId, topic)
+        }
 
   // ── Consumers ─────────────────────────────────────────────────────────────
 
@@ -164,8 +178,12 @@ final class ProjectionRuntime private (publisher: Option[MessagePublisher])
           )
         }
 
-      case ChangeSource.Topic(_, _) =>
-        ()
+      case ChangeSource.Topic(topic, _) =>
+        subscriber.foreach { broker =>
+          val handler = ConsumerTopicHandler(typed, publisher, client)
+          broker.subscribe(topic, processName, handler.process)
+          system.log.info("consumer '{}' consuming topic '{}'", typed.componentId, topic)
+        }
 
   // ── Plumbing ──────────────────────────────────────────────────────────────
 
@@ -222,13 +240,38 @@ final class ProjectionRuntime private (publisher: Option[MessagePublisher])
       handler
     )
 
+  override def stop(): Unit = subscriber.foreach(_.stop())
+
 object ProjectionRuntime:
 
-  /** Runs views and consumers. Consumers that publish need `withPublisher`. */
-  def apply(): ProjectionRuntime = new ProjectionRuntime(None)
+  /** Runs views and consumers over entity sources only. */
+  def apply(): ProjectionRuntime = new ProjectionRuntime(None, None)
 
+  /** Adds a publish target for consumers that produce. */
   def withPublisher(publisher: MessagePublisher): ProjectionRuntime =
-    new ProjectionRuntime(Some(publisher))
+    new ProjectionRuntime(Some(_ => publisher), None)
+
+  /**
+   * Adds both directions, enabling topic-sourced views and consumers.
+   *
+   * `InMemoryBroker` implements both, so the whole topic path can be exercised without a
+   * broker running.
+   */
+  def withBroker(publisher: MessagePublisher, subscriber: MessageSubscriber): ProjectionRuntime =
+    new ProjectionRuntime(Some(_ => publisher), Some(_ => subscriber))
+
+  /**
+   * Publishes to and consumes from Kafka.
+   *
+   * Offsets are committed to Kafka and partitions assigned by consumer groups, so
+   * scaling out needs no configuration here — but topic sources are at-least-once and
+   * cannot rebuild from history, because a broker's retention is not an event journal.
+   */
+  def withKafka(bootstrapServers: String): ProjectionRuntime =
+    new ProjectionRuntime(
+      Some(system => KafkaPublisher(bootstrapServers)(using system)),
+      Some(system => KafkaSubscriber(bootstrapServers)(using system))
+    )
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 

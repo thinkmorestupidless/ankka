@@ -60,7 +60,8 @@ object Dependencies {
   // ── Misc ─────────────────────────────────────────────────────────────────
   val logback        = "ch.qos.logback" % "logback-classic" % V.logback
   val munit          = "org.scalameta" %% "munit"           % V.munit
-  val testcontainersPg = "org.testcontainers" % "postgresql" % V.testcontainers
+  val testcontainersPg    = "org.testcontainers" % "postgresql" % V.testcontainers
+  val testcontainersKafka = "org.testcontainers" % "kafka"      % V.testcontainers
 
   /** Test-only deps every module gets. */
   val commonTest: Seq[ModuleID] = Seq(

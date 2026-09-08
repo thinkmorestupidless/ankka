@@ -60,7 +60,7 @@ sbt "multiAgentPlanner/run"
 | **Event Sourced Entity** | State derived by replaying persisted events | `EventSourcedBehavior` in cluster sharding |
 | **Key Value Entity** | Latest value only, no history | `DurableStateBehavior` in cluster sharding |
 | **View** | Queryable projection of a source's changes | Pekko Projection → Postgres row table |
-| **Consumer** | Reacts to changes, optionally publishes onward | Pekko Projection, at-least-once |
+| **Consumer** | Reacts to changes, optionally publishes onward | Pekko Projection, or a Kafka consumer group |
 | **Workflow** | Durable multi-step process | `EventSourcedBehavior` whose events *are* step transitions |
 | **Timer** | A call the runtime makes later | Postgres table + cluster-singleton sweeper |
 | **Agent** | Carries out a task by talking to a model | Sharded per **session id**, serialized per conversation |
@@ -200,6 +200,44 @@ Each event carries a JSON-encoded string. Raw text in an SSE `data:` field loses
 leading space to the protocol's own rules and a newline inside a token splits the frame
 — both silent corruptions that only appear on text a model happened to generate.
 
+## Broker topics
+
+Views and consumers can read from a topic as well as from an entity, and a consumer can
+publish onward:
+
+```scala
+object StockLevels
+    extends View.Companion[StockLevelsView, StockEvent, StockRow](
+      componentId = ComponentId("stock-levels"),
+      source = ChangeSource.fromTopic("stock-events", Codecs.serializer[StockEvent]("stock-event")),
+      rowSerializer = Codecs.serializer[StockRow]("stock-row")
+    )
+```
+
+```scala
+Nakka.service
+  .register(StockLevels.descriptor)
+  .withExtension(ProjectionRuntime.withKafka("localhost:9092"))
+  .start()
+```
+
+CloudEvents attributes travel as Kafka headers rather than wrapping the payload, so a
+consumer in another language reads a plain JSON body with metadata beside it.
+`ce-subject` doubles as the record key, which is what preserves per-entity ordering:
+Kafka guarantees order within a partition, and keying by subject puts every message about
+one entity on the same partition.
+
+Offsets commit to Kafka and partitions are assigned by consumer groups, rather than going
+through nakka's projection offset store. Rebalancing across nodes then needs no code —
+at the cost of topic sources being at-least-once and unable to rebuild from history, which
+is all a topic can offer anyway, since a broker's retention is not an event journal.
+
+`InMemoryBroker` implements both halves of the SPI, so the whole topic path — headers,
+subject keying, decoding, view writes, consumer dispatch, republishing — is testable with
+no broker running. `KafkaPublisher` and `KafkaSubscriber` are the real pair, and a topic
+component started without either is rejected at startup rather than silently never
+delivering.
+
 ## Testing
 
 Two levels, both real.
@@ -225,8 +263,11 @@ loudly* when the script runs out — a test whose model quietly returned a defau
 longer testing what it says.
 
 ```bash
-sbt test          # 197 tests, ~75s, no API key needed
+sbt test          # 210 tests, ~90s, no API key needed
 ```
+
+Integration suites start their own Postgres, and the Kafka suite its own broker, via
+testcontainers. Docker is required; no API key is.
 
 ## Deliberate divergences from Akka
 
@@ -259,9 +300,6 @@ Dependencies run strictly `core → sdk → runtime → {http, agent} → testki
 
 Honest gaps, not oversights:
 
-- **Broker topics.** Consumers publish through a `MessagePublisher` SPI with a tested
-  in-memory implementation. No Kafka publisher ships, and topic-*sourced* components are
-  rejected at startup rather than silently never delivering.
 - **HTTP query parameters and headers in handlers.** ACL predicates see them; handlers
   do not.
 - **Multi-region.** Single-region only. No replication filters, no `origin` routing.
@@ -269,6 +307,11 @@ Honest gaps, not oversights:
   runtime, not Akka's hosted platform.
 - **Multi-table views**, view rebuild-on-deploy, and Akka's `@SnapshotHandler`
   projection optimisation.
+- **Topic-source caveats.** At-least-once, so a topic-sourced component must tolerate
+  duplicates, and it cannot rebuild from history — it sees only what was published after
+  it started. A message with no `ce-subject` is skipped by a view rather than retried,
+  since there is no row it could key off. Only Kafka ships; other brokers implement the
+  two-method SPI.
 - **Streaming caveats.** Output guardrails on a streaming handler run *after* the tokens
   have been delivered, so they can stop memory being written but cannot un-send what the
   reader saw — use input guardrails for anything that must never be shown. Only agents

@@ -3,9 +3,8 @@ package nakka.core.effect
 /**
  * What a view's table updater should do with the row for the incoming change.
  *
- * `DeleteRow` removes the row outright; to keep a tombstone visible to queries, update
- * the row with a deleted flag instead — the distinction the `@DeleteHandler` pattern
- * exists to express.
+ * `DeleteRow` removes the row outright; to keep a tombstone visible to queries, update the row with
+ * a deleted flag instead — the distinction the `@DeleteHandler` pattern exists to express.
  */
 sealed trait ViewEffect[+Row]
 

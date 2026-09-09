@@ -23,7 +23,8 @@ class FunctionToolSuite extends munit.FunSuite:
   }
 
   test("optional parameters are absent from required") {
-    val required = weather.spec.inputSchema("required")
+    val required = weather.spec
+      .inputSchema("required")
       .flatMap(_.asArray)
       .map(_.flatMap(_.asString))
       .getOrElse(fail("no required list"))
@@ -76,7 +77,11 @@ class FunctionToolSuite extends munit.FunSuite:
       .handle((word, times) => word * times)
 
     assertEquals(
-      counter.spec.inputSchema("properties").flatMap(_("times")).flatMap(_("type")).flatMap(_.asString),
+      counter.spec
+        .inputSchema("properties")
+        .flatMap(_("times"))
+        .flatMap(_("type"))
+        .flatMap(_.asString),
       Some("integer")
     )
     assertEquals(

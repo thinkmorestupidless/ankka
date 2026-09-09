@@ -42,9 +42,13 @@ and `Test / parallelExecution := false` in `build.sbt`). Overlapping suites each
 their own container and contend: one suite measured 147s in parallel versus 6s alone.
 Do not "optimise" this back.
 
-**scalafmt is configured but the tree is not formatted to it** — `sbt scalafmtCheckAll`
-currently fails on ~113 files. Running `scalafmtAll` would rewrite essentially the whole
-codebase. Decide deliberately before doing that; don't run it as incidental cleanup.
+```bash
+sbt scalafmtAll scalafmtSbt        # format; scalafmtCheckAll verifies
+```
+
+`SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites
+`private[nakka] final` to `final private[nakka]`, which is scalafmt's canonical order but
+reads worse, and it churned 99 declarations for no benefit.
 
 ## Architecture
 

@@ -12,9 +12,9 @@ import scala.jdk.CollectionConverters.*
 /**
  * The real Kafka wire.
  *
- * `TopicSourceSuite` already covers dispatch, decoding and view writes over an in-memory
- * broker; what only a broker can verify is that CloudEvents attributes survive as Kafka
- * headers, that the subject becomes the record key, and that consumer groups deliver.
+ * `TopicSourceSuite` already covers dispatch, decoding and view writes over an in-memory broker;
+ * what only a broker can verify is that CloudEvents attributes survive as Kafka headers, that the
+ * subject becomes the record key, and that consumer groups deliver.
  *
  * Skipped unless Docker is available.
  */
@@ -24,9 +24,9 @@ class KafkaSuite extends munit.FunSuite:
 
   private val image = DockerImageName.parse("apache/kafka:3.8.0")
 
-  private var kafka: KafkaContainer   = null
-  private var testKit: NakkaTestKit   = null
-  private var bootstrap: String       = ""
+  private var kafka: KafkaContainer = null
+  private var testKit: NakkaTestKit = null
+  private var bootstrap: String     = ""
 
   private val eventSerializer = Codecs.serializer[StockEvent]("stock-event")
 

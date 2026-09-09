@@ -13,16 +13,16 @@ final case class CompactionSettings(
      * Compact once a session's text exceeds this.
      *
      * A character count, not a token count: nakka does not tokenise, and the ratio is
-     * model-specific. Treat it as a coarse ceiling well below the context window rather
-     * than a precise budget.
+     * model-specific. Treat it as a coarse ceiling well below the context window rather than a
+     * precise budget.
      */
     maxHistoryBytes: Int = 100_000,
 
     /**
      * Recent messages left verbatim.
      *
-     * The most recent exchanges are what the model needs in full; older ones are what a
-     * summary can stand in for.
+     * The most recent exchanges are what the model needs in full; older ones are what a summary can
+     * stand in for.
      */
     keepRecentMessages: Int = 10,
 
@@ -40,10 +40,10 @@ trait Summariser:
 /**
  * Summarises by asking a model.
  *
- * Calls the `ModelProvider` directly rather than going through an `Agent`. An agent
- * would need a session, and the only sensible session is the one being summarised — so
- * it would append its own turns to the history it is trying to shrink. Bypassing the
- * agent layer removes the problem rather than configuring around it.
+ * Calls the `ModelProvider` directly rather than going through an `Agent`. An agent would need a
+ * session, and the only sensible session is the one being summarised — so it would append its own
+ * turns to the history it is trying to shrink. Bypassing the agent layer removes the problem rather
+ * than configuring around it.
  */
 final class ModelSummariser(
     provider: ModelProvider,
@@ -92,9 +92,8 @@ object ModelSummariser:
 /**
  * Keeps sessions from outgrowing the context window.
  *
- * A consumer over session memory's own events, so compaction runs off the request path:
- * the turn that pushed a session over the limit is not the one that waits for a
- * summarisation call.
+ * A consumer over session memory's own events, so compaction runs off the request path: the turn
+ * that pushed a session over the limit is not the one that waits for a summarisation call.
  */
 final class SessionCompactor(
     context: ConsumerContext,
@@ -175,12 +174,12 @@ object SessionCompactor:
   /**
    * The registered form.
    *
-   * Built directly rather than through `Consumer.Companion` because the settings and
-   * summariser are chosen at wiring time, not declared statically — a companion object
-   * has nowhere to receive them.
+   * Built directly rather than through `Consumer.Companion` because the settings and summariser are
+   * chosen at wiring time, not declared statically — a companion object has nowhere to receive
+   * them.
    *
-   * `parallelism = 1`: compaction is infrequent maintenance, and one worker keeps a
-   * session's checks strictly ordered.
+   * `parallelism = 1`: compaction is infrequent maintenance, and one worker keeps a session's
+   * checks strictly ordered.
    */
   def descriptor(
       settings: CompactionSettings,

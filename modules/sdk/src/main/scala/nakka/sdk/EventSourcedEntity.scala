@@ -8,23 +8,22 @@ import scala.collection.mutable
 /**
  * An entity whose state is derived by replaying the events it has persisted.
  *
- * Cluster sharding guarantees a single instance per entity id across the whole cluster
- * and delivers one command at a time to it, which is what makes the mutable
- * `currentState` below safe — and what lets handlers be written as ordinary sequential
- * code with no locks and no concurrency reasoning.
+ * Cluster sharding guarantees a single instance per entity id across the whole cluster and delivers
+ * one command at a time to it, which is what makes the mutable `currentState` below safe — and what
+ * lets handlers be written as ordinary sequential code with no locks and no concurrency reasoning.
  *
  * State can only change by persisting an event. There is no `updateState`.
  */
 abstract class EventSourcedEntity[S, E]:
 
   /**
-   * Handler return types, so signatures read `def addItem(i: LineItem): Effect[Done]`
-   * rather than repeating the state and event types on every method.
+   * Handler return types, so signatures read `def addItem(i: LineItem): Effect[Done]` rather than
+   * repeating the state and event types on every method.
    */
   final type Effect[R]         = EventSourcedEffect[S, E, R]
   final type ReadOnlyEffect[R] = nakka.core.effect.ReadOnlyEffect[S, E, R]
 
-  private var stateOpt: Option[S]           = None
+  private var stateOpt: Option[S]                = None
   private var contextOpt: Option[CommandContext] = None
 
   /** State before any event has been persisted. Must never be null. */
@@ -33,9 +32,9 @@ abstract class EventSourcedEntity[S, E]:
   /**
    * Folds one event into the current state. The single place state changes.
    *
-   * Called on replay as well as on new events, so it must be pure: no I/O, no clock
-   * reads, no random values — anything else makes a recovered entity diverge from the
-   * one that wrote the journal.
+   * Called on replay as well as on new events, so it must be pure: no I/O, no clock reads, no
+   * random values — anything else makes a recovered entity diverge from the one that wrote the
+   * journal.
    */
   def applyEvent(event: E): S
 
@@ -56,7 +55,7 @@ abstract class EventSourcedEntity[S, E]:
   protected final val effects: EventSourcedEffects[S, E] = new EventSourcedEffects[S, E]()
 
   // ── Runtime hooks ─────────────────────────────────────────────────────────
-  private[nakka] def _setState(state: S): Unit                    = stateOpt = Some(state)
+  private[nakka] def _setState(state: S): Unit                      = stateOpt = Some(state)
   private[nakka] def _setContext(ctx: Option[CommandContext]): Unit = contextOpt = ctx
   private[nakka] def _applyEvent(state: S, event: E): S =
     _setState(state)
@@ -81,8 +80,8 @@ object EventSourcedEntity:
    *   val get      = query("get")(_.get)
    * }}}
    *
-   * `descriptor` is a `def`, not a `val`: a `val` in this base class would be
-   * initialised before the subclass's handler `val`s had run, and would see no handlers.
+   * `descriptor` is a `def`, not a `val`: a `val` in this base class would be initialised before
+   * the subclass's handler `val`s had run, and would see no handlers.
    */
   abstract class Companion[C <: EventSourcedEntity[S, E], S, E](
       val componentId: ComponentId,
@@ -93,10 +92,10 @@ object EventSourcedEntity:
     private val bindings = mutable.ListBuffer.empty[HandlerBinding[C]]
 
     /**
-     * The state and event serializers are exposed as givens because replying with state
-     * and persisting events are the two most common things a handler does — requiring
-     * the developer to redeclare instances that this companion already holds would be
-     * ceremony with no safety benefit.
+     * The state and event serializers are exposed as givens because replying with state and
+     * persisting events are the two most common things a handler does — requiring the developer to
+     * redeclare instances that this companion already holds would be ceremony with no safety
+     * benefit.
      */
     protected final given serializerForState: Serializer[S] = stateSerializer
     protected final given serializerForEvent: Serializer[E] = eventSerializer
@@ -131,9 +130,9 @@ object EventSourcedEntity:
     /**
      * Registers a read-only handler taking one argument.
      *
-     * The `ReadOnlyEffect` bound is the enforcement: a handler that persists cannot be
-     * registered as a query, so the runtime's "serve reads from any replica" decision
-     * rests on the type system rather than on a naming convention.
+     * The `ReadOnlyEffect` bound is the enforcement: a handler that persists cannot be registered
+     * as a query, so the runtime's "serve reads from any replica" decision rests on the type system
+     * rather than on a naming convention.
      */
     protected final def query[I, O](name: String)(
         f: C => I => ReadOnlyEffect[S, E, O]

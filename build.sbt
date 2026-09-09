@@ -6,10 +6,10 @@ ThisBuild / version       := "0.1.0-SNAPSHOT"
 ThisBuild / versionScheme := Some("early-semver")
 
 /**
- * Integration suites each start their own Postgres container and run real projections.
- * Letting several of those overlap does not make the build faster — measured at 147s for
- * a suite that takes 6s on its own, because the containers contend for Docker and the
- * connection pools contend for CPU. One test suite at a time.
+ * Integration suites each start their own Postgres container and run real projections. Letting
+ * several of those overlap does not make the build faster — measured at 147s for a suite that takes
+ * 6s on its own, because the containers contend for Docker and the connection pools contend for
+ * CPU. One test suite at a time.
  */
 Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
 
@@ -18,7 +18,8 @@ lazy val commonSettings = Seq(
     "-deprecation",
     "-feature",
     "-unchecked",
-    "-encoding", "UTF-8",
+    "-encoding",
+    "UTF-8",
     "-language:implicitConversions",
     "-Wunused:all",
     "-Wvalue-discard",
@@ -51,8 +52,8 @@ lazy val sdk = project
 
 /**
  * Interprets the effects the SDK describes: sharding hosts, persistence, ComponentClient,
- * projections. Depends on `sdk` because a runtime that cannot see a component's
- * descriptor has nothing to host.
+ * projections. Depends on `sdk` because a runtime that cannot see a component's descriptor has
+ * nothing to host.
  */
 lazy val runtime = project
   .in(file("modules/runtime"))

@@ -9,12 +9,12 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 /**
  * A durable, multi-step business process.
  *
- * The difference between a workflow and a plain method that calls three services is what
- * happens when the process is halfway through and the node dies. A workflow's current
- * step and its input are persisted, so it resumes; a method call is simply gone.
+ * The difference between a workflow and a plain method that calls three services is what happens
+ * when the process is halfway through and the node dies. A workflow's current step and its input
+ * are persisted, so it resumes; a method call is simply gone.
  *
- * Steps are ordinary sequential code. They may block on `ComponentClient.invoke`,
- * because they run on virtual threads.
+ * Steps are ordinary sequential code. They may block on `ComponentClient.invoke`, because they run
+ * on virtual threads.
  */
 abstract class Workflow[S]:
 
@@ -69,8 +69,8 @@ object WorkflowSettings:
   /**
    * No global timeout, 30s per step, no retries.
    *
-   * Retries default to zero rather than to some number because a step that is not
-   * idempotent must not be retried, and the runtime cannot know which yours are.
+   * Retries default to zero rather than to some number because a step that is not idempotent must
+   * not be retried, and the runtime cannot know which yours are.
    */
   val default: WorkflowSettings =
     WorkflowSettings(None, 30.seconds, Map.empty, RecoverStrategy.fail, Map.empty)
@@ -103,9 +103,9 @@ final case class RecoverStrategy(maxRetries: Int, failoverTo: Option[String]):
   /**
    * Where to go when the retries are used up.
    *
-   * The failover step takes no input on purpose: compensation needs the workflow's
-   * accumulated state, which it can read from `currentState`, and an input captured when
-   * the settings were built would be stale by the time it was needed.
+   * The failover step takes no input on purpose: compensation needs the workflow's accumulated
+   * state, which it can read from `currentState`, and an input captured when the settings were
+   * built would be stale by the time it was needed.
    */
   def failoverTo[C](step: NoInputStepHandle[C]): RecoverStrategy =
     copy(failoverTo = Some(step.name))

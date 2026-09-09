@@ -1,12 +1,12 @@
 package nakka.core
 
 /**
- * Ordered, multi-valued, case-insensitive string metadata attached to commands, replies,
- * events and broker messages.
+ * Ordered, multi-valued, case-insensitive string metadata attached to commands, replies, events and
+ * broker messages.
  *
- * Keys are compared case-insensitively (HTTP headers and CloudEvents attributes both
- * behave this way) but the original casing is preserved on the way out, so a header set
- * as `X-Request-Id` is not silently rewritten to `x-request-id`.
+ * Keys are compared case-insensitively (HTTP headers and CloudEvents attributes both behave this
+ * way) but the original casing is preserved on the way out, so a header set as `X-Request-Id` is
+ * not silently rewritten to `x-request-id`.
  */
 final class Metadata private (private val entries: Vector[(String, String)]):
 

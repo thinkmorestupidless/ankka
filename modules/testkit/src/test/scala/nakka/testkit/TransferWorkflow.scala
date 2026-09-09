@@ -13,10 +13,9 @@ final case class TransferState(transfer: Transfer, status: String)
 /**
  * Move money between two wallets, with compensation if the deposit fails.
  *
- * The interesting property is not the happy path — it is that a crash after the
- * withdrawal but before the deposit does not lose the money. The withdrawal is journalled
- * as a completed step, so recovery resumes at the deposit rather than starting over or
- * giving up.
+ * The interesting property is not the happy path — it is that a crash after the withdrawal but
+ * before the deposit does not lose the money. The withdrawal is journalled as a completed step, so
+ * recovery resumes at the deposit rather than starting over or giving up.
  */
 final class TransferWorkflow(context: WorkflowContext) extends Workflow[TransferState]:
 
@@ -59,9 +58,9 @@ final class TransferWorkflow(context: WorkflowContext) extends Workflow[Transfer
   /**
    * Puts the money back.
    *
-   * Takes no input and reads the transfer from `currentState`, which is why failover
-   * steps are input-free: what needs compensating is whatever the workflow has recorded,
-   * not whatever was known when the settings were written.
+   * Takes no input and reads the transfer from `currentState`, which is why failover steps are
+   * input-free: what needs compensating is whatever the workflow has recorded, not whatever was
+   * known when the settings were written.
    */
   def compensateStep: StepEffect =
     val transfer = currentState.transfer

@@ -19,20 +19,20 @@ final case class IncomingMessage(
 /**
  * Where a topic-sourced view or consumer gets its messages.
  *
- * The counterpart to `MessagePublisher`, and an SPI for the same reason: which broker a
- * deployment uses is not something the runtime should decide.
+ * The counterpart to `MessagePublisher`, and an SPI for the same reason: which broker a deployment
+ * uses is not something the runtime should decide.
  *
- * A handler that fails must not have its offset committed. Implementations are expected
- * to redeliver — topic sources are at-least-once, and a component reading one has to
- * tolerate seeing a message twice.
+ * A handler that fails must not have its offset committed. Implementations are expected to
+ * redeliver — topic sources are at-least-once, and a component reading one has to tolerate seeing a
+ * message twice.
  */
 trait MessageSubscriber:
 
   /**
    * Starts consuming `topic`.
    *
-   * `groupId` identifies the consuming component, so two components reading one topic
-   * each see every message, while two *instances* of one component share the work.
+   * `groupId` identifies the consuming component, so two components reading one topic each see
+   * every message, while two *instances* of one component share the work.
    */
   def subscribe(topic: String, groupId: String, handle: IncomingMessage => Future[Done]): Unit
 
@@ -42,9 +42,9 @@ trait MessageSubscriber:
 /**
  * A publisher and subscriber wired to each other, with no broker.
  *
- * This is what lets nakka's topic support be tested properly without a container: the
- * whole path — CloudEvents headers, subject-keyed ordering, decoding, view and consumer
- * dispatch — is exercised, and only the wire itself is substituted.
+ * This is what lets nakka's topic support be tested properly without a container: the whole path —
+ * CloudEvents headers, subject-keyed ordering, decoding, view and consumer dispatch — is exercised,
+ * and only the wire itself is substituted.
  */
 final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
 

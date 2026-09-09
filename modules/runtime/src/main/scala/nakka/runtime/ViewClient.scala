@@ -10,8 +10,8 @@ import scala.concurrent.{ExecutionContext, Future}
 /**
  * How application code queries views.
  *
- * Separate from `ComponentClient` because a view is not addressed by an instance id —
- * the whole point of a view is to be queried by attributes rather than by key.
+ * Separate from `ComponentClient` because a view is not addressed by an instance id — the whole
+ * point of a view is to be queried by attributes rather than by key.
  */
 final class ViewClient private[nakka] (
     database: Database,
@@ -32,9 +32,9 @@ final class ViewClient private[nakka] (
 /**
  * Reads from one view's rows.
  *
- * Blocking methods are the primary surface, matching `ComponentClient.invoke`: handlers
- * run on virtual threads, so awaiting is free and sequential code stays readable. The
- * `…Async` variants exist for fanning out.
+ * Blocking methods are the primary surface, matching `ComponentClient.invoke`: handlers run on
+ * virtual threads, so awaiting is free and sequential code stays readable. The `…Async` variants
+ * exist for fanning out.
  */
 final class ViewQueries[Row] private[nakka] (
     table: String,

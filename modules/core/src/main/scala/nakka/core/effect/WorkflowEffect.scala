@@ -7,9 +7,9 @@ import scala.concurrent.duration.FiniteDuration
 /**
  * A reference to the next step, with its input already encoded.
  *
- * Encoding at transition time rather than at execution time is what makes a workflow
- * durable: the pending step and its argument are persisted together, so a workflow that
- * crashes between two steps resumes with exactly the input it was about to use.
+ * Encoding at transition time rather than at execution time is what makes a workflow durable: the
+ * pending step and its argument are persisted together, so a workflow that crashes between two
+ * steps resumes with exactly the input it was about to use.
  */
 final case class StepRef(name: String, input: Option[Array[Byte]]):
   override def toString: String = if input.isDefined then s"$name(…)" else name
@@ -24,8 +24,8 @@ object StepOutcome:
   /**
    * Stop and wait for an external command.
    *
-   * A paused workflow holds no resources — it is a row in Postgres, not a parked thread —
-   * which is why pausing for eight hours awaiting a human decision is unremarkable.
+   * A paused workflow holds no resources — it is a row in Postgres, not a parked thread — which is
+   * why pausing for eight hours awaiting a human decision is unremarkable.
    */
   final case class Pause(after: Option[FiniteDuration], onTimeout: Option[StepRef])
       extends StepOutcome
@@ -39,10 +39,9 @@ object StepOutcome:
 /**
  * What a command handler on a workflow does.
  *
- * Separate from `WorkflowStepEffect` because the two answer different questions: a
- * command decides how to *reply to a caller*, a step decides *what runs next*. Akka
- * splits them the same way, and conflating them makes it easy to write a step that
- * silently never replies.
+ * Separate from `WorkflowStepEffect` because the two answer different questions: a command decides
+ * how to *reply to a caller*, a step decides *what runs next*. Akka splits them the same way, and
+ * conflating them makes it easy to write a step that silently never replies.
  */
 sealed trait WorkflowEffect[S, +R]:
   private[nakka] def stateChange: Option[S]
@@ -52,9 +51,9 @@ sealed trait WorkflowEffect[S, +R]:
 
 /** A command effect that provably changes nothing. */
 sealed trait WorkflowReadOnlyEffect[S, +R] extends WorkflowEffect[S, R]:
-  private[nakka] final def stateChange: Option[S]  = None
+  private[nakka] final def stateChange: Option[S]      = None
   private[nakka] final def transition: Option[StepRef] = None
-  private[nakka] final def deleting: Boolean       = false
+  private[nakka] final def deleting: Boolean           = false
 
 object WorkflowEffect:
 

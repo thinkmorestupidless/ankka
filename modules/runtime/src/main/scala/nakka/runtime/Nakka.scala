@@ -15,12 +15,12 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
 /**
- * Something that runs alongside the hosted components and needs the service to exist
- * before it can start — an HTTP server, a set of view projections, a consumer group.
+ * Something that runs alongside the hosted components and needs the service to exist before it can
+ * start — an HTTP server, a set of view projections, a consumer group.
  *
- * This is the seam that keeps the module graph acyclic. `nakka-http` cannot be a
- * dependency of `nakka-runtime` (it depends on it), so the runtime knows only that
- * extensions exist, not what they do.
+ * This is the seam that keeps the module graph acyclic. `nakka-http` cannot be a dependency of
+ * `nakka-runtime` (it depends on it), so the runtime knows only that extensions exist, not what
+ * they do.
  */
 trait RuntimeExtension:
   def name: String
@@ -49,9 +49,9 @@ object Nakka:
 /**
  * An immutable, growing service definition.
  *
- * Registration is explicit — there is no classpath scanning — so the set of components a
- * service hosts is a value you can inspect, test and diff, and a component that was
- * never registered fails at startup rather than at its first request.
+ * Registration is explicit — there is no classpath scanning — so the set of components a service
+ * hosts is a value you can inspect, test and diff, and a component that was never registered fails
+ * at startup rather than at its first request.
  */
 final class ServiceBuilder private[nakka] (
     private val descriptors: Vector[ComponentDescriptor],
@@ -140,9 +140,9 @@ final class ServiceBuilder private[nakka] (
   /**
    * Forms a single-node cluster when no seeds are configured.
    *
-   * A nakka service is always a cluster, including on a laptop — running the same code
-   * path in development and production is the point. Joining self removes the
-   * configuration step that would otherwise make local runs a special case.
+   * A nakka service is always a cluster, including on a laptop — running the same code path in
+   * development and production is the point. Joining self removes the configuration step that would
+   * otherwise make local runs a special case.
    */
   private def joinSelfIfUnseeded(system: ActorSystem[?]): Unit =
     val config = system.settings.config
@@ -218,9 +218,9 @@ final class NakkaService private[nakka] (
   /**
    * Blocks until this node is a cluster member.
    *
-   * Sharding buffers messages sent before the node is up, so this is not required for
-   * correctness — but without it a test's first assertion competes with cluster
-   * formation, and the resulting flake is tedious to diagnose.
+   * Sharding buffers messages sent before the node is up, so this is not required for correctness —
+   * but without it a test's first assertion competes with cluster formation, and the resulting
+   * flake is tedious to diagnose.
    */
   def awaitReady(timeout: FiniteDuration = 20.seconds): Unit =
     val cluster  = Cluster(system)

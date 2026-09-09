@@ -22,7 +22,8 @@ final class ProfileEntity(context: KeyValueEntityContext) extends KeyValueEntity
     else effects.updateState(request).thenReply(_ => Done)
 
   def rename(name: String): Effect[Profile] =
-    if currentState.email.isEmpty then effects.error(s"'$userId' is not registered", ErrorCode.NotFound)
+    if currentState.email.isEmpty then
+      effects.error(s"'$userId' is not registered", ErrorCode.NotFound)
     else effects.updateState(currentState.copy(name = name)).thenReplyState
 
   def recordLogin: Effect[Int] =

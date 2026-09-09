@@ -6,8 +6,8 @@ import nakka.core.Done
 /**
  * Converts a raw string parameter into a typed value.
  *
- * Used for both path segments and query parameters — the job is identical, so they share
- * one set of instances rather than two that could drift apart.
+ * Used for both path segments and query parameters — the job is identical, so they share one set of
+ * instances rather than two that could drift apart.
  */
 trait FromPath[A]:
   def name: String
@@ -19,13 +19,14 @@ object FromPath:
     val name = typeName
     def parse(raw: String): Either[String, A] =
       try Right(f(raw))
-      catch case _: IllegalArgumentException | _: NumberFormatException =>
-        Left(s"'$raw' is not a valid $typeName")
+      catch
+        case _: IllegalArgumentException | _: NumberFormatException =>
+          Left(s"'$raw' is not a valid $typeName")
 
-  given string: FromPath[String]   = simple("string", identity)
-  given int: FromPath[Int]         = simple("int", _.toInt)
-  given long: FromPath[Long]       = simple("long", _.toLong)
-  given boolean: FromPath[Boolean] = simple("boolean", _.toBoolean)
+  given string: FromPath[String]       = simple("string", identity)
+  given int: FromPath[Int]             = simple("int", _.toInt)
+  given long: FromPath[Long]           = simple("long", _.toLong)
+  given boolean: FromPath[Boolean]     = simple("boolean", _.toBoolean)
   given uuid: FromPath[java.util.UUID] = simple("uuid", java.util.UUID.fromString)
 
 /** Reads a request body into a typed handler argument. */
@@ -43,7 +44,7 @@ object FromBody:
       catch case failure: JsonReaderException => Left(s"malformed JSON body: ${failure.getMessage}")
 
   given text: FromBody[String] = new FromBody[String]:
-    val contentType = "text/plain"
+    val contentType              = "text/plain"
     def read(bytes: Array[Byte]) = Right(String(bytes, "UTF-8"))
 
 /** Renders a handler's return value as an HTTP response. */
@@ -56,9 +57,9 @@ object ToResponse:
 
   /** Any type with a jsoniter codec in scope can be a response body. */
   given json[A](using codec: JsonValueCodec[A]): ToResponse[A] = new ToResponse[A]:
-    def status(value: A)   = 200
-    val contentType        = "application/json"
-    def write(value: A)    = writeToArray(value)(using codec)
+    def status(value: A) = 200
+    val contentType      = "application/json"
+    def write(value: A)  = writeToArray(value)(using codec)
 
   given text: ToResponse[String] = new ToResponse[String]:
     def status(value: String) = 200
@@ -68,9 +69,9 @@ object ToResponse:
   /**
    * Scalars, rendered as bare JSON values.
    *
-   * jsoniter derives no codecs for primitives, and `/carts/{id}/total` returning an
-   * `Int` is too ordinary to require the caller to declare one. Being concrete rather
-   * than generic also means these take precedence over `json[A]`.
+   * jsoniter derives no codecs for primitives, and `/carts/{id}/total` returning an `Int` is too
+   * ordinary to require the caller to declare one. Being concrete rather than generic also means
+   * these take precedence over `json[A]`.
    */
   private def scalar[A](render: A => String): ToResponse[A] = new ToResponse[A]:
     def status(value: A) = 200

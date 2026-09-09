@@ -5,9 +5,9 @@ import nakka.core.{ComponentId, EntityId, Metadata}
 /**
  * What every component is handed when the runtime instantiates it.
  *
- * `componentClient` lives here rather than being injected by a container because nakka
- * has no container: a component is constructed by its own companion, and anything it
- * needs has to arrive through this context.
+ * `componentClient` lives here rather than being injected by a container because nakka has no
+ * container: a component is constructed by its own companion, and anything it needs has to arrive
+ * through this context.
  */
 trait ComponentContext:
   def componentId: ComponentId
@@ -31,8 +31,8 @@ trait ViewComponentContext extends ComponentContext
 trait ConsumerContext extends ComponentContext
 
 /**
- * Available for the duration of a single command. Distinct from `EntityContext` because
- * metadata belongs to the request, not to the component.
+ * Available for the duration of a single command. Distinct from `EntityContext` because metadata
+ * belongs to the request, not to the component.
  */
 trait CommandContext:
   def entityId: EntityId

@@ -17,12 +17,11 @@ enum ComponentKind:
     case View | Consumer | TimedAction | Endpoint               => false
 
 /**
- * Everything the runtime needs to host one component, produced by that component's
- * companion.
+ * Everything the runtime needs to host one component, produced by that component's companion.
  *
- * This is the seam that replaces Akka's classpath scanning. Because a component only
- * reaches the runtime by being handed over explicitly, an unregistered component is a
- * compile-or-startup problem rather than a 404 discovered in production.
+ * This is the seam that replaces Akka's classpath scanning. Because a component only reaches the
+ * runtime by being handed over explicitly, an unregistered component is a compile-or-startup
+ * problem rather than a 404 discovered in production.
  */
 trait ComponentDescriptor:
   def componentId: ComponentId
@@ -33,9 +32,8 @@ trait ComponentDescriptor:
 /**
  * The immutable, validated set of components making up a service.
  *
- * Built once at startup. Lookups are by `(kind, componentId)` because ids only need to
- * be unique within a kind — an entity and the view projecting it may reasonably share a
- * name.
+ * Built once at startup. Lookups are by `(kind, componentId)` because ids only need to be unique
+ * within a kind — an entity and the view projecting it may reasonably share a name.
  */
 final class ComponentRegistry private (val components: Vector[ComponentDescriptor]):
 
@@ -53,9 +51,14 @@ final class ComponentRegistry private (val components: Vector[ComponentDescripto
   def isEmpty: Boolean = components.isEmpty
 
   override def toString: String =
-    components.groupBy(_.kind).toVector.sortBy(_._1.ordinal).map { (kind, ds) =>
-      s"$kind -> [${ds.map(_.componentId).sorted.mkString(", ")}]"
-    }.mkString("ComponentRegistry(", "; ", ")")
+    components
+      .groupBy(_.kind)
+      .toVector
+      .sortBy(_._1.ordinal)
+      .map { (kind, ds) =>
+        s"$kind -> [${ds.map(_.componentId).sorted.mkString(", ")}]"
+      }
+      .mkString("ComponentRegistry(", "; ", ")")
 
 object ComponentRegistry:
 
@@ -64,8 +67,8 @@ object ComponentRegistry:
   /**
    * Validates and freezes a set of descriptors.
    *
-   * Reports *every* problem at once rather than the first, because a service with four
-   * duplicate registrations should take one restart to fix, not four.
+   * Reports *every* problem at once rather than the first, because a service with four duplicate
+   * registrations should take one restart to fix, not four.
    */
   def from(components: Seq[ComponentDescriptor]): Either[Vector[String], ComponentRegistry] =
     val duplicates = components

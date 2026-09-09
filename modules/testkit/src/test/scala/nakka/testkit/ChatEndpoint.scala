@@ -14,8 +14,8 @@ final class ChatEndpoint(client: ComponentClient) extends HttpEndpoint("/chat"):
   /**
    * Streams a reply.
    *
-   * The handler only *builds* the source; pekko-http pulls tokens as the client reads,
-   * so nothing buffers the whole answer.
+   * The handler only *builds* the source; pekko-http pulls tokens as the client reads, so nothing
+   * buffers the whole answer.
    */
   sse("/{session}") { (session: String) =>
     client
@@ -26,8 +26,8 @@ final class ChatEndpoint(client: ComponentClient) extends HttpEndpoint("/chat"):
   /**
    * Tokens that would be corrupted by naive SSE framing.
    *
-   * A leading space is stripped by the protocol's own rules, and a raw newline
-   * terminates the data field — splitting one token into two events.
+   * A leading space is stripped by the protocol's own rules, and a raw newline terminates the data
+   * field — splitting one token into two events.
    */
   sse("/awkward") { () =>
     Source(Vector("word", " leading", "trailing ", "with\nnewline", "  two  "))

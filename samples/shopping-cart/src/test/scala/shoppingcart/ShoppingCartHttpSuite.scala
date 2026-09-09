@@ -11,11 +11,11 @@ import java.time.Duration
 import scala.concurrent.duration.DurationInt
 
 /**
- * The full stack over real HTTP: JDK client -> pekko-http -> endpoint -> ComponentClient
- * -> sharded entity -> Postgres.
+ * The full stack over real HTTP: JDK client -> pekko-http -> endpoint -> ComponentClient -> sharded
+ * entity -> Postgres.
  *
- * Uses the JDK's own HTTP client rather than a pekko one, so the test exercises nakka
- * from outside as an ordinary web service.
+ * Uses the JDK's own HTTP client rather than a pekko one, so the test exercises nakka from outside
+ * as an ordinary web service.
  */
 class ShoppingCartHttpSuite extends munit.FunSuite:
 
@@ -101,7 +101,7 @@ class ShoppingCartHttpSuite extends munit.FunSuite:
   }
 
   test("checkout returns the checked-out cart as JSON") {
-    val _ = send("POST", "/carts/http-checkout/items", Some(item("p1", "Widget", 5)))
+    val _              = send("POST", "/carts/http-checkout/items", Some(item("p1", "Widget", 5)))
     val (status, body) = send("POST", "/carts/http-checkout/checkout")
     assertEquals(status, 200)
     assert(body.contains("\"checkedOut\":true"), body)

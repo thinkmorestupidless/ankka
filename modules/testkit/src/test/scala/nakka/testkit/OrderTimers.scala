@@ -7,9 +7,8 @@ import nakka.sdk.*
 /**
  * Expires orders that were never confirmed.
  *
- * Note what it does *not* do: fail when the order has already been confirmed. A timed
- * action that errors gets rescheduled, so "there was nothing to do" has to be reported
- * as success.
+ * Note what it does *not* do: fail when the order has already been confirmed. A timed action that
+ * errors gets rescheduled, so "there was nothing to do" has to be reported as success.
  */
 final class OrderTimers(context: TimedActionContext) extends TimedAction:
 

@@ -5,9 +5,8 @@ import nakka.core.{Codecs, Serializer}
 /**
  * One entry in a session's history.
  *
- * `agentId` is on every entry because a session is shared: several agents can
- * collaborate in one conversation, and each needs to be able to decide whose
- * contributions it wants to see.
+ * `agentId` is on every entry because a session is shared: several agents can collaborate in one
+ * conversation, and each needs to be able to decide whose contributions it wants to see.
  */
 sealed trait SessionMessage:
   def timestamp: Long
@@ -21,9 +20,9 @@ object SessionMessage:
   /**
    * A model turn.
    *
-   * Tool calls are recorded alongside the text so that replaying history shows the model
-   * what it already tried. Without them, a model re-reads its own answer with no memory
-   * of how it got there and tends to repeat the same tool calls.
+   * Tool calls are recorded alongside the text so that replaying history shows the model what it
+   * already tried. Without them, a model re-reads its own answer with no memory of how it got there
+   * and tends to repeat the same tool calls.
    */
   final case class AiMessage(
       timestamp: Long,
@@ -75,8 +74,8 @@ object MemoryFilter:
 /**
  * Rewrites messages on their way into memory.
  *
- * The place to redact. Keep implementations stateless: one instance serves every session
- * an agent handles.
+ * The place to redact. Keep implementations stateless: one instance serves every session an agent
+ * handles.
  */
 trait SessionMemoryInterceptor:
   def beforeWrite(sessionId: String, message: SessionMessage): SessionMessage
@@ -112,8 +111,8 @@ object MemoryProvider:
   /**
    * No memory at all.
    *
-   * The right choice for a one-shot classification or extraction: sharing a session with
-   * unrelated turns makes those tasks worse, not better.
+   * The right choice for a one-shot classification or extraction: sharing a session with unrelated
+   * turns makes those tasks worse, not better.
    */
   val none: MemoryProvider =
     MemoryProvider(read = false, write = false, None, MemoryFilter.all, None)

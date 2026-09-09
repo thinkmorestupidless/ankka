@@ -15,18 +15,18 @@ import org.apache.pekko.persistence.typed.scaladsl.{
 import org.apache.pekko.persistence.typed.{EventAdapter, EventSeq, PersistenceId, SnapshotAdapter}
 
 /**
- * Hosts one event sourced entity kind on cluster sharding, translating nakka's Effects
- * into Pekko's.
+ * Hosts one event sourced entity kind on cluster sharding, translating nakka's Effects into
+ * Pekko's.
  *
- * The translation is deliberately thin. `Outcome.Reply` holds a `S => R` and Pekko's
- * `thenReply` hands back the state *after* the events have been applied, so the two line
- * up exactly and nakka never has to fold events itself on the write path.
+ * The translation is deliberately thin. `Outcome.Reply` holds a `S => R` and Pekko's `thenReply`
+ * hands back the state *after* the events have been applied, so the two line up exactly and nakka
+ * never has to fold events itself on the write path.
  */
 private[nakka] object EventSourcedEntityHost:
 
   /**
-   * The behaviour's state: the developer's state plus the lifecycle facts the runtime
-   * needs. Wrapping keeps deletion and TTL out of the domain model entirely.
+   * The behaviour's state: the developer's state plus the lifecycle facts the runtime needs.
+   * Wrapping keeps deletion and TTL out of the domain model entirely.
    */
   final case class Stored[S](value: S, deleted: Boolean, expiryMillis: Long):
     def expired(nowMillis: Long): Boolean = expiryMillis > 0 && nowMillis >= expiryMillis
@@ -46,19 +46,27 @@ private[nakka] object EventSourcedEntityHost:
       val entity = descriptor.create(
         SimpleEntityContext(entityId, descriptor.componentId, componentClient)
       )
-      val empty  = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
+      val empty = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
 
-      val base = EventSourcedBehavior.withEnforcedReplies[
-        EntityProtocol.Command,
-        Journaled[E],
-        Stored[S]
-      ](
-        persistenceId = PersistenceId(descriptor.componentId, entityId),
-        emptyState = empty,
-        commandHandler = (state, command) =>
-          onCommand(descriptor, entity, entityId, state, command, EventSourcedBehavior.lastSequenceNumber(ctx)),
-        eventHandler = (state, event) => onEvent(entity, state, event)
-      )
+      val base = EventSourcedBehavior
+        .withEnforcedReplies[
+          EntityProtocol.Command,
+          Journaled[E],
+          Stored[S]
+        ](
+          persistenceId = PersistenceId(descriptor.componentId, entityId),
+          emptyState = empty,
+          commandHandler = (state, command) =>
+            onCommand(
+              descriptor,
+              entity,
+              entityId,
+              state,
+              command,
+              EventSourcedBehavior.lastSequenceNumber(ctx)
+            ),
+          eventHandler = (state, event) => onEvent(entity, state, event)
+        )
         .eventAdapter(eventAdapter(descriptor))
         .snapshotAdapter(snapshotAdapter(descriptor))
 
@@ -132,9 +140,9 @@ private[nakka] object EventSourcedEntityHost:
   /**
    * The single cast in the runtime's write path.
    *
-   * It is safe by construction: `EventSourcedEntity.Companion.command` and `.query` only
-   * accept functions returning `EventSourcedEffect[S, E, ?]`, so nothing else can ever
-   * reach a binding registered on this descriptor.
+   * It is safe by construction: `EventSourcedEntity.Companion.command` and `.query` only accept
+   * functions returning `EventSourcedEffect[S, E, ?]`, so nothing else can ever reach a binding
+   * registered on this descriptor.
    */
   private def interpret[C <: EventSourcedEntity[S, E], S, E](
       binding: HandlerBinding[C],
@@ -173,9 +181,9 @@ private[nakka] object EventSourcedEntityHost:
 
   private def retentionRecord[E](retention: Option[Retention]): Vector[Journaled[E]] =
     retention match
-      case None                            => Vector.empty
-      case Some(Retention.DeleteNow)       => Vector(Journaled.Deleted)
-      case Some(Retention.ExpireAfter(d))  =>
+      case None                      => Vector.empty
+      case Some(Retention.DeleteNow) => Vector(Journaled.Deleted)
+      case Some(Retention.ExpireAfter(d)) =>
         Vector(Journaled.Expiry(System.currentTimeMillis() + d.toMillis))
 
   // ── Event handling ────────────────────────────────────────────────────────
@@ -205,9 +213,9 @@ private[nakka] object EventSourcedEntityHost:
   // ── Storage adapters ──────────────────────────────────────────────────────
 
   /**
-   * Encodes events with the entity's own serializer before they reach Pekko, so the
-   * journal holds nakka's JSON under nakka's manifest rather than a Java-serialised or
-   * Jackson-reflected form of the domain type.
+   * Encodes events with the entity's own serializer before they reach Pekko, so the journal holds
+   * nakka's JSON under nakka's manifest rather than a Java-serialised or Jackson-reflected form of
+   * the domain type.
    */
   private def eventAdapter[C <: EventSourcedEntity[S, E], S, E](
       descriptor: EventSourcedEntityDescriptor[C, S, E]
@@ -220,8 +228,8 @@ private[nakka] object EventSourcedEntityHost:
             descriptor.eventSerializer.manifest,
             descriptor.eventSerializer.toBytes(e)
           )
-        case Journaled.Deleted            => JournalRecord.deleted
-        case Journaled.Expiry(atMillis)   => JournalRecord.expiry(atMillis)
+        case Journaled.Deleted          => JournalRecord.deleted
+        case Journaled.Expiry(atMillis) => JournalRecord.expiry(atMillis)
 
       def manifest(event: Journaled[E]): String = event match
         case Journaled.Domain(_) => descriptor.eventSerializer.manifest

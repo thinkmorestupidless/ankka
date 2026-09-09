@@ -13,15 +13,15 @@ import scala.concurrent.duration.DurationInt
  *
  * Three patterns in one workflow, which is the point of the sample:
  *
- *   - **dynamic** — the first step *asks* which specialists are needed rather than
- *     hard-coding them, so adding a specialist changes no orchestration code;
- *   - **parallel** — the second consults all of them at once with `invokeAsync`, because
- *     they do not depend on each other;
- *   - **durable** — each step's result is journalled before the next begins, so a crash
- *     between consulting and summarising resumes rather than re-consulting.
+ *   - **dynamic** — the first step *asks* which specialists are needed rather than hard-coding
+ *     them, so adding a specialist changes no orchestration code;
+ *   - **parallel** — the second consults all of them at once with `invokeAsync`, because they do
+ *     not depend on each other;
+ *   - **durable** — each step's result is journalled before the next begins, so a crash between
+ *     consulting and summarising resumes rather than re-consulting.
  *
- * Every agent is addressed with the *same session id* — the workflow's own id — so they
- * accumulate one shared conversation that the summariser can read back.
+ * Every agent is addressed with the *same session id* — the workflow's own id — so they accumulate
+ * one shared conversation that the summariser can read back.
  */
 final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState]:
 
@@ -76,13 +76,12 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
   /**
    * Consults every chosen specialist at once.
    *
-   * `invokeAsync` rather than `invoke`: the specialists are independent, so waiting for
-   * each in turn would make the step as slow as the sum of the model calls instead of
-   * the slowest one.
+   * `invokeAsync` rather than `invoke`: the specialists are independent, so waiting for each in
+   * turn would make the step as slow as the sum of the model calls instead of the slowest one.
    */
   def consultSpecialistsStep: StepEffect =
-    val state   = currentState
-    val chosen  = state.selection.map(_.specialists).getOrElse(Nil)
+    val state  = currentState
+    val chosen = state.selection.map(_.specialists).getOrElse(Nil)
 
     val pending = chosen.map { specialist =>
       val answer = specialist match

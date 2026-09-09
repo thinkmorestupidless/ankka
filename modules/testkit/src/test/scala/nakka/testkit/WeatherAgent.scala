@@ -17,11 +17,10 @@ given Serializer[Forecast]     = Codecs.serializer[Forecast]("forecast")
 /**
  * An agent with a tool, a system message and a structured variant.
  *
- * Deliberately ordinary: the point of the tests around it is that nakka does the work,
- * so the agent itself should look like something a developer would actually write.
+ * Deliberately ordinary: the point of the tests around it is that nakka does the work, so the agent
+ * itself should look like something a developer would actually write.
  */
 final class WeatherAgent(context: AgentContext) extends Agent:
-
 
   /** Proves context injection: an agent knows which session it is serving. */
   def whoAmI: Effect[String] =

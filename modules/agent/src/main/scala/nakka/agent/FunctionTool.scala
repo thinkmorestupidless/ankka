@@ -5,10 +5,10 @@ import scala.util.control.NonFatal
 /**
  * A function the model may decide to call.
  *
- * Declared rather than annotated. Akka's `@FunctionTool` needs reflection and parameter-
- * name retention to work out a schema; here the schema comes from the same `SchemaType`
- * instances that decode the arguments, so a parameter cannot be described one way and
- * read another, and arity or type mistakes are compile errors.
+ * Declared rather than annotated. Akka's `@FunctionTool` needs reflection and parameter- name
+ * retention to work out a schema; here the schema comes from the same `SchemaType` instances that
+ * decode the arguments, so a parameter cannot be described one way and read another, and arity or
+ * type mistakes are compile errors.
  */
 final class FunctionTool private[agent] (
     val spec: ToolSpec,
@@ -20,9 +20,9 @@ final class FunctionTool private[agent] (
   /**
    * Runs the tool against the model's arguments.
    *
-   * A `Left` is not a crash — it is a message for the model. Decode failures and handler
-   * exceptions both come back this way so the loop can hand the model a failed tool
-   * result and let it correct itself, which is usually what it does.
+   * A `Left` is not a crash — it is a message for the model. Decode failures and handler exceptions
+   * both come back this way so the loop can hand the model a failed tool result and let it correct
+   * itself, which is usually what it does.
    */
   def invoke(arguments: Json): Either[String, String] =
     try invoker(arguments)
@@ -43,8 +43,8 @@ object FunctionTool:
     /**
      * What the tool does.
      *
-     * Required, because this description is the entire basis on which the model decides
-     * whether to call it. A tool with no description is a tool that gets called at random.
+     * Required, because this description is the entire basis on which the model decides whether to
+     * call it. A tool with no description is a tool that gets called at random.
      */
     def describedAs(description: String): ToolBuilder0 =
       if description.isEmpty then
@@ -88,8 +88,8 @@ object FunctionTool:
     new FunctionTool(
       ToolSpec(name, description, schema),
       arguments =>
-        val decoded = params.foldLeft[Either[String, Vector[Any]]](Right(Vector.empty)) {
-          (acc, param) =>
+        val decoded =
+          params.foldLeft[Either[String, Vector[Any]]](Right(Vector.empty)) { (acc, param) =>
             for
               soFar <- acc
               value <- param
@@ -97,7 +97,7 @@ object FunctionTool:
                 .left
                 .map(reason => s"parameter '${param.name}': $reason")
             yield soFar :+ value
-        }
+          }
         decoded.map(values => out.render(apply(values)))
     )
 
@@ -110,9 +110,9 @@ object FunctionTool:
 /**
  * Tool builders, one per arity.
  *
- * Explicit types rather than a generic parameter list: `handle` then takes a function of
- * exactly the right shape, so the compiler catches a mismatch between what was declared
- * and what the handler expects — which is the mistake a map-of-strings API cannot catch.
+ * Explicit types rather than a generic parameter list: `handle` then takes a function of exactly
+ * the right shape, so the compiler catches a mismatch between what was declared and what the
+ * handler expects — which is the mistake a map-of-strings API cannot catch.
  */
 final case class ToolBuilder0 private[agent] (
     private val name: String,
@@ -199,6 +199,5 @@ final case class ToolBuilder3[A, B, C] private[agent] (
       name,
       description,
       params,
-      values =>
-        f(values(0).asInstanceOf[A], values(1).asInstanceOf[B], values(2).asInstanceOf[C])
+      values => f(values(0).asInstanceOf[A], values(1).asInstanceOf[B], values(2).asInstanceOf[C])
     )

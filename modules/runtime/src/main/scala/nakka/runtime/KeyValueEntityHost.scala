@@ -18,9 +18,9 @@ import org.apache.pekko.persistence.typed.{PersistenceId, SnapshotAdapter}
  * Hosts one key value entity kind on cluster sharding, backed by Pekko's durable state.
  *
  * Unlike the event sourced host, this one resolves the whole effect up front with
- * `KeyValueEffect.materialise`. With no events to fold there is nothing for Pekko to
- * compute on our behalf, and deciding the reply ourselves keeps the deletion case —
- * where "the state after persisting" is not a meaningful notion — unambiguous.
+ * `KeyValueEffect.materialise`. With no events to fold there is nothing for Pekko to compute on our
+ * behalf, and deciding the reply ourselves keeps the deletion case — where "the state after
+ * persisting" is not a meaningful notion — unambiguous.
  */
 private[nakka] object KeyValueEntityHost:
 
@@ -36,7 +36,7 @@ private[nakka] object KeyValueEntityHost:
       val entity = descriptor.create(
         SimpleEntityContext(entityId, descriptor.componentId, componentClient)
       )
-      val empty  = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
+      val empty = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
 
       DurableStateBehavior
         .withEnforcedReplies[EntityProtocol.Command, Stored[S]](

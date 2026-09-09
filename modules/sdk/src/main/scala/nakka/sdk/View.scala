@@ -6,17 +6,17 @@ import nakka.core.effect.*
 /**
  * A queryable projection of one source's changes.
  *
- * Views exist to answer questions an entity cannot: "which carts contain this product",
- * "which customers live in this city". An entity is addressable only by its id, so any
- * other access path has to be projected.
+ * Views exist to answer questions an entity cannot: "which carts contain this product", "which
+ * customers live in this city". An entity is addressable only by its id, so any other access path
+ * has to be projected.
  *
- * Rows are keyed by the source entity's id. Querying by any other attribute is done in
- * the query, not by re-keying the row — re-keying would silently orphan the old row when
- * the attribute changed.
+ * Rows are keyed by the source entity's id. Querying by any other attribute is done in the query,
+ * not by re-keying the row — re-keying would silently orphan the old row when the attribute
+ * changed.
  */
 abstract class View[Src, Row]:
 
-  private var row: Option[Row]                = None
+  private var row: Option[Row]                  = None
   private var contextOpt: Option[ChangeContext] = None
 
   final type Effect = ViewEffect[Row]
@@ -37,12 +37,12 @@ abstract class View[Src, Row]:
   /**
    * What to do when the source entity is deleted.
    *
-   * Removing the row is the default. Override to keep a tombstone instead — for instance
-   * when a checked-out cart should still show up in an order history.
+   * Removing the row is the default. Override to keep a tombstone instead — for instance when a
+   * checked-out cart should still show up in an order history.
    */
   def onDelete: Effect = effects.deleteRow()
 
-  private[nakka] def _setRow(value: Option[Row]): Unit           = row = value
+  private[nakka] def _setRow(value: Option[Row]): Unit             = row = value
   private[nakka] def _setContext(ctx: Option[ChangeContext]): Unit = contextOpt = ctx
 
 object View:
@@ -71,9 +71,8 @@ object View:
     /**
      * How many projection instances share the work.
      *
-     * Each instance owns a slice range of the source's persistence ids, so raising this
-     * raises throughput. Changing it is safe: offsets are stored per slice, not per
-     * instance.
+     * Each instance owns a slice range of the source's persistence ids, so raising this raises
+     * throughput. Changing it is safe: offsets are stored per slice, not per instance.
      */
     def parallelism: Int = 4
 
@@ -98,9 +97,9 @@ object ViewDescriptor:
   /**
    * Derives a table name from a component id.
    *
-   * Component ids allow `.` and `-`, which are not legal in an unquoted SQL identifier,
-   * so they are folded to `_`. The `nakka_view_` prefix keeps projections from colliding
-   * with a developer's own tables in the same database.
+   * Component ids allow `.` and `-`, which are not legal in an unquoted SQL identifier, so they are
+   * folded to `_`. The `nakka_view_` prefix keeps projections from colliding with a developer's own
+   * tables in the same database.
    */
   def tableFor(componentId: ComponentId): String =
     "nakka_view_" + componentId.map(c => if c.isLetterOrDigit then c else '_')

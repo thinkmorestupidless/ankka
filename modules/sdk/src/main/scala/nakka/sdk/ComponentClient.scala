@@ -8,9 +8,9 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 /**
  * How a call actually reaches another component.
  *
- * The typed call machinery belongs in the SDK — developers write these calls inside
- * handlers — but routing needs cluster sharding, which the SDK must not depend on. This
- * interface is the join: `nakka-runtime` supplies the sharding-backed implementation.
+ * The typed call machinery belongs in the SDK — developers write these calls inside handlers — but
+ * routing needs cluster sharding, which the SDK must not depend on. This interface is the join:
+ * `nakka-runtime` supplies the sharding-backed implementation.
  */
 trait CallTransport:
   def ask(
@@ -24,9 +24,9 @@ trait CallTransport:
   /**
    * Sends a message without awaiting a reply.
    *
-   * `Any` because the message types live in `nakka-runtime`, which the SDK must not
-   * depend on. Used for streaming, where the reply arrives over time through a channel
-   * carried inside the message rather than as a return value.
+   * `Any` because the message types live in `nakka-runtime`, which the SDK must not depend on. Used
+   * for streaming, where the reply arrives over time through a channel carried inside the message
+   * rather than as a return value.
    */
   def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit
 
@@ -36,10 +36,10 @@ trait CallTransport:
 /**
  * How components call each other.
  *
- * Calls go through a client rather than direct method calls because the target instance
- * is very likely on another node. What the client hides is the routing; what it
- * deliberately does not hide is that a call can fail, which is why a rejection arrives
- * as a `CommandError` rather than as a default value.
+ * Calls go through a client rather than direct method calls because the target instance is very
+ * likely on another node. What the client hides is the routing; what it deliberately does not hide
+ * is that a call can fail, which is why a rejection arrives as a `CommandError` rather than as a
+ * default value.
  */
 final class ComponentClient(transport: CallTransport):
 
@@ -60,11 +60,11 @@ object ComponentClient:
   /**
    * Waits for a call to complete.
    *
-   * `scala.concurrent.blocking` is the load-bearing part. On a virtual thread — which is
-   * where nakka runs endpoints, workflow steps and consumers — the await parks the
-   * virtual thread and releases its carrier, so waiting costs nothing and "write
-   * straightforward sequential code" is real rather than aspirational. On a fork-join
-   * pool it signals the pool to compensate instead of silently starving it.
+   * `scala.concurrent.blocking` is the load-bearing part. On a virtual thread — which is where
+   * nakka runs endpoints, workflow steps and consumers — the await parks the virtual thread and
+   * releases its carrier, so waiting costs nothing and "write straightforward sequential code" is
+   * real rather than aspirational. On a fork-join pool it signals the pool to compensate instead of
+   * silently starving it.
    */
   def await[A](future: Future[A], timeout: FiniteDuration): A =
     scala.concurrent.blocking(Await.result(future, timeout))
@@ -99,8 +99,8 @@ final class WorkflowCalls private[nakka] (transport: CallTransport, workflowId: 
   /**
    * Asks the engine where this workflow has got to.
    *
-   * Answered by the runtime, not by a handler the developer wrote, so every workflow has
-   * it whether or not its author thought to expose one.
+   * Answered by the runtime, not by a handler the developer wrote, so every workflow has it whether
+   * or not its author thought to expose one.
    */
   def lifecycle[W <: Workflow[S], S](
       companion: Workflow.Companion[W, S]

@@ -4,7 +4,11 @@ class IdsSuite extends munit.FunSuite:
 
   test("ComponentId accepts conventional names") {
     List("counter", "shopping-cart", "session_memory", "v2.orders", "A1").foreach { raw =>
-      assertEquals(ComponentId.parse(raw).map(id => id: String), Right(raw), s"should accept '$raw'")
+      assertEquals(
+        ComponentId.parse(raw).map(id => id: String),
+        Right(raw),
+        s"should accept '$raw'"
+      )
     }
   }
 

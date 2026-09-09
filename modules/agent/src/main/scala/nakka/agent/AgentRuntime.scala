@@ -19,9 +19,9 @@ import scala.util.{Failure, Success}
 /**
  * Hosts agents and their session memory.
  *
- * An extension rather than part of the core runtime, for the same reason the HTTP server
- * is: `nakka-runtime` must not depend on `nakka-agent`. Registering this is what turns a
- * service into one that can run agents.
+ * An extension rather than part of the core runtime, for the same reason the HTTP server is:
+ * `nakka-runtime` must not depend on `nakka-agent`. Registering this is what turns a service into
+ * one that can run agents.
  */
 final class AgentRuntime private (
     defaultModel: Option[ModelProvider],
@@ -34,9 +34,9 @@ final class AgentRuntime private (
   /**
    * Enables compaction: long sessions get their oldest messages replaced by a summary.
    *
-   * The summariser defaults to the runtime's own model. Compaction runs as a consumer
-   * over session memory, so a `ProjectionRuntime` must also be registered — without one
-   * the compactor is simply never started.
+   * The summariser defaults to the runtime's own model. Compaction runs as a consumer over session
+   * memory, so a `ProjectionRuntime` must also be registered — without one the compactor is simply
+   * never started.
    */
   def withCompaction(
       settings: CompactionSettings = CompactionSettings(),
@@ -55,8 +55,8 @@ final class AgentRuntime private (
   /**
    * Everything this runtime needs registered.
    *
-   * An instance method rather than a static one because the set depends on how the
-   * runtime is configured — enabling compaction adds a component.
+   * An instance method rather than a static one because the set depends on how the runtime is
+   * configured — enabling compaction adds a component.
    */
   def descriptors: Seq[ComponentDescriptor] =
     Seq(SessionMemoryEntity.descriptor) ++
@@ -124,9 +124,9 @@ object AgentRuntime:
   /**
    * Supplies a default model, so handlers need only describe the interaction.
    *
-   * A generous timeout by default: a reasoning model working through a multi-step task
-   * with tools can legitimately take minutes, and a 30-second default would turn normal
-   * behaviour into a failure.
+   * A generous timeout by default: a reasoning model working through a multi-step task with tools
+   * can legitimately take minutes, and a 30-second default would turn normal behaviour into a
+   * failure.
    */
   def withDefaultModel(
       provider: ModelProvider,
@@ -137,18 +137,17 @@ object AgentRuntime:
   /**
    * What an agent-capable service must register when compaction is not in use.
    *
-   * With compaction, use the runtime's own `descriptors` instead — the set depends on
-   * its configuration.
+   * With compaction, use the runtime's own `descriptors` instead — the set depends on its
+   * configuration.
    */
   def descriptors: Seq[ComponentDescriptor] = Seq(SessionMemoryEntity.descriptor)
 
 /**
  * One agent instance, sharded by session id.
  *
- * Requests for the same session are handled strictly one at a time — the second is
- * stashed until the first finishes. Without that, two overlapping requests would read
- * the same history, both append to it, and produce a conversation where neither turn
- * acknowledges the other.
+ * Requests for the same session are handled strictly one at a time — the second is stashed until
+ * the first finishes. Without that, two overlapping requests would read the same history, both
+ * append to it, and produce a conversation where neither turn acknowledges the other.
  */
 private[agent] object AgentHost:
 
@@ -303,8 +302,8 @@ private[agent] object AgentHost:
   /**
    * Runs a streaming handler, pushing tokens to the caller's ref.
    *
-   * The session stays held until the stream finishes — `Finished` is only sent at the
-   * end — so a conversation cannot be interleaved mid-stream.
+   * The session stays held until the stream finishes — `Finished` is only sent at the end — so a
+   * conversation cannot be interleaved mid-stream.
    */
   private def startStream[A <: Agent](
       ctx: ActorContext[EntityProtocol.Command],
@@ -333,7 +332,7 @@ private[agent] object AgentHost:
     }(using NakkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {
-      case Success(_) => StreamFinished
+      case Success(_)       => StreamFinished
       case Failure(failure) =>
         // The loop itself threw rather than returning a rejection; the caller is waiting
         // on the token stream, so it has to be told.
@@ -364,9 +363,9 @@ final class AgentCalls private[agent] (
   /**
    * Streams a handler's reply.
    *
-   * The `Source` is materialised by the caller and its actor ref sent to the agent, so
-   * tokens flow directly from wherever the session is sharded to wherever this was
-   * called. Nothing buffers the whole reply.
+   * The `Source` is materialised by the caller and its actor ref sent to the agent, so tokens flow
+   * directly from wherever the session is sharded to wherever this was called. Nothing buffers the
+   * whole reply.
    */
   def stream[A <: Agent, I](handle: StreamHandle[A, I])(input: I): Source[String, NotUsed] =
     ActorSource
@@ -396,8 +395,8 @@ final class AgentCalls private[agent] (
 /**
  * Adds `forAgent` to `ComponentClient`.
  *
- * An extension method rather than a member, because `ComponentClient` lives in
- * `nakka-sdk` and cannot see `Agent`. The call site reads the same either way.
+ * An extension method rather than a member, because `ComponentClient` lives in `nakka-sdk` and
+ * cannot see `Agent`. The call site reads the same either way.
  */
 extension (client: ComponentClient)
   def forAgent(sessionId: SessionId): AgentCalls =

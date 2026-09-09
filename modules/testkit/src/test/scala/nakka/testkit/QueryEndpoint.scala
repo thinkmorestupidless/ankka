@@ -43,8 +43,8 @@ final class QueryEndpoint extends HttpEndpoint("/search"):
   /**
    * A streaming route reading query parameters.
    *
-   * The values are read while *building* the source, which is the only point the request
-   * context is available — elements are pulled later, by pekko-http, on another thread.
+   * The values are read while *building* the source, which is the only point the request context is
+   * available — elements are pulled later, by pekko-http, on another thread.
    */
   sse("/stream") { () =>
     val term  = query.required[String]("q")
@@ -64,4 +64,4 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
     context.header("X-Api-Key").contains("let-me-in") || context.query.flag("public")
   )
 
-  get("/") { () => "allowed" }
+  get("/")(() => "allowed")

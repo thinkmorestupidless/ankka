@@ -16,15 +16,15 @@ import scala.util.{Failure, Success}
 /**
  * The cluster singleton that fires due timers.
  *
- * Runs one batch at a time. Overlapping batches would let the same timer be started
- * twice concurrently, turning at-least-once into at-least-once-and-often-simultaneously —
- * much harder for a handler to be idempotent against.
+ * Runs one batch at a time. Overlapping batches would let the same timer be started twice
+ * concurrently, turning at-least-once into at-least-once-and-often-simultaneously — much harder for
+ * a handler to be idempotent against.
  */
 private[nakka] object TimerSweeper:
 
   private sealed trait Command
-  private case object Poll                          extends Command
-  private final case class BatchFinished(fired: Int) extends Command
+  private case object Poll                                 extends Command
+  private final case class BatchFinished(fired: Int)       extends Command
   private final case class BatchFailed(failure: Throwable) extends Command
 
   def apply(

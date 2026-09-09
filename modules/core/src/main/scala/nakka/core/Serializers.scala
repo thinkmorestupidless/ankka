@@ -12,9 +12,9 @@ import scala.concurrent.duration.FiniteDuration
  * {{{
  * given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
  * }}}
- * That is deliberate. The manifest is the schema-evolution hinge, and a name derived
- * automatically from a class name would silently change the moment the class is renamed —
- * breaking replay of an existing journal. Naming it makes the commitment visible.
+ * That is deliberate. The manifest is the schema-evolution hinge, and a name derived automatically
+ * from a class name would silently change the moment the class is renamed — breaking replay of an
+ * existing journal. Naming it makes the commitment visible.
  */
 object Serializers:
 
@@ -34,7 +34,7 @@ object Serializers:
       bytes => parse(String(bytes, "UTF-8"))
     )
 
-  given unit: Serializer[Unit]       = Serializer.unit
+  given unit: Serializer[Unit]         = Serializer.unit
   given bytes: Serializer[Array[Byte]] = Serializer.bytes
 
   given boolean: Serializer[Boolean] = viaString("boolean", _.toBoolean)
@@ -50,9 +50,9 @@ object Serializers:
     primitive[String]("string", _.getBytes("UTF-8"), String(_, "UTF-8"))
 
   /**
-   * Encoded as whole milliseconds, not as `toString`. A duration's textual form
-   * ("5 seconds") is not round-trippable through `toLong`, and TTLs cross the wire often
-   * enough that getting this wrong would be a recurring trap.
+   * Encoded as whole milliseconds, not as `toString`. A duration's textual form ("5 seconds") is
+   * not round-trippable through `toLong`, and TTLs cross the wire often enough that getting this
+   * wrong would be a recurring trap.
    */
   given finiteDuration: Serializer[FiniteDuration] =
     primitive[FiniteDuration](

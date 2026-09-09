@@ -6,10 +6,9 @@ import scala.concurrent.duration.DurationInt
 /**
  * Exercises the real Anthropic API.
  *
- * Skipped unless `ANTHROPIC_API_KEY` is set, so an ordinary `sbt test` stays free,
- * offline and deterministic. Run it deliberately to check the translation layer against
- * the live API — a scripted model can prove nakka's logic but not that the request shape
- * is one Anthropic accepts.
+ * Skipped unless `ANTHROPIC_API_KEY` is set, so an ordinary `sbt test` stays free, offline and
+ * deterministic. Run it deliberately to check the translation layer against the live API — a
+ * scripted model can prove nakka's logic but not that the request shape is one Anthropic accepts.
  */
 class AnthropicProviderSuite extends munit.FunSuite:
 
@@ -82,8 +81,8 @@ class AnthropicProviderSuite extends munit.FunSuite:
         Vector(weather.spec)
       )
     )
-    val call    = first.toolCalls.headOption.getOrElse(fail("no tool call"))
-    val result  = weather.invoke(call.arguments).getOrElse(fail("tool failed"))
+    val call   = first.toolCalls.headOption.getOrElse(fail("no tool call"))
+    val result = weather.invoke(call.arguments).getOrElse(fail("tool failed"))
 
     val second = complete(
       ModelRequest(

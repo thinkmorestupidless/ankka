@@ -26,8 +26,8 @@ final class OrderEntity(context: KeyValueEntityContext) extends KeyValueEntity[O
   /**
    * Cancels a pending order, and reports success for one already settled.
    *
-   * The idempotence matters: this is what a timer calls, and a timer that "fails"
-   * because the order was confirmed a moment earlier would retry forever.
+   * The idempotence matters: this is what a timer calls, and a timer that "fails" because the order
+   * was confirmed a moment earlier would retry forever.
    */
   def cancel: Effect[String] =
     if currentState.status == "pending" then

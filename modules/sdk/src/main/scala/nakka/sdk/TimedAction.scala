@@ -8,11 +8,10 @@ import scala.collection.mutable
 /**
  * A call the runtime makes later, on your behalf.
  *
- * Stateless: a timed action coordinates other components rather than holding anything
- * itself. Delivery is at-least-once and a timer is only forgotten once its handler
- * reports success, so an action for work that has since become irrelevant must return
- * `effects.done()` — returning an error would reschedule it forever. That is the sharpest
- * edge in the whole timer API.
+ * Stateless: a timed action coordinates other components rather than holding anything itself.
+ * Delivery is at-least-once and a timer is only forgotten once its handler reports success, so an
+ * action for work that has since become irrelevant must return `effects.done()` — returning an
+ * error would reschedule it forever. That is the sharpest edge in the whole timer API.
  */
 abstract class TimedAction:
 
@@ -47,8 +46,8 @@ private[nakka] final case class SimpleTimedActionContext(
 /**
  * A call captured for later execution.
  *
- * Holds the target and its already-encoded argument, so the schedule survives a restart
- * without needing the scheduling code's types to still be around.
+ * Holds the target and its already-encoded argument, so the schedule survives a restart without
+ * needing the scheduling code's types to still be around.
  */
 final case class DeferredCall(
     componentId: ComponentId,
@@ -91,11 +90,14 @@ trait TimerScheduler:
   /**
    * Schedules `call` to run once, after `delay`.
    *
-   * Names are the identity: scheduling twice under one name replaces the earlier
-   * schedule, which is what makes "extend the deadline" a single call rather than a
-   * cancel-then-create race.
+   * Names are the identity: scheduling twice under one name replaces the earlier schedule, which is
+   * what makes "extend the deadline" a single call rather than a cancel-then-create race.
    */
-  def createSingleTimer(name: String, delay: scala.concurrent.duration.FiniteDuration, call: DeferredCall): Unit
+  def createSingleTimer(
+      name: String,
+      delay: scala.concurrent.duration.FiniteDuration,
+      call: DeferredCall
+  ): Unit
 
   /** Cancels a timer. Cancelling one that does not exist is not an error. */
   def delete(name: String): Unit
@@ -116,7 +118,8 @@ object TimedAction:
    */
   abstract class Companion[A <: TimedAction](val componentId: ComponentId):
 
-    private val handlers = mutable.ListBuffer.empty[(MethodName, (A, Array[Byte]) => TimedActionEffect)]
+    private val handlers =
+      mutable.ListBuffer.empty[(MethodName, (A, Array[Byte]) => TimedActionEffect)]
 
     def create(ctx: TimedActionContext): A
 

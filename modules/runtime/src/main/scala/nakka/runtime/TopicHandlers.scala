@@ -11,10 +11,10 @@ import scala.concurrent.{ExecutionContext, Future}
 /**
  * Projects broker messages into a view's rows.
  *
- * Unlike the entity-sourced handler, this one writes through its own connection rather
- * than a projection transaction — the offset lives in Kafka, so there is no shared
- * transaction to join. Topic-sourced views are therefore at-least-once, and a view
- * reading one must be idempotent per message.
+ * Unlike the entity-sourced handler, this one writes through its own connection rather than a
+ * projection transaction — the offset lives in Kafka, so there is no shared transaction to join.
+ * Topic-sourced views are therefore at-least-once, and a view reading one must be idempotent per
+ * message.
  */
 private[nakka] final class ViewTopicHandler(
     descriptor: ViewDescriptor[View[Any, Any], Any, Any],
@@ -41,7 +41,8 @@ private[nakka] final class ViewTopicHandler(
       case Some(subject) =>
         database
           .query(ViewStore.selectByKey(table, subject))(row =>
-            descriptor.rowSerializer.fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8"))
+            descriptor.rowSerializer
+              .fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8"))
           )
           .flatMap { existing =>
             view._setRow(existing.headOption)
@@ -66,9 +67,9 @@ private[nakka] final class ViewTopicHandler(
 /**
  * Runs a consumer over broker messages.
  *
- * A handler that throws produces a failed Future, which stops the offset being committed
- * — so the message is redelivered. That is the whole at-least-once contract, and it is
- * why a consumer must tolerate duplicates.
+ * A handler that throws produces a failed Future, which stops the offset being committed — so the
+ * message is redelivered. That is the whole at-least-once contract, and it is why a consumer must
+ * tolerate duplicates.
  */
 private[nakka] final class ConsumerTopicHandler(
     descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],

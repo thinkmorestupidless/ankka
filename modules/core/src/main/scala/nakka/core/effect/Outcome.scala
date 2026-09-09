@@ -5,9 +5,9 @@ import nakka.core.{CommandError, Metadata}
 /**
  * The terminal disposition of a command handler: what, if anything, the caller receives.
  *
- * `Reply` computes its value from the state *after* persisted events have been applied,
- * which is why it holds a function rather than a value — at the point the developer
- * writes `.thenReply(newState => ...)` the new state does not exist yet.
+ * `Reply` computes its value from the state *after* persisted events have been applied, which is
+ * why it holds a function rather than a value — at the point the developer writes
+ * `.thenReply(newState => ...)` the new state does not exist yet.
  */
 sealed trait Outcome[-S, +R]
 

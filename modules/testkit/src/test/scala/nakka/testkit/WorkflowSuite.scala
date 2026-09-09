@@ -18,7 +18,7 @@ class WorkflowSuite extends munit.FunSuite:
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
-  private def wallet(id: String) = testKit.componentClient.forKeyValueEntity(EntityId(id))
+  private def wallet(id: String)   = testKit.componentClient.forKeyValueEntity(EntityId(id))
   private def transfer(id: String) = testKit.componentClient.forWorkflow(EntityId(id))
 
   private def eventually[A](description: String, within: FiniteDuration = 40.seconds)(
@@ -179,7 +179,7 @@ class WorkflowSuite extends munit.FunSuite:
             nakka.core.Codecs.serializer[TransferState]("transfer-state")
           ):
         def create(context: nakka.sdk.WorkflowContext) = new TransferWorkflow(context)
-        val clash = step("nakka:lifecycle")(_.compensateStep)
+        val clash                                      = step("nakka:lifecycle")(_.compensateStep)
       Bad.descriptor
     }
     assert(failure.getMessage.contains("reserved"), failure.getMessage)

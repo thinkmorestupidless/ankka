@@ -32,10 +32,10 @@ import scala.jdk.OptionConverters.*
 /**
  * Talks to Claude through Anthropic's own Java SDK.
  *
- * The SDK is used only as transport: nakka owns the agent loop, tool dispatch, memory
- * and token accounting, and this class does nothing but translate between nakka's request
- * and response types and the SDK's. Hand-rolling the HTTP would mean owning SSE framing,
- * thinking-block replay rules and beta-header churn for no gain.
+ * The SDK is used only as transport: nakka owns the agent loop, tool dispatch, memory and token
+ * accounting, and this class does nothing but translate between nakka's request and response types
+ * and the SDK's. Hand-rolling the HTTP would mean owning SSE framing, thinking-block replay rules
+ * and beta-header churn for no gain.
  */
 final class AnthropicProvider private (
     client: AnthropicClient,
@@ -48,9 +48,8 @@ final class AnthropicProvider private (
   /**
    * The SDK is blocking, so calls run on a virtual-thread executor.
    *
-   * A dedicated executor rather than the caller's: the agent loop already awaits this on
-   * a virtual thread, and borrowing a Pekko dispatcher for a call that can take minutes
-   * would starve it.
+   * A dedicated executor rather than the caller's: the agent loop already awaits this on a virtual
+   * thread, and borrowing a Pekko dispatcher for a call that can take minutes would starve it.
    */
   private given ExecutionContext =
     ExecutionContext.fromExecutorService(Executors.newVirtualThreadPerTaskExecutor())
@@ -61,10 +60,10 @@ final class AnthropicProvider private (
   /**
    * Streams a response as it is generated.
    *
-   * Text deltas are emitted as they arrive *and* fed to a `MessageAccumulator`, so the
-   * terminal `Completed` chunk carries the same tool calls, stop reason and token usage a
-   * non-streaming call would have returned. A caller gets live tokens without giving up
-   * anything the batch path provides.
+   * Text deltas are emitted as they arrive *and* fed to a `MessageAccumulator`, so the terminal
+   * `Completed` chunk carries the same tool calls, stop reason and token usage a non-streaming call
+   * would have returned. A caller gets live tokens without giving up anything the batch path
+   * provides.
    */
   override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
     Source
@@ -127,7 +126,8 @@ final class AnthropicProvider private (
       case _ => ()
     }
 
-    val required = spec.inputSchema("required")
+    val required = spec
+      .inputSchema("required")
       .flatMap(_.asArray)
       .map(_.flatMap(_.asString).toList.asJava)
       .getOrElse(java.util.List.of[String]())
@@ -272,12 +272,11 @@ final class AnthropicProvider private (
       cacheWriteTokens = reported.cacheCreationInputTokens().toScala.map(_.toInt).getOrElse(0)
     )
 
-
   /**
    * Pulls one SSE event at a time, accumulating the whole message as it goes.
    *
-   * Mutable and single-threaded by construction: `unfoldResource` guarantees `next` is
-   * never called concurrently for one materialisation.
+   * Mutable and single-threaded by construction: `unfoldResource` guarantees `next` is never called
+   * concurrently for one materialisation.
    */
   private[agent] final class Streaming(response: StreamResponse[RawMessageStreamEvent]):
 
@@ -311,15 +310,17 @@ final class AnthropicProvider private (
             .contentBlockStart()
             .toScala
             .flatMap(_.contentBlock().toolUse().toScala)
-            .map(block => ModelChunk.ToolCallStarted(ToolCall(block.id(), block.name(), Json.Obj(Map.empty))))
+            .map(block =>
+              ModelChunk.ToolCallStarted(ToolCall(block.id(), block.name(), Json.Obj(Map.empty)))
+            )
         )
 
   /** nakka's JSON tree as plain Java values, which is what `JsonValue.from` accepts. */
   private def toJava(value: Json): Any = value match
-    case Json.Null       => null
-    case Json.Bool(v)    => java.lang.Boolean.valueOf(v)
-    case Json.Str(v)     => v
-    case Json.Num(v)     =>
+    case Json.Null    => null
+    case Json.Bool(v) => java.lang.Boolean.valueOf(v)
+    case Json.Str(v)  => v
+    case Json.Num(v) =>
       if v.isWhole && v.abs <= Long.MaxValue.toDouble then java.lang.Long.valueOf(v.toLong)
       else java.lang.Double.valueOf(v)
     case Json.Arr(items) => items.map(toJava).toList.asJava
@@ -331,8 +332,8 @@ object AnthropicProvider:
   /**
    * `claude-opus-5` by default.
    *
-   * Choosing a cheaper model is a decision for whoever runs the service, not a default
-   * nakka should make on their behalf.
+   * Choosing a cheaper model is a decision for whoever runs the service, not a default nakka should
+   * make on their behalf.
    */
   val DefaultModel: String = "claude-opus-5"
 

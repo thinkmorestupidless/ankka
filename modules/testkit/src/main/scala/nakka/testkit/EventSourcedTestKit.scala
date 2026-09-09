@@ -11,8 +11,8 @@ import scala.reflect.ClassTag
 /**
  * The outcome of one command against a test entity.
  *
- * Carries both what the caller would have seen and what would have reached the journal,
- * because for an event sourced entity those are two separate things worth asserting on.
+ * Carries both what the caller would have seen and what would have reached the journal, because for
+ * an event sourced entity those are two separate things worth asserting on.
  */
 final case class CommandResult[S, E, O](
     reply: Either[CommandError, Option[O]],
@@ -24,7 +24,7 @@ final case class CommandResult[S, E, O](
   /** The reply value, or a test failure if the handler rejected or replied with nothing. */
   def replyValue: O = reply match
     case Right(Some(value)) => value
-    case Right(None) => throw AssertionError("handler replied with no value")
+    case Right(None)        => throw AssertionError("handler replied with no value")
     case Left(error) => throw AssertionError(s"handler rejected the command: ${error.message}")
 
   def isError: Boolean = reply.isLeft
@@ -42,17 +42,19 @@ final case class CommandResult[S, E, O](
   def eventOfType[T <: E](using tag: ClassTag[T]): T =
     events.collect { case tag(e) => e } match
       case Vector(single) => single
-      case Vector()       => throw AssertionError(
+      case Vector() =>
+        throw AssertionError(
           s"no ${tag.runtimeClass.getSimpleName} among ${events.map(_.getClass.getSimpleName)}"
         )
-      case many => throw AssertionError(s"expected one ${tag.runtimeClass.getSimpleName}, got $many")
+      case many =>
+        throw AssertionError(s"expected one ${tag.runtimeClass.getSimpleName}, got $many")
 
 /**
  * Drives a single entity in memory, with no actor system, no cluster and no database.
  *
- * Every call round-trips its input and reply through the entity's own serializers. That
- * is deliberate: a missing or broken codec is otherwise invisible until the first real
- * deployment, and catching it in a millisecond-scale unit test is much cheaper.
+ * Every call round-trips its input and reply through the entity's own serializers. That is
+ * deliberate: a missing or broken codec is otherwise invisible until the first real deployment, and
+ * catching it in a millisecond-scale unit test is much cheaper.
  */
 final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
     companion: EventSourcedEntity.Companion[C, S, E],
@@ -60,7 +62,7 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
     componentClient: ComponentClient
 ):
 
-  private val entity  = companion.create(
+  private val entity = companion.create(
     SimpleEntityContext(entityId, companion.componentId, componentClient)
   )
   private val journal = mutable.ListBuffer.empty[E]
@@ -130,9 +132,9 @@ object EventSourcedTestKit:
   /**
    * Drives `companion` in isolation.
    *
-   * `componentClient` defaults to one that fails on any call, so an entity that reaches
-   * for a collaborator the test forgot to stub says so instead of quietly succeeding.
-   * Pass `TestTransport().stub(…).client` to stub those calls.
+   * `componentClient` defaults to one that fails on any call, so an entity that reaches for a
+   * collaborator the test forgot to stub says so instead of quietly succeeding. Pass
+   * `TestTransport().stub(…).client` to stub those calls.
    */
   def of[C <: EventSourcedEntity[S, E], S, E](
       companion: EventSourcedEntity.Companion[C, S, E],

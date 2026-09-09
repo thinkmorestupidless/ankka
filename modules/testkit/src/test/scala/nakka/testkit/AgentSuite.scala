@@ -7,9 +7,8 @@ import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 
 /**
- * Agents end to end: sharded per session, real session memory in Postgres, real tool
- * loop — with a scripted model so the assertions are about nakka's behaviour rather than
- * a model's mood.
+ * Agents end to end: sharded per session, real session memory in Postgres, real tool loop — with a
+ * scripted model so the assertions are about nakka's behaviour rather than a model's mood.
  */
 class AgentSuite extends munit.FunSuite:
 
@@ -124,10 +123,16 @@ class AgentSuite extends munit.FunSuite:
       .expectToolCall("send_email", Json.obj("to" -> Json.str("x@example.com")))
       .expectText("I cannot send email.")
 
-    assertEquals(agent("s-notool").call(WeatherAgent.ask).invoke("Email me"), "I cannot send email.")
+    assertEquals(
+      agent("s-notool").call(WeatherAgent.ask).invoke("Email me"),
+      "I cannot send email."
+    )
     val results = model.requests(1).messages.collect { case t: ChatMessage.ToolResults => t }
     assert(results.head.results.head.isError)
-    assert(results.head.results.head.content.contains("get_weather"), "should list what is available")
+    assert(
+      results.head.results.head.content.contains("get_weather"),
+      "should list what is available"
+    )
   }
 
   test("session memory carries context into the next request") {
@@ -155,7 +160,7 @@ class AgentSuite extends munit.FunSuite:
     val _ = agent("s-persist").call(WeatherAgent.ask).invoke("Rome?")
 
     val history = historyOf("s-persist")
-    val kinds = history.messages.map(_.getClass.getSimpleName)
+    val kinds   = history.messages.map(_.getClass.getSimpleName)
     assertEquals(
       kinds,
       Vector("UserMessage", "AiMessage", "ToolResultMessage", "AiMessage"),
@@ -236,8 +241,8 @@ class AgentSuite extends munit.FunSuite:
   test("the agent knows its component id and session") {
     model.expectText("acknowledged")
     val _ = agent("s-identity").call(WeatherAgent.whoAmI).invoke()
-    val text = model.lastRequest.messages.collect {
-      case ChatMessage.User(content) => content.collect { case MessageContent.Text(t) => t }.mkString
+    val text = model.lastRequest.messages.collect { case ChatMessage.User(content) =>
+      content.collect { case MessageContent.Text(t) => t }.mkString
     }.mkString
     assert(text.contains("weather-agent"), text)
     assert(text.contains("s-identity"), text)
@@ -252,8 +257,8 @@ class AgentSuite extends munit.FunSuite:
 
     assertEquals(historyOf("s-iso-a").messages.size, 2)
     assertEquals(historyOf("s-iso-b").messages.size, 2)
-    val aText = historyOf("s-iso-a").messages.collect {
-      case m: SessionMessage.UserMessage => m.text
+    val aText = historyOf("s-iso-a").messages.collect { case m: SessionMessage.UserMessage =>
+      m.text
     }
     assertEquals(aText, Vector("only in A"))
   }

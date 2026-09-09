@@ -27,11 +27,11 @@ import scala.jdk.CollectionConverters.*
 /**
  * CloudEvents framing for broker messages.
  *
- * The attributes travel as Kafka headers rather than being wrapped around the payload,
- * so a consumer written in another language reads a plain JSON body with metadata beside
- * it. `ce-subject` doubles as the record key, which is what preserves per-entity
- * ordering: Kafka guarantees order within a partition, and keying by subject puts every
- * message about one entity on the same partition.
+ * The attributes travel as Kafka headers rather than being wrapped around the payload, so a
+ * consumer written in another language reads a plain JSON body with metadata beside it.
+ * `ce-subject` doubles as the record key, which is what preserves per-entity ordering: Kafka
+ * guarantees order within a partition, and keying by subject puts every message about one entity on
+ * the same partition.
  */
 private[nakka] object CloudEvents:
 
@@ -78,8 +78,8 @@ object KafkaPublisher:
   /**
    * Connects to `bootstrapServers`.
    *
-   * The key serializer is `String` so `ce-subject` can be the record key; values are
-   * raw bytes, already encoded by the producing consumer's own serializer.
+   * The key serializer is `String` so `ce-subject` can be the record key; values are raw bytes,
+   * already encoded by the producing consumer's own serializer.
    */
   def apply(bootstrapServers: String)(using system: ActorSystem[?]): KafkaPublisher =
     val settings = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
@@ -97,11 +97,10 @@ object KafkaPublisher:
 /**
  * Consumes from Kafka.
  *
- * Offsets are committed to Kafka and distribution is handled by consumer groups, rather
- * than going through nakka's projection offset store. That means rebalancing across
- * nodes works with no code, at the cost of topic sources being at-least-once and unable
- * to rebuild from history — which is what a topic can offer anyway, since a broker's
- * retention is not an event journal.
+ * Offsets are committed to Kafka and distribution is handled by consumer groups, rather than going
+ * through nakka's projection offset store. That means rebalancing across nodes works with no code,
+ * at the cost of topic sources being at-least-once and unable to rebuild from history — which is
+ * what a topic can offer anyway, since a broker's retention is not an event journal.
  */
 final class KafkaSubscriber private (
     bootstrapServers: String,

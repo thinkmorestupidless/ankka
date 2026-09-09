@@ -8,7 +8,11 @@ import org.apache.pekko.Done
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.cluster.sharding.typed.scaladsl.ShardedDaemonProcess
 import org.apache.pekko.persistence.query.typed.EventEnvelope
-import org.apache.pekko.persistence.query.{DeletedDurableState, DurableStateChange, UpdatedDurableState}
+import org.apache.pekko.persistence.query.{
+  DeletedDurableState,
+  DurableStateChange,
+  UpdatedDurableState
+}
 import org.apache.pekko.persistence.r2dbc.query.scaladsl.R2dbcReadJournal
 import org.apache.pekko.persistence.typed.PersistenceId
 import org.apache.pekko.projection.eventsourced.scaladsl.EventSourcedProvider
@@ -22,14 +26,13 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 /**
  * Runs every registered view and consumer.
  *
- * Each one is a `ShardedDaemonProcess`: the cluster splits the source's id space into
- * slice ranges and hands each range to exactly one node, so throughput scales with
- * `parallelism` and no change is ever processed twice concurrently.
+ * Each one is a `ShardedDaemonProcess`: the cluster splits the source's id space into slice ranges
+ * and hands each range to exactly one node, so throughput scales with `parallelism` and no change
+ * is ever processed twice concurrently.
  *
- * Views over event sourced entities get exactly-once delivery, because the row write and
- * the offset write happen in one Postgres transaction. Everything else is at-least-once
- * — see `DurableStateSourceProvider` for why that is a property of the source rather
- * than a shortcut.
+ * Views over event sourced entities get exactly-once delivery, because the row write and the offset
+ * write happen in one Postgres transaction. Everything else is at-least-once — see
+ * `DurableStateSourceProvider` for why that is a property of the source rather than a shortcut.
  */
 final class ProjectionRuntime private (
     publisherFactory: Option[ActorSystem[?] => MessagePublisher],
@@ -53,8 +56,7 @@ final class ProjectionRuntime private (
     val views     = service.registry.components.collect { case v: ViewDescriptor[?, ?, ?] => v }
     val consumers = service.registry.components.collect { case c: ConsumerDescriptor[?, ?, ?] => c }
 
-    if views.isEmpty && consumers.isEmpty then
-      system.log.debug("no views or consumers registered")
+    if views.isEmpty && consumers.isEmpty then system.log.debug("no views or consumers registered")
     else
       rejectUnsupported(views, consumers)
 
@@ -74,9 +76,9 @@ final class ProjectionRuntime private (
   /**
    * Fails fast on sources and sinks this runtime cannot serve.
    *
-   * Both cases would otherwise be silent: a topic source would simply never deliver, and
-   * a producing consumer without a publisher would drop every message. A startup failure
-   * naming the component is far kinder than either.
+   * Both cases would otherwise be silent: a topic source would simply never deliver, and a
+   * producing consumer without a publisher would drop every message. A startup failure naming the
+   * component is far kinder than either.
    */
   private def rejectUnsupported(
       views: Vector[ViewDescriptor[?, ?, ?]],
@@ -112,7 +114,7 @@ final class ProjectionRuntime private (
       client: ComponentClient
   )(using system: ActorSystem[?]): Unit =
     type AnyView = View[Any, Any]
-    val typed = descriptor.asInstanceOf[ViewDescriptor[AnyView, Any, Any]]
+    val typed       = descriptor.asInstanceOf[ViewDescriptor[AnyView, Any, Any]]
     val processName = s"nakka-view-${typed.componentId}"
 
     typed.source match
@@ -152,7 +154,7 @@ final class ProjectionRuntime private (
       client: ComponentClient
   )(using system: ActorSystem[?]): Unit =
     type AnyConsumer = Consumer[Any, Any]
-    val typed = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
+    val typed       = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
     val processName = s"nakka-consumer-${typed.componentId}"
 
     typed.source match
@@ -254,8 +256,8 @@ object ProjectionRuntime:
   /**
    * Adds both directions, enabling topic-sourced views and consumers.
    *
-   * `InMemoryBroker` implements both, so the whole topic path can be exercised without a
-   * broker running.
+   * `InMemoryBroker` implements both, so the whole topic path can be exercised without a broker
+   * running.
    */
   def withBroker(publisher: MessagePublisher, subscriber: MessageSubscriber): ProjectionRuntime =
     new ProjectionRuntime(Some(_ => publisher), Some(_ => subscriber))
@@ -263,9 +265,9 @@ object ProjectionRuntime:
   /**
    * Publishes to and consumes from Kafka.
    *
-   * Offsets are committed to Kafka and partitions assigned by consumer groups, so
-   * scaling out needs no configuration here — but topic sources are at-least-once and
-   * cannot rebuild from history, because a broker's retention is not an event journal.
+   * Offsets are committed to Kafka and partitions assigned by consumer groups, so scaling out needs
+   * no configuration here — but topic sources are at-least-once and cannot rebuild from history,
+   * because a broker's retention is not an event journal.
    */
   def withKafka(bootstrapServers: String): ProjectionRuntime =
     new ProjectionRuntime(
@@ -283,15 +285,16 @@ private final class ViewEventHandler(
     extends R2dbcHandler[EventEnvelope[JournalRecord]]:
 
   private given ExecutionContext = system.executionContext
-  private val view = descriptor.create(SimpleViewContext(descriptor.componentId, client))
-  private val table             = descriptor.tableName
+  private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
+  private val table = descriptor.tableName
 
   def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val record  = envelope.event
 
     ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer).flatMap { row =>
-      val effect = ProjectionSupport.runView(view, descriptor, subject, envelope.sequenceNr, row, record)
+      val effect =
+        ProjectionSupport.runView(view, descriptor, subject, envelope.sequenceNr, row, record)
       ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
     }
 
@@ -303,36 +306,38 @@ private final class ViewStateHandler(
     extends Handler[DurableStateChange[StateRecord]]:
 
   private given ExecutionContext = system.executionContext
-  private val database = Database()
+  private val database           = Database()
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
-    database.query(ViewStore.selectByKey(table, subject))(r =>
-      descriptor.rowSerializer.fromBytes(r.get("payload", classOf[String]).getBytes("UTF-8"))
-    ).flatMap { existing =>
-      view._setRow(existing.headOption)
-      view._setContext(Some(SimpleChangeContext(subject, revisionOf(change), localOrigin = true)))
+    database
+      .query(ViewStore.selectByKey(table, subject))(r =>
+        descriptor.rowSerializer.fromBytes(r.get("payload", classOf[String]).getBytes("UTF-8"))
+      )
+      .flatMap { existing =>
+        view._setRow(existing.headOption)
+        view._setContext(Some(SimpleChangeContext(subject, revisionOf(change), localOrigin = true)))
 
-      val effect =
-        try
-          change match
-            case updated: UpdatedDurableState[StateRecord] =>
-              view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
-            case _: DeletedDurableState[StateRecord] => view.onDelete
-        finally view._setContext(None)
+        val effect =
+          try
+            change match
+              case updated: UpdatedDurableState[StateRecord] =>
+                view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
+              case _: DeletedDurableState[StateRecord] => view.onDelete
+          finally view._setContext(None)
 
-      effect match
-        case ViewEffect.UpdateRow(row) =>
-          val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-          database.execute(ViewStore.upsert(table, subject, json)).map(_ => Done)
-        case ViewEffect.DeleteRow =>
-          database.execute(ViewStore.delete(table, subject)).map(_ => Done)
-        case ViewEffect.Ignore =>
-          Future.successful(Done)
-    }
+        effect match
+          case ViewEffect.UpdateRow(row) =>
+            val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
+            database.execute(ViewStore.upsert(table, subject, json)).map(_ => Done)
+          case ViewEffect.DeleteRow =>
+            database.execute(ViewStore.delete(table, subject)).map(_ => Done)
+          case ViewEffect.Ignore =>
+            Future.successful(Done)
+      }
 
   private def revisionOf(change: DurableStateChange[StateRecord]): Long = change match
     case updated: UpdatedDurableState[StateRecord] => updated.revision
@@ -352,7 +357,9 @@ private final class ConsumerEventHandler(
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
     val record  = envelope.event
 
-    consumer._setContext(Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true)))
+    consumer._setContext(
+      Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true))
+    )
     val effect =
       try
         record.kind match

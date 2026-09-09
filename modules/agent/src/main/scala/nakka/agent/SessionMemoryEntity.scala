@@ -32,10 +32,10 @@ enum SessionMemoryEvent:
 /**
  * A conversation, as an event sourced entity.
  *
- * Memory is a first-class component rather than a field on the agent, which is what
- * makes the documented capabilities fall out for free: several agents can share one
- * session by addressing the same id, a consumer can subscribe to memory events to drive
- * compaction, and history survives a restart because it is a journal like any other.
+ * Memory is a first-class component rather than a field on the agent, which is what makes the
+ * documented capabilities fall out for free: several agents can share one session by addressing the
+ * same id, a consumer can subscribe to memory events to drive compaction, and history survives a
+ * restart because it is a journal like any other.
  */
 final class SessionMemoryEntity(context: EventSourcedEntityContext)
     extends EventSourcedEntity[SessionHistory, SessionMemoryEvent]:
@@ -56,7 +56,7 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
       appended(message)
 
     case SessionMemoryEvent.HistoryCompacted(summary, droppedCount) =>
-      val kept = currentState.messages.drop(droppedCount)
+      val kept     = currentState.messages.drop(droppedCount)
       val messages = summary +: kept
       currentState.copy(messages = messages, sizeInBytes = sizeOf(messages))
 
@@ -77,8 +77,8 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
   /**
    * Writes several messages in one go.
    *
-   * One turn of an agent loop produces a user message, an AI message and any number of
-   * tool results. Persisting them together means a reader never sees a turn half-written.
+   * One turn of an agent loop produces a user message, an AI message and any number of tool
+   * results. Persisting them together means a reader never sees a turn half-written.
    */
   def append(batch: SessionMemoryEntity.Append): Effect[Done] =
     val events = batch.messages.map {
@@ -152,9 +152,9 @@ object SessionMemoryEntity
     Codecs.serializer[SessionMessage.UserMessage]("session-user-message")
   given Serializer[SessionMessage.ToolResultMessage] =
     Codecs.serializer[SessionMessage.ToolResultMessage]("session-tool-result")
-  given Serializer[AddAiMessage] = Codecs.serializer[AddAiMessage]("session-add-ai")
-  given Serializer[Append]       = Codecs.serializer[Append]("session-append")
-  given Serializer[Compact]      = Codecs.serializer[Compact]("session-compact")
+  given Serializer[AddAiMessage]   = Codecs.serializer[AddAiMessage]("session-add-ai")
+  given Serializer[Append]         = Codecs.serializer[Append]("session-append")
+  given Serializer[Compact]        = Codecs.serializer[Compact]("session-compact")
   given Serializer[SessionHistory] = Codecs.serializer[SessionHistory]("session-history")
 
   def create(context: EventSourcedEntityContext) = new SessionMemoryEntity(context)

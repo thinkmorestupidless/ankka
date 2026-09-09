@@ -8,11 +8,11 @@ import scala.collection.mutable
 /**
  * A component that carries out a task by talking to a model.
  *
- * Hosted as a sharded, event-sourced instance keyed by *session id* rather than by an
- * arbitrary entity id. That is the load-bearing choice: it makes the session single-writer,
- * so a tool loop that runs for thirty seconds cannot be interleaved with a second request
- * on the same conversation, and it makes the loop durable — a crash mid-loop resumes from
- * journalled history instead of replaying side effects.
+ * Hosted as a sharded, event-sourced instance keyed by *session id* rather than by an arbitrary
+ * entity id. That is the load-bearing choice: it makes the session single-writer, so a tool loop
+ * that runs for thirty seconds cannot be interleaved with a second request on the same
+ * conversation, and it makes the loop durable — a crash mid-loop resumes from journalled history
+ * instead of replaying side effects.
  */
 abstract class Agent:
 
@@ -104,9 +104,9 @@ object Agent:
     /**
      * Registers a handler that streams its reply.
      *
-     * Kept separate from `command` because the two are reached by different call sites
-     * — `.call(...)` versus `.stream(...)` — and conflating them would let a caller
-     * await a single value from a handler that produces many.
+     * Kept separate from `command` because the two are reached by different call sites —
+     * `.call(...)` versus `.stream(...)` — and conflating them would let a caller await a single
+     * value from a handler that produces many.
      */
     protected final def stream[I](name: String)(
         f: A => I => AgentStreamEffect

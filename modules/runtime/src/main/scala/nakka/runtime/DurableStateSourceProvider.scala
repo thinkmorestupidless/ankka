@@ -19,14 +19,13 @@ import scala.concurrent.{ExecutionContext, Future}
 /**
  * Streams key value entity changes to a projection.
  *
- * Pekko ships an `EventSourcedProvider` but no durable-state equivalent, so this wraps
- * the r2dbc store's own `changesBySlices`. It implements `BySlicesSourceProvider` because
- * the projection's offset store keys offsets by slice range.
+ * Pekko ships an `EventSourcedProvider` but no durable-state equivalent, so this wraps the r2dbc
+ * store's own `changesBySlices`. It implements `BySlicesSourceProvider` because the projection's
+ * offset store keys offsets by slice range.
  *
- * Only usable with at-least-once projections. That is not a shortcut: a durable state
- * store keeps no history, so it can only ever offer the latest value per entity and
- * intermediate updates may be skipped entirely. Promising exactly-once over a source
- * that cannot replay would be a lie.
+ * Only usable with at-least-once projections. That is not a shortcut: a durable state store keeps
+ * no history, so it can only ever offer the latest value per entity and intermediate updates may be
+ * skipped entirely. Promising exactly-once over a source that cannot replay would be a lie.
  */
 private[nakka] final class DurableStateSourceProvider[A](
     entityType: String,

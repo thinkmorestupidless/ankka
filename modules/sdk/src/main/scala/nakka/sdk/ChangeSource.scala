@@ -5,9 +5,9 @@ import nakka.core.{ComponentId, Serializer}
 /**
  * Where a view or consumer gets its changes from.
  *
- * Built from the source component's own companion, so the change type and its decoder
- * come from one place. A view over `ShoppingCartEntity` cannot accidentally be typed
- * against the wrong event hierarchy, and cannot drift when the entity's serializer changes.
+ * Built from the source component's own companion, so the change type and its decoder come from one
+ * place. A view over `ShoppingCartEntity` cannot accidentally be typed against the wrong event
+ * hierarchy, and cannot drift when the entity's serializer changes.
  */
 sealed trait ChangeSource[Src]:
   def decoder: Serializer[Src]
@@ -23,9 +23,9 @@ object ChangeSource:
   /**
    * State changes of a key value entity.
    *
-   * Only the latest value is guaranteed to arrive: intermediate updates can be skipped,
-   * because the store keeps no history to replay. Fine for a projection of "what is",
-   * wrong for anything that needs to count or audit changes.
+   * Only the latest value is guaranteed to arrive: intermediate updates can be skipped, because the
+   * store keeps no history to replay. Fine for a projection of "what is", wrong for anything that
+   * needs to count or audit changes.
    */
   final case class KeyValue[Src](componentId: ComponentId, decoder: Serializer[Src])
       extends ChangeSource[Src]:

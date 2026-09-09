@@ -6,15 +6,14 @@ import org.apache.pekko.actor.typed.ActorRef
 /**
  * Marker for every type nakka puts on the wire or into storage.
  *
- * One `serialization-bindings` entry against this trait covers the whole runtime, so
- * adding a message type never means remembering to register it.
+ * One `serialization-bindings` entry against this trait covers the whole runtime, so adding a
+ * message type never means remembering to register it.
  */
 trait NakkaSerializable
 
 /**
- * A metadata pair. A `Vector[(String, String)]` would be neater to read but tuples
- * serialise as bare arrays, which makes stored payloads and broker messages far harder
- * to inspect by hand.
+ * A metadata pair. A `Vector[(String, String)]` would be neater to read but tuples serialise as
+ * bare arrays, which makes stored payloads and broker messages far harder to inspect by hand.
  */
 final case class MetaEntry(key: String, value: String) extends NakkaSerializable
 
@@ -28,18 +27,18 @@ object MetaEntry:
 /**
  * What a component instance receives and returns across a shard boundary.
  *
- * The payload is already-encoded bytes: a handler's input and output are serialised by
- * that handler's own `Serializer`, so this envelope never needs to know their types.
+ * The payload is already-encoded bytes: a handler's input and output are serialised by that
+ * handler's own `Serializer`, so this envelope never needs to know their types.
  */
 object EntityProtocol:
 
   /**
    * One command protocol for every sharded component kind.
    *
-   * Entities and workflows share it so that `ShardingTransport` needs a single
-   * `EntityTypeKey` type and a single message type — routing a call should not have to
-   * know what kind of component is on the other end. Only `Invoke` ever crosses a node
-   * boundary; the rest are a workflow engine talking to itself.
+   * Entities and workflows share it so that `ShardingTransport` needs a single `EntityTypeKey` type
+   * and a single message type — routing a call should not have to know what kind of component is on
+   * the other end. Only `Invoke` ever crosses a node boundary; the rest are a workflow engine
+   * talking to itself.
    */
   sealed trait Command
 
@@ -72,19 +71,19 @@ object EntityProtocol:
   /**
    * Extension point for nakka modules that host their own sharded component kinds.
    *
-   * Note the cost: because this sub-trait is not sealed, the compiler treats `Command` as
-   * open and stops reporting non-exhaustive matches over it. Every host must therefore
-   * handle unexpected commands explicitly — and for a streaming request that means
-   * *replying*, since a caller waiting on a token stream would otherwise hang forever.
+   * Note the cost: because this sub-trait is not sealed, the compiler treats `Command` as open and
+   * stops reporting non-exhaustive matches over it. Every host must therefore handle unexpected
+   * commands explicitly — and for a streaming request that means *replying*, since a caller waiting
+   * on a token stream would otherwise hang forever.
    */
   /**
    * Asks a component to stream its reply.
    *
-   * Tokens are pushed to `tokens` rather than returned, because a reply that arrives over
-   * time cannot be a return value. An `ActorRef` is used rather than a stream `SourceRef`
-   * for a concrete reason: Pekko binds its stream-ref serializer to the ref classes
-   * themselves, so a `SourceRef` nested inside a message would not serialise — while
-   * `ActorRef` has first-class support and therefore works across nodes.
+   * Tokens are pushed to `tokens` rather than returned, because a reply that arrives over time
+   * cannot be a return value. An `ActorRef` is used rather than a stream `SourceRef` for a concrete
+   * reason: Pekko binds its stream-ref serializer to the ref classes themselves, so a `SourceRef`
+   * nested inside a message would not serialise — while `ActorRef` has first-class support and
+   * therefore works across nodes.
    */
   final case class InvokeStream(
       method: String,
@@ -119,8 +118,8 @@ object EntityProtocol:
   final case class Succeeded(payload: Array[Byte], metadata: Vector[MetaEntry]) extends Reply
 
   /**
-   * A modelled rejection. `code` travels as the enum's name rather than its ordinal so
-   * that adding a case never reinterprets replies already in flight.
+   * A modelled rejection. `code` travels as the enum's name rather than its ordinal so that adding
+   * a case never reinterprets replies already in flight.
    */
   final case class Rejected(message: String, code: String) extends Reply:
     def toCommandError: CommandError =
@@ -132,9 +131,9 @@ object EntityProtocol:
 /**
  * One journal record.
  *
- * Flat, with an integer `kind`, rather than a sealed hierarchy: the journal is the
- * longest-lived thing nakka writes, and a shape that needs no polymorphic type
- * resolution to read back is a shape that stays readable.
+ * Flat, with an integer `kind`, rather than a sealed hierarchy: the journal is the longest-lived
+ * thing nakka writes, and a shape that needs no polymorphic type resolution to read back is a shape
+ * that stays readable.
  *
  *   - `kind = 0` — a domain event, `payload` encoded by the entity's event serializer
  *   - `kind = 1` — the entity was deleted
@@ -171,8 +170,8 @@ final case class StateRecord(
 /**
  * One record in a workflow's journal.
  *
- * Flat, like `JournalRecord`, and for the same reason: this is the durable record of a
- * business process, and it should stay readable without nakka to interpret it.
+ * Flat, like `JournalRecord`, and for the same reason: this is the durable record of a business
+ * process, and it should stay readable without nakka to interpret it.
  *
  *   - `kind = 0` — the workflow's state changed
  *   - `kind = 1` — a step was scheduled; `step` and `stepInput` say which and with what

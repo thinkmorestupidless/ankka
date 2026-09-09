@@ -5,12 +5,12 @@ import nakka.core.{CommandError, ErrorCode, Metadata}
 import scala.concurrent.duration.FiniteDuration
 
 /**
- * A *description* of what the runtime should do for one command against an event sourced
- * entity. Building one performs no I/O and touches no state, which is what lets unit
- * tests assert on handler behaviour with no runtime, no database and no cluster.
+ * A *description* of what the runtime should do for one command against an event sourced entity.
+ * Building one performs no I/O and touches no state, which is what lets unit tests assert on
+ * handler behaviour with no runtime, no database and no cluster.
  *
- * State can only ever change by persisting an event — there is deliberately no
- * `updateState` here, mirroring the guarantee Akka's event sourced entities make.
+ * State can only ever change by persisting an event — there is deliberately no `updateState` here,
+ * mirroring the guarantee Akka's event sourced entities make.
  */
 sealed trait EventSourcedEffect[S, E, +R]:
   private[nakka] def events: Vector[E]
@@ -18,8 +18,8 @@ sealed trait EventSourcedEffect[S, E, +R]:
   private[nakka] def outcome: Outcome[S, R]
 
 /**
- * An effect that provably persists nothing, so the runtime may serve it from a replica
- * without routing to the entity's write region.
+ * An effect that provably persists nothing, so the runtime may serve it from a replica without
+ * routing to the entity's write region.
  */
 sealed trait ReadOnlyEffect[S, E, +R] extends EventSourcedEffect[S, E, R]:
   private[nakka] final def events: Vector[E]            = Vector.empty
@@ -38,9 +38,8 @@ object EventSourcedEffect:
   ) extends ReadOnlyEffect[S, E, R]
 
   /**
-   * The result of running an effect against a concrete state — the shape both the
-   * runtime interpreter and the testkit reduce to, so they cannot disagree about
-   * semantics.
+   * The result of running an effect against a concrete state — the shape both the runtime
+   * interpreter and the testkit reduce to, so they cannot disagree about semantics.
    */
   final case class Materialised[S, E, R](
       events: Vector[E],
@@ -48,16 +47,16 @@ object EventSourcedEffect:
       retention: Option[Retention],
       reply: Either[CommandError, Option[R]]
   ):
-    def persisted: Boolean            = events.nonEmpty
-    def replyOrThrow: Option[R]       = reply.fold(throw _, identity)
+    def persisted: Boolean      = events.nonEmpty
+    def replyOrThrow: Option[R] = reply.fold(throw _, identity)
 
   /**
    * Folds `events` over `current` and then resolves the outcome.
    *
    * `Fail` yields no events and the untouched state. The builder already makes a
-   * failing-yet-persisting effect unconstructable — `error` returns a `ReadOnlyEffect`
-   * and `PersistBuilder` cannot produce `Fail` — so this branch encodes that invariant
-   * rather than enforcing it at runtime.
+   * failing-yet-persisting effect unconstructable — `error` returns a `ReadOnlyEffect` and
+   * `PersistBuilder` cannot produce `Fail` — so this branch encodes that invariant rather than
+   * enforcing it at runtime.
    */
   private[nakka] def materialise[S, E, R](
       effect: EventSourcedEffect[S, E, R],

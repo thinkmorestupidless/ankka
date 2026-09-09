@@ -3,9 +3,9 @@ package shoppingcart.domain
 /**
  * The shopping cart domain.
  *
- * Plain Scala with no nakka types anywhere — no effects, no entity base class, no
- * serializers. That is the point of the domain layer: these rules can be tested with
- * nothing running, and they would survive the platform underneath them being replaced.
+ * Plain Scala with no nakka types anywhere — no effects, no entity base class, no serializers. That
+ * is the point of the domain layer: these rules can be tested with nothing running, and they would
+ * survive the platform underneath them being replaced.
  */
 final case class LineItem(productId: String, name: String, quantity: Int)
 

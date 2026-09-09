@@ -4,13 +4,13 @@ import com.github.plokhotnyuk.jsoniter_scala.core.*
 import com.github.plokhotnyuk.jsoniter_scala.macros.*
 
 /**
- * How a payload crosses a boundary: into the event journal, into a shard on another
- * node, onto a Kafka topic.
+ * How a payload crosses a boundary: into the event journal, into a shard on another node, onto a
+ * Kafka topic.
  *
- * `manifest` is the logical type name persisted alongside the bytes (Pekko's
- * `event_ser_manifest` column). It is nakka's schema-evolution hinge and the equivalent
- * of Akka's `@TypeName`: keep it stable across refactors and you can freely rename the
- * Scala class, because replay resolves by manifest, not by class name.
+ * `manifest` is the logical type name persisted alongside the bytes (Pekko's `event_ser_manifest`
+ * column). It is nakka's schema-evolution hinge and the equivalent of Akka's `@TypeName`: keep it
+ * stable across refactors and you can freely rename the Scala class, because replay resolves by
+ * manifest, not by class name.
  */
 trait Serializer[A]:
   def manifest: String
@@ -33,9 +33,9 @@ object Serializer:
 
   /** Passes bytes straight through — for `application/octet-stream` broker messages. */
   val bytes: Serializer[Array[Byte]] = new Serializer[Array[Byte]]:
-    val manifest                             = "bytes"
-    def toBytes(value: Array[Byte])          = value
-    def fromBytes(bytes: Array[Byte])        = bytes
+    val manifest                      = "bytes"
+    def toBytes(value: Array[Byte])   = value
+    def fromBytes(bytes: Array[Byte]) = bytes
 
   /** The unit serializer, for handlers that take or return nothing. */
   val unit: Serializer[Unit] = new Serializer[Unit]:
@@ -46,15 +46,15 @@ object Serializer:
 /**
  * Shared jsoniter configuration.
  *
- * A single discriminator field name across the whole platform means a sealed event
- * hierarchy round-trips as `{"type": "ItemAdded", ...}`, which is what makes an event
- * journal readable by anything other than nakka.
+ * A single discriminator field name across the whole platform means a sealed event hierarchy
+ * round-trips as `{"type": "ItemAdded", ...}`, which is what makes an event journal readable by
+ * anything other than nakka.
  */
 object Codecs:
 
   /**
-   * Derives a codec at compile time. Unlike reflection-based serialization this fails
-   * the *build* when a type is not serializable, rather than the first replay.
+   * Derives a codec at compile time. Unlike reflection-based serialization this fails the *build*
+   * when a type is not serializable, rather than the first replay.
    */
   inline def make[A]: JsonValueCodec[A] =
     JsonCodecMaker.make[A](

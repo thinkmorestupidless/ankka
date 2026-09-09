@@ -12,17 +12,16 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 /**
  * Views and consumers against real projections.
  *
- * Projections are asynchronous, so every assertion here polls to a deadline rather than
- * reading once. That is not test hygiene papering over a race — it is the actual
- * consistency model, and a test that pretended otherwise would be testing a system
- * nakka does not provide.
+ * Projections are asynchronous, so every assertion here polls to a deadline rather than reading
+ * once. That is not test hygiene papering over a race — it is the actual consistency model, and a
+ * test that pretended otherwise would be testing a system nakka does not provide.
  */
 class CartViewSuite extends munit.FunSuite:
 
   override val munitTimeout = 4.minutes
 
-  private var testKit: NakkaTestKit    = null
-  private val publisher                = InMemoryPublisher()
+  private var testKit: NakkaTestKit = null
+  private val publisher             = InMemoryPublisher()
 
   override def beforeAll(): Unit =
     testKit = NakkaTestKit.start(
@@ -42,7 +41,7 @@ class CartViewSuite extends munit.FunSuite:
       description: String,
       within: FiniteDuration = 30.seconds
   )(check: => Option[A]): A =
-    val deadline = System.nanoTime() + within.toNanos
+    val deadline        = System.nanoTime() + within.toNanos
     var last: Option[A] = None
     while last.isEmpty && System.nanoTime() < deadline do
       last = check
@@ -83,7 +82,7 @@ class CartViewSuite extends munit.FunSuite:
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p2", "Gadget", 1))
     val _  = eventually("both products land")(rows.get(id).filter(_.quantities.size == 2))
 
-    val _ = cart(id).call(ShoppingCartEntity.removeItem).invoke("p1")
+    val _   = cart(id).call(ShoppingCartEntity.removeItem).invoke("p1")
     val row = eventually("the removal lands")(rows.get(id).filter(!_.quantities.contains("p1")))
     assertEquals(row.productIds, List("p2"))
   }

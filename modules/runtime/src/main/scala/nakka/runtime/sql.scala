@@ -3,13 +3,11 @@ package nakka.runtime
 /**
  * A parameterised SQL fragment.
  *
- * Values are never spliced into the SQL text. `sql"... = $email"` produces
- * `... = $1` plus a bound parameter, so a view query cannot be turned into an injection
- * by user-supplied data.
+ * Values are never spliced into the SQL text. `sql"... = $email"` produces `... = $1` plus a bound
+ * parameter, so a view query cannot be turned into an injection by user-supplied data.
  *
- * Literal parts and parameters are kept separate rather than pre-rendered, because
- * concatenating two fragments has to renumber placeholders and doing that on rendered
- * text would be guesswork.
+ * Literal parts and parameters are kept separate rather than pre-rendered, because concatenating
+ * two fragments has to renumber placeholders and doing that on rendered text would be guesswork.
  */
 final class SqlFragment private[nakka] (
     private[nakka] val parts: Vector[String],
@@ -49,17 +47,17 @@ final case class SqlParam(value: Any, javaType: Class[?])
 
 object SqlParam:
   def of(value: Any): SqlParam = value match
-    case v: String     => SqlParam(v, classOf[String])
+    case v: String => SqlParam(v, classOf[String])
     // Bound as-is for `bytea` columns; a timer payload is opaque bytes by design.
-    case v: Array[Byte] => SqlParam(v, classOf[Array[Byte]])
-    case v: Int        => SqlParam(Integer.valueOf(v), classOf[Integer])
-    case v: Long       => SqlParam(java.lang.Long.valueOf(v), classOf[java.lang.Long])
-    case v: Boolean    => SqlParam(java.lang.Boolean.valueOf(v), classOf[java.lang.Boolean])
-    case v: Double     => SqlParam(java.lang.Double.valueOf(v), classOf[java.lang.Double])
-    case v: Float      => SqlParam(java.lang.Float.valueOf(v), classOf[java.lang.Float])
-    case v: Short      => SqlParam(java.lang.Short.valueOf(v), classOf[java.lang.Short])
-    case v: BigDecimal => SqlParam(v.bigDecimal, classOf[java.math.BigDecimal])
-    case v: java.util.UUID => SqlParam(v, classOf[java.util.UUID])
+    case v: Array[Byte]       => SqlParam(v, classOf[Array[Byte]])
+    case v: Int               => SqlParam(Integer.valueOf(v), classOf[Integer])
+    case v: Long              => SqlParam(java.lang.Long.valueOf(v), classOf[java.lang.Long])
+    case v: Boolean           => SqlParam(java.lang.Boolean.valueOf(v), classOf[java.lang.Boolean])
+    case v: Double            => SqlParam(java.lang.Double.valueOf(v), classOf[java.lang.Double])
+    case v: Float             => SqlParam(java.lang.Float.valueOf(v), classOf[java.lang.Float])
+    case v: Short             => SqlParam(java.lang.Short.valueOf(v), classOf[java.lang.Short])
+    case v: BigDecimal        => SqlParam(v.bigDecimal, classOf[java.math.BigDecimal])
+    case v: java.util.UUID    => SqlParam(v, classOf[java.util.UUID])
     case v: java.time.Instant => SqlParam(v, classOf[java.time.Instant])
     case other =>
       throw IllegalArgumentException(
@@ -77,9 +75,9 @@ object SqlSyntax:
   /**
    * A text field inside a view row, as SQL.
    *
-   * View rows are stored as JSON in a single column, so querying by an attribute means
-   * reaching into it: `jsonText("email")` renders `payload::jsonb->>'email'`. Add an
-   * expression index on the same term if the query needs to be fast.
+   * View rows are stored as JSON in a single column, so querying by an attribute means reaching
+   * into it: `jsonText("email")` renders `payload::jsonb->>'email'`. Add an expression index on the
+   * same term if the query needs to be fast.
    */
   def jsonText(field: String): SqlFragment =
     SqlFragment.raw(s"payload::jsonb->>'${escapeIdentifier(field)}'")

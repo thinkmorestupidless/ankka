@@ -11,9 +11,9 @@ final case class CheckoutNotice(cartId: String, at: Long)
 /**
  * Turns an internal event into a published one.
  *
- * The cart's own event type is an implementation detail; this consumer decides which
- * events are worth telling the outside world about and in what shape — so the domain
- * stays free to change without breaking downstream consumers.
+ * The cart's own event type is an implementation detail; this consumer decides which events are
+ * worth telling the outside world about and in what shape — so the domain stays free to change
+ * without breaking downstream consumers.
  */
 final class CheckoutNotifier extends Consumer[ShoppingCartEvent, CheckoutNotice]:
 

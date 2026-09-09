@@ -46,9 +46,9 @@ object CounterEntity
 class CompanionShapeSuite extends munit.FunSuite:
 
   test("handles infer their input and output types from the method") {
-    val _: CommandHandle[CounterEntity, Int, Int]     = CounterEntity.increase
-    val _: NoArgHandle[CounterEntity, Counter]        = CounterEntity.get
-    val _: NoArgHandle[CounterEntity, Done]           = CounterEntity.close
+    val _: CommandHandle[CounterEntity, Int, Int] = CounterEntity.increase
+    val _: NoArgHandle[CounterEntity, Counter]    = CounterEntity.get
+    val _: NoArgHandle[CounterEntity, Done]       = CounterEntity.close
   }
 
   test("descriptor collects every registered handler") {

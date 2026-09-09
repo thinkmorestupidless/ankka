@@ -18,10 +18,9 @@ import scala.util.control.NonFatal
 /**
  * Serves a set of endpoints over HTTP.
  *
- * Routing is done directly against `HttpRequest` rather than through pekko-http's
- * Directives. The routing table is already a value nakka owns — a list of parsed
- * templates per endpoint — so re-expressing it in a second DSL would add a layer without
- * adding a capability.
+ * Routing is done directly against `HttpRequest` rather than through pekko-http's Directives. The
+ * routing table is already a value nakka owns — a list of parsed templates per endpoint — so
+ * re-expressing it in a second DSL would add a layer without adding a capability.
  */
 final class HttpServer private (
     factories: Seq[ComponentClient => HttpEndpoint],
@@ -37,8 +36,8 @@ final class HttpServer private (
     given system: ActorSystem[?] = service.system
     given ExecutionContext       = system.executionContext
 
-    val config = system.settings.config
-    val host   = interface.getOrElse(config.getString("nakka.http.interface"))
+    val config   = system.settings.config
+    val host     = interface.getOrElse(config.getString("nakka.http.interface"))
     val bindPort = port.getOrElse(config.getInt("nakka.http.port"))
     val bodyTimeout = FiniteDuration(
       config.getDuration("nakka.http.body-timeout").toMillis,
@@ -85,15 +84,14 @@ final class HttpServer private (
   /**
    * Rejects two endpoints sharing a prefix, and duplicate routes within one endpoint.
    *
-   * Overlapping prefixes would make dispatch depend on registration order, which is the
-   * kind of thing that works locally and then serves the wrong handler in production.
+   * Overlapping prefixes would make dispatch depend on registration order, which is the kind of
+   * thing that works locally and then serves the wrong handler in production.
    */
   private def validate(endpoints: Vector[HttpEndpoint]): Unit =
     val problems = Vector.newBuilder[String]
 
     endpoints.groupBy(_.prefix).foreach { (prefix, sharing) =>
-      if sharing.sizeIs > 1 then
-        problems += s"${sharing.size} endpoints share the prefix '$prefix'"
+      if sharing.sizeIs > 1 then problems += s"${sharing.size} endpoints share the prefix '$prefix'"
     }
 
     endpoints.foreach { endpoint =>
@@ -148,18 +146,23 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
     if path == HealthPath then Future.successful(text(200, "ok"))
     else
       endpoints.find(e => path.startsWith(e.prefixPath)) match
-        case None => Future.successful(problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}")))
+        case None =>
+          Future.successful(
+            problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
+          )
         case Some(endpoint) =>
           val context = contextFor(request)
           if !permitted(endpoint, context) then
-            Future.successful(problem(HttpProblem.forbidden("not permitted by this endpoint's acl")))
+            Future.successful(
+              problem(HttpProblem.forbidden("not permitted by this endpoint's acl"))
+            )
           else dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
 
   /**
    * The request as a handler and an ACL both see it.
    *
-   * Built once per request and shared: an ACL predicate that inspects a query parameter
-   * should be looking at exactly what the handler will.
+   * Built once per request and shared: an ACL predicate that inspects a query parameter should be
+   * looking at exactly what the handler will.
    */
   private def contextFor(request: HttpRequest): RequestContext =
     SimpleRequestContext(
@@ -210,45 +213,48 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
 
       case Some((route, args)) =>
         val bodyBytes =
-          if route.needsBody then
-            request.entity.toStrict(bodyTimeout).map(_.data.toArray)
+          if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
           else
             request.discardEntityBytes()
             Future.successful(Array.emptyByteArray)
 
-        bodyBytes.flatMap { bytes =>
-          // Handlers run on a virtual thread, which is what makes the blocking
-          // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
-          // and what makes the request context safe to hold in a ThreadLocal.
-          Future(RequestScope.withContext(context)(route.run(args, bytes)))(using
-            NakkaExecutors.virtual
-          )
-        }.map { encoded =>
-          HttpResponse(
-            status = StatusCode.int2StatusCode(encoded.status),
-            entity =
-              if encoded.body.isEmpty then HttpEntity.Empty
-              else
-                ContentType.parse(encoded.contentType) match
-                  case Right(contentType) => HttpEntity(contentType, encoded.body)
-                  case Left(_) => HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
-          )
-        }.recover {
-          case failure: HttpProblem => problem(failure)
-          case failure: CommandError => problem(HttpProblem.from(failure))
-          case failure: IllegalArgumentException =>
-            problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
-          case NonFatal(failure) =>
-            system.log.error(s"unhandled failure in ${route.describe}", failure)
-            problem(HttpProblem(500, "internal error"))
-        }
+        bodyBytes
+          .flatMap { bytes =>
+            // Handlers run on a virtual thread, which is what makes the blocking
+            // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
+            // and what makes the request context safe to hold in a ThreadLocal.
+            Future(RequestScope.withContext(context)(route.run(args, bytes)))(using
+              NakkaExecutors.virtual
+            )
+          }
+          .map { encoded =>
+            HttpResponse(
+              status = StatusCode.int2StatusCode(encoded.status),
+              entity =
+                if encoded.body.isEmpty then HttpEntity.Empty
+                else
+                  ContentType.parse(encoded.contentType) match
+                    case Right(contentType) => HttpEntity(contentType, encoded.body)
+                    case Left(_) =>
+                      HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
+            )
+          }
+          .recover {
+            case failure: HttpProblem  => problem(failure)
+            case failure: CommandError => problem(HttpProblem.from(failure))
+            case failure: IllegalArgumentException =>
+              problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
+            case NonFatal(failure) =>
+              system.log.error(s"unhandled failure in ${route.describe}", failure)
+              problem(HttpProblem(500, "internal error"))
+          }
 
   /**
    * Serves a route's `Source` as server-sent events.
    *
-   * The handler is invoked on a virtual thread like any other, but only to *build* the
-   * stream; the elements themselves are pulled by pekko-http as the client reads, so
-   * nothing buffers the whole reply.
+   * The handler is invoked on a virtual thread like any other, but only to *build* the stream; the
+   * elements themselves are pulled by pekko-http as the client reads, so nothing buffers the whole
+   * reply.
    */
   private def dispatchStream(
       route: StreamRoute,

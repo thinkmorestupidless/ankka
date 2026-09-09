@@ -6,10 +6,9 @@ import nakka.core.effect.*
 /**
  * Reacts to changes from one source, optionally publishing something onward.
  *
- * Delivery is at-least-once and the same message is redelivered until the handler
- * returns without throwing — so a consumer must tolerate seeing a message twice.
- * Deduplication is the developer's to implement, because only the developer knows
- * whether a repeat is harmless.
+ * Delivery is at-least-once and the same message is redelivered until the handler returns without
+ * throwing — so a consumer must tolerate seeing a message twice. Deduplication is the developer's
+ * to implement, because only the developer knows whether a repeat is harmless.
  */
 abstract class Consumer[Src, Out]:
 
@@ -37,8 +36,8 @@ object Consumer:
   /**
    * Declares a consumer to the runtime.
    *
-   * `Out` is `Nothing` for a consumer that only reacts; give it a type and a
-   * `produceTo` target to turn it into a publisher.
+   * `Out` is `Nothing` for a consumer that only reacts; give it a type and a `produceTo` target to
+   * turn it into a publisher.
    */
   abstract class Companion[C <: Consumer[Src, Out], Src, Out](
       val componentId: ComponentId,

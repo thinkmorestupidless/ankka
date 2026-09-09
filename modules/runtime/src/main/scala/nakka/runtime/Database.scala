@@ -12,9 +12,9 @@ import scala.concurrent.{ExecutionContext, Future}
 /**
  * A thin bridge from r2dbc's Reactive Streams API to Futures.
  *
- * Reuses the connection pool the persistence plugin already created rather than opening
- * a second one — a view and its source entity belong to the same database, and two pools
- * against one Postgres just doubles the connection count for no benefit.
+ * Reuses the connection pool the persistence plugin already created rather than opening a second
+ * one — a view and its source entity belong to the same database, and two pools against one
+ * Postgres just doubles the connection count for no benefit.
  */
 private[nakka] final class Database(factory: ConnectionFactory)(using system: ActorSystem[?]):
 
@@ -23,10 +23,9 @@ private[nakka] final class Database(factory: ConnectionFactory)(using system: Ac
   /**
    * Runs `use` on a pooled connection, returning it whatever happens.
    *
-   * `Sink.last`, not `Sink.head`: `head` cancels its upstream as soon as an element
-   * arrives, and cancelling r2dbc's connection publisher mid-handover means the pool
-   * never gets that connection back. A few queries then drain the pool and every
-   * subsequent one hangs.
+   * `Sink.last`, not `Sink.head`: `head` cancels its upstream as soon as an element arrives, and
+   * cancelling r2dbc's connection publisher mid-handover means the pool never gets that connection
+   * back. A few queries then drain the pool and every subsequent one hangs.
    */
   def withConnection[A](use: Connection => Future[A]): Future[A] =
     Source
@@ -45,7 +44,9 @@ private[nakka] final class Database(factory: ConnectionFactory)(using system: Ac
   def execute(fragment: SqlFragment): Future[Long] =
     withConnection { connection =>
       Source
-        .fromPublisher(Database.bind(connection.createStatement(fragment.render), fragment).execute())
+        .fromPublisher(
+          Database.bind(connection.createStatement(fragment.render), fragment).execute()
+        )
         .flatMapConcat(result => Source.fromPublisher(result.getRowsUpdated))
         .runWith(Sink.fold(0L)((total, updated) => total + updated.longValue))
     }

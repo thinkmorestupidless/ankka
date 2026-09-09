@@ -7,8 +7,8 @@ import shoppingcart.domain.*
 import shoppingcart.domain.ShoppingCartEvent.*
 
 /**
- * Entity behaviour with no actor system, cluster or database — but with the real
- * serializers, so a missing codec fails here.
+ * Entity behaviour with no actor system, cluster or database — but with the real serializers, so a
+ * missing codec fails here.
  */
 class ShoppingCartEntitySuite extends munit.FunSuite:
 
@@ -31,7 +31,10 @@ class ShoppingCartEntitySuite extends munit.FunSuite:
     val _   = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 1))
 
     assertEquals(kit.allEvents.size, 3)
-    assertEquals(kit.currentState.items, List(LineItem("p1", "Widget", 3), LineItem("p2", "Gadget", 1)))
+    assertEquals(
+      kit.currentState.items,
+      List(LineItem("p1", "Widget", 3), LineItem("p2", "Gadget", 1))
+    )
 
     val folded = kit.allEvents.foldLeft(ShoppingCart.empty("cart-1")) {
       case (cart, ItemAdded(item))        => cart.addItem(item)
@@ -59,8 +62,8 @@ class ShoppingCartEntitySuite extends munit.FunSuite:
   }
 
   test("reads do not persist") {
-    val kit = newKit
-    val _   = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 4))
+    val kit    = newKit
+    val _      = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 4))
     val before = kit.allEvents
 
     assertEquals(kit.call(ShoppingCartEntity.totalQuantity).replyValue, 4)
@@ -69,8 +72,8 @@ class ShoppingCartEntitySuite extends munit.FunSuite:
   }
 
   test("checkout persists the event and then deletes the cart") {
-    val kit = newKit
-    val _   = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 1))
+    val kit    = newKit
+    val _      = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 1))
     val result = kit.call(ShoppingCartEntity.checkout)
 
     // thenReplyState observes the post-event state, so checkedOut is already true.
@@ -97,5 +100,8 @@ class ShoppingCartEntitySuite extends munit.FunSuite:
   }
 
   test("the entity knows its own id from the context") {
-    assertEquals(EventSourcedTestKit.of(ShoppingCartEntity, "cart-xyz").currentState.cartId, "cart-xyz")
+    assertEquals(
+      EventSourcedTestKit.of(ShoppingCartEntity, "cart-xyz").currentState.cartId,
+      "cart-xyz"
+    )
   }

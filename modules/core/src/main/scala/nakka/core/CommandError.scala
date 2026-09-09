@@ -3,9 +3,9 @@ package nakka.core
 /**
  * A business-rule rejection returned by `effects.error(...)`.
  *
- * Distinct from a thrown exception: an error is a *modelled* outcome, so the runtime
- * neither retries it nor persists anything, and the caller receives it as a typed
- * failure rather than an opaque 500.
+ * Distinct from a thrown exception: an error is a *modelled* outcome, so the runtime neither
+ * retries it nor persists anything, and the caller receives it as a typed failure rather than an
+ * opaque 500.
  */
 final case class CommandError(message: String, code: ErrorCode = ErrorCode.BadRequest)
     extends RuntimeException(message):
@@ -14,8 +14,8 @@ final case class CommandError(message: String, code: ErrorCode = ErrorCode.BadRe
   override def fillInStackTrace(): Throwable = this
 
 /**
- * Transport-neutral error classification. `nakka-http` maps these onto status codes and
- * the ComponentClient surfaces them as typed failures.
+ * Transport-neutral error classification. `nakka-http` maps these onto status codes and the
+ * ComponentClient surfaces them as typed failures.
  */
 enum ErrorCode:
   case BadRequest

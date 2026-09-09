@@ -14,9 +14,9 @@ private[nakka] object ProjectionSupport:
   /**
    * Reads a view row inside the projection's own transaction.
    *
-   * Reading through the session rather than a separate connection is what makes a view
-   * that computes its next row from its current one — `rowState.map(_.withName(...))` —
-   * correct under concurrent redelivery.
+   * Reading through the session rather than a separate connection is what makes a view that
+   * computes its next row from its current one — `rowState.map(_.withName(...))` — correct under
+   * concurrent redelivery.
    */
   // The type parameter is `A`, not `Row`: `io.r2dbc.spi.Row` is in scope here and
   // shadowing it makes the mapper's parameter type unresolvable.
@@ -74,8 +74,8 @@ private[nakka] object ProjectionSupport:
   /**
    * Publishes whatever a consumer produced.
    *
-   * `ce-subject` is set to the source entity id unless the consumer set it itself, so
-   * per-entity ordering survives the hop onto a broker partition.
+   * `ce-subject` is set to the source entity id unless the consumer set it itself, so per-entity
+   * ordering survives the hop onto a broker partition.
    */
   def applyConsumer(
       effect: ConsumerEffect[Any],

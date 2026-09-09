@@ -46,16 +46,16 @@ class KeyValueEntitySuite extends munit.FunSuite:
   }
 
   test("reads do not change the value") {
-    val kit = newKit
-    val _   = kit.call(ProfileEntity.register)(Profile("Ada", "ada@example.com", 1))
+    val kit    = newKit
+    val _      = kit.call(ProfileEntity.register)(Profile("Ada", "ada@example.com", 1))
     val result = kit.call(ProfileEntity.get)
     assert(!result.changed)
     assertEquals(result.replyValue.email, "ada@example.com")
   }
 
   test("delete empties the value and marks the entity deleted") {
-    val kit = newKit
-    val _   = kit.call(ProfileEntity.register)(Profile("Ada", "ada@example.com", 1))
+    val kit    = newKit
+    val _      = kit.call(ProfileEntity.register)(Profile("Ada", "ada@example.com", 1))
     val result = kit.call(ProfileEntity.close)
     assertEquals(result.replyValue, Done)
     assertEquals(result.retention, Some(nakka.core.effect.Retention.DeleteNow))

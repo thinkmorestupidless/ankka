@@ -15,15 +15,13 @@ import org.apache.pekko.persistence.typed.{
   SnapshotAdapter
 }
 
-
 /**
  * Hosts one workflow kind: a durable state machine over persisted step transitions.
  *
- * The engine's whole job is the ordering guarantee. A transition is journalled *before*
- * the step runs, so a workflow that dies mid-step comes back knowing exactly which step
- * was pending and with what input, and re-runs it. A step that ran but whose result was
- * never journalled runs again — which is why steps must be idempotent and why retries
- * default to zero.
+ * The engine's whole job is the ordering guarantee. A transition is journalled *before* the step
+ * runs, so a workflow that dies mid-step comes back knowing exactly which step was pending and with
+ * what input, and re-runs it. A step that ran but whose result was never journalled runs again —
+ * which is why steps must be idempotent and why retries default to zero.
  */
 private[nakka] object WorkflowHost:
 
@@ -151,10 +149,10 @@ private[nakka] object WorkflowHost:
           WorkflowRecord.transitioned(step.name, step.input.getOrElse(Array.emptyByteArray))
         case Event.Paused(onTimeout, deadline) =>
           WorkflowRecord.paused(onTimeout.getOrElse(""), deadline)
-        case Event.Ended                  => WorkflowRecord.ended
-        case Event.Failed(message)        => WorkflowRecord.failed(message)
-        case Event.RetryRecorded(step)    => WorkflowRecord.retryRecorded(step)
-        case Event.Deleted                => WorkflowRecord.deleted
+        case Event.Ended               => WorkflowRecord.ended
+        case Event.Failed(message)     => WorkflowRecord.failed(message)
+        case Event.RetryRecorded(step) => WorkflowRecord.retryRecorded(step)
+        case Event.Deleted             => WorkflowRecord.deleted
 
       def manifest(event: Event[S]): String = event match
         case Event.StateUpdated(_)   => "state"

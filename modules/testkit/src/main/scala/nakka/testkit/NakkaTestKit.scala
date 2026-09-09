@@ -12,19 +12,18 @@ import scala.jdk.CollectionConverters.*
 
 /**
  * Concrete subclass purely to pin testcontainers' `SELF` type parameter.
- * `PostgreSQLContainer[SELF <: PostgreSQLContainer[SELF]]` is a Java self-type idiom
- * that Scala infers as `Nothing`, which makes the fluent setters unusable.
+ * `PostgreSQLContainer[SELF <: PostgreSQLContainer[SELF]]` is a Java self-type idiom that Scala
+ * infers as `Nothing`, which makes the fluent setters unusable.
  */
 private final class NakkaPostgres(image: DockerImageName)
     extends PostgreSQLContainer[NakkaPostgres](image)
 
 /**
- * Runs a whole nakka service against a throwaway Postgres, for tests that need the real
- * thing: sharding, persistence, replay, snapshots and the ComponentClient.
+ * Runs a whole nakka service against a throwaway Postgres, for tests that need the real thing:
+ * sharding, persistence, replay, snapshots and the ComponentClient.
  *
- * The schema comes from the same DDL that docker-compose applies, shipped on the
- * runtime's classpath — so a test can never pass against a schema that local development
- * does not have.
+ * The schema comes from the same DDL that docker-compose applies, shipped on the runtime's
+ * classpath — so a test can never pass against a schema that local development does not have.
  */
 final class NakkaTestKit private (
     descriptors: Seq[ComponentDescriptor],
@@ -44,9 +43,9 @@ final class NakkaTestKit private (
   /**
    * Terminates the service and starts a fresh one against the same database.
    *
-   * This is how a test proves durability rather than caching: every entity is gone from
-   * memory afterwards, so the next read has no choice but to rebuild from the journal.
-   * Deterministic, unlike waiting for passivation to fire.
+   * This is how a test proves durability rather than caching: every entity is gone from memory
+   * afterwards, so the next read has no choice but to rebuild from the journal. Deterministic,
+   * unlike waiting for passivation to fire.
    */
   def restartService(): Unit =
     current.terminate()
@@ -70,8 +69,8 @@ object NakkaTestKit:
   /**
    * Starts Postgres, applies the schema, and hosts `descriptors`.
    *
-   * Returns only once the node is a cluster member, so the first call in a test cannot
-   * race startup.
+   * Returns only once the node is a cluster member, so the first call in a test cannot race
+   * startup.
    */
   def start(
       descriptors: Seq[ComponentDescriptor],

@@ -8,8 +8,8 @@ class ComponentRegistrySuite extends munit.FunSuite:
       val kind        = k
 
   test("components are looked up by kind and id together") {
-    val entity = descriptor("cart", ComponentKind.EventSourcedEntity)
-    val view   = descriptor("cart", ComponentKind.View)
+    val entity   = descriptor("cart", ComponentKind.EventSourcedEntity)
+    val view     = descriptor("cart", ComponentKind.View)
     val registry = ComponentRegistry.fromOrThrow(Seq(entity, view))
 
     assertEquals(registry.get(ComponentKind.EventSourcedEntity, ComponentId("cart")), Some(entity))
@@ -83,6 +83,8 @@ class ComponentRegistrySuite extends munit.FunSuite:
 
   test("sharded kinds are exactly the stateful, instance-addressed ones") {
     import ComponentKind.*
-    assert(EventSourcedEntity.sharded && KeyValueEntity.sharded && Workflow.sharded && Agent.sharded)
+    assert(
+      EventSourcedEntity.sharded && KeyValueEntity.sharded && Workflow.sharded && Agent.sharded
+    )
     assert(!View.sharded && !Consumer.sharded && !TimedAction.sharded && !Endpoint.sharded)
   }

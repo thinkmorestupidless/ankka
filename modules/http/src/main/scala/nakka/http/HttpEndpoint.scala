@@ -5,8 +5,7 @@ import nakka.core.{CommandError, ErrorCode}
 import scala.collection.mutable
 
 /** A problem to report back to the caller. */
-final case class HttpProblem(status: Int, message: String)
-    extends RuntimeException(message):
+final case class HttpProblem(status: Int, message: String) extends RuntimeException(message):
   override def fillInStackTrace(): Throwable = this
 
 object HttpProblem:
@@ -19,9 +18,9 @@ object HttpProblem:
   /**
    * Maps a component's modelled rejection onto a status code.
    *
-   * This is the reason `effects.error` carries an `ErrorCode` rather than just a string:
-   * a domain rule violation deep inside an entity surfaces as a 409 at the edge without
-   * the endpoint having to know anything about that rule.
+   * This is the reason `effects.error` carries an `ErrorCode` rather than just a string: a domain
+   * rule violation deep inside an entity surfaces as a 409 at the edge without the endpoint having
+   * to know anything about that rule.
    */
   def from(error: CommandError): HttpProblem =
     val status = error.code match
@@ -46,9 +45,9 @@ enum Acl:
   /**
    * A caller-supplied predicate.
    *
-   * nakka does not ship a "same service" or "named service" principal, because
-   * establishing who the caller actually is needs mTLS or a verified token, and a check
-   * against a client-settable header would be security theatre. Plug in a real check here.
+   * nakka does not ship a "same service" or "named service" principal, because establishing who the
+   * caller actually is needs mTLS or a verified token, and a check against a client-settable header
+   * would be security theatre. Plug in a real check here.
    */
   case AllowIf(predicate: RequestContext => Boolean)
 
@@ -69,9 +68,8 @@ private[nakka] final case class Route(
 /**
  * A route that answers with a stream of text events rather than one response.
  *
- * Kept as a separate route kind rather than a `ToResponse` instance because the server
- * has to treat it differently all the way down: no content length, no buffering, and the
- * connection stays open.
+ * Kept as a separate route kind rather than a `ToResponse` instance because the server has to treat
+ * it differently all the way down: no content length, no buffering, and the connection stays open.
  */
 private[nakka] final case class StreamRoute(
     method: String,
@@ -84,29 +82,29 @@ private[nakka] final case class StreamRoute(
 /**
  * An HTTP endpoint: the outermost layer, translating requests into component calls.
  *
- * Routes are declared in the constructor body and collected as they are declared, so the
- * endpoint's shape is a value the server can inspect and log at startup.
+ * Routes are declared in the constructor body and collected as they are declared, so the endpoint's
+ * shape is a value the server can inspect and log at startup.
  *
- * Handler parameters must be annotated with their type — `{ (cartId: String) => ... }`
- * rather than `{ cartId => ... }` — because that annotation is what selects the right
- * arity overload and the right `FromPath` instance.
+ * Handler parameters must be annotated with their type — `{ (cartId: String) => ... }` rather than
+ * `{ cartId => ... }` — because that annotation is what selects the right arity overload and the
+ * right `FromPath` instance.
  */
 abstract class HttpEndpoint(val prefix: String):
 
   /**
    * Who may call this endpoint.
    *
-   * Abstract on purpose. Akka denies by default via a missing annotation, which is safe
-   * but silent; requiring the decision means nobody ships an endpoint without having
-   * thought about who can reach it.
+   * Abstract on purpose. Akka denies by default via a missing annotation, which is safe but silent;
+   * requiring the decision means nobody ships an endpoint without having thought about who can
+   * reach it.
    */
   def acl: Acl
 
   /**
    * The request currently being handled.
    *
-   * Available only on the handler's own thread — see `RequestScope`. Read what you need
-   * before handing work to another thread.
+   * Available only on the handler's own thread — see `RequestScope`. Read what you need before
+   * handing work to another thread.
    */
   protected def request: RequestContext =
     RequestScope.currentContext.getOrElse(
@@ -118,10 +116,10 @@ abstract class HttpEndpoint(val prefix: String):
   /** Shorthand for `request.query`. */
   protected def query: QueryParams = request.query
 
-  private val collected       = mutable.ListBuffer.empty[Route]
+  private val collected        = mutable.ListBuffer.empty[Route]
   private val collectedStreams = mutable.ListBuffer.empty[StreamRoute]
 
-  private[nakka] def routes: Vector[Route]              = collected.toVector
+  private[nakka] def routes: Vector[Route]             = collected.toVector
   private[nakka] def streamRoutes: Vector[StreamRoute] = collectedStreams.toVector
 
   private val prefixSegments: Vector[String] =
@@ -132,9 +130,9 @@ abstract class HttpEndpoint(val prefix: String):
   /**
    * Records a route, checking the handler's arity against the template's placeholders.
    *
-   * A mismatch throws here — during construction, therefore during startup — so it lands
-   * next to the other service-definition failures rather than as a surprise on the first
-   * request that happens to match.
+   * A mismatch throws here — during construction, therefore during startup — so it lands next to
+   * the other service-definition failures rather than as a surprise on the first request that
+   * happens to match.
    */
   private def add[R](method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
       run: (Vector[String], Array[Byte]) => R
@@ -157,8 +155,8 @@ abstract class HttpEndpoint(val prefix: String):
   /**
    * Records a server-sent-events route.
    *
-   * Declared with `sse` rather than `get` because the response is open-ended: the
-   * handler returns a `Source` and the server holds the connection until it completes.
+   * Declared with `sse` rather than `get` because the response is open-ended: the handler returns a
+   * `Source` and the server holds the connection until it completes.
    */
   private def addStream(method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
       run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?]
@@ -221,7 +219,9 @@ abstract class HttpEndpoint(val prefix: String):
   protected def get[A: FromPath, B: FromPath, R: ToResponse](template: String)(
       handler: (A, B) => R
   ): Unit =
-    add("GET", template, 2, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template)))
+    add("GET", template, 2, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
 
   /** Routes `DELETE $$prefix$$template` to `handler`. */
   protected def delete[R: ToResponse](template: String)(
@@ -233,13 +233,17 @@ abstract class HttpEndpoint(val prefix: String):
   protected def delete[A: FromPath, R: ToResponse](template: String)(
       handler: (A) => R
   ): Unit =
-    add("DELETE", template, 1, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template)))
+    add("DELETE", template, 1, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template))
+    )
 
   /** Routes `DELETE $$prefix$$template` to `handler`. */
   protected def delete[A: FromPath, B: FromPath, R: ToResponse](template: String)(
       handler: (A, B) => R
   ): Unit =
-    add("DELETE", template, 2, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template)))
+    add("DELETE", template, 2, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
 
   /** Routes `POST $$prefix$$template` to `handler`. */
   protected def post[R: ToResponse](template: String)(
@@ -257,7 +261,9 @@ abstract class HttpEndpoint(val prefix: String):
   protected def post[A: FromPath, B: FromPath, R: ToResponse](template: String)(
       handler: (A, B) => R
   ): Unit =
-    add("POST", template, 2, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template)))
+    add("POST", template, 2, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
 
   /** Routes `PUT $$prefix$$template` to `handler`. */
   protected def put[R: ToResponse](template: String)(
@@ -275,7 +281,9 @@ abstract class HttpEndpoint(val prefix: String):
   protected def put[A: FromPath, B: FromPath, R: ToResponse](template: String)(
       handler: (A, B) => R
   ): Unit =
-    add("PUT", template, 2, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template)))
+    add("PUT", template, 2, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
 
   /** Routes `PATCH $$prefix$$template` to `handler`. */
   protected def patch[R: ToResponse](template: String)(
@@ -287,13 +295,17 @@ abstract class HttpEndpoint(val prefix: String):
   protected def patch[A: FromPath, R: ToResponse](template: String)(
       handler: (A) => R
   ): Unit =
-    add("PATCH", template, 1, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template)))
+    add("PATCH", template, 1, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template))
+    )
 
   /** Routes `PATCH $$prefix$$template` to `handler`. */
   protected def patch[A: FromPath, B: FromPath, R: ToResponse](template: String)(
       handler: (A, B) => R
   ): Unit =
-    add("PATCH", template, 2, needsBody = false)((args, _) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template)))
+    add("PATCH", template, 2, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template))
+    )
 
   /** Routes `POST $$prefix$$template` with a decoded request body. */
   protected def postBody[Body: FromBody, R: ToResponse](template: String)(
@@ -305,13 +317,17 @@ abstract class HttpEndpoint(val prefix: String):
   protected def postBody[A: FromPath, Body: FromBody, R: ToResponse](template: String)(
       handler: (A, Body) => R
   ): Unit =
-    add("POST", template, 1, needsBody = true)((args, body) => handler(pathArg[A](args, 0, template), bodyArg[Body](body)))
+    add("POST", template, 1, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
+    )
 
   /** Routes `POST $$prefix$$template` with a decoded request body. */
   protected def postBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](template: String)(
       handler: (A, B, Body) => R
   ): Unit =
-    add("POST", template, 2, needsBody = true)((args, body) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body)))
+    add("POST", template, 2, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body))
+    )
 
   /** Routes `PUT $$prefix$$template` with a decoded request body. */
   protected def putBody[Body: FromBody, R: ToResponse](template: String)(
@@ -323,13 +339,17 @@ abstract class HttpEndpoint(val prefix: String):
   protected def putBody[A: FromPath, Body: FromBody, R: ToResponse](template: String)(
       handler: (A, Body) => R
   ): Unit =
-    add("PUT", template, 1, needsBody = true)((args, body) => handler(pathArg[A](args, 0, template), bodyArg[Body](body)))
+    add("PUT", template, 1, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
+    )
 
   /** Routes `PUT $$prefix$$template` with a decoded request body. */
   protected def putBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](template: String)(
       handler: (A, B, Body) => R
   ): Unit =
-    add("PUT", template, 2, needsBody = true)((args, body) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body)))
+    add("PUT", template, 2, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body))
+    )
 
   /** Routes `PATCH $$prefix$$template` with a decoded request body. */
   protected def patchBody[Body: FromBody, R: ToResponse](template: String)(
@@ -341,11 +361,16 @@ abstract class HttpEndpoint(val prefix: String):
   protected def patchBody[A: FromPath, Body: FromBody, R: ToResponse](template: String)(
       handler: (A, Body) => R
   ): Unit =
-    add("PATCH", template, 1, needsBody = true)((args, body) => handler(pathArg[A](args, 0, template), bodyArg[Body](body)))
+    add("PATCH", template, 1, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
+    )
 
   /** Routes `PATCH $$prefix$$template` with a decoded request body. */
-  protected def patchBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](template: String)(
+  protected def patchBody[A: FromPath, B: FromPath, Body: FromBody, R: ToResponse](
+      template: String
+  )(
       handler: (A, B, Body) => R
   ): Unit =
-    add("PATCH", template, 2, needsBody = true)((args, body) => handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body)))
-
+    add("PATCH", template, 2, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), pathArg[B](args, 1, template), bodyArg[Body](body))
+    )

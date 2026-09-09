@@ -8,9 +8,8 @@ import shoppingcart.domain.ShoppingCartEvent.*
 /**
  * A queryable projection of every cart.
  *
- * The entity can only be found by cart id. This view exists to answer the questions it
- * cannot: which carts contain a product, which have been checked out, which are the
- * largest.
+ * The entity can only be found by cart id. This view exists to answer the questions it cannot:
+ * which carts contain a product, which have been checked out, which are the largest.
  */
 final case class CartRow(
     cartId: String,
@@ -28,7 +27,9 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
       case ItemAdded(item) =>
         val existing = current.quantities.getOrElse(item.productId, 0)
         effects.updateRow(
-          current.copy(quantities = current.quantities.updated(item.productId, existing + item.quantity))
+          current.copy(quantities =
+            current.quantities.updated(item.productId, existing + item.quantity)
+          )
         )
       case ItemRemoved(productId) =>
         effects.updateRow(current.copy(quantities = current.quantities - productId))
@@ -38,8 +39,8 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
   /**
    * Keeps the row after the cart is deleted.
    *
-   * Checkout deletes the entity, but a checked-out cart is exactly what an order history
-   * needs. This is the tombstone case: the row outlives the entity that produced it.
+   * Checkout deletes the entity, but a checked-out cart is exactly what an order history needs.
+   * This is the tombstone case: the row outlives the entity that produced it.
    */
   override def onDelete: Effect =
     rowState match

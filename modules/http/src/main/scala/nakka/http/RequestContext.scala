@@ -3,14 +3,14 @@ package nakka.http
 /**
  * The parts of a request a handler did not receive as arguments.
  *
- * Path parameters and the body arrive as typed arguments because they are structural —
- * a route either has them or is not that route. Query parameters and headers are
- * different: they are optional, repeatable, and vary per call, so threading them through
- * the verb signatures would multiply every overload by their arity.
+ * Path parameters and the body arrive as typed arguments because they are structural — a route
+ * either has them or is not that route. Query parameters and headers are different: they are
+ * optional, repeatable, and vary per call, so threading them through the verb signatures would
+ * multiply every overload by their arity.
  *
- * Reached through `request` inside a handler. That is ambient rather than passed, which
- * is a deliberate exception to nakka's usual explicitness — and the same shape entities
- * already use for `currentState` and `commandContext`.
+ * Reached through `request` inside a handler. That is ambient rather than passed, which is a
+ * deliberate exception to nakka's usual explicitness — and the same shape entities already use for
+ * `currentState` and `commandContext`.
  */
 trait RequestContext:
   def method: String
@@ -31,9 +31,9 @@ trait RequestContext:
 /**
  * A request's query string.
  *
- * `required` fails with a 400 naming the parameter, rather than returning a default. A
- * missing parameter the handler needed is the caller's mistake and they should be told
- * which one — silently substituting a default turns it into a puzzling empty result.
+ * `required` fails with a 400 naming the parameter, rather than returning a default. A missing
+ * parameter the handler needed is the caller's mistake and they should be told which one — silently
+ * substituting a default turns it into a puzzling empty result.
  */
 final class QueryParams private[http] (private val entries: Vector[(String, String)]):
 
@@ -62,8 +62,8 @@ final class QueryParams private[http] (private val entries: Vector[(String, Stri
   /**
    * Present with no value counts as `true`, so `?verbose` and `?verbose=true` agree.
    *
-   * A flag is the one case where presence alone is the signal, and requiring `=true`
-   * would surprise anyone who has used a command line.
+   * A flag is the one case where presence alone is the signal, and requiring `=true` would surprise
+   * anyone who has used a command line.
    */
   def flag(name: String): Boolean =
     raw(name).exists(value => value.isEmpty || value.equalsIgnoreCase("true"))
@@ -99,12 +99,12 @@ private[nakka] final case class SimpleRequestContext(
 /**
  * Makes the current request reachable from inside a handler.
  *
- * A `ThreadLocal` is sound here precisely because nakka runs each handler on its own
- * virtual thread: there is exactly one request per thread, and the value is cleared when
- * the handler returns.
+ * A `ThreadLocal` is sound here precisely because nakka runs each handler on its own virtual
+ * thread: there is exactly one request per thread, and the value is cleared when the handler
+ * returns.
  *
- * The consequence to know about: work a handler hands to *another* thread cannot see the
- * context. Read what you need before fanning out.
+ * The consequence to know about: work a handler hands to *another* thread cannot see the context.
+ * Read what you need before fanning out.
  */
 private[http] object RequestScope:
 

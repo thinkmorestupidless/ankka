@@ -10,10 +10,9 @@ import scala.jdk.CollectionConverters.*
 /**
  * A model that answers from a script.
  *
- * Agent tests should be deterministic and free. Everything interesting about an agent —
- * whether it calls the right tool, whether it respects memory, what it does with a
- * refusal — is decided by nakka, not by the model, so a scripted model exercises all of
- * it without a network or an API key.
+ * Agent tests should be deterministic and free. Everything interesting about an agent — whether it
+ * calls the right tool, whether it respects memory, what it does with a refusal — is decided by
+ * nakka, not by the model, so a scripted model exercises all of it without a network or an API key.
  *
  * {{{
  * val model = TestModelProvider()
@@ -96,9 +95,11 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
     Option(scripted.poll()) match
       case Some(response) => Future.successful(response)
       case None =>
-        rules.asScala.collectFirst { case (matches, response) if matches(request) => response } match
+        rules.asScala.collectFirst {
+          case (matches, response) if matches(request) => response
+        } match
           case Some(response) => Future.successful(response)
-          case None =>
+          case None           =>
             // Failing loudly beats returning a plausible-looking default: a test whose
             // model ran out of script is a test that is no longer testing what it says.
             Future.failed(
@@ -113,9 +114,9 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
   /**
    * Streams the scripted reply word by word.
    *
-   * The default `stream` implementation would emit the whole reply as one chunk, which
-   * cannot distinguish a genuinely streaming consumer from one that just waits. Splitting
-   * makes ordering and incremental delivery observable in a test.
+   * The default `stream` implementation would emit the whole reply as one chunk, which cannot
+   * distinguish a genuinely streaming consumer from one that just waits. Splitting makes ordering
+   * and incremental delivery observable in a test.
    */
   override def stream(request: ModelRequest): Source[ModelChunk, NotUsed] =
     Source

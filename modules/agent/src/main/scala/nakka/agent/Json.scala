@@ -5,10 +5,9 @@ import com.github.plokhotnyuk.jsoniter_scala.core.*
 /**
  * A minimal JSON tree.
  *
- * nakka's own payloads are all statically typed and go through derived codecs — this
- * exists for the two places where the shape genuinely is not known at compile time:
- * emitting a tool's JSON Schema, and reading the arguments a model decided to pass to
- * that tool.
+ * nakka's own payloads are all statically typed and go through derived codecs — this exists for the
+ * two places where the shape genuinely is not known at compile time: emitting a tool's JSON Schema,
+ * and reading the arguments a model decided to pass to that tool.
  */
 enum Json:
   case Null
@@ -58,9 +57,9 @@ object Json:
   /**
    * Hand-written rather than derived.
    *
-   * `JsonCodecMaker` would treat this as a sealed hierarchy and add a discriminator
-   * field, producing `{"type":"Obj","fields":{...}}` instead of `{...}` — which is not
-   * JSON any model or schema validator would recognise.
+   * `JsonCodecMaker` would treat this as a sealed hierarchy and add a discriminator field,
+   * producing `{"type":"Obj","fields":{...}}` instead of `{...}` — which is not JSON any model or
+   * schema validator would recognise.
    */
   given codec: JsonValueCodec[Json] = new JsonValueCodec[Json]:
 

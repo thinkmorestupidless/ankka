@@ -3,20 +3,20 @@ package nakka.core
 /**
  * Identifiers used throughout nakka.
  *
- * All four are `opaque type X <: String`, so they cost nothing at runtime and can be
- * passed anywhere a `String` is wanted, but cannot be constructed by accident from one.
+ * All four are `opaque type X <: String`, so they cost nothing at runtime and can be passed
+ * anywhere a `String` is wanted, but cannot be constructed by accident from one.
  */
 
 /**
- * Stable, unique name for a component *type* (not an instance). It becomes the cluster
- * sharding entity type key and the persistence-id prefix, so changing it on a deployed
- * component orphans that component's existing state — exactly as in Akka.
+ * Stable, unique name for a component *type* (not an instance). It becomes the cluster sharding
+ * entity type key and the persistence-id prefix, so changing it on a deployed component orphans
+ * that component's existing state — exactly as in Akka.
  */
 opaque type ComponentId <: String = String
 
 object ComponentId:
-  private val Valid   = "[a-zA-Z0-9][a-zA-Z0-9._-]*".r
-  private val MaxLen  = 128
+  private val Valid  = "[a-zA-Z0-9][a-zA-Z0-9._-]*".r
+  private val MaxLen = 128
 
   /** For component declarations, where a bad id is a programming error. */
   def apply(raw: String): ComponentId =
@@ -60,9 +60,9 @@ object SessionId:
     EntityId.parse(raw).left.map(_.replace("entityId", "sessionId"))
 
 /**
- * Wire name of a command handler. Part of nakka's compatibility surface: a persisted
- * timer or an in-flight request names its target by `(ComponentId, MethodName)`, so
- * renaming a handler breaks them.
+ * Wire name of a command handler. Part of nakka's compatibility surface: a persisted timer or an
+ * in-flight request names its target by `(ComponentId, MethodName)`, so renaming a handler breaks
+ * them.
  */
 opaque type MethodName <: String = String
 

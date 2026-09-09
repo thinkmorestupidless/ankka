@@ -3,9 +3,9 @@ package nakka.http
 /**
  * A parsed route path such as `/carts/{cartId}/items/{productId}`.
  *
- * Placeholder *count* is checked against the handler's arity when the endpoint is
- * constructed, so a mismatch fails at startup alongside the other service-definition
- * checks rather than on the first matching request.
+ * Placeholder *count* is checked against the handler's arity when the endpoint is constructed, so a
+ * mismatch fails at startup alongside the other service-definition checks rather than on the first
+ * matching request.
  */
 final case class PathTemplate(segments: Vector[PathSegment]):
 
@@ -28,10 +28,10 @@ final case class PathTemplate(segments: Vector[PathSegment]):
   /**
    * Ranks this template against others for dispatch.
    *
-   * Literal segments outrank parameters, position by position, so `/users/me` is tried
-   * before `/users/{id}`. Without this, dispatch would depend on declaration order — a
-   * parameter route declared first would swallow every literal route beside it, which is
-   * the kind of bug that works in one file layout and breaks in another.
+   * Literal segments outrank parameters, position by position, so `/users/me` is tried before
+   * `/users/{id}`. Without this, dispatch would depend on declaration order — a parameter route
+   * declared first would swallow every literal route beside it, which is the kind of bug that works
+   * in one file layout and breaks in another.
    */
   private[nakka] def specificity: Vector[Int] =
     segments.map {
@@ -56,16 +56,21 @@ object PathTemplate:
 
   /** Parses a template, rejecting duplicate parameter names and malformed braces. */
   def parse(raw: String): PathTemplate =
-    val segments = raw.split('/').iterator.filter(_.nonEmpty).map { segment =>
-      segment match
-        case Placeholder(name) => PathSegment.Param(name)
-        case literal if literal.contains('{') || literal.contains('}') =>
-          throw IllegalArgumentException(
-            s"malformed path segment '$literal' in '$raw': a parameter must be the whole " +
-              "segment, as in '/items/{productId}'"
-          )
-        case literal => PathSegment.Literal(literal)
-    }.toVector
+    val segments = raw
+      .split('/')
+      .iterator
+      .filter(_.nonEmpty)
+      .map { segment =>
+        segment match
+          case Placeholder(name) => PathSegment.Param(name)
+          case literal if literal.contains('{') || literal.contains('}') =>
+            throw IllegalArgumentException(
+              s"malformed path segment '$literal' in '$raw': a parameter must be the whole " +
+                "segment, as in '/items/{productId}'"
+            )
+          case literal => PathSegment.Literal(literal)
+      }
+      .toVector
 
     val duplicates =
       segments.collect { case PathSegment.Param(name) => name }.groupBy(identity).collect {

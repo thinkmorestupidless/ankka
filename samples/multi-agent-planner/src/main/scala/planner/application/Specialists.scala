@@ -22,9 +22,9 @@ given Serializer[AgentSelection]     = Codecs.serializer[AgentSelection]("agent-
 /**
  * Decides which specialists a request actually needs.
  *
- * This is what makes the orchestration *dynamic*: the workflow does not hard-code which
- * agents to consult, it asks. A question about rain consults the weather specialist; a
- * question about cost consults the budget one; the workflow is unchanged either way.
+ * This is what makes the orchestration *dynamic*: the workflow does not hard-code which agents to
+ * consult, it asks. A question about rain consults the weather specialist; a question about cost
+ * consults the budget one; the workflow is unchanged either way.
  */
 final class SelectorAgent extends Agent:
 
@@ -46,13 +46,13 @@ final class SelectorAgent extends Agent:
 
 object SelectorAgent extends Agent.Companion[SelectorAgent](ComponentId("selector-agent")):
   def create(context: AgentContext) = new SelectorAgent
-  val select = command("select")(_.select)
+  val select                        = command("select")(_.select)
 
 /**
  * Answers weather questions, with a tool.
  *
- * The tool stands in for a forecast API. What matters for the sample is that the model
- * decides to call it and nakka runs it.
+ * The tool stands in for a forecast API. What matters for the sample is that the model decides to
+ * call it and nakka runs it.
  */
 final class WeatherAgent extends Agent:
 
@@ -75,9 +75,10 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
     .describedAs("Returns a short weather forecast for a destination.")
     .param[String]("destination", "The city or region to forecast.")
     .handle { destination =>
-      val outlook = if destination.toLowerCase.contains("reykjav") then "cold and windy"
-      else if destination.toLowerCase.contains("cairo") then "hot and dry"
-      else "mild with occasional rain"
+      val outlook =
+        if destination.toLowerCase.contains("reykjav") then "cold and windy"
+        else if destination.toLowerCase.contains("cairo") then "hot and dry"
+        else "mild with occasional rain"
       s"$destination: $outlook"
     }
 
@@ -88,8 +89,8 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
 /**
  * Suggests activities, informed by the user's stored preferences.
  *
- * Reads the preferences entity through `componentClient` rather than being handed them,
- * which is the documented way an agent enriches its own context.
+ * Reads the preferences entity through `componentClient` rather than being handed them, which is
+ * the documented way an agent enriches its own context.
  */
 final class ActivityAgent extends Agent:
 
@@ -132,17 +133,16 @@ final class BudgetAgent extends Agent:
       .thenReply()
 
 object BudgetAgent extends Agent.Companion[BudgetAgent](ComponentId("budget-agent")):
-  override val role: String = Specialist.Budget
+  override val role: String         = Specialist.Budget
   def create(context: AgentContext) = new BudgetAgent
-  val consult = command("consult")(_.consult)
+  val consult                       = command("consult")(_.consult)
 
 /**
  * Combines the specialists' answers.
  *
- * Reads the session filtered to the specialists, so it sees their contributions but not
- * the selector's routing chatter. This is why session memory is keyed by conversation
- * rather than by agent: collaboration is the default, and filtering is how an agent
- * narrows it.
+ * Reads the session filtered to the specialists, so it sees their contributions but not the
+ * selector's routing chatter. This is why session memory is keyed by conversation rather than by
+ * agent: collaboration is the default, and filtering is how an agent narrows it.
  */
 final class SummaryAgent extends Agent:
 
@@ -160,6 +160,6 @@ final class SummaryAgent extends Agent:
       .thenReply()
 
 object SummaryAgent extends Agent.Companion[SummaryAgent](ComponentId("summary-agent")):
-  override val role: String = "summary"
+  override val role: String         = "summary"
   def create(context: AgentContext) = new SummaryAgent
-  val summarise = command("summarise")(_.summarise)
+  val summarise                     = command("summarise")(_.summarise)

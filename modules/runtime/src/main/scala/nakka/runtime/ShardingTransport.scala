@@ -22,8 +22,8 @@ private[nakka] object EntityKeys:
 /**
  * Routes component calls through cluster sharding.
  *
- * The only place in nakka that knows a component might live on a different node. Every
- * typed call-site guarantee is established in `nakka-sdk`; this just moves bytes.
+ * The only place in nakka that knows a component might live on a different node. Every typed
+ * call-site guarantee is established in `nakka-sdk`; this just moves bytes.
  */
 private[nakka] final class ShardingTransport(
     sharding: ClusterSharding,

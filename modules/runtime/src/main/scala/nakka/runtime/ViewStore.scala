@@ -5,13 +5,13 @@ import nakka.runtime.SqlSyntax.sql
 /**
  * The SQL behind a view's row table.
  *
- * One table per view: `row_key` is the source entity's id, `payload` is the row encoded
- * by the view's own serializer.
+ * One table per view: `row_key` is the source entity's id, `payload` is the row encoded by the
+ * view's own serializer.
  *
- * The payload is `TEXT` rather than `JSONB` because r2dbc's Postgres driver maps `jsonb`
- * to a driver-specific `Json` type, and storing text keeps the column readable by any
- * client. Queries cast on the way in (`payload::jsonb->>'email'`), which Postgres can
- * index with an expression index.
+ * The payload is `TEXT` rather than `JSONB` because r2dbc's Postgres driver maps `jsonb` to a
+ * driver-specific `Json` type, and storing text keeps the column readable by any client. Queries
+ * cast on the way in (`payload::jsonb->>'email'`), which Postgres can index with an expression
+ * index.
  */
 private[nakka] object ViewStore:
 
@@ -25,9 +25,9 @@ private[nakka] object ViewStore:
     )
 
   /**
-   * Insert-or-replace. Uses `EXCLUDED.payload` rather than binding the payload twice,
-   * because parameters are numbered by position and a repeated placeholder would need
-   * the value bound again.
+   * Insert-or-replace. Uses `EXCLUDED.payload` rather than binding the payload twice, because
+   * parameters are numbered by position and a repeated placeholder would need the value bound
+   * again.
    */
   def upsert(table: String, key: String, payload: String): SqlFragment =
     SqlFragment.raw(s"INSERT INTO $table (row_key, payload, updated_at) VALUES (") ++

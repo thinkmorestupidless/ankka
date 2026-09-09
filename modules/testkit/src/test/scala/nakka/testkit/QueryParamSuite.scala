@@ -113,9 +113,9 @@ class QueryParamSuite extends munit.FunSuite:
   test("a streaming handler reads query parameters while building its source") {
     val (status, body) = get("/search/stream?q=tick&count=3")
     assertEquals(status, 200)
-    val events = body.linesIterator
-      .collect { case line if line.startsWith("data:") => line.drop(5).trim }
-      .toVector
+    val events = body.linesIterator.collect {
+      case line if line.startsWith("data:") => line.drop(5).trim
+    }.toVector
     assertEquals(events, Vector("\"tick-1\"", "\"tick-2\"", "\"tick-3\""))
   }
 

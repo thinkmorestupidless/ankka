@@ -5,9 +5,9 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString
 /**
  * How a tool parameter is described to the model, and how its value is read back.
  *
- * Schema *and* decoder in one instance on purpose: they have to agree, and keeping them
- * apart is how you end up telling a model a field is an integer and then failing to
- * parse the integer it sends.
+ * Schema *and* decoder in one instance on purpose: they have to agree, and keeping them apart is
+ * how you end up telling a model a field is an integer and then failing to parse the integer it
+ * sends.
  */
 trait SchemaType[A]:
   /** JSON Schema fragment for this parameter. */
@@ -38,8 +38,8 @@ object SchemaType:
   /**
    * `integer`, not `number`.
    *
-   * Models honour the distinction, and declaring `number` then rejecting `2.5` would be
-   * nakka's fault rather than the model's.
+   * Models honour the distinction, and declaring `number` then rejecting `2.5` would be nakka's
+   * fault rather than the model's.
    */
   given int: SchemaType[Int] =
     new SchemaType[Int]:
@@ -69,9 +69,9 @@ object SchemaType:
       val schema: Json               = inner.schema
       override val required: Boolean = false
       def decode(value: Option[Json]): Either[String, Option[A]] = value match
-        case None                       => Right(None)
-        case Some(json) if json.isNull  => Right(None)
-        case some                       => inner.decode(some).map(Some(_))
+        case None                      => Right(None)
+        case Some(json) if json.isNull => Right(None)
+        case some                      => inner.decode(some).map(Some(_))
 
   given list[A](using inner: SchemaType[A]): SchemaType[List[A]] =
     new SchemaType[List[A]]:
@@ -108,8 +108,8 @@ object ToolOutput:
   /**
    * Anything with a jsoniter codec, rendered as JSON.
    *
-   * Lower priority than the scalar instances above so a `String` result is passed
-   * through as prose rather than being wrapped in quotes.
+   * Lower priority than the scalar instances above so a `String` result is passed through as prose
+   * rather than being wrapped in quotes.
    */
   given encoded[A](using codec: JsonValueCodec[A]): ToolOutput[A] =
     value => writeToString(value)(using codec)

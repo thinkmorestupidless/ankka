@@ -6,13 +6,13 @@ final case class LineItem(productId: String, name: String, quantity: Int)
 
 sealed trait CartEvent
 object CartEvent:
-  final case class ItemAdded(item: LineItem) extends CartEvent
+  final case class ItemAdded(item: LineItem)      extends CartEvent
   final case class ItemRemoved(productId: String) extends CartEvent
-  case object CheckedOut extends CartEvent
+  case object CheckedOut                          extends CartEvent
 
 class SerializerSuite extends munit.FunSuite:
 
-  private given JsonValueCodec[LineItem] = Codecs.make[LineItem]
+  private given JsonValueCodec[LineItem]  = Codecs.make[LineItem]
   private given JsonValueCodec[CartEvent] = Codecs.make[CartEvent]
 
   test("round-trips a flat record") {

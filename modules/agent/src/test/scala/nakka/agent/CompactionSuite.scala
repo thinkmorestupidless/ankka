@@ -7,12 +7,12 @@ import scala.concurrent.duration.DurationInt
 /** The summariser and the compactor's own arithmetic, without a running service. */
 class CompactionSuite extends munit.FunSuite:
 
-  private def user(text: String)      = SessionMessage.UserMessage(1L, text, "a")
-  private def ai(text: String)        = SessionMessage.AiMessage(2L, text, "a")
-  private def summary(text: String)   = SessionMessage.SummaryMessage(3L, text, "nakka-compactor")
-  private def toolOk(text: String)    =
+  private def user(text: String)    = SessionMessage.UserMessage(1L, text, "a")
+  private def ai(text: String)      = SessionMessage.AiMessage(2L, text, "a")
+  private def summary(text: String) = SessionMessage.SummaryMessage(3L, text, "nakka-compactor")
+  private def toolOk(text: String) =
     SessionMessage.ToolResultMessage(4L, "c1", "lookup", text, isError = false, "a")
-  private def toolBad(text: String)   =
+  private def toolBad(text: String) =
     SessionMessage.ToolResultMessage(4L, "c1", "lookup", text, isError = true, "a")
 
   test("settings reject values that could never compact anything") {
@@ -48,13 +48,16 @@ class CompactionSuite extends munit.FunSuite:
   }
 
   test("the summariser asks the model and returns its text") {
-    val model = TestModelProvider().expectText("They discussed museums in Lisbon.")
+    val model  = TestModelProvider().expectText("They discussed museums in Lisbon.")
     val result = ModelSummariser(model, 5.seconds).summarise(Vector(user("museums?"), ai("yes")))
 
     assertEquals(result, "They discussed museums in Lisbon.")
     // Sent as one user turn, under a compression system message.
     assertEquals(model.lastRequest.messages.size, 1)
-    assert(model.lastRequest.systemMessage.exists(_.contains("compress")), model.lastRequest.toString)
+    assert(
+      model.lastRequest.systemMessage.exists(_.contains("compress")),
+      model.lastRequest.toString
+    )
   }
 
   test("a refusal to summarise is an error, not an empty summary") {

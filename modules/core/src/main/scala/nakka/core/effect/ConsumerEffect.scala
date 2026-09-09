@@ -5,10 +5,9 @@ import nakka.core.Metadata
 /**
  * What a consumer should do with the message it just handled.
  *
- * All three advance the projection offset. The difference is what leaves the service:
- * `Produce` emits downstream, the other two do not. Failing is *not* modelled here on
- * purpose — a consumer that throws must not advance its offset, so failure is an
- * exception, and the runtime redelivers.
+ * All three advance the projection offset. The difference is what leaves the service: `Produce`
+ * emits downstream, the other two do not. Failing is *not* modelled here on purpose — a consumer
+ * that throws must not advance its offset, so failure is an exception, and the runtime redelivers.
  */
 sealed trait ConsumerEffect[+Out]
 
@@ -25,8 +24,8 @@ final class ConsumerEffects[Out] private[nakka] ():
     ConsumerEffect.Produce(payload, Metadata.empty)
 
   /**
-   * Publish with explicit metadata. Set `ce-subject` to the entity id to preserve
-   * per-entity ordering on the broker.
+   * Publish with explicit metadata. Set `ce-subject` to the entity id to preserve per-entity
+   * ordering on the broker.
    */
   def produce(payload: Out, metadata: Metadata): ConsumerEffect[Out] =
     ConsumerEffect.Produce(payload, metadata)

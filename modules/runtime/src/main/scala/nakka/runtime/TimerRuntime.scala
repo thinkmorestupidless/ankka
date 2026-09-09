@@ -13,11 +13,10 @@ import scala.concurrent.Await
 /**
  * Runs scheduled calls.
  *
- * Timers live in Postgres rather than in an actor's memory, because the whole promise of
- * a timer is that it outlives the process that set it. A cluster singleton polls for due
- * calls and runs them; a singleton rather than sharded slices because timers are capped
- * in the hundreds of thousands, and one poller is far easier to reason about than N
- * pollers racing for the same rows.
+ * Timers live in Postgres rather than in an actor's memory, because the whole promise of a timer is
+ * that it outlives the process that set it. A cluster singleton polls for due calls and runs them;
+ * a singleton rather than sharded slices because timers are capped in the hundreds of thousands,
+ * and one poller is far easier to reason about than N pollers racing for the same rows.
  */
 final class TimerRuntime private (pollInterval: FiniteDuration) extends RuntimeExtension:
 
@@ -34,7 +33,7 @@ final class TimerRuntime private (pollInterval: FiniteDuration) extends RuntimeE
   def start(service: NakkaService): Unit =
     given system: ActorSystem[?] = service.system
 
-    val actions = service.registry.components.collect { case a: TimedActionDescriptor[?] => a }
+    val actions  = service.registry.components.collect { case a: TimedActionDescriptor[?] => a }
     val database = Database()
 
     scheduler = Some(new DatabaseTimerScheduler(database))
@@ -88,7 +87,9 @@ private[nakka] final class DatabaseTimerScheduler(database: Database) extends Ti
     Await.result(database.execute(TimerStore.delete(name)), timeout): Unit
 
   def exists(name: String): Boolean =
-    Await.result(database.query(TimerStore.byName(name))(_.get(0, classOf[String])), timeout).nonEmpty
+    Await
+      .result(database.query(TimerStore.byName(name))(_.get(0, classOf[String])), timeout)
+      .nonEmpty
 
 /** SQL for the timer table. */
 private[nakka] object TimerStore:
@@ -117,9 +118,9 @@ private[nakka] object TimerStore:
     ) ++ sql"$now" ++ SqlFragment.raw(s" ORDER BY due_at LIMIT $limit")
 
   /**
-   * Pushes a failed timer out with exponential backoff, 3s doubling to a 30s ceiling —
-   * the range Akka documents, so a permanently failing timer costs two attempts a minute
-   * rather than saturating the poller.
+   * Pushes a failed timer out with exponential backoff, 3s doubling to a 30s ceiling — the range
+   * Akka documents, so a permanently failing timer costs two attempts a minute rather than
+   * saturating the poller.
    */
   def reschedule(name: String, attempts: Int): SqlFragment =
     val backoffSeconds = math.min(3L * (1L << math.min(attempts, 4)), 30L)

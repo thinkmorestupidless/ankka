@@ -10,9 +10,9 @@ import shoppingcart.domain.{LineItem, ShoppingCart}
 /**
  * The API layer: HTTP in, component calls out.
  *
- * Note what is absent — no try/catch, no status codes, no error mapping. A rejection
- * from the entity carries its own `ErrorCode`, which the runtime turns into the right
- * status, so this layer only has to describe the happy path.
+ * Note what is absent — no try/catch, no status codes, no error mapping. A rejection from the
+ * entity carries its own `ErrorCode`, which the runtime turns into the right status, so this layer
+ * only has to describe the happy path.
  */
 final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("/carts"):
 

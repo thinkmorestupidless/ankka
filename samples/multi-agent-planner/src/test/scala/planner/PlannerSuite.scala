@@ -11,9 +11,9 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 /**
  * The multi-agent planner end to end.
  *
- * A scripted model, so the assertions are about the orchestration — which specialists
- * were chosen, that they ran in one shared session, that the summariser saw their
- * contributions and not the selector's routing — rather than about a model's wording.
+ * A scripted model, so the assertions are about the orchestration — which specialists were chosen,
+ * that they ran in one shared session, that the summariser saw their contributions and not the
+ * selector's routing — rather than about a model's wording.
  */
 class PlannerSuite extends munit.FunSuite:
 
@@ -86,14 +86,19 @@ class PlannerSuite extends munit.FunSuite:
     scriptPlan(List(Specialist.Weather, Specialist.Budget), "A mild, affordable trip.")
 
     assertEquals(
-      planner("p-select").call(PlannerWorkflow.start).invoke(
-        PlannerWorkflow.Start("u-1", "Lisbon")
-      ),
+      planner("p-select")
+        .call(PlannerWorkflow.start)
+        .invoke(
+          PlannerWorkflow.Start("u-1", "Lisbon")
+        ),
       Done
     )
 
     val plan = completedPlan("p-select")
-    assertEquals(plan.selection.map(_.specialists), Some(List(Specialist.Weather, Specialist.Budget)))
+    assertEquals(
+      plan.selection.map(_.specialists),
+      Some(List(Specialist.Weather, Specialist.Budget))
+    )
     assertEquals(plan.contributions.map(_.specialist), List(Specialist.Weather, Specialist.Budget))
     // The activity specialist was never consulted, so it contributed nothing.
     assertEquals(plan.contributionFrom(Specialist.Activity), None)
@@ -102,23 +107,30 @@ class PlannerSuite extends munit.FunSuite:
 
   test("a different selection changes which agents run, with no orchestration change") {
     scriptPlan(List(Specialist.Activity), "Plenty to do.")
-    val _ = planner("p-one").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-one")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
 
     val plan = completedPlan("p-one")
     assertEquals(plan.contributions.map(_.specialist), List(Specialist.Activity))
-    assertEquals(plan.contributionFrom(Specialist.Activity), Some("Try the tram and a pastel de nata."))
+    assertEquals(
+      plan.contributionFrom(Specialist.Activity),
+      Some("Try the tram and a pastel de nata.")
+    )
   }
 
   test("every specialist writes into one shared session") {
     scriptPlan(Specialist.All, "A full brief.")
-    val _ = planner("p-shared").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-shared")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
     val _ = completedPlan("p-shared")
 
-    val history = sessionOf("p-shared")
+    val history      = sessionOf("p-shared")
     val contributors = history.messages.map(_.agentId).distinct.sorted
 
     // The specialists and the summariser share the conversation; the selector opted out
@@ -129,18 +141,22 @@ class PlannerSuite extends munit.FunSuite:
 
   test("the summariser reads the specialists' contributions back from the session") {
     scriptPlan(List(Specialist.Weather, Specialist.Activity), "Mild weather, good trams.")
-    val _ = planner("p-summary").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-summary")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
     val _ = completedPlan("p-summary")
 
     // The last model call is the summariser's; it must have seen the specialists' answers.
     val summaryRequest = model.lastRequest
-    val visible = summaryRequest.messages.collect {
-      case ChatMessage.Assistant(text, _) => text
-      case ChatMessage.User(content) =>
-        content.collect { case MessageContent.Text(t) => t }.mkString
-    }.mkString("\n")
+    val visible = summaryRequest.messages
+      .collect {
+        case ChatMessage.Assistant(text, _) => text
+        case ChatMessage.User(content) =>
+          content.collect { case MessageContent.Text(t) => t }.mkString
+      }
+      .mkString("\n")
 
     assert(visible.contains("mild with occasional rain"), visible)
     assert(visible.contains("pastel de nata"), visible)
@@ -149,20 +165,24 @@ class PlannerSuite extends munit.FunSuite:
   }
 
   test("the activity specialist is given the traveller's stored preferences") {
-    val _ = preferences("u-picky").call(PreferencesEntity.set).invoke(
-      Preferences("u-picky", List("museums"), List("hiking"), 120)
-    )
+    val _ = preferences("u-picky")
+      .call(PreferencesEntity.set)
+      .invoke(
+        Preferences("u-picky", List("museums"), List("hiking"), 120)
+      )
 
     scriptPlan(List(Specialist.Activity), "Museums it is.")
-    val _ = planner("p-prefs").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-picky", "Lisbon")
-    )
+    val _ = planner("p-prefs")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-picky", "Lisbon")
+      )
     val _ = completedPlan("p-prefs")
 
     // The preferences reached the model as context, read from the entity by the agent.
     val activityRequest = model.requests(1)
-    val text = activityRequest.messages.collect {
-      case ChatMessage.User(content) => content.collect { case MessageContent.Text(t) => t }.mkString
+    val text = activityRequest.messages.collect { case ChatMessage.User(content) =>
+      content.collect { case MessageContent.Text(t) => t }.mkString
     }.mkString
     assert(text.contains("museums"), text)
     assert(text.contains("budget 120"), text)
@@ -170,9 +190,11 @@ class PlannerSuite extends munit.FunSuite:
 
   test("a specialist with a tool runs it before answering") {
     scriptPlan(List(Specialist.Weather), "Bring a light coat.")
-    val _ = planner("p-tool").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-tool")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
     val _ = completedPlan("p-tool")
 
     // Selector, weather turn 1, weather turn 2 (after the tool), summariser.
@@ -180,8 +202,9 @@ class PlannerSuite extends munit.FunSuite:
     val afterTool = model.requests(2)
     assert(
       afterTool.messages.exists {
-        case ChatMessage.ToolResults(results) => results.exists(_.content.contains("occasional rain"))
-        case _                                => false
+        case ChatMessage.ToolResults(results) =>
+          results.exists(_.content.contains("occasional rain"))
+        case _ => false
       },
       afterTool.messages.toString
     )
@@ -192,9 +215,11 @@ class PlannerSuite extends munit.FunSuite:
     model.expectText("Try the tram and a pastel de nata.")
     model.expectText("Fallback brief.")
 
-    val _ = planner("p-junk").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-junk")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
     val plan = completedPlan("p-junk")
     assertEquals(plan.selection.map(_.specialists), Some(List(Specialist.Activity)))
     assertEquals(plan.summary, Some("Fallback brief."))
@@ -210,9 +235,11 @@ class PlannerSuite extends munit.FunSuite:
 
   test("starting the same plan twice conflicts") {
     scriptPlan(List(Specialist.Budget), "Cheap enough.")
-    val _ = planner("p-twice").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-twice")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
     val failure = intercept[CommandError] {
       planner("p-twice").call(PlannerWorkflow.start).invoke(PlannerWorkflow.Start("u-1", "Lisbon"))
     }
@@ -225,9 +252,11 @@ class PlannerSuite extends munit.FunSuite:
 
   test("a completed plan reports Completed through the engine's own lifecycle") {
     scriptPlan(List(Specialist.Budget), "Cheap enough.")
-    val _ = planner("p-lifecycle").call(PlannerWorkflow.start).invoke(
-      PlannerWorkflow.Start("u-1", "Lisbon")
-    )
+    val _ = planner("p-lifecycle")
+      .call(PlannerWorkflow.start)
+      .invoke(
+        PlannerWorkflow.Start("u-1", "Lisbon")
+      )
     val _ = completedPlan("p-lifecycle")
 
     val lifecycle = planner("p-lifecycle").lifecycle(PlannerWorkflow).invoke()

@@ -5,8 +5,8 @@ import nakka.core.{ComponentId, MethodName, Serializer}
 /**
  * The runtime-facing view of one registered handler.
  *
- * Serialization and the single unavoidable cast are confined here, so the sharding host
- * can drive any handler without knowing its input or output types.
+ * Serialization and the single unavoidable cast are confined here, so the sharding host can drive
+ * any handler without knowing its input or output types.
  */
 private[nakka] sealed trait HandlerBinding[C]:
   def componentId: ComponentId
@@ -22,9 +22,9 @@ private[nakka] sealed trait HandlerBinding[C]:
 /**
  * A typed reference to a handler that takes one argument.
  *
- * This is what replaces Akka's `Entity::method` lambda-bytecode inspection. Because the
- * handle carries `I` and `O`, a call site is checked by the compiler; because it carries
- * `componentId` and `name`, the runtime can route it without reflection.
+ * This is what replaces Akka's `Entity::method` lambda-bytecode inspection. Because the handle
+ * carries `I` and `O`, a call site is checked by the compiler; because it carries `componentId` and
+ * `name`, the runtime can route it without reflection.
  */
 final class CommandHandle[C, I, O] private[nakka] (
     val componentId: ComponentId,
@@ -46,8 +46,8 @@ final class CommandHandle[C, I, O] private[nakka] (
 /**
  * A typed reference to a handler that takes no argument.
  *
- * Kept distinct from `CommandHandle` rather than modelled as `CommandHandle[C, Unit, O]`
- * so that call sites read `.invoke()` instead of `.invoke(())`.
+ * Kept distinct from `CommandHandle` rather than modelled as `CommandHandle[C, Unit, O]` so that
+ * call sites read `.invoke()` instead of `.invoke(())`.
  */
 final class NoArgHandle[C, O] private[nakka] (
     val componentId: ComponentId,

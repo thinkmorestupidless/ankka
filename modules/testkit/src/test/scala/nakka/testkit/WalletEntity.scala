@@ -17,8 +17,10 @@ final class WalletEntity(context: KeyValueEntityContext) extends KeyValueEntity[
     if amount <= 0 then effects.error("deposit must be positive")
     else if currentState.frozen then
       effects.error(s"wallet '$walletId' is frozen", ErrorCode.Conflict)
-    else effects.updateState(currentState.copy(balance = currentState.balance + amount))
-      .thenReply(_ => Done)
+    else
+      effects
+        .updateState(currentState.copy(balance = currentState.balance + amount))
+        .thenReply(_ => Done)
 
   def withdraw(amount: Int): Effect[Done] =
     if amount <= 0 then effects.error("withdrawal must be positive")
@@ -27,8 +29,10 @@ final class WalletEntity(context: KeyValueEntityContext) extends KeyValueEntity[
         s"wallet '$walletId' has ${currentState.balance}, cannot withdraw $amount",
         ErrorCode.Conflict
       )
-    else effects.updateState(currentState.copy(balance = currentState.balance - amount))
-      .thenReply(_ => Done)
+    else
+      effects
+        .updateState(currentState.copy(balance = currentState.balance - amount))
+        .thenReply(_ => Done)
 
   /** Makes deposits fail, so compensation paths can be exercised deliberately. */
   def freeze: Effect[Done] =

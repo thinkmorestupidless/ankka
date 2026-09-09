@@ -14,9 +14,8 @@ import scala.util.{Failure, Success}
 /**
  * The durable step engine for one workflow instance.
  *
- * Separated from `WorkflowHost` because the host is about *storage* — journal records,
- * adapters, state folding — and this is about *execution order*, which is where all the
- * subtlety lives.
+ * Separated from `WorkflowHost` because the host is about *storage* — journal records, adapters,
+ * state folding — and this is about *execution order*, which is where all the subtlety lives.
  */
 private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
     descriptor: WorkflowDescriptor[W, S],
@@ -34,10 +33,10 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
 
   def onCommand(state: Run[S], command: Command): PekkoEffect[Event[S], Run[S]] =
     command match
-      case invoke: Invoke        => onInvoke(state, invoke)
-      case RunPendingStep        => onRunPendingStep(state)
+      case invoke: Invoke           => onInvoke(state, invoke)
+      case RunPendingStep           => onRunPendingStep(state)
       case succeeded: StepSucceeded => onStepSucceeded(state, succeeded)
-      case failed: StepFailed    => onStepFailure(state, failed.step, failed.message)
+      case failed: StepFailed       => onStepFailure(state, failed.step, failed.message)
       case timedOut: StepTimedOut =>
         onStepFailure(
           state,
@@ -65,9 +64,9 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
   /**
    * Re-arms the engine after recovery.
    *
-   * This is what makes a workflow durable rather than merely persistent. The journal says
-   * a step was pending; nothing is running it, because the process that was running it is
-   * gone. So run it again.
+   * This is what makes a workflow durable rather than merely persistent. The journal says a step
+   * was pending; nothing is running it, because the process that was running it is gone. So run it
+   * again.
    */
   def onRecovered(state: Run[S]): Unit =
     if state.isTerminal then ()
@@ -161,9 +160,8 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
   /**
    * Answers the engine's own lifecycle query.
    *
-   * Deliberately not routed through a developer-written handler: the point is that this
-   * works even when — especially when — the workflow's own handlers cannot tell you
-   * anything useful.
+   * Deliberately not routed through a developer-written handler: the point is that this works even
+   * when — especially when — the workflow's own handlers cannot tell you anything useful.
    */
   private def onLifecycleQuery(state: Run[S], invoke: Invoke): PekkoEffect[Event[S], Run[S]] =
     val lifecycle = WorkflowLifecycle(
@@ -208,9 +206,9 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
   /**
    * Runs the step off the actor.
    *
-   * A fresh workflow instance per execution: the step runs on a virtual thread while the
-   * actor keeps handling commands, so sharing the instance's `currentState` slot would
-   * be a data race. Allocating an object is cheaper than that class of bug.
+   * A fresh workflow instance per execution: the step runs on a virtual thread while the actor
+   * keeps handling commands, so sharing the instance's `currentState` slot would be a data race.
+   * Allocating an object is cheaper than that class of bug.
    */
   private def startStep(handle: StepHandleLike[W], ref: StepRef, value: S): Unit =
     val workflow = descriptor.create(context)
@@ -269,8 +267,8 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
   /**
    * Applies the recovery strategy for a failed or timed-out step.
    *
-   * Retries re-run the same step with the same input; failover transitions to a step that
-   * takes no input, so compensation reads whatever the workflow accumulated in its state.
+   * Retries re-run the same step with the same input; failover transitions to a step that takes no
+   * input, so compensation reads whatever the workflow accumulated in its state.
    */
   private def onStepFailure(
       state: Run[S],
@@ -341,14 +339,12 @@ private[nakka] final class WorkflowEngine[W <: Workflow[S], S](
           PekkoEffect.persist(Event.Failed("paused workflow timed out with no timeout handler"))
 
   /**
-   * Arms the global timeout against the *original* start, not against now — so a
-   * workflow that restarts twice still gets one total budget rather than a fresh one
-   * each time.
+   * Arms the global timeout against the *original* start, not against now — so a workflow that
+   * restarts twice still gets one total budget rather than a fresh one each time.
    *
-   * The `startedAtMillis > 0` guard is essential rather than defensive: a workflow that
-   * has not started yet has no start time, and treating 0 as one makes `elapsed` the
-   * whole Unix epoch, which fires the timeout immediately and fails the workflow before
-   * its first step ever runs.
+   * The `startedAtMillis > 0` guard is essential rather than defensive: a workflow that has not
+   * started yet has no start time, and treating 0 as one makes `elapsed` the whole Unix epoch,
+   * which fires the timeout immediately and fails the workflow before its first step ever runs.
    */
   private def armWorkflowTimeout(state: Run[S]): Unit =
     if state.startedAtMillis > 0L then

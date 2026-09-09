@@ -9,9 +9,9 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 /**
  * A `CallTransport` for unit tests, with no cluster behind it.
  *
- * Calls to components you have not stubbed fail with an explanation rather than hanging
- * or returning a fabricated value — a unit test that silently gets a default back from a
- * collaborator it forgot to stub is worse than one that fails.
+ * Calls to components you have not stubbed fail with an explanation rather than hanging or
+ * returning a fabricated value — a unit test that silently gets a default back from a collaborator
+ * it forgot to stub is worse than one that fails.
  *
  * {{{
  * val transport = TestTransport()
@@ -31,8 +31,7 @@ final class TestTransport private (
     new TestTransport(
       stubs.updated(
         (handle.componentId, handle.name),
-        bytes =>
-          handle.outputSerializer.toBytes(respond(handle.inputSerializer.fromBytes(bytes)))
+        bytes => handle.outputSerializer.toBytes(respond(handle.inputSerializer.fromBytes(bytes)))
       ),
       askTimeout
     )

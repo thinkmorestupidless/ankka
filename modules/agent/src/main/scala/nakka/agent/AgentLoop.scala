@@ -13,10 +13,10 @@ import scala.util.control.NonFatal
 /**
  * Carries out one interaction: memory in, model call, tools, memory out.
  *
- * Written as straight-line blocking code and run on a virtual thread. That is the whole
- * point of the virtual-thread decision — a tool loop is inherently sequential (call the
- * model, run what it asked for, call it again), and expressing it as a chain of futures
- * would obscure the one thing a reader needs to follow.
+ * Written as straight-line blocking code and run on a virtual thread. That is the whole point of
+ * the virtual-thread decision — a tool loop is inherently sequential (call the model, run what it
+ * asked for, call it again), and expressing it as a chain of futures would obscure the one thing a
+ * reader needs to follow.
  */
 private[agent] final class AgentLoop(
     descriptor: AgentDescriptor[Agent],
@@ -47,8 +47,9 @@ private[agent] final class AgentLoop(
       // Input guardrails run before anything is spent.
       _ <- checkGuardrails(effect.guards, userText, input = true)
 
-      history = if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
-      prompt  = buildPrompt(effect, history, userText)
+      history =
+        if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
+      prompt = buildPrompt(effect, history, userText)
 
       outcome <- runToolLoop(provider, effect, prompt)
       _       <- checkGuardrails(effect.guards, outcome.response.text, input = false)
@@ -66,11 +67,11 @@ private[agent] final class AgentLoop(
   /**
    * Runs the interaction, pushing text to `emit` as it is generated.
    *
-   * The same loop as `run`, differing only in that each turn is streamed. Tool rounds
-   * stream too — a model's "let me look that up" preamble is output worth showing.
+   * The same loop as `run`, differing only in that each turn is streamed. Tool rounds stream too —
+   * a model's "let me look that up" preamble is output worth showing.
    *
-   * `emit` may block (it does, to apply backpressure), which is fine: this runs on a
-   * virtual thread.
+   * `emit` may block (it does, to apply backpressure), which is fine: this runs on a virtual
+   * thread.
    */
   def runStreaming(
       effect: AgentStreamEffect,
@@ -97,8 +98,9 @@ private[agent] final class AgentLoop(
       )
       _ <- checkGuardrails(effect.guards, userText, input = true)
 
-      history = if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
-      prompt  = buildPrompt(effect, history, userText)
+      history =
+        if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
+      prompt = buildPrompt(effect, history, userText)
 
       outcome <- streamToolLoop(provider, effect, prompt, emit)
 
@@ -136,10 +138,10 @@ private[agent] final class AgentLoop(
               .runWith(
                 Sink.fold(Option.empty[ModelResponse]) { (last, chunk) =>
                   chunk match
-                    case ModelChunk.TextDelta(text)      => emit(text); last
-                    case ModelChunk.Completed(response)  => Some(response)
-                    case ModelChunk.Failed(error)        => throw ModelCallFailed(provider.name, error)
-                    case ModelChunk.ToolCallStarted(_)   => last
+                    case ModelChunk.TextDelta(text)     => emit(text); last
+                    case ModelChunk.Completed(response) => Some(response)
+                    case ModelChunk.Failed(error) => throw ModelCallFailed(provider.name, error)
+                    case ModelChunk.ToolCallStarted(_) => last
                 }
               ),
             modelTimeout
@@ -149,7 +151,10 @@ private[agent] final class AgentLoop(
             return Left(CommandError(failure.getMessage, ErrorCode.Unavailable))
           case _: java.util.concurrent.TimeoutException =>
             return Left(
-              CommandError(s"${provider.name} did not respond within $modelTimeout", ErrorCode.Timeout)
+              CommandError(
+                s"${provider.name} did not respond within $modelTimeout",
+                ErrorCode.Timeout
+              )
             )
           case NonFatal(failure) =>
             return Left(
@@ -189,7 +194,7 @@ private[agent] final class AgentLoop(
           )
         )
 
-      val results  = response.toolCalls.map(call => runTool(tools, call))
+      val results = response.toolCalls.map(call => runTool(tools, call))
       val newTurns = Vector(
         ChatMessage.Assistant(response.text, response.toolCalls),
         ChatMessage.ToolResults(results)
@@ -258,9 +263,8 @@ private[agent] final class AgentLoop(
   /**
    * The result of one interaction.
    *
-   * `produced` holds only the turns *this* interaction created. Replayed history is
-   * already in the journal, and recording it again would double the conversation on
-   * every request.
+   * `produced` holds only the turns *this* interaction created. Replayed history is already in the
+   * journal, and recording it again would double the conversation on every request.
    */
   private final case class Outcome(
       response: ModelResponse,
@@ -332,7 +336,7 @@ private[agent] final class AgentLoop(
           )
         )
 
-      val results  = response.toolCalls.map(call => runTool(tools, call))
+      val results = response.toolCalls.map(call => runTool(tools, call))
       val newTurns = Vector(
         ChatMessage.Assistant(response.text, response.toolCalls),
         ChatMessage.ToolResults(results)
@@ -347,9 +351,9 @@ private[agent] final class AgentLoop(
   /**
    * Runs one tool call.
    *
-   * A tool that fails comes back as a tool result flagged as an error rather than as an
-   * exception, because that is what lets the model recover — usually by fixing its
-   * arguments and trying again. Failing the whole request would deny it the chance.
+   * A tool that fails comes back as a tool result flagged as an error rather than as an exception,
+   * because that is what lets the model recover — usually by fixing its arguments and trying again.
+   * Failing the whole request would deny it the chance.
    */
   private def runTool(tools: Map[String, FunctionTool], call: ToolCall): ToolResult =
     tools.get(call.name) match
@@ -374,7 +378,9 @@ private[agent] final class AgentLoop(
       input: Boolean
   ): Either[CommandError, Unit] =
     guardrails.iterator
-      .map(guard => guard.name -> (if input then guard.checkInput(text) else guard.checkOutput(text)))
+      .map(guard =>
+        guard.name -> (if input then guard.checkInput(text) else guard.checkOutput(text))
+      )
       .collectFirst { case (name, Left(reason)) =>
         CommandError(s"guardrail '$name': $reason", ErrorCode.Forbidden)
       }
@@ -386,7 +392,7 @@ private[agent] final class AgentLoop(
     componentClient.forEventSourcedEntity(EntityId(sessionId))
 
   private def readHistory(memory: MemoryProvider): Vector[SessionMessage] =
-    val stored = memoryEntity.call(SessionMemoryEntity.history).invoke()
+    val stored   = memoryEntity.call(SessionMemoryEntity.history).invoke()
     val filtered = stored.messages.filter(memory.filter.matches)
     memory.readLast match
       case Some(count) => filtered.takeRight(count)

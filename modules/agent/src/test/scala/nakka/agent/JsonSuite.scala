@@ -13,7 +13,7 @@ class JsonSuite extends munit.FunSuite:
   }
 
   test("objects round-trip without a discriminator") {
-    val text = """{"location":"Berlin","days":3}"""
+    val text   = """{"location":"Berlin","days":3}"""
     val parsed = Json.parse(text).fold(fail(_), identity)
     assertEquals(parsed("location").flatMap(_.asString), Some("Berlin"))
     assertEquals(parsed("days").flatMap(_.asDouble), Some(3.0))
@@ -31,7 +31,7 @@ class JsonSuite extends munit.FunSuite:
   }
 
   test("arrays and nesting round-trip") {
-    val text = """{"items":[{"id":1},{"id":2}],"tags":["a","b"]}"""
+    val text   = """{"items":[{"id":1},{"id":2}],"tags":["a","b"]}"""
     val parsed = Json.parse(text).fold(fail(_), identity)
     assertEquals(parsed("items").flatMap(_.asArray).map(_.size), Some(2))
     assertEquals(

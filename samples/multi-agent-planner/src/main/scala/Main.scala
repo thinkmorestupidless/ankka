@@ -7,8 +7,8 @@ import planner.application.*
 /**
  * The whole multi-agent service.
  *
- * Registration is explicit, so this is also the complete inventory: four agents, one
- * entity, one workflow, session memory, and the extensions that host them.
+ * Registration is explicit, so this is also the complete inventory: four agents, one entity, one
+ * workflow, session memory, and the extensions that host them.
  *
  * Needs Postgres (`docker compose up -d`) and `ANTHROPIC_API_KEY`.
  */
@@ -29,4 +29,5 @@ import planner.application.*
     .start()
 
   sys.addShutdownHook(service.terminate())
-  scala.concurrent.Await.result(service.whenTerminated, scala.concurrent.duration.Duration.Inf): Unit
+  scala.concurrent.Await
+    .result(service.whenTerminated, scala.concurrent.duration.Duration.Inf): Unit

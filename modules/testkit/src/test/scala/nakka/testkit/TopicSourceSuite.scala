@@ -9,9 +9,8 @@ import scala.jdk.CollectionConverters.*
 /**
  * Topic-sourced views and consumers, over the in-memory broker.
  *
- * Everything except the wire itself is real: CloudEvents subjects, decoding, view row
- * upserts against Postgres, consumer dispatch and republishing. The Kafka suite covers
- * the wire.
+ * Everything except the wire itself is real: CloudEvents subjects, decoding, view row upserts
+ * against Postgres, consumer dispatch and republishing. The Kafka suite covers the wire.
  */
 class TopicSourceSuite extends munit.FunSuite:
 

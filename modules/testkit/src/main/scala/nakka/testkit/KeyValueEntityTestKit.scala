@@ -69,7 +69,7 @@ final case class StateResult[S, O](
 ):
   def replyValue: O = reply match
     case Right(Some(value)) => value
-    case Right(None) => throw AssertionError("handler replied with no value")
+    case Right(None)        => throw AssertionError("handler replied with no value")
     case Left(error) => throw AssertionError(s"handler rejected the command: ${error.message}")
 
   def isError: Boolean = reply.isLeft

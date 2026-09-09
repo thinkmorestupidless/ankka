@@ -11,10 +11,9 @@ object MessageContent:
   /**
    * Inline binary content — an image or a PDF a tool returned.
    *
-   * Not written to session memory: a few hundred kilobytes of base64 per turn would
-   * exhaust the context window within a handful of exchanges. Memory records a
-   * placeholder, so persist the bytes somewhere and return a URI if a later turn needs
-   * to see them again.
+   * Not written to session memory: a few hundred kilobytes of base64 per turn would exhaust the
+   * context window within a handful of exchanges. Memory records a placeholder, so persist the
+   * bytes somewhere and return a URI if a later turn needs to see them again.
    */
   final case class Inline(bytes: Array[Byte], mediaType: String) extends MessageContent:
     override def toString: String = s"Inline(${bytes.length} bytes, $mediaType)"
@@ -41,9 +40,8 @@ object ChatMessage:
   /**
    * A model turn.
    *
-   * Carries both prose and tool calls because a single response can contain both, and
-   * dropping either half when replaying the conversation confuses the model about what
-   * it already did.
+   * Carries both prose and tool calls because a single response can contain both, and dropping
+   * either half when replaying the conversation confuses the model about what it already did.
    */
   final case class Assistant(text: String, toolCalls: Vector[ToolCall] = Vector.empty)
       extends ChatMessage
@@ -51,8 +49,8 @@ object ChatMessage:
   /**
    * Results for the calls in the preceding assistant turn.
    *
-   * All of them, in one message. A model that asked for three tools in parallel and gets
-   * its results split across three messages learns to stop asking in parallel.
+   * All of them, in one message. A model that asked for three tools in parallel and gets its
+   * results split across three messages learns to stop asking in parallel.
    */
   final case class ToolResults(results: Vector[ToolResult]) extends ChatMessage
 
@@ -66,8 +64,8 @@ final case class ModelSettings(
     /**
      * Sampling temperature.
      *
-     * Ignored by the Anthropic provider: current Claude models reject sampling
-     * parameters outright. Use `effort` to trade cost against quality there.
+     * Ignored by the Anthropic provider: current Claude models reject sampling parameters outright.
+     * Use `effort` to trade cost against quality there.
      */
     temperature: Option[Double] = None,
     maxTokens: Option[Int] = None,
@@ -75,8 +73,8 @@ final case class ModelSettings(
     /**
      * Whether the model may reason before answering.
      *
-     * On by default: the current generation of models is tuned for it, and turning it
-     * off is a deliberate cost/latency trade rather than a neutral default.
+     * On by default: the current generation of models is tuned for it, and turning it off is a
+     * deliberate cost/latency trade rather than a neutral default.
      */
     thinking: Boolean = true
 )
@@ -98,8 +96,8 @@ enum StopReason:
   /**
    * The model declined.
    *
-   * Modelled explicitly because it arrives as a *successful* response — a caller that
-   * only checks for exceptions will happily treat a refusal as an answer.
+   * Modelled explicitly because it arrives as a *successful* response — a caller that only checks
+   * for exceptions will happily treat a refusal as an answer.
    */
   case Refusal
   case Other
@@ -141,10 +139,10 @@ final case class ModelResponse(
 sealed trait ModelChunk
 
 object ModelChunk:
-  final case class TextDelta(text: String)     extends ModelChunk
-  final case class ToolCallStarted(call: ToolCall) extends ModelChunk
+  final case class TextDelta(text: String)            extends ModelChunk
+  final case class ToolCallStarted(call: ToolCall)    extends ModelChunk
   final case class Completed(response: ModelResponse) extends ModelChunk
-  final case class Failed(error: String)       extends ModelChunk
+  final case class Failed(error: String)              extends ModelChunk
 
 /** A tool as described to the model. */
 final case class ToolSpec(

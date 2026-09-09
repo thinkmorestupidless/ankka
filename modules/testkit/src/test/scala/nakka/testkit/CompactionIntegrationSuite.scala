@@ -8,8 +8,8 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
 /**
- * Compaction end to end: a session grows past its limit, the compactor notices, a
- * summary replaces the oldest messages, and the next request sees the shortened history.
+ * Compaction end to end: a session grows past its limit, the compactor notices, a summary replaces
+ * the oldest messages, and the next request sees the shortened history.
  */
 class CompactionIntegrationSuite extends munit.FunSuite:
 
@@ -20,10 +20,10 @@ class CompactionIntegrationSuite extends munit.FunSuite:
   /**
    * Two providers, deliberately.
    *
-   * A single scripted model cannot serve both: the compactor runs asynchronously, so
-   * whether the agent or the summariser reaches the queue first is a race — and a
-   * summary queued "for the summariser" gets consumed as the agent's answer instead.
-   * Separate providers make each assertion mean what it says.
+   * A single scripted model cannot serve both: the compactor runs asynchronously, so whether the
+   * agent or the summariser reaches the queue first is a race — and a summary queued "for the
+   * summariser" gets consumed as the agent's answer instead. Separate providers make each assertion
+   * mean what it says.
    */
   private val model        = TestModelProvider()
   private val summaryModel = TestModelProvider()
@@ -120,11 +120,13 @@ class CompactionIntegrationSuite extends munit.FunSuite:
     model.expectText("final")
     val _ = agent(session).call(WeatherAgent.ask).invoke("what did we cover?")
 
-    val replayed = model.lastRequest.messages.collect {
-      case ChatMessage.User(content) =>
-        content.collect { case MessageContent.Text(text) => text }.mkString
-      case ChatMessage.Assistant(text, _) => text
-    }.mkString("\n")
+    val replayed = model.lastRequest.messages
+      .collect {
+        case ChatMessage.User(content) =>
+          content.collect { case MessageContent.Text(text) => text }.mkString
+        case ChatMessage.Assistant(text, _) => text
+      }
+      .mkString("\n")
 
     assert(replayed.contains("alpha and beta were discussed"), replayed)
     assert(replayed.contains("summarised"), "the summary should be marked as such")

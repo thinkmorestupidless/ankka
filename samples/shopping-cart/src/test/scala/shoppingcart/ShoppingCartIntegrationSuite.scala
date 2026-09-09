@@ -10,8 +10,8 @@ import scala.concurrent.duration.DurationInt
 /**
  * The real thing: cluster sharding, Postgres, JSON in the journal, replay.
  *
- * Everything here goes through `ComponentClient`, which is the only way one component
- * addresses another — so this also exercises the routing an endpoint or workflow would use.
+ * Everything here goes through `ComponentClient`, which is the only way one component addresses
+ * another — so this also exercises the routing an endpoint or workflow would use.
  */
 class ShoppingCartIntegrationSuite extends munit.FunSuite:
 
@@ -30,8 +30,14 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite:
 
   test("a command is persisted and visible to a later read") {
     val id = "cart-persist"
-    assertEquals(cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2)), Done)
-    assertEquals(cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p2", "Gadget", 1)), Done)
+    assertEquals(
+      cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2)),
+      Done
+    )
+    assertEquals(
+      cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p2", "Gadget", 1)),
+      Done
+    )
 
     val state = cart(id).call(ShoppingCartEntity.getCart).invoke()
     assertEquals(state.cartId, id)

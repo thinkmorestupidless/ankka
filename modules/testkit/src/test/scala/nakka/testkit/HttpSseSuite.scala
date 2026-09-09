@@ -10,8 +10,8 @@ import scala.concurrent.duration.DurationInt
 import scala.jdk.OptionConverters.*
 
 /**
- * Token streaming all the way out: agent -> token ref -> pekko stream -> SSE -> a plain
- * JDK HTTP client reading the wire.
+ * Token streaming all the way out: agent -> token ref -> pekko stream -> SSE -> a plain JDK HTTP
+ * client reading the wire.
  */
 class HttpSseSuite extends munit.FunSuite:
 
@@ -38,7 +38,11 @@ class HttpSseSuite extends munit.FunSuite:
 
   private def get(path: String): (Int, String, Option[String]) =
     val response = http.send(
-      JdkRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(60)).GET().build(),
+      JdkRequest
+        .newBuilder(URI.create(baseUrl + path))
+        .timeout(Duration.ofSeconds(60))
+        .GET()
+        .build(),
       JdkResponse.BodyHandlers.ofString()
     )
     (
@@ -48,13 +52,15 @@ class HttpSseSuite extends munit.FunSuite:
     )
 
   /**
-   * SSE frames are `data: <json>` lines. The payload is a JSON string, so whitespace and
-   * newlines inside a token survive the wire exactly.
+   * SSE frames are `data: <json>` lines. The payload is a JSON string, so whitespace and newlines
+   * inside a token survive the wire exactly.
    */
   private def dataLines(body: String): Vector[String] =
     body.linesIterator
       .collect { case line if line.startsWith("data:") => line.drop(5).trim }
-      .map(json => Json.parse(json).flatMap(_.asString.toRight("not a string")).fold(fail(_), identity))
+      .map(json =>
+        Json.parse(json).flatMap(_.asString.toRight("not a string")).fold(fail(_), identity)
+      )
       .toVector
 
   test("a plain source is served as server-sent events") {
@@ -81,7 +87,8 @@ class HttpSseSuite extends munit.FunSuite:
       .expect(
         ModelResponse(
           text = "Checking",
-          toolCalls = Vector(ToolCall("c1", "get_weather", Json.obj("location" -> Json.str("Berlin")))),
+          toolCalls =
+            Vector(ToolCall("c1", "get_weather", Json.obj("location" -> Json.str("Berlin")))),
           stopReason = StopReason.ToolUse
         )
       )

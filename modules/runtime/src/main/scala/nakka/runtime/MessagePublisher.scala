@@ -10,14 +10,13 @@ import scala.jdk.CollectionConverters.*
 /**
  * Where a consumer's `effects.produce(...)` output goes.
  *
- * An SPI rather than a concrete broker client: publishing is the one part of the
- * consumer story that is genuinely environment-specific, and a runtime that hard-codes
- * one broker forces everyone else to fork it.
+ * An SPI rather than a concrete broker client: publishing is the one part of the consumer story
+ * that is genuinely environment-specific, and a runtime that hard-codes one broker forces everyone
+ * else to fork it.
  *
- * nakka ships `InMemoryPublisher` for tests. A Kafka or Pub/Sub implementation is this
- * one method over `SendProducer`; none is bundled yet, and a consumer that declares
- * `produceTo` without a publisher configured fails at startup rather than dropping
- * messages silently.
+ * nakka ships `InMemoryPublisher` for tests. A Kafka or Pub/Sub implementation is this one method
+ * over `SendProducer`; none is bundled yet, and a consumer that declares `produceTo` without a
+ * publisher configured fails at startup rather than dropping messages silently.
  */
 trait MessagePublisher:
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done]

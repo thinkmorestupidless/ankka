@@ -5,11 +5,10 @@ import nakka.core.{CommandError, ErrorCode, Metadata}
 import scala.concurrent.duration.FiniteDuration
 
 /**
- * A description of what the runtime should do for one command against a key value
- * entity.
+ * A description of what the runtime should do for one command against a key value entity.
  *
- * Where an event sourced entity records *what happened*, a key value entity records only
- * *what is* — so this algebra replaces state wholesale instead of appending events.
+ * Where an event sourced entity records *what happened*, a key value entity records only *what is*
+ * — so this algebra replaces state wholesale instead of appending events.
  */
 sealed trait KeyValueEffect[S, +R]:
   private[nakka] def newState: Option[S]

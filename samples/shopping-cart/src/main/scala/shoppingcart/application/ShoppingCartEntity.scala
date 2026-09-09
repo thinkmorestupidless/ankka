@@ -9,8 +9,8 @@ import shoppingcart.domain.ShoppingCartEvent.*
 /**
  * The application layer: connects the cart domain to the nakka runtime.
  *
- * Every handler is ordinary sequential code returning a description of what should
- * happen. Nothing here knows about sharding, Postgres, replay or JSON.
+ * Every handler is ordinary sequential code returning a description of what should happen. Nothing
+ * here knows about sharding, Postgres, replay or JSON.
  */
 final class ShoppingCartEntity(context: EventSourcedEntityContext)
     extends EventSourcedEntity[ShoppingCart, ShoppingCartEvent]:
@@ -26,15 +26,13 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     case CheckedOut             => currentState.onCheckedOut
 
   def addItem(item: LineItem): Effect[Done] =
-    if currentState.checkedOut then
-      effects.error("cart is already checked out", ErrorCode.Conflict)
+    if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else if item.quantity <= 0 then
       effects.error(s"quantity must be greater than zero, was ${item.quantity}")
     else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 
   def removeItem(productId: String): Effect[Done] =
-    if currentState.checkedOut then
-      effects.error("cart is already checked out", ErrorCode.Conflict)
+    if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else if !currentState.contains(productId) then
       effects.error(s"cart does not contain '$productId'", ErrorCode.NotFound)
     else effects.persist(ItemRemoved(productId)).thenReply(_ => Done)
@@ -42,8 +40,8 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
   /**
    * Records the checkout and then deletes the cart.
    *
-   * The event is persisted before the deletion takes effect, so a consumer or view
-   * downstream still observes that this cart was checked out rather than merely vanishing.
+   * The event is persisted before the deletion takes effect, so a consumer or view downstream still
+   * observes that this cart was checked out rather than merely vanishing.
    */
   def checkout: Effect[ShoppingCart] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
@@ -62,8 +60,8 @@ object ShoppingCartEntity
     ):
 
   /**
-   * `LineItem` crosses the wire as a command argument, so it needs a manifest of its
-   * own. Declared before the handlers below because object initialisation runs in order.
+   * `LineItem` crosses the wire as a command argument, so it needs a manifest of its own. Declared
+   * before the handlers below because object initialisation runs in order.
    */
   given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
 

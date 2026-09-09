@@ -8,9 +8,9 @@ import scala.collection.mutable
 /**
  * An entity that persists only its current value, with no history.
  *
- * Same sharding and single-writer guarantees as an event sourced entity — the difference
- * is purely what reaches storage. Choose this when the audit trail has no value and the
- * latest value is all anyone ever reads.
+ * Same sharding and single-writer guarantees as an event sourced entity — the difference is purely
+ * what reaches storage. Choose this when the audit trail has no value and the latest value is all
+ * anyone ever reads.
  */
 abstract class KeyValueEntity[S]:
 

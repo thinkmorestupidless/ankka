@@ -11,8 +11,8 @@ import scala.jdk.CollectionConverters.*
 /**
  * Token streaming end to end: agent loop -> token actor ref -> pekko stream.
  *
- * The scripted model splits its reply into per-word deltas, so these tests can tell a
- * genuinely incremental stream from one that merely arrives all at once.
+ * The scripted model splits its reply into per-word deltas, so these tests can tell a genuinely
+ * incremental stream from one that merely arrives all at once.
  */
 class AgentStreamSuite extends munit.FunSuite:
 
@@ -39,10 +39,12 @@ class AgentStreamSuite extends munit.FunSuite:
     testKit.componentClient.forAgent(SessionId(session))
 
   private def collect(session: String, handleInput: String): Vector[String] =
-    Await.result(
-      agent(session).stream(WeatherAgent.chat)(handleInput).runWith(Sink.seq),
-      60.seconds
-    ).toVector
+    Await
+      .result(
+        agent(session).stream(WeatherAgent.chat)(handleInput).runWith(Sink.seq),
+        60.seconds
+      )
+      .toVector
 
   private def historyOf(session: String) =
     testKit.componentClient
@@ -63,7 +65,8 @@ class AgentStreamSuite extends munit.FunSuite:
       .expect(
         ModelResponse(
           text = "Let me check",
-          toolCalls = Vector(ToolCall("c1", "get_weather", Json.obj("location" -> Json.str("Berlin")))),
+          toolCalls =
+            Vector(ToolCall("c1", "get_weather", Json.obj("location" -> Json.str("Berlin")))),
           stopReason = StopReason.ToolUse
         )
       )

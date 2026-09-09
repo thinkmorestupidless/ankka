@@ -25,10 +25,42 @@ import scala.util.{Failure, Success}
  */
 final class AgentRuntime private (
     defaultModel: Option[ModelProvider],
-    modelTimeout: FiniteDuration
+    modelTimeout: FiniteDuration,
+    compaction: Option[(CompactionSettings, Summariser)]
 ) extends RuntimeExtension:
 
   def name: String = "agents"
+
+  /**
+   * Enables compaction: long sessions get their oldest messages replaced by a summary.
+   *
+   * The summariser defaults to the runtime's own model. Compaction runs as a consumer
+   * over session memory, so a `ProjectionRuntime` must also be registered — without one
+   * the compactor is simply never started.
+   */
+  def withCompaction(
+      settings: CompactionSettings = CompactionSettings(),
+      summariser: Option[Summariser] = None
+  ): AgentRuntime =
+    val resolved = summariser.orElse(defaultModel.map(ModelSummariser(_, modelTimeout)))
+    resolved match
+      case None =>
+        throw IllegalArgumentException(
+          "compaction needs a summariser: either configure a default model with " +
+            "AgentRuntime.withDefaultModel, or pass one explicitly"
+        )
+      case Some(summary) =>
+        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary))
+
+  /**
+   * Everything this runtime needs registered.
+   *
+   * An instance method rather than a static one because the set depends on how the
+   * runtime is configured — enabling compaction adds a component.
+   */
+  def descriptors: Seq[ComponentDescriptor] =
+    Seq(SessionMemoryEntity.descriptor) ++
+      compaction.map((settings, summariser) => SessionCompactor.descriptor(settings, summariser))
 
   def start(service: NakkaService): Unit =
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = service.system
@@ -67,10 +99,27 @@ final class AgentRuntime private (
           SessionMemoryEntity.componentId
         )
 
+      // Enabling compaction and then not registering it is the likely mistake, and it
+      // fails silently — sessions just grow.
+      compaction.foreach { (settings, _) =>
+        if !service.registry.components.exists(_.componentId == SessionCompactor.ComponentId) then
+          system.log.warn(
+            "compaction is enabled but '{}' is not registered; use " +
+              "registerAll(agentRuntime.descriptors) and register a ProjectionRuntime",
+            SessionCompactor.ComponentId
+          )
+        else
+          system.log.info(
+            "session compaction enabled above {} characters, keeping {} recent messages",
+            settings.maxHistoryBytes,
+            settings.keepRecentMessages
+          )
+      }
+
 object AgentRuntime:
 
   /** Agents must each name a model via `effects.model(...)`. */
-  def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes)
+  def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes, None)
 
   /**
    * Supplies a default model, so handlers need only describe the interaction.
@@ -83,9 +132,14 @@ object AgentRuntime:
       provider: ModelProvider,
       modelTimeout: FiniteDuration = 2.minutes
   ): AgentRuntime =
-    new AgentRuntime(Some(provider), modelTimeout)
+    new AgentRuntime(Some(provider), modelTimeout, None)
 
-  /** Everything an agent-capable service must register. */
+  /**
+   * What an agent-capable service must register when compaction is not in use.
+   *
+   * With compaction, use the runtime's own `descriptors` instead — the set depends on
+   * its configuration.
+   */
   def descriptors: Seq[ComponentDescriptor] = Seq(SessionMemoryEntity.descriptor)
 
 /**

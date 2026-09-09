@@ -202,6 +202,40 @@ it, and neither turn acknowledges the other.
 A failing tool comes back to the model as an *error tool result*, not an exception —
 which is what lets it recover, usually by fixing its arguments.
 
+**Compaction.** A long session eventually outgrows any context window, so the oldest
+messages can be replaced by a summary:
+
+```scala
+val agents = AgentRuntime
+  .withDefaultModel(model)
+  .withCompaction(CompactionSettings(maxHistoryBytes = 100_000, keepRecentMessages = 10))
+
+Nakka.service
+  .registerAll(agents.descriptors)      // session memory + the compactor
+  .withExtension(agents)
+  .withExtension(ProjectionRuntime())   // the compactor is a consumer
+  .start()
+```
+
+It runs as a consumer over session memory's own events, so the turn that pushed a session
+over the limit is not the one that waits for a summarisation call. Recent messages stay
+verbatim — those are what the model needs in full — and everything older becomes one
+`SummaryMessage`, which the agent loop replays as marked-up context. Compacting twice
+folds the earlier summary into the later one rather than accumulating them, because the
+previous summary is part of what the summariser is shown.
+
+The summariser calls the `ModelProvider` directly rather than going through an `Agent`.
+An agent would need a session, and the only sensible session is the one being summarised
+— so it would append its own turns to the history it is trying to shrink. Bypassing the
+agent layer removes the problem instead of configuring around it. Supply your own
+`Summariser` to override.
+
+Compaction is best-effort by design: a summariser that fails loses that one compaction
+and the offset still advances. A consumer that kept throwing would never advance, which
+would stall compaction for *every* session because one session's summarisation is
+failing — a far worse outcome than a missed compaction. A summary no shorter than what it
+would replace is also skipped, since that is not progress.
+
 **Streaming.** A handler declared with `stream` returns tokens as they are generated:
 
 ```scala
@@ -303,7 +337,7 @@ loudly* when the script runs out — a test whose model quietly returned a defau
 longer testing what it says.
 
 ```bash
-sbt test          # 231 tests, ~90s, no API key needed
+sbt test          # 245 tests, ~2min, no API key needed
 ```
 
 Integration suites start their own Postgres, and the Kafka suite its own broker, via

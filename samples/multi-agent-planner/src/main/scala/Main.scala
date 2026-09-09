@@ -25,7 +25,7 @@ import planner.application.*
     .registerAll(AgentRuntime.descriptors)
     .register(SummaryAgent.descriptor)
     .withExtension(AgentRuntime.withDefaultModel(model))
-    .withExtension(HttpServer.of(PlannerEndpoint(_)))
+    .withExtension(HttpServer.of(clients => PlannerEndpoint(clients.componentClient)))
     .start()
 
   sys.addShutdownHook(service.terminate())

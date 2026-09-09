@@ -25,7 +25,7 @@ class HttpSseSuite extends munit.FunSuite:
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
   override def beforeAll(): Unit =
-    server = HttpServer.at("127.0.0.1", 0)(ChatEndpoint(_))
+    server = HttpServer.at("127.0.0.1", 0)(clients => ChatEndpoint(clients.componentClient))
     testKit = NakkaTestKit.start(
       Seq(WeatherAgent.descriptor) ++ AgentRuntime.descriptors,
       Seq(AgentRuntime.withDefaultModel(model), server)

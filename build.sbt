@@ -119,6 +119,44 @@ lazy val testkit = project
     )
   )
 
+/**
+ * Wire types shared by the control plane and the CLI.
+ *
+ * Deliberately depends on nothing but a JSON codec: the CLI needs to know what a service descriptor
+ * looks like, and should not drag Pekko, a Postgres driver and a Kubernetes client onto its
+ * classpath to find out.
+ */
+lazy val controlPlaneApi = project
+  .in(file("controlplane-api"))
+  .dependsOn(core)
+  .settings(commonSettings)
+  .settings(name := "nakka-controlplane-api")
+
+/**
+ * The control plane, built as a nakka application.
+ *
+ * Tenancy is entities, each deployment is a workflow, listings are views — a desired-state
+ * reconciler is the shape nakka's own primitives are for.
+ */
+lazy val controlPlane = project
+  .in(file("controlplane"))
+  .dependsOn(controlPlaneApi, sdk, runtime, http, cli % Test, testkit % Test)
+  .settings(commonSettings)
+  .settings(
+    name := "nakka-controlplane",
+    libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test)
+  )
+
+/** The `nakka` command-line client. */
+lazy val cli = project
+  .in(file("cli"))
+  .dependsOn(controlPlaneApi)
+  .settings(commonSettings)
+  .settings(
+    name := "nakka-cli",
+    libraryDependencies ++= Seq(decline, munit % Test)
+  )
+
 lazy val shoppingCart = project
   .in(file("samples/shopping-cart"))
   .dependsOn(sdk, runtime, http, testkit % Test)
@@ -133,7 +171,19 @@ lazy val multiAgentPlanner = project
 
 lazy val root = project
   .in(file("."))
-  .aggregate(core, sdk, runtime, http, agent, testkit, shoppingCart, multiAgentPlanner)
+  .aggregate(
+    core,
+    sdk,
+    runtime,
+    http,
+    agent,
+    testkit,
+    controlPlaneApi,
+    controlPlane,
+    cli,
+    shoppingCart,
+    multiAgentPlanner
+  )
   .settings(
     name           := "nakka",
     publish / skip := true

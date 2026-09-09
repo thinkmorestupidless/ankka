@@ -2,7 +2,6 @@ package nakka.http
 
 import nakka.core.CommandError
 import nakka.runtime.{NakkaExecutors, NakkaService, RuntimeExtension}
-import nakka.sdk.ComponentClient
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.http.scaladsl.Http
 import org.apache.pekko.http.scaladsl.model.*
@@ -23,7 +22,7 @@ import scala.util.control.NonFatal
  * re-expressing it in a second DSL would add a layer without adding a capability.
  */
 final class HttpServer private (
-    factories: Seq[ComponentClient => HttpEndpoint],
+    factories: Seq[EndpointClients => HttpEndpoint],
     interface: Option[String],
     port: Option[Int]
 ) extends RuntimeExtension:
@@ -44,7 +43,8 @@ final class HttpServer private (
       java.util.concurrent.TimeUnit.MILLISECONDS
     )
 
-    val endpoints = factories.map(_(service.componentClient)).toVector
+    val clients   = EndpointClients(service.componentClient, service.viewClient)
+    val endpoints = factories.map(_(clients)).toVector
     validate(endpoints)
 
     endpoints.foreach { endpoint =>
@@ -113,12 +113,12 @@ final class HttpServer private (
 object HttpServer:
 
   /** Serves `factories` on the configured interface and port. */
-  def of(factories: (ComponentClient => HttpEndpoint)*): HttpServer =
+  def of(factories: (EndpointClients => HttpEndpoint)*): HttpServer =
     new HttpServer(factories, None, None)
 
   /** Serves on an explicit interface and port; port 0 picks a free one. */
   def at(interface: String, port: Int)(
-      factories: (ComponentClient => HttpEndpoint)*
+      factories: (EndpointClients => HttpEndpoint)*
   ): HttpServer =
     new HttpServer(factories, Some(interface), Some(port))
 

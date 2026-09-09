@@ -14,7 +14,7 @@ import shoppingcart.application.ShoppingCartEntity
 @main def runShoppingCart(): Unit =
   val service = Nakka.service
     .register(ShoppingCartEntity.descriptor)
-    .withExtension(HttpServer.of(ShoppingCartEndpoint(_)))
+    .withExtension(HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient)))
     .start()
 
   sys.addShutdownHook(service.terminate())

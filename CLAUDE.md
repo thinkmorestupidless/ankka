@@ -9,8 +9,9 @@ platform for agentic AI — in Scala 3 on Apache Pekko. Pekko is the Apache 2.0 
 Akka 2.6, chosen so the programming model carries no BSL constraint.
 
 `README.md` is the user-facing reference (component model, agents, streaming, topics,
-divergences from Akka, and an honest "Not implemented" list). `docs/orchestration.md`
-covers multi-agent patterns. Read both before making design decisions.
+the control plane and CLI, divergences from Akka, and an honest "Not implemented" list).
+`docs/orchestration.md` covers multi-agent patterns. Read both before making design
+decisions.
 
 ## Commands
 
@@ -18,8 +19,9 @@ Docker is required — integration suites start their own Postgres, and one star
 via testcontainers. No API key is needed.
 
 ```bash
-sbt test                          # all 245 tests, ~2min
+sbt test                          # all 349 tests, ~4min
 sbt agent/test                    # one module: core sdk runtime http agent testkit
+sbt controlPlane/test             # control plane: controlPlaneApi controlPlane cli
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
 sbt 'testkit/testOnly nakka.testkit.WorkflowSuite'
 sbt 'agent/testOnly nakka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
@@ -32,6 +34,8 @@ Running the samples needs the bundled Postgres:
 docker compose up -d
 sbt shoppingCart/run              # HTTP on :9000
 ANTHROPIC_API_KEY=sk-ant-... sbt multiAgentPlanner/run
+NAKKA_CONTROLPLANE_TOKEN=dev sbt controlPlane/run
+sbt 'cli/run services list --url http://localhost:9000 --token dev -p checkout'
 ```
 
 `AnthropicProviderSuite` exercises the live API and **skips** unless `ANTHROPIC_API_KEY`
@@ -75,7 +79,19 @@ before computing the reply — is the reason that shape exists.
 
 ```
 core → sdk → runtime → {http, agent} → testkit → samples
+core → controlplane-api → cli
+controlplane-api + sdk + runtime + http → controlplane   (cli, testkit are Test-only deps)
 ```
+
+`controlplane-api` depends on `core` only — not on Pekko — so the CLI carries no actor
+system, no database driver and no Kubernetes client. It holds the wire types *and* the
+descriptor validation rules, so both ends apply the same checks; it depends on `core`
+rather than redefining a codec because jsoniter needs its config inlined at the call
+site, and `Codecs.make` already does that.
+
+`controlplane` takes `cli % Test` so one suite can drive the real `Main.run` against a
+real control plane. That is the only test that can catch the two ends disagreeing about
+the wire format.
 
 `runtime` depends on `sdk`, not the reverse: the runtime interprets the SDK's
 descriptors, so it must see them. This was inverted in the original plan and had to be
@@ -160,6 +176,42 @@ SDK as transport only.
 Session memory is an event-sourced entity, which is what makes multi-agent collaboration,
 compaction hooks and durability fall out rather than being features.
 
+### The control plane is a nakka application
+
+`ControlPlane.components` and `ControlPlane.endpoints` are the whole inventory: three
+event sourced entities (organization, project, service), three views for listing, three
+endpoints. `ControlPlane.builder` also registers `ProjectionRuntime()` — without it every
+listing stays permanently empty while every write succeeds.
+
+Two invariants carry most of the weight:
+
+- **`generation`** increments on every apply and restart; an observation states the
+  generation it describes, and one describing a superseded generation is dropped. The
+  guard is in `Service.onObserved` — the *fold* — so replay reproduces it exactly. An
+  observation identical to the recorded state is also refused, or the timer-driven
+  reconciler would grow the journal forever.
+- **`exists` vs `known`.** Deleting an organization or project is a tombstone: `exists`
+  goes false but `known` stays true, so the id cannot be recreated. A service is
+  deliberately the opposite — a name is a deployment target, not a tenancy boundary.
+
+Cross-entity checks live in the endpoint, never a handler. An entity cannot see another
+entity's state, and calling out to fetch it would be a check that does not hold anyway.
+
+### Endpoints receive `EndpointClients`, not a `ComponentClient`
+
+`HttpServer.of` / `.at` take `EndpointClients => HttpEndpoint`, bundling `componentClient`
+and `viewClient` — an endpoint that lists things needs the read side too. Registration is
+an explicit lambda:
+
+```scala
+HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient))
+```
+
+The lambda cannot be shortened to `ShoppingCartEndpoint(_.componentClient)`: the
+placeholder binds to the *inner* application, so that parses as passing a function where
+a `ComponentClient` is expected. A bundle was chosen over an overload because two
+factory shapes would break lambda parameter inference at every call site.
+
 ## Traps that have already cost debugging time
 
 - **`Sink.last`, not `Sink.head`, on r2dbc connection publishers.** `head` cancels
@@ -186,6 +238,22 @@ compaction hooks and durability fall out rather than being features.
   provider. (A compaction test passed for the wrong reason until this was separated.)
 - **A workflow left mid-flight keeps consuming a shared scripted model**, starving the
   next test. Drain it before the test ends.
+- **A fieldless Scala 3 enum encodes as `{"type":"Ready"}` under nakka's shared codec
+  config.** The discriminator is right for events and wrong for a status word a CLI
+  prints. Give such an enum an explicit string `JsonValueCodec` **in its companion
+  object**, so it is in implicit scope everywhere the enum appears — putting it at each
+  derivation site invites missing one and shipping two wire formats.
+  (`ServiceLifecycle` does this.)
+- **Anything reading `~/.nakka/config.json` or `$HOME` must be overridable by a system
+  property.** Environment variables cannot be set in-process, so `NAKKA_CONFIG` alone
+  makes `config set` untestable without writing to the developer's own home directory.
+  `Settings.path` checks `-Dnakka.config` first for exactly this reason.
+- **Read piped input through `Console.in`, not `System.in`.** Only the former is
+  redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
+  spawning a subprocess.
+- **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
+  returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
+  logic would kill the test JVM.
 
 ## Schema
 

@@ -312,6 +312,113 @@ no broker running. `KafkaPublisher` and `KafkaSubscriber` are the real pair, and
 component started without either is rejected at startup rather than silently never
 delivering.
 
+## Control plane and CLI
+
+nakka's control plane is a nakka application. Tenancy is three event sourced entities,
+listings are three views, the API is three endpoints — the thing that operates nakka
+services is built out of the same components those services are.
+
+That is not a slogan. It means the control plane inherits sharding, replay and
+projections instead of reimplementing them, every `apply` leaves an audit trail because
+the journal *is* the audit trail, and a bug in the platform shows up in the tool you use
+to operate the platform.
+
+A service's desired state is a descriptor:
+
+```json
+{
+  "name": "cart",
+  "service": {
+    "image": "registry.example.com/acme/cart:1.4.2",
+    "env": [
+      { "name": "LOG_LEVEL", "value": "info" },
+      { "name": "API_KEY", "secretKeyRef": { "name": "cart-secrets", "key": "api-key" } }
+    ],
+    "resources": {
+      "instanceType": "small",
+      "autoscaling": { "minInstances": 1, "maxInstances": 10, "targetCpuPercent": 80 }
+    }
+  }
+}
+```
+
+```bash
+docker compose up -d
+NAKKA_CONTROLPLANE_TOKEN=$(openssl rand -hex 16) sbt controlPlane/run
+
+nakka config set url http://localhost:9000
+nakka config set token "$NAKKA_CONTROLPLANE_TOKEN"
+
+nakka organizations create acme --name "Acme Corp"
+nakka projects create checkout --name Checkout -O acme
+nakka config set project checkout
+
+nakka services apply -f cart.json
+nakka services list
+# NAME  STATUS            INSTANCES  GEN  IMAGE
+# cart  UpdateInProgress  0/0        1    registry.example.com/acme/cart:1.4.2
+
+nakka services pause cart
+nakka services restart cart
+nakka services list -o json | jq '.[].lifecycle'
+```
+
+### Desired state and observed state
+
+A `ServiceEntity` holds both: `descriptor` and `generation` are what an operator asked
+for; `lifecycle`, `readyInstances` and `desiredInstances` are what the cluster reports.
+Reconciliation is closing the gap.
+
+`generation` is what makes that safe. It increments on every apply and every restart, and
+an observation carries the generation it describes — so a report arriving late from a
+superseded deployment is recognised and dropped rather than overwriting the state of a
+newer one. The check lives in the *fold*, not the command handler, so replay drops the
+same observation every time.
+
+Two observations are refused: a stale generation, and one identical to what is already
+recorded. The second matters more than it looks — the reconciler runs on a timer, so
+without it a steady-state service would grow its journal forever.
+
+### What the entity deliberately does not do
+
+`ServiceEntity` never talks to Kubernetes. A command handler that performed I/O could not
+be replayed, and the point of persisting desired state separately from acting on it is
+that the two fail independently: an apply records intent and returns, and a cluster that
+is unreachable is a reconciliation problem rather than a lost request.
+
+Cross-entity checks — "does this organization exist", "does this project still have
+services" — live at the endpoint, not in a handler. An entity cannot see another entity's
+state, and a handler that called out to fetch it would be making a check it could not
+hold anyway. Doing it at the edge catches the typo, which is what the check is for.
+
+### Tenancy ids are not reused; service names are
+
+Deleting an organization or a project is a tombstone: the entity remains, `exists` goes
+false, and creating the id again is a `409`. A tenancy boundary that quietly came back
+carrying someone else's projects and audit trail would be worse than an error.
+
+A service name is different — it is a deployment target, not a boundary — so re-applying
+a descriptor for a name you removed recreates it, with the generation still climbing.
+
+### The CLI is a thin client
+
+`cli` depends on `controlplane-api` and nothing else: no actor system, no database
+driver, no Kubernetes client. That module holds the wire types *and* the validation
+rules, so a bad descriptor is rejected before the round trip using the same code the
+server will run — and the end-to-end suite drives `Main.run` directly, which is the only
+way to catch the two ends disagreeing about the wire format.
+
+Settings resolve flags → environment → `~/.nakka/config.json`. The environment sits in
+the middle so CI can point the CLI elsewhere without writing to a home directory it may
+not have. Exit codes are `0` ok, `1` failed, `2` misused. The token is never printed, in
+either output format.
+
+Authentication is a shared bearer token from `nakka.controlplane.auth.token`, and startup
+*fails* without one — a control plane that came up unauthenticated because a value was
+missing is worse than one that refuses to come up. A shared token is not identity: it
+cannot tell two operators apart and says nothing about which projects a caller may touch.
+It is the floor, not the ceiling.
+
 ## Testing
 
 Two levels, both real.
@@ -337,7 +444,7 @@ loudly* when the script runs out — a test whose model quietly returned a defau
 longer testing what it says.
 
 ```bash
-sbt test          # 245 tests, ~2min, no API key needed
+sbt test          # 349 tests, ~4min, no API key needed
 ```
 
 Integration suites start their own Postgres, and the Kafka suite its own broker, via
@@ -354,6 +461,9 @@ testcontainers. Docker is required; no API key is.
 | Route order decides dispatch | literal segments outrank parameters | `/users/me` should not depend on being declared before `/users/{id}` |
 | ACL by absent annotation | abstract `def acl` | An unstated ACL is a decision nobody made |
 | `budget_tokens` / `temperature` | `effort`, adaptive thinking | Current Claude models reject both outright |
+| `apply -f service.yaml` | `apply -f service.json` | A YAML parser on the CLI's classpath for a cosmetic difference |
+| `minInstances` defaults to 3 | defaults to 1 | nakka's primary target is a dev cluster, where three replicas of everything is a surprise |
+| Four service lifecycle states | seven | `NotDeployed`, `Paused` and `Failed` are distinctions Akka's four cannot express |
 
 ## Layout
 
@@ -364,19 +474,30 @@ modules/runtime   interprets effects: sharding, persistence, projections, timers
 modules/http      endpoint DSL and server
 modules/agent     model providers, session memory, function tools, the agent loop
 modules/testkit   unit and integration test support
+controlplane-api  descriptors, statuses and validation shared by the server and the CLI
+controlplane      the control plane, built as a nakka application
+cli               the `nakka` command, over HTTP
 samples/shopping-cart          entities, views, consumers, HTTP
 samples/multi-agent-planner    dynamic + parallel multi-agent orchestration
 ```
 
-Dependencies run strictly `core → sdk → runtime → {http, agent} → testkit → samples`.
+Dependencies run strictly `core → sdk → runtime → {http, agent} → testkit → samples`,
+with `controlplane-api → controlplane → cli` hanging off `core` and the runtime.
 
 ## Not implemented
 
 Honest gaps, not oversights:
 
 - **Multi-region.** Single-region only. No replication filters, no `origin` routing.
-- **Control plane.** No CLI, console, or deployment descriptors — this is the SDK and
-  runtime, not Akka's hosted platform.
+- **Reconciliation.** The control plane records desired state and accepts observations,
+  but nothing yet renders a descriptor into Kubernetes objects or reports back. Until it
+  does, a service applied through the CLI stays at `UpdateInProgress` with `0/0`
+  instances — nothing has reported a desired count, let alone a ready one. The intent is
+  durable; the deployment is not happening.
+- **No console.** The CLI is the only client.
+- **Cross-entity checks are edge checks.** "The project still has services" is counted
+  from a projection, so a service created moments earlier may not be counted yet. It
+  guards against the obvious mistake; it is not a transactional constraint.
 - **Multi-table views**, view rebuild-on-deploy, and Akka's `@SnapshotHandler`
   projection optimisation.
 - **Topic-source caveats.** At-least-once, so a topic-sourced component must tolerate

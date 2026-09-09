@@ -20,6 +20,8 @@ object Dependencies {
     val munit          = "1.3.6"
     val testcontainers = "1.21.4"
     val r2dbcPostgres  = "1.1.2.RELEASE"
+    val fabric8        = "7.9.0"
+    val decline        = "2.6.2"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────
@@ -63,6 +65,11 @@ object Dependencies {
   val munit               = "org.scalameta"     %% "munit"           % V.munit
   val testcontainersPg    = "org.testcontainers" % "postgresql"      % V.testcontainers
   val testcontainersKafka = "org.testcontainers" % "kafka"           % V.testcontainers
+  val testcontainersK3s   = "org.testcontainers" % "k3s"             % V.testcontainers
+
+  // ── Control plane ────────────────────────────────────────────────────────
+  val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8
+  val decline = "com.monovore" %% "decline"           % V.decline
 
   /** Test-only deps every module gets. */
   val commonTest: Seq[ModuleID] = Seq(

@@ -7,8 +7,8 @@ import nakka.http.*
 final case class SearchResult(term: String, limit: Int, tags: List[String], verbose: Boolean)
 
 /** Exercises query parameters and headers from inside handlers. */
-// No ComponentClient parameter: these handlers call no components, and `HttpServer.of`
-// takes a factory, so an endpoint need not accept one it does not use.
+// No constructor parameter: these handlers call no components, and `HttpServer.of` takes
+// a factory, so an endpoint need not accept clients it does not use.
 final class QueryEndpoint extends HttpEndpoint("/search"):
 
   private given JsonValueCodec[SearchResult] = Codecs.make[SearchResult]

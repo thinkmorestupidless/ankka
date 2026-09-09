@@ -29,7 +29,7 @@ class ShoppingCartHttpSuite extends munit.FunSuite:
 
   override def beforeAll(): Unit =
     // Port 0 so concurrent test runs cannot collide.
-    server = HttpServer.at("127.0.0.1", 0)(ShoppingCartEndpoint(_))
+    server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
     testKit = NakkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 

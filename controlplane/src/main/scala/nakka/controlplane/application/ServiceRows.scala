@@ -43,7 +43,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 lifecycle =
                   if row.lifecycle == ServiceLifecycle.Paused then ServiceLifecycle.Paused
                   else ServiceLifecycle.UpdateInProgress,
-                detail = None
+                detail = None,
+                confirmed = true
               )
             )
 
@@ -53,21 +54,39 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 generation = generation,
                 lifecycle = ServiceLifecycle.UpdateInProgress,
                 readyInstances = 0,
-                detail = None
+                detail = None,
+                confirmed = true
               )
             )
 
           case ServicePaused =>
             effects.updateRow(
-              row.copy(lifecycle = ServiceLifecycle.Paused, desiredInstances = 0, detail = None)
+              row.copy(
+                lifecycle = ServiceLifecycle.Paused,
+                desiredInstances = 0,
+                detail = None,
+                confirmed = true
+              )
             )
 
           case ServiceResumed =>
             effects.updateRow(
-              row.copy(lifecycle = ServiceLifecycle.UpdateInProgress, detail = None)
+              row.copy(
+                lifecycle = ServiceLifecycle.UpdateInProgress,
+                detail = None,
+                confirmed = true
+              )
             )
 
-          case ServiceObserved(generation, lifecycle, ready, desired, detail) =>
+          case ServiceObserved(
+                generation,
+                lifecycle,
+                ready,
+                desired,
+                detail,
+                confirmed,
+                database
+              ) =>
             // Same staleness guard as the entity's fold. The view is fed the entity's
             // journal in order, so this only fires for an observation the entity itself
             // recorded — but repeating it keeps the row derivable from the events alone.
@@ -78,7 +97,9 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                   lifecycle = lifecycle,
                   readyInstances = ready,
                   desiredInstances = desired,
-                  detail = detail
+                  detail = detail,
+                  confirmed = confirmed,
+                  database = database
                 )
               )
 

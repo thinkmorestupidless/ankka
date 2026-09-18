@@ -55,7 +55,20 @@ enum ServiceEvent:
       lifecycle: ServiceLifecycle,
       readyInstances: Int,
       desiredInstances: Int,
-      detail: Option[String]
+      detail: Option[String],
+      /**
+       * Whether the cluster was actually read.
+       *
+       * Defaulted so events already in a journal decode. `false` restates what was last known,
+       * either because the cluster was unreachable or because nothing has reported on the service.
+       */
+      confirmed: Boolean = true,
+      /**
+       * The operator's reported database phase, verbatim — see `nakka.crd.DatabaseStatus.phase`.
+       * `None` for the escape hatch and for events already in a journal from before this field
+       * existed.
+       */
+      database: Option[String] = None
   )
 
   case ServiceDeleted
@@ -69,5 +82,7 @@ final case class ServiceObservation(
     lifecycle: ServiceLifecycle,
     readyInstances: Int,
     desiredInstances: Int,
-    detail: Option[String] = None
+    detail: Option[String] = None,
+    confirmed: Boolean = true,
+    database: Option[String] = None
 )

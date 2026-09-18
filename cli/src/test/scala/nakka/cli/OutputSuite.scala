@@ -12,7 +12,8 @@ class OutputSuite extends munit.FunSuite:
       desired: Int = 1,
       image: String = "cart:1.0",
       generation: Long = 1L,
-      detail: Option[String] = None
+      detail: Option[String] = None,
+      database: Option[String] = None
   ) =
     ServiceStatus(
       name = name,
@@ -22,7 +23,8 @@ class OutputSuite extends munit.FunSuite:
       image = image,
       readyInstances = ready,
       desiredInstances = desired,
-      detail = detail
+      detail = detail,
+      database = database
     )
 
   test("columns are padded to the widest cell, header included") {
@@ -87,6 +89,17 @@ class OutputSuite extends munit.FunSuite:
   test("a single service with no detail omits the row entirely") {
     val rendered = Output.service(status("cart"), Format.Table)
     assert(!rendered.contains("detail"), rendered)
+  }
+
+  test("a single service shows its database phrase when one has been reported") {
+    val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
+    assert(rendered.contains("database"), rendered)
+    assert(rendered.contains("provisioned"), rendered)
+  }
+
+  test("a single service with no database report omits the row entirely") {
+    val rendered = Output.service(status("cart"), Format.Table)
+    assert(!rendered.contains("database"), rendered)
   }
 
   test("the token is never printed, in either format") {

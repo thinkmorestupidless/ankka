@@ -1,0 +1,18 @@
+# Everything needed to run nakka's control plane and operator against a local Kubernetes
+# cluster, with no image registry — see kustomization/deploy-local.sh.
+#
+# Deliberately not one flat `namePrefix`/`namespace` like a typical kustomize overlay: the CRD
+# is cluster-scoped, the operator and control plane each need their own namespace and their own
+# tightly scoped ServiceAccount (that split is the point — see controlplane-rbac.yaml), and
+# every project's own namespace (`nakka-{projectId}`) is created later, at runtime, by the
+# control plane. A blanket namespace transformer would either fight all of that or do nothing
+# useful, so each component states its own namespace explicitly instead.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+components:
+  - ../../components/cnpg
+  - ../../components/crd
+  - ../../components/operator
+  - ../../components/postgres
+  - ../../components/controlplane

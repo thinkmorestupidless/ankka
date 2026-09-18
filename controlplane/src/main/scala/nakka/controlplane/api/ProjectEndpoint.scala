@@ -38,6 +38,11 @@ final class ProjectEndpoint(clients: EndpointClients, val acl: Acl)
    * which is what this check is actually for.
    */
   postBody("/{projectId}") { (projectId: String, request: CreateProject) =>
+    // The id becomes part of a Kubernetes namespace name, so one that cannot be expressed
+    // there has to be refused when the project is created rather than when its first
+    // service silently fails to deploy. Same rule the CLI applies before the round trip.
+    val idProblems = ProjectId.problems(projectId)
+    if idProblems.nonEmpty then throw CommandError(idProblems.mkString("; "), ErrorCode.BadRequest)
     val organization = clients.componentClient
       .forEventSourcedEntity(EntityId(request.organizationId))
       .call(OrganizationEntity.exists)

@@ -363,6 +363,90 @@ nakka services restart cart
 nakka services list -o json | jq '.[].lifecycle'
 ```
 
+The control plane run this way never reaches a cluster, so `cart` sits at `UpdateInProgress`
+forever — there is nothing on the other end of `apply` yet. Running against a real cluster looks
+the same from the CLI's side, but this time something is listening:
+
+```bash
+kind create cluster --name nakka
+./kustomization/deploy-local.sh
+kubectl -n nakka-controlplane port-forward svc/nakka-controlplane 9000:9000 &
+
+nakka config set url http://localhost:9000
+nakka config set token dev-local-token   # see kustomization/components/controlplane/token-secret.yaml
+
+nakka organizations create acme --name "Acme Corp"
+nakka projects create checkout --name Checkout -O acme
+nakka config set project checkout
+
+echo '{"name":"cart","service":{"image":"sample-shopping-cart:latest"}}' > cart.json
+nakka services apply -f cart.json
+nakka services list
+# NAME  STATUS  INSTANCES  GEN  IMAGE
+# cart  Ready   1/1        1    sample-shopping-cart:latest
+
+kubectl -n nakka-checkout get nsvc,deploy,svc,pods   # the operator's own work, visible directly
+```
+
+That descriptor is the whole of it: an image, and nothing about databases or ports. The platform
+provisions the service a database of its own, applies the schema, gives it an in-cluster address,
+and reports `Ready` only once its port is actually open. It is the shopping cart sample, running
+for real:
+
+```bash
+kubectl -n nakka-checkout port-forward svc/cart 8080:9000 &
+
+curl -XPOST localhost:8080/carts/c1/items -H 'content-type: application/json' \
+     -d '{"productId":"p1","name":"Widget","quantity":2}'
+curl localhost:8080/carts/c1
+# {"cartId":"c1","items":[{"productId":"p1","name":"Widget","quantity":2}],"checkedOut":false}
+
+kubectl -n nakka-checkout delete pod -l app.kubernetes.io/name=cart   # and once it is back:
+curl localhost:8080/carts/c1                                          # the same cart
+```
+
+### Ports and addresses
+
+A descriptor's `service` block takes two optional fields:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `port` | `9000` | the port the workload listens on — the runtime's own default |
+| `http` | `true` | `false` for a service that serves no HTTP at all |
+
+From that one resolved value the operator renders four things that therefore cannot disagree: the
+container port, `NAKKA_HTTP_PORT` (so the runtime binds where Kubernetes expects it), a `tcpSocket`
+readiness probe, and a `ClusterIP` Service named after the service. Inside the cluster a service is
+reachable at `<service>` from its own project's namespace, and at
+`<service>.<prefix>-<project>.svc.cluster.local` from anywhere else.
+
+Setting `NAKKA_HTTP_PORT` yourself in `env` is refused at apply time: the `port` field is the only
+way to say it, because two ways to say one thing is how an address ends up routing to a port
+nothing listens on. With `"http": false` none of the four is rendered, and the service still
+reaches `Ready` on the container running.
+
+**The default has teeth.** A descriptor that says nothing asserts "this serves HTTP on 9000" and is
+not `Ready` until it does. That is right for a nakka service and wrong for an image that listens on
+nothing — `registry.k8s.io/pause` needs `"http": false`, or it waits for a port that never opens
+and is reported `Failed` when the rollout's deadline passes.
+
+`deploy-local.sh` builds all three images with a single root-level `sbt docker:publishLocal` —
+it aggregates to every project with `DockerPlugin` enabled (`operator`, `controlPlane`, and the
+`shoppingCart` sample) and silently skips the rest, the same way `sbt compile` and `sbt test`
+already do; adding the third needed no change to the command. `sbt buildAll` is the same idea one
+level up: format check, compile, test and every image, one command, stopping at the first failing
+stage.
+
+The script then loads them into the cluster with `kind load docker-image`, installs CloudNativePG,
+and applies the CRD, the operator, the control plane's own CNPG-managed database and the control
+plane — no image registry, on purpose. Every workload is rendered with `imagePullPolicy:
+IfNotPresent`, which is what lets an image loaded that way be used at all: Kubernetes' default for
+a `:latest` tag is `Always`, which ignores it and fails with `ErrImagePull`.
+Setting `DOCKER_REPOSITORY` (see `build.sbt`'s `dockerSettings`) is the whole change needed once
+one exists. It refuses to run against any `kubectl` context other than a `kind-*` one it is told
+to target, since it is meant for a disposable cluster, never whatever context happens to be
+current.
+
 ### Desired state and observed state
 
 A `ServiceEntity` holds both: `descriptor` and `generation` are what an operator asked
@@ -444,11 +528,13 @@ loudly* when the script runs out — a test whose model quietly returned a defau
 longer testing what it says.
 
 ```bash
-sbt test          # 349 tests, ~4min, no API key needed
+sbt test          # 454 tests, no API key needed
 ```
 
-Integration suites start their own Postgres, and the Kafka suite its own broker, via
-testcontainers. Docker is required; no API key is.
+Integration suites start their own Postgres, the Kafka suite its own broker, and two
+suites a single-node Kubernetes cluster, all via testcontainers. Docker is required; no
+API key is. `sbt -Dnakka.cluster.tests=off test` skips the two that need a cluster —
+everything else, including the whole reconciliation loop against a fake, still runs.
 
 ## Deliberate divergences from Akka
 
@@ -462,7 +548,7 @@ testcontainers. Docker is required; no API key is.
 | ACL by absent annotation | abstract `def acl` | An unstated ACL is a decision nobody made |
 | `budget_tokens` / `temperature` | `effort`, adaptive thinking | Current Claude models reject both outright |
 | `apply -f service.yaml` | `apply -f service.json` | A YAML parser on the CLI's classpath for a cosmetic difference |
-| `minInstances` defaults to 3 | defaults to 1 | nakka's primary target is a dev cluster, where three replicas of everything is a surprise |
+| `minInstances` defaults to 3 | defaults to 1 | More than one replica does not currently work — see *Not implemented*. Until cluster formation lands, one is the only correct value, not merely the friendly one |
 | Four service lifecycle states | seven | `NotDeployed`, `Paused` and `Failed` are distinctions Akka's four cannot express |
 
 ## Layout
@@ -476,24 +562,93 @@ modules/agent     model providers, session memory, function tools, the agent loo
 modules/testkit   unit and integration test support
 controlplane-api  descriptors, statuses and validation shared by the server and the CLI
 controlplane      the control plane, built as a nakka application
+crd               the NakkaService custom resource — the contract, no nakka dependencies
+operator          the Kubernetes operator: watches resources, owns the workloads
 cli               the `nakka` command, over HTTP
 samples/shopping-cart          entities, views, consumers, HTTP
 samples/multi-agent-planner    dynamic + parallel multi-agent orchestration
 ```
 
 Dependencies run strictly `core → sdk → runtime → {http, agent} → testkit → samples`,
-with `controlplane-api → controlplane → cli` hanging off `core` and the runtime.
+with `controlplane-api → controlplane → cli` hanging off `core` and the runtime, and
+`crd → operator` hanging off nothing at all — the resource contract is held by both the
+control plane and the operator, so it inherits neither one's world.
 
 ## Not implemented
 
 Honest gaps, not oversights:
 
 - **Multi-region.** Single-region only. No replication filters, no `origin` routing.
-- **Reconciliation.** The control plane records desired state and accepts observations,
-  but nothing yet renders a descriptor into Kubernetes objects or reports back. Until it
-  does, a service applied through the CLI stays at `UpdateInProgress` with `0/0`
-  instances — nothing has reported a desired count, let alone a ready one. The intent is
-  durable; the deployment is not happening.
+- **Zero-downtime deploys.** Every Deployment is rendered with `strategy: Recreate`, so applying
+  or restarting a service is a brief outage: the old pod is gone before the new one starts. This
+  is the same constraint as the next item seen from another side — a rolling update would run
+  two pods at once, and two pods are two writers to one journal.
+- **Multi-replica services.** Every service runs at exactly one replica, and no
+  autoscaler is rendered. This is a correctness constraint, not a default:
+  `pekko.cluster.seed-nodes` is empty and `nakka.join-self-if-no-seed-nodes` is on, so
+  each pod joins *itself*. Two replicas would be two independent single-node clusters
+  sharing one journal, each hosting the same entity ids — two writers to one
+  `persistence_id`. The descriptor's `autoscaling` block is validated and carried into the
+  custom resource, but not honoured. Fixing it needs cluster bootstrap and Kubernetes API
+  discovery in `nakka-runtime`, a headless Service, pod-list RBAC, and management health
+  routes wired to the probes; the operator is the right home for the rendering.
+- **Databases are provisioned automatically, one per service.** The operator manages
+  [CloudNativePG](https://cloudnative-pg.io/) `Cluster`, `Database` and `DatabaseRole`
+  custom resources: one shared `Cluster` per project, and one `Database`/`DatabaseRole`
+  pair per service within it, with a generated credential secret and a schema-init
+  container that applies the same single-copy DDL a service's own database needs before
+  its main container starts.
+
+  **One database per service, and this is not a style preference.** `nakka_timers` has no
+  service column; `TimerSweeper` polls it unfiltered and *deletes* any row whose component
+  id is not in its own registry. Two services sharing a database therefore delete each
+  other's timers. View row tables are named from the component id alone and collide the
+  same way, as do projection offsets. CNPG's default `PUBLIC CONNECT` grant is explicitly
+  revoked per database for exactly this reason — one service's database is unreachable by
+  another's credentials, not merely conventionally separate.
+
+  **Nothing this platform does may destroy a database.** Deleting a service deletes its
+  Deployment, never its `Database` — the operator's own RBAC withholds `delete` on every
+  CNPG resource and on `secrets`, so this is enforced by the API server, not by discipline.
+  Re-applying a previously deleted service's name recovers its existing data and reports
+  `recovered: true` in its status, rather than starting clean.
+
+  **The escape hatch remains, for a specific reason.** A descriptor whose own `env`
+  declares a `NAKKA_DB_*` variable is bringing its own database — checked by variable name,
+  not value, so a `secretKeyRef`-sourced value counts too. Nothing is provisioned for it,
+  and `nakka services get` reports `supplied` rather than `provisioned`. This exists for
+  the case a provisioned, single-instance `Cluster` cannot yet serve: an existing database
+  with data to migrate, or a durability profile CNPG's defaults do not cover. It does not
+  extend cross-service isolation — a supplied database's isolation is whatever its owner
+  configured, not something nakka verifies.
+- **No way in from outside the cluster.** A service gets a `ClusterIP` and nothing more: no
+  ingress, no `LoadBalancer`, no TLS. `kubectl port-forward` is how a person reaches one.
+- **Readiness means the port is open, not that the application is healthy.** The probe is a
+  `tcpSocket`, because the operator knows neither a workload's routes nor its ACL. What a deeper
+  check should assert, and what a service would have to implement to satisfy it, is undecided.
+  There is deliberately no liveness probe: on a single replica whose entities rehydrate from the
+  journal, restarting a pod for a slow GC turns a hiccup into an outage.
+- **Projects are not a network boundary.** A `ClusterIP` is reachable from every namespace, so any
+  project's pods can call any other project's service. Projects separate names and databases —
+  the latter enforced, down to a revoked `PUBLIC CONNECT` — but not traffic. That would be
+  `NetworkPolicy`, and is not built.
+- **One port, HTTP only.** No second port, no other protocol.
+- **No image registry.** `sbt-native-packager` builds the operator's, the control plane's and the
+  sample's images straight into the local Docker daemon, and `kustomization/deploy-local.sh` loads
+  them directly into a `kind` node with `kind load docker-image` — nothing is pushed
+  anywhere. Setting `DOCKER_REPOSITORY` (see `build.sbt`) and changing the deploy target is
+  the whole migration once one exists; nothing about the images or the manifests changes.
+- **The k3s test suites mostly use kind's/testcontainers' default admin credentials, not
+  the shipped RBAC**, so most of what the ClusterRoles in
+  `kustomization/components/{operator,controlplane}/` grant is exercised by *use*, not by
+  a client actually scoped to them — a missing verb there fails silently in CI and loudly
+  on a real deploy. It already has: `ensureNamespace` uses server-side apply, which is
+  always a PATCH even for an object that does not exist yet, so `create` alone on
+  `namespaces` 403s on every project's first service. Deploying against a real cluster is
+  what caught it; nothing in `sbt test` would have. One narrow exception exists: a test
+  mints a real token for the operator's own ServiceAccount and asserts the API server
+  itself, not just nakka's own code, refuses a `Database` delete — proving the withheld
+  verb is structural rather than merely unused.
 - **No console.** The CLI is the only client.
 - **Cross-entity checks are edge checks.** "The project still has services" is counted
   from a projection, so a service created moments earlier may not be counted yet. It

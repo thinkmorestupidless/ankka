@@ -1,10 +1,13 @@
 package nakka.controlplane
 
 import com.typesafe.config.Config
+import com.typesafe.config.ConfigFactory
 import nakka.controlplane.api.*
 import nakka.controlplane.application.*
+import nakka.controlplane.deploy.{DeployConfig, ServiceProjector}
 import nakka.http.{Acl, HttpServer}
 import nakka.runtime.{Nakka, ProjectionRuntime, ServiceBuilder}
+import nakka.core.ComponentDescriptor
 
 /**
  * The control plane, assembled from nakka's own components.
@@ -17,8 +20,13 @@ import nakka.runtime.{Nakka, ProjectionRuntime, ServiceBuilder}
  */
 object ControlPlane:
 
-  /** Every component the control plane hosts, in one place. */
-  val components = Seq(
+  /**
+   * Every component the control plane hosts, in one place.
+   *
+   * The projection trigger is not here: it needs the projector, which is created when the service
+   * is assembled. See [[componentsWith]].
+   */
+  val components: Seq[ComponentDescriptor] = Seq(
     OrganizationEntity.descriptor,
     ProjectEntity.descriptor,
     ServiceEntity.descriptor,
@@ -26,6 +34,10 @@ object ControlPlane:
     ProjectRows.descriptor,
     ServiceRows.descriptor
   )
+
+  /** The full inventory, including the consumer that projects on a desired-state change. */
+  def componentsWith(projector: ServiceProjector): Seq[ComponentDescriptor] =
+    components :+ ProjectionTrigger.companion(projector).descriptor
 
   /** The three endpoints, all sharing one ACL. */
   def endpoints(acl: Acl): Seq[nakka.http.EndpointClients => nakka.http.HttpEndpoint] =
@@ -44,14 +56,17 @@ object ControlPlane:
   def builder(
       acl: Acl,
       interface: Option[String] = None,
-      port: Option[Int] = None
+      port: Option[Int] = None,
+      config: Config = ConfigFactory.load()
   ): ServiceBuilder =
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) => HttpServer.at(host, bindPort)(endpoints(acl)*)
       case _                            => HttpServer.of(endpoints(acl)*)
+    val projector = ServiceProjector(DeployConfig.from(config))
     Nakka.service
-      .registerAll(components)
+      .registerAll(componentsWith(projector))
       .withExtension(ProjectionRuntime())
+      .withExtension(projector)
       .withExtension(server)
 
   /**

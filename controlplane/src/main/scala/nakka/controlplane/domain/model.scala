@@ -58,11 +58,32 @@ final case class Service(
      * deployment can be recognised and dropped rather than overwriting the state of a newer one.
      */
     generation: Long,
+    /**
+     * Desired state: an operator asked for this service to stop.
+     *
+     * Separate from `lifecycle` deliberately. `lifecycle` is *observed* — the reconciler writes it
+     * — so deriving "is this paused" from it lets a report that was already in flight when the
+     * pause happened erase the pause. Pause does not bump the generation, so the staleness guard
+     * cannot catch that one either. Desired state and observed state do not share a field.
+     */
+    paused: Boolean,
     lifecycle: ServiceLifecycle,
     readyInstances: Int,
     desiredInstances: Int,
     detail: Option[String],
-    deleted: Boolean
+    /**
+     * Whether the last observation was a confirmed read of the cluster.
+     *
+     * Orthogonal to `lifecycle` — any lifecycle can be unconfirmed — which is why it is a separate
+     * field rather than an eighth `ServiceLifecycle` case.
+     */
+    confirmed: Boolean,
+    deleted: Boolean,
+    /**
+     * The operator's last-reported database phase, verbatim — `None` for the escape hatch and
+     * before the first observation arrives.
+     */
+    database: Option[String] = None
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -71,7 +92,7 @@ final case class Service(
 
   def image: String = descriptor.fold("")(_.service.image)
 
-  def isPaused: Boolean = lifecycle == ServiceLifecycle.Paused
+  def isPaused: Boolean = paused
 
   /** The replica count the reconciler should aim for, which is zero while paused. */
   def targetInstances: Int =
@@ -95,6 +116,9 @@ final case class Service(
       // changing the descriptor is not the same as asking for it to run.
       lifecycle = if isPaused then ServiceLifecycle.Paused else ServiceLifecycle.UpdateInProgress,
       detail = None,
+      // An operator action supersedes whatever staleness was recorded: the question is now
+      // about the new generation, which nothing has reported on yet.
+      confirmed = true,
       deleted = false
     )
 
@@ -103,14 +127,26 @@ final case class Service(
       generation = generation,
       lifecycle = ServiceLifecycle.UpdateInProgress,
       readyInstances = 0,
-      detail = None
+      detail = None,
+      confirmed = true
     )
 
   def onPaused: Service =
-    copy(lifecycle = ServiceLifecycle.Paused, desiredInstances = 0, detail = None)
+    copy(
+      paused = true,
+      lifecycle = ServiceLifecycle.Paused,
+      desiredInstances = 0,
+      detail = None,
+      confirmed = true
+    )
 
   def onResumed: Service =
-    copy(lifecycle = ServiceLifecycle.UpdateInProgress, detail = None)
+    copy(
+      paused = false,
+      lifecycle = ServiceLifecycle.UpdateInProgress,
+      detail = None,
+      confirmed = true
+    )
 
   /**
    * Folds in an observation, ignoring one that describes a superseded generation.
@@ -126,12 +162,15 @@ final case class Service(
         lifecycle = event.lifecycle,
         readyInstances = event.readyInstances,
         desiredInstances = event.desiredInstances,
-        detail = event.detail
+        detail = event.detail,
+        confirmed = event.confirmed,
+        database = event.database
       )
 
   def onDeleted: Service =
     copy(
       deleted = true,
+      paused = false,
       lifecycle = ServiceLifecycle.NotDeployed,
       readyInstances = 0,
       desiredInstances = 0
@@ -146,18 +185,38 @@ final case class Service(
       image = image,
       readyInstances = readyInstances,
       desiredInstances = desiredInstances,
-      detail = detail
+      detail = detail,
+      confirmed = confirmed,
+      database = database.map(Service.databasePhrase)
     )
 
 object Service:
+
+  /**
+   * The operator's reported database phase (`nakka.crd.DatabaseStatus.phase`, produced by
+   * `Provisioning.reportedPhase`), translated into the short phrase `ServiceStatus.database`
+   * documents. A lookup, not a re-derivation — the phase itself is decided in exactly one place
+   * (the operator's `Provisioning.decide`), so this can only ever reword it, never disagree with it
+   * (research R11, US4's T051).
+   */
+  def databasePhrase(phase: String): String = phase match
+    case "Waiting"     => "waiting for database"
+    case "Provisioned" => "provisioned"
+    case "Recovered"   => "recovered existing data"
+    case "Supplied"    => "supplied"
+    case "Failed"      => "database provisioning failed"
+    case other         => other
+
   def empty(key: ServiceKey): Service =
     Service(
       key = key,
       descriptor = None,
       generation = 0L,
+      paused = false,
       lifecycle = ServiceLifecycle.NotDeployed,
       readyInstances = 0,
       desiredInstances = 0,
       detail = None,
+      confirmed = true,
       deleted = false
     )

@@ -12,3 +12,10 @@ project/project/
 
 # Local-only Claude settings
 .claude/settings.local.json
+
+# Kubernetes: never commit cluster credentials or rendered secrets
+kubeconfig*
+.kube/
+*.secret.yaml
+*.key
+*.crt

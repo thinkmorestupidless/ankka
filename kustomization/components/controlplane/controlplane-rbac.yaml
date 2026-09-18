@@ -1,0 +1,58 @@
+# What the control plane may do in the cluster, and nothing more.
+#
+# It projects desired state into NakkaService resources and reads their status back. It never
+# creates a workload, never reads a secret, and never writes a status — so even fully
+# compromised it can only ask for services, not make them. The operator, which does make them,
+# holds credentials the control plane never sees.
+#
+# Apply this only when the control plane runs inside the cluster. Outside it, the same
+# permissions should be what its kubeconfig user has.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nakka-controlplane
+  namespace: nakka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: nakka
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: nakka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: nakka
+rules:
+  - apiGroups: ["nakka.thinkmorestupidless.com"]
+    resources: ["nakkaservices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read-only on status: the operator writes it, the control plane consumes it.
+  - apiGroups: ["nakka.thinkmorestupidless.com"]
+    resources: ["nakkaservices/status"]
+    verbs: ["get", "list", "watch"]
+  # A project's namespace has to exist before its resource can be written into it, and the
+  # operator cannot create it first — it only learns a project exists by seeing the resource.
+  # Still no workload access: it can make a namespace and ask for a service, not run one.
+  #
+  # "patch" is required, not optional: ensureNamespace uses server-side apply, which always
+  # issues a PATCH under the hood even for an object that does not exist yet. Granting only
+  # "create" here produces a 403 the very first time a project's namespace is missing — which
+  # is every time, since that is the one case this rule exists for.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: nakka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: nakka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: nakka-controlplane
+subjects:
+  - kind: ServiceAccount
+    name: nakka-controlplane
+    namespace: nakka-controlplane

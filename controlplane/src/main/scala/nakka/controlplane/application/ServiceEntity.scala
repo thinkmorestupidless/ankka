@@ -104,7 +104,9 @@ final class ServiceEntity(context: EventSourcedEntityContext)
       observation.lifecycle,
       observation.readyInstances,
       observation.desiredInstances,
-      observation.detail
+      observation.detail,
+      observation.confirmed,
+      observation.database
     )
     if !currentState.exists then effects.reply(Done)
     else if observation.generation < currentState.generation then effects.reply(Done)
@@ -119,9 +121,15 @@ final class ServiceEntity(context: EventSourcedEntityContext)
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
     else effects.reply(currentState.toStatus)
 
-  /** The desired state, for the reconciler. Absent once the service is deleted. */
-  def desired: ReadOnlyEffect[Option[ServiceDescriptor]] =
-    effects.reply(if currentState.exists then currentState.descriptor else None)
+  /**
+   * Everything the projector needs, in one call. Absent once the service is deleted.
+   *
+   * The whole state rather than just the descriptor: projecting needs the generation and whether
+   * the service is paused as well, and two round trips per service per sweep is a cost with nothing
+   * to show for it. `None` is the authoritative "this should not exist in the cluster".
+   */
+  def desiredState: ReadOnlyEffect[Option[Service]] =
+    effects.reply(Option.when(currentState.exists)(currentState))
 
   private def notFoundMessage = s"no such service '${key.name}' in project '${key.projectId}'"
 
@@ -139,8 +147,8 @@ object ServiceEntity
   given Serializer[ServiceObservation] =
     Codecs.serializer[ServiceObservation]("service-observation")
 
-  given Serializer[Option[ServiceDescriptor]] =
-    Codecs.serializer[Option[ServiceDescriptor]]("service-descriptor-option")
+  given Serializer[Option[Service]] =
+    Codecs.serializer[Option[Service]]("service-state-option")
 
   def create(context: EventSourcedEntityContext) = new ServiceEntity(context)
 
@@ -151,4 +159,4 @@ object ServiceEntity
   val observe         = command("observe")(_.observe)
   val delete          = command("delete")(_.delete)
   val get             = query("get")(_.get)
-  val desired         = query("desired")(_.desired)
+  val desiredState    = query("desired")(_.desiredState)

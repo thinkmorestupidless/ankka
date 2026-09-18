@@ -1,0 +1,9 @@
+# The NakkaService CustomResourceDefinition.
+#
+# Referenced by symlink, not copied: this is the exact file the k3s test suites install and the
+# exact file the operator ships on its classpath. Kustomize follows the symlink transparently, so
+# there is one CRD in the repository, not one per deployment mechanism.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - nakkaservice.yaml

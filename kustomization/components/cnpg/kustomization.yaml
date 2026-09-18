@@ -1,0 +1,9 @@
+# CloudNativePG, installed as a platform dependency alongside nakka's own operator and CRD.
+#
+# The one component in this feature not vendored: the manifest is fetched from GitHub by URL,
+# pinned to an exact version rather than a branch, so a CRD schema does not change under a
+# running operator without a deliberate bump here.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml

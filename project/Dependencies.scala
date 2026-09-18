@@ -22,6 +22,16 @@ object Dependencies {
     val r2dbcPostgres  = "1.1.2.RELEASE"
     val fabric8        = "7.9.0"
     val decline        = "2.6.2"
+
+    /**
+     * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.
+     *
+     * The Scala module refuses to load against a databind outside its own minor range, so a
+     * mismatch is a runtime failure in serialisation rather than a build error. Bumping fabric8
+     * will break this; `NakkaServiceCodecSuite` fails immediately and loudly when it does, which is
+     * the intended way to find out.
+     */
+    val jackson = "2.21.4"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────
@@ -67,9 +77,18 @@ object Dependencies {
   val testcontainersKafka = "org.testcontainers" % "kafka"           % V.testcontainers
   val testcontainersK3s   = "org.testcontainers" % "k3s"             % V.testcontainers
 
-  // ── Control plane ────────────────────────────────────────────────────────
+  // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8
   val decline = "com.monovore" %% "decline"           % V.decline
+
+  /**
+   * Scala support for fabric8's serialisation.
+   *
+   * Without it `Option` encodes as `{"empty":false,"defined":true}` and Scala collections do not
+   * round-trip at all — both silent, and both only visible once a resource reaches a real API
+   * server. `NakkaServiceCodecSuite` is the guard.
+   */
+  val jacksonScala = "com.fasterxml.jackson.module" %% "jackson-module-scala" % V.jackson
 
   /** Test-only deps every module gets. */
   val commonTest: Seq[ModuleID] = Seq(

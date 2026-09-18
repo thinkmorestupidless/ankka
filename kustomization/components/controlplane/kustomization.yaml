@@ -1,0 +1,13 @@
+# The control plane: its namespace, identity, RBAC, workload and service.
+#
+# `controlplane-rbac.yaml` is the real file — symlinked from
+# controlplane/src/main/resources/nakka/install/controlplane-rbac.yaml — so there is one copy of
+# what the control plane may do, whichever way it is described.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - controlplane-rbac.yaml
+  - token-secret.yaml
+  - deployment.yaml
+  - service.yaml

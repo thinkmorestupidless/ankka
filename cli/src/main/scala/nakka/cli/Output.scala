@@ -55,13 +55,23 @@ object Output:
           rows.map { row =>
             Vector(
               row.name,
-              row.lifecycle.toString,
+              status(row),
               s"${row.readyInstances}/${row.desiredInstances}",
               row.generation.toString,
               row.image
             )
           }
         )
+
+  /**
+   * The lifecycle, marked when it is not a confirmed reading.
+   *
+   * Rendered into the STATUS column rather than left to `detail`, because the table drops `detail`
+   * entirely — and the table is what an operator scans. A stale `Ready` that looks identical to a
+   * live one is the failure this whole field exists to prevent.
+   */
+  private def status(row: ServiceStatus): String =
+    if row.confirmed then row.lifecycle.toString else s"${row.lifecycle} (unconfirmed)"
 
   def service(row: ServiceStatus, format: Format): String =
     format match
@@ -72,11 +82,11 @@ object Output:
         val fields = Vector(
           "name"       -> row.name,
           "project"    -> row.projectId,
-          "status"     -> row.lifecycle.toString,
+          "status"     -> status(row),
           "instances"  -> s"${row.readyInstances}/${row.desiredInstances}",
           "generation" -> row.generation.toString,
           "image"      -> row.image
-        ) ++ row.detail.map("detail" -> _)
+        ) ++ row.database.map("database" -> _) ++ row.detail.map("detail" -> _)
         val width = fields.map(_._1.length).max
         fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
 

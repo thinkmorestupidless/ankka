@@ -1,0 +1,8 @@
+# The operator: its namespace, ServiceAccount, ClusterRole, ClusterRoleBinding and Deployment.
+#
+# `operator.yaml` is symlinked from the same file the operator's own README section documents as
+# the install manifest — see CLAUDE.md's note on single-copy artifacts.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - operator.yaml

@@ -101,6 +101,23 @@ class ServiceEntitySuite extends munit.FunSuite:
     assertEquals(kit.currentState.readyInstances, 1)
   }
 
+  test("an observation carries the database phase through to the status, as the CLI's phrase") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+
+    val _ = kit.call(ServiceEntity.observe)(
+      ServiceObservation(
+        1L,
+        ServiceLifecycle.Ready,
+        readyInstances = 1,
+        desiredInstances = 1,
+        database = Some("Provisioned")
+      )
+    )
+    assertEquals(kit.currentState.database, Some("Provisioned"))
+    assertEquals(kit.currentState.toStatus.database, Some("provisioned"))
+  }
+
   test("an observation of a superseded generation is dropped") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
@@ -211,7 +228,7 @@ class ServiceEntitySuite extends munit.FunSuite:
 
     assert(!kit.isDeleted, "the journal is the audit trail, so the entity is not removed")
     assertEquals(kit.call(ServiceEntity.get).error.code, ErrorCode.NotFound)
-    assertEquals(kit.call(ServiceEntity.desired).replyValue, None)
+    assertEquals(kit.call(ServiceEntity.desiredState).replyValue, None)
   }
 
   test("a service name is reusable after deletion, unlike a project or organization id") {
@@ -237,10 +254,13 @@ class ServiceEntitySuite extends munit.FunSuite:
     assertEquals(kit.call(ServiceEntity.delete).error.code, ErrorCode.NotFound)
   }
 
-  test("the desired descriptor is what the reconciler reads") {
+  test("the desired state is what the projector reads") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying(image = "cart:3.0"))
-    assertEquals(kit.call(ServiceEntity.desired).replyValue, Some(descriptor(image = "cart:3.0")))
+    assertEquals(
+      kit.call(ServiceEntity.desiredState).replyValue.flatMap(_.descriptor),
+      Some(descriptor(image = "cart:3.0"))
+    )
   }
 
   test("state is rebuilt purely by folding events") {
@@ -266,4 +286,113 @@ class ServiceEntitySuite extends munit.FunSuite:
     intercept[IllegalArgumentException] {
       EventSourcedTestKit.of(ServiceEntity, "no-project-separator")
     }: Unit
+  }
+
+  // ── Confirmed observations ────────────────────────────────────────────────
+
+  test("an unconfirmed observation is recorded and surfaces on the status") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1))
+
+    val result = kit.call(ServiceEntity.observe)(
+      ServiceObservation(
+        1L,
+        ServiceLifecycle.Ready,
+        1,
+        1,
+        detail = Some("could not reach the cluster: connection refused"),
+        confirmed = false
+      )
+    )
+
+    assertEquals(result.events.size, 1)
+    assertEquals(kit.currentState.confirmed, false)
+    assertEquals(kit.call(ServiceEntity.get).replyValue.confirmed, false)
+  }
+
+  test("repeating an unconfirmed observation is refused, so an outage costs one event") {
+    // The reconciler reports on a timer. Without the dedupe an unreachable cluster would
+    // grow the journal for as long as it stayed unreachable.
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val unreachable =
+      ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, Some("unreachable"), confirmed = false)
+
+    val first  = kit.call(ServiceEntity.observe)(unreachable)
+    val second = kit.call(ServiceEntity.observe)(unreachable)
+    val third  = kit.call(ServiceEntity.observe)(unreachable)
+
+    assertEquals(first.events.size, 1)
+    assertEquals(second.events, Vector.empty)
+    assertEquals(third.events, Vector.empty)
+  }
+
+  test("recovering from unconfirmed back to confirmed is a change worth recording") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _ = kit.call(ServiceEntity.observe)(
+      ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, Some("unreachable"), confirmed = false)
+    )
+
+    val recovered =
+      kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1))
+
+    assertEquals(recovered.events.size, 1)
+    assertEquals(kit.currentState.confirmed, true)
+    assertEquals(kit.currentState.detail, None)
+  }
+
+  test("an unconfirmed observation of a superseded generation is still dropped") {
+    // Staleness wins over freshness reporting: a report about generation 1 says nothing
+    // about generation 2, confirmed or not.
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying(image = "cart:2.0"))
+
+    val stale = kit.call(ServiceEntity.observe)(
+      ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, None, confirmed = false)
+    )
+
+    assertEquals(stale.events, Vector.empty)
+    assertEquals(kit.currentState.confirmed, true)
+  }
+
+  test("an operator action clears staleness, because it supersedes what was observed") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _ = kit.call(ServiceEntity.observe)(
+      ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, Some("unreachable"), confirmed = false)
+    )
+    assertEquals(kit.currentState.confirmed, false)
+
+    val _ = kit.call(ServiceEntity.applyDescriptor)(applying(image = "cart:2.0"))
+    assertEquals(kit.currentState.confirmed, true)
+  }
+
+  test("an observation cannot un-pause a service") {
+    // `paused` is desired state and `lifecycle` is observed. Deriving one from the other
+    // let a report that was already in flight when the pause happened erase the pause —
+    // and pause does not bump the generation, so the staleness guard could not catch it.
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.pause)
+    assert(kit.currentState.isPaused)
+
+    // A report from before the pause, describing the same generation.
+    val _ = kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1))
+
+    assert(kit.currentState.isPaused, "a stale report must not resume a paused service")
+    assertEquals(kit.currentState.targetInstances, 0)
+  }
+
+  test("resuming clears the pause even if the last observation said Paused") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.pause)
+    val _   = kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Paused, 0, 0))
+    val _   = kit.call(ServiceEntity.resume)
+
+    assert(!kit.currentState.isPaused)
+    assertEquals(kit.currentState.targetInstances, 1)
   }

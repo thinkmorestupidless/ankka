@@ -36,18 +36,105 @@ object ServiceDescriptor:
    */
   private val ValidName = "[a-z]([-a-z0-9]{0,61}[a-z0-9])?".r
 
+/**
+ * Validation for a project id.
+ *
+ * A project id becomes part of a Kubernetes namespace name (`{prefix}-{projectId}`), so it has to
+ * be expressible as a DNS label. `ServiceKey`'s doc comment has always claimed project ids and
+ * service names are both DNS labels, but only the service name was ever checked — this closes that.
+ *
+ * Lives here, beside `ServiceDescriptor.ValidName`, so the CLI rejects a bad id before the round
+ * trip using the same code the server runs.
+ */
+object ProjectId:
+
+  private val Valid = "[a-z]([-a-z0-9]{0,61}[a-z0-9])?".r
+
+  /**
+   * Conservative, because this side cannot see the server's namespace prefix.
+   *
+   * 63 is the DNS label ceiling; the default prefix `nakka` plus a separator takes six. A longer
+   * prefix narrows it further, which the server checks when it projects — this bound catches the
+   * obvious case early rather than being the only check.
+   */
+  val MaxLength: Int = 63 - "nakka".length - 1
+
+  def problems(id: String): Vector[String] =
+    if id.isEmpty then Vector("project id must not be empty")
+    else if id.length > MaxLength then
+      Vector(s"project id '$id' is ${id.length} characters, over the $MaxLength character limit")
+    else if !Valid.matches(id) then
+      Vector(
+        s"project id '$id' is invalid: lowercase letters, digits and '-', starting with a letter"
+      )
+    else Vector.empty
+
+  def isValid(id: String): Boolean = problems(id).isEmpty
+
 final case class ServiceSpec(
     image: String,
     env: Vector[EnvVar] = Vector.empty,
     labels: Map[String, String] = Map.empty,
     annotations: Map[String, String] = Map.empty,
-    resources: ServiceResources = ServiceResources()
+    resources: ServiceResources = ServiceResources(),
+    /**
+     * Whether this service serves HTTP at all.
+     *
+     * A boolean rather than an optional `port`, and not for taste: under nakka's shared codec
+     * config jsoniter reads a JSON `null` as *absent* and applies the field's default, so
+     * `{"port": null}` on an `Option[Int]` defaulting to `Some(9000)` decodes as 9000. Absent and
+     * `null` cannot be told apart, which makes "serves none" something that has to be said
+     * positively. `DescriptorSuite` pins that behaviour.
+     */
+    http: Boolean = true,
+    /**
+     * The port the workload listens on. Ignored when `http` is false.
+     *
+     * The default is `nakka.http.port`'s own, so a descriptor that says nothing gets the behaviour
+     * the runtime already had. `0` is not "none": `HttpServer.at` already gives it a meaning — pick
+     * a free port — and a second, opposite one here would be a trap.
+     */
+    port: Int = ServiceSpec.DefaultPort
 ):
+
+  /**
+   * The one value everything downstream sees.
+   *
+   * The custom resource and the operator never learn that two fields exist. The container port, the
+   * injected `NAKKA_HTTP_PORT`, the readiness probe and the Service's target all come from this, so
+   * they have nothing to disagree with.
+   */
+  def resolvedPort: Option[Int] = Option.when(http)(port)
+
   def problems: Vector[String] =
     val imageProblems =
       if image.isEmpty then Vector("service image must not be empty") else Vector.empty
     val envProblems = env.flatMap(_.problems)
-    imageProblems ++ envProblems ++ resources.problems
+    // Both unconditional — checked when `http` is false too. A nonsense port is nonsense whether
+    // or not it is used, and one rule with no exceptions is one nobody has to remember.
+    val portProblems =
+      Option
+        .when(port < 1 || port > 65535)(s"service port $port is outside the range 1-65535")
+        .toVector
+    // By name, never value: the value may come from a secret, so only the name is inspectable —
+    // the same shape as the NAKKA_DB_* escape hatch. The `port` field is the only way to set the
+    // runtime's port; a descriptor with two ways to say one thing is refused rather than quietly
+    // resolved in favour of one of them.
+    val portEnvProblems =
+      Option
+        .when(env.exists(_.name == ServiceSpec.PortEnvVar))(
+          s"env var '${ServiceSpec.PortEnvVar}' conflicts with the service port; " +
+            "declare the port instead"
+        )
+        .toVector
+    imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ resources.problems
+
+object ServiceSpec:
+  /** `nakka.http.port`'s default in `modules/http`'s `reference.conf`. Adopted, not chosen. */
+  val DefaultPort: Int = 9000
+
+  /** What the runtime reads its port from, and what the operator therefore injects. */
+  val PortEnvVar: String = "NAKKA_HTTP_PORT"
 
 /**
  * A container environment variable, either literal or drawn from a secret.
@@ -167,7 +254,24 @@ final case class ServiceStatus(
     image: String,
     readyInstances: Int,
     desiredInstances: Int,
-    detail: Option[String] = None
+    detail: Option[String] = None,
+    /**
+     * Whether this describes a confirmed observation of the cluster.
+     *
+     * `false` means the control plane could not confirm it and is restating what it last knew, or
+     * that nothing has reported on the service at all. A field rather than detail text because
+     * `services list` prints a table that drops `detail`, and an operator scanning that table is
+     * exactly who needs to know a `Ready` is not current.
+     */
+    confirmed: Boolean = true,
+    /**
+     * A short, human phrase for what the platform did about this service's database —
+     * `"provisioned"`, `"supplied"`, `"recovered existing data"`, `"waiting for database"` — or
+     * `None` before anything has reported. Deliberately a phrase, not the operator's full
+     * `DatabaseStatus`: the CLI's job is to say which path was taken, not to mirror a Kubernetes
+     * status the CLI has no other reason to know the shape of.
+     */
+    database: Option[String] = None
 )
 
 /**

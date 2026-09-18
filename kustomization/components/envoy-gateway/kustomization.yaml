@@ -1,0 +1,9 @@
+# Envoy Gateway, the Gateway API implementation the platform routes external traffic through
+# (feature 005, research R1). Its install manifest bundles the Gateway API CRDs.
+#
+# Pinned to an exact release. Ingress NGINX — the obvious choice a year earlier — was retired in
+# March 2026, and the Ingress API itself is frozen; Gateway API is what Kubernetes now recommends.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - https://github.com/envoyproxy/gateway/releases/download/v1.9.1/install.yaml

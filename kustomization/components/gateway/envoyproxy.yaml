@@ -1,0 +1,28 @@
+# How Envoy Gateway runs the proxy for the Gateway below.
+#
+# NodePort with fixed ports, not LoadBalancer: neither kind nor the k3s test container has a load
+# balancer, and a LoadBalancer Service would sit Pending forever on kind. Fixed node ports are what
+# kustomization/kind.yaml maps to the host's 80/443, and what the test suites map out of the k3s
+# container — the same manifest in both places (research R5).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: nakka
+  namespace: nakka-gateway
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: NodePort
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+                - name: http-80
+                  port: 80
+                  nodePort: 30080
+                - name: https-443
+                  port: 443
+                  nodePort: 30443

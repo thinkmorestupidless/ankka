@@ -368,11 +368,11 @@ forever — there is nothing on the other end of `apply` yet. Running against a 
 the same from the CLI's side, but this time something is listening:
 
 ```bash
-kind create cluster --name nakka
+kind create cluster --name nakka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh
-kubectl -n nakka-controlplane port-forward svc/nakka-controlplane 9000:9000 &
 
-nakka config set url http://localhost:9000
+nakka config set url https://api.127.0.0.1.sslip.io:8443   # printed by the script
+nakka config set ca ~/.nakka/local-ca.crt                    # the local cluster's root, exported by it
 nakka config set token dev-local-token   # see kustomization/components/controlplane/token-secret.yaml
 
 nakka organizations create acme --name "Acme Corp"
@@ -388,21 +388,29 @@ nakka services list
 kubectl -n nakka-checkout get nsvc,deploy,svc,pods   # the operator's own work, visible directly
 ```
 
+No `kubectl port-forward` anywhere in that: the control plane answers at a real address, over TLS,
+and the CLI trusts the local cluster's root because it was told to — never because verification
+was switched off (there is no switch). The `kind.yaml` matters: it publishes the gateway's ports on
+your machine, and kind only does that at creation, so a cluster made with the bare one-liner is
+refused by the deploy script with the fix named.
+
 That descriptor is the whole of it: an image, and nothing about databases or ports. The platform
 provisions the service a database of its own, applies the schema, gives it an in-cluster address,
-and reports `Ready` only once its port is actually open. It is the shopping cart sample, running
-for real:
+and reports `Ready` only once it has joined its cluster and bound its port. It is the shopping
+cart sample, running for real — and private, until you say otherwise:
 
 ```bash
-kubectl -n nakka-checkout port-forward svc/cart 8080:9000 &
+nakka services expose cart
+# https://cart-checkout.127.0.0.1.sslip.io:8443
 
-curl -XPOST localhost:8080/carts/c1/items -H 'content-type: application/json' \
-     -d '{"productId":"p1","name":"Widget","quantity":2}'
-curl localhost:8080/carts/c1
+curl --cacert ~/.nakka/local-ca.crt -XPOST https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1/items \
+     -H 'content-type: application/json' -d '{"productId":"p1","name":"Widget","quantity":2}'
+curl --cacert ~/.nakka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1
 # {"cartId":"c1","items":[{"productId":"p1","name":"Widget","quantity":2}],"checkedOut":false}
 
-kubectl -n nakka-checkout delete pod -l app.kubernetes.io/name=cart   # and once it is back:
-curl localhost:8080/carts/c1                                          # the same cart
+nakka services restart cart                                          # rolls; the URL keeps answering
+curl --cacert ~/.nakka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1   # the same cart
+nakka services unexpose cart                                         # the hostname stops; nothing else changes
 ```
 
 ### Ports and addresses
@@ -447,6 +455,60 @@ Setting `DOCKER_REPOSITORY` (see `build.sbt`'s `dockerSettings`) is the whole ch
 one exists. It refuses to run against any `kubectl` context other than a `kind-*` one it is told
 to target, since it is meant for a disposable cluster, never whatever context happens to be
 current.
+
+### Exposing a service
+
+A service is private by default: reachable at its in-cluster address and nowhere else. Exposing
+it is a decision made after deploying, by a command — the model Akka's platform uses, and the one
+nakka's own `pause`/`resume` already follow — so `apply` never changes it:
+
+```bash
+nakka services expose cart      # prints the URL
+nakka services unexpose cart    # removes the route; the service is untouched
+nakka services get cart         # hostname  https://cart-checkout.127.0.0.1.sslip.io:8443
+```
+
+The hostname is the platform's to derive: **`<service>-<project>.<base domain>`**, the control
+plane itself at `api.<base domain>`. One label under the base domain — not `cart.checkout.…` —
+because a wildcard is exactly one label deep, for the certificate and for the gateway's listener
+alike, and the platform serves everything under *one* wildcard certificate that belongs to the
+installation. Two consequences follow, and both are refused at `expose` time rather than ever
+producing a hostname that does not work: a label longer than 63 characters, and a hostname another
+exposed service already holds (`a-b` in project `c` and `a` in project `b-c` both derive `a-b-c`).
+Two services with the *same* name in different projects never collide — that is what the project
+is in the name for.
+
+Under the hood: the operator renders a Gateway API `HTTPRoute` into the service's namespace,
+attached to a `Gateway` the installation owns (`kustomization/components/gateway`), which admits
+routes only from namespaces the platform created. The route's backend is the service's own
+in-cluster address, so it inherits readiness: a request by hostname never reaches an instance that
+is not a cluster member with its port bound. The operator holds RBAC for `httproutes` and nothing
+else about routing — not gateways, not certificates, not secrets — and a deployed service's own
+identity cannot read routes at all.
+
+**TLS, always.** Plain HTTP is redirected; there is no HTTP-only mode. Locally the deploy script
+creates a certificate authority inside the cluster, has cert-manager issue the wildcard from it,
+and exports the root to `~/.nakka/local-ca.crt`. Nothing on your machine is asked to trust it —
+the CLI is told (`config set ca`) and so is `curl` (`--cacert`) — and neither the CLI nor any
+documented command has an option to skip verification. A real installation supplies its own
+wildcard: a DNS-01 issuer, or a bought certificate in the `nakka-wildcard-tls` secret; HTTP-01
+cannot issue wildcards, so a DNS provider cert-manager supports is a production prerequisite of
+this design.
+
+**Exposure changes who can reach an endpoint, not who is allowed to.** Every endpoint declares an
+`acl`, and `DenyAll` is the stated default posture; an exposed `AllowAll` endpoint on a real
+installation is on the internet. Decide the ACL before the `expose`.
+
+**Local DNS.** The local base domain is `127.0.0.1.sslip.io`: a public wildcard-DNS convention
+that resolves any name ending in an embedded address to that address, so nothing on your machine
+is configured. The ports are `8443` and `8080` rather than 443 and 80 because a developer's machine
+routinely has those taken — the port is part of the URL, never of the certificate or the hostname
+rule. If your resolver blocks sslip.io, add a hosts-file line and redeploy with a matching domain:
+
+```bash
+echo '127.0.0.1  api.nakka.local cart-checkout.nakka.local' | sudo tee -a /etc/hosts
+NAKKA_BASE_DOMAIN=nakka.local ./kustomization/deploy-local.sh
+```
 
 ### Instances and clusters
 
@@ -672,8 +734,12 @@ Honest gaps, not oversights:
   with data to migrate, or a durability profile CNPG's defaults do not cover. It does not
   extend cross-service isolation — a supplied database's isolation is whatever its owner
   configured, not something nakka verifies.
-- **No way in from outside the cluster.** A service gets a `ClusterIP` and nothing more: no
-  ingress, no `LoadBalancer`, no TLS. `kubectl port-forward` is how a person reaches one.
+- **Custom hostnames.** An exposed service's hostname is the platform's to derive; there is no
+  way to give a service a domain of your own. That needs the user to own DNS and certificates for
+  a domain the platform does not control, and is a feature of its own.
+- **Nothing at the route but routing.** No authentication, rate limit or header policy at the
+  gateway; who may call an endpoint is the endpoint's `acl`. HTTP/1.1 only through the gateway —
+  no gRPC or HTTP/2 upstream — and one gateway per installation.
 - **Readiness means the node has joined and bound, not that the application is healthy.** The
   probe is the runtime's own `/ready`; it does not call a route, because the operator knows
   neither a workload's routes nor its ACL. There is deliberately no liveness probe: entities

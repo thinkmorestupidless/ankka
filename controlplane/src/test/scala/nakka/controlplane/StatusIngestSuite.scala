@@ -75,6 +75,28 @@ class StatusIngestSuite extends munit.FunSuite:
     assertEquals(observation.generation, 3L, "the operator's stated generation is preserved")
   }
 
+  test("a route the gateway has not accepted is said in the detail; an accepted one is silent") {
+    def observed(route: Option[String], detail: Option[String] = None) =
+      StatusIngest.observe(
+        service(4L),
+        ClusterView.Reported(
+          NakkaServiceStatus(generation = 4L, lifecycle = "Ready", route = route, detail = detail)
+        )
+      )
+    assertEquals(observed(None).detail, None)
+    assertEquals(observed(Some("accepted")).detail, None)
+    assertEquals(observed(Some("pending")).detail, Some("route pending"))
+    assertEquals(
+      observed(Some("rejected: RefNotPermitted")).detail,
+      Some("route rejected: RefNotPermitted")
+    )
+    // The operator's own detail comes first; the route is appended, not lost.
+    assertEquals(
+      observed(Some("pending"), Some("waiting for database")).detail,
+      Some("waiting for database; route pending")
+    )
+  }
+
   test("every lifecycle name the operator can write maps back") {
     for name <- ServiceLifecycle.values.map(_.toString) do
       val observation =

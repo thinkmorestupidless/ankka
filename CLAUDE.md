@@ -129,7 +129,10 @@ It is gated on `-Dnakka.cluster.tests`, so switching the suites off skips the bu
 
 `crd` depends on **nothing** — not even `core`. It holds the `NakkaService` resource, and
 both the control plane and the operator have to hold it without inheriting the other's
-world. `operator` depends only on `crd` and a Kubernetes client, which makes "the operator
+world. It also holds `Hostnames`, the one derivation of an exposed service's hostname, for the
+same reason: the control plane shows and refuses it, the operator renders it, and the resource
+itself deliberately carries only `exposed: Boolean` — so no writer of the resource can point a
+route at a name the service does not own. `operator` depends only on `crd` and a Kubernetes client, which makes "the operator
 cannot reach into the control plane" a build-level fact rather than a convention.
 
 `runtime` depends on `sdk`, not the reverse: the runtime interprets the SDK's
@@ -401,6 +404,48 @@ factory shapes would break lambda parameter inference at every call site.
   loop restores the replica count from the resource, so `kubectl scale --replicas=0` is not how
   a test takes a service down: it is back before the assertion runs. `nakka services pause` /
   `resume` is — the count is rendered from the spec, and pause is the spec saying zero.
+- **A wildcard is one label deep — for X.509 certificates and for Gateway API listeners alike.**
+  `*.example.test` covers `cart-checkout.example.test` and not `cart.checkout.example.test`; two
+  implementations that got the listener rule wrong filed it as a bug. With TLS on the
+  installation's single Gateway, that is *why* an exposed service's hostname is
+  `<service>-<project>.<base>` (one label; `nakka.crd.Hostnames`) and not the two-level form
+  that reads better. Two costs, both refused at expose time: a label over 63 characters, and a
+  collision between hyphenated names (`a-b` in `c`, `a` in `b-c`).
+- **A cert-manager `ClusterIssuer` looks up its `ca.secretName` in cert-manager's own namespace,
+  not the Certificate's.** `secrets "nakka-root-ca" not found` with the secret sitting right there
+  in `nakka-gateway`. A namespaced `Issuer` beside the secret is the honest shape for a local CA.
+- **A Gateway API `RequestRedirect` without `port` keeps the *request's* port in the Location.**
+  `http://…:8080/x` → `https://…:8080/x`, which goes nowhere on kind, where HTTPS is on 8443. The
+  redirect route names its port (443 in the component, the kind host port in the overlay).
+- **A route can be `Accepted` and still not serve.** A backend in another namespace is
+  `ResolvedRefs: False / RefNotPermitted` and Envoy answers 500 for it; an unlabelled namespace is
+  `Accepted: False / NotAllowedByListeners` and gets a 404. The resource's `status.route` folds
+  both conditions, and `services get` shows it as `route rejected: <reason>`.
+- **Every reconcile reads an `HTTPRoute`, so a cluster without the Gateway API must read as "no
+  route", not fail.** The read-first removal and the status read both run for every service on
+  every pass; `Fabric8Executor` treats a 404 on the *type* as absent. Only an exposed service's
+  `EnsureHttpRoute` is allowed to fail on a missing CRD, loudly.
+- **Envoy Gateway's CRDs need Kubernetes ≥ 1.32.** Its experimental `xbackends` CRD carries a
+  CEL rule using `format.dns1123Label()`, which a 1.31 API server rejects
+  (`CustomResourceDefinition … is invalid: … x-kubernetes-validations[0].rule`) — with `kubectl`
+  as much as with fabric8, so it looked like a client bug first. The k3s test image moved from
+  v1.31.2 to v1.35.1 for this; and `kubectl apply` of a multi-document manifest applies everything
+  *else* and exits 1, so a `grep -c applied` after it hides exactly this — check the exit code.
+- **A `waitFor` that swallows exceptions turns a broken check into "it never happened".** Two
+  runs were spent on a certificate that was `Ready` in 20s by hand, because the fabric8
+  generic-resource status parsing in the check threw and the loop reported a timeout. For
+  objects from CRDs the suites do not model (cert-manager, Gateway API status), the checks now
+  ask `kubectl … -o jsonpath` on the node — the same tool `deploy-local.sh` waits with — and the
+  k3s suites apply those manifests with the node's `kubectl` too.
+- **`-Djdk.net.hosts.file` steers `java.net.http` — for the whole JVM.** Names not in the file
+  stop resolving, so it can never be set on the forked test JVM. `ControlPlaneClusterSuite` runs
+  the real CLI as a subprocess with it, on the same classpath; that is also the honest way to
+  exercise `Main.main` and its `sys.exit`.
+- **LibreSSL's `openssl req -newkey ec` writes explicit EC parameters, which the JDK refuses**
+  (`Only named ECParameters supported`). Test certificate fixtures are RSA.
+- **The k3s node's `kubectl exec` works; its `wget` is BusyBox** (no PUT, no `--cacert`). Drive
+  the gateway from the *host* with `curl --cacert --resolve` against the mapped NodePort — which is
+  also the only proof that matches what a developer's machine does.
 - **A pod that cannot answer a bootstrap probe must never be a contact point.** Upgrading the
   kind cluster from a feature-003 image deadlocked: the old pods were `Ready` by their tcp probe,
   so the rolling update kept them; the new pods discovered them by the identity labels, got no
@@ -537,18 +582,29 @@ factory shapes would break lambda parameter inference at every call site.
 ## Deploying locally
 
 ```bash
-kind create cluster --name nakka
+kind create cluster --name nakka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh
 ```
 
-Installs [CloudNativePG](https://cloudnative-pg.io/) (server-side apply — its CRDs are too large
-for client-side apply's own annotation-size limit), builds all three images — the operator, the
-control plane and the shopping cart sample — loads them into the cluster with `kind load
-docker-image`, and applies the CRD, the operator, the control plane's own
-CNPG-managed database and the control plane itself via `kubectl apply -k`. No registry —
-`DOCKER_REPOSITORY` in `build.sbt`'s `dockerSettings` is the one setting that changes once one
-exists. The script checks `kubectl config current-context` and refuses to run against anything
-other than the `kind-*` cluster it targets.
+Installs [CloudNativePG](https://cloudnative-pg.io/), [cert-manager](https://cert-manager.io/)
+and [Envoy Gateway](https://gateway.envoyproxy.io/) (all server-side apply — CNPG's CRDs are too
+large for client-side apply's own annotation-size limit), builds all three images — the operator,
+the control plane and the shopping cart sample — loads them into the cluster with `kind load
+docker-image`, and applies the CRD, the operator, the platform's Gateway and local CA, the
+control plane's own CNPG-managed database and the control plane itself via `kubectl apply -k`. No
+registry — `DOCKER_REPOSITORY` in `build.sbt`'s `dockerSettings` is the one setting that changes
+once one exists. The script checks `kubectl config current-context` and refuses to run against
+anything other than the `kind-*` cluster it targets, and refuses a cluster whose node does not
+publish the gateway's NodePorts (30080/30443 → the host's 8080/8443, from `kind.yaml`) — kind
+decides that at creation and it cannot be added later.
+
+It ends by exporting the local CA's root to `~/.nakka/local-ca.crt` and printing the control
+plane's address, `https://api.127.0.0.1.sslip.io:8443`, with the `nakka config set url` /
+`config set ca` lines to use it. No port-forward anywhere. The base domain and the HTTPS host port
+are written once, in `kustomization/overlays/local/platform-configmap.yaml`, and kustomize
+`replacements` copy them into the wildcard `Certificate`, the `Gateway` listener, both
+Deployments' `NAKKA_BASE_DOMAIN` and the control plane's own `HTTPRoute`; `NAKKA_BASE_DOMAIN` on the
+script overrides the domain for a machine whose resolver blocks sslip.io.
 
 It ends by `rollout restart`ing the operator and control plane. Without that a *re*-run changes
 nothing that is running: the manifests are unchanged and the tag is still `:latest`, so `kubectl

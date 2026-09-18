@@ -49,6 +49,14 @@ enum ServiceEvent:
   case ServicePaused
   case ServiceResumed
 
+  /**
+   * An operator asked for the service to answer outside the cluster, or to stop. Desired state
+   * beside the descriptor, like pause: `apply` never touches it, and neither bumps the generation —
+   * exposure is not a deployment.
+   */
+  case ServiceExposed
+  case ServiceUnexposed
+
   /** What the reconciler saw. `generation` is the desired state being reported on. */
   case ServiceObserved(
       generation: Long,

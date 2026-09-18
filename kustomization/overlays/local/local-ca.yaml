@@ -1,0 +1,56 @@
+# A certificate authority for the local cluster, and the one wildcard certificate the gateway
+# serves. deploy-local.sh exports the root (nakka-root-ca's ca.crt) to ~/.nakka/local-ca.crt so the
+# CLI (`config set ca`) and curl (`--cacert`) can verify it — nothing is ever installed into the
+# machine's trust store, and nothing is ever served with verification turned off.
+#
+# A real installation replaces this file with its own issuer (DNS-01 for a wildcard) or a supplied
+# certificate in the nakka-wildcard-tls secret; the components reference only that secret.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  namespace: nakka-gateway
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nakka-root-ca
+  namespace: nakka-gateway
+spec:
+  isCA: true
+  commonName: nakka local CA
+  secretName: nakka-root-ca
+  duration: 87600h # ten years; a local root, never renewed under a running platform
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned
+    kind: Issuer
+---
+# A namespaced Issuer, not a ClusterIssuer: a ClusterIssuer's `ca.secretName` is looked up in
+# cert-manager's own namespace, not the Certificate's — `secrets "nakka-root-ca" not found`, seen
+# on the first spike. Everything here lives in nakka-gateway, so an Issuer there is the honest shape.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: nakka-ca
+  namespace: nakka-gateway
+spec:
+  ca:
+    secretName: nakka-root-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nakka-wildcard
+  namespace: nakka-gateway
+spec:
+  secretName: nakka-wildcard-tls
+  dnsNames:
+    - "*.BASE_DOMAIN"
+  issuerRef:
+    name: nakka-ca
+    kind: Issuer

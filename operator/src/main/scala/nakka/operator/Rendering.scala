@@ -1,5 +1,13 @@
 package nakka.operator
 
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.{
+  HTTPBackendRefBuilder,
+  HTTPRoute,
+  HTTPRouteBuilder,
+  HTTPRouteRuleBuilder,
+  HTTPRouteSpecBuilder,
+  ParentReferenceBuilder
+}
 import io.fabric8.kubernetes.api.model.apps.{
   Deployment,
   DeploymentBuilder,
@@ -46,7 +54,7 @@ import io.fabric8.kubernetes.api.model.{
   Quantity,
   ResourceRequirementsBuilder
 }
-import nakka.crd.{EnvEntry, NakkaService, NakkaServiceSpec}
+import nakka.crd.{EnvEntry, Hostnames, NakkaService, NakkaServiceSpec}
 
 import scala.jdk.CollectionConverters.*
 
@@ -89,6 +97,15 @@ object Rendering:
   val RemotingPort: Int   = 17355
 
   /**
+   * The installation's one Gateway, which every exposed service's route attaches to (feature 005,
+   * `kustomization/components/gateway`). Never rendered here: the operator holds RBAC for routes
+   * and nothing else about how traffic enters.
+   */
+  val GatewayName: String      = "nakka"
+  val GatewayNamespace: String = "nakka-gateway"
+  val GatewaySection: String   = "https"
+
+  /**
    * @param databasePlan
    *   already decided by the caller (`ServiceReconciler`, from `Provisioning.decide`) — `render`
    *   stays a pure function of its arguments and never reads the cluster itself.
@@ -118,7 +135,8 @@ object Rendering:
           databaseActions(spec, namespace, settings, databasePlan, newPassword)) ++
           identityActions(resource, spec, namespace) :+
           Action.ApplyDeployment(deployment(resource, spec, namespace, databasePlan)) :+
-          addressAction(resource, spec, namespace)
+          addressAction(resource, spec, namespace) :+
+          routeAction(resource, spec, namespace, settings.baseDomain)
       )
 
   /**
@@ -212,6 +230,69 @@ object Rendering:
           Names.service(spec.serviceName),
           Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
         )
+
+  /**
+   * The route, after the address it points at. Rendered only when the service is exposed, has a
+   * port, and the operator knows the base domain; in every other case the route is removed if this
+   * resource owns one — so unexposing, or dropping to `http: false`, takes the route away without
+   * touching the service.
+   */
+  private def routeAction(
+      resource: NakkaService,
+      spec: NakkaServiceSpec,
+      namespace: String,
+      baseDomain: Option[String]
+  ): Action =
+    (spec.exposed, spec.port, baseDomain) match
+      case (true, Some(port), Some(base)) =>
+        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, port, base))
+      case _ =>
+        Action.RemoveHttpRoute(
+          namespace,
+          Names.httpRoute(spec.serviceName),
+          Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+        )
+
+  /**
+   * One HTTPRoute: this service's hostname to this service's Service. The hostname is derived here,
+   * never read from the resource, so no writer of the resource can point a route at a name the
+   * service does not own; the backend carries no namespace, so the API itself forbids it reaching
+   * another project's service (contracts/route-object.md).
+   */
+  def httpRoute(
+      resource: NakkaService,
+      spec: NakkaServiceSpec,
+      namespace: String,
+      port: Int,
+      baseDomain: String
+  ): HTTPRoute =
+    new HTTPRouteBuilder()
+      .withMetadata(identityMeta(resource, spec, namespace, Names.httpRoute(spec.serviceName)))
+      .withSpec(
+        new HTTPRouteSpecBuilder()
+          .withParentRefs(
+            new ParentReferenceBuilder()
+              .withGroup("gateway.networking.k8s.io")
+              .withKind("Gateway")
+              .withName(GatewayName)
+              .withNamespace(GatewayNamespace)
+              .withSectionName(GatewaySection)
+              .build()
+          )
+          .withHostnames(Hostnames.of(spec.serviceName, spec.projectId, baseDomain))
+          .withRules(
+            new HTTPRouteRuleBuilder()
+              .withBackendRefs(
+                new HTTPBackendRefBuilder()
+                  .withName(Names.service(spec.serviceName))
+                  .withPort(port)
+                  .build()
+              )
+              .build()
+          )
+          .build()
+      )
+      .build()
 
   /** Exposed so tests can assert on the object rather than on an action wrapper. */
   def service(

@@ -5,6 +5,7 @@ import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientB
 import nakka.crd.NakkaSerialization
 import nakka.operator.{
   ClusterImages,
+  GatewayStack,
   Membership,
   Operator,
   ServiceReconciler,
@@ -36,7 +37,8 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("nakka.cluster.tests").contains("off")
 
-  private val K3sImage          = "rancher/k3s:v1.31.2-k3s1"
+  private val K3sImage          = "rancher/k3s:v1.35.1-k3s1"
+  private val BaseDomain        = "test.local"
   private val ControlPlaneImage = "nakka-controlplane:latest"
   private val SampleImage       = "sample-shopping-cart:latest"
   private val Token             = "dev-local-token" // what token-secret.yaml ships
@@ -61,6 +63,9 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
   override def beforeAll(): Unit =
     if !munitIgnore then
       k3s = new K3sContainer(DockerImageName.parse(K3sImage))
+      // The gateway's HTTPS NodePort, mapped out to the host so the real CLI can reach the
+      // control plane's external address the way a developer's machine would (feature 005).
+      k3s.withExposedPorts(6443, GatewayStack.HttpsNodePort)
       k3s.start()
       ClusterImages.importInto(k3s, ControlPlaneImage)
       ClusterImages.importInto(k3s, SampleImage)
@@ -126,7 +131,18 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
       applyManifest("kustomization/components/controlplane/controlplane-rbac.yaml")
       applyManifest("kustomization/components/controlplane/token-secret.yaml")
       applyManifest("kustomization/components/controlplane/service.yaml")
-      applyManifest("kustomization/components/controlplane/deployment.yaml")
+      // cert-manager, Envoy Gateway, the platform's Gateway and the local CA — so the control
+      // plane's own route can be proven, and the CLI driven over verified TLS. Before the route
+      // below, for the same reason CNPG is installed before anything references a Cluster: the
+      // CRD has to exist first.
+      GatewayStack.install(k3s, k8s, repoRoot, BaseDomain)
+
+      // The base domain the overlay would have fanned out, filled in by hand here.
+      for name <- Vector("deployment.yaml", "httproute.yaml") do
+        val yaml = Files
+          .readString(repoRoot.resolve(s"kustomization/components/controlplane/$name"))
+          .replace("BASE_DOMAIN", BaseDomain)
+        k8s.load(new java.io.ByteArrayInputStream(yaml.getBytes("UTF-8"))).serverSideApply(): Unit
 
       // The operator, in-process on admin credentials: not what this suite is about.
       val operatorSettings = OperatorSettings.default.copy(resyncInterval = 2.seconds)
@@ -433,4 +449,73 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
     // Everything applied under load exists.
     val (_, listing) = api("GET", s"/services/$Project")
     for name <- "under-load-\\d+".r.findAllIn(listing).toSet do assert(listing.contains(name))
+  }
+
+  // ---- Exposure (feature 005): the control plane's own route, and the CLI over verified TLS ----
+
+  private def routeCondition(kind: String): Option[(Boolean, String)] =
+    Option(
+      k8s
+        .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute])
+        .inNamespace(Namespace)
+        .withName("nakka-controlplane")
+        .get()
+    ).flatMap(r => Option(r.getStatus))
+      .flatMap(s => Option(s.getParents))
+      .flatMap(_.asScala.headOption)
+      .flatMap(p => Option(p.getConditions))
+      .flatMap(_.asScala.find(_.getType == kind))
+      .map(c => (c.getStatus == "True", c.getReason))
+
+  test("6. the control plane's route is accepted by the gateway and resolves its backend") {
+    waitFor(120.seconds)(
+      routeCondition("Accepted").exists(_._1) && routeCondition("ResolvedRefs").exists(_._1)
+    )
+  }
+
+  /**
+   * The real CLI, as a subprocess: `Main.main` on this JVM's classpath, with the JDK's hosts-file
+   * override so `api.test.local` resolves to the mapped NodePort's host — an override that would
+   * change name resolution for this whole test JVM if set here, which is why it is a subprocess.
+   */
+  private def cliProcess(config: Path, hosts: Path, args: String*): (Int, String) =
+    val java = Paths.get(sys.props("java.home"), "bin", "java").toString
+    val command = Vector(
+      java,
+      s"-Djdk.net.hosts.file=$hosts",
+      s"-Dnakka.config=$config",
+      "-cp",
+      sys.props("java.class.path"),
+      "nakka.cli.Main"
+    ) ++ args
+    val process = new ProcessBuilder(command*).redirectErrorStream(true).start()
+    val output  = new String(process.getInputStream.readAllBytes(), "UTF-8")
+    (process.waitFor(), output)
+
+  test(
+    "7. the CLI works through https://api.<base> with the exported root — and refuses without it"
+  ) {
+    val port   = k3s.getMappedPort(GatewayStack.HttpsNodePort)
+    val ca     = GatewayStack.exportCa(k8s)
+    val config = Files.createTempFile("nakka-cli-tls", ".json")
+    Files.delete(config)
+    val hosts = Files.createTempFile("nakka-hosts", ".txt")
+    Files.writeString(hosts, s"127.0.0.1 api.$BaseDomain\n")
+
+    assertEquals(
+      cliProcess(config, hosts, "config", "set", "url", s"https://api.$BaseDomain:$port")._1,
+      0
+    )
+    assertEquals(cliProcess(config, hosts, "config", "set", "token", Token)._1, 0)
+    assertEquals(cliProcess(config, hosts, "config", "set", "ca", ca.toString)._1, 0)
+
+    val (code, out) = cliProcess(config, hosts, "services", "list", "-p", Project)
+    assertEquals(code, 0, out)
+    assert(out.contains("svc1"), out)
+
+    // No root, no bypass: the only thing the CLI can do is say how to trust one.
+    assertEquals(cliProcess(config, hosts, "config", "unset", "ca")._1, 0)
+    val (refused, refusedOut) = cliProcess(config, hosts, "services", "list", "-p", Project)
+    assertEquals(refused, 1, refusedOut)
+    assert(refusedOut.contains("nakka config set ca"), refusedOut)
   }

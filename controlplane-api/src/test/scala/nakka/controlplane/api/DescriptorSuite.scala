@@ -132,6 +132,26 @@ class DescriptorSuite extends munit.FunSuite:
     assertEquals(readFromString[ServiceStatus](json), status)
   }
 
+  test("a hostname round-trips when present and is absent — not null — from the wire when not") {
+    val exposed = ServiceStatus(
+      "cart",
+      "checkout",
+      ServiceLifecycle.Ready,
+      1L,
+      "cart:1.0",
+      3,
+      3,
+      hostname = Some("https://cart-checkout.example.test")
+    )
+    val json = writeToString(exposed)
+    assert(json.contains("\"hostname\":\"https://cart-checkout.example.test\""), json)
+    assertEquals(readFromString[ServiceStatus](json), exposed)
+
+    val unexposed = exposed.copy(hostname = None)
+    assert(!writeToString(unexposed).contains("hostname"), writeToString(unexposed))
+    assertEquals(readFromString[ServiceStatus](writeToString(unexposed)), unexposed)
+  }
+
   test("an unknown lifecycle name is a decode error, not a silent default") {
     val json =
       """{"name":"cart","projectId":"p","lifecycle":"Sideways","generation":1,""" +

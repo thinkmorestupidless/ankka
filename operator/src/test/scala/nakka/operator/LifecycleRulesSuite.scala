@@ -218,3 +218,39 @@ class LifecycleRulesSuite extends munit.FunSuite:
     val b = LifecycleRules.observe(spec, Some(snapshot()), Vector.empty, 3L, now.plusSeconds(600))
     assert(a.sameReport(b))
   }
+
+  // --- Exposure (feature 005): the gateway's two conditions fold into one word for the resource.
+
+  test("a route's status is one word: accepted, pending, or rejected with the gateway's reason") {
+    def view(accepted: Option[(Boolean, String)], resolved: Option[(Boolean, String)]) =
+      RouteView(accepted = accepted, resolvedRefs = resolved)
+
+    assertEquals(LifecycleRules.routeStatus(exposed = true, Some("example.test"), None), "pending")
+    assertEquals(
+      LifecycleRules.routeStatus(
+        exposed = true,
+        Some("example.test"),
+        Some(view(Some(true -> "Accepted"), Some(true -> "ResolvedRefs")))
+      ),
+      "accepted"
+    )
+    // Accepted by the listener but the backend not permitted: still rejected, and it says why.
+    assertEquals(
+      LifecycleRules.routeStatus(
+        exposed = true,
+        Some("example.test"),
+        Some(view(Some(true -> "Accepted"), Some(false -> "RefNotPermitted")))
+      ),
+      "rejected: RefNotPermitted"
+    )
+    assertEquals(
+      LifecycleRules.routeStatus(
+        exposed = true,
+        Some("example.test"),
+        Some(view(Some(false -> "NotAllowedByListeners"), None))
+      ),
+      "rejected: NotAllowedByListeners"
+    )
+    // An operator with no base domain cannot render a route, and must say so, not go quiet.
+    assert(LifecycleRules.routeStatus(exposed = true, None, None).contains("NAKKA_BASE_DOMAIN"))
+  }

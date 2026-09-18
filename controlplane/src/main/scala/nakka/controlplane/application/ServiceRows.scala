@@ -78,6 +78,11 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
               )
             )
 
+          // The row carries the boolean only; the endpoint adds the hostname on the way out, since
+          // the base domain is configuration the view does not have.
+          case ServiceExposed   => effects.updateRow(row.copy(exposed = true))
+          case ServiceUnexposed => effects.updateRow(row.copy(exposed = false))
+
           case ServiceObserved(
                 generation,
                 lifecycle,

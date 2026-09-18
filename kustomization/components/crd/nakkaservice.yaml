@@ -150,6 +150,11 @@ spec:
                   description: >-
                     How many restarts an operator has asked for. Carried on the pod template so
                     a restart rolls the pods; the generation is not, so a scale does not.
+                exposed:
+                  type: boolean
+                  description: >-
+                    Whether the service answers at its platform-derived hostname. The hostname
+                    itself is never in the resource: the operator derives it.
             status:
               type: object
               properties:
@@ -177,6 +182,11 @@ spec:
                   type: string
                 lastTransitionTime:
                   type: string
+                route:
+                  type: string
+                  description: >-
+                    The gateway's verdict on an exposed service's route: accepted, pending, or
+                    "rejected: <reason>". Absent when the service is not exposed.
                 database:
                   type: object
                   description: What the platform did about this service's database. Absent on

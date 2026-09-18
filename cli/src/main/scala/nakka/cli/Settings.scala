@@ -16,7 +16,13 @@ import scala.util.Try
 final case class Settings(
     url: String = Settings.DefaultUrl,
     token: Option[String] = None,
-    project: Option[String] = None
+    project: Option[String] = None,
+    /**
+     * A PEM file of certificate authorities to trust *in addition to* the platform's, for the
+     * control plane's URL — the local cluster's exported root, typically. A path as the user gave
+     * it; never a flag that turns verification off.
+     */
+    ca: Option[String] = None
 )
 
 object Settings:
@@ -70,5 +76,6 @@ object Settings:
     Settings(
       url = urlFlag.orElse(sys.env.get("NAKKA_URL")).getOrElse(saved.url),
       token = tokenFlag.orElse(sys.env.get("NAKKA_TOKEN")).orElse(saved.token),
-      project = projectFlag.orElse(sys.env.get("NAKKA_PROJECT")).orElse(saved.project)
+      project = projectFlag.orElse(sys.env.get("NAKKA_PROJECT")).orElse(saved.project),
+      ca = sys.env.get("NAKKA_CA").orElse(saved.ca)
     )

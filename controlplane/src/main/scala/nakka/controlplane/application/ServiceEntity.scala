@@ -40,6 +40,8 @@ final class ServiceEntity(context: EventSourcedEntityContext)
     case ServiceRestarted(generation)              => currentState.onRestarted(generation)
     case ServicePaused                             => currentState.onPaused
     case ServiceResumed                            => currentState.onResumed
+    case ServiceExposed                            => currentState.onExposed
+    case ServiceUnexposed                          => currentState.onUnexposed
     case observed: ServiceObserved                 => currentState.onObserved(observed)
     case ServiceDeleted                            => currentState.onDeleted
 
@@ -89,6 +91,21 @@ final class ServiceEntity(context: EventSourcedEntityContext)
     if !currentState.exists then notFound
     else if !currentState.isPaused then effects.reply(currentState.toStatus)
     else effects.persist(ServiceResumed).thenReply(_.toStatus)
+
+  /**
+   * Whether the service *may* be exposed — no HTTP, a hostname too long, a hostname another service
+   * holds — is the endpoint's to decide: the first is a descriptor rule, the last a cross-entity
+   * check. The entity records the decision.
+   */
+  def expose: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if currentState.exposed then effects.reply(currentState.toStatus)
+    else effects.persist(ServiceExposed).thenReply(_.toStatus)
+
+  def unexpose: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if !currentState.exposed then effects.reply(currentState.toStatus)
+    else effects.persist(ServiceUnexposed).thenReply(_.toStatus)
 
   /**
    * Records what the reconciler saw.
@@ -156,6 +173,8 @@ object ServiceEntity
   val restart         = command("restart")(_.restart)
   val pause           = command("pause")(_.pause)
   val resume          = command("resume")(_.resume)
+  val expose          = command("expose")(_.expose)
+  val unexpose        = command("unexpose")(_.unexpose)
   val observe         = command("observe")(_.observe)
   val delete          = command("delete")(_.delete)
   val get             = query("get")(_.get)

@@ -1,6 +1,7 @@
 package nakka.controlplane
 
 import nakka.controlplane.api.ControlPlaneAcl
+import nakka.controlplane.deploy.DeployConfig
 import nakka.http.HttpServer
 import nakka.runtime.ProjectionRuntime
 import nakka.testkit.NakkaTestKit
@@ -33,7 +34,10 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
 
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
-      ControlPlane.endpoints(ControlPlaneAcl.bearer(Token))*
+      ControlPlane.endpoints(
+        ControlPlaneAcl.bearer(Token),
+        DeployConfig.default.copy(baseDomain = Some("example.test"))
+      )*
     )
     testKit = NakkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
@@ -210,6 +214,98 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
     val (restarted, restartedBody) = send("POST", "/services/checkout/cart/restart")
     assertEquals(restarted, 200, restartedBody)
     assert(restartedBody.contains("\"generation\":3"), restartedBody)
+  }
+
+  // --- Exposure (feature 005): contracts/expose-api.md
+
+  test("exposing reports the derived URL, is idempotent, and shows on get and list") {
+    val (status, body) = send("POST", "/services/checkout/cart/expose")
+    assertEquals(status, 200, body)
+    assert(body.contains("\"hostname\":\"https://cart-checkout.example.test\""), body)
+    assert(body.contains("\"exposed\":true"), body)
+
+    val (again, againBody) = send("POST", "/services/checkout/cart/expose")
+    assertEquals(again, 200, againBody)
+    assert(againBody.contains("\"hostname\":\"https://cart-checkout.example.test\""), againBody)
+
+    val (_, got) = send("GET", "/services/checkout/cart")
+    assert(got.contains("\"hostname\":\"https://cart-checkout.example.test\""), got)
+    val listing = eventually("the listing shows the hostname") {
+      val (_, list) = send("GET", "/services/checkout")
+      Option.when(list.contains("cart-checkout.example.test"))(list)
+    }
+    assert(listing.contains("\"exposed\":true"), listing)
+  }
+
+  test("re-applying the descriptor leaves the service exposed") {
+    val (status, body) =
+      send("PUT", "/services/checkout/cart", Some(descriptor("cart", "cart:3.0")))
+    assertEquals(status, 200, body)
+    assert(body.contains("\"hostname\":\"https://cart-checkout.example.test\""), body)
+  }
+
+  test("a service that serves no HTTP cannot be exposed") {
+    val quiet = """{"name":"quiet","service":{"image":"registry.k8s.io/pause:3.9","http":false}}"""
+    assertEquals(send("PUT", "/services/checkout/quiet", Some(quiet))._1, 200)
+    val (status, body) = send("POST", "/services/checkout/quiet/expose")
+    assertEquals(status, 409, body)
+    assert(body.contains("serves no HTTP"), body)
+    assertEquals(send("DELETE", "/services/checkout/quiet")._1, 204)
+  }
+
+  test("a hostname label over 63 characters is refused, naming the limit") {
+    val long = "s" * 60
+    assertEquals(send("PUT", s"/services/checkout/$long", Some(descriptor(long, "x:1")))._1, 200)
+    val (status, body) = send("POST", s"/services/checkout/$long/expose")
+    assertEquals(status, 409, body)
+    assert(body.contains("69 characters") && body.contains("63"), body)
+    assertEquals(send("DELETE", s"/services/checkout/$long")._1, 204)
+  }
+
+  test("a hostname another exposed service holds is refused, naming the holder") {
+    // `a-b` in project `c` and `a` in project `b-c` both derive a-b-c.example.test.
+    for id <- Vector("c", "b-c") do
+      val (created, body) =
+        send("POST", s"/projects/$id", Some(s"""{"name":"$id","organizationId":"acme"}"""))
+      assertEquals(created, 204, body)
+    assertEquals(send("PUT", "/services/c/a-b", Some(descriptor("a-b", "x:1")))._1, 200)
+    assertEquals(send("PUT", "/services/b-c/a", Some(descriptor("a", "x:1")))._1, 200)
+    assertEquals(send("POST", "/services/c/a-b/expose")._1, 200)
+    // The check reads the listing view, which follows the journal by a moment.
+    val _ = eventually("the holder's row is exposed") {
+      val (_, list) = send("GET", "/services/c")
+      Option.when(list.contains("\"exposed\":true"))(list)
+    }
+
+    val (status, body) = send("POST", "/services/b-c/a/expose")
+    assertEquals(status, 409, body)
+    assert(body.contains("already exposed by service 'a-b' in project 'c'"), body)
+
+    for (project, name) <- Vector("c" -> "a-b", "b-c" -> "a") do
+      assertEquals(send("DELETE", s"/services/$project/$name")._1, 204)
+    for id <- Vector("c", "b-c") do
+      val _ = eventually(s"project $id is empty") {
+        val (_, list) = send("GET", s"/services/$id")
+        Option.when(list == "[]")(list)
+      }
+      assertEquals(send("DELETE", s"/projects/$id")._1, 204)
+  }
+
+  test("unexposing clears the hostname and nothing else; again is a no-op") {
+    val (status, body) = send("POST", "/services/checkout/cart/unexpose")
+    assertEquals(status, 200, body)
+    assert(!body.contains("hostname"), body)
+    // `exposed: false` is the default and so is omitted from the wire, like every default.
+    assert(!body.contains("\"exposed\":true"), body)
+    assert(body.contains("\"image\":\"cart:3.0\""), body)
+    assertEquals(send("POST", "/services/checkout/cart/unexpose")._1, 200)
+    val (_, got) = send("GET", "/services/checkout/cart")
+    assert(!got.contains("hostname"), got)
+  }
+
+  test("exposing an unknown service is a 404") {
+    assertEquals(send("POST", "/services/checkout/nope/expose")._1, 404)
+    assertEquals(send("POST", "/services/checkout/nope/unexpose")._1, 404)
   }
 
   test("a project with services cannot be deleted") {

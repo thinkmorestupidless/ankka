@@ -88,7 +88,13 @@ final case class Service(
      * How many restarts have been asked for. Projected to the resource; see
      * `NakkaServiceSpec.restarts`.
      */
-    restarts: Int = 0
+    restarts: Int = 0,
+    /**
+     * Desired state: the service answers at its platform-derived hostname. The hostname itself is
+     * not stored — the endpoint derives it from the name, the project and the base domain, and the
+     * operator derives the same one to render the route.
+     */
+    exposed: Boolean = false
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -173,10 +179,15 @@ final case class Service(
         database = event.database
       )
 
+  def onExposed: Service   = copy(exposed = true)
+  def onUnexposed: Service = copy(exposed = false)
+
   def onDeleted: Service =
     copy(
       deleted = true,
       paused = false,
+      // A re-applied name starts private again: the route died with the service.
+      exposed = false,
       lifecycle = ServiceLifecycle.NotDeployed,
       readyInstances = 0,
       desiredInstances = 0
@@ -193,7 +204,8 @@ final case class Service(
       desiredInstances = desiredInstances,
       detail = detail,
       confirmed = confirmed,
-      database = database.map(Service.databasePhrase)
+      database = database.map(Service.databasePhrase),
+      exposed = exposed
     )
 
 object Service:

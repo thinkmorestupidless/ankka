@@ -2,6 +2,7 @@ package nakka.controlplane
 
 import nakka.cli.{Main, Settings}
 import nakka.controlplane.api.ControlPlaneAcl
+import nakka.controlplane.deploy.DeployConfig
 import nakka.http.HttpServer
 import nakka.runtime.ProjectionRuntime
 import nakka.testkit.NakkaTestKit
@@ -31,7 +32,10 @@ class CliEndToEndSuite extends munit.FunSuite:
 
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
-      ControlPlane.endpoints(ControlPlaneAcl.bearer(Token))*
+      ControlPlane.endpoints(
+        ControlPlaneAcl.bearer(Token),
+        DeployConfig.default.copy(baseDomain = Some("example.test"))
+      )*
     )
     testKit = NakkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server))
     url = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
@@ -271,6 +275,94 @@ class CliEndToEndSuite extends munit.FunSuite:
 
     assertEquals(cli("services", "resume", "cart")._1, 0)
     assertEquals(cli("services", "restart", "cart")._1, 0)
+  }
+
+  // --- Exposure (feature 005): contracts/expose-api.md, through the real CLI.
+
+  test("expose prints the URL; get and list show it; apply leaves it; unexpose clears it") {
+    val (code, out, err) = cli("services", "expose", "cart")
+    assertEquals(code, 0, err)
+    assertEquals(out.trim, "https://cart-checkout.example.test")
+
+    val (_, got, _) = cli("services", "get", "cart")
+    assert(got.contains("hostname    https://cart-checkout.example.test"), got)
+
+    val _ = eventually("the listing shows the hostname") {
+      val (_, list, _) = cli("services", "list")
+      Option.when(list.contains("https://cart-checkout.example.test"))(list)
+    }
+
+    val (applied, appliedOut, _) =
+      cli(
+        Some("""{"name":"cart","service":{"image":"cart:9.0"}}"""),
+        "services",
+        "apply",
+        "-f",
+        "-"
+      )
+    assertEquals(applied, 0)
+    assert(appliedOut.contains("https://cart-checkout.example.test"), appliedOut)
+
+    val (unexposed, unexposedOut, _) = cli("services", "unexpose", "cart")
+    assertEquals(unexposed, 0)
+    assert(unexposedOut.contains("not exposed"), unexposedOut)
+    assert(!unexposedOut.contains("https://"), unexposedOut)
+  }
+
+  test("a service that serves no HTTP cannot be exposed, and the CLI says why") {
+    val quiet = """{"name":"quiet","service":{"image":"registry.k8s.io/pause:3.9","http":false}}"""
+    assertEquals(cli(Some(quiet), "services", "apply", "-f", "-")._1, 0)
+    val (code, _, err) = cli("services", "expose", "quiet")
+    assertEquals(code, 1)
+    assert(err.contains("serves no HTTP"), err)
+    assertEquals(cli("services", "delete", "quiet")._1, 0)
+  }
+
+  test("a hostname another exposed service holds is refused, naming the holder") {
+    for id <- Vector("c", "b-c") do
+      assertEquals(cli("projects", "create", id, "--name", id, "-O", "acme")._1, 0)
+    assertEquals(
+      cli(
+        Some("""{"name":"a-b","service":{"image":"x:1"}}"""),
+        "services",
+        "apply",
+        "-f",
+        "-",
+        "-p",
+        "c"
+      )._1,
+      0
+    )
+    assertEquals(
+      cli(
+        Some("""{"name":"a","service":{"image":"x:1"}}"""),
+        "services",
+        "apply",
+        "-f",
+        "-",
+        "-p",
+        "b-c"
+      )._1,
+      0
+    )
+    assertEquals(cli("services", "expose", "a-b", "-p", "c")._1, 0)
+    val _ = eventually("the holder is in the view") {
+      val (_, list, _) = cli("services", "list", "-p", "c")
+      Option.when(list.contains("a-b-c.example.test"))(list)
+    }
+
+    val (code, _, err) = cli("services", "expose", "a", "-p", "b-c")
+    assertEquals(code, 1)
+    assert(err.contains("already exposed by service 'a-b' in project 'c'"), err)
+
+    assertEquals(cli("services", "delete", "a-b", "-p", "c")._1, 0)
+    assertEquals(cli("services", "delete", "a", "-p", "b-c")._1, 0)
+    for id <- Vector("c", "b-c") do
+      val _ = eventually(s"project $id is empty") {
+        val (_, list, _) = cli("services", "list", "-p", id)
+        Option.when(list.trim == "no results")(list)
+      }
+      assertEquals(cli("projects", "delete", id)._1, 0)
   }
 
   test("a project with services cannot be deleted, and says how many") {

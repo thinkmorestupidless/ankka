@@ -39,12 +39,18 @@ object ControlPlane:
   def componentsWith(projector: ServiceProjector): Seq[ComponentDescriptor] =
     components :+ ProjectionTrigger.companion(projector).descriptor
 
-  /** The three endpoints, all sharing one ACL. */
-  def endpoints(acl: Acl): Seq[nakka.http.EndpointClients => nakka.http.HttpEndpoint] =
+  /**
+   * The three endpoints, all sharing one ACL. The service endpoint also needs the deployment
+   * configuration — the base domain under which exposed services answer.
+   */
+  def endpoints(
+      acl: Acl,
+      deploy: DeployConfig = DeployConfig.default
+  ): Seq[nakka.http.EndpointClients => nakka.http.HttpEndpoint] =
     Seq(
       clients => OrganizationEndpoint(clients, acl),
       clients => ProjectEndpoint(clients, acl),
-      clients => ServiceEndpoint(clients, acl)
+      clients => ServiceEndpoint(clients, acl, deploy)
     )
 
   /**
@@ -59,10 +65,11 @@ object ControlPlane:
       port: Option[Int] = None,
       config: Config = ConfigFactory.load()
   ): ServiceBuilder =
+    val deploy = DeployConfig.from(config)
     val server = (interface, port) match
-      case (Some(host), Some(bindPort)) => HttpServer.at(host, bindPort)(endpoints(acl)*)
-      case _                            => HttpServer.of(endpoints(acl)*)
-    val projector = ServiceProjector(DeployConfig.from(config))
+      case (Some(host), Some(bindPort)) => HttpServer.at(host, bindPort)(endpoints(acl, deploy)*)
+      case _                            => HttpServer.of(endpoints(acl, deploy)*)
+    val projector = ServiceProjector(deploy)
     Nakka.service
       .registerAll(componentsWith(projector))
       .withExtension(ProjectionRuntime())

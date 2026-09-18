@@ -190,6 +190,29 @@ object Main:
       }
     }
 
+    val expose = Opts.subcommand(
+      "expose",
+      "Make a service reachable outside the cluster at its platform-derived hostname."
+    ) {
+      (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+        val status = ctx.client.exposeService(ctx.project, name)
+        // The one thing the operator wants back is the address; the whole status is under get.
+        ctx.format match
+          case Format.Json => Output.service(status, ctx.format)
+          case Format.Table =>
+            status.hostname.getOrElse(
+              "exposed, but the control plane has no base domain (NAKKA_BASE_DOMAIN)"
+            )
+      }
+    }
+
+    val unexpose =
+      Opts.subcommand("unexpose", "Remove a service's external route, and nothing else.") {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          Output.service(ctx.client.unexposeService(ctx.project, name), ctx.format)
+        }
+      }
+
     val delete = Opts.subcommand("delete", "Delete a service.") {
       (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
         ctx.client.deleteService(ctx.project, name)
@@ -203,6 +226,8 @@ object Main:
       .orElse(pause)
       .orElse(resume)
       .orElse(restart)
+      .orElse(expose)
+      .orElse(unexpose)
       .orElse(delete)
   }
 
@@ -213,7 +238,7 @@ object Main:
       contextOpt.map(ctx => () => Output.settings(ctx.settings, ctx.format))
     }
 
-    val set = Opts.subcommand("set", "Set url, token or project.") {
+    val set = Opts.subcommand("set", "Set url, token, project or ca.") {
       (
         Opts.argument[String]("key"),
         Opts.argument[String]("value")
@@ -223,21 +248,23 @@ object Main:
           case "url"     => current.copy(url = value)
           case "token"   => current.copy(token = Some(value))
           case "project" => current.copy(project = Some(value))
+          case "ca"      => current.copy(ca = Some(value))
           case other =>
-            throw ApiError(0, s"unknown setting '$other'; one of url, token, project")
+            throw ApiError(0, s"unknown setting '$other'; one of url, token, project, ca")
         s"set $key in ${Settings.save(updated)}"
       }
     }
 
-    val unset = Opts.subcommand("unset", "Clear token or project.") {
+    val unset = Opts.subcommand("unset", "Clear token, project or ca.") {
       Opts.argument[String]("key").map { key => () =>
         val current = Settings.load()
         val updated = key match
           case "token"   => current.copy(token = None)
           case "project" => current.copy(project = None)
+          case "ca"      => current.copy(ca = None)
           case "url"     => current.copy(url = Settings.DefaultUrl)
           case other =>
-            throw ApiError(0, s"unknown setting '$other'; one of url, token, project")
+            throw ApiError(0, s"unknown setting '$other'; one of url, token, project, ca")
         s"cleared $key in ${Settings.save(updated)}"
       }
     }

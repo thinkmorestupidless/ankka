@@ -99,6 +99,14 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # An exposed service's route (feature 005): one HTTPRoute in the service's namespace, attached
+  # to the installer's Gateway. delete, because unexposing removes the route while the service —
+  # its owner — stays. Nothing on gateways, gatewayclasses, referencegrants, envoyproxies,
+  # certificates or issuers: the operator cannot change where traffic enters, or what certificate
+  # it is served under, and holds no verb it could be talked into using for either.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -150,6 +158,11 @@ spec:
             # service reporting that no operator has reported on it.
             - name: NAKKA_K8S_NAMESPACE_PREFIX
               value: "nakka"
+            # The domain every exposed service's hostname sits under; replaced by the overlay
+            # from the nakka-platform ConfigMap. Must match the control plane's, which derives
+            # the same hostname for display and refusals.
+            - name: NAKKA_BASE_DOMAIN
+              value: "BASE_DOMAIN"
           resources:
             requests:
               cpu: "100m"

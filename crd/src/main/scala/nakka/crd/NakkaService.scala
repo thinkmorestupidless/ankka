@@ -99,7 +99,14 @@ final case class NakkaServiceSpec(
      * not roll at all. A change to anything that is genuinely part of the template — image, env,
      * port — still rolls, because the template itself changed.
      */
-    restarts: Int = 0
+    restarts: Int = 0,
+    /**
+     * Desired state: the service answers at its platform-derived hostname (feature 005). Only the
+     * boolean crosses the boundary — the operator derives the hostname itself from the name, the
+     * project and its own base domain, so no writer of this resource can point a route at a name
+     * the service does not own.
+     */
+    exposed: Boolean = false
 )
 
 /**
@@ -178,7 +185,14 @@ final case class NakkaServiceStatus(
      * What the platform did about this service's database. Absent on the escape-hatch path
      * (`provisionDatabase = false`) — there is nothing to report because nothing was provisioned.
      */
-    database: Option[DatabaseStatus] = None
+    database: Option[DatabaseStatus] = None,
+    /**
+     * The route's state as the gateway reports it, for an exposed service: `accepted`, `pending`,
+     * or `rejected: <reason>` — a route can be accepted by the listener and still not resolve its
+     * backend, so both of the gateway's conditions fold into this one word. Absent when the service
+     * is not exposed.
+     */
+    route: Option[String] = None
 ):
   /** Equality for the purpose of "has anything actually changed", ignoring the clock. */
   def sameReport(other: NakkaServiceStatus): Boolean =

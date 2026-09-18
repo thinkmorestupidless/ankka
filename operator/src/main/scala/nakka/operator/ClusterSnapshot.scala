@@ -132,3 +132,14 @@ object ClusterSnapshot:
       progressing = condition("Progressing"),
       available = condition("Available")
     )
+
+/**
+ * The gateway's verdict on a service's route: the `Accepted` and `ResolvedRefs` conditions of the
+ * HTTPRoute's parent status for the platform's Gateway, each as (status, reason). A route can be
+ * accepted by the listener and still not resolve its backend — the first spike saw exactly that
+ * (`RefNotPermitted`, served as a 500) — so both are read.
+ */
+final case class RouteView(
+    accepted: Option[(Boolean, String)],
+    resolvedRefs: Option[(Boolean, String)]
+)

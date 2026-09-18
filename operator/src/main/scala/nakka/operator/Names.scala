@@ -56,6 +56,9 @@ object Names:
   /** The Role and RoleBinding that let those pods read their own project's pods. */
   def peersRole(serviceName: String): String = s"$serviceName-peers"
 
+  /** The service's route, named after it like its Service: one per service, in its namespace. */
+  def httpRoute(serviceName: String): String = serviceName
+
   def serviceNameProblems(serviceName: String): Vector[String] =
     if serviceName.isEmpty then Vector("service name must not be empty")
     else if !isLabel(serviceName) then Vector(s"service name '$serviceName' is not a DNS label")

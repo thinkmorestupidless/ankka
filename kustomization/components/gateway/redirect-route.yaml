@@ -1,0 +1,22 @@
+# Every plain-HTTP request becomes a redirect to HTTPS. Installer-owned: the operator never
+# renders anything against the http listener.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  namespace: nakka-gateway
+spec:
+  parentRefs:
+    - name: nakka
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            # The port clients reach HTTPS on. Without it Envoy keeps the *request's* port in the
+            # Location, which is right only when HTTP and HTTPS share a host — on kind, where 8080
+            # and 8443 are published, a redirect to https://…:8080 goes nowhere. Replaced by the
+            # overlay from nakka-platform.httpsPort; 443 for any installation that owns the port.
+            port: 443
+            statusCode: 301

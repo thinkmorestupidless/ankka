@@ -39,7 +39,7 @@ class EndToEndClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("nakka.cluster.tests").contains("off")
 
-  private val Image     = "rancher/k3s:v1.31.2-k3s1"
+  private val Image     = "rancher/k3s:v1.35.1-k3s1"
   private val Token     = "e2e-test-token"
   private val Prefix    = "nakka"
   private val Project   = "checkout"

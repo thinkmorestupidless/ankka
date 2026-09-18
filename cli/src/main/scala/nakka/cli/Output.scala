@@ -51,14 +51,15 @@ object Output:
       case Format.Json => writeToString(rows)
       case Format.Table =>
         table(
-          Vector("NAME", "STATUS", "INSTANCES", "GEN", "IMAGE"),
+          Vector("NAME", "STATUS", "INSTANCES", "GEN", "IMAGE", "HOSTNAME"),
           rows.map { row =>
             Vector(
               row.name,
               status(row),
               s"${row.readyInstances}/${row.desiredInstances}",
               row.generation.toString,
-              row.image
+              row.image,
+              row.hostname.getOrElse("-")
             )
           }
         )
@@ -73,6 +74,13 @@ object Output:
   private def status(row: ServiceStatus): String =
     if row.confirmed then row.lifecycle.toString else s"${row.lifecycle} (unconfirmed)"
 
+  /** Always a row: a service that is private should say so, not show nothing. */
+  private def hostname(row: ServiceStatus): String =
+    (row.exposed, row.hostname) match
+      case (_, Some(url)) => url
+      case (true, None)   => "exposed, but the control plane has no base domain (NAKKA_BASE_DOMAIN)"
+      case (false, None)  => "not exposed"
+
   def service(row: ServiceStatus, format: Format): String =
     format match
       case Format.Json  => writeToString(row)
@@ -85,7 +93,8 @@ object Output:
           "status"     -> status(row),
           "instances"  -> s"${row.readyInstances}/${row.desiredInstances}",
           "generation" -> row.generation.toString,
-          "image"      -> row.image
+          "image"      -> row.image,
+          "hostname"   -> hostname(row)
         ) ++ row.database.map("database" -> _) ++ row.detail.map("detail" -> _)
         val width = fields.map(_._1.length).max
         fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
@@ -104,7 +113,8 @@ object Output:
         Vector(
           "url     " -> current.url,
           "token   " -> current.token.fold("(unset)")(_ => "(set)"),
-          "project " -> current.project.getOrElse("(unset)")
+          "project " -> current.project.getOrElse("(unset)"),
+          "ca      " -> current.ca.getOrElse("(unset)")
         ).map((label, value) => s"$label $value").mkString("\n")
 
   private val settingsCodec: JsonValueCodec[Settings] = nakka.core.Codecs.make[Settings]

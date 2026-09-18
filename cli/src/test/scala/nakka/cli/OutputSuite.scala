@@ -13,7 +13,9 @@ class OutputSuite extends munit.FunSuite:
       image: String = "cart:1.0",
       generation: Long = 1L,
       detail: Option[String] = None,
-      database: Option[String] = None
+      database: Option[String] = None,
+      hostname: Option[String] = None,
+      exposed: Boolean = false
   ) =
     ServiceStatus(
       name = name,
@@ -24,7 +26,9 @@ class OutputSuite extends munit.FunSuite:
       readyInstances = ready,
       desiredInstances = desired,
       detail = detail,
-      database = database
+      database = database,
+      hostname = hostname,
+      exposed = exposed
     )
 
   test("columns are padded to the widest cell, header included") {
@@ -100,6 +104,39 @@ class OutputSuite extends munit.FunSuite:
   test("a single service with no database report omits the row entirely") {
     val rendered = Output.service(status("cart"), Format.Table)
     assert(!rendered.contains("database"), rendered)
+  }
+
+  test("the listing has a HOSTNAME column: the URL when exposed, a dash when not") {
+    val rendered = Output.services(
+      Vector(
+        status("cart", hostname = Some("https://cart-checkout.example.test"), exposed = true),
+        status("quiet")
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assert(lines.head.contains("HOSTNAME"), lines.head)
+    assert(lines(1).contains("https://cart-checkout.example.test"), lines(1))
+    assert(lines(2).trim.endsWith("-"), lines(2))
+  }
+
+  test("a single service shows its hostname when exposed, and 'not exposed' otherwise") {
+    val exposed =
+      Output.service(
+        status("cart", hostname = Some("https://cart-checkout.example.test"), exposed = true),
+        Format.Table
+      )
+    assert(exposed.contains("hostname"), exposed)
+    assert(exposed.contains("https://cart-checkout.example.test"), exposed)
+
+    val private_ = Output.service(status("cart"), Format.Table)
+    assert(private_.contains("hostname"), private_)
+    assert(private_.contains("not exposed"), private_)
+  }
+
+  test("exposed with no hostname — no base domain on the control plane — says so plainly") {
+    val rendered = Output.service(status("cart", exposed = true), Format.Table)
+    assert(rendered.contains("exposed, but the control plane has no base domain"), rendered)
   }
 
   test("the token is never printed, in either format") {

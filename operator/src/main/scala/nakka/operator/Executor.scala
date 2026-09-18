@@ -1,7 +1,8 @@
 package nakka.operator
 
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute
 import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder}
-import io.fabric8.kubernetes.client.KubernetesClient
+import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientException}
 import nakka.crd.{NakkaService, NakkaServiceStatus}
 import nakka.operator.cnpg.{
   CnpgObjectState,
@@ -37,6 +38,9 @@ trait Executor:
 
   /** Pods backing a service, read only to explain why it is not ready. */
   def podProblems(namespace: String, serviceName: String, projectId: String): Vector[PodProblem]
+
+  /** The gateway's verdict on a service's route, if a route exists (feature 005). */
+  def observeRoute(namespace: String, name: String): Option[RouteView]
 
   /** Everything `Provisioning.decide` needs, read in one place. */
   def observeDatabase(
@@ -152,6 +156,31 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
       else if existing.isDefined then
         log.debug("left service {}/{} alone: not owned by this resource", namespace, name)
 
+    case Action.EnsureHttpRoute(route) =>
+      val _ = client.resource(route).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured httproute {}/{} for {}",
+        route.getMetadata.getNamespace,
+        route.getMetadata.getName,
+        route.getSpec.getHostnames
+      )
+
+    case Action.RemoveHttpRoute(namespace, name, ownerUid) =>
+      // Read-first and owner-checked, exactly as RemoveService: rendered on every pass for a
+      // service that is not exposed, and never allowed to delete a route this resource did not
+      // create.
+      val routes   = client.resources(classOf[HTTPRoute]).inNamespace(namespace).withName(name)
+      val existing = routeIfAny(namespace, name)
+      val owned = existing.exists { route =>
+        ownerUid.nonEmpty &&
+        Option(route.getMetadata.getOwnerReferences).exists(_.asScala.exists(_.getUid == ownerUid))
+      }
+      if owned then
+        val _ = routes.delete()
+        log.debug("removed httproute {}/{}: the service is no longer exposed", namespace, name)
+      else if existing.isDefined then
+        log.debug("left httproute {}/{} alone: not owned by this resource", namespace, name)
+
     case Action.SetStatus(namespace, name, status) =>
       // Through the status subresource, so the operator never rewrites desired state. Its
       // RBAC grants `nakkaservices/status: update` and not `nakkaservices: update`, which
@@ -262,6 +291,45 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
   def recordedStatus(namespace: String, name: String): Option[NakkaServiceStatus] =
     Option(client.resources(classOf[NakkaService]).inNamespace(namespace).withName(name).get())
       .flatMap(r => Option(r.getStatus))
+
+  /**
+   * The route, or None — also when the cluster has no Gateway API at all. Both the removal and the
+   * status read happen on every pass for every service, so a cluster without the CRDs installed
+   * must read as "no route", not fail every reconcile; only an *exposed* service needs the API, and
+   * its EnsureHttpRoute fails loudly on its own.
+   */
+  private def routeIfAny(namespace: String, name: String): Option[HTTPRoute] =
+    try Option(client.resources(classOf[HTTPRoute]).inNamespace(namespace).withName(name).get())
+    catch
+      case e: KubernetesClientException if e.getCode == 404 =>
+        log.debug(
+          "no Gateway API in this cluster; treating httproute {}/{} as absent",
+          namespace,
+          name
+        )
+        None
+
+  override def observeRoute(namespace: String, name: String): Option[RouteView] =
+    routeIfAny(namespace, name)
+      .map { route =>
+        val parent = Option(route.getStatus)
+          .flatMap(s => Option(s.getParents))
+          .map(_.asScala)
+          .getOrElse(Nil)
+          .find { p =>
+            val ref = p.getParentRef
+            ref != null && ref.getName == Rendering.GatewayName &&
+            Option(ref.getNamespace).forall(_ == Rendering.GatewayNamespace)
+          }
+        def condition(kind: String): Option[(Boolean, String)] =
+          parent
+            .flatMap(p => Option(p.getConditions))
+            .map(_.asScala)
+            .getOrElse(Nil)
+            .find(_.getType == kind)
+            .map(c => (c.getStatus == "True", Option(c.getReason).getOrElse("")))
+        RouteView(accepted = condition("Accepted"), resolvedRefs = condition("ResolvedRefs"))
+      }
 
   override def observeDatabase(
       namespace: String,

@@ -126,6 +126,14 @@ class ServiceProjectionSuite extends munit.FunSuite:
     assertEquals(spec.port, None)
   }
 
+  test("exposure is projected as the boolean alone; nothing else in the spec moves with it") {
+    val Right(before) = ServiceProjection.project(service(), config): @unchecked
+    val Right(after)  = ServiceProjection.project(service().onExposed, config): @unchecked
+    assertEquals(before.exposed, false)
+    assertEquals(after.exposed, true)
+    assertEquals(after.copy(exposed = false), before)
+  }
+
   test("the restart count is projected, so the operator can roll on a restart and only a restart") {
     val restarted   = service().onRestarted(5L).onRestarted(6L)
     val Right(spec) = ServiceProjection.project(restarted, config): @unchecked

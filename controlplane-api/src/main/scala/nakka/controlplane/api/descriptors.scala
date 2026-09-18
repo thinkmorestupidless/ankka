@@ -292,7 +292,19 @@ final case class ServiceStatus(
      * `DatabaseStatus`: the CLI's job is to say which path was taken, not to mirror a Kubernetes
      * status the CLI has no other reason to know the shape of.
      */
-    database: Option[String] = None
+    database: Option[String] = None,
+    /**
+     * Where the service answers from outside the cluster, as a full URL — `https://` and the
+     * platform-derived hostname — or `None` while it is not exposed. A URL rather than a bare
+     * hostname so a client can use it verbatim; the scheme is always `https`.
+     */
+    hostname: Option[String] = None,
+    /**
+     * Whether the operator asked for the service to be reachable from outside. Distinct from
+     * `hostname` being present: an exposed service on a control plane with no base domain
+     * configured is exposed and has no hostname, and the CLI should say so rather than show `-`.
+     */
+    exposed: Boolean = false
 )
 
 /**

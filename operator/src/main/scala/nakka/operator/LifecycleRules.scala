@@ -28,6 +28,24 @@ object LifecycleRules:
    *     generation mid-rollout — the right answer about the wrong generation, which is precisely
    *     what the generation machinery exists to prevent.
    */
+  /**
+   * One word for the resource's `status.route`, from the gateway's two conditions. Only for an
+   * exposed service; the caller leaves the field absent otherwise.
+   */
+  def routeStatus(exposed: Boolean, baseDomain: Option[String], view: Option[RouteView]): String =
+    if !exposed then ""
+    else if baseDomain.isEmpty then
+      "rejected: the operator has no base domain (NAKKA_BASE_DOMAIN); no route can be rendered"
+    else
+      view match
+        case None => "pending"
+        case Some(v) =>
+          v.accepted.filter(!_._1).orElse(v.resolvedRefs.filter(!_._1)) match
+            case Some((_, reason)) => s"rejected: $reason"
+            case None =>
+              if v.accepted.exists(_._1) && v.resolvedRefs.exists(_._1) then "accepted"
+              else "pending"
+
   def observe(
       spec: NakkaServiceSpec,
       observed: Option[ClusterSnapshot],

@@ -1,0 +1,39 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: nakka
+  namespace: nakka-gateway
+spec:
+  gatewayClassName: nakka
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: nakka
+  listeners:
+    # Plain HTTP exists only to redirect: the one route allowed here is redirect-route.yaml, from
+    # this namespace. Nothing an operator renders can attach to it.
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    # One label under the base domain, because a wildcard — the certificate's and this listener's
+    # alike — is exactly one label deep. That is why a service's hostname is <service>-<project>
+    # and not <service>.<project> (research R2).
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.BASE_DOMAIN"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: nakka-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              app.kubernetes.io/managed-by: nakka

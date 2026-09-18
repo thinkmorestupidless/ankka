@@ -1,0 +1,17 @@
+# The one place the local deployment's base domain is written. kustomization.yaml's replacements
+# copy it into the wildcard certificate, the Gateway's listener, both Deployments' environment and
+# the control plane's own route — so the five places that must agree cannot disagree.
+#
+# 127.0.0.1.sslip.io: a public wildcard-DNS convention that resolves any name ending in an
+# embedded address to that address, so cart-checkout.127.0.0.1.sslip.io reaches this machine with
+# no hosts-file edit. A real installation puts a real domain here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nakka-platform
+  namespace: nakka-gateway
+data:
+  baseDomain: 127.0.0.1.sslip.io
+  # The host port kind publishes the HTTPS NodePort on (kustomization/kind.yaml); the http→https
+  # redirect must name it. A real installation serving on 443 leaves this at 443.
+  httpsPort: "8443"

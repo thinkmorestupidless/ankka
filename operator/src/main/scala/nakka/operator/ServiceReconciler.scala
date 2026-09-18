@@ -116,12 +116,21 @@ final class ServiceReconciler(
         .getOrElse(0L),
       now = Instant.now(clock)
     )
-    base.copy(database =
-      Some(
+    val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
+    base.copy(
+      database = Some(
         LifecycleRules.databaseStatus(
           databasePlan,
           CnpgRendering.projectClusterName,
           spec.serviceName
+        )
+      ),
+      // Only an exposed service has a route to report on; the field stays absent otherwise.
+      route = Option.when(spec.exposed)(
+        LifecycleRules.routeStatus(
+          spec.exposed,
+          settings.baseDomain,
+          executor.observeRoute(namespace, Names.httpRoute(spec.serviceName))
         )
       )
     )

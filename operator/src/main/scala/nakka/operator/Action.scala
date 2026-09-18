@@ -1,6 +1,7 @@
 package nakka.operator
 
 import io.fabric8.kubernetes.api.model.apps.Deployment
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute
 import io.fabric8.kubernetes.api.model.rbac.{Role, RoleBinding}
 import io.fabric8.kubernetes.api.model.{ConfigMap, Secret, Service, ServiceAccount}
 import nakka.crd.NakkaServiceStatus
@@ -45,6 +46,20 @@ enum Action:
    * cost nothing when there is nothing to remove: the executor reads first.
    */
   case RemoveService(namespace: String, name: String, ownerUid: String)
+
+  /**
+   * An exposed service's route (feature 005): one HTTPRoute in the service's namespace, attached to
+   * the installation's Gateway. Server-side apply, idempotent. Rendered only for a service that is
+   * exposed, declares a port, and on an operator that knows the base domain.
+   */
+  case EnsureHttpRoute(route: HTTPRoute)
+
+  /**
+   * Removes the route of a service that is no longer exposed — or no longer serves HTTP — while the
+   * service itself stays. Owner-checked and read-first for the same reasons as `RemoveService`:
+   * rendered on every pass, and never allowed to delete a route the resource does not own.
+   */
+  case RemoveHttpRoute(namespace: String, name: String, ownerUid: String)
 
   /**
    * A service's own identity and its one permission — reading the pods of its own project, so its
@@ -102,6 +117,9 @@ enum Action:
     case EnsureService(svc) =>
       s"ensure service ${svc.getMetadata.getNamespace}/${svc.getMetadata.getName}"
     case RemoveService(ns, name, _) => s"remove service $ns/$name if owned"
+    case EnsureHttpRoute(r) =>
+      s"ensure httproute ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
+    case RemoveHttpRoute(ns, name, _) => s"remove httproute $ns/$name if owned"
     case EnsureServiceAccount(sa) =>
       s"ensure serviceaccount ${sa.getMetadata.getNamespace}/${sa.getMetadata.getName}"
     case EnsureRole(r) => s"ensure role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"

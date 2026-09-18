@@ -16,9 +16,10 @@ import java.nio.file.{Files, StandardCopyOption}
  *
  * `kind load docker-image` has no equivalent for a testcontainers k3s container, and there is no
  * registry to pull from, so: save the image to a tar, copy it in, and import it into the node's
- * containerd. Every step was verified against `rancher/k3s:v1.31.2-k3s1` during planning
- * (specs/003-deploy-real-service/research.md, R1), because each has a way of failing that looks
- * like success.
+ * containerd. Every step was verified against `rancher/k3s:v1.31.2-k3s1` during planning (and holds
+ * on v1.35.1, which the suites moved to for feature 005: Envoy Gateway's CRDs use CEL's `format`
+ * library, which needs Kubernetes 1.32 or later) (specs/003-deploy-real-service/research.md, R1),
+ * because each has a way of failing that looks like success.
  */
 object ClusterImages:
 

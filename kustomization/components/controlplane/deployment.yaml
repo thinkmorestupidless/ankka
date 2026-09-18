@@ -77,6 +77,15 @@ spec:
             # every service reporting "no operator has reported on this service".
             - name: NAKKA_K8S_NAMESPACE_PREFIX
               value: "nakka"
+            # Must match the operator's NAKKA_BASE_DOMAIN: the control plane derives an exposed
+            # service's hostname to show it and to refuse a collision; the operator derives the
+            # same one to render the route. Replaced by the overlay from nakka-platform.
+            - name: NAKKA_BASE_DOMAIN
+              value: "BASE_DOMAIN"
+            # The port clients reach HTTPS on, so the URL `services expose` prints is the one
+            # that works; replaced by the overlay from nakka-platform.httpsPort.
+            - name: NAKKA_HTTPS_PORT
+              value: "443"
             # How this pod finds its peers — the same five variables the operator injects into
             # every service (feature 004). NAKKA_CLUSTER_MODE selects the Kubernetes overlay.
             - name: NAKKA_CLUSTER_MODE

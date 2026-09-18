@@ -45,8 +45,8 @@ enum ProvisioningPlan:
 /**
  * Decides between provisioning, the escape hatch, waiting and failure — total, pure, no clock.
  *
- * Every rule here is proven with no cluster and no Docker: [[DatabaseObservation]] is the only
- * input, and it is a plain value a test can construct by hand. See
+ * Every rule here is proven with no cluster and no Docker: `DatabaseObservation` is the only input,
+ * and it is a plain value a test can construct by hand. See
  * `specs/002-cnpg-database-provisioning/contracts/provisioning-rules.md` for the rule table this
  * function implements rule for rule.
  */

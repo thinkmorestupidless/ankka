@@ -29,7 +29,7 @@ class OperatorClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("nakka.cluster.tests").contains("off")
 
-  private val Image       = "rancher/k3s:v1.31.2-k3s1"
+  private val Image       = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage = "sample-shopping-cart:latest"
   private val Prefix      = "nakka"
   private val Project     = "checkout"
@@ -40,7 +40,8 @@ class OperatorClusterSuite extends munit.FunSuite:
   private var client: KubernetesClient = null
   private var operator: Operator       = null
 
-  private val settings = Settings.default.copy(resyncInterval = 2.seconds)
+  private val settings =
+    Settings.default.copy(resyncInterval = 2.seconds, baseDomain = Some("test.local"))
 
   override def beforeAll(): Unit =
     if !munitIgnore then
@@ -72,6 +73,21 @@ class OperatorClusterSuite extends munit.FunSuite:
         )
         .serverSideApply(): Unit
 
+      // The Gateway API's CRDs (feature 005) — the standard channel of the version Envoy Gateway
+      // v1.9.1 bundles — so the operator's routes can be written and read. No controller: these
+      // cases are about the objects the operator renders, not about traffic, which is
+      // ExposureClusterSuite's job.
+      client
+        .load(
+          java.net.URI
+            .create(
+              "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml"
+            )
+            .toURL
+            .openStream()
+        )
+        .serverSideApply(): Unit
+
       waitFor(60.seconds)(
         client
           .apiextensions()
@@ -80,7 +96,15 @@ class OperatorClusterSuite extends munit.FunSuite:
           .list()
           .getItems
           .asScala
-          .exists(_.getMetadata.getName == "nakkaservices.nakka.thinkmorestupidless.com")
+          .map(_.getMetadata.getName)
+          .toSet
+          .intersect(
+            Set(
+              "nakkaservices.nakka.thinkmorestupidless.com",
+              "httproutes.gateway.networking.k8s.io"
+            )
+          )
+          .size == 2
       )
       waitFor(90.seconds) {
         val d = client
@@ -1074,6 +1098,208 @@ class OperatorClusterSuite extends munit.FunSuite:
       )
     )
     assertEquals(disjointClusters(ClusteredService), 1)
+  }
+
+  // ---- Exposure (feature 005): the objects the operator renders, and the verbs it holds -------
+
+  private def routeNamed(name: String) =
+    Option(
+      client
+        .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute])
+        .inNamespace(Namespace)
+        .withName(name)
+        .get()
+    )
+
+  test("31. an exposed service gets an HTTPRoute, owned, shaped as the contract says") {
+    writeDb(webSpec(generation = 10L).copy(exposed = true))
+    waitFor(60.seconds)(routeNamed(WebService).isDefined)
+    val route = routeNamed(WebService).get
+    val owner = route.getMetadata.getOwnerReferences.get(0)
+    assertEquals(owner.getKind, "NakkaService")
+    assertEquals(owner.getName, WebService)
+    assertEquals(route.getSpec.getHostnames.asScala.toVector, Vector(s"web-$Project.test.local"))
+    val parent = route.getSpec.getParentRefs.get(0)
+    assertEquals(
+      (parent.getName, parent.getNamespace, parent.getSectionName),
+      ("nakka", "nakka-gateway", "https")
+    )
+    val backend = route.getSpec.getRules.get(0).getBackendRefs.get(0)
+    assertEquals(
+      (backend.getName, backend.getPort.intValue, backend.getNamespace),
+      (WebService, 9000, null)
+    )
+    // No controller here, so the gateway has not spoken: the status says so rather than nothing.
+    waitFor(30.seconds)(statusNamed(WebService).exists(_.route.contains("pending")))
+  }
+
+  test("32. unexposing removes the route and leaves the pod template untouched") {
+    val template = client
+      .apps()
+      .deployments()
+      .inNamespace(Namespace)
+      .withName(WebService)
+      .get()
+      .getSpec
+      .getTemplate
+    writeDb(webSpec(generation = 11L).copy(exposed = false))
+    waitFor(60.seconds)(routeNamed(WebService).isEmpty)
+    waitFor(30.seconds)(statusNamed(WebService).exists(s => s.generation == 11L && s.route.isEmpty))
+    val after = client
+      .apps()
+      .deployments()
+      .inNamespace(Namespace)
+      .withName(WebService)
+      .get()
+      .getSpec
+      .getTemplate
+    assertEquals(after, template, "unexposing rolled the pods")
+  }
+
+  test("33. exposed but serving no HTTP: no route, and the status says why on the resource") {
+    writeDb(webSpec(generation = 12L, port = None).copy(exposed = true))
+    Thread.sleep(5000)
+    assertEquals(routeNamed(WebService), None)
+    // The control plane refuses this before it ever reaches a resource; the operator's own answer
+    // is "pending" — there is nothing to route — which the route field carries.
+    waitFor(30.seconds)(statusNamed(WebService).exists(_.route.isDefined))
+    writeDb(webSpec(generation = 13L).copy(exposed = true))
+    waitFor(60.seconds)(routeNamed(WebService).isDefined)
+  }
+
+  test("34. a route the resource does not own is never removed") {
+    val stranger = new io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRouteBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder().withName(QuietService).withNamespace(Namespace).build()
+      )
+      .withSpec(
+        new io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRouteSpecBuilder()
+          .withParentRefs(
+            new io.fabric8.kubernetes.api.model.gatewayapi.v1.ParentReferenceBuilder()
+              .withName("nakka")
+              .withNamespace("nakka-gateway")
+              .build()
+          )
+          .withHostnames(s"quiet-$Project.test.local")
+          .build()
+      )
+      .build()
+    client.resource(stranger).create(): Unit
+    // quiet is not exposed, so every reconcile of it renders RemoveHttpRoute for this very name.
+    writeDb(
+      NakkaServiceSpec(
+        projectId = Project,
+        serviceName = QuietService,
+        generation = 5L,
+        image = SampleImage,
+        progressDeadlineSeconds = 170,
+        port = None
+      )
+    )
+    waitFor(60.seconds)(statusNamed(QuietService).exists(_.generation == 5L))
+    Thread.sleep(5000)
+    assert(routeNamed(QuietService).isDefined, "the operator deleted a route it did not create")
+    client.resource(stranger).delete(): Unit
+  }
+
+  test("35. deleting the resource cascades to its route") {
+    writeDb(webSpec(generation = 14L).copy(exposed = true))
+    waitFor(60.seconds)(routeNamed(WebService).isDefined)
+    resources.inNamespace(Namespace).withName(WebService).delete(): Unit
+    waitFor(60.seconds)(routeNamed(WebService).isEmpty)
+  }
+
+  test(
+    "36. the operator can write routes and nothing else about routing; a service cannot read them"
+  ) {
+    // The operator's real token (test 20 applied the shipped RBAC).
+    val operatorToken = k3s.execInContainer(
+      "kubectl",
+      "create",
+      "token",
+      "nakka-operator",
+      "-n",
+      "nakka-operator",
+      "--duration=10m"
+    )
+    assertEquals(operatorToken.getExitCode, 0, operatorToken.getStderr)
+    def clientWith(token: String) = new KubernetesClientBuilder()
+      .withConfig(
+        new io.fabric8.kubernetes.client.ConfigBuilder()
+          .withMasterUrl(client.getConfiguration.getMasterUrl)
+          .withTrustCerts(true)
+          .withOauthToken(token)
+          .build()
+      )
+      .build()
+    def forbidden(what: String)(
+        attempt: => Any
+    ): Unit =
+      val e = intercept[io.fabric8.kubernetes.client.KubernetesClientException](attempt)
+      assertEquals(e.getCode, 403, s"$what should be forbidden: ${e.getMessage}")
+
+    val asOperator = clientWith(operatorToken.getStdout.trim)
+    try
+      // Granted: routes in a project namespace.
+      asOperator
+        .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute])
+        .inNamespace(Namespace)
+        .list(): Unit
+      // Withheld: everything about where traffic enters or what certificate it is served under.
+      forbidden("list gateways")(
+        asOperator
+          .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.Gateway])
+          .inNamespace("nakka-gateway")
+          .list()
+      )
+      forbidden("create a gateway") {
+        asOperator
+          .resource(
+            new io.fabric8.kubernetes.api.model.gatewayapi.v1.GatewayBuilder()
+              .withMetadata(
+                new ObjectMetaBuilder().withName("rogue").withNamespace(Namespace).build()
+              )
+              .withSpec(
+                new io.fabric8.kubernetes.api.model.gatewayapi.v1.GatewaySpecBuilder()
+                  .withGatewayClassName("nakka")
+                  .withListeners(
+                    new io.fabric8.kubernetes.api.model.gatewayapi.v1.ListenerBuilder()
+                      .withName("http")
+                      .withPort(80)
+                      .withProtocol("HTTP")
+                      .build()
+                  )
+                  .build()
+              )
+              .build()
+          )
+          .create()
+      }
+      forbidden("list secrets")(
+        asOperator.secrets().inNamespace("nakka-gateway").list()
+      )
+    finally asOperator.close()
+
+    // A deployed service's own identity (test 29's) cannot see routes at all.
+    val serviceToken = k3s.execInContainer(
+      "kubectl",
+      "create",
+      "token",
+      ClusteredService,
+      "-n",
+      Namespace,
+      "--duration=10m"
+    )
+    assertEquals(serviceToken.getExitCode, 0, serviceToken.getStderr)
+    val asService = clientWith(serviceToken.getStdout.trim)
+    try
+      forbidden("list httproutes")(
+        asService
+          .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute])
+          .inNamespace(Namespace)
+          .list()
+      )
+    finally asService.close()
   }
 
   test("11. deleting the resource cascades to the deployment with no operator involvement") {

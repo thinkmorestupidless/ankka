@@ -118,7 +118,7 @@ class RenderingSuite extends munit.FunSuite:
     val unexpected = actions.filterNot {
       case _: Action.EnsureNamespace | _: Action.ApplyDeployment | _: Action.EnsureService |
           _: Action.RemoveService | _: Action.EnsureServiceAccount | _: Action.EnsureRole |
-          _: Action.EnsureRoleBinding =>
+          _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute =>
         true
       case _ => false
     }
@@ -393,4 +393,73 @@ class RenderingSuite extends munit.FunSuite:
     assertEquals(containerOf(spec.copy(port = Some(8080))).getImagePullPolicy, "IfNotPresent")
     assertEquals(containerOf(spec.copy(port = None)).getImagePullPolicy, "IfNotPresent")
     assertEquals(containerOf(spec.copy(image = "cart:latest")).getImagePullPolicy, "IfNotPresent")
+  }
+
+  // --- Exposure (feature 005): contracts/route-object.md
+
+  private val exposing = settings.copy(baseDomain = Some("example.test"))
+
+  private def routeActionFor(s: NakkaServiceSpec, settings: Settings = exposing) =
+    Rendering.render(resource(s, "uid-1"), settings, ProvisioningPlan.Supplied, "unused") match
+      case Right(actions) =>
+        actions
+          .collectFirst {
+            case a: Action.EnsureHttpRoute => a
+            case a: Action.RemoveHttpRoute => a
+          }
+          .getOrElse(fail(s"no route action was rendered: $actions"))
+      case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
+
+  test("an exposed service renders one HTTPRoute, field for field") {
+    val Action.EnsureHttpRoute(route) =
+      routeActionFor(spec.copy(exposed = true, port = Some(9000))): @unchecked
+    assertEquals(route.getMetadata.getName, "cart")
+    assertEquals(route.getMetadata.getNamespace, "nakka-checkout")
+    assertEquals(route.getMetadata.getOwnerReferences.get(0).getUid, "uid-1")
+    assertEquals(route.getMetadata.getOwnerReferences.get(0).getKind, "NakkaService")
+    assertEquals(route.getMetadata.getLabels.get(Labels.NameKey), "cart")
+
+    val parent = route.getSpec.getParentRefs.get(0)
+    assertEquals(parent.getGroup, "gateway.networking.k8s.io")
+    assertEquals(parent.getKind, "Gateway")
+    assertEquals(parent.getName, Rendering.GatewayName)
+    assertEquals(parent.getNamespace, Rendering.GatewayNamespace)
+    assertEquals(parent.getSectionName, Rendering.GatewaySection)
+
+    assertEquals(route.getSpec.getHostnames.asScala.toVector, Vector("cart-checkout.example.test"))
+    val backend = route.getSpec.getRules.get(0).getBackendRefs.get(0)
+    assertEquals(backend.getName, "cart")
+    assertEquals(backend.getPort.intValue, 9000)
+    // Same namespace by omission: the API forbids a cross-namespace backend without a
+    // ReferenceGrant, and none is ever rendered — so a route cannot name another service.
+    assertEquals(backend.getNamespace, null)
+  }
+
+  test("the route follows the port, and is deterministic") {
+    val Action.EnsureHttpRoute(a) =
+      routeActionFor(spec.copy(exposed = true, port = Some(8080))): @unchecked
+    assertEquals(a.getSpec.getRules.get(0).getBackendRefs.get(0).getPort.intValue, 8080)
+    assertEquals(
+      routeActionFor(spec.copy(exposed = true)),
+      routeActionFor(spec.copy(exposed = true))
+    )
+  }
+
+  test(
+    "unexposed, or exposed with no HTTP, or with no base domain: the route is removed if owned"
+  ) {
+    val removal = Action.RemoveHttpRoute("nakka-checkout", "cart", "uid-1")
+    assertEquals(routeActionFor(spec), removal)
+    assertEquals(routeActionFor(spec.copy(exposed = true, port = None)), removal)
+    assertEquals(routeActionFor(spec.copy(exposed = true), settings), removal)
+  }
+
+  test("an unexposed service's other objects are untouched by this feature") {
+    // SC-009: nothing changes for a service that was never exposed.
+    val Right(before) =
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+    val Right(after) =
+      Rendering.render(resource(spec), exposing, ProvisioningPlan.Supplied, "unused"): @unchecked
+    assertEquals(before, after)
+    assertEquals(routeActionFor(spec, settings), routeActionFor(spec, exposing))
   }

@@ -1,0 +1,16 @@
+# The platform's one Gateway: installer-owned, never rendered by the operator.
+#
+# The operator renders an HTTPRoute per exposed service into that service's own namespace and
+# attaches it here; the Gateway admits routes only from namespaces labelled managed-by nakka, which
+# only the operator (and this kustomization) create. TLS lives on the listener — one wildcard
+# certificate for the base domain — so exposing a service touches no certificate at all.
+#
+# BASE_DOMAIN is a placeholder; an overlay replaces it (see overlays/local for the mechanism).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - gatewayclass.yaml
+  - envoyproxy.yaml
+  - gateway.yaml
+  - redirect-route.yaml

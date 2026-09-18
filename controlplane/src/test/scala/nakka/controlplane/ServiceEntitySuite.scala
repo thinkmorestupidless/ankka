@@ -174,6 +174,80 @@ class ServiceEntitySuite extends munit.FunSuite:
     assertEquals(again.replyValue.lifecycle, ServiceLifecycle.Paused)
   }
 
+  // --- Exposure (feature 005): desired state beside the descriptor, like pause.
+
+  test("exposing persists one event, is idempotent, and leaves the generation alone") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+
+    val exposed = kit.call(ServiceEntity.expose)
+    assertEquals(exposed.events, Vector(ServiceExposed))
+    assertEquals(exposed.replyValue.exposed, true)
+    assertEquals(exposed.replyValue.generation, 1L)
+    assertEquals(kit.currentState.exposed, true)
+
+    val again = kit.call(ServiceEntity.expose)
+    assertEquals(again.events, Vector.empty)
+    assertEquals(again.replyValue.exposed, true)
+  }
+
+  test("unexposing persists one event, is idempotent, and changes nothing else") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _ = kit.call(ServiceEntity.observe)(
+      ServiceObservation(1L, ServiceLifecycle.Ready, readyInstances = 3, desiredInstances = 3)
+    )
+    val before = kit.call(ServiceEntity.expose).replyValue
+
+    val unexposed = kit.call(ServiceEntity.unexpose)
+    assertEquals(unexposed.events, Vector(ServiceUnexposed))
+    assertEquals(unexposed.replyValue, before.copy(exposed = false))
+    assertEquals(unexposed.replyValue.lifecycle, ServiceLifecycle.Ready)
+
+    val again = kit.call(ServiceEntity.unexpose)
+    assertEquals(again.events, Vector.empty)
+    assertEquals(again.replyValue.exposed, false)
+  }
+
+  test("a service that does not exist cannot be exposed or unexposed") {
+    val kit = newKit
+    assertEquals(kit.call(ServiceEntity.expose).error.code, ErrorCode.NotFound)
+    assertEquals(kit.call(ServiceEntity.unexpose).error.code, ErrorCode.NotFound)
+  }
+
+  test("apply, restart, pause and resume leave exposure as it was") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.expose)
+
+    assertEquals(
+      kit.call(ServiceEntity.applyDescriptor)(applying(image = "cart:2.0")).replyValue.exposed,
+      true
+    )
+    assertEquals(kit.call(ServiceEntity.restart).replyValue.exposed, true)
+    assertEquals(kit.call(ServiceEntity.pause).replyValue.exposed, true)
+    assertEquals(kit.call(ServiceEntity.resume).replyValue.exposed, true)
+    assertEquals(kit.currentState.exposed, true)
+  }
+
+  test("exposure survives a replay, and deleting then re-applying starts unexposed") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    val _   = kit.call(ServiceEntity.expose)
+    val replayed = kit.allEvents.foldLeft(Service.empty(kit.currentState.key)) {
+      case (service, applied: ServiceApplied) =>
+        service.onApplied(applied.descriptor, applied.generation)
+      case (service, ServiceExposed)   => service.onExposed
+      case (service, ServiceUnexposed) => service.onUnexposed
+      case (service, _)                => service
+    }
+    assertEquals(replayed.exposed, true)
+
+    val _ = kit.call(ServiceEntity.delete)
+    val _ = kit.call(ServiceEntity.applyDescriptor)(applying())
+    assertEquals(kit.currentState.exposed, false)
+  }
+
   test("applying to a paused service changes the descriptor but does not start it") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
@@ -298,6 +372,8 @@ class ServiceEntitySuite extends munit.FunSuite:
       case (service, ServiceRestarted(generation))     => service.onRestarted(generation)
       case (service, ServicePaused)                    => service.onPaused
       case (service, ServiceResumed)                   => service.onResumed
+      case (service, ServiceExposed)                   => service.onExposed
+      case (service, ServiceUnexposed)                 => service.onUnexposed
       case (service, observed: ServiceObserved)        => service.onObserved(observed)
       case (service, ServiceDeleted)                   => service.onDeleted
     }

@@ -11,3 +11,4 @@ resources:
   - token-secret.yaml
   - deployment.yaml
   - service.yaml
+  - httproute.yaml

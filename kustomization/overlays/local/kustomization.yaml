@@ -12,7 +12,73 @@ kind: Kustomization
 
 components:
   - ../../components/cnpg
+  - ../../components/certmanager
+  - ../../components/envoy-gateway
   - ../../components/crd
+  - ../../components/gateway
   - ../../components/operator
   - ../../components/postgres
   - ../../components/controlplane
+
+resources:
+  - platform-configmap.yaml
+  - local-ca.yaml
+
+# The base domain, written once in platform-configmap.yaml and copied everywhere it must match.
+# Where the target holds a prefixed form (`*.BASE_DOMAIN`, `api.BASE_DOMAIN`), the replacement
+# swaps only the label after the first dot, so the prefix survives.
+replacements:
+  - source:
+      kind: ConfigMap
+      name: nakka-platform
+      fieldPath: data.baseDomain
+    targets:
+      - select:
+          kind: Certificate
+          name: nakka-wildcard
+        fieldPaths:
+          - spec.dnsNames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Gateway
+          name: nakka
+        fieldPaths:
+          - spec.listeners.[name=https].hostname
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: HTTPRoute
+          name: nakka-controlplane
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Deployment
+          name: nakka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=nakka-controlplane].env.[name=NAKKA_BASE_DOMAIN].value
+      - select:
+          kind: Deployment
+          name: nakka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=nakka-operator].env.[name=NAKKA_BASE_DOMAIN].value
+  - source:
+      kind: ConfigMap
+      name: nakka-platform
+      fieldPath: data.httpsPort
+    targets:
+      - select:
+          kind: HTTPRoute
+          name: https-redirect
+        fieldPaths:
+          - spec.rules.0.filters.0.requestRedirect.port
+      - select:
+          kind: Deployment
+          name: nakka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=nakka-controlplane].env.[name=NAKKA_HTTPS_PORT].value

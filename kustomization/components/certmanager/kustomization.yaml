@@ -1,0 +1,9 @@
+# cert-manager, installed as a platform dependency: it issues the one wildcard certificate the
+# gateway serves every exposed service and the control plane under (feature 005, research R3).
+#
+# Fetched by URL and pinned to an exact release, not a branch, for the same reason as CNPG: a CRD
+# schema must not change under a running platform without a deliberate bump here.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - https://github.com/cert-manager/cert-manager/releases/download/v1.21.2/cert-manager.yaml

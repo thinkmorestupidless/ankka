@@ -1,0 +1,22 @@
+# The control plane's own external address: https://api.<base domain>. The same mechanism as an
+# exposed service's route, hand-written here because the control plane is installed, not deployed.
+# `api` can never collide with a service's hostname: every one of those is <service>-<project>,
+# which always contains a hyphen.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: nakka-controlplane
+  namespace: nakka-controlplane
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: nakka
+      namespace: nakka-gateway
+      sectionName: https
+  hostnames:
+    - api.BASE_DOMAIN
+  rules:
+    - backendRefs:
+        - name: nakka-controlplane
+          port: 9000

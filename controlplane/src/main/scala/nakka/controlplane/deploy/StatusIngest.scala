@@ -66,7 +66,19 @@ object StatusIngest:
           ServiceLifecycle.byName(status.lifecycle).getOrElse(ServiceLifecycle.Unavailable),
         readyInstances = status.readyInstances,
         desiredInstances = status.desiredInstances,
-        detail = status.detail,
+        detail = withRoute(status.detail, status.route),
         confirmed = true,
         database = status.database.map(_.phase)
       )
+
+  /**
+   * A route the gateway has not accepted — or has accepted and cannot resolve — is said in the
+   * detail, so a hostname that will not answer says why on `services get`. An accepted route is the
+   * expected state and adds nothing.
+   */
+  private def withRoute(detail: Option[String], route: Option[String]): Option[String] =
+    route.filterNot(_ == "accepted") match
+      case None => detail
+      case Some(state) =>
+        val phrase = s"route $state"
+        Some(detail.fold(phrase)(d => s"$d; $phrase"))

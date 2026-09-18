@@ -1,0 +1,21 @@
+# The local cluster. Create it with:
+#
+#   kind create cluster --name nakka --config kustomization/kind.yaml
+#
+# The port mappings publish the gateway's fixed NodePorts (components/gateway/envoyproxy.yaml) on
+# the host's 8080 and 8443, so https://api.127.0.0.1.sslip.io:8443 and every exposed service's
+# hostname reach the cluster with nothing else configured. 8080/8443 rather than 80/443 because a
+# developer's machine routinely has something on 80/443 already (this one did), and the port is no
+# part of the certificate or the hostname rule — only of the URL. They are decided at creation and
+# cannot be added to a running cluster; deploy-local.sh refuses a cluster made without them.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 30443
+        hostPort: 8443
+        protocol: TCP

@@ -28,7 +28,8 @@ class NakkaServiceCodecSuite extends munit.FunSuite:
     cpuMillis = 1000,
     memoryMiB = 1024,
     autoscaling = AutoscalingSpec(2, 8, 70),
-    progressDeadlineSeconds = 300
+    progressDeadlineSeconds = 300,
+    exposed = true
   )
 
   test("a fully populated spec round-trips unchanged") {
@@ -63,6 +64,8 @@ class NakkaServiceCodecSuite extends munit.FunSuite:
     assertEquals(decoded.autoscaling, AutoscalingSpec())
     assertEquals(decoded.env, Nil)
     assertEquals(decoded.paused, false)
+    // A resource written before feature 005 is private, which is what it was.
+    assertEquals(decoded.exposed, false)
   }
 
   test("an unknown field is tolerated rather than fatal") {
@@ -83,7 +86,8 @@ class NakkaServiceCodecSuite extends munit.FunSuite:
       readyInstances = 0,
       desiredInstances = 1,
       detail = Some("ImagePullBackOff: manifest unknown"),
-      lastTransitionTime = "2026-09-14T10:31:02Z"
+      lastTransitionTime = "2026-09-14T10:31:02Z",
+      route = Some("rejected: NotAllowedByListeners")
     )
     assertEquals(
       serialization.unmarshal(serialization.asJson(status), classOf[NakkaServiceStatus]),

@@ -30,11 +30,20 @@ class SettingsSuite extends munit.FunSuite:
   }
 
   scratch.test("settings round-trip through the file") { _ =>
-    val _      = Settings.save(Settings("http://cp:8080", Some("secret"), Some("checkout")))
+    val _ = Settings.save(
+      Settings("http://cp:8080", Some("secret"), Some("checkout"), Some("~/.nakka/local-ca.crt"))
+    )
     val loaded = Settings.load()
     assertEquals(loaded.url, "http://cp:8080")
     assertEquals(loaded.token, Some("secret"))
     assertEquals(loaded.project, Some("checkout"))
+    // The path as the user gave it: their shell resolved it, or will.
+    assertEquals(loaded.ca, Some("~/.nakka/local-ca.crt"))
+  }
+
+  scratch.test("a settings file from before there was a ca reads with none") { file =>
+    Files.writeString(file, """{"url":"http://cp:8080"}""")
+    assertEquals(Settings.load().ca, None)
   }
 
   scratch.test("save creates the parent directory") { file =>

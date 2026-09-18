@@ -8,6 +8,8 @@ import java.io.IOException
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.net.{ConnectException, URLEncoder}
+import java.nio.file.Paths
+import javax.net.ssl.SSLHandshakeException
 import java.nio.charset.StandardCharsets
 import java.time.Duration
 
@@ -24,11 +26,14 @@ final case class ApiError(status: Int, detail: String) extends RuntimeException(
  */
 final class ControlPlaneClient(settings: Settings):
 
-  private val http = HttpClient
-    .newBuilder()
-    .connectTimeout(Duration.ofSeconds(10))
-    .followRedirects(HttpClient.Redirect.NORMAL)
-    .build()
+  private val http =
+    val builder = HttpClient
+      .newBuilder()
+      .connectTimeout(Duration.ofSeconds(10))
+      .followRedirects(HttpClient.Redirect.NORMAL)
+    // A configured root is added to the platform's, never substituted for them (see Trust).
+    settings.ca.foreach(pem => builder.sslContext(Trust.sslContext(Paths.get(pem))): Unit)
+    builder.build()
 
   // ── Organizations ─────────────────────────────────────────────────────────
 
@@ -97,6 +102,12 @@ final class ControlPlaneClient(settings: Settings):
   def restartService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "restart"))
 
+  def exposeService(projectId: String, name: String): ServiceStatus =
+    decode[ServiceStatus](action(projectId, name, "expose"))
+
+  def unexposeService(projectId: String, name: String): ServiceStatus =
+    decode[ServiceStatus](action(projectId, name, "unexpose"))
+
   def deleteService(projectId: String, name: String): Unit =
     send("DELETE", s"/services/${segment(projectId)}/${segment(name)}", None): Unit
 
@@ -137,6 +148,14 @@ final class ControlPlaneClient(settings: Settings):
             0,
             s"no control plane at ${settings.url}\n" +
               "  start one with `sbt controlPlane/run`, or set NAKKA_URL / `nakka config set url`"
+          )
+        case error: SSLHandshakeException =>
+          // The one hint that helps: a local cluster's root is trusted by naming it, never by
+          // switching verification off — there is no switch.
+          throw ApiError(
+            0,
+            s"could not verify ${settings.url}: ${error.getMessage}\n" +
+              "  if this is a local nakka cluster, run: nakka config set ca ~/.nakka/local-ca.crt"
           )
         case error: IOException =>
           throw ApiError(0, s"could not reach ${settings.url}: ${error.getMessage}")

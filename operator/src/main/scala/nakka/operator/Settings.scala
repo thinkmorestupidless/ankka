@@ -23,7 +23,13 @@ final case class Settings(
      * The PVC size for a project's shared Postgres capacity. One value for every project for now —
      * per-project sizing is out of scope for this feature.
      */
-    databaseStorageSize: String
+    databaseStorageSize: String,
+    /**
+     * The domain every exposed service's hostname sits under (feature 005). `None` means the
+     * operator cannot render a route, and says so in the resource's status rather than silently
+     * leaving an exposed service unrouted. Must match the control plane's.
+     */
+    baseDomain: Option[String] = None
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -87,7 +93,8 @@ object Settings:
         "nakka.operator.database-storage-size",
         "NAKKA_OPERATOR_DATABASE_STORAGE_SIZE",
         default.databaseStorageSize
-      )
+      ),
+      baseDomain = raw("nakka.operator.base-domain", "NAKKA_BASE_DOMAIN")
     )
 
   private def raw(property: String, variable: String): Option[String] =

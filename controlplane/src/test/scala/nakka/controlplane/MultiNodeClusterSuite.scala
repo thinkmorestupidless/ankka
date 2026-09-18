@@ -46,7 +46,7 @@ class MultiNodeClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("nakka.cluster.tests").contains("off")
 
-  private val K3sImage    = "rancher/k3s:v1.31.2-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage = "sample-shopping-cart:latest"
   private val Token       = "multi-node-token"
   private val Prefix      = "nakka"
@@ -255,14 +255,33 @@ class MultiNodeClusterSuite extends munit.FunSuite:
       )
       .sum
 
-  /** A crash: SIGKILL to the JVM from the node. Not `kubectl delete`, which is a graceful leave. */
+  /**
+   * A crash: SIGKILL to the JVM from the node. Not `kubectl delete`, which is a graceful leave.
+   *
+   * The pod is re-read for the container id, and the whole thing retried once: a pod object held
+   * from before the previous case can name a container that has since been replaced, and the `kill`
+   * exec itself once came back 137 on a node under load — with the outputs kept, so the next such
+   * failure says what it was.
+   */
   private def sigkill(pod: Pod): Unit =
-    val cid = pod.getStatus.getContainerStatuses.get(0).getContainerID.stripPrefix("containerd://")
-    val (c1, pid) =
-      nodeExec("crictl", "inspect", "-o", "go-template", "--template", "{{.info.pid}}", cid)
-    assertEquals(c1, 0, pid)
-    val (c2, out) = nodeExec("kill", "-9", pid.trim)
-    assertEquals(c2, 0, out)
+    def attempt(): Either[String, Unit] =
+      val fresh = k8s.pods().inNamespace(Namespace).withName(pod.getMetadata.getName).get()
+      val cid =
+        fresh.getStatus.getContainerStatuses.get(0).getContainerID.stripPrefix("containerd://")
+      val (c1, pid) =
+        nodeExec("crictl", "inspect", "-o", "go-template", "--template", "{{.info.pid}}", cid)
+      if c1 != 0 then Left(s"crictl inspect $cid: exit $c1: $pid")
+      else
+        val (c2, out) = nodeExec("kill", "-9", pid.trim)
+        if c2 != 0 then Left(s"kill -9 ${pid.trim}: exit $c2: $out") else Right(())
+    attempt() match
+      case Right(()) => ()
+      case Left(first) =>
+        Thread.sleep(2000)
+        attempt() match
+          case Right(()) =>
+            println(s"sigkill: first attempt failed and the retry succeeded: $first")
+          case Left(second) => fail(s"sigkill failed twice: $first; then $second")
 
   private def partition(pod: Pod, on: Boolean): Unit =
     val ip = pod.getStatus.getPodIP
@@ -285,13 +304,21 @@ class MultiNodeClusterSuite extends munit.FunSuite:
   private final class Load(cart: String, expect: String):
     private val ok                = AtomicInteger(0); private val failed = AtomicInteger(0);
     private val stale             = AtomicInteger(0)
+    val failures                  = java.util.concurrent.ConcurrentLinkedQueue[String]()
     @volatile private var running = true
     private val thread = new Thread(() =>
       while running do
+        val t0           = System.nanoTime()
         val (code, body) = nodeHttp(s"/carts/$cart")
-        if code != 0 then failed.incrementAndGet()
+        if code != 0 then
+          // What failed matters: a refused connection is the platform's; a `docker exec` that
+          // could not start is the test node's.
+          failures.add(
+            s"exit $code after ${(System.nanoTime() - t0) / 1_000_000}ms: ${body.trim.take(200)}"
+          )
+          failed.incrementAndGet(): Unit
         else if !body.contains(expect) then stale.incrementAndGet(): Unit
-        else ok.incrementAndGet()
+        else ok.incrementAndGet(): Unit
         Thread.sleep(200)
     )
     thread.setDaemon(true); thread.start()
@@ -357,7 +384,10 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     assertEquals(stale, 0, "a response without the item")
     assert(ok + failed > 0)
     val successRate = ok.toDouble / (ok + failed)
-    assert(successRate >= 0.99, f"success rate $successRate%.3f ($ok ok, $failed failed)")
+    assert(
+      successRate >= 0.99,
+      f"success rate $successRate%.3f ($ok ok, $failed failed): ${load.failures.asScala.mkString(" | ")}"
+    )
   }
 
   test("4. the same at one instance: never zero ready pods") {

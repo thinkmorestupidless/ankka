@@ -50,7 +50,7 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("nakka.cluster.tests").contains("off")
 
-  private val K3sImage    = "rancher/k3s:v1.31.2-k3s1"
+  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage = "sample-shopping-cart:latest"
   private val Token       = "sample-test-token"
   private val Prefix      = "nakka"

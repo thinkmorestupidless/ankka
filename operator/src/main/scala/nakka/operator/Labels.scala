@@ -38,6 +38,20 @@ object Labels:
 
   val ManagedByNakka: String = "nakka"
 
+  /**
+   * On every pod template the operator renders, and in the selector Cluster Bootstrap discovers
+   * contact points with — so that only pods which can *answer* a bootstrap probe are ever asked.
+   *
+   * Found by upgrading a real cluster from a feature-003 image: the old pods were Ready by their
+   * tcp probe, so the rolling update kept them; the new pods discovered them by the identity
+   * labels, could not reach a management port that did not exist, and the join decider refused to
+   * form a cluster while any contact point was unanswered — a deadlock the empty-cluster test
+   * suites cannot see. NOT in the Deployment's `spec.selector` (immutable) nor the Service's (old
+   * pods should keep serving while they last).
+   */
+  val FormationKey: String       = "nakka.thinkmorestupidless.com/formation"
+  val FormationBootstrap: String = "bootstrap"
+
   /** `managed-by=nakka` alone is the ownership test. No label, not ours, never touched. */
   def ownedByNakka(labels: Map[String, String]): Boolean =
     labels.get(ManagedByKey).contains(ManagedByNakka)

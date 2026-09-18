@@ -27,6 +27,10 @@ spec:
       labels:
         app.kubernetes.io/managed-by: nakka
         app.kubernetes.io/name: nakka-controlplane
+        # Only pods carrying this are contact points for Cluster Bootstrap (see the selector
+        # below). A pod from an older template — no management port — must not be asked, or the
+        # new pods wait on it forever and the roll never completes. Found upgrading a real cluster.
+        nakka.thinkmorestupidless.com/formation: bootstrap
     spec:
       # Its own identity, distinct from the operator's — see controlplane-rbac.yaml for why
       # the two must never share a ServiceAccount: this one cannot touch a workload at all.
@@ -83,7 +87,7 @@ spec:
             - name: NAKKA_CLUSTER_SERVICE
               value: nakka-controlplane
             - name: NAKKA_CLUSTER_POD_SELECTOR
-              value: "app.kubernetes.io/name=nakka-controlplane"
+              value: "app.kubernetes.io/name=nakka-controlplane,nakka.thinkmorestupidless.com/formation=bootstrap"
             - name: NAKKA_CLUSTER_CONTACT_POINTS
               value: "2"
             # CNPG's bootstrap.initdb generates this secret itself (contracts/credentials.md)
@@ -114,6 +118,14 @@ spec:
               path: /ready
               port: management
             periodSeconds: 5
+          # Serve for a moment after the decision to stop: the pod leaves its Service's endpoints
+          # when deletion starts, kube-proxy learns that up to a second later, and the runtime
+          # unbinds on SIGTERM at once — so without this, a command routed to the old pod in that
+          # second is refused. The operator renders the same hook on every service.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           resources:
             requests:
               cpu: "200m"

@@ -308,12 +308,35 @@ class RenderingSuite extends munit.FunSuite:
     val podIp = env.find(_.getName == "POD_IP").getOrElse(fail("no POD_IP"))
     assertEquals(podIp.getValueFrom.getFieldRef.getFieldPath, "status.podIP")
 
-    // The selector is the Deployment's own selector, rendered k=v,k=v — compared against the
-    // rendered object, not against Labels.identity, so drift between them cannot pass.
-    val expected = d.getSpec.getSelector.getMatchLabels.asScala.toSeq.sorted
-      .map((k, v) => s"$k=$v")
-      .mkString(",")
+    // The selector is the Deployment's own selector plus the formation label, rendered k=v,k=v
+    // — compared against the rendered objects, not against Labels.identity, so drift between
+    // them cannot pass. Every label in it must be on the pod template, or discovery finds nothing.
+    val templateLabels = d.getSpec.getTemplate.getMetadata.getLabels.asScala
+    val expected =
+      (d.getSpec.getSelector.getMatchLabels.asScala.toMap +
+        (Labels.FormationKey -> Labels.FormationBootstrap)).toSeq.sorted
+        .map((k, v) => s"$k=$v")
+        .mkString(",")
     assertEquals(value("NAKKA_CLUSTER_POD_SELECTOR"), Some(expected))
+    for (k, v) <- expected.split(",").map(_.split("=", 2)).map(a => a(0) -> a(1)) do
+      assertEquals(templateLabels.get(k), Some(v), s"selector label $k not on the pod template")
+  }
+
+  test(
+    "the formation label is on the pod template and the contact-point selector, not the Deployment's selector"
+  ) {
+    // A pod from a template without it — a pre-formation image — is never a contact point, so
+    // it cannot deadlock bootstrap; and the Deployment's selector is immutable, so it stays as
+    // it was.
+    val d = deploymentFor(spec)
+    assertEquals(
+      d.getSpec.getTemplate.getMetadata.getLabels.get(Labels.FormationKey),
+      Labels.FormationBootstrap
+    )
+    assertEquals(d.getSpec.getSelector.getMatchLabels.containsKey(Labels.FormationKey), false)
+    assert(
+      Rendering.contactPointSelector(Map("a" -> "b")).contains(s"${Labels.FormationKey}=bootstrap")
+    )
   }
 
   test("required contact points are min(instances, 2): one must form alone, more must not") {
@@ -343,6 +366,16 @@ class RenderingSuite extends munit.FunSuite:
     val names = c.getEnv.asScala.map(_.getName).toVector
     assert(names.contains("LOG_LEVEL"), names.toString)
     assert(names.contains("NAKKA_HTTP_PORT"), names.toString)
+  }
+
+  test("a stopping pod keeps serving while endpoints catch up: preStop sleep, Kubernetes' own") {
+    // Kubernetes' sleep action rather than `exec sleep`: a workload image owes the platform no
+    // shell. The window it bridges is kube-proxy learning the pod left the endpoints.
+    for c <- Vector(containerOf(spec.copy(port = Some(8080))), containerOf(spec.copy(port = None)))
+    do
+      val sleep = c.getLifecycle.getPreStop.getSleep
+      assertEquals(sleep.getSeconds.longValue, Rendering.PreStopSeconds)
+      assertEquals(c.getLifecycle.getPreStop.getExec, null)
   }
 
   test("there is never a liveness probe — a restart now also costs a shard rebalance") {

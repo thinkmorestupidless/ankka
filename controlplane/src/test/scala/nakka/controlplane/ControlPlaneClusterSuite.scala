@@ -180,22 +180,50 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
           .toSet
     }
 
-  /** The control plane's API, through its Service's clusterIP, from the node. */
+  /**
+   * The control plane's API, through its Service's clusterIP.
+   *
+   * Issued from inside one of the control plane's own pods with `curl`, because the k3s node's
+   * `wget` is BusyBox's: POST only, no PUT, and PUT is the apply. The pod is only a place to run
+   * `curl` from — the request still goes to the Service and lands on whichever instance it picks.
+   * Chosen fresh on every call, ready and not terminating, and the *last* by name so that a test
+   * deleting `pods.head` never pulls the client out from under itself.
+   */
   private def api(method: String, path: String, body: Option[String] = None): (Int, String) =
     val service = k8s.services().inNamespace(Namespace).withName("nakka-controlplane").get()
     val target  = s"http://${service.getSpec.getClusterIP}:9000$path"
-    val auth    = Vector("--header", s"Authorization: Bearer $Token")
-    val command = method match
-      case "GET" => Vector("wget", "-qO-", "-T", "10") ++ auth :+ target
-      case "PUT" | "POST" =>
-        Vector("wget", "-qO-", "-T", "10", "--method", method) ++ auth ++
-          Vector(
-            "--header",
-            "Content-Type: application/json",
-            "--body-data",
-            body.getOrElse("{}")
-          ) :+ target
-    nodeExec(command*)
+    val from = readyPods
+      .filter(_.getMetadata.getDeletionTimestamp == null)
+      .lastOption
+      .getOrElse(pods.last)
+    val curl = Vector(
+      "curl",
+      "-sS",
+      "-f",
+      "-m",
+      "10",
+      "-X",
+      method,
+      "-H",
+      s"Authorization: Bearer $Token",
+      "-H",
+      "Content-Type: application/json"
+    ) ++ body.toVector.flatMap(b => Vector("-d", b)) :+ target
+    nodeExec(
+      (Vector("kubectl", "exec", "-n", Namespace, from.getMetadata.getName, "--") ++ curl)*
+    )
+
+  private val OldestPattern = """"oldest":"[^"]*@([0-9.]+):""".r
+
+  /** The pod hosting the cluster singletons: the oldest member, as the cluster reports it. */
+  private def oldestPod: Option[Pod] =
+    pods.iterator
+      .map(_.getStatus.getPodIP)
+      .filter(_ != null)
+      .map(ip => nodeExec("wget", "-qO-", "-T", "3", s"http://$ip:7626/cluster/members"))
+      .collectFirst { case (0, body) => body }
+      .flatMap(body => OldestPattern.findFirstMatchIn(body).map(_.group(1)))
+      .flatMap(ip => pods.find(_.getStatus.getPodIP == ip))
 
   private def psql(sql: String): (Int, String) =
     nodeExec(
@@ -217,15 +245,31 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
       sql
     )
 
-  private def journalEvents(serviceName: String): Int =
+  /**
+   * Events in one service's journal — all of them, or only one type.
+   *
+   * The row is a CBOR `JournalRecord` with nakka's JSON event embedded as bytes, so the event's
+   * `"type"` discriminator is greppable in the raw payload without decoding the envelope.
+   */
+  private def journalEvents(serviceName: String, ofType: Option[String] = None): Int =
+    val typeFilter =
+      ofType.fold("")(t => s""" and encode(event_payload, 'escape') like '%"type":"$t"%'""")
     val (code, out) = psql(
-      s"select count(*) from event_journal where persistence_id = 'service|$Project/$serviceName';"
+      s"select count(*) from event_journal where persistence_id = 'service|$Project/$serviceName'$typeFilter;"
     )
     assertEquals(code, 0, out)
     out.trim.toInt
 
-  private def descriptor(name: String) =
-    s"""{"name":"$name","service":{"image":"$SampleImage"}}"""
+  /**
+   * Only one service in this suite has to *run*: svc1, which case 3 watches reach `Ready`. Every
+   * other one exists to be counted, re-created or applied under load, and a JVM apiece for those
+   * starved the k3s node until the control plane answered in seconds rather than milliseconds
+   * (measured: median 5.2s per GET with five sample pods up). `pause` costs nothing, and with
+   * `"http": false` it is a legal descriptor that simply never becomes Ready.
+   */
+  private def descriptor(name: String, real: Boolean = false) =
+    if real then s"""{"name":"$name","service":{"image":"$SampleImage"}}"""
+    else s"""{"name":"$name","service":{"image":"registry.k8s.io/pause:3.9","http":false}}"""
 
   test("1. three control-plane instances form one cluster from the shipped manifests") {
     waitFor(420.seconds)(readyPods.size == 3)
@@ -257,7 +301,8 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
       0
     )
     for i <- 1 to 5 do
-      val (code, out) = api("PUT", s"/services/$Project/svc$i", Some(descriptor(s"svc$i")))
+      val (code, out) =
+        api("PUT", s"/services/$Project/svc$i", Some(descriptor(s"svc$i", real = i == 1)))
       assertEquals(code, 0, out)
     // Projected exactly once each: one NakkaService per service, at generation 1.
     waitFor(120.seconds) {
@@ -270,9 +315,10 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
         r != null && r.getSpec.generation == 1L
       }
     }
-    // The projector is a singleton and the trigger a sharded projection: one apply, one journal
-    // event — however many instances there are.
-    for i <- 1 to 5 do assertEquals(journalEvents(s"svc$i"), 1, s"svc$i")
+    // One apply, one ServiceApplied — however many instances there are: a command through the
+    // Service lands on one node's entity, once. (Observations are events too, and the operator
+    // has been reporting since the resource appeared, so the count is of applies, not rows.)
+    for i <- 1 to 5 do assertEquals(journalEvents(s"svc$i", Some("ServiceApplied")), 1, s"svc$i")
   }
 
   test(
@@ -291,26 +337,31 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
       settled,
       "the journal grew with nothing changing — duplicate observations"
     )
-    assert(settled <= 6, s"$settled events to reach Ready is more than one report per transition")
+    // And every observation that did land was a change: with three watches reporting, a guard
+    // that failed shows up as the same observation journaled twice in a row.
+    val (code, rows) = psql(
+      s"select encode(event_payload, 'escape') from event_journal " +
+        s"where persistence_id = 'service|$Project/svc1' order by seq_nr;"
+    )
+    assertEquals(code, 0, rows)
+    val observed = rows.linesIterator.filter(_.contains("\"type\":\"ServiceObserved\"")).toVector
+    assert(observed.nonEmpty, "no observations reached the journal")
+    observed.sliding(2).foreach {
+      case Vector(a, b) => assertNotEquals(a, b, "an identical observation was journaled twice")
+      case _            => ()
+    }
   }
 
   test("4. the sweeper runs on one instance, and moves when that instance goes") {
-    // Which node hosts the singleton is in its log; kill that pod and another must take over,
+    // Cluster singletons run on the oldest member; kill that pod and another must take over,
     // seen by an out-of-band deletion being repaired within a sweep or two.
-    val host = pods
-      .find(p =>
-        k8s
-          .pods()
-          .inNamespace(Namespace)
-          .withName(p.getMetadata.getName)
-          .getLog
-          .contains("service projector started")
-      )
-      .getOrElse(pods.head)
+    val host = oldestPod.getOrElse(fail("no pod reports the oldest member"))
     k8s.pods().inNamespace(Namespace).withName(host.getMetadata.getName).delete(): Unit
     waitFor(300.seconds)(
       readyPods.size == 3 && !pods.exists(_.getMetadata.getName == host.getMetadata.getName)
     )
+    // The singleton moved: the cluster now names a surviving pod as oldest.
+    waitFor(60.seconds)(oldestPod.exists(_.getMetadata.getName != host.getMetadata.getName))
     k8s
       .resources(classOf[nakka.crd.NakkaService])
       .inNamespace(s"nakka-$Project")
@@ -326,19 +377,34 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
   }
 
   test("5. commands keep being accepted while an instance is replaced") {
+    // From a settled cluster: the previous case replaced a pod too, and a replacement still
+    // joining and taking shards is not the steady state this case measures.
+    waitFor(300.seconds)(
+      readyPods.size == 3 && Membership.disjointClusters(pods.map(membership)) == 1
+    )
+    Thread.sleep(10000)
     val accepted          = AtomicInteger(0); val refused = AtomicInteger(0)
+    val failures          = java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val latencies         = java.util.concurrent.ConcurrentLinkedQueue[Long]()
     @volatile var running = true
     val load = new Thread(() =>
       var n = 0
       while running do
         n += 1
-        val (list, _) = api("GET", s"/services/$Project")
-        if list == 0 then accepted.incrementAndGet(): Unit else refused.incrementAndGet(): Unit
+        val t0              = System.nanoTime()
+        val (list, listOut) = api("GET", s"/services/$Project")
+        val ms              = (System.nanoTime() - t0) / 1_000_000
+        latencies.add(ms): Unit
+        if list == 0 then accepted.incrementAndGet(): Unit
+        else
+          refused.incrementAndGet(); failures.add(s"GET #$n (${ms}ms): $listOut"): Unit
         if n % 5 == 0 then
-          val (code, _) =
+          val (code, out) =
             api("PUT", s"/services/$Project/under-load-$n", Some(descriptor(s"under-load-$n")))
-          if code == 0 then accepted.incrementAndGet(): Unit else refused.incrementAndGet(): Unit
-        Thread.sleep(200)
+          if code == 0 then accepted.incrementAndGet(): Unit
+          else
+            refused.incrementAndGet(); failures.add(s"PUT #$n: $out"): Unit
+        Thread.sleep(100)
     )
     load.setDaemon(true); load.start()
 
@@ -351,9 +417,19 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
     running = false; load.join(10000)
 
     val total = accepted.get + refused.get
-    assert(total > 20, s"only $total commands issued")
+    val lat   = latencies.asScala.toVector.sorted
+    val timing =
+      if lat.isEmpty then "no timings"
+      else s"GET latency min/median/max ${lat.head}/${lat(lat.size / 2)}/${lat.last}ms"
+    assert(
+      total > 20,
+      s"only $total commands issued; $timing; refused: ${failures.asScala.mkString(" | ")}"
+    )
     val rate = accepted.get.toDouble / total
-    assert(rate >= 0.99, f"$rate%.3f accepted (${refused.get} refused of $total)")
+    assert(
+      rate >= 0.99,
+      f"$rate%.3f accepted (${refused.get} refused of $total):\n${failures.asScala.mkString("\n")}"
+    )
     // Everything applied under load exists.
     val (_, listing) = api("GET", s"/services/$Project")
     for name <- "under-load-\\d+".r.findAllIn(listing).toSet do assert(listing.contains(name))

@@ -21,6 +21,9 @@ import io.fabric8.kubernetes.api.model.{
   ContainerBuilder,
   ContainerPortBuilder,
   HTTPGetActionBuilder,
+  LifecycleBuilder,
+  LifecycleHandlerBuilder,
+  SleepActionBuilder,
   IntOrString,
   ObjectFieldSelectorBuilder,
   ProbeBuilder,
@@ -78,6 +81,9 @@ object Rendering:
    */
   def requiredContactPoints(spec: NakkaServiceSpec): Int =
     math.min(spec.autoscaling.minInstances, 2)
+
+  /** How long a stopping pod keeps serving while endpoints catch up; see the preStop hook. */
+  val PreStopSeconds: Long = 5L
 
   val ManagementPort: Int = 7626
   val RemotingPort: Int   = 17355
@@ -335,7 +341,7 @@ object Rendering:
     val podTemplate = new PodTemplateSpecBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
-          .withLabels(labels.asJava)
+          .withLabels((labels + (Labels.FormationKey -> Labels.FormationBootstrap)).asJava)
           // The restart count on the *pod template* is what makes a restart roll the pods: it
           // changes, the template changes, Kubernetes replaces them. NOT the generation, which is
           // on the Deployment's own metadata (where status reads it) — feature 001 put it here,
@@ -448,10 +454,9 @@ object Rendering:
         )
         .build(),
       literal("NAKKA_CLUSTER_SERVICE", spec.serviceName),
-      literal(
-        "NAKKA_CLUSTER_POD_SELECTOR",
-        identity.toSeq.sorted.map((k, v) => s"$k=$v").mkString(",")
-      ),
+      // Identity plus the formation label: a pod from a template that predates cluster formation
+      // must not be a contact point, or bootstrap waits on it forever (see Labels.FormationKey).
+      literal("NAKKA_CLUSTER_POD_SELECTOR", contactPointSelector(identity)),
       literal("NAKKA_CLUSTER_CONTACT_POINTS", requiredContactPoints(spec).toString)
     )
     // The management port's NAME is load-bearing: Kubernetes API discovery finds a pod's contact
@@ -507,7 +512,29 @@ object Rendering:
           .withPeriodSeconds(5)
           .build()
       )
+      // Keep serving for a moment after SIGTERM is decided. A pod is removed from its Service's
+      // endpoints when its deletion starts, but kube-proxy on each node learns that up to a
+      // second later — and the runtime unbinds its HTTP port the instant it gets SIGTERM, so in
+      // that second a request routed to the old pod is refused. The sleep runs *before* SIGTERM
+      // and the pod serves through it. Kubernetes' own sleep action, not `sleep` in the image:
+      // a workload image owes the platform no shell. Measured by the control plane's own
+      // replacement-under-load case, which lost 2 of 33 commands without it.
+      .withLifecycle(
+        new LifecycleBuilder()
+          .withPreStop(
+            new LifecycleHandlerBuilder()
+              .withSleep(new SleepActionBuilder().withSeconds(PreStopSeconds).build())
+              .build()
+          )
+          .build()
+      )
       .build()
+
+  /** The label selector Cluster Bootstrap discovers contact points with, `k=v,k=v`. */
+  def contactPointSelector(identity: Map[String, String]): String =
+    (identity + (Labels.FormationKey -> Labels.FormationBootstrap)).toSeq.sorted
+      .map((k, v) => s"$k=$v")
+      .mkString(",")
 
   private def literal(name: String, value: String): EnvVar =
     new EnvVarBuilder().withName(name).withValue(value).build()

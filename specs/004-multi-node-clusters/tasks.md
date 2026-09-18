@@ -227,10 +227,27 @@ from `kustomization/components/controlplane/` applied — rather than run in-pro
 "three instances" has no meaning in-process. The CLI talks to it through a node-side port-forward
 or the Service's `clusterIP`.
 
-- [ ] T053 [US5] Scaffold: import `nakka-controlplane:latest` (add it to the image-build gating beside the sample), apply CRD, CNPG, the control plane's manifests and its schema ConfigMap; three pods `Ready`; `disjointClusters == 1`.
-- [ ] T054 [US5] Apply a service through the CLI; **exactly one** `NakkaService` results (trivially) and — the real assertion — the operator-side reconcile count for it, read from the operator's log or from the resource's `managedFields` update count, does not scale with control-plane instances: apply five services, assert the projector wrote each **once**.
-- [ ] T055 [US5] A status report seen by three nodes is recorded once (FR-034, SC-009): with the operator writing status, `psql` the control plane's `event_journal` for `ServiceObserved` events of one service; take a count, wait 30s of steady state, count again — **unchanged**; then force a status change and assert the count rises by **exactly one**.
-- [ ] T056 [US5] Replace a control-plane pod under load (FR-035): a background loop of `nakka services list` and one `apply` every 2s; `kubectl delete` one control-plane pod; assert every command succeeded and the applied services all exist.
+- [X] T053 [US5] Scaffold: import `nakka-controlplane:latest` (add it to the image-build gating beside the sample), apply CRD, CNPG, the control plane's manifests and its schema ConfigMap; three pods `Ready`; `disjointClusters == 1`.
+  - Passed. The control plane image is built by `sampleImageForClusterTests` alongside the sample's. Three pods Ready in well under the 420s budget; one cluster.
+- [X] T054 [US5] Apply a service through the CLI; **exactly one** `NakkaService` results (trivially) and — the real assertion — the operator-side reconcile count for it, read from the operator's log or from the resource's `managedFields` update count, does not scale with control-plane instances: apply five services, assert the projector wrote each **once**.
+  - Passed, as "one `ServiceApplied` per apply": the journal also holds `ServiceObserved` events (the
+    operator reports from the moment the resource appears), so the count is by event type — a row
+    is a CBOR `JournalRecord` with nakka's JSON event embedded, greppable on `"type"`. Requests
+    are issued with `curl` from inside a control-plane pod: the k3s node's `wget` is BusyBox and
+    cannot PUT, and PUT is the apply.
+- [X] T055 [US5] A status report seen by three nodes is recorded once (FR-034, SC-009): with the operator writing status, `psql` the control plane's `event_journal` for `ServiceObserved` events of one service; take a count, wait 30s of steady state, count again — **unchanged**; then force a status change and assert the count rises by **exactly one**.
+  - Passed: the count is unchanged over 45s of steady state, and no two consecutive observations
+    in the journal are identical (the guard, stated as the property rather than as the "≤ 6 events
+    to Ready" guess the task had — eight legitimate transitions happen).
+- [X] T056 [US5] Replace a control-plane pod under load (FR-035): a background loop of `nakka services list` and one `apply` every 2s; `kubectl delete` one control-plane pod; assert every command succeeded and the applied services all exist.
+  - Passed, after a real fix and two test fixes. **Real**: 2 of 33 commands were refused during
+    the replacement — the runtime unbinds on SIGTERM at once while kube-proxy takes up to a second
+    to stop routing to the pod. Added `lifecycle.preStop.sleep: 5s` (Kubernetes' own sleep action,
+    no binary needed) to the control plane's manifest and to every rendered workload
+    (`Rendering`, with a unit test); zero refused since. **Test**: the singleton host is found from
+    `/cluster/members`' `oldest` field, not a log line every node prints; and only svc1 runs the
+    real image — five sample JVMs starved the k3s node until the control plane answered in seconds
+    (median 5.2s per GET), which is what the earlier "only 13 commands issued" was.
 
 **Checkpoint**: the platform runs three-wide on itself, doing each thing once.
 
@@ -245,7 +262,33 @@ or the Service's `clusterIP`.
 - [X] T061 `sbt scalafmtAll scalafmtSbt`; `sbt compile` and `Test/compile` warning-free under `-Wunused`.
 - [X] T062 Seams: `crd` still depends on nothing; `cli` on `controlplane-api` alone; no new Kubernetes client dependency anywhere but where fabric8 already was.
   - `crd` still `.settings` only, no `dependsOn`; `cli` → `controlPlaneApi`; `fabric8` in `crd`, `operator`, `controlPlane` as before. `operator % "test->test;test->compile"` on controlPlane is the old `% Test` plus the shared test helper.
-- [ ] T063 Full `sbt test`, then the reviewer's checklist in [quickstart.md](./quickstart.md) in full, including Tier 6 on `kind-nakka` — and re-apply that cluster's existing services, which will roll once onto the new template.
+- [X] T063 Full `sbt test`, then the reviewer's checklist in [quickstart.md](./quickstart.md) in full, including Tier 6 on `kind-nakka` — and re-apply that cluster's existing services, which will roll once onto the new template.
+  - **Tier 6 on `kind-nakka`, done 2026-09-18** (the cluster was in its feature-003 state: cart at one
+    instance on the old image, control plane at one replica):
+    - `deploy-local.sh` **deadlocked the first time**: the two old control-plane pods were Ready by
+      their tcp probe so the roll kept them; the new pods discovered them as contact points, got no
+      answer on 7626, and the join decider refused to form. Fixed with the `formation=bootstrap`
+      label on pod templates and in the discovery selector (`Labels.FormationKey`; CLAUDE.md trap).
+      Second run: three new pods, one cluster, old ones retired.
+    - cart re-applied at `minInstances: 3` through the real CLI: `Ready 3/3` on the new template
+      (RollingUpdate, formation label, preStop 5s); every pod reports the same three members; a cart
+      written through the Service reads back identically from all three pod IPs.
+    - `services restart` under continuous reads through the Service from a control-plane pod:
+      **494 requests, 0 failed**; the pod set entirely new; `Ready 3/3` after.
+    - `minInstances` 3 → 5 via apply: `Ready 5/5`, the original three pods still running, five
+      members Up. Scaled back to 3 afterwards.
+    - Rolling the cluster to the new template is a one-time migration that briefly runs old
+      self-joined pods beside the new cluster; unavoidable for a pre-004 image and not a concern for
+      anything deployed since.
+  - Full `sbt test` 2026-09-18 13:13: **59 suites, 0 failures**, 44m45s — `OperatorClusterSuite` 30/30 (7.8m),
+    `SampleDeploymentClusterSuite` 5/5, `EndToEndClusterSuite` 11/11, `MultiNodeClusterSuite` 8/8 (22.9m),
+    `ControlPlaneClusterSuite` 5/5 (5.4m). Three skipped = `AnthropicProviderSuite` without a key.
+  - Reviewer's checklist (quickstart): reference.conf names no peers; `NakkaTestKit` unchanged since
+    the 003 commit; `sbt shoppingCart/run` with no environment joins self (ClusterConfigSuite case);
+    `application.conf` beats the overlay (tested); `Recreate` gone from `Rendering` *and* the
+    migration code gone from `Executor` (found still present at close-out, removed); README and
+    CLAUDE.md rewritten; RBAC proven under real tokens (operator and service); no `--force` deletion
+    anywhere in the suites.
 
 ---
 

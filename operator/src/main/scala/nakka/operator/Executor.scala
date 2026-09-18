@@ -1,8 +1,7 @@
 package nakka.operator
 
 import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder}
-import io.fabric8.kubernetes.client.dsl.base.{PatchContext, PatchType}
-import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientException}
+import io.fabric8.kubernetes.client.KubernetesClient
 import nakka.crd.{NakkaService, NakkaServiceStatus}
 import nakka.operator.cnpg.{
   CnpgObjectState,
@@ -75,13 +74,6 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
    */
   private val FieldManager = "nakka-operator"
 
-  /**
-   * The API server's refusal to set Recreate over a leftover rollingUpdate block: a 422 on
-   * `spec.strategy`.
-   */
-  private def strategyRejected(e: KubernetesClientException): Boolean =
-    e.getCode == 422 && Option(e.getMessage).exists(_.contains("spec.strategy"))
-
   def execute(action: Action): Unit = action match
     case Action.NoAction => ()
 
@@ -101,33 +93,11 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
     case Action.ApplyDeployment(deployment) =>
       // forceConflicts because the drift policy is enforce: a conflict means something else
       // claimed a field this manager owns, and the resource is the source of truth.
-      def apply(): Unit =
-        val _ =
-          client.resource(deployment).fieldManager(FieldManager).forceConflicts().serverSideApply()
-
-      try apply()
-      catch
-        case rejected: KubernetesClientException if strategyRejected(rejected) =>
-          // A Deployment from before this operator rendered `strategy: Recreate`. It carries
-          // Kubernetes' defaulted rollingUpdate block, which no field manager owns — so server-side
-          // apply cannot remove it, and the API server refuses Recreate while it is still there.
-          // Left alone that is permanent: every reconcile fails, and the service can never be
-          // changed again. A merge patch can delete what apply cannot (a null removes the field);
-          // then the apply goes through. Only ever taken once per such Deployment, and only on
-          // this exact rejection, so the ordinary path pays nothing for it.
-          val namespace = deployment.getMetadata.getNamespace
-          val name      = deployment.getMetadata.getName
-          log.info("migrating deployment {}/{} from RollingUpdate to Recreate", namespace, name)
-          val _ = client
-            .apps()
-            .deployments()
-            .inNamespace(namespace)
-            .withName(name)
-            .patch(
-              PatchContext.of(PatchType.JSON_MERGE),
-              """{"spec":{"strategy":{"type":"Recreate","rollingUpdate":null}}}"""
-            )
-          apply()
+      // No migration path for a Deployment feature 003 rendered with `Recreate`: an apply that
+      // *sets* `rollingUpdate` owns the field, so the API server accepts it as it is. Proven by
+      // the operator suite's migration case; the reverse direction once needed a merge patch.
+      val _ =
+        client.resource(deployment).fieldManager(FieldManager).forceConflicts().serverSideApply()
       log.debug(
         "applied deployment {}/{}",
         deployment.getMetadata.getNamespace,

@@ -401,6 +401,28 @@ factory shapes would break lambda parameter inference at every call site.
   loop restores the replica count from the resource, so `kubectl scale --replicas=0` is not how
   a test takes a service down: it is back before the assertion runs. `nakka services pause` /
   `resume` is — the count is rendered from the spec, and pause is the spec saying zero.
+- **A pod that cannot answer a bootstrap probe must never be a contact point.** Upgrading the
+  kind cluster from a feature-003 image deadlocked: the old pods were `Ready` by their tcp probe,
+  so the rolling update kept them; the new pods discovered them by the identity labels, got no
+  answer on a management port that did not exist, and Pekko's join decider refused to form a
+  cluster while any contact point was silent — `Exceeded stable margins but missing seed node
+  information from some contact points`, forever. The discovery selector therefore includes
+  `nakka.thinkmorestupidless.com/formation=bootstrap`, a label only pod templates rendered since
+  feature 004 carry (`Labels.FormationKey`); it is *not* in the Deployment's immutable
+  `spec.selector` nor the Service's. Empty-cluster suites cannot see this class of bug — the
+  same lesson as the `Recreate` migration, from the other direction.
+- **A rolling replacement still refuses requests without a `preStop` sleep.** A pod leaves its
+  Service's endpoints the moment its deletion starts, but kube-proxy on each node learns that up
+  to a second later — and the runtime unbinds its HTTP port the instant SIGTERM arrives. In that
+  second a request routed to the old pod is refused: 2 of 33 control-plane commands during one
+  replacement, measured. `lifecycle.preStop.sleep: 5s` (Kubernetes' own sleep action, so a
+  workload image owes the platform no shell) runs *before* SIGTERM and the pod serves through it.
+  Rendered on every workload and in the control plane's manifest; do not remove it as "unused".
+- **A k3s test node running five sample JVMs answers in seconds, not milliseconds.** A suite that
+  deploys several real nakka services into one k3s container starves it: the control plane's GET
+  latency went to a median of 5.2s and a throughput assertion failed for the wrong reason. Deploy
+  the real image only for the service a case actually needs to be `Ready`; the rest can be
+  `pause` with `"http": false`.
 - **The container port's *name* `management` is load-bearing.** The readiness probe is
   `httpGet` on the port by name, not number, so renaming the port in `Rendering` (or in the
   control plane's own manifest) leaves a probe that resolves to nothing and a pod that is never

@@ -127,7 +127,15 @@ final case class ServiceSpec(
             "declare the port instead"
         )
         .toVector
-    imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ resources.problems
+    // The same rule for the variables that tell a node where it is running and how to find its
+    // peers: the platform sets them, and a descriptor that sets them too is two sources of truth
+    // for one fact — refused, not resolved in favour of one of them.
+    val platformEnvProblems =
+      env
+        .filter(e => ServiceSpec.PlatformEnvVars.contains(e.name))
+        .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
+    imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
+      resources.problems
 
 object ServiceSpec:
   /** `nakka.http.port`'s default in `modules/http`'s `reference.conf`. Adopted, not chosen. */
@@ -135,6 +143,19 @@ object ServiceSpec:
 
   /** What the runtime reads its port from, and what the operator therefore injects. */
   val PortEnvVar: String = "NAKKA_HTTP_PORT"
+
+  /**
+   * What the platform tells a deployed node about where it is running (feature 004). Set by the
+   * operator on every workload; a descriptor may not set them. `NAKKA_HTTP_PORT` has its own rule
+   * above, with its own message, because it has a field to point the user at.
+   */
+  val PlatformEnvVars: Set[String] = Set(
+    "NAKKA_CLUSTER_MODE",
+    "POD_IP",
+    "NAKKA_CLUSTER_SERVICE",
+    "NAKKA_CLUSTER_POD_SELECTOR",
+    "NAKKA_CLUSTER_CONTACT_POINTS"
+  )
 
 /**
  * A container environment variable, either literal or drawn from a secret.

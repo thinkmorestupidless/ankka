@@ -49,8 +49,9 @@ class ServiceEntitySuite extends munit.FunSuite:
     val _      = kit.call(ServiceEntity.applyDescriptor)(applying())
     val second = kit.call(ServiceEntity.applyDescriptor)(applying())
 
-    // Deliberate: `apply` re-runs the rollout. `restart` is not a synonym for it, but an
-    // operator repeating `apply` is asking for the image to be pulled again.
+    // Deliberate: the generation is the thing observations are matched against, and a re-apply
+    // is a new statement of desired state that deserves a fresh observation. Since feature 004
+    // it no longer rolls the pods by itself — only a changed template, or `restart`, does that.
     assertEquals(second.replyValue.generation, 2L)
     assertEquals(kit.allEvents.size, 2)
   }
@@ -219,6 +220,27 @@ class ServiceEntitySuite extends munit.FunSuite:
     assertEquals(restarted.events, Vector(ServiceRestarted(2L)))
     assertEquals(restarted.replyValue.lifecycle, ServiceLifecycle.UpdateInProgress)
     assertEquals(restarted.replyValue.readyInstances, 0, "restarting means the old pods are gone")
+  }
+
+  test(
+    "a restart counts, so the operator can roll the pods without the generation on the template"
+  ) {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
+    assertEquals(kit.currentState.restarts, 0)
+    val _ = kit.call(ServiceEntity.restart)
+    val _ = kit.call(ServiceEntity.restart)
+    assertEquals(kit.currentState.restarts, 2)
+    // Replay agrees: the count is folded from events, not remembered.
+    val replayed =
+      kit.allEvents.foldLeft(nakka.controlplane.domain.Service.empty(kit.currentState.key)) {
+        case (service, applied: nakka.controlplane.domain.ServiceEvent.ServiceApplied) =>
+          service.onApplied(applied.descriptor, applied.generation)
+        case (service, restarted: nakka.controlplane.domain.ServiceEvent.ServiceRestarted) =>
+          service.onRestarted(restarted.generation)
+        case (service, _) => service
+      }
+    assertEquals(replayed.restarts, 2)
   }
 
   test("deletion is a tombstone: the entity remains, the service does not") {

@@ -89,7 +89,17 @@ final case class NakkaServiceSpec(
      * Jackson picks the boxed type from the JSON rather than from the field.
      */
     @JsonDeserialize(contentAs = classOf[java.lang.Integer])
-    port: Option[Int] = None
+    port: Option[Int] = None,
+    /**
+     * How many times an operator has asked for the running instances to be replaced.
+     *
+     * This — not `generation` — is what goes on the pod template to make a restart roll the pods.
+     * Feature 001 put the generation there, so *every* apply rolled every pod; from feature 004 a
+     * pure scale must not touch the instances that stay (FR-016), and an unchanged re-apply need
+     * not roll at all. A change to anything that is genuinely part of the template — image, env,
+     * port — still rolls, because the template itself changed.
+     */
+    restarts: Int = 0
 )
 
 /**

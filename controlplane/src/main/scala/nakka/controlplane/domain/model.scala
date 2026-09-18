@@ -83,7 +83,12 @@ final case class Service(
      * The operator's last-reported database phase, verbatim — `None` for the escape hatch and
      * before the first observation arrives.
      */
-    database: Option[String] = None
+    database: Option[String] = None,
+    /**
+     * How many restarts have been asked for. Projected to the resource; see
+     * `NakkaServiceSpec.restarts`.
+     */
+    restarts: Int = 0
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -125,6 +130,7 @@ final case class Service(
   def onRestarted(generation: Long): Service =
     copy(
       generation = generation,
+      restarts = restarts + 1,
       lifecycle = ServiceLifecycle.UpdateInProgress,
       readyInstances = 0,
       detail = None,

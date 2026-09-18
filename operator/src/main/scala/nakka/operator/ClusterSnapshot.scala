@@ -57,6 +57,12 @@ final case class ClusterSnapshot(
     specReplicas: Int,
     readyReplicas: Int,
     updatedReplicas: Int,
+    /**
+     * Every pod the Deployment currently owns, old template included. `readyReplicas` counts old
+     * pods too, so during a rollout "all ready" can be true of the *previous* generation;
+     * `totalReplicas > updatedReplicas` is how you tell.
+     */
+    totalReplicas: Int,
     k8sGeneration: Option[Long],
     observedGeneration: Option[Long],
     progressing: Option[ConditionState],
@@ -83,6 +89,7 @@ object ClusterSnapshot:
       specReplicas = 0,
       readyReplicas = 0,
       updatedReplicas = 0,
+      totalReplicas = 0,
       k8sGeneration = None,
       observedGeneration = None,
       progressing = None,
@@ -119,6 +126,7 @@ object ClusterSnapshot:
       readyReplicas = status.flatMap(s => Option(s.getReadyReplicas)).map(_.intValue).getOrElse(0),
       updatedReplicas =
         status.flatMap(s => Option(s.getUpdatedReplicas)).map(_.intValue).getOrElse(0),
+      totalReplicas = status.flatMap(s => Option(s.getReplicas)).map(_.intValue).getOrElse(0),
       k8sGeneration = meta.flatMap(m => Option(m.getGeneration)).map(_.longValue),
       observedGeneration = status.flatMap(s => Option(s.getObservedGeneration)).map(_.longValue),
       progressing = condition("Progressing"),

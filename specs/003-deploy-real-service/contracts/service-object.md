@@ -2,6 +2,13 @@
 
 **Satisfies**: FR-007 to FR-013
 
+> **Superseded in part by [feature 004](../../004-multi-node-clusters/spec.md).** The `tcpSocket`
+> readiness probe below became `httpGet /ready` on the runtime's management port (cluster
+> membership plus the HTTP server having bound), and the `strategy: Recreate` that feature 003's
+> implementation added — with "a deploy is a brief outage" — was reversed to `RollingUpdate`
+> `maxSurge: 1, maxUnavailable: 0` once nodes could find each other. The port, `NAKKA_HTTP_PORT`
+> and the Service object are unchanged.
+
 ## The Service object
 
 Rendered only when the resolved port is present ([port-resolution.md](./port-resolution.md)).

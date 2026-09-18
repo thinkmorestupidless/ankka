@@ -5,6 +5,10 @@
 # compromised it can only ask for services, not make them. The operator, which does make them,
 # holds credentials the control plane never sees.
 #
+# Since feature 004 it also reads the pods of ITS OWN namespace — a Role at the bottom, not a
+# ClusterRole — so its instances can find each other. That reaches no project namespace, so
+# "cannot touch a workload" stays true.
+#
 # Apply this only when the control plane runs inside the cluster. Outside it, the same
 # permissions should be what its kubeconfig user has.
 ---
@@ -52,6 +56,37 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: nakka-controlplane
+subjects:
+  - kind: ServiceAccount
+    name: nakka-controlplane
+    namespace: nakka-controlplane
+---
+# Its instances discover each other through the API server: read-only, on pods, in this
+# namespace only. A Role, so the grant cannot reach a project's workloads — the same three verbs
+# on the same resource the operator gives every service it deploys.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nakka-controlplane-peers
+  namespace: nakka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: nakka
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nakka-controlplane-peers
+  namespace: nakka-controlplane
+  labels:
+    app.kubernetes.io/managed-by: nakka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nakka-controlplane-peers
 subjects:
   - kind: ServiceAccount
     name: nakka-controlplane

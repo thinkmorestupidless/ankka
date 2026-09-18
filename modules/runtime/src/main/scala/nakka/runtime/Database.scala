@@ -40,6 +40,36 @@ private[nakka] final class Database(factory: ConnectionFactory)(using system: Ac
         }
       }
 
+  /**
+   * `executeAll`, inside one transaction: all or nothing, and anything the statements lock is
+   * released on either outcome. What `ProjectionRuntime` uses to create view tables under a
+   * transaction-scoped advisory lock — session-scoped would outlive a pooled connection.
+   */
+  def executeAllInTransaction(fragments: Seq[SqlFragment]): Future[Unit] =
+    withConnection { connection =>
+      def run(publisher: org.reactivestreams.Publisher[Void]): Future[Unit] =
+        Source.fromPublisher(publisher).runWith(Sink.ignore).map(_ => ())
+      run(connection.beginTransaction()).flatMap { _ =>
+        fragments
+          .foldLeft(Future.successful(())) { (previous, fragment) =>
+            previous.flatMap { _ =>
+              Source
+                .fromPublisher(
+                  Database.bind(connection.createStatement(fragment.render), fragment).execute()
+                )
+                .flatMapConcat(result => Source.fromPublisher(result.getRowsUpdated))
+                .runWith(Sink.ignore)
+                .map(_ => ())
+            }
+          }
+          .transformWith {
+            case scala.util.Success(_) => run(connection.commitTransaction())
+            case scala.util.Failure(e) =>
+              run(connection.rollbackTransaction()).transform(_ => scala.util.Failure(e))
+          }
+      }
+    }
+
   /** Executes a statement, returning the number of rows affected. */
   def execute(fragment: SqlFragment): Future[Long] =
     withConnection { connection =>

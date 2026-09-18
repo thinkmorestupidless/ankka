@@ -126,6 +126,13 @@ class ServiceProjectionSuite extends munit.FunSuite:
     assertEquals(spec.port, None)
   }
 
+  test("the restart count is projected, so the operator can roll on a restart and only a restart") {
+    val restarted   = service().onRestarted(5L).onRestarted(6L)
+    val Right(spec) = ServiceProjection.project(restarted, config): @unchecked
+    assertEquals(spec.restarts, 2)
+    assertEquals(spec.generation, 6L)
+  }
+
   test("a paused service projects as paused") {
     val paused      = service().onPaused
     val Right(spec) = ServiceProjection.project(paused, config): @unchecked

@@ -15,6 +15,20 @@ import nakka.runtime.SqlSyntax.sql
  */
 private[nakka] object ViewStore:
 
+  /**
+   * Taken before creating tables, transaction-scoped, released on commit or rollback.
+   *
+   * `CREATE TABLE IF NOT EXISTS` is not safe under concurrency in Postgres: two sessions can both
+   * pass the existence check and the loser fails on `pg_type`'s unique index. That was academic
+   * while a service had one node; several now cold-start at once and each creates every view table
+   * (feature 004, research R11). One constant key for all of nakka's DDL is right — the contention
+   * is between nodes of one service, on one database, and it lasts milliseconds.
+   */
+  val schemaLock: SqlFragment = SqlFragment.raw(s"SELECT pg_advisory_xact_lock($SchemaLockKey)")
+
+  /** Arbitrary, stable, and the same one the schema-init container takes. */
+  val SchemaLockKey: Long = 6_2716_5225_00L
+
   def createTable(table: String): SqlFragment =
     SqlFragment.raw(
       s"""CREATE TABLE IF NOT EXISTS $table (

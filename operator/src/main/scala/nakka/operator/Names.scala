@@ -50,6 +50,12 @@ object Names:
    */
   def service(serviceName: String): String = serviceName
 
+  /** What the service's pods run as. One per service, never the namespace default. */
+  def serviceAccount(serviceName: String): String = serviceName
+
+  /** The Role and RoleBinding that let those pods read their own project's pods. */
+  def peersRole(serviceName: String): String = s"$serviceName-peers"
+
   def serviceNameProblems(serviceName: String): Vector[String] =
     if serviceName.isEmpty then Vector("service name must not be empty")
     else if !isLabel(serviceName) then Vector(s"service name '$serviceName' is not a DNS label")

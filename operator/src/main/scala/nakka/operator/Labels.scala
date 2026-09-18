@@ -30,6 +30,12 @@ object Labels:
    */
   val GenerationKey: String = "nakka.thinkmorestupidless.com/generation"
 
+  /**
+   * On the pod template, and the only thing there that changes on a restart. The generation used to
+   * be there too, which made every apply — including a pure scale — roll every pod.
+   */
+  val RestartsKey: String = "nakka.thinkmorestupidless.com/restarts"
+
   val ManagedByNakka: String = "nakka"
 
   /** `managed-by=nakka` alone is the ownership test. No label, not ours, never touched. */

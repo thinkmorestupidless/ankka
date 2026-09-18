@@ -108,7 +108,9 @@ echo "==> waiting for the operator"
 kubectl -n nakka-operator rollout status deployment/nakka-operator --timeout=120s
 
 echo "==> waiting for the control plane"
-kubectl -n nakka-controlplane rollout status deployment/nakka-controlplane --timeout=180s
+# Three instances rolled one at a time (feature 004), each a JVM that has to join the cluster
+# before it counts — so a longer wait than one pod needed.
+kubectl -n nakka-controlplane rollout status deployment/nakka-controlplane --timeout=420s
 
 cat <<MSG
 

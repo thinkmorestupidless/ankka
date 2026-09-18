@@ -30,7 +30,7 @@ All in `modules/runtime/src/main/resources/`. See [contracts/config-layering.md]
 
 | Setting | Value | Why |
 |---|---|---|
-| `pekko.coordinated-shutdown.exit-jvm` | `on` | a node downed by the split-brain resolver must exit so Kubernetes restarts it; otherwise it lingers `Running`, never ready, never restarted (research R9) |
+| ~~`pekko.coordinated-shutdown.exit-jvm`~~ | — | **Moved to the Kubernetes overlay during implementation** (T007): in the base it made every stopped ActorSystem exit the JVM and killed the test harness. Only a process that *is* a node may exit when its node is downed. |
 | `pekko.cluster.split-brain-resolver.active-strategy` | `keep-majority` | stated rather than inherited, because the instance-count guidance depends on it |
 
 ### New

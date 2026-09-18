@@ -40,18 +40,22 @@ object LifecycleRules:
     val (lifecycle, ready, desired, detail) =
       if spec.paused then ("Paused", snapshot.readyReplicas, 0, None)
       else if problems.nonEmpty then ("Failed", 0, 0, Some(problems.mkString("; ")))
-      else if !snapshot.exists then ("UpdateInProgress", 0, Rendering.Replicas, None)
+      else if !snapshot.exists then ("UpdateInProgress", 0, Rendering.replicas(spec), None)
       else if snapshot.progressDeadlineExceeded then
         ("Failed", snapshot.readyReplicas, snapshot.specReplicas, failureDetail(snapshot))
       else if snapshot.rolloutPending then
         ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
       else if snapshot.updatedReplicas < snapshot.specReplicas then
         ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
+      else if snapshot.totalReplicas > snapshot.updatedReplicas then
+        // Pods of the old template are still around. readyReplicas counts them, so without this
+        // a rollout reports Ready while the pod being counted ready is an old one — seen live in
+        // feature 003, and hidden rather than fixed by Recreate; RollingUpdate brought it back.
+        ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
       else if snapshot.specReplicas > 0 && snapshot.readyReplicas == snapshot.specReplicas then
         ("Ready", snapshot.readyReplicas, snapshot.specReplicas, None)
       else if snapshot.readyReplicas > 0 && snapshot.readyReplicas < snapshot.specReplicas then
-        // Unreachable at one replica, implemented and tested now so that enabling
-        // multi-replica support later does not have to retrofit it.
+        // Written in feature 001 as "unreachable at one replica"; reachable since feature 004.
         ("PartiallyReady", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
       else if snapshot.specReplicas > 0 then
         ("Unavailable", 0, snapshot.specReplicas, problemDetail(snapshot))

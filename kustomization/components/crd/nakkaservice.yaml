@@ -144,6 +144,12 @@ spec:
                     Absent means it serves none: no container port, no readiness probe and no
                     Service are rendered. Present means all three, plus NAKKA_HTTP_PORT, from
                     this one value.
+                restarts:
+                  type: integer
+                  minimum: 0
+                  description: >-
+                    How many restarts an operator has asked for. Carried on the pod template so
+                    a restart rolls the pods; the generation is not, so a scale does not.
             status:
               type: object
               properties:

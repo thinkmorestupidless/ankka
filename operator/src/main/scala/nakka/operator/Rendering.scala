@@ -4,19 +4,32 @@ import io.fabric8.kubernetes.api.model.apps.{
   Deployment,
   DeploymentBuilder,
   DeploymentSpecBuilder,
-  DeploymentStrategyBuilder
+  DeploymentStrategyBuilder,
+  RollingUpdateDeploymentBuilder
+}
+import io.fabric8.kubernetes.api.model.rbac.{
+  PolicyRuleBuilder,
+  Role,
+  RoleBinding,
+  RoleBindingBuilder,
+  RoleBuilder,
+  RoleRefBuilder,
+  SubjectBuilder
 }
 import io.fabric8.kubernetes.api.model.{
   Container,
   ContainerBuilder,
   ContainerPortBuilder,
+  HTTPGetActionBuilder,
   IntOrString,
+  ObjectFieldSelectorBuilder,
   ProbeBuilder,
   Service,
   ServiceBuilder,
+  ServiceAccount,
+  ServiceAccountBuilder,
   ServicePortBuilder,
   ServiceSpecBuilder,
-  TCPSocketActionBuilder,
   EnvFromSourceBuilder,
   EnvVar,
   EnvVarBuilder,
@@ -45,15 +58,29 @@ import scala.jdk.CollectionConverters.*
 object Rendering:
 
   /**
-   * One replica, always.
+   * The instance count is the descriptor's `autoscaling.minInstances`, honoured since feature 004.
    *
-   * A correctness constraint, not a simplification. `pekko.cluster.seed-nodes` is empty and
-   * `nakka.join-self-if-no-seed-nodes` is on, so each pod joins *itself* — two replicas would be
-   * two independent single-node clusters sharing one journal, each hosting the same entity ids. Two
-   * writers to one `persistence_id` is the failure event sourcing exists to prevent, and an
-   * autoscaler would reach it automatically. Hence also: no HorizontalPodAutoscaler is rendered.
+   * Before that, one replica always — a correctness constraint, because each pod joined *itself*
+   * and two replicas were two clusters writing one journal. Nodes now find each other (see
+   * `ClusterFormation` and the Kubernetes overlay), so the count is the descriptor's. Still no
+   * HorizontalPodAutoscaler: scaling a sharded cluster on a load signal means every scale-in is a
+   * member leaving under pressure, and that needs draining proven first.
    */
-  val Replicas: Int = 1
+  def replicas(spec: NakkaServiceSpec): Int =
+    if spec.paused then 0 else spec.autoscaling.minInstances
+
+  /**
+   * How many discovered peers a starting node must see before any of them will form a cluster. One
+   * instance must be able to form alone; at `nr = instances` a single unschedulable pod would hold
+   * the whole service down; and the documentation warns against 1 for more than one — so 2. Changes
+   * only when crossing between one instance and several, which is why scaling 3 → 5 touches no pod
+   * that stays (research R4, R5).
+   */
+  def requiredContactPoints(spec: NakkaServiceSpec): Int =
+    math.min(spec.autoscaling.minInstances, 2)
+
+  val ManagementPort: Int = 7626
+  val RemotingPort: Int   = 17355
 
   /**
    * @param databasePlan
@@ -81,11 +108,86 @@ object Rendering:
     if problems.nonEmpty then Left(problems)
     else
       Right(
-        Action.EnsureNamespace(namespace) +:
-          databaseActions(spec, namespace, settings, databasePlan, newPassword) :+
+        (Action.EnsureNamespace(namespace) +:
+          databaseActions(spec, namespace, settings, databasePlan, newPassword)) ++
+          identityActions(resource, spec, namespace) :+
           Action.ApplyDeployment(deployment(resource, spec, namespace, databasePlan)) :+
           addressAction(resource, spec, namespace)
       )
+
+  /**
+   * The identity a service's pods run as, and the one thing it may do: read the pods of its own
+   * project, so its nodes can find each other. A Role, never a ClusterRole, so the grant cannot
+   * reach another project; one ServiceAccount per service, so it is granted to a service and not to
+   * a project's workloads at large. Owned by the resource, so all three go with it.
+   */
+  private def identityActions(
+      resource: NakkaService,
+      spec: NakkaServiceSpec,
+      namespace: String
+  ): Vector[Action] =
+    Vector(
+      Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)),
+      Action.EnsureRole(peersRole(resource, spec, namespace)),
+      Action.EnsureRoleBinding(peersRoleBinding(resource, spec, namespace))
+    )
+
+  private def identityMeta(
+      resource: NakkaService,
+      spec: NakkaServiceSpec,
+      namespace: String,
+      name: String
+  ) =
+    new ObjectMetaBuilder()
+      .withName(name)
+      .withNamespace(namespace)
+      .withLabels(Labels.merged(spec.projectId, spec.serviceName, spec.labels).asJava)
+      .withOwnerReferences(Labels.ownerReference(resource))
+      .build()
+
+  def serviceAccount(
+      resource: NakkaService,
+      spec: NakkaServiceSpec,
+      namespace: String
+  ): ServiceAccount =
+    new ServiceAccountBuilder()
+      .withMetadata(identityMeta(resource, spec, namespace, Names.serviceAccount(spec.serviceName)))
+      .build()
+
+  def peersRole(resource: NakkaService, spec: NakkaServiceSpec, namespace: String): Role =
+    new RoleBuilder()
+      .withMetadata(identityMeta(resource, spec, namespace, Names.peersRole(spec.serviceName)))
+      .withRules(
+        new PolicyRuleBuilder()
+          .withApiGroups("")
+          .withResources("pods")
+          .withVerbs("get", "list", "watch")
+          .build()
+      )
+      .build()
+
+  def peersRoleBinding(
+      resource: NakkaService,
+      spec: NakkaServiceSpec,
+      namespace: String
+  ): RoleBinding =
+    new RoleBindingBuilder()
+      .withMetadata(identityMeta(resource, spec, namespace, Names.peersRole(spec.serviceName)))
+      .withRoleRef(
+        new RoleRefBuilder()
+          .withApiGroup("rbac.authorization.k8s.io")
+          .withKind("Role")
+          .withName(Names.peersRole(spec.serviceName))
+          .build()
+      )
+      .withSubjects(
+        new SubjectBuilder()
+          .withKind("ServiceAccount")
+          .withName(Names.serviceAccount(spec.serviceName))
+          .withNamespace(namespace)
+          .build()
+      )
+      .build()
 
   /**
    * Exactly one of these per pass: the address exists when there is a port, and does not when there
@@ -219,20 +321,30 @@ object Rendering:
     val podSpec =
       if provisioned then
         new PodSpecBuilder()
+          .withServiceAccountName(Names.serviceAccount(spec.serviceName))
           .withInitContainers(SchemaInit.container(spec.serviceName))
-          .withContainers(container(spec, withDatabaseEnv = true))
+          .withContainers(container(spec, identity, withDatabaseEnv = true))
           .withVolumes(SchemaInit.volume())
           .build()
-      else new PodSpecBuilder().withContainers(container(spec, withDatabaseEnv = false)).build()
+      else
+        new PodSpecBuilder()
+          .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+          .withContainers(container(spec, identity, withDatabaseEnv = false))
+          .build()
 
     val podTemplate = new PodTemplateSpecBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
           .withLabels(labels.asJava)
-          // The generation on the *pod template* is what makes a rolling replacement happen.
-          // It is why restart needs no separate mechanism: a restart bumps the generation,
-          // the annotation changes, and the pods roll.
-          .withAnnotations(annotations.asJava)
+          // The restart count on the *pod template* is what makes a restart roll the pods: it
+          // changes, the template changes, Kubernetes replaces them. NOT the generation, which is
+          // on the Deployment's own metadata (where status reads it) — feature 001 put it here,
+          // so every apply rolled every pod, and a pure scale replaced the instances that stayed
+          // (feature 004, FR-016). Anything genuinely part of the template — image, env, port —
+          // still rolls, because the template itself changed.
+          .withAnnotations(
+            (spec.annotations + (Labels.RestartsKey -> spec.restarts.toString)).asJava
+          )
           .build()
       )
       .withSpec(podSpec)
@@ -241,15 +353,24 @@ object Rendering:
     val deploymentSpec = new DeploymentSpecBuilder()
       // Paused means zero replicas and nothing else: the configuration stays, so resuming is
       // one field rather than a re-render.
-      .withReplicas(if spec.paused then 0 else Replicas)
+      .withReplicas(replicas(spec))
       .withProgressDeadlineSeconds(spec.progressDeadlineSeconds)
-      // Never two pods at once, not even for the length of a rollout. The default, RollingUpdate
-      // with maxSurge 25%, rounds up to a whole extra pod at one replica — so old and new run
-      // side by side on every deploy and restart, each a single-node cluster of its own, both
-      // writing one journal. That is the failure `Replicas = 1` exists to prevent, reached without
-      // ever changing the replica count. The cost is honest and unavoidable at one replica: a
-      // deploy is a brief outage. The platform's own Deployments already say Recreate.
-      .withStrategy(new DeploymentStrategyBuilder().withType("Recreate").build())
+      // One at a time, literally: a surge pod joins the existing cluster and is ready before an
+      // old pod leaves, so a service is never below its count and — measured — a single-instance
+      // service deploys with no outage at all. Feature 003 rendered Recreate here, and was right
+      // to: a node then joined *itself*, so the surge pod was a second cluster writing the same
+      // journal. Feature 004 removed the cause, and with it the outage (research R6).
+      .withStrategy(
+        new DeploymentStrategyBuilder()
+          .withType("RollingUpdate")
+          .withRollingUpdate(
+            new RollingUpdateDeploymentBuilder()
+              .withMaxSurge(new IntOrString(1))
+              .withMaxUnavailable(new IntOrString(0))
+              .build()
+          )
+          .build()
+      )
       // Immutable after creation. The identity labels only — a value that changed between
       // generations would make the second apply permanently rejected by the API server.
       .withSelector(new LabelSelectorBuilder().withMatchLabels(identity.asJava).build())
@@ -269,7 +390,11 @@ object Rendering:
       .withSpec(deploymentSpec)
       .build()
 
-  private def container(spec: NakkaServiceSpec, withDatabaseEnv: Boolean): Container =
+  private def container(
+      spec: NakkaServiceSpec,
+      identity: Map[String, String],
+      withDatabaseEnv: Boolean
+  ): Container =
     // Requests equal limits. The descriptor models one size, and inventing a ratio between
     // request and limit would be a scheduling policy nobody asked for.
     val quantities = Map(
@@ -309,6 +434,42 @@ object Rendering:
         .build()
     }
 
+    // How a node finds its peers, told to it by the platform — never by the descriptor, which
+    // the control plane refuses if it tries. The selector is the very same identity the
+    // Deployment selects on, so a node can never mistake another service's pods for its own.
+    val clusterEnv = Vector(
+      literal("NAKKA_CLUSTER_MODE", "kubernetes"),
+      new EnvVarBuilder()
+        .withName("POD_IP")
+        .withValueFrom(
+          new EnvVarSourceBuilder()
+            .withFieldRef(new ObjectFieldSelectorBuilder().withFieldPath("status.podIP").build())
+            .build()
+        )
+        .build(),
+      literal("NAKKA_CLUSTER_SERVICE", spec.serviceName),
+      literal(
+        "NAKKA_CLUSTER_POD_SELECTOR",
+        identity.toSeq.sorted.map((k, v) => s"$k=$v").mkString(",")
+      ),
+      literal("NAKKA_CLUSTER_CONTACT_POINTS", requiredContactPoints(spec).toString)
+    )
+    // The management port's NAME is load-bearing: Kubernetes API discovery finds a pod's contact
+    // point by looking for a container port called exactly this. Get it wrong and discovery finds
+    // every pod and can reach none of them.
+    val clusterPorts = Vector(
+      new ContainerPortBuilder()
+        .withName("management")
+        .withContainerPort(ManagementPort)
+        .withProtocol("TCP")
+        .build(),
+      new ContainerPortBuilder()
+        .withName("remoting")
+        .withContainerPort(RemotingPort)
+        .withProtocol("TCP")
+        .build()
+    )
+
     val base = new ContainerBuilder()
       .withName(Names.container(spec.serviceName))
       .withImage(spec.image)
@@ -320,31 +481,36 @@ object Rendering:
       // test deployed registry.k8s.io/pause:3.9: pullable, and not :latest. Becomes a descriptor
       // field the day there is a registry and a re-pushed mutable tag has to be picked up.
       .withImagePullPolicy("IfNotPresent")
-      .withEnv((spec.env.map(environment) ++ portEnv)*)
+      .withEnv((spec.env.map(environment) ++ portEnv ++ clusterEnv)*)
       .withEnvFrom(envFrom*)
-      .withPorts(containerPorts.toList*)
+      .withPorts((containerPorts.toVector ++ clusterPorts)*)
       .withResources(
         new ResourceRequirementsBuilder().withRequests(quantities).withLimits(quantities).build()
       )
 
-    // Readiness, never liveness. This is what makes `Ready` mean "the port is open" rather than
-    // "the JVM launched" — and it does so without LifecycleRules changing at all, because
-    // readyReplicas already counts only pods that pass their probe. A liveness probe would restart
-    // a healthy pod during a long GC, and on a single replica whose entities rehydrate from the
-    // journal that turns a hiccup into an outage. tcpSocket rather than httpGet because the
-    // operator knows neither the workload's routes nor its ACL, and a probe is no place to hold a
-    // bearer token — the control plane's own Deployment settled this the same way.
-    spec.port
-      .fold(base) { port =>
-        base.withReadinessProbe(
-          new ProbeBuilder()
-            .withTcpSocket(new TCPSocketActionBuilder().withPort(new IntOrString(port)).build())
-            .withInitialDelaySeconds(10)
-            .withPeriodSeconds(5)
-            .build()
-        )
-      }
+    // Readiness is cluster membership. Cluster Bootstrap registers that check on the management
+    // endpoint itself; the http module adds "the HTTP server is bound" for a service that declares
+    // a port. So one probe covers both, and a service that serves no HTTP — which feature 003's
+    // tcpSocket could not probe at all — is ready on membership alone. It is also what keeps an
+    // image whose runtime predates this from ever being Ready: no management endpoint, connection
+    // refused, Failed by the Deployment's own deadline. Never liveness: a restart for a slow GC
+    // now also costs a shard rebalance.
+    base
+      .withReadinessProbe(
+        new ProbeBuilder()
+          .withHttpGet(
+            new HTTPGetActionBuilder()
+              .withPath("/ready")
+              .withPort(new IntOrString("management"))
+              .build()
+          )
+          .withPeriodSeconds(5)
+          .build()
+      )
       .build()
+
+  private def literal(name: String, value: String): EnvVar =
+    new EnvVarBuilder().withName(name).withValue(value).build()
 
   /**
    * A secret becomes a reference, never a value.

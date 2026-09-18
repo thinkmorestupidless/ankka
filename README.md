@@ -414,21 +414,22 @@ A descriptor's `service` block takes two optional fields:
 | `port` | `9000` | the port the workload listens on — the runtime's own default |
 | `http` | `true` | `false` for a service that serves no HTTP at all |
 
-From that one resolved value the operator renders four things that therefore cannot disagree: the
-container port, `NAKKA_HTTP_PORT` (so the runtime binds where Kubernetes expects it), a `tcpSocket`
-readiness probe, and a `ClusterIP` Service named after the service. Inside the cluster a service is
-reachable at `<service>` from its own project's namespace, and at
-`<service>.<prefix>-<project>.svc.cluster.local` from anywhere else.
+From that one resolved value the operator renders three things that therefore cannot disagree: the
+container port, `NAKKA_HTTP_PORT` (so the runtime binds where Kubernetes expects it), and a
+`ClusterIP` Service named after the service. Inside the cluster a service is reachable at
+`<service>` from its own project's namespace, and at `<service>.<prefix>-<project>.svc.cluster.local`
+from anywhere else.
 
 Setting `NAKKA_HTTP_PORT` yourself in `env` is refused at apply time: the `port` field is the only
 way to say it, because two ways to say one thing is how an address ends up routing to a port
-nothing listens on. With `"http": false` none of the four is rendered, and the service still
-reaches `Ready` on the container running.
+nothing listens on. With `"http": false` none of the three is rendered.
 
-**The default has teeth.** A descriptor that says nothing asserts "this serves HTTP on 9000" and is
-not `Ready` until it does. That is right for a nakka service and wrong for an image that listens on
-nothing — `registry.k8s.io/pause` needs `"http": false`, or it waits for a port that never opens
-and is reported `Failed` when the rollout's deadline passes.
+Readiness is not tied to the port. The probe is `/ready` on the runtime's management port, and it
+answers 200 only once the instance is a member of the service's cluster *and* every part of the
+runtime with an opinion agrees — the HTTP server, once it has bound. An image that is not a nakka
+service has no such endpoint and is never `Ready`: `registry.k8s.io/pause` is reported `Failed`
+when the rollout's deadline passes, and that is the intended answer, not a gap. See *Instances and
+clusters* below for why membership is the test.
 
 `deploy-local.sh` builds all three images with a single root-level `sbt docker:publishLocal` —
 it aggregates to every project with `DockerPlugin` enabled (`operator`, `controlPlane`, and the
@@ -446,6 +447,63 @@ Setting `DOCKER_REPOSITORY` (see `build.sbt`'s `dockerSettings`) is the whole ch
 one exists. It refuses to run against any `kubectl` context other than a `kind-*` one it is told
 to target, since it is meant for a disposable cluster, never whatever context happens to be
 current.
+
+### Instances and clusters
+
+A service runs as `resources.autoscaling.minInstances` pods, and those pods are **one cluster**:
+one set of entity ids sharded across them, one journal with one writer per entity, cluster
+singletons — the timer sweeper, the projections — on exactly one of them. `minInstances` is
+honoured as a fixed count; `maxInstances` and `targetCpuPercent` are validated and carried but
+no autoscaler is rendered.
+
+Nodes find each other through the Kubernetes API. The operator gives each service a
+ServiceAccount, a Role that can list pods in its own namespace and nothing else, and the five
+environment variables the runtime's Kubernetes overlay needs (`NAKKA_CLUSTER_MODE=kubernetes`,
+`POD_IP`, the Service to discover through, the pod label selector, the contact-point count). A
+descriptor that sets any of them itself is refused at apply time, the same as `NAKKA_HTTP_PORT`.
+The runtime's base configuration says nothing about peers at all: a laptop run gets the `local`
+overlay (join self, or `NAKKA_CLUSTER_SEED_NODES` for a two-terminal cluster), a pod gets the
+`kubernetes` one, and the startup code is the same in both — see `CLAUDE.md`'s *Cluster formation
+is an overlay*.
+
+What that buys, each measured on a real cluster by `MultiNodeClusterSuite`:
+
+- **Deploys and restarts are zero-downtime, at any instance count.** Deployments roll with
+  `maxSurge: 1, maxUnavailable: 0`: a new pod joins the existing cluster and takes its shards by
+  handoff before an old one is stopped. At one instance the surge pod bootstraps into the old pod's
+  cluster, so a single-instance service deploys with no gap either. A reader hammering an entity
+  through the update sees no failed request.
+- **A cold start of N pods forms one cluster, not N.** Cluster Bootstrap needs `min(N, 2)` contact
+  points before it will form a new cluster — enough that two pods starting together find each
+  other, few enough that one unschedulable pod does not hold the service down. Twenty consecutive
+  cold starts of three pods: one cluster every time.
+- **A crashed node (SIGKILL) is downed and replaced; a partition resolves by majority.**
+  `keep-majority` split-brain resolution downs the minority side, which exits so Kubernetes
+  restarts it into a clean rejoin. A pod that had been downed but kept running would be `Running`,
+  never ready, forever — which is why the Kubernetes overlay alone sets `exit-jvm = on`.
+- **Use an odd count.** `keep-majority` needs a majority to exist: with two instances a
+  partition leaves one on each side, neither a majority, and *both* are downed — the service is
+  out until Kubernetes restarts them. Three survives the loss of one; one, trivially, has no
+  partition to survive.
+- **Scaling does not roll.** Changing `minInstances` from 3 to 4 adds one pod; the three keep
+  running. Only `services restart` rolls the pods, through a separate counter on the pod template,
+  so an apply that changes nothing Kubernetes cares about changes nothing Kubernetes sees.
+
+Locally there is no API server to ask, so the `local` overlay names peers instead:
+
+```bash
+NAKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
+NAKKA_CLUSTER_SEED_NODES=pekko://nakka@127.0.0.1:17355 NAKKA_HTTP_PORT=9001 sbt shoppingCart/run
+```
+
+A cart added through `:9000` reads back through `:9001` — one cluster, two terminals. With
+neither variable set a node joins itself, which is why a plain `sbt shoppingCart/run` needs no
+configuration at all.
+
+The control plane runs the same way — three replicas, discovered through the same API, with the
+same `/ready`. Its status watch runs on every node and its projection sweeper on one, and the
+duplicate observations that produces are absorbed by the service entity's own "an identical
+observation is refused" rule rather than by any coordination.
 
 ### Desired state and observed state
 
@@ -548,7 +606,7 @@ everything else, including the whole reconciliation loop against a fake, still r
 | ACL by absent annotation | abstract `def acl` | An unstated ACL is a decision nobody made |
 | `budget_tokens` / `temperature` | `effort`, adaptive thinking | Current Claude models reject both outright |
 | `apply -f service.yaml` | `apply -f service.json` | A YAML parser on the CLI's classpath for a cosmetic difference |
-| `minInstances` defaults to 3 | defaults to 1 | More than one replica does not currently work — see *Not implemented*. Until cluster formation lands, one is the only correct value, not merely the friendly one |
+| `minInstances` defaults to 3 | defaults to 1 | A laptop-sized default. Three is what you want in production and one is what you want while trying the platform out; the number is honoured either way |
 | Four service lifecycle states | seven | `NotDeployed`, `Paused` and `Failed` are distinctions Akka's four cannot express |
 
 ## Layout
@@ -579,19 +637,12 @@ control plane and the operator, so it inherits neither one's world.
 Honest gaps, not oversights:
 
 - **Multi-region.** Single-region only. No replication filters, no `origin` routing.
-- **Zero-downtime deploys.** Every Deployment is rendered with `strategy: Recreate`, so applying
-  or restarting a service is a brief outage: the old pod is gone before the new one starts. This
-  is the same constraint as the next item seen from another side — a rolling update would run
-  two pods at once, and two pods are two writers to one journal.
-- **Multi-replica services.** Every service runs at exactly one replica, and no
-  autoscaler is rendered. This is a correctness constraint, not a default:
-  `pekko.cluster.seed-nodes` is empty and `nakka.join-self-if-no-seed-nodes` is on, so
-  each pod joins *itself*. Two replicas would be two independent single-node clusters
-  sharing one journal, each hosting the same entity ids — two writers to one
-  `persistence_id`. The descriptor's `autoscaling` block is validated and carried into the
-  custom resource, but not honoured. Fixing it needs cluster bootstrap and Kubernetes API
-  discovery in `nakka-runtime`, a headless Service, pod-list RBAC, and management health
-  routes wired to the probes; the operator is the right home for the rendering.
+- **Cluster traffic is neither isolated nor encrypted.** Remoting on 17355 and management on
+  7626 are plain TCP on the pod network, reachable from any namespace, the same as the HTTP port.
+  Pod-label selection stops a node *choosing* a stranger as a peer; nothing stops a stranger
+  connecting. Artery TLS and a `NetworkPolicy` are the fixes, and neither is built.
+- **Autoscaling.** `minInstances` is a fixed count. `maxInstances` and `targetCpuPercent` are
+  validated and stored but nothing acts on them; no HorizontalPodAutoscaler is rendered.
 - **Databases are provisioned automatically, one per service.** The operator manages
   [CloudNativePG](https://cloudnative-pg.io/) `Cluster`, `Database` and `DatabaseRole`
   custom resources: one shared `Cluster` per project, and one `Database`/`DatabaseRole`
@@ -623,11 +674,10 @@ Honest gaps, not oversights:
   configured, not something nakka verifies.
 - **No way in from outside the cluster.** A service gets a `ClusterIP` and nothing more: no
   ingress, no `LoadBalancer`, no TLS. `kubectl port-forward` is how a person reaches one.
-- **Readiness means the port is open, not that the application is healthy.** The probe is a
-  `tcpSocket`, because the operator knows neither a workload's routes nor its ACL. What a deeper
-  check should assert, and what a service would have to implement to satisfy it, is undecided.
-  There is deliberately no liveness probe: on a single replica whose entities rehydrate from the
-  journal, restarting a pod for a slow GC turns a hiccup into an outage.
+- **Readiness means the node has joined and bound, not that the application is healthy.** The
+  probe is the runtime's own `/ready`; it does not call a route, because the operator knows
+  neither a workload's routes nor its ACL. There is deliberately no liveness probe: entities
+  rehydrate from the journal, so restarting a pod for a slow GC costs more than the GC did.
 - **Projects are not a network boundary.** A `ClusterIP` is reachable from every namespace, so any
   project's pods can call any other project's service. Projects separate names and databases —
   the latter enforced, down to a revoked `PUBLIC CONNECT` — but not traffic. That would be

@@ -230,3 +230,31 @@ class DescriptorSuite extends munit.FunSuite:
     assert(problems.exists(_.contains("outside the range")), problems.toString)
     assert(problems.exists(_.contains("conflicts with the service port")), problems.toString)
   }
+
+  test("the platform's cluster variables are refused by name, whatever their value") {
+    for name <- ServiceSpec.PlatformEnvVars do
+      val literal = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("x")))).problems
+      val fromSecret = ServiceSpec(
+        "i:1",
+        env = Vector(EnvVar(name, secretKeyRef = Some(SecretKeyRef("s", "k"))))
+      ).problems
+      assert(
+        literal.exists(_.contains(s"'$name' is set by the platform")),
+        s"$name literal: $literal"
+      )
+      assert(
+        fromSecret.exists(_.contains(s"'$name' is set by the platform")),
+        s"$name secret: $fromSecret"
+      )
+  }
+
+  test("a neighbour of a platform variable is not refused") {
+    assertEquals(
+      ServiceSpec("i:1", env = Vector(EnvVar("NAKKA_CLUSTER_MODE_X", value = Some("x")))).problems,
+      Vector.empty
+    )
+    assertEquals(
+      ServiceSpec("i:1", env = Vector(EnvVar("MY_POD_IP", value = Some("x")))).problems,
+      Vector.empty
+    )
+  }

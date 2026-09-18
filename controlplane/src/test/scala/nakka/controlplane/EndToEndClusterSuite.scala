@@ -10,7 +10,7 @@ import nakka.controlplane.deploy.{DeployConfig, Fabric8NakkaServiceClient, Servi
 import nakka.crd.{NakkaSerialization, NakkaService}
 import nakka.operator.cnpg.{PostgresCluster, PostgresDatabase, PostgresDatabaseRole}
 import nakka.http.HttpServer
-import nakka.operator.{Operator, ServiceReconciler, Settings as OperatorSettings}
+import nakka.operator.{ClusterImages, Operator, ServiceReconciler, Settings as OperatorSettings}
 import nakka.runtime.ProjectionRuntime
 import nakka.testkit.NakkaTestKit
 import org.slf4j.LoggerFactory
@@ -47,14 +47,16 @@ class EndToEndClusterSuite extends munit.FunSuite:
   private val Service   = "cart"
 
   /**
-   * Images that stay running without a command.
+   * The sample, under its two tags.
    *
-   * `busybox` exits immediately — its default command needs a TTY — so a Deployment built from it
-   * crash-loops and never reports Ready. `pause` is the smallest thing that just sits there, which
-   * is all a reconciliation test needs from a workload.
+   * Feature 001 used `pause` here: the smallest thing that just sits there, which was all a
+   * reconciliation test needed from a workload. Since feature 004 readiness means cluster
+   * membership, and an image with no nakka runtime can never be Ready — by design (FR-022). So the
+   * workload is now the real sample, and "change the image" is the same image under its other tag,
+   * which still changes the pod template and still rolls.
    */
-  private val FirstImage  = "registry.k8s.io/pause:3.9"
-  private val SecondImage = "registry.k8s.io/pause:3.10"
+  private val FirstImage  = "sample-shopping-cart:latest"
+  private val SecondImage = "sample-shopping-cart:0.1.0-SNAPSHOT"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
@@ -86,6 +88,9 @@ class EndToEndClusterSuite extends munit.FunSuite:
 
       k8s.load(getClass.getResourceAsStream("/nakka/crd/nakkaservice.yaml")).serverSideApply(): Unit
 
+      ClusterImages.importInto(k3s, FirstImage)
+      ClusterImages.importInto(k3s, SecondImage)
+
       // CloudNativePG too — the control plane always projects provisionDatabase = true until
       // the escape hatch exists, so every service applied in this suite goes through real
       // provisioning, not just the ones that specifically test it.
@@ -114,7 +119,7 @@ class EndToEndClusterSuite extends munit.FunSuite:
       operator.start()
 
       val deployConfig = DeployConfig.default
-        .copy(namespacePrefix = Prefix, sweepInterval = 2.seconds, progressDeadline = 60.seconds)
+        .copy(namespacePrefix = Prefix, sweepInterval = 2.seconds, progressDeadline = 170.seconds)
       val projector = ServiceProjector.withClient(
         deployConfig,
         new Fabric8NakkaServiceClient(k8s, Prefix, resyncMillis = 2000L)
@@ -178,12 +183,7 @@ class EndToEndClusterSuite extends munit.FunSuite:
     val file = Files.createTempFile("cart", ".json")
     Files.writeString(
       file,
-      // "http": false because `pause` opens no port. The default now means "serves HTTP on 9000,
-      // and is not Ready until it does", which is right for a nakka service and would leave this
-      // one un-Ready forever. Not a workaround: this suite's subject is the two halves agreeing
-      // about the resource, the workload is irrelevant to it, and this is the honest descriptor
-      // for a workload that serves nothing. SampleDeploymentClusterSuite covers one that does.
-      s"""{"name":"$Service","service":{"image":"$image","http":false}}"""
+      s"""{"name":"$Service","service":{"image":"$image"}}"""
     )
     file
 
@@ -201,7 +201,10 @@ class EndToEndClusterSuite extends munit.FunSuite:
     val file = Files.createTempFile("external", ".json")
     Files.writeString(
       file,
-      s"""{"name":"$SuppliedService","service":{"image":"$FirstImage","http":false,""" +
+      // `pause`, deliberately, and never Ready: a supplied database the sample cannot reach would
+      // fail its startup just the same, and what this case asserts is what the platform does NOT
+      // provision, plus the reported phase — neither needs the workload up.
+      s"""{"name":"$SuppliedService","service":{"image":"registry.k8s.io/pause:3.9","http":false,""" +
         """"env":[{"name":"NAKKA_DB_HOST","value":"external-db.example.com"}]}}"""
     )
     val (code, out) = nakka("services", "apply", "-f", file.toString, "-p", Project)
@@ -278,14 +281,15 @@ class EndToEndClusterSuite extends munit.FunSuite:
     assertEquals(nakka("services", "restart", Service, "-p", Project)._1, 0)
 
     waitFor(120.seconds)(resource.exists(_.getSpec.generation > before))
+    // A restart is a restart count, on the pod template — the generation is not there any more,
+    // or a pure scale would replace every pod (feature 004, FR-016).
     waitFor(120.seconds)(
       deployment.exists(
         _.getSpec.getTemplate.getMetadata.getAnnotations
-          .get(
-            "nakka.thinkmorestupidless.com/generation"
-          ) == resource.get.getSpec.generation.toString
+          .get("nakka.thinkmorestupidless.com/restarts") == resource.get.getSpec.restarts.toString
       )
     )
+    assertEquals(resource.get.getSpec.restarts, 1)
     assertEquals(
       deployment.get.getSpec.getTemplate.getSpec.getContainers.get(0).getImage,
       SecondImage,
@@ -311,7 +315,6 @@ class EndToEndClusterSuite extends munit.FunSuite:
         k8s.apps().deployments().inNamespace(Namespace).withName(SuppliedService).get()
       ).isDefined
     )
-    waitFor(180.seconds)(nakka("services", "list", "-p", Project)._2.contains("Ready"))
 
     assert(
       Option(

@@ -7,12 +7,18 @@ metadata:
     app.kubernetes.io/managed-by: nakka
     app.kubernetes.io/name: nakka-controlplane
 spec:
-  # One. Sharding forms a single-node cluster per pod today (see the operator's own note on
-  # nakka.join-self-if-no-seed-nodes) — the same constraint that caps every nakka service at
-  # one replica applies to the control plane itself, since it is a nakka application too.
-  replicas: 1
+  # Three, forming one cluster (feature 004): the control plane is a nakka application and runs
+  # on the same mechanism as any service. Odd, because the partition strategy keeps the
+  # majority. Memory on a laptop's kind: three of the limits below.
+  replicas: 3
+  # One at a time. A surge pod joins the existing cluster and is Ready before an old one
+  # leaves, so a deploy is no longer an outage; Recreate was right only while a pod joined
+  # itself.
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: nakka-controlplane
@@ -53,6 +59,12 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9000
+            # The NAME "management" is load-bearing: Kubernetes API discovery finds a pod's
+            # contact point by looking for a container port called exactly that.
+            - name: management
+              containerPort: 7626
+            - name: remoting
+              containerPort: 17355
           envFrom:
             - secretRef:
                 name: nakka-controlplane-token
@@ -61,6 +73,19 @@ spec:
             # every service reporting "no operator has reported on this service".
             - name: NAKKA_K8S_NAMESPACE_PREFIX
               value: "nakka"
+            # How this pod finds its peers — the same five variables the operator injects into
+            # every service (feature 004). NAKKA_CLUSTER_MODE selects the Kubernetes overlay.
+            - name: NAKKA_CLUSTER_MODE
+              value: kubernetes
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - name: NAKKA_CLUSTER_SERVICE
+              value: nakka-controlplane
+            - name: NAKKA_CLUSTER_POD_SELECTOR
+              value: "app.kubernetes.io/name=nakka-controlplane"
+            - name: NAKKA_CLUSTER_CONTACT_POINTS
+              value: "2"
             # CNPG's bootstrap.initdb generates this secret itself (contracts/credentials.md)
             # under its own key names, mapped one-for-one onto the runtime's NAKKA_DB_* — the
             # runtime cannot tell a CNPG-managed database from any other kind, which is exactly
@@ -80,13 +105,14 @@ spec:
             - name: NAKKA_DB_PASSWORD
               valueFrom:
                 secretKeyRef: { name: nakka-controlplane-db-app, key: password }
+          # Cluster membership, plus "the HTTP server is bound" — the runtime's own readiness
+          # check, served by Pekko Management. Not the tcpSocket it used to be: a member that
+          # is not yet listening must not receive traffic, and a pod that is listening but not
+          # yet a member must not either.
           readinessProbe:
-            # tcpSocket rather than httpGet: every route needs the bearer token, and a probe
-            # is not a place to duplicate it. The port only opens once HttpServer has bound,
-            # which is a late enough signal that this is a reasonable proxy for "ready".
-            tcpSocket:
-              port: 9000
-            initialDelaySeconds: 10
+            httpGet:
+              path: /ready
+              port: management
             periodSeconds: 5
           resources:
             requests:

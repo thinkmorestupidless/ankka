@@ -25,6 +25,7 @@ class LifecycleRulesSuite extends munit.FunSuite:
       specReplicas: Int = 1,
       readyReplicas: Int = 1,
       updatedReplicas: Int = 1,
+      totalReplicas: Int = -1,
       k8sGeneration: Long = 3L,
       observedGeneration: Long = 3L,
       progressing: Option[ConditionState] = None,
@@ -35,6 +36,8 @@ class LifecycleRulesSuite extends munit.FunSuite:
     specReplicas = specReplicas,
     readyReplicas = readyReplicas,
     updatedReplicas = updatedReplicas,
+    // Defaults to "no old pods around" unless a test says otherwise.
+    totalReplicas = if totalReplicas < 0 then updatedReplicas else totalReplicas,
     k8sGeneration = Some(k8sGeneration),
     observedGeneration = Some(observedGeneration),
     progressing = progressing,
@@ -98,10 +101,22 @@ class LifecycleRulesSuite extends munit.FunSuite:
     assertEquals(status.detail, None)
   }
 
-  test("rule 8: some but not all ready is PartiallyReady") {
-    // Unreachable at one replica; implemented now so multi-replica need not retrofit it.
+  test("rule 8: some but not all ready is PartiallyReady, with both counts") {
+    // Written in feature 001 as "unreachable at one replica"; reachable since feature 004.
     val partial = snapshot(specReplicas = 3, readyReplicas = 2, updatedReplicas = 3)
-    assertEquals(observe(c = Some(partial)).lifecycle, "PartiallyReady")
+    val status  = observe(c = Some(partial))
+    assertEquals(status.lifecycle, "PartiallyReady")
+    assertEquals(status.readyInstances, 2)
+    assertEquals(status.desiredInstances, 3)
+  }
+
+  test("rule 7b: pods of the old template still present is UpdateInProgress, never Ready") {
+    // Mid-rollout the Deployment reports updated = spec (the new pods exist) and ready = spec —
+    // but the pod being counted ready can be an OLD one that has not yet been replaced. Seen
+    // live in feature 003, and hidden rather than fixed by Recreate; RollingUpdate brings it back.
+    val rolling =
+      snapshot(specReplicas = 3, readyReplicas = 3, updatedReplicas = 3, totalReplicas = 4)
+    assertEquals(observe(c = Some(rolling)).lifecycle, "UpdateInProgress")
   }
 
   test("rule 9: none ready while some are wanted is Unavailable") {

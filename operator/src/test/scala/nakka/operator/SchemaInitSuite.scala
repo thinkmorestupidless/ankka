@@ -132,3 +132,27 @@ class SchemaInitSuite extends munit.FunSuite:
       "cart-db"
     )
   }
+
+  test(
+    "the schema is applied under an advisory lock taken in the SAME psql session, before the first file"
+  ) {
+    // Several pods of one service now cold-start together, and CREATE TABLE IF NOT EXISTS races.
+    val script  = SchemaInit.container("cart").getCommand.asScala.last
+    val lines   = script.linesIterator.toVector
+    val lockAt  = lines.indexWhere(_.contains("pg_advisory_lock"))
+    val filesAt = lines.indexWhere(_.contains("-f %s"))
+    assert(lockAt >= 0, "no advisory lock")
+    assert(lockAt < filesAt, "the lock must come before the files")
+    // One session: every line between the psql invocation and the REVOKE is a continuation.
+    val psqlAt   = lines.lastIndexWhere(_.trim.startsWith("psql "))
+    val revokeAt = lines.indexWhere(_.contains("REVOKE CONNECT"))
+    for i <- psqlAt until revokeAt do
+      assert(
+        lines(i).endsWith("\\"),
+        s"line $i is not a continuation, so the lock is in a different session: ${lines(i)}"
+      )
+      assert(
+        !lines(i).endsWith("\\\\"),
+        s"line $i ends in a double backslash — triple-quoted strings do no escaping (feature 003)"
+      )
+  }

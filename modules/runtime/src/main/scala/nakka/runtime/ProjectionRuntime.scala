@@ -64,8 +64,12 @@ final class ProjectionRuntime private (
 
       // Tables must exist before any projection writes to them.
       if views.nonEmpty then
+        // Under an advisory lock, in one transaction: several nodes of one service cold-start at
+        // once and CREATE TABLE IF NOT EXISTS races (ViewStore.schemaLock explains).
         Await.result(
-          database.executeAll(views.map(v => ViewStore.createTable(v.tableName))),
+          database.executeAllInTransaction(
+            ViewStore.schemaLock +: views.map(v => ViewStore.createTable(v.tableName))
+          ),
           30.seconds
         )
         views.foreach(v => system.log.info("view '{}' -> table {}", v.componentId, v.tableName))

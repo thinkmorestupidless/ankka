@@ -65,10 +65,23 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
-  # Read-only, and only to explain why a Deployment is not ready.
+  # Read-only, and only to explain why a Deployment is not ready. Since feature 004 this is also
+  # what lets the operator GRANT the same three verbs to a service (below): Kubernetes refuses to
+  # let a principal create a Role granting what it does not itself hold, so no escalate/bind.
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
+  # A service's own identity and its one permission — reading its project's pods, so its nodes
+  # can find each other (feature 004). All three are owned by the NakkaService and go with it, so
+  # no delete. "patch" because every ensure is a server-side apply, a PATCH even for a new object.
+  # Proven under this ClusterRole's REAL identity by OperatorClusterSuite, not assumed: the suites
+  # otherwise run the operator as admin, and this file has been wrong that way twice before.
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Database provisioning (feature 002). No delete anywhere below: nothing this platform does
   # may destroy a database, and withholding the verb makes that structural rather than a
   # promise the code keeps — retain reclaim policies are belt and braces on top of it.

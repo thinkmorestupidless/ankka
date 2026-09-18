@@ -53,6 +53,15 @@ NAKKA_CONTROLPLANE_TOKEN=dev sbt controlPlane/run
 sbt 'cli/run services list --url http://localhost:9000 --token dev -p checkout'
 ```
 
+A two-node cluster on one machine, to see sharding and handoff without Kubernetes — fix the
+first node's port so the second can name it (the default is a random port, so several services
+and test suites can share a laptop):
+
+```bash
+NAKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
+NAKKA_CLUSTER_SEED_NODES=pekko://nakka@127.0.0.1:17355 NAKKA_HTTP_PORT=9001 sbt shoppingCart/run
+```
+
 `AnthropicProviderSuite` exercises the live API and **skips** unless `ANTHROPIC_API_KEY`
 is set. Everything else is deterministic and offline.
 
@@ -185,6 +194,43 @@ unexpected commands explicitly, and for `InvokeStream` that means *replying*, si
 caller waiting on a token stream would otherwise hang forever. An earlier comment
 claiming exhaustivity was preserved was wrong; that mistake let exactly that hang in.
 
+### Cluster formation is an overlay, chosen by where the process runs
+
+`reference.conf` says nothing about how a node finds its peers — no hostname, no port, no seed
+nodes, no join-self. That lives in one overlay per means of execution,
+`modules/runtime/src/main/resources/nakka-cluster-<mode>.conf`, selected by `NAKKA_CLUSTER_MODE`:
+
+| mode | set by | formation |
+|---|---|---|
+| `local` (default) | nobody | join `NAKKA_CLUSTER_SEED_NODES` if given, else join self; loopback, random port |
+| `kubernetes` | the operator, never a descriptor | Cluster Bootstrap over the Kubernetes API, `${POD_IP}`, fixed ports 17355/7626 |
+
+`ClusterConfig.load` stacks them — system properties > the service's `application.conf` > the
+overlay > `reference.conf` — so a service's own file can override any choice the platform made,
+and a *new* means of execution is a new overlay file plus one entry in `ClusterConfig.Modes`.
+`ClusterFormation.form` then reads `nakka.cluster.formation` and either joins programmatically
+or starts Pekko Management and Cluster Bootstrap; the startup code is identical in every mode.
+
+The Kubernetes overlay's substitutions are `${X}`, not `${?X}`: a missing `POD_IP` must be a
+startup failure naming it, not a node that binds loopback and quietly joins nothing. The operator
+supplies all five (`NAKKA_CLUSTER_MODE`, `POD_IP`, `NAKKA_CLUSTER_SERVICE`,
+`NAKKA_CLUSTER_POD_SELECTOR`, `NAKKA_CLUSTER_CONTACT_POINTS`), and `ServiceSpec.problems`
+refuses a descriptor that sets any of them — the same rule as `NAKKA_HTTP_PORT`.
+
+Readiness in that mode is `/ready` on the management port: cluster membership (Bootstrap's
+own check) AND every `RuntimeExtension` with an opinion — `HttpServer` says no until it has
+bound. An image whose runtime predates this feature has no management endpoint at all, so it
+is held un-ready rather than joining itself beside its peers; that is the safety net for old
+images, not an accident.
+
+The dependencies this adds to `runtime` are `pekko-management`, `pekko-management-cluster-bootstrap`,
+`pekko-management-cluster-http` and `pekko-discovery-kubernetes-api` (`project/Dependencies.scala`,
+`pekkoMgmt`); they are what forced the `pekkoHttpFamily` override described under traps.
+
+The reference for the shape is the substrate project's three-file layout; its
+`-Dconfig.resource` selector was rejected because it *replaces* `application.conf`, which
+belongs to the service, not the platform.
+
 ### Virtual threads
 
 Endpoints, workflow steps, consumers, timers and agent loops all run on
@@ -303,25 +349,70 @@ factory shapes would break lambda parameter inference at every call site.
   spawning a subprocess.
 - **A Deployment's `spec.selector` is immutable.** It must never contain nakka's
   generation, or the second apply is rejected permanently and the service is bricked at
-  generation 2. The generation goes on the *pod template's* annotations instead, which is
-  also what makes a restart roll the pods — so restart and apply are one mechanism.
-- **`strategy: Recreate`, always — a rolling update is a second replica by another name.**
-  Kubernetes' default is `RollingUpdate` with `maxSurge: 25%`, which at one replica rounds up to a
-  whole extra pod: old and new run side by side on every deploy and restart, each its own
-  single-node cluster, both writing one journal, with the Service routing to both. It breaks
-  "never more than one replica" without touching the replica count. The platform's own manifests
-  always said `Recreate`; rendered workloads did not, unnoticed for two features because `pause`
-  has no journal and, with no readiness probe, the overlap lasted a second. The price is honest:
-  at one replica a deploy is a brief outage.
+  generation 2. The generation lives on the Deployment's own annotations.
+- **The generation must not be on the pod template either.** Feature 001 put it there so a
+  restart would roll the pods — but the generation increments on *every* apply, so every apply
+  rolled every pod, including one that only changed the instance count. Found by the test
+  that scales 3→4 and asserts the three existing pods survive. What rolls the pods is a
+  separate `restarts` counter on the pod template, incremented only by `services restart`;
+  an apply that changes nothing Kubernetes cares about changes nothing Kubernetes sees.
+- **`RollingUpdate` with `maxSurge: 1, maxUnavailable: 0` — feature 003's `Recreate` was
+  reversed, on purpose.** `Recreate` was correct while every pod joined itself: a rolling update
+  put two single-node clusters on one journal. Once nodes find each other (feature 004) the
+  overlap is the *point* — the new pod joins the existing cluster, takes its shards by handoff
+  and only then is an old one stopped — and `Recreate` would be the outage. This holds at one
+  instance too, measured: the surge pod bootstraps into the old pod's cluster, so a single-instance
+  service deploys with no downtime either. Do not put `Recreate` back for "safety"; the guard
+  against the split it once prevented is now `join-self-if-no-seed-nodes = off` in the Kubernetes
+  overlay, where joining self *is* the split.
 - **Changing a field Kubernetes defaulted can wedge every existing object.** Moving a live
-  Deployment to `Recreate` is rejected — `invalid: spec.strategy` — while its defaulted
-  `rollingUpdate` block is still there, and server-side apply cannot remove a field no manager
-  owns. Every reconcile then fails forever. A JSON merge patch can (`"rollingUpdate": null`);
-  `Fabric8Executor` does exactly that, once, on that exact 422. **Tests that start from an empty
-  cluster cannot see this class of bug** — it took a real cluster with a real leftover object.
-- **Never render a HorizontalPodAutoscaler, and never more than one replica.** Each pod
-  joins itself as a single-node cluster, so a second replica is a second writer to the
-  same journal. An autoscaler reaches that state on its own.
+  Deployment from `RollingUpdate` to `Recreate` was rejected — `invalid: spec.strategy` — while
+  its defaulted `rollingUpdate` block was still there, and server-side apply cannot remove a
+  field no manager owns; every reconcile then failed forever, until a one-off JSON merge patch
+  (`"rollingUpdate": null`). The reverse migration needs no such thing (an apply that *sets*
+  `rollingUpdate` owns it), so that code is gone — but the class of bug stays: **tests that
+  start from an empty cluster cannot see it**. It took a real cluster with a real leftover
+  object, and the rolling-update migration test exists to keep it in view.
+- **Never render a HorizontalPodAutoscaler.** `minInstances` is honoured as a fixed count, and
+  that is the whole story until nakka has a reason to scale on load. An autoscaler that
+  scaled to zero would also be a cold start nobody asked for.
+- **`pekko.coordinated-shutdown.exit-jvm = on` belongs in the Kubernetes overlay only, never
+  `reference.conf`.** In a pod a process is a node and exiting after a split-brain down is the
+  point — without it the pod stays `Running`, never ready, never restarted. Anywhere else it
+  turns the first stopped `ActorSystem` into a dead process: put in the base, it killed the
+  forked test JVM (`Forked test harness failed: EOFException`) the moment a suite called
+  `NakkaTestKit.stop()`.
+- **`pekko.cluster.seed-nodes = ${?ENV}` is a type error at load.** It is a list, and an
+  environment variable is a string. The local overlay's `nakka.cluster.seed-nodes` is a
+  comma-separated *string* under nakka's own key, and `ClusterFormation` splits it and joins
+  programmatically — the same call it makes to join itself.
+- **`ClusterConfig.layered` puts the overlay *above* a config a caller built for itself.**
+  The obvious precedence (overlay beneath the application) is what `load` does, and it is wrong
+  for a config that came from `ConfigFactory.load()` — the test kit's — because that config
+  already carries Pekko's reference defaults for every key the overlay sets, a fixed remoting
+  port among them. Two test systems on one machine then bind the same port. A config that
+  already has `nakka.cluster.formation` came from the loader and passes through untouched.
+- **pekko-management pulls `pekko-http` 1.1.0, and eviction lifts only part of the family.**
+  `pekko-http` goes to 1.4.0 but `pekko-http-spray-json` stays, and Pekko HTTP checks family
+  versions at startup — every HTTP suite died in `beforeAll`. `dependencyOverrides ++=
+  pekkoHttpFamily` in `commonSettings` pins all of them; add any new pekko-http artifact to that
+  list, not only to `libraryDependencies`.
+- **Scaling a Deployment directly is undone within one resync.** The operator's reconcile
+  loop restores the replica count from the resource, so `kubectl scale --replicas=0` is not how
+  a test takes a service down: it is back before the assertion runs. `nakka services pause` /
+  `resume` is — the count is rendered from the spec, and pause is the spec saying zero.
+- **The container port's *name* `management` is load-bearing.** The readiness probe is
+  `httpGet` on the port by name, not number, so renaming the port in `Rendering` (or in the
+  control plane's own manifest) leaves a probe that resolves to nothing and a pod that is never
+  ready, with no error anywhere.
+- **"Marking node as UNREACHABLE" for a node that just exited is expected, not a bug.** A
+  graceful leave still has the failure detector fire on the survivors between the socket
+  closing and the `Removed` propagating; a test asserting *zero* unreachable events during a
+  clean leave is asserting something Pekko does not promise. Assert on membership converging.
+- **`kubectl delete pod --force` is a graceful leave, not a crash.** It still sends SIGTERM
+  and the node runs coordinated shutdown, so it proves nothing about failure detection or the
+  split-brain resolver. A crash test is `kill -9` of the JVM from the node (`crictl` inside the
+  k3s container), and a partition test is `iptables` — `MultiNodeClusterSuite` does both.
 - **Two things are called "generation".** nakka's lives in the resource's `spec` and is
   what `Service.onObserved` compares; Kubernetes' is `metadata.generation` and is only
   meaningful against `status.observedGeneration`. Conflating them reports the right answer
@@ -342,9 +433,10 @@ factory shapes would break lambda parameter inference at every call site.
   which is every time a project's namespace is new — the one case that rule exists for. Any
   resource written via `serverSideApply()` needs `patch` in its ClusterRole. Caught only by
   deploying against a real cluster: the k3s test suites mostly use kind's/testcontainers'
-  admin credentials directly rather than exercising the shipped RBAC — one exception mints
-  a real token for the operator's own ServiceAccount to prove a withheld verb is refused by
-  the API server itself, not just unused (`OperatorClusterSuite`, feature 002 US5).
+  admin credentials directly rather than exercising the shipped RBAC — the exceptions mint a
+  real token for the operator's own ServiceAccount, and for a deployed service's, to prove a
+  withheld verb is refused by the API server itself, not just unused (`OperatorClusterSuite`,
+  features 002 US5 and 004 US1).
 - **A `Database` or `DatabaseRole` referencing a `Cluster` in another namespace gets no
   status and no events at all**, not an error — the CNPG reconciler simply never touches
   it. This is why per-project Postgres capacity lives in the project's own namespace rather

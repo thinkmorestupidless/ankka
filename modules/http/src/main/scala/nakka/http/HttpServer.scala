@@ -78,6 +78,9 @@ final class HttpServer private (
     binding.foreach(b => Await.ready(b.terminate(5.seconds), 10.seconds))
     binding = None
 
+  /** Not ready until bound: a member that cannot yet answer a request must not receive one. */
+  override def readiness: Option[() => Boolean] = Some(() => binding.isDefined)
+
   /** The bound port, useful when the configured port was 0. */
   def boundPort: Option[Int] = binding.map(_.localAddress.getPort)
 

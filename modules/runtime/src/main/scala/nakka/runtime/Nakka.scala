@@ -1,6 +1,6 @@
 package nakka.runtime
 
-import com.typesafe.config.{Config, ConfigFactory}
+import com.typesafe.config.Config
 import nakka.core.*
 import nakka.sdk.*
 import nakka.sdk.ComponentClient
@@ -8,11 +8,10 @@ import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.MemberStatus
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity}
-import org.apache.pekko.cluster.typed.{Cluster, Join}
+import org.apache.pekko.cluster.typed.Cluster
 
 import scala.concurrent.Future
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.jdk.CollectionConverters.*
 
 /**
  * Something that runs alongside the hosted components and needs the service to exist before it can
@@ -30,6 +29,16 @@ trait RuntimeExtension:
 
   /** Called when the service terminates. */
   def stop(): Unit = ()
+
+  /**
+   * Whether this extension is ready to serve, for the node's readiness check.
+   *
+   * `None` means "not applicable" and never holds readiness back. An extension that is not ready
+   * until it has done something — bound a port, say — returns `Some` of a supplier saying whether
+   * it has. `start` runs only after the node is a cluster member, so without this there is a moment
+   * where a pod is a member, reports ready, and cannot yet answer a request.
+   */
+  def readiness: Option[() => Boolean] = None
 
 /** Entry point for defining and starting a nakka service. */
 object Nakka:
@@ -75,9 +84,11 @@ final class ServiceBuilder private[nakka] (
   /** Creates an actor system and hosts every registered component on it. */
   def start(
       name: String = "nakka",
-      config: Config = ConfigFactory.load()
+      config: Config = ClusterConfig.load()
   ): NakkaService =
-    val system = ActorSystem(Behaviors.empty, name, config)
+    // Idempotent for a config the loader produced; for one a caller assembled itself, this is
+    // what supplies the overlay it does not have.
+    val system = ActorSystem(Behaviors.empty, name, ClusterConfig.layered(config))
     host(system, ownsSystem = true)
 
   /** Hosts every registered component on an existing actor system. */
@@ -88,7 +99,10 @@ final class ServiceBuilder private[nakka] (
     val registry = ComponentRegistry.fromOrThrow(descriptors)
     val sharding = ClusterSharding(system)
 
-    joinSelfIfUnseeded(system)
+    // Before formation: in Kubernetes the readiness check is served by the management endpoint
+    // formation starts, and it must be able to see every extension's answer from its first call.
+    ExtensionsReadiness(system).register(extensions.flatMap(_.readiness))
+    ClusterFormation.form(system)
 
     val askTimeout =
       FiniteDuration(
@@ -136,20 +150,6 @@ final class ServiceBuilder private[nakka] (
     }
 
     service
-
-  /**
-   * Forms a single-node cluster when no seeds are configured.
-   *
-   * A nakka service is always a cluster, including on a laptop — running the same code path in
-   * development and production is the point. Joining self removes the configuration step that would
-   * otherwise make local runs a special case.
-   */
-  private def joinSelfIfUnseeded(system: ActorSystem[?]): Unit =
-    val config = system.settings.config
-    val seeds  = config.getStringList("pekko.cluster.seed-nodes").asScala
-    if seeds.isEmpty && config.getBoolean("nakka.join-self-if-no-seed-nodes") then
-      val cluster = Cluster(system)
-      cluster.manager ! Join(cluster.selfMember.address)
 
   private def initEventSourced(
       sharding: ClusterSharding,

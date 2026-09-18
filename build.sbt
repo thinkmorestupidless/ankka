@@ -54,6 +54,7 @@ lazy val commonSettings = Seq(
   ),
   javacOptions ++= Seq("--release", "21"),
   libraryDependencies ++= commonTest,
+  dependencyOverrides ++= pekkoHttpFamily,
   Test / fork              := true,
   Test / parallelExecution := false,
   // Virtual threads carry ComponentClient.invoke; keep the surface honest under test too.
@@ -104,6 +105,11 @@ lazy val runtime = project
       pekkoClusterShardingTyped,
       pekkoPersistenceTyped,
       pekkoPersistenceQuery,
+      pekkoDiscovery,
+      pekkoManagement,
+      pekkoManagementClusterHttp,
+      pekkoManagementBootstrap,
+      pekkoDiscoveryKubernetesApi,
       pekkoR2dbc,
       r2dbcPostgres,
       pekkoProjection,
@@ -202,7 +208,14 @@ lazy val operator = project
     // point, and leaving it to discovery is one new `@main` away from an ambiguous-main
     // build failure that has nothing to do with what changed.
     Compile / mainClass := Some("nakka.operator.Main"),
-    libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test)
+    libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test),
+    // As for controlPlane below: OperatorClusterSuite deploys the real sample since feature 004,
+    // because only a real nakka image can be Ready now that readiness is cluster membership.
+    sampleImageForClusterTests := Def.taskDyn {
+      if (sys.props.get("nakka.cluster.tests").contains("off")) Def.task(())
+      else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
+    }.value,
+    Test / test := (Test / test).dependsOn(sampleImageForClusterTests).value
   )
 
 /**
@@ -220,7 +233,18 @@ lazy val operator = project
  */
 lazy val controlPlane = project
   .in(file("controlplane"))
-  .dependsOn(controlPlaneApi, crd, sdk, runtime, http, cli % Test, operator % Test, testkit % Test)
+  .dependsOn(
+    controlPlaneApi,
+    crd,
+    sdk,
+    runtime,
+    http,
+    cli % Test,
+    // test->test as well: the cluster suites share the image-import helper, and since feature
+    // 004 both modules' suites must deploy a real nakka image to see a service go Ready.
+    operator % "test->test;test->compile",
+    testkit  % Test
+  )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)
@@ -242,7 +266,13 @@ lazy val controlPlane = project
       // Read in sbt's own JVM, at task-graph time. A switch that skips the suite but still spends
       // a minute building an image it will not use is not skipping it.
       if (sys.props.get("nakka.cluster.tests").contains("off")) Def.task(())
-      else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
+      else
+        Def.task {
+          // ControlPlaneClusterSuite (feature 004) deploys the control plane itself into k3s.
+          (shoppingCart / Docker / publishLocal).value
+          (Docker / publishLocal).value // this project's own image, unscoped to avoid self-reference
+          ()
+        }
     }.value,
     Test / test := (Test / test).dependsOn(sampleImageForClusterTests).value
   )

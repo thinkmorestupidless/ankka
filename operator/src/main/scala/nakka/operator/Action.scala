@@ -1,7 +1,8 @@
 package nakka.operator
 
 import io.fabric8.kubernetes.api.model.apps.Deployment
-import io.fabric8.kubernetes.api.model.{ConfigMap, Secret, Service}
+import io.fabric8.kubernetes.api.model.rbac.{Role, RoleBinding}
+import io.fabric8.kubernetes.api.model.{ConfigMap, Secret, Service, ServiceAccount}
 import nakka.crd.NakkaServiceStatus
 import nakka.operator.cnpg.{PostgresCluster, PostgresDatabase, PostgresDatabaseRole}
 
@@ -44,6 +45,14 @@ enum Action:
    * cost nothing when there is nothing to remove: the executor reads first.
    */
   case RemoveService(namespace: String, name: String, ownerUid: String)
+
+  /**
+   * A service's own identity and its one permission — reading the pods of its own project, so its
+   * nodes can find each other. All owned by the resource; none needs a delete verb.
+   */
+  case EnsureServiceAccount(serviceAccount: ServiceAccount)
+  case EnsureRole(role: Role)
+  case EnsureRoleBinding(roleBinding: RoleBinding)
 
   /** Writes the status subresource, and nothing else. */
   case SetStatus(namespace: String, name: String, status: NakkaServiceStatus)
@@ -92,7 +101,12 @@ enum Action:
     case DeleteDeployment(ns, name) => s"delete deployment $ns/$name"
     case EnsureService(svc) =>
       s"ensure service ${svc.getMetadata.getNamespace}/${svc.getMetadata.getName}"
-    case RemoveService(ns, name, _)  => s"remove service $ns/$name if owned"
+    case RemoveService(ns, name, _) => s"remove service $ns/$name if owned"
+    case EnsureServiceAccount(sa) =>
+      s"ensure serviceaccount ${sa.getMetadata.getNamespace}/${sa.getMetadata.getName}"
+    case EnsureRole(r) => s"ensure role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
+    case EnsureRoleBinding(b) =>
+      s"ensure rolebinding ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
     case SetStatus(ns, name, status) => s"set status $ns/$name to ${status.lifecycle}"
     case EnsureCluster(c) =>
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"

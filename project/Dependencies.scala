@@ -13,6 +13,13 @@ object Dependencies {
     val pekkoProjR2dbc = "1.2.0"
     val pekkoKafka     = "1.2.0"
 
+    /**
+     * Pekko Management's own line. 1.2.1 is the last 1.x and was verified against Pekko 1.7.0
+     * during feature 004's planning; the 2.0.0 milestones pull a different Pekko. Bump these
+     * together.
+     */
+    val pekkoMgmt = "1.2.1"
+
     val jsoniter  = "2.40.1"
     val anthropic = "2.61.0"
 
@@ -46,6 +53,17 @@ object Dependencies {
   val pekkoPersistenceTyped     = pekko("persistence-typed")
   val pekkoPersistenceQuery     = pekko("persistence-query")
   val pekkoSerializationJackson = pekko("serialization-jackson")
+  val pekkoDiscovery            = pekko("discovery")
+
+  // ── Pekko Management: how a node finds its peers in Kubernetes (feature 004) ──
+  // In the runtime rather than a module of their own, so the same build runs locally and deployed;
+  // a local run carries them and never starts them.
+  private def pekkoMgmt(m: String) = "org.apache.pekko" %% s"pekko-$m" % V.pekkoMgmt
+
+  val pekkoManagement             = pekkoMgmt("management")
+  val pekkoManagementClusterHttp  = pekkoMgmt("management-cluster-http")
+  val pekkoManagementBootstrap    = pekkoMgmt("management-cluster-bootstrap")
+  val pekkoDiscoveryKubernetesApi = pekkoMgmt("discovery-kubernetes-api")
 
   val pekkoActorTestkit       = pekko("actor-testkit-typed")
   val pekkoStreamTestkit      = pekko("stream-testkit")
@@ -53,6 +71,20 @@ object Dependencies {
 
   val pekkoHttp        = "org.apache.pekko" %% "pekko-http"         % V.pekkoHttp
   val pekkoHttpTestkit = "org.apache.pekko" %% "pekko-http-testkit" % V.pekkoHttp
+
+  /**
+   * Pinned everywhere, not just where nakka uses pekko-http. pekko-management 1.2.1 declares
+   * pekko-http 1.1.0 and pekko-http-spray-json 1.1.0; eviction lifts the former to 1.4.0 wherever
+   * `http` is on the classpath but nothing lifts the latter, and Pekko HTTP checks at startup that
+   * every artifact in its family is the same version — a mixed set fails the first ActorSystem.
+   */
+  val pekkoHttpFamily: Seq[ModuleID] = Seq(
+    "pekko-http",
+    "pekko-http-core",
+    "pekko-parsing",
+    "pekko-http-spray-json",
+    "pekko-http-testkit"
+  ).map(m => "org.apache.pekko" %% m % V.pekkoHttp)
 
   val pekkoR2dbc = "org.apache.pekko" %% "pekko-persistence-r2dbc" % V.pekkoR2dbc
   // The plugin declares the driver as test-scope only, so it must be added explicitly.

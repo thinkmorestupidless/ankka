@@ -72,47 +72,73 @@ class RenderingSuite extends munit.FunSuite:
     assertEquals(first, second)
   }
 
-  test("the generation reaches the pod template, which is what makes a restart roll") {
-    val annotations = deploymentFor(spec).getSpec.getTemplate.getMetadata.getAnnotations.asScala
-    assertEquals(annotations.get(Labels.GenerationKey), Some("4"))
-
-    val rolled = deploymentFor(spec.copy(generation = 5L))
+  test("the restart count reaches the pod template, which is what makes a restart roll") {
+    val template = deploymentFor(spec).getSpec.getTemplate.getMetadata.getAnnotations.asScala
+    assertEquals(template.get(Labels.RestartsKey), Some("0"))
+    val rolled = deploymentFor(spec.copy(restarts = 1))
     assertEquals(
-      rolled.getSpec.getTemplate.getMetadata.getAnnotations.asScala.get(Labels.GenerationKey),
-      Some("5")
+      rolled.getSpec.getTemplate.getMetadata.getAnnotations.asScala.get(Labels.RestartsKey),
+      Some("1")
     )
   }
 
-  test("exactly one replica, and no autoscaler is rendered") {
-    // Not a simplification. Each pod joins itself as a single-node cluster, so a second
-    // replica is a second writer to the same journal.
-    assertEquals(deploymentFor(spec).getSpec.getReplicas.intValue, 1)
+  test(
+    "the generation does NOT reach the pod template, so an apply that changes nothing there rolls nothing"
+  ) {
+    // Feature 001 put it there, so every apply — a pure scale included — rolled every pod
+    // (feature 004, FR-016). It stays on the Deployment's own metadata, where status reads it.
+    val one = deploymentFor(spec)
+    val two = deploymentFor(spec.copy(generation = 5L))
+    assertEquals(one.getSpec.getTemplate, two.getSpec.getTemplate)
+    assertEquals(two.getMetadata.getAnnotations.get(Labels.GenerationKey), "5")
+    assert(!two.getSpec.getTemplate.getMetadata.getAnnotations.containsKey(Labels.GenerationKey))
+  }
 
+  test("a change of instance count changes nothing on the pod template") {
+    val three = deploymentFor(spec.copy(autoscaling = spec.autoscaling.copy(minInstances = 3)))
+    val five = deploymentFor(
+      spec.copy(generation = 9L, autoscaling = spec.autoscaling.copy(minInstances = 5))
+    )
+    assertEquals(three.getSpec.getTemplate, five.getSpec.getTemplate)
+  }
+  test("the instance count is the descriptor's minInstances, honoured at last") {
+    assertEquals(deploymentFor(spec).getSpec.getReplicas.intValue, 1, "default")
+    val three = spec.copy(autoscaling = spec.autoscaling.copy(minInstances = 3))
+    assertEquals(deploymentFor(three).getSpec.getReplicas.intValue, 3)
+    // Paused is paused, however many were asked for.
+    assertEquals(deploymentFor(three.copy(paused = true)).getSpec.getReplicas.intValue, 0)
+  }
+
+  test("no autoscaler is rendered — the maximum and the CPU target stay carried and unhonoured") {
     val Right(actions) =
       Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
     // Stated as what it means rather than as a count: nothing is rendered beyond the namespace,
-    // the Deployment and the service's address. An autoscaler would be a fourth kind of thing.
+    // the identity, the Deployment and the service's address. An autoscaler would be another
+    // kind of thing — and scaling a sharded cluster on a load signal needs draining proven first.
     val unexpected = actions.filterNot {
       case _: Action.EnsureNamespace | _: Action.ApplyDeployment | _: Action.EnsureService |
-          _: Action.RemoveService =>
+          _: Action.RemoveService | _: Action.EnsureServiceAccount | _: Action.EnsureRole |
+          _: Action.EnsureRoleBinding =>
         true
       case _ => false
     }
     assertEquals(unexpected, Vector.empty, s"rendered something that is not one of those: $actions")
   }
 
-  test("the rollout strategy is Recreate — a rolling update is two writers to one journal") {
-    // Kubernetes' default is RollingUpdate with maxSurge 25%, which at one replica rounds up to a
-    // whole extra pod: old and new run side by side on every deploy and every restart. Each joins
-    // *itself* as a single-node cluster, so that is two clusters hosting the same entity ids over
-    // one journal — the exact failure "exactly one replica" exists to prevent, arrived at by a
-    // route that never touches the replica count. The platform's own manifests have always said
-    // Recreate for this reason; workloads did not, and it went unnoticed because `pause` has no
-    // journal and, with no readiness probe, the overlap lasted about a second. Found by deploying
-    // the first real service (feature 003) and seeing two pods.
-    val strategy = deploymentFor(spec).getSpec.getStrategy
-    assertEquals(strategy.getType, "Recreate")
-    assertEquals(strategy.getRollingUpdate, null, "rollingUpdate is invalid beside Recreate")
+  test("the rollout strategy is RollingUpdate, one at a time, at every instance count") {
+    // Feature 003 rendered Recreate, and was right to: a node then joined *itself*, so the surge
+    // pod of a rolling update was a second single-node cluster writing the same journal. Feature
+    // 004 removes the cause — a surge pod now joins the existing cluster and is ready before an
+    // old pod leaves — and with it the reason, and with that the outage Recreate cost every
+    // deploy. Measured on a real cluster: one cluster throughout, at three instances and at one,
+    // never fewer than one ready pod (research R6). maxSurge 1 / maxUnavailable 0 is what makes
+    // "one at a time" literal.
+    for count <- Vector(1, 3) do
+      val s        = spec.copy(autoscaling = spec.autoscaling.copy(minInstances = count))
+      val strategy = deploymentFor(s).getSpec.getStrategy
+      assertEquals(strategy.getType, "RollingUpdate", s"at $count")
+      assertEquals(strategy.getRollingUpdate.getMaxSurge.getIntVal.intValue, 1, s"at $count")
+      assertEquals(strategy.getRollingUpdate.getMaxUnavailable.getIntVal.intValue, 0, s"at $count")
   }
 
   test("a paused service renders zero replicas and keeps its configuration") {
@@ -218,36 +244,96 @@ class RenderingSuite extends munit.FunSuite:
     deploymentFor(s).getSpec.getTemplate.getSpec.getContainers.get(0)
 
   test(
-    "a port renders a container port, NAKKA_HTTP_PORT and a readiness probe — all the same value"
+    "a port renders the http container port and NAKKA_HTTP_PORT — the same value"
   ) {
     val c = containerOf(spec.copy(port = Some(8080)))
 
-    val ports = c.getPorts.asScala
-    assertEquals(ports.size, 1)
-    assertEquals(ports.head.getName, "http")
-    assertEquals(ports.head.getContainerPort.intValue, 8080)
+    // Beside the management and remoting ports every service carries (feature 004).
+    val http = c.getPorts.asScala.find(_.getName == "http").getOrElse(fail("no http port"))
+    assertEquals(http.getContainerPort.intValue, 8080)
 
     assertEquals(
       c.getEnv.asScala.find(_.getName == "NAKKA_HTTP_PORT").map(_.getValue),
       Some("8080")
     )
 
-    val probe = c.getReadinessProbe
-    assertEquals(probe.getTcpSocket.getPort.getIntVal.intValue, 8080)
-    assertEquals(probe.getInitialDelaySeconds.intValue, 10)
-    assertEquals(probe.getPeriodSeconds.intValue, 5)
-    assertEquals(
-      probe.getHttpGet,
-      null,
-      "tcpSocket only: the operator knows neither routes nor ACLs"
-    )
   }
 
-  test("no port renders none of the three, so a service that serves no HTTP can still be Ready") {
+  test("no HTTP port renders no http container port and no NAKKA_HTTP_PORT") {
     val c = containerOf(spec.copy(port = None))
-    assert(c.getPorts.isEmpty, c.getPorts.toString)
+    assert(!c.getPorts.asScala.exists(_.getName == "http"), c.getPorts.toString)
     assert(!c.getEnv.asScala.exists(_.getName == "NAKKA_HTTP_PORT"))
-    assertEquals(c.getReadinessProbe, null)
+  }
+
+  // --- Cluster membership (feature 004): readiness, ports, identity, environment
+
+  test("readiness is cluster membership: httpGet /ready on the management port, HTTP or not") {
+    // Replaces feature 003's tcpSocket on the HTTP port, which could not exist for a service that
+    // serves no HTTP — so such a service was Ready the moment its container ran. Every service is
+    // a cluster member, so every service now has a meaningful Ready. Cluster Bootstrap registers
+    // the membership check itself; nakka adds "HTTP is bound" for services that declare a port.
+    for s <- Vector(spec.copy(port = Some(8080)), spec.copy(port = None)) do
+      val probe = containerOf(s).getReadinessProbe
+      assert(probe != null, s"no probe for port=${s.port}")
+      assertEquals(probe.getHttpGet.getPath, "/ready")
+      assertEquals(probe.getHttpGet.getPort.getStrVal, "management")
+      assertEquals(probe.getTcpSocket, null)
+      assertEquals(probe.getPeriodSeconds.intValue, 5)
+  }
+
+  test("the management and remoting ports are always exposed, and the management one is NAMED") {
+    // Kubernetes API discovery finds a pod's contact point by looking for a container port with
+    // this exact name. Get it wrong and discovery finds every pod and reaches none of them.
+    for s <- Vector(spec.copy(port = Some(8080)), spec.copy(port = None)) do
+      val ports =
+        containerOf(s).getPorts.asScala.map(p => p.getName -> p.getContainerPort.intValue).toMap
+      assertEquals(ports.get("management"), Some(7626), s"port=${s.port}")
+      assertEquals(ports.get("remoting"), Some(17355), s"port=${s.port}")
+  }
+
+  test("the pod runs as the service's own identity") {
+    val podSpec = deploymentFor(spec).getSpec.getTemplate.getSpec
+    assertEquals(podSpec.getServiceAccountName, Names.serviceAccount("cart"))
+  }
+
+  test("the environment tells a node it is in Kubernetes, and how to find its peers") {
+    val d   = deploymentFor(spec.copy(autoscaling = spec.autoscaling.copy(minInstances = 3)))
+    val env = d.getSpec.getTemplate.getSpec.getContainers.get(0).getEnv.asScala
+    def value(name: String) = env.find(_.getName == name).map(_.getValue)
+
+    assertEquals(value("NAKKA_CLUSTER_MODE"), Some("kubernetes"))
+    assertEquals(value("NAKKA_CLUSTER_SERVICE"), Some("cart"))
+    assertEquals(value("NAKKA_CLUSTER_CONTACT_POINTS"), Some("2"))
+    // From the downward API, never a literal — the platform cannot know a pod's IP in advance.
+    val podIp = env.find(_.getName == "POD_IP").getOrElse(fail("no POD_IP"))
+    assertEquals(podIp.getValueFrom.getFieldRef.getFieldPath, "status.podIP")
+
+    // The selector is the Deployment's own selector, rendered k=v,k=v — compared against the
+    // rendered object, not against Labels.identity, so drift between them cannot pass.
+    val expected = d.getSpec.getSelector.getMatchLabels.asScala.toSeq.sorted
+      .map((k, v) => s"$k=$v")
+      .mkString(",")
+    assertEquals(value("NAKKA_CLUSTER_POD_SELECTOR"), Some(expected))
+  }
+
+  test("required contact points are min(instances, 2): one must form alone, more must not") {
+    for (count, expected) <- Vector(1 -> "1", 2 -> "2", 5 -> "2") do
+      val env = containerOf(
+        spec.copy(autoscaling = spec.autoscaling.copy(minInstances = count))
+      ).getEnv.asScala
+      assertEquals(
+        env.find(_.getName == "NAKKA_CLUSTER_CONTACT_POINTS").map(_.getValue),
+        Some(expected),
+        s"at $count"
+      )
+  }
+
+  test("the platform's variables sit beside the descriptor's own env, not instead of it") {
+    val env = containerOf(
+      spec.copy(env = List(EnvEntry("LOG_LEVEL", value = Some("info"))))
+    ).getEnv.asScala.map(_.getName).toSet
+    assert(env.contains("LOG_LEVEL"), env.toString)
+    assert(env.contains("NAKKA_CLUSTER_MODE"), env.toString)
   }
 
   test("the injected port sits beside the descriptor's own env, not instead of it") {
@@ -259,7 +345,7 @@ class RenderingSuite extends munit.FunSuite:
     assert(names.contains("NAKKA_HTTP_PORT"), names.toString)
   }
 
-  test("there is never a liveness probe — it would restart a healthy pod mid-GC") {
+  test("there is never a liveness probe — a restart now also costs a shard rebalance") {
     assertEquals(containerOf(spec.copy(port = Some(8080))).getLivenessProbe, null)
     assertEquals(containerOf(spec.copy(port = None)).getLivenessProbe, null)
   }

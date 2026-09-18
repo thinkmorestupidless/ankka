@@ -6,7 +6,13 @@ import nakka.controlplane.api.ControlPlaneAcl
 import nakka.controlplane.deploy.{DeployConfig, Fabric8NakkaServiceClient, ServiceProjector}
 import nakka.crd.{NakkaSerialization, NakkaService}
 import nakka.http.HttpServer
-import nakka.operator.{Operator, ServiceReconciler, Settings as OperatorSettings}
+import nakka.operator.{
+  ClusterImages,
+  Membership,
+  Operator,
+  ServiceReconciler,
+  Settings as OperatorSettings
+}
 import nakka.runtime.ProjectionRuntime
 import nakka.testkit.NakkaTestKit
 import org.testcontainers.k3s.K3sContainer
@@ -187,6 +193,10 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
     val result = k3s.execInContainer(command*)
     (result.getExitCode, result.getStdout + result.getStderr)
 
+  private def nodeExec(command: String*): (Int, String) =
+    val result = k3s.execInContainer(command*)
+    (result.getExitCode, result.getStdout + result.getStderr)
+
   private def psql(database: String, sql: String): (Int, String) =
     val result = k3s.execInContainer(
       "kubectl",
@@ -291,13 +301,14 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
     }
   }
 
-  test("4. a restart never runs two pods at once — two would be two writers to one journal") {
-    // The cluster-level half of RenderingSuite's Recreate test. Kubernetes' default strategy
-    // surges a whole extra pod at one replica, so old and new ran side by side on every rollout,
-    // each its own single-node cluster over the same journal, with the Service routing to both.
-    // Invisible with `pause` and no probe; found the first time a real service was deployed and
-    // two pods were standing there. Every pod counts here, terminating ones included: Recreate
-    // does not create the new pod until the old one is entirely gone.
+  test(
+    "4. a restart of a single-instance service is one cluster throughout, and never zero ready"
+  ) {
+    // Feature 003 asserted the opposite of the first half here — "never two pods at once" —
+    // because a node then joined itself and a surge pod was a second writer. Feature 004 made
+    // the surge pod join the existing cluster, so two pods for a moment is now the mechanism,
+    // and what must hold instead is: one cluster the whole way, and the service never below one
+    // ready pod. Measured during planning (research R6); pinned here on the real sample.
     def pods = k8s
       .pods()
       .inNamespace(Namespace)
@@ -305,22 +316,39 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
       .list()
       .getItems
       .asScala
+      .toVector
+    def readyCount = pods.count(p =>
+      Option(p.getStatus.getContainerStatuses).exists(_.asScala.headOption.exists(_.getReady))
+    )
+    def views = pods.map { p =>
+      val (code, body) =
+        nodeExec("wget", "-qO-", "-T", "3", s"http://${p.getStatus.getPodIP}:7626/cluster/members")
+      if code != 0 then Set.empty[String]
+      else
+        """\{"node":"([^"]+)"[^}]*?"status":"([A-Za-z]+)"""".r
+          .findAllMatchIn(body)
+          .collect { case m if m.group(2) == "Up" => m.group(1) }
+          .toSet
+    }
     val before = pods.map(_.getMetadata.getName).toSet
 
     assertEquals(nakka("services", "restart", Service, "-p", Project)._1, 0)
 
-    var most     = 0
-    var replaced = false
-    val deadline = System.nanoTime() + 240.seconds.toNanos
+    var fewestReady  = Int.MaxValue
+    var mostClusters = 0
+    var replaced     = false
+    val deadline     = System.nanoTime() + 240.seconds.toNanos
     while !replaced && System.nanoTime() < deadline do
-      val now = pods
-      most = most.max(now.size)
-      replaced = now.nonEmpty && now.map(_.getMetadata.getName).toSet.intersect(before).isEmpty &&
+      fewestReady = fewestReady.min(readyCount)
+      mostClusters = mostClusters.max(Membership.disjointClusters(views))
+      val now = pods.map(_.getMetadata.getName).toSet
+      replaced = now.nonEmpty && now.intersect(before).isEmpty && readyCount == now.size &&
         nodeHttp("/carts/c1")._1 == 0
-      if !replaced then Thread.sleep(250)
+      if !replaced then Thread.sleep(500)
 
     assert(replaced, "the restart never produced a new, serving pod")
-    assertEquals(most, 1, "more than one pod existed at once during the rollout")
+    assertEquals(mostClusters, 1, "more than one cluster existed at some point during the rollout")
+    assert(fewestReady >= 1, s"the service dropped to $fewestReady ready pods during a rollout")
     assert(nodeHttp("/carts/c1")._2.contains("Widget"), "and the cart came through it")
   }
 

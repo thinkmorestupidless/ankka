@@ -190,6 +190,14 @@ invisible from the manifests.
 
 ## R6 — Readiness: what to probe, and what not to add
 
+> **Superseded by [feature 004](../../004-multi-node-clusters/research.md)** (its R7/R9): the
+> probe is now `httpGet /ready` on the management port, which is 200 only once the node is a
+> cluster member and every runtime extension agrees. The reasoning below about *not* probing a
+> route still holds; the mechanism does not. The `Recreate` strategy this feature's implementation
+> added (tasks.md, T036 notes) was likewise reversed to `RollingUpdate` — with cluster formation
+> the two-pod overlap is the mechanism, not the bug.
+
+
 **Decision**: a `tcpSocket` readiness probe on the resolved port, `initialDelaySeconds: 10`,
 `periodSeconds: 5`. **No liveness probe.**
 

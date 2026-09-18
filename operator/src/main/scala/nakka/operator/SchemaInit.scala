@@ -77,12 +77,16 @@ object SchemaInit:
       |until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do sleep 1; done
       |until psql -c 'select 1' >/dev/null 2>&1; do sleep 2; done
       |
-      |# 2. Apply nakka's schema. Every statement is IF NOT EXISTS, so running this on every
-      |#    start rather than only the first is safe, and self-heals after a restore.
-      |for f in /schema/*.sql; do psql -v ON_ERROR_STOP=1 -f "$f"; done
-      |
-      |# 3. Close the database. Postgres grants CONNECT to PUBLIC by default, so without this
-      |#    any other service's role in this project could connect to this database and
-      |#    enumerate its name, even though its tables stay private either way (research R9).
-      |psql -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE \"$PGDATABASE\" FROM PUBLIC;"
+      |# 2. Apply nakka's schema, then close the database — in ONE psql session, holding an
+      |#    advisory lock from before the first file. Every statement is IF NOT EXISTS, so running
+      |#    this on every start is safe and self-heals after a restore; but IF NOT EXISTS is not
+      |#    safe under concurrency, and since feature 004 several pods of one service start at
+      |#    once. The lock is session-scoped and the session ends with psql, so it cannot leak.
+      |#    The REVOKE is why: Postgres grants CONNECT to PUBLIC by default, so without it any
+      |#    other service's role in this project could connect here and enumerate its name, even
+      |#    though its tables stay private either way (feature 002, research R9).
+      |psql -v ON_ERROR_STOP=1 \
+      |  -c "SELECT pg_advisory_lock(627165225000);" \
+      |  $(for f in /schema/*.sql; do printf -- '-f %s ' "$f"; done) \
+      |  -c "REVOKE CONNECT ON DATABASE \"$PGDATABASE\" FROM PUBLIC;"
       |""".stripMargin

@@ -29,11 +29,12 @@ class OperatorClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("nakka.cluster.tests").contains("off")
 
-  private val Image     = "rancher/k3s:v1.31.2-k3s1"
-  private val Prefix    = "nakka"
-  private val Project   = "checkout"
-  private val Namespace = s"$Prefix-$Project"
-  private val Service   = "cart"
+  private val Image       = "rancher/k3s:v1.31.2-k3s1"
+  private val SampleImage = "sample-shopping-cart:latest"
+  private val Prefix      = "nakka"
+  private val Project     = "checkout"
+  private val Namespace   = s"$Prefix-$Project"
+  private val Service     = "cart"
 
   private var k3s: K3sContainer        = null
   private var client: KubernetesClient = null
@@ -90,6 +91,11 @@ class OperatorClusterSuite extends munit.FunSuite:
           .get()
         d != null && Option(d.getStatus).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
       }
+
+      // A real nakka image, because since feature 004 readiness means cluster membership: a
+      // placeholder like pause can never be Ready again, by design (FR-022). Every case below that
+      // waits for Ready deploys this.
+      ClusterImages.importInto(k3s, SampleImage)
 
       operator = new Operator(client, settings, ServiceReconciler(client, settings))
       operator.start()
@@ -178,11 +184,13 @@ class OperatorClusterSuite extends munit.FunSuite:
     )
   }
 
-  test("3. the generation reaches the pod template, which is what rolls a restart") {
+  test("3. the generation reaches the Deployment's own metadata, not the pod template") {
     waitFor(60.seconds)(
-      deployment.exists(
-        _.getSpec.getTemplate.getMetadata.getAnnotations.get(Labels.GenerationKey) == "2"
-      )
+      deployment.exists(_.getMetadata.getAnnotations.get(Labels.GenerationKey) == "2")
+    )
+    assert(
+      !deployment.get.getSpec.getTemplate.getMetadata.getAnnotations
+        .containsKey(Labels.GenerationKey)
     )
   }
 
@@ -250,7 +258,8 @@ class OperatorClusterSuite extends munit.FunSuite:
     projectId = Project,
     serviceName = DbService,
     generation = generation,
-    image = "registry.k8s.io/pause:3.9", // stays up with no command, unlike busybox (see 001)
+    image =
+      SampleImage, // a real runtime on its provisioned database — pause can no longer be Ready
     // Generous, matching SC-002's own 3-minute budget for a project's *first* service: CNPG's
     // secret-RBAC-allowlist propagation alone can take 20-40s (research R5), on top of the
     // cluster's own startup time. A tight deadline here does not test provisioning — it tests
@@ -370,7 +379,7 @@ class OperatorClusterSuite extends munit.FunSuite:
     projectId = Project,
     serviceName = DbService2,
     generation = generation,
-    image = "registry.k8s.io/pause:3.9",
+    image = SampleImage,
     progressDeadlineSeconds = 170
   )
 
@@ -643,6 +652,30 @@ class OperatorClusterSuite extends munit.FunSuite:
 
       asOperator.execute(Action.RemoveService(probeNamespace, "probe", owner.getMetadata.getUid))
       waitFor(30.seconds)(probeService.isEmpty)
+
+      // Feature 004: the identity objects, under the same real identity. Kubernetes refuses a
+      // Role granting what its creator does not hold — the operator holds pods:get/list/watch,
+      // so this must succeed with no escalate/bind. Twice, because the second is a PATCH.
+      for _ <- 1 to 2 do
+        asOperator.execute(
+          Action.EnsureServiceAccount(Rendering.serviceAccount(owner, probeSpec, probeNamespace))
+        )
+        asOperator.execute(Action.EnsureRole(Rendering.peersRole(owner, probeSpec, probeNamespace)))
+        asOperator.execute(
+          Action.EnsureRoleBinding(Rendering.peersRoleBinding(owner, probeSpec, probeNamespace))
+        )
+      assert(client.serviceAccounts().inNamespace(probeNamespace).withName("probe").get() != null)
+      assert(
+        client.rbac().roles().inNamespace(probeNamespace).withName("probe-peers").get() != null
+      )
+      assert(
+        client
+          .rbac()
+          .roleBindings()
+          .inNamespace(probeNamespace)
+          .withName("probe-peers")
+          .get() != null
+      )
     finally restricted.close()
   }
 
@@ -652,15 +685,19 @@ class OperatorClusterSuite extends munit.FunSuite:
   private val DeafService  = "deaf"
   private val QuietService = "quiet"
 
-  /** nginx listens on 80 with no command, which a NakkaServiceSpec has no way to supply. */
-  private def webSpec(generation: Long = 1L, port: Option[Int] = Some(80)) = NakkaServiceSpec(
+  /** The sample on its own provisioned database: the only kind of image that can be Ready now. */
+  private def webSpec(
+      generation: Long = 1L,
+      port: Option[Int] = Some(9000),
+      instances: Int = 1
+  ) = NakkaServiceSpec(
     projectId = Project,
     serviceName = WebService,
     generation = generation,
-    image = "nginx:1.27-alpine",
-    progressDeadlineSeconds = 120,
-    provisionDatabase = false,
-    port = port
+    image = SampleImage,
+    progressDeadlineSeconds = 170,
+    port = port,
+    autoscaling = nakka.crd.AutoscalingSpec(minInstances = instances)
   )
 
   private def statusNamed(name: String) =
@@ -675,7 +712,7 @@ class OperatorClusterSuite extends munit.FunSuite:
 
     val service = serviceNamed(WebService).getOrElse(fail("expected a Service named after it"))
     assertEquals(service.getSpec.getType, "ClusterIP")
-    assertEquals(service.getSpec.getPorts.get(0).getPort.intValue, 80)
+    assertEquals(service.getSpec.getPorts.get(0).getPort.intValue, 9000)
 
     // The selector really matches the pod: an Endpoints object with a ready address is the
     // cluster's own statement of that, not ours.
@@ -688,9 +725,9 @@ class OperatorClusterSuite extends munit.FunSuite:
     // would go API server -> pod and bypass the Service, passing with a broken selector. By IP,
     // not name — the node does not resolve cluster DNS (both verified during planning).
     val ip     = service.getSpec.getClusterIP
-    val result = k3s.execInContainer("wget", "-qO-", "-T", "10", s"http://$ip:80/")
+    val result = k3s.execInContainer("wget", "-qO-", "-T", "10", s"http://$ip:9000/carts/reach")
     assertEquals(result.getExitCode, 0, result.getStderr)
-    assert(result.getStdout.toLowerCase.contains("nginx"), result.getStdout)
+    assert(result.getStdout.contains("\"cartId\":\"reach\""), result.getStdout)
   }
 
   test("22. steady state leaves the Service untouched") {
@@ -703,9 +740,10 @@ class OperatorClusterSuite extends munit.FunSuite:
     assertEquals(serviceNamed(WebService).get.getMetadata.getResourceVersion, before)
   }
 
-  test("23. Ready follows the port, not the process — and a port that never opens ends Failed") {
-    // `pause` runs happily and opens nothing. Before the probe it was Ready in seconds; now it
-    // must never be, and the Deployment's own deadline — not a clock of ours — must end it.
+  test("23. an image that cannot join a cluster is never Ready, and ends Failed by the deadline") {
+    // `pause` runs happily and has no management endpoint: exactly what an image whose runtime
+    // predates feature 004 looks like. It must never be Ready — it would join itself and split —
+    // and the Deployment's own deadline, not a clock of ours, must end it (FR-022).
     writeDb(
       NakkaServiceSpec(
         projectId = Project,
@@ -732,15 +770,16 @@ class OperatorClusterSuite extends munit.FunSuite:
     )
   }
 
-  test("24. a service that serves no HTTP still reaches Ready, and gets no address") {
+  test(
+    "24. a service that declares no HTTP still reaches Ready — on membership — and gets no address"
+  ) {
     writeDb(
       NakkaServiceSpec(
         projectId = Project,
         serviceName = QuietService,
         generation = 1L,
-        image = "registry.k8s.io/pause:3.9",
-        progressDeadlineSeconds = 60,
-        provisionDatabase = false,
+        image = SampleImage,
+        progressDeadlineSeconds = 170,
         port = None
       )
     )
@@ -757,8 +796,12 @@ class OperatorClusterSuite extends munit.FunSuite:
       .getSpec
       .getContainers
       .get(0)
-    assert(container.getPorts.isEmpty)
-    assertEquals(container.getReadinessProbe, null)
+    assert(!container.getPorts.asScala.exists(_.getName == "http"), container.getPorts.toString)
+    assertEquals(
+      container.getReadinessProbe.getHttpGet.getPath,
+      "/ready",
+      "readiness is membership, HTTP or not"
+    )
     assertEquals(serviceNamed(QuietService), None)
   }
 
@@ -793,9 +836,8 @@ class OperatorClusterSuite extends munit.FunSuite:
           projectId = Project,
           serviceName = QuietService,
           generation = generation.toLong,
-          image = "registry.k8s.io/pause:3.9",
-          progressDeadlineSeconds = 60,
-          provisionDatabase = false,
+          image = SampleImage,
+          progressDeadlineSeconds = 170,
           port = None
         )
       )
@@ -805,16 +847,12 @@ class OperatorClusterSuite extends munit.FunSuite:
     assert(serviceNamed(QuietService).isDefined, "the operator deleted a Service it did not create")
   }
 
-  test("26. a Deployment created before Recreate was rendered is migrated, not wedged forever") {
-    // Every Deployment this operator created before it rendered a strategy carries Kubernetes'
-    // defaulted RollingUpdate block, owned by no field manager. Server-side apply cannot remove a
-    // field nobody owns, and the API server rejects type=Recreate while rollingUpdate is still
-    // set — so the first apply after upgrading failed with `invalid: spec.strategy`, retried
-    // forever, and the service could never be changed again. Only an *existing* object shows
-    // this; every other case here starts from nothing. Found on a real cluster with a real
-    // leftover Deployment.
-    //
-    // In a namespace the in-process operator does not watch, so it cannot interfere.
+  test("26. a Deployment from feature 003 — strategy Recreate — moves to RollingUpdate in place") {
+    // The reverse of feature 003's migration. That one existed because the API server rejected
+    // Recreate while a defaulted rollingUpdate block remained, and server-side apply cannot
+    // remove a field nobody owns — a bug only an EXISTING object shows. Feature 004 goes the
+    // other way; whether the API server accepts that over a live Recreate object is, likewise,
+    // only knowable with a live Recreate object. In a namespace the operator does not watch.
     val ns = "migration-probe"
     client
       .namespaces()
@@ -838,19 +876,204 @@ class OperatorClusterSuite extends munit.FunSuite:
       .resource(NakkaService(ns, "legacy", legacySpec))
       .create()
 
-    // As it used to be rendered: no strategy at all, so the API server defaults RollingUpdate.
+    // As feature 003 rendered it.
     val asItWas = Rendering.deployment(owner, legacySpec, ns)
-    asItWas.getSpec.setStrategy(null)
+    asItWas.getSpec.setStrategy(
+      new io.fabric8.kubernetes.api.model.apps.DeploymentStrategyBuilder()
+        .withType("Recreate")
+        .build()
+    )
     client.apps().deployments().inNamespace(ns).resource(asItWas).create(): Unit
     def live = client.apps().deployments().inNamespace(ns).withName("legacy").get()
-    assertEquals(live.getSpec.getStrategy.getType, "RollingUpdate", "the premise of this test")
+    assertEquals(live.getSpec.getStrategy.getType, "Recreate", "the premise of this test")
 
     new Fabric8Executor(client).execute(
       Action.ApplyDeployment(Rendering.deployment(owner, legacySpec, ns))
     )
 
-    assertEquals(live.getSpec.getStrategy.getType, "Recreate")
-    assertEquals(live.getSpec.getStrategy.getRollingUpdate, null)
+    assertEquals(live.getSpec.getStrategy.getType, "RollingUpdate")
+    assertEquals(live.getSpec.getStrategy.getRollingUpdate.getMaxSurge.getIntVal.intValue, 1)
+    assertEquals(live.getSpec.getStrategy.getRollingUpdate.getMaxUnavailable.getIntVal.intValue, 0)
+  }
+
+  // --- Feature 004: one cluster of several nodes ----------------------------------------------
+
+  private val ClusteredService = "trio"
+
+  private def trioSpec(generation: Long = 1L, instances: Int = 3) = NakkaServiceSpec(
+    projectId = Project,
+    serviceName = ClusteredService,
+    generation = generation,
+    image = SampleImage,
+    progressDeadlineSeconds = 170,
+    autoscaling = nakka.crd.AutoscalingSpec(minInstances = instances)
+  )
+
+  private def podsOf(name: String) =
+    client
+      .pods()
+      .inNamespace(Namespace)
+      .withLabel(Labels.NameKey, name)
+      .list()
+      .getItems
+      .asScala
+      .toVector
+
+  /**
+   * What one pod says its cluster's Up members are — empty if it has not joined, or cannot answer.
+   */
+  private def membership(pod: io.fabric8.kubernetes.api.model.Pod): Set[String] =
+    val out = new java.io.ByteArrayOutputStream()
+    val watch = client
+      .pods()
+      .inNamespace(Namespace)
+      .withName(pod.getMetadata.getName)
+      .inContainer(pod.getSpec.getContainers.get(0).getName)
+      .writingOutput(out)
+      .writingError(new java.io.ByteArrayOutputStream())
+      .exec("wget", "-qO-", "-T", "3", s"http://${pod.getStatus.getPodIP}:7626/cluster/members")
+    try watch.exitCode().get(15, java.util.concurrent.TimeUnit.SECONDS)
+    catch case _: Exception => ()
+    finally watch.close()
+    val body = out.toString(java.nio.charset.StandardCharsets.UTF_8)
+    // Deliberately naive parsing: the members array's "node" fields, keeping only Up ones.
+    """\{"node":"([^"]+)"[^}]*?"status":"([A-Za-z]+)"""".r
+      .findAllMatchIn(body)
+      .collect { case m if m.group(2) == "Up" => m.group(1) }
+      .toSet
+
+  private def disjointClusters(name: String): Int =
+    Membership.disjointClusters(podsOf(name).map(membership))
+
+  test("27. three instances form one cluster, and every pod agrees on its membership") {
+    writeDb(trioSpec())
+    waitFor(240.seconds)(
+      statusNamed(ClusteredService).exists(s => s.lifecycle == "Ready" && s.readyInstances == 3)
+    )
+
+    val views = podsOf(ClusteredService).map(membership)
+    assertEquals(views.size, 3)
+    assertEquals(Membership.disjointClusters(views), 1, views.toString)
+    views.foreach(v => assertEquals(v.size, 3, v.toString))
+  }
+
+  test("28. the identity objects exist, owned — and go with the service") {
+    val sa = client.serviceAccounts().inNamespace(Namespace).withName(ClusteredService).get()
+    val role =
+      client.rbac().roles().inNamespace(Namespace).withName(s"$ClusteredService-peers").get()
+    val binding =
+      client.rbac().roleBindings().inNamespace(Namespace).withName(s"$ClusteredService-peers").get()
+    for (what, meta) <- Vector("ServiceAccount" -> sa, "Role" -> role, "RoleBinding" -> binding)
+        .map((w, o) => w -> o.getMetadata)
+    do
+      assert(
+        meta.getOwnerReferences.asScala.exists(_.getKind == "NakkaService"),
+        s"$what is not owned"
+      )
+    assertEquals(
+      client
+        .apps()
+        .deployments()
+        .inNamespace(Namespace)
+        .withName(ClusteredService)
+        .get()
+        .getSpec
+        .getTemplate
+        .getSpec
+        .getServiceAccountName,
+      ClusteredService
+    )
+  }
+
+  test("29. a service's own identity can read pods in its namespace, and nothing else, anywhere") {
+    // SC-007. Its real token, the way feature 003 minted the operator's.
+    val tokenResult = k3s.execInContainer(
+      "kubectl",
+      "create",
+      "token",
+      ClusteredService,
+      "-n",
+      Namespace,
+      "--duration=10m"
+    )
+    assertEquals(tokenResult.getExitCode, 0, tokenResult.getStderr)
+    val asService = new KubernetesClientBuilder()
+      .withConfig(
+        new io.fabric8.kubernetes.client.ConfigBuilder()
+          .withMasterUrl(client.getConfiguration.getMasterUrl)
+          .withTrustCerts(true)
+          .withOauthToken(tokenResult.getStdout.trim)
+          .build()
+      )
+      .build()
+    def forbidden(what: String)(attempt: => Any): Unit =
+      val e = intercept[io.fabric8.kubernetes.client.KubernetesClientException](attempt)
+      assertEquals(e.getCode, 403, s"$what should be forbidden: ${e.getMessage}")
+    try
+      assert(
+        !asService.pods().inNamespace(Namespace).list().getItems.isEmpty,
+        "can list its own project's pods"
+      )
+      forbidden("list pods elsewhere")(asService.pods().inNamespace("nakka-operator").list())
+      forbidden("list services")(asService.services().inNamespace(Namespace).list())
+      forbidden("list secrets")(asService.secrets().inNamespace(Namespace).list())
+      forbidden("delete a pod") {
+        asService
+          .pods()
+          .inNamespace(Namespace)
+          .withName(podsOf(ClusteredService).head.getMetadata.getName)
+          .delete()
+      }
+      forbidden("create a pod") {
+        asService
+          .pods()
+          .inNamespace(Namespace)
+          .resource(
+            new io.fabric8.kubernetes.api.model.PodBuilder()
+              .withMetadata(
+                new ObjectMetaBuilder().withName("intruder").withNamespace(Namespace).build()
+              )
+              .withSpec(
+                new io.fabric8.kubernetes.api.model.PodSpecBuilder()
+                  .withContainers(
+                    new io.fabric8.kubernetes.api.model.ContainerBuilder()
+                      .withName("x")
+                      .withImage("registry.k8s.io/pause:3.9")
+                      .build()
+                  )
+                  .build()
+              )
+              .build()
+          )
+          .create()
+      }
+    finally asService.close()
+  }
+
+  test("30. scaling keeps the pods that stay") {
+    val before = podsOf(ClusteredService).map(_.getMetadata.getName).toSet
+    writeDb(trioSpec(generation = 2L, instances = 5))
+    waitFor(240.seconds)(
+      statusNamed(ClusteredService).exists(s => s.lifecycle == "Ready" && s.readyInstances == 5)
+    )
+    val after = podsOf(ClusteredService)
+    assert(before.subsetOf(after.map(_.getMetadata.getName).toSet), "an original pod was replaced")
+    after.filter(p => before.contains(p.getMetadata.getName)).foreach { p =>
+      assertEquals(
+        p.getStatus.getContainerStatuses.get(0).getRestartCount.intValue,
+        0,
+        p.getMetadata.getName
+      )
+    }
+    assertEquals(disjointClusters(ClusteredService), 1)
+
+    writeDb(trioSpec(generation = 3L, instances = 2))
+    waitFor(240.seconds)(
+      podsOf(ClusteredService).size == 2 && statusNamed(ClusteredService).exists(
+        _.lifecycle == "Ready"
+      )
+    )
+    assertEquals(disjointClusters(ClusteredService), 1)
   }
 
   test("11. deleting the resource cascades to the deployment with no operator involvement") {

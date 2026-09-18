@@ -147,6 +147,23 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
         service.getMetadata.getName
       )
 
+    case Action.EnsureServiceAccount(serviceAccount) =>
+      val _ = client
+        .resource(serviceAccount)
+        .fieldManager(FieldManager)
+        .forceConflicts()
+        .serverSideApply()
+      log.debug("ensured serviceaccount {}", serviceAccount.getMetadata.getName)
+
+    case Action.EnsureRole(role) =>
+      val _ = client.resource(role).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug("ensured role {}", role.getMetadata.getName)
+
+    case Action.EnsureRoleBinding(roleBinding) =>
+      val _ =
+        client.resource(roleBinding).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug("ensured rolebinding {}", roleBinding.getMetadata.getName)
+
     case Action.RemoveService(namespace, name, ownerUid) =>
       // Read first, for two reasons. This is rendered on *every* pass for a service that serves
       // no HTTP, and an unconditional DELETE each time would break "an unchanged service writes

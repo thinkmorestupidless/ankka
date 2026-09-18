@@ -249,7 +249,9 @@ Two things the plan takes from this:
 - The isolated node exiting — which is what lets Kubernetes restart it into a clean rejoin — depends
   on `pekko.coordinated-shutdown.exit-jvm = on`. The spike set it. **nakka's `reference.conf` does
   not.** Without it a downed node's actor system stops and its JVM lives on: a pod that is `Running`,
-  never ready, and never restarted. It goes in the base.
+  never ready, and never restarted. ~~It goes in the base.~~ **Implementation correction (T007): it goes
+  in the Kubernetes overlay.** In the base it exits the JVM on *every* stopped actor system — the
+  offline test suite, which stops one per case, died within seconds.
 
 The partition strategy is `keep-majority`, so two instances cannot survive a partition with both
 sides up. Odd counts are the documented recommendation (spec Assumptions).

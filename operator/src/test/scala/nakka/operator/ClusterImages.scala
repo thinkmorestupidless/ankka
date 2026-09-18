@@ -1,4 +1,4 @@
-package nakka.controlplane
+package nakka.operator
 
 import com.github.dockerjava.api.exception.NotFoundException
 import org.testcontainers.DockerClientFactory
@@ -9,6 +9,10 @@ import java.nio.file.{Files, StandardCopyOption}
 
 /**
  * Gets a locally built image into a throwaway k3s node.
+ *
+ * In the operator's test scope, shared with the control plane's suites through
+ * `operator % "test->test"`: since feature 004 readiness means cluster membership, so any test that
+ * waits for `Ready` has to deploy a real nakka image, in either module.
  *
  * `kind load docker-image` has no equivalent for a testcontainers k3s container, and there is no
  * registry to pull from, so: save the image to a tar, copy it in, and import it into the node's
@@ -27,9 +31,11 @@ object ClusterImages:
     try docker.inspectImageCmd(image).exec(): Unit
     catch
       case _: NotFoundException =>
+        val project =
+          if image.startsWith("nakka-controlplane") then "controlPlane" else "shoppingCart"
         throw new IllegalStateException(
           s"image '$image' is not in the local Docker daemon. Build it first:\n" +
-            "    sbt shoppingCart/Docker/publishLocal\n" +
+            s"    sbt $project/Docker/publishLocal\n" +
             "(`sbt test` does this for you; `testOnly` does not.)"
         )
 

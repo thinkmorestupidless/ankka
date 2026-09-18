@@ -77,6 +77,7 @@ object ServiceProjection:
               provisionDatabase = !descriptor.service.env.exists(_.name.startsWith("NAKKA_DB_")),
               // Resolved here, once. The operator never sees `http` or the descriptor's `port`,
               // only the answer — the same split `instanceType` → cpu/memory already uses.
-              port = descriptor.service.resolvedPort
+              port = descriptor.service.resolvedPort,
+              restarts = service.restarts
             )
           )

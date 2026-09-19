@@ -50,34 +50,19 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
  * the install manifests is what makes `sbt operator/docker:publishLocal` followed by deleting the
  * pod the whole local iteration loop — no image tag to bump in any YAML.
  */
-/**
- * The template names the platform version it was released with — as the artifact version its
- * generated build resolves and as the runtime version its generated descriptor declares. This task
- * writes that value from the build's own version, so the template can never name a version that was
- * not published alongside it.
+/*
+ * The template names the platform version it was released with, and that value is written by the
+ * release workflow's `template` job, not by this build.
  *
- * Only for a release version: a snapshot carries a commit and a timestamp that change on every
- * dirty-tree publish, and rewriting the checked-in file for each would be noise. Locally, `ankka
- * init` passes its own `BuildInfo.version` as `--ankka_version` (the CLI you run is the version you
- * get) and `TemplateSuite` does the same, so the checked-in default matters only to someone running
- * `sbt new thinkmorestupidless/ankka.g8` — who gets the last release, which is right.
+ * There was a `templateVersion` task here that rewrote ankka.g8's default.properties from
+ * `version.value`, hung off core's `publish` and `publishLocal`. It broke every release. It only
+ * writes for a non-SNAPSHOT version, so it never fired locally and always fired on a tag — and
+ * writing to a tracked file makes the tree dirty, which makes sbt-dynver append a timestamp and
+ * -SNAPSHOT, which makes ci-release (which reloads the build before publishing) take the snapshot
+ * path. A tag published a snapshot, to an endpoint this namespace is not entitled to use, and
+ * answered 403. The write was pointless besides: the `template` job checks the repository out
+ * afresh, so a file this job modified never reached the template that is pushed.
  */
-lazy val templateVersion =
-  taskKey[Unit]("Writes the build's version into ankka.g8's default.properties")
-
-ThisBuild / templateVersion := {
-  val file =
-    (ThisBuild / baseDirectory).value / "ankka.g8" / "src" / "main" / "g8" / "default.properties"
-  val current = IO.read(file)
-  val v       = version.value
-  val updated = current.linesIterator
-    .map(line => if (line.startsWith("ankka_version=")) s"ankka_version=$v" else line)
-    .mkString("", "\n", "\n")
-  if (updated != current && !v.endsWith("-SNAPSHOT")) {
-    IO.write(file, updated)
-    streams.value.log.info(s"templateVersion: ankka_version=$v")
-  }
-}
 
 lazy val templateArtifacts =
   taskKey[Unit](
@@ -140,11 +125,7 @@ lazy val core = project
     // com.thinkmorestupidless.ankka.core.BuildInfo.version — the one version everything published from a tag shares.
     buildInfoKeys    := Seq[BuildInfoKey](version),
     buildInfoPackage := "com.thinkmorestupidless.ankka.core",
-    buildInfoObject  := "BuildInfo",
-    // core is the first artifact every publish produces, so this is where the template learns the
-    // version being published.
-    publishLocal := publishLocal.dependsOn(ThisBuild / templateVersion).value,
-    publish      := publish.dependsOn(ThisBuild / templateVersion).value
+    buildInfoObject  := "BuildInfo"
   )
 
 /** The user-facing component API: entities, views, workflows, consumers, timers. */

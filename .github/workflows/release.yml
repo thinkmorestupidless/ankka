@@ -34,12 +34,14 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      # dynver derives the version from git, and it appends a timestamp and -SNAPSHOT when the
-      # working tree is dirty. So a dirty tree silently turns a tag into a snapshot, and ci-release
-      # then publishes to the snapshot repository instead of staging a release — which is exactly
-      # what v0.1.0 did: 0.1.0+0-963a43e8+20260919-1005-SNAPSHOT. A fresh checkout can also *look*
-      # dirty from stale index stat info alone, which `update-index --refresh` settles; anything
-      # still dirty after that is real, and is named here rather than shipped as a snapshot.
+      # dynver appends a timestamp and -SNAPSHOT when the working tree is dirty, so a dirty tree
+      # turns a tag into a snapshot and ci-release then takes the snapshot path. v0.1.0 published
+      # 0.1.0+0-963a43e8+20260919-1005-SNAPSHOT that way. The cause was this build's own
+      # `templateVersion` task, now deleted — it rewrote a tracked file during publish, and
+      # ci-release reloads before publishing, so dynver re-derived from the tree that task had
+      # just dirtied. This guard would not have caught that (the tree is clean here, and only
+      # dirtied later by sbt) but it does catch a genuinely dirty checkout, which is worth a
+      # named failure rather than a release that is quietly a snapshot.
       - name: The version comes from a clean tree, or not at all
         run: |
           git update-index -q --refresh
@@ -50,7 +52,7 @@ jobs:
             exit 1
           fi
           echo "clean: $(git describe --long --tags --abbrev=8 --match 'v[0-9]*' --always --dirty=+DIRTY)"
-      - run: sbt templateVersion ci-release
+      - run: sbt ci-release
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
@@ -80,8 +82,20 @@ jobs:
         with:
           fetch-depth: 0
       - run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
           git config user.name "ankka release"
           git config user.email "release@ankka.invalid"
+          # The template resolves the artifacts the publish job just released, so its default must
+          # name that version. It is written here rather than by the build: this job checks out
+          # afresh, so anything the publish job wrote to its own workspace is gone — and writing to
+          # a tracked file *there* is what made dynver see a dirty tree and publish a snapshot.
+          # `subtree split` reads committed history, so the change is committed first. The commit
+          # is local to this runner and never reaches main; only the split branch is pushed.
+          sed -i "s/^ankka_version=.*/ankka_version=$version/" ankka.g8/src/main/g8/default.properties
+          git add ankka.g8/src/main/g8/default.properties
+          git commit -m "ankka_version=$version"
+          grep -n "^ankka_version=" ankka.g8/src/main/g8/default.properties
           git subtree split --prefix ankka.g8 -b ankka-g8
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka.g8.git" ankka-g8:main
           git tag -f "${GITHUB_REF_NAME}" ankka-g8

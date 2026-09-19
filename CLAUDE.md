@@ -648,6 +648,16 @@ snapshot publishing there is a separate entitlement from releases), so every com
 build — which is how a real failure goes unnoticed. Snapshots are `sbt publishLocal` now, which is
 what the samples and `TemplateSuite` resolve anyway.
 
+**Nothing in the build may write to a tracked file during `publish`.** A `templateVersion` task
+used to rewrite `ankka.g8`'s `default.properties` from `version.value`, hung off `core`'s
+`publish` and `publishLocal`. It only writes for a non-SNAPSHOT version, so it never fired locally
+and always fired on a tag: it dirtied the tree, dynver appended a timestamp and `-SNAPSHOT`,
+`ci-release` (which reloads the build before publishing) re-derived the version from the dirtied
+tree, and the release went to the snapshot repository — 403, on a namespace with no snapshot
+entitlement. Three tagged attempts failed that way. The write was useless besides: the `template`
+job checks the repository out afresh, so the publish job's workspace never reached the template
+that is pushed. The version is now written by that job, immediately before `git subtree split`.
+
 **A tag currently *stages* the release rather than publishing it**, via
 `CI_SONATYPE_RELEASE: sonatypeCentralUpload` in the workflow — `publishingType` `USER_MANAGED`, so
 the bundle waits under Deployments on the portal for a human. `ci-release`'s default is

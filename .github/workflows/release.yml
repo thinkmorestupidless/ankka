@@ -58,23 +58,12 @@ jobs:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-          # Stage the release instead of publishing it. ci-release's default on a tag is
-          # `sonaRelease`, which uploads the bundle *and* publishes it — live on Maven Central at
-          # once, and nothing on Central can ever be unpublished. `sonaUpload` is the same upload
-          # without the publish: the bundle lands under Deployments on the portal and waits for a
-          # human to press Publish (or Drop).
-          #
-          # Both are sbt's own commands, not a plugin's — sbt-ci-release 1.12.1 depends on
-          # sbt-dynver and sbt-pgp only. (An earlier attempt at this line said
-          # `sonatypeCentralUpload`, which is sbt-sonatype's name for the same idea and is not a
-          # command this build has: "Not a valid command: sonatypeCentralUpload".)
-          #
-          # It is here because the release endpoint has never once completed: every failure so far
-          # went to the *snapshot* repository, which is a different endpoint with its own
-          # authorisation. The first tag to reach the portal is therefore also the first test of
-          # it, and a test whose failure mode is "permanently published" is the wrong test.
-          # Delete this line once a release has been through, to publish straight from a tag.
-          CI_SONATYPE_RELEASE: sonaUpload
+          # A tag publishes. ci-release runs sbt's own `sonaRelease`, which uploads the bundle to
+          # the Central Portal and publishes it; `sonaUpload` is the same upload that stops short
+          # and waits for the Publish button. v0.1.0 went out under `CI_SONATYPE_RELEASE:
+          # sonaUpload` because that path had never completed and a first attempt whose failure
+          # mode is "permanently published" is the wrong first attempt. It has completed now, so
+          # the gate is gone — put the line back for a release worth rehearsing.
   template:
     # The template as its own repository, so `sbt new thinkmorestupidless/ankka.g8` works: sbt's
     # Giter8 resolver accepts only `owner/repo.g8` (or a `.g8` file path), never a subdirectory of

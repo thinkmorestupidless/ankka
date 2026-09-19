@@ -665,15 +665,20 @@ entitlement. Three tagged attempts failed that way. The write was useless beside
 job checks the repository out afresh, so the publish job's workspace never reached the template
 that is pushed. The version is now written by that job, immediately before `git subtree split`.
 
-**A tag currently *stages* the release rather than publishing it**, via
-`CI_SONATYPE_RELEASE: sonaUpload` in the workflow — the bundle is uploaded and then waits under
-Deployments on the portal for a human to press Publish. `ci-release`'s default is `sonaRelease`,
-which uploads *and* publishes, and nothing on Central can ever be unpublished. Both are sbt's own
-commands: sbt-ci-release 1.12.1 depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's
-`sonatypeCentral*` task names do not exist here, whatever a stale copy of that plugin in the
-coursier cache suggests. The override is there because the release endpoint has never run — every
-failure so far, the first `v0.1.0` included, went to the snapshot repository instead. Remove the
-line once a release has been through by hand.
+**A tag publishes.** `ci-release` runs sbt's own `sonaRelease`, which uploads the bundle to the
+Central Portal and publishes it; nothing on Central can ever be unpublished, only superseded.
+`sonaUpload` is the same upload that stops short and waits for the Publish button — `0.1.0` went
+out that way, because that path had never completed and a first attempt whose failure mode is
+"permanently published" is the wrong first attempt. Set `CI_SONATYPE_RELEASE: sonaUpload` in the
+workflow to rehearse a release again. Both are sbt commands, not a plugin's: sbt-ci-release 1.12.1
+depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's `sonatypeCentral*` names do not exist
+here, whatever a stale copy of that plugin in the coursier cache suggests.
+
+**`0.1.0` is the first release**, and what it cost is in the git history: a tag published a
+snapshot three times before reaching the portal. The snapshot repository 403s for this namespace
+(claimed through legacy OSSRH in 2023; snapshot publishing there is a separate entitlement), which
+looked like a credentials problem for a long time and never was — the releases endpoint accepted
+the first bundle that actually reached it.
 
 **There is no `ThisBuild / version`, and there must never be one.** The version comes from the
 git tag through `sbt-dynver`; a version set in the build silently overrides the tag, which is the

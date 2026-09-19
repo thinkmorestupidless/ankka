@@ -3,6 +3,10 @@
   <img src="assets/ankka-lockup.svg" alt="ankka" width="400">
 </picture>
 
+[![maven central](https://img.shields.io/maven-central/v/com.thinkmorestupidless/ankka-core_3?label=maven%20central)](https://central.sonatype.com/artifact/com.thinkmorestupidless/ankka-core_3)
+[![ci](https://github.com/thinkmorestupidless/ankka/actions/workflows/ci.yml/badge.svg)](https://github.com/thinkmorestupidless/ankka/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](https://www.apache.org/licenses/LICENSE-2.0)
+
 A serverless application platform for agentic AI, built on the actor model — a
 reimplementation of [Akka's](https://doc.akka.io/) component model in Scala 3 on
 [Apache Pekko](https://pekko.apache.org/).

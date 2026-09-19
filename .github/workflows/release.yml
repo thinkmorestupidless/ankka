@@ -11,11 +11,15 @@
 # Until then, the same path is proven locally: `sbt -Dankka.release.local=/tmp/ankka-repo
 # publishSigned` with a throwaway key (specs/006-external-applications/quickstart.md, Tier 4).
 #
-# Commits to main publish `-SNAPSHOT`s; only a tag is a release (sbt-dynver derives both).
+# A tag is the only thing that publishes. Commits to main used to publish `-SNAPSHOT`s to the
+# portal's snapshot repository, which answers 403 for this namespace — it was claimed through the
+# legacy OSSRH process in 2023, and snapshot publishing on the Central Portal is a separate
+# entitlement from releases. That made every push to main a red build, which is how a real failure
+# goes unnoticed. Snapshots are a local concern now: `sbt publishLocal` puts them in ~/.ivy2/local,
+# which is what the samples and TemplateSuite resolve anyway.
 name: release
 on:
   push:
-    branches: [main]
     tags: ["v*"]
 jobs:
   publish:
@@ -52,6 +56,18 @@ jobs:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          # Stage the release instead of publishing it. ci-release's default on a tag is
+          # sonatypeCentralRelease, which uploads with publishingType AUTOMATIC — live on Maven
+          # Central at once, and nothing on Central can be unpublished. sonatypeCentralUpload is
+          # the same upload with USER_MANAGED, so the bundle appears under Deployments on the
+          # portal and waits for a human to press Publish (or Drop).
+          #
+          # It is here because the release endpoint has never once run: every failure so far,
+          # the v0.1.0 tag included, went to the *snapshot* repository, which is a different
+          # endpoint with its own authorisation. So the first tag is also the first test of this
+          # path, and a test whose failure mode is "permanently published" is the wrong test.
+          # Delete this line once a release has been through, to go back to publishing on a tag.
+          CI_SONATYPE_RELEASE: sonatypeCentralUpload
   template:
     # The template as its own repository, so `sbt new thinkmorestupidless/ankka.g8` works: sbt's
     # Giter8 resolver accepts only `owner/repo.g8` (or a `.g8` file path), never a subdirectory of

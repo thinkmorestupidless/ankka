@@ -639,12 +639,31 @@ are not libraries" is a build fact rather than a note.
 sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly six artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
-git tag v0.2.0 && git push --tags    # the release: .github/workflows/release.yml runs `sbt ci-release`
+git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval
 ```
+
+**Only a tag publishes anything.** The workflow no longer runs on pushes to `main`: the portal's
+snapshot repository answers 403 for this namespace (claimed through legacy OSSRH in 2023, and
+snapshot publishing there is a separate entitlement from releases), so every commit was a red
+build — which is how a real failure goes unnoticed. Snapshots are `sbt publishLocal` now, which is
+what the samples and `TemplateSuite` resolve anyway.
+
+**A tag currently *stages* the release rather than publishing it**, via
+`CI_SONATYPE_RELEASE: sonatypeCentralUpload` in the workflow — `publishingType` `USER_MANAGED`, so
+the bundle waits under Deployments on the portal for a human. `ci-release`'s default is
+`sonatypeCentralRelease` (`AUTOMATIC`), which is live on Central at once, and nothing on Central
+can be unpublished. The override is there because the release endpoint has never run — every
+failure so far, the first `v0.1.0` included, went to the snapshot repository instead. Remove the
+line once a release has been through by hand.
 
 **There is no `ThisBuild / version`, and there must never be one.** The version comes from the
 git tag through `sbt-dynver`; a version set in the build silently overrides the tag, which is the
-one thing a release must not do. `com.thinkmorestupidless.ankka.core.BuildInfo.version` carries the same value into code
+one thing a release must not do. A *dirty tree* does the same thing quietly: dynver appends a
+timestamp and `-SNAPSHOT`, and `ci-release` then takes the snapshot path, so a tag publishes a
+snapshot and no release. That is what the first `v0.1.0` did — and the tree was not really dirty,
+`git describe --dirty` was reporting stale index stat info after the runner's forced checkout.
+The workflow runs `git update-index --refresh` and refuses to build from a tree that is still
+dirty, rather than shipping a snapshot named like a release. `com.thinkmorestupidless.ankka.core.BuildInfo.version` carries the same value into code
 — the CLI prints it, the control plane compares an application's declared runtime against it.
 
 **The template** is `ankka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which

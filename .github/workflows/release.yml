@@ -86,6 +86,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # actions/checkout otherwise persists the workflow's own token as
+          # `http.https://github.com/.extraheader`, which applies to *every* github.com URL and
+          # takes precedence over the `x-access-token:<token>@` credentials in a push URL. The
+          # push to ankka.g8 then authenticates as github-actions[bot], which has no access to
+          # that repository: "Permission to thinkmorestupidless/ankka.g8.git denied to
+          # github-actions[bot]" — a 403 that looks like a missing repository and is not one.
+          # With this off, the token below is the one git uses.
+          persist-credentials: false
       - run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"

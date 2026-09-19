@@ -616,6 +616,13 @@ factory shapes would break lambda parameter inference at every call site.
   and the JVM follow symlinks transparently but kustomize does not. Never `ln -sf` onto a
   path that might already hold the real content; copy it out first. This one cost real file
   content, recovered only because the compiled classpath still had it.
+- **`actions/checkout` hijacks pushes to any other GitHub repository.** It persists the workflow's
+  token as `http.https://github.com/.extraheader`, which matches *every* github.com URL and beats
+  the `x-access-token:<token>@host` credentials written into a push URL. The release's template
+  job pushed to `ankka.g8` as `github-actions[bot]` and got "Permission to … denied", a 403 that
+  reads exactly like a repository that does not exist — it did exist, and the token was never
+  tried. `persist-credentials: false` on that checkout is the fix.
+
 - **An `eventually` must wait for the thing it asserts.** `ControlPlaneHttpSuite` waited for the
   cart's row to appear and then asserted, outside the retry, that the row carried the image the
   *previous* test had applied. The generation-1 row satisfies "a row exists", so on a machine where

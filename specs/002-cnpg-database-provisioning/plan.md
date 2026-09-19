@@ -18,7 +18,7 @@ database, created by `bootstrap.initdb`, which makes CNPG generate its credentia
 **The operator provisions a database per service.** On reconciling any service it ensures its
 project has a Postgres `Cluster` (created lazily, one per project), then renders that service a
 `DatabaseRole`, a `Database` owned by it, and a generated-password `Secret` — and an init container
-that waits for the database, applies nakka's schema, and revokes `PUBLIC` connect so the database
+that waits for the database, applies ankka's schema, and revokes `PUBLIC` connect so the database
 is genuinely private. All of it is rendered as inert `Action` values from the same pure function
 that already renders the Deployment.
 
@@ -32,10 +32,10 @@ decide the design, and one of them (isolation) would have shipped a false guaran
 
 **Primary Dependencies**: **no new Scala dependencies.** CNPG's `Cluster`, `Database` and
 `DatabaseRole` are modelled as partial fabric8 `CustomResource` types in the `operator` module,
-exactly as `NakkaService` already is. `CloudNativePG 1.30.0` becomes a *cluster* dependency,
+exactly as `AnkkaService` already is. `CloudNativePG 1.30.0` becomes a *cluster* dependency,
 installed by manifest.
 
-**Storage**: No change to nakka's own schema. Per-project Postgres capacity on durable storage
+**Storage**: No change to ankka's own schema. Per-project Postgres capacity on durable storage
 (`storage.size`, a real PVC — unlike the `emptyDir` the hand-rolled Postgres used).
 
 **Testing**: munit, four tiers as in 001 — pure offline suites for provisioning rules and
@@ -75,7 +75,7 @@ actually written down in `CLAUDE.md` and `README.md`.
 | 8 | Both test levels real; default run deterministic and offline | **AT RISK** | **JUSTIFIED** — see Complexity Tracking; cluster suites get materially slower. |
 | 9 | Test serialization must not be undone | PASS | PASS — one more serialized suite's worth of cost, not a scheduling change. |
 | 10 | Compile warning-free under `-Wunused` | PASS | PASS — enforced at implementation. |
-| 11 | DDL has a single copy | PASS | PASS — `modules/runtime/.../nakka/ddl` stays canonical; the operator reaches it by directory symlink, **verified working** (R6). |
+| 11 | DDL has a single copy | PASS | PASS — `modules/runtime/.../ankka/ddl` stays canonical; the operator reaches it by directory symlink, **verified working** (R6). |
 | 12 | The operator has **no RBAC verb on `secrets`**, which makes "a status detail cannot contain a secret value" structural (`CLAUDE.md`, feature 001) | **VIOLATED** | **VIOLATED, MITIGATED** — unavoidable: the operator must create credential secrets. See Complexity Tracking. |
 
 **Gate result**: pass, with three deviations recorded — one of them a genuine regression of a
@@ -107,8 +107,8 @@ specs/002-cnpg-database-provisioning/
 No new sbt modules. The module graph is unchanged.
 
 ```text
-crd/                                          UNCHANGED — NakkaService is the contract; CNPG is not
-operator/src/main/scala/nakka/operator/
+crd/                                          UNCHANGED — AnkkaService is the contract; CNPG is not
+operator/src/main/scala/ankka/operator/
 ├── cnpg/
 │   ├── PostgresCluster.scala                 NEW: partial fabric8 model, postgresql.cnpg.io/v1
 │   ├── PostgresDatabase.scala                NEW: partial model
@@ -122,12 +122,12 @@ operator/src/main/scala/nakka/operator/
 │                                             EnsureDatabaseRole, EnsureCredentials, EnsureSchemaConfig
 ├── Executor.scala                            MODIFIED: interprets them; reads back readiness
 ├── LifecycleRules.scala                      MODIFIED: "waiting for database" is a real state
-└── resources/nakka/ddl -> ../../../../../modules/runtime/...   NEW SYMLINK (verified, R6)
+└── resources/ankka/ddl -> ../../../../../modules/runtime/...   NEW SYMLINK (verified, R6)
 
-controlplane/src/main/scala/nakka/controlplane/deploy/
+controlplane/src/main/scala/ankka/controlplane/deploy/
 └── ServiceProjection.scala                   MODIFIED: sets provisionDatabase from the descriptor
 
-crd/src/main/scala/nakka/crd/NakkaService.scala   MODIFIED: + provisionDatabase, + database status
+crd/src/main/scala/ankka/crd/AnkkaService.scala   MODIFIED: + provisionDatabase, + database status
 
 kustomization/
 ├── components/cnpg/                          NEW: the CNPG operator install
@@ -144,7 +144,7 @@ what keeps the control plane free of any knowledge of CNPG despite having a CNPG
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| **The operator gains `secrets: create, get, patch`, breaking the "no verb on secrets" property feature 001 documented as structural** | Unavoidable given the chosen design: CNPG does not generate passwords (verified — `DatabaseRole` requires a caller-supplied basic-auth secret), so *something* nakka owns must generate one and write it. The operator is the only component that renders per-service infrastructure. | Having the **control plane** generate credentials was considered and rejected: it would give the component that deliberately cannot create workloads the power to mint their credentials, and would put secret material through the `NakkaService` spec — a resource readable by anyone with `get` on it. **Mitigation, and it is partial, not equivalent**: the operator still never reads a *service's* secret data on the status path, `detail` construction is unchanged from 001, and the operator gets no `list` on secrets, so it cannot enumerate. The honest position is that "cannot read a secret" is no longer structurally true and `CLAUDE.md` must be corrected rather than left overstating the guarantee. |
-| **Both k3s suites must install CNPG and wait for a Postgres `Cluster`** | FR-038 requires real-cluster verification, and provisioning cannot be verified against a fake — the isolation finding in R9 is exactly the class of thing a fake would model wrongly and then agree with itself about. | Measured during planning: CNPG's own operator took ~25s to become ready and a 1-instance `Cluster` ~20-60s more. That is a real addition to suites already taking 40-60s. Alternatives rejected: a fake CNPG (would have "proved" isolation that does not exist by default); testing provisioning only offline (leaves FR-038 unmet). Mitigation: install CNPG once per suite, share one project's `Cluster` across the services a suite deploys, and keep both suites behind the existing `-Dnakka.cluster.tests=off` switch. |
+| **The operator gains `secrets: create, get, patch`, breaking the "no verb on secrets" property feature 001 documented as structural** | Unavoidable given the chosen design: CNPG does not generate passwords (verified — `DatabaseRole` requires a caller-supplied basic-auth secret), so *something* ankka owns must generate one and write it. The operator is the only component that renders per-service infrastructure. | Having the **control plane** generate credentials was considered and rejected: it would give the component that deliberately cannot create workloads the power to mint their credentials, and would put secret material through the `AnkkaService` spec — a resource readable by anyone with `get` on it. **Mitigation, and it is partial, not equivalent**: the operator still never reads a *service's* secret data on the status path, `detail` construction is unchanged from 001, and the operator gets no `list` on secrets, so it cannot enumerate. The honest position is that "cannot read a secret" is no longer structurally true and `CLAUDE.md` must be corrected rather than left overstating the guarantee. |
+| **Both k3s suites must install CNPG and wait for a Postgres `Cluster`** | FR-038 requires real-cluster verification, and provisioning cannot be verified against a fake — the isolation finding in R9 is exactly the class of thing a fake would model wrongly and then agree with itself about. | Measured during planning: CNPG's own operator took ~25s to become ready and a 1-instance `Cluster` ~20-60s more. That is a real addition to suites already taking 40-60s. Alternatives rejected: a fake CNPG (would have "proved" isolation that does not exist by default); testing provisioning only offline (leaves FR-038 unmet). Mitigation: install CNPG once per suite, share one project's `Cluster` across the services a suite deploys, and keep both suites behind the existing `-Dankka.cluster.tests=off` switch. |
 | **Two provisioning paths** — platform-provisioned and bring-your-own | Operator's explicit choice on FR-016. | One path was offered and declined. The cost is real and recorded in the spec (FR-019): on the escape-hatch path the platform cannot enforce one-database-per-service, so the rule this feature exists to enforce is enforceable on only one of the two paths. Both paths get tests (SC-013). |
-| **Databases are never reclaimed** | Operator's explicit choice on FR-021, taken to avoid irreversibly destroying event-sourced history on a temporary removal. | Turned into an advantage: because nothing should ever delete a database, the operator is granted **no `delete` verb** on `clusters`, `databases` or `databaseroles`. FR-024 and FR-027 stop being promises and become things the API server refuses — the same trick used for `nakkaservices: update` in 001. Cost: accumulation, and a re-apply silently inheriting old state, which FR-025 and FR-026 exist to make visible. |
+| **Databases are never reclaimed** | Operator's explicit choice on FR-021, taken to avoid irreversibly destroying event-sourced history on a temporary removal. | Turned into an advantage: because nothing should ever delete a database, the operator is granted **no `delete` verb** on `clusters`, `databases` or `databaseroles`. FR-024 and FR-027 stop being promises and become things the API server refuses — the same trick used for `ankkaservices: update` in 001. Cost: accumulation, and a re-apply silently inheriting old state, which FR-025 and FR-026 exist to make visible. |

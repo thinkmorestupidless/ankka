@@ -19,7 +19,7 @@ and therefore idempotent by construction, and this one is not.
 ## Delivery
 
 The service's container gets the whole secret with one `envFrom`, so the runtime sees
-`NAKKA_DB_HOST`, `NAKKA_DB_PORT`, `NAKKA_DB_NAME`, `NAKKA_DB_USER` and `NAKKA_DB_PASSWORD` exactly
+`ANKKA_DB_HOST`, `ANKKA_DB_PORT`, `ANKKA_DB_NAME`, `ANKKA_DB_USER` and `ANKKA_DB_PASSWORD` exactly
 as it does today when a descriptor supplies them by hand. **The runtime is unchanged** — it cannot
 tell the difference between a provisioned database and a supplied one, which is what makes the
 escape hatch free.
@@ -38,22 +38,22 @@ escape hatch free.
 
 The control plane's database is bootstrapped by CNPG (`bootstrap.initdb`), so **CNPG generates that
 password itself** and none of the above applies. Its Deployment maps CNPG's auto-generated
-`{cluster}-app` secret into `NAKKA_DB_*` key by key (verified names, research R8):
+`{cluster}-app` secret into `ANKKA_DB_*` key by key (verified names, research R8):
 
-| CNPG key | nakka variable |
+| CNPG key | ankka variable |
 |---|---|
-| `host` | `NAKKA_DB_HOST` |
-| `port` | `NAKKA_DB_PORT` |
-| `dbname` | `NAKKA_DB_NAME` |
-| `username` | `NAKKA_DB_USER` |
-| `password` | `NAKKA_DB_PASSWORD` |
+| `host` | `ANKKA_DB_HOST` |
+| `port` | `ANKKA_DB_PORT` |
+| `dbname` | `ANKKA_DB_NAME` |
+| `username` | `ANKKA_DB_USER` |
+| `password` | `ANKKA_DB_PASSWORD` |
 
 Key-by-key rather than `envFrom`, because CNPG's key names are its own (`host`, not
-`NAKKA_DB_HOST`).
+`ANKKA_DB_HOST`).
 
 ## Separation (FR-020)
 
-The control plane's database lives in `nakka-controlplane`; every service's lives in its project's
+The control plane's database lives in `ankka-controlplane`; every service's lives in its project's
 namespace. Neither side has RBAC to read the other's secret, and — after the init container's
 `REVOKE CONNECT` — a service's role cannot connect to another service's database either. The
 control plane's role is the owner of its own database only.

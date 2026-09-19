@@ -39,7 +39,7 @@ real failure and belongs in rule 8.
 **Rule 9 versus 10** is FR-026: a service whose database already existed before this service was
 created must say so, because retaining databases means a re-applied name silently inherits old
 data. Detected by the `Database` object already existing when the service's own credential secret
-had to be created fresh, or by CNPG's own `Database` being older than the `NakkaService`.
+had to be created fresh, or by CNPG's own `Database` being older than the `AnkkaService`.
 
 ## Idempotence (FR-008, SC-010)
 
@@ -52,11 +52,11 @@ forever.
 ## The escape hatch (FR-016 to FR-019)
 
 The control plane sets `provisionDatabase = false` when the descriptor's `env` declares **any**
-variable whose name begins `NAKKA_DB_`. The rule lives in `controlplane-api` so the CLI applies the
+variable whose name begins `ANKKA_DB_`. The rule lives in `controlplane-api` so the CLI applies the
 same one before the round trip.
 
 On that path the platform renders no CNPG objects, no credential secret and **no init container** —
-so it also does not apply nakka's schema or the `REVOKE CONNECT` hardening. The caller owns all of
+so it also does not apply ankka's schema or the `REVOKE CONNECT` hardening. The caller owns all of
 it. FR-019 requires this be documented rather than implied: the platform is not enforcing
 one-database-per-service here, and cannot.
 

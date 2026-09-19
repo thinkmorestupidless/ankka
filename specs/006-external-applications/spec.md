@@ -1,4 +1,4 @@
-# Feature Specification: A nakka Application Built Outside This Repository
+# Feature Specification: An ankka Application Built Outside This Repository
 
 **Feature Branch**: `006-external-applications`
 
@@ -6,9 +6,9 @@
 
 **Status**: Draft
 
-**Input**: User description: "A nakka application built outside this repository. Today the only
-nakka services that exist are the samples inside this build [...] Nobody but this repository can
-write a nakka service, which makes the platform a demo of itself. The work: publish the library
+**Input**: User description: "An ankka application built outside this repository. Today the only
+ankka services that exist are the samples inside this build [...] Nobody but this repository can
+write an ankka service, which makes the platform a demo of itself. The work: publish the library
 modules an application needs [...] provide a project template that `sbt new` expands into a
 working service [...] and prove it end to end by expanding the template in an empty directory
 outside this repository, running its tests, building its image, deploying it through the CLI to
@@ -17,7 +17,7 @@ not in this build goes through the whole chain."
 
 ## Where this starts from
 
-Every nakka service that has ever run is a sample inside this repository's own build. A sample
+Every ankka service that has ever run is a sample inside this repository's own build. A sample
 depends on the platform's library modules as build-internal references; it shares the
 repository's Postgres definition, whose schema is mounted from a source directory; and its image
 is built by the same command that builds the platform's. None of that is available to anyone
@@ -37,9 +37,9 @@ Two things make this more than "publish some jars":
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Depend on nakka from another build (Priority: P1)
+### User Story 1 - Depend on ankka from another build (Priority: P1)
 
-A developer with an empty project adds the nakka libraries to their build definition by name and
+A developer with an empty project adds the ankka libraries to their build definition by name and
 version, and their build resolves them — locally during development of the platform itself, and
 from a public repository once the platform is released — without any reference to this
 repository's sources.
@@ -71,7 +71,7 @@ unit test through the test kit.
 
 ### User Story 2 - Start a service from a template (Priority: P1)
 
-A developer runs one command in an empty directory and gets a working nakka service: one entity,
+A developer runs one command in an empty directory and gets a working ankka service: one entity,
 one endpoint, one view, tests at both levels, a local database definition, image packaging and a
 deployment descriptor — all named after their project. They run its tests, run it locally and
 call it, then replace the stub domain with their own.
@@ -97,7 +97,7 @@ edited, and the image builds.
 4. **Given** the expanded project, **When** the image is built, **Then** it is tagged with the
    project's name and is the image the descriptor names.
 5. **Given** the expanded project, **When** the developer reads its `README`, **Then** it says, in
-   order, how to run the tests, run locally, build the image, and deploy it to a nakka platform —
+   order, how to run the tests, run locally, build the image, and deploy it to an ankka platform —
    and each command in it is one that was executed in this feature's proof.
 
 ---
@@ -111,8 +111,8 @@ not in this repository's build, going through every feature so far.
 **Why this priority**: it is the proof the other two exist for, and it is the first time the
 platform runs something it did not build.
 
-**Independent Test**: from the expanded project: build and load the image, `nakka services apply`
-the descriptor, `Ready`, `nakka services expose`, `curl` the stub endpoint by hostname with the
+**Independent Test**: from the expanded project: build and load the image, `ankka services apply`
+the descriptor, `Ready`, `ankka services expose`, `curl` the stub endpoint by hostname with the
 certificate verified.
 
 **Acceptance Scenarios**:
@@ -156,7 +156,7 @@ both visible; a deliberately mismatched pair is reported as such on `services ge
 
 ### Edge Cases
 
-- **The developer's local repository has no nakka artifacts** — the template's build fails to
+- **The developer's local repository has no ankka artifacts** — the template's build fails to
   resolve with a message naming the version it wanted and the command that publishes it, not a
   wall of resolver output.
 - **The project name is not a valid service name** (uppercase, spaces, too long) — the template
@@ -215,8 +215,8 @@ both visible; a deliberately mismatched pair is reported as such on `services ge
 - **FR-012**: A template MUST expand, from one command in an empty directory, into a project that
   builds, tests and runs with no file edited. Two commands reach it: `sbt new` with the template's
   name (the convention every Scala framework uses; needs nothing installed but sbt), and
-  `nakka init`, which runs the same expansion and carries no template of its own — one template,
-  two front doors. Both are proven; the `README` leads with `sbt new` and mentions `nakka init`.
+  `ankka init`, which runs the same expansion and carries no template of its own — one template,
+  two front doors. Both are proven; the `README` leads with `sbt new` and mentions `ankka init`.
 - **FR-013**: The expanded project MUST contain: one event sourced entity with a command and a
   query, one HTTP endpoint that exercises them, one view with a listing, an entity test, an
   endpoint test, an integration test against the throwaway database, a local database
@@ -236,7 +236,7 @@ both visible; a deliberately mismatched pair is reported as such on `services ge
 - **FR-017**: The expanded project MUST NOT reference this repository's sources, paths or
   build; it depends on published artifacts only.
 - **FR-018**: The expanded project's `README` MUST take a developer from expansion to a service
-  answering by hostname on a nakka platform, and every command in it MUST be one this feature's
+  answering by hostname on an ankka platform, and every command in it MUST be one this feature's
   proof executed.
 
 **Proof**
@@ -302,10 +302,10 @@ both visible; a deliberately mismatched pair is reported as such on `services ge
 - **The version-skew check reads the image, not the running application** (FR-009): the platform
   must be able to refuse before anything starts. How the version is carried on the image is a
   planning decision.
-- **`nakka init` is sugar over the same template**, never a second copy of it: it locates the
+- **`ankka init` is sugar over the same template**, never a second copy of it: it locates the
   template the way `sbt new` does and runs the same expansion, so the two cannot drift. Until the
   CLI is distributed as a binary it adds convenience, not capability, which is why the `README`
   leads with `sbt new`.
 - **Resolved with the user before finalising**: one version for everything (FR-007); `sbt new`
-  and `nakka init` both, over one template (FR-012); the schema reaches the local database by a
+  and `ankka init` both, over one template (FR-012); the schema reaches the local database by a
   build task extracting it from the published runtime, never by the runtime applying it (FR-016).

@@ -5,18 +5,18 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: nakka-controlplane
-  namespace: nakka-controlplane
+  name: ankka-controlplane
+  namespace: ankka-controlplane
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: nakka
-      namespace: nakka-gateway
+      name: ankka
+      namespace: ankka-gateway
       sectionName: https
   hostnames:
     - api.BASE_DOMAIN
   rules:
     - backendRefs:
-        - name: nakka-controlplane
+        - name: ankka-controlplane
           port: 9000

@@ -1,7 +1,7 @@
 package shoppingcart
 
-import nakka.core.{CommandError, Done, EntityId, ErrorCode}
-import nakka.testkit.NakkaTestKit
+import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
+import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.application.ShoppingCartEntity
 import shoppingcart.domain.LineItem
 
@@ -17,10 +17,10 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite:
 
   override val munitTimeout = 3.minutes
 
-  private var testKit: NakkaTestKit = null
+  private var testKit: AnkkaTestKit = null
 
   override def beforeAll(): Unit =
-    testKit = NakkaTestKit.start(ShoppingCartEntity.descriptor)
+    testKit = AnkkaTestKit.start(ShoppingCartEntity.descriptor)
 
   override def afterAll(): Unit =
     if testKit != null then testKit.stop()

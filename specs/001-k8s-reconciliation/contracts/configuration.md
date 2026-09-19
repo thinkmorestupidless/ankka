@@ -5,10 +5,10 @@
 ## Control plane — `controlplane/src/main/resources/reference.conf`
 
 ```hocon
-nakka.controlplane.kubernetes {
+ankka.controlplane.kubernetes {
   # Namespace per project: "{namespace-prefix}-{projectId}".
-  namespace-prefix = "nakka"
-  namespace-prefix = ${?NAKKA_K8S_NAMESPACE_PREFIX}
+  namespace-prefix = "ankka"
+  namespace-prefix = ${?ANKKA_K8S_NAMESPACE_PREFIX}
 
   # How often every service is re-projected and swept. Desired-state changes do not
   # wait for this — a consumer on the service journal projects immediately.
@@ -31,10 +31,10 @@ nakka.controlplane.kubernetes {
 ## Operator — `operator/src/main/resources/reference.conf`
 
 ```hocon
-nakka.operator {
+ankka.operator {
   # Namespaces to watch. Empty means all namespaces matching the prefix.
-  namespace-prefix = "nakka"
-  namespace-prefix = ${?NAKKA_K8S_NAMESPACE_PREFIX}
+  namespace-prefix = "ankka"
+  namespace-prefix = ${?ANKKA_K8S_NAMESPACE_PREFIX}
 
   # Informer resync. Watches deliver changes; this is the backstop that notices what
   # nobody announced.
@@ -57,7 +57,7 @@ which is precisely why that signal exists.
 ## Removed key
 
 ```hocon
-nakka.controlplane.namespace = "nakka"     # DELETE
+ankka.controlplane.namespace = "ankka"     # DELETE
 ```
 
 Replaced by `kubernetes.namespace-prefix`. It declared a single namespace for every service, which
@@ -67,7 +67,7 @@ leaving it would ship two keys where one is silently ignored.
 ## Credentials
 
 fabric8's standard resolution on both sides: in-cluster service account → `KUBECONFIG` →
-`~/.kube/config`. No nakka-specific path setting, so this stays a deployment concern.
+`~/.kube/config`. No ankka-specific path setting, so this stays a deployment concern.
 
 ## RBAC — the split is the security property
 
@@ -75,8 +75,8 @@ fabric8's standard resolution on both sides: in-cluster service account → `KUB
 
 | Resource | Verbs |
 |---|---|
-| `nakkaservices` | get, list, watch, create, patch, delete |
-| `nakkaservices/status` | get, list, watch |
+| `ankkaservices` | get, list, watch, create, patch, delete |
+| `ankkaservices/status` | get, list, watch |
 | `namespaces` | get, list |
 
 It cannot create a Deployment, cannot read a Secret, and cannot write a status. Even fully
@@ -86,13 +86,13 @@ compromised it can only ask for workloads, not make them.
 
 | Resource | Verbs |
 |---|---|
-| `nakkaservices` | get, list, watch |
-| `nakkaservices/status` | update, patch |
+| `ankkaservices` | get, list, watch |
+| `ankkaservices/status` | update, patch |
 | `namespaces` | get, list, create |
 | `apps/deployments` | get, list, watch, create, patch, delete |
 | `pods` | get, list, watch |
 
-It cannot change desired state — no `update` on `nakkaservices` itself, only on the status
+It cannot change desired state — no `update` on `ankkaservices` itself, only on the status
 subresource. It has **no verb on `secrets`**, which makes FR-023 ("detail never contains a secret
 value") structural: it cannot read one. Secrets reach a pod because the kubelet resolves
 `valueFrom.secretKeyRef`, not because the operator passes them through.
@@ -102,8 +102,8 @@ value") structural: it cannot read one. Secrets reach a pod because the kubelet 
 Two manifests, single copies, shipped on the operator's classpath:
 
 ```
-operator/src/main/resources/nakka/crd/nakkaservice.yaml       # the CustomResourceDefinition
-operator/src/main/resources/nakka/install/operator.yaml       # ServiceAccount, ClusterRole,
+operator/src/main/resources/ankka/crd/ankkaservice.yaml       # the CustomResourceDefinition
+operator/src/main/resources/ankka/install/operator.yaml       # ServiceAccount, ClusterRole,
                                                               # ClusterRoleBinding, Deployment
 ```
 

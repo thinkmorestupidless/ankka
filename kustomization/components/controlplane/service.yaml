@@ -1,14 +1,14 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nakka-controlplane
-  namespace: nakka-controlplane
+  name: ankka-controlplane
+  namespace: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
-    app.kubernetes.io/name: nakka-controlplane
+    app.kubernetes.io/managed-by: ankka
+    app.kubernetes.io/name: ankka-controlplane
 spec:
   selector:
-    app.kubernetes.io/name: nakka-controlplane
+    app.kubernetes.io/name: ankka-controlplane
   ports:
     - port: 9000
       targetPort: 9000

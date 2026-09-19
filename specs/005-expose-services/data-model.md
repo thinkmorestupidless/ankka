@@ -29,7 +29,7 @@ Hostnames.label(serviceName, projectId)          = s"$serviceName-$projectId"   
 Hostnames.controlPlane(baseDomain)               = s"api.$baseDomain"
 ```
 
-Lives in `crd` (`nakka.crd.Hostnames`) — pure, no dependencies — so `controlplane` (display,
+Lives in `crd` (`com.thinkmorestupidless.ankka.crd.Hostnames`) — pure, no dependencies — so `controlplane` (display,
 collision check) and `operator` (rendering) share one copy. `Hostnames.problems(serviceName,
 projectId): Vector[String]` returns the length refusal text.
 
@@ -61,7 +61,7 @@ database phrase uses.
   service.
 - `POST /services/{projectId}/{name}/unexpose` → `200 ServiceStatus`; idempotent.
 
-### CLI settings (`~/.nakka/config.json`)
+### CLI settings (`~/.ankka/config.json`)
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -72,7 +72,7 @@ verification.
 
 ## Custom resource (`crd`)
 
-### `NakkaServiceSpec` — one new field
+### `AnkkaServiceSpec` — one new field
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -81,7 +81,7 @@ verification.
 CRD schema gains `exposed: boolean`. `port`/`http` from feature 003 are what decide whether a
 route *can* be rendered.
 
-### `NakkaServiceStatus` — one new field
+### `AnkkaServiceStatus` — one new field
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -95,9 +95,9 @@ route *can* be rendered.
 |---|---|
 | `metadata.name` | `<service>` |
 | `metadata.namespace` | `<prefix>-<project>` |
-| `metadata.ownerReferences` | the `NakkaService` (cascade delete; FR-014) |
+| `metadata.ownerReferences` | the `AnkkaService` (cascade delete; FR-014) |
 | `metadata.labels` | the service's identity labels |
-| `spec.parentRefs[0]` | `{group: gateway.networking.k8s.io, kind: Gateway, name: nakka, namespace: nakka-gateway, sectionName: https}` |
+| `spec.parentRefs[0]` | `{group: gateway.networking.k8s.io, kind: Gateway, name: ankka, namespace: ankka-gateway, sectionName: https}` |
 | `spec.hostnames` | `[Hostnames.of(service, project, baseDomain)]` |
 | `spec.rules[0].backendRefs[0]` | `{name: <service>, port: <resolvedPort>}` — same namespace by API rule (FR-025) |
 
@@ -111,32 +111,32 @@ after the Service, before the Deployment.
 ### `ClusterSnapshot` — one new field
 
 `route: Option[HTTPRouteStatusView]` — the `Accepted` condition of the route's parent status for
-the nakka Gateway, if the route exists. Feeds `LifecycleRules` only for the status copy; exposure
+the ankka Gateway, if the route exists. Feeds `LifecycleRules` only for the status copy; exposure
 never changes `lifecycle`.
 
 ## Installation objects (`kustomization/`)
 
 | Object | Namespace | Owner | Purpose |
 |---|---|---|---|
-| `GatewayClass nakka` | — | installer | `controllerName: gateway.envoyproxy.io/gatewayclass-controller` |
-| `EnvoyProxy nakka` | `nakka-gateway` | installer | proxy Service `NodePort`, nodePorts 30080/30443 (R5) |
-| `Gateway nakka` | `nakka-gateway` | installer | listeners `http:80` and `https:443` with `hostname: "*.<base>"`, `tls.certificateRefs: [nakka-wildcard-tls]`; `allowedRoutes.namespaces.from: Selector` on `Labels.ManagedByKey` |
-| `HTTPRoute https-redirect` | `nakka-gateway` | installer | on the `http` listener: `RequestRedirect scheme https, 301` |
-| `Issuer selfsigned`, `Certificate nakka-root-ca`, `ClusterIssuer nakka-ca`, `Certificate nakka-wildcard` | `nakka-gateway` / cluster | installer (local overlay) | the local CA and the one wildcard certificate (R3) |
-| `HTTPRoute nakka-controlplane` | `nakka-controlplane` | installer | hostname `api.<base>` → `nakka-controlplane:9000` |
-| `ConfigMap nakka-platform` | `nakka-gateway` | installer (local overlay) | `baseDomain`, fanned out by kustomize replacements (R7) |
+| `GatewayClass ankka` | — | installer | `controllerName: gateway.envoyproxy.io/gatewayclass-controller` |
+| `EnvoyProxy ankka` | `ankka-gateway` | installer | proxy Service `NodePort`, nodePorts 30080/30443 (R5) |
+| `Gateway ankka` | `ankka-gateway` | installer | listeners `http:80` and `https:443` with `hostname: "*.<base>"`, `tls.certificateRefs: [ankka-wildcard-tls]`; `allowedRoutes.namespaces.from: Selector` on `Labels.ManagedByKey` |
+| `HTTPRoute https-redirect` | `ankka-gateway` | installer | on the `http` listener: `RequestRedirect scheme https, 301` |
+| `Issuer selfsigned`, `Certificate ankka-root-ca`, `ClusterIssuer ankka-ca`, `Certificate ankka-wildcard` | `ankka-gateway` / cluster | installer (local overlay) | the local CA and the one wildcard certificate (R3) |
+| `HTTPRoute ankka-controlplane` | `ankka-controlplane` | installer | hostname `api.<base>` → `ankka-controlplane:9000` |
+| `ConfigMap ankka-platform` | `ankka-gateway` | installer (local overlay) | `baseDomain`, fanned out by kustomize replacements (R7) |
 
-`nakka-controlplane` and every project namespace carry `Labels.ManagedByKey` so their routes may
+`ankka-controlplane` and every project namespace carry `Labels.ManagedByKey` so their routes may
 attach.
 
 ## Settings
 
 | Process | Setting | Source | Default |
 |---|---|---|---|
-| control plane | `nakka.controlplane.deploy.base-domain` | `NAKKA_BASE_DOMAIN` | none — required when any service is exposed; `expose` refuses with "no base domain configured" if unset |
-| operator | `nakka.operator.base-domain` | `NAKKA_BASE_DOMAIN` | none — a resource with `exposed: true` and no base domain is reported `route: Rejected("operator has no base domain")`, never silently unrouted |
-| local overlay | `baseDomain` in `nakka-platform` | `kustomization/overlays/local` | `127.0.0.1.sslip.io` |
-| local overlay | `httpsPort` in `nakka-platform` | `kustomization/overlays/local` | `8443` — the kind host port; names the redirect's target port |
+| control plane | `ankka.controlplane.deploy.base-domain` | `ANKKA_BASE_DOMAIN` | none — required when any service is exposed; `expose` refuses with "no base domain configured" if unset |
+| operator | `ankka.operator.base-domain` | `ANKKA_BASE_DOMAIN` | none — a resource with `exposed: true` and no base domain is reported `route: Rejected("operator has no base domain")`, never silently unrouted |
+| local overlay | `baseDomain` in `ankka-platform` | `kustomization/overlays/local` | `127.0.0.1.sslip.io` |
+| local overlay | `httpsPort` in `ankka-platform` | `kustomization/overlays/local` | `8443` — the kind host port; names the redirect's target port |
 
 ## State transitions
 

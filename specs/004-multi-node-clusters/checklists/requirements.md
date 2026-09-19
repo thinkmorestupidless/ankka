@@ -47,7 +47,7 @@ API-based bootstrap, and **the same startup code in both** because configured se
 bootstrap stand down — is adopted as FR-006, FR-007 and FR-012. Its *selector*
 (`-Dconfig.resource=application.k8s.conf`) is deliberately not: it replaces the application's
 configuration wholesale, which suits an application that owns its configuration and would clobber a
-nakka service's own (FR-011). The Assumptions section records this so the plan does not have to
+ankka service's own (FR-011). The Assumptions section records this so the plan does not have to
 rediscover it.
 
 Two findings from reading the code while drafting, which change the size of the work:

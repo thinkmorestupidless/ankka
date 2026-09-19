@@ -28,10 +28,10 @@ No new sbt modules. All new code lands in the existing `operator` and `controlpl
 new kustomize components.
 
 ```
-operator/src/main/scala/nakka/operator/cnpg/         NEW package — partial CNPG models
-operator/src/main/scala/nakka/operator/              MODIFIED — Rendering, Action, Executor, LifecycleRules
-controlplane/src/main/scala/nakka/controlplane/deploy/   MODIFIED — ServiceProjection
-crd/src/main/scala/nakka/crd/NakkaService.scala      MODIFIED — provisionDatabase, DatabaseStatus
+operator/src/main/scala/ankka/operator/cnpg/         NEW package — partial CNPG models
+operator/src/main/scala/ankka/operator/              MODIFIED — Rendering, Action, Executor, LifecycleRules
+controlplane/src/main/scala/ankka/controlplane/deploy/   MODIFIED — ServiceProjection
+crd/src/main/scala/ankka/crd/AnkkaService.scala      MODIFIED — provisionDatabase, DatabaseStatus
 kustomization/components/cnpg/                        NEW — the CNPG operator install
 kustomization/components/postgres/                    REPLACED — Deployment+Secret+Service → CNPG Cluster
 ```
@@ -44,7 +44,7 @@ kustomization/components/postgres/                    REPLACED — Deployment+Se
 
 - [X] T001 Create `kustomization/components/cnpg/kustomization.yaml` referencing the pinned CNPG 1.30.0 release manifest by URL (see [contracts/rbac-and-install.md](./contracts/rbac-and-install.md)); add it to `kustomization/overlays/local/kustomization.yaml`'s `components` list, ordered before `operator` and `controlplane`
 - [X] T002 [P] Add `cnpg-controller-manager` rollout-wait to `kustomization/deploy-local.sh`, after installing the new component and before applying anything that references a CNPG kind
-- [X] T003 [P] `operator/src/main/scala/nakka/operator/cnpg/CnpgDefinitions.scala`: group/version (`postgresql.cnpg.io/v1`) constants and shared serialization config, mirroring `nakka.crd.NakkaServiceDefinition`'s shape
+- [X] T003 [P] `operator/src/main/scala/ankka/operator/cnpg/CnpgDefinitions.scala`: group/version (`postgresql.cnpg.io/v1`) constants and shared serialization config, mirroring `com.thinkmorestupidless.ankka.crd.AnkkaServiceDefinition`'s shape
 
 **Checkpoint**: `./kustomization/deploy-local.sh` installs CNPG and waits for it; `kubectl get crd | grep cnpg` shows all eleven CRDs.
 
@@ -59,35 +59,35 @@ functions every story depends on. No wiring into the reconcile loop yet.
 
 ### Partial CNPG models
 
-- [X] T004 [P] `operator/src/main/scala/nakka/operator/cnpg/PostgresCluster.scala`: partial `CustomResource[ClusterSpec, ClusterStatus]` per [contracts/cnpg-resources.md](./contracts/cnpg-resources.md) — `instances`, `storage.size`, optional `bootstrap.initdb`; status exposes `readyInstances`
-- [X] T005 [P] `operator/src/main/scala/nakka/operator/cnpg/PostgresDatabase.scala`: partial model — `name`, `owner`, `cluster.name`, `databaseReclaimPolicy`; status exposes `applied`, `message`
-- [X] T006 [P] `operator/src/main/scala/nakka/operator/cnpg/PostgresDatabaseRole.scala`: partial model — `name`, `cluster.name`, `login`, `passwordSecret.name`, `databaseRoleReclaimPolicy`; status exposes `applied`, `message`
-- [X] T007 [P] `operator/src/test/scala/nakka/operator/cnpg/CnpgModelsSuite.scala`: round-trip test for each of the three models (mirrors `NakkaServiceCodecSuite` from feature 001) — an absent optional field is omitted, not written as null, so server-side apply never claims it
+- [X] T004 [P] `operator/src/main/scala/ankka/operator/cnpg/PostgresCluster.scala`: partial `CustomResource[ClusterSpec, ClusterStatus]` per [contracts/cnpg-resources.md](./contracts/cnpg-resources.md) — `instances`, `storage.size`, optional `bootstrap.initdb`; status exposes `readyInstances`
+- [X] T005 [P] `operator/src/main/scala/ankka/operator/cnpg/PostgresDatabase.scala`: partial model — `name`, `owner`, `cluster.name`, `databaseReclaimPolicy`; status exposes `applied`, `message`
+- [X] T006 [P] `operator/src/main/scala/ankka/operator/cnpg/PostgresDatabaseRole.scala`: partial model — `name`, `cluster.name`, `login`, `passwordSecret.name`, `databaseRoleReclaimPolicy`; status exposes `applied`, `message`
+- [X] T007 [P] `operator/src/test/scala/ankka/operator/cnpg/CnpgModelsSuite.scala`: round-trip test for each of the three models (mirrors `AnkkaServiceCodecSuite` from feature 001) — an absent optional field is omitted, not written as null, so server-side apply never claims it
 
 ### Contract additions
 
-- [X] T008 [P] Add `provisionDatabase: Boolean = true` to `NakkaServiceSpec` in `crd/src/main/scala/nakka/crd/NakkaService.scala`
-- [X] T009 Add `DatabaseStatus` case class and `database: Option[DatabaseStatus]` on `NakkaServiceStatus` in the same file (not parallel with T008 — same file)
-- [X] T010 [P] `crd/src/test/scala/nakka/crd/NakkaServiceCodecSuite.scala`: extend for `provisionDatabase` and `DatabaseStatus` round-tripping, including that a status with no `database` field decodes to `None` (compatibility with resources written before this feature)
-- [X] T011 [P] Add `database: Option[String] = None` to `ServiceStatus` in `controlplane-api/src/main/scala/nakka/controlplane/api/descriptors.scala`
+- [X] T008 [P] Add `provisionDatabase: Boolean = true` to `AnkkaServiceSpec` in `crd/src/main/scala/ankka/crd/AnkkaService.scala`
+- [X] T009 Add `DatabaseStatus` case class and `database: Option[DatabaseStatus]` on `AnkkaServiceStatus` in the same file (not parallel with T008 — same file)
+- [X] T010 [P] `crd/src/test/scala/ankka/crd/AnkkaServiceCodecSuite.scala`: extend for `provisionDatabase` and `DatabaseStatus` round-tripping, including that a status with no `database` field decodes to `None` (compatibility with resources written before this feature)
+- [X] T011 [P] Add `database: Option[String] = None` to `ServiceStatus` in `controlplane-api/src/main/scala/ankka/controlplane/api/descriptors.scala`
 
 ### The schema, delivered without duplication
 
-- [X] T012 Create the directory symlink `operator/src/main/resources/nakka/ddl` → `../../../../../modules/runtime/src/main/resources/nakka/ddl` (verified working in research R6 — compute the relative path with `python3 -c "import os; print(os.path.relpath(...))"` rather than counting by eye, per the mistake recorded in feature 001's implementation notes)
-- [X] T013 `operator/src/test/scala/nakka/operator/SchemaResourceSuite.scala`: assert all three `.sql` files are readable via `getClass.getResourceAsStream("/nakka/ddl/...")`, proving the symlink survives `sbt Compile/copyResources`
+- [X] T012 Create the directory symlink `operator/src/main/resources/ankka/ddl` → `../../../../../modules/runtime/src/main/resources/ankka/ddl` (verified working in research R6 — compute the relative path with `python3 -c "import os; print(os.path.relpath(...))"` rather than counting by eye, per the mistake recorded in feature 001's implementation notes)
+- [X] T013 `operator/src/test/scala/ankka/operator/SchemaResourceSuite.scala`: assert all three `.sql` files are readable via `getClass.getResourceAsStream("/ankka/ddl/...")`, proving the symlink survives `sbt Compile/copyResources`
 
 ### Pure provisioning logic
 
-- [X] T014 `operator/src/main/scala/nakka/operator/Passwords.scala`: `generate(): String` using `SecureRandom`, ≥32 alphanumeric characters (no ambiguous quoting)
-- [X] T015 `operator/src/main/scala/nakka/operator/cnpg/DatabaseObservation.scala`: the pure value type — cluster readiness, and the existence/`applied`/`message` of the database, role and credential secret (data-model.md §3)
-- [X] T016 `operator/src/main/scala/nakka/operator/Provisioning.scala`: `decide(spec, observed, config): Either[Vector[String], ProvisioningPlan]` — all 10 rules from [contracts/provisioning-rules.md](./contracts/provisioning-rules.md), including the transient-vs-terminal split (rules 7/8) and recovered-vs-provisioned (rules 9/10)
-- [X] T017 Extend `operator/src/main/scala/nakka/operator/Action.scala` with `EnsureCluster`, `EnsureCredentials` (create-only-if-absent, documented as the one non-idempotent-by-construction action), `EnsureDatabaseRole`, `EnsureDatabase`, `EnsureSchemaConfig`
+- [X] T014 `operator/src/main/scala/ankka/operator/Passwords.scala`: `generate(): String` using `SecureRandom`, ≥32 alphanumeric characters (no ambiguous quoting)
+- [X] T015 `operator/src/main/scala/ankka/operator/cnpg/DatabaseObservation.scala`: the pure value type — cluster readiness, and the existence/`applied`/`message` of the database, role and credential secret (data-model.md §3)
+- [X] T016 `operator/src/main/scala/ankka/operator/Provisioning.scala`: `decide(spec, observed, config): Either[Vector[String], ProvisioningPlan]` — all 10 rules from [contracts/provisioning-rules.md](./contracts/provisioning-rules.md), including the transient-vs-terminal split (rules 7/8) and recovered-vs-provisioned (rules 9/10)
+- [X] T017 Extend `operator/src/main/scala/ankka/operator/Action.scala` with `EnsureCluster`, `EnsureCredentials` (create-only-if-absent, documented as the one non-idempotent-by-construction action), `EnsureDatabaseRole`, `EnsureDatabase`, `EnsureSchemaConfig`
 
 ### Operator scaffolding for CNPG I/O
 
-- [X] T018 Extend `operator/src/main/scala/nakka/operator/Executor.scala`: interpret the five new `Action` cases against a `KubernetesClient`; `EnsureCredentials` checks existence before writing, everything else is server-side apply with the operator's field manager
+- [X] T018 Extend `operator/src/main/scala/ankka/operator/Executor.scala`: interpret the five new `Action` cases against a `KubernetesClient`; `EnsureCredentials` checks existence before writing, everything else is server-side apply with the operator's field manager
 - [X] T019 ~~`FakeCnpgTarget.scala`~~ — **not needed, and not a gap.** `FakeDeploymentTarget` never
-  existed in feature 001 (checked: only `FakeNakkaServiceClient`, on the control plane side, does).
+  existed in feature 001 (checked: only `FakeAnkkaServiceClient`, on the control plane side, does).
   `Provisioning.decide(spec, observed: DatabaseObservation)` takes the observation as a plain,
   hand-constructible value rather than through an interface — the same shape `LifecycleRules.observe`
   already uses for `ClusterSnapshot`. `ProvisioningSuite` constructs `DatabaseObservation` values
@@ -107,23 +107,23 @@ reaches `Ready`; restarting it recovers a previously persisted event.
 
 ### Tests for User Story 1
 
-- [X] T020 [P] [US1] `operator/src/test/scala/nakka/operator/ProvisioningSuite.scala`: rules 1–6, 9, 10 from the contract — no cluster yet, cluster not ready, secret absent, role/database absent, steady state decides `NothingToDo`, and idempotence (`NothingToDo` performs zero writes against the fake)
-- [X] T021 [P] [US1] `operator/src/test/scala/nakka/operator/CnpgRenderingSuite.scala`: `Cluster`/`Database`/`DatabaseRole` render with exactly the fields in [contracts/cnpg-resources.md](./contracts/cnpg-resources.md); rendering is deterministic; a hyphenated service name (e.g. `my-cart`) renders unchanged in every name field (research R10 — no normalisation)
+- [X] T020 [P] [US1] `operator/src/test/scala/ankka/operator/ProvisioningSuite.scala`: rules 1–6, 9, 10 from the contract — no cluster yet, cluster not ready, secret absent, role/database absent, steady state decides `NothingToDo`, and idempotence (`NothingToDo` performs zero writes against the fake)
+- [X] T021 [P] [US1] `operator/src/test/scala/ankka/operator/CnpgRenderingSuite.scala`: `Cluster`/`Database`/`DatabaseRole` render with exactly the fields in [contracts/cnpg-resources.md](./contracts/cnpg-resources.md); rendering is deterministic; a hyphenated service name (e.g. `my-cart`) renders unchanged in every name field (research R10 — no normalisation)
 
 ### Implementation for User Story 1
 
-- [X] T022 [US1] `operator/src/main/scala/nakka/operator/CnpgRendering.scala`: pure functions building a `PostgresCluster`, `PostgresDatabase`, `PostgresDatabaseRole` and credential `Secret` from a `NakkaServiceSpec` and project config, per [contracts/cnpg-resources.md](./contracts/cnpg-resources.md) — `retain` reclaim policies on both CNPG objects (FR-024, forward reference to US4 but cheap to set now)
-- [X] T023 [US1] Wire `Provisioning.decide` + `CnpgRendering` into `operator/src/main/scala/nakka/operator/Rendering.scala`: on the provisioned path, emit the CNPG actions ahead of the Deployment action; the Deployment gets `envFrom` the credential secret
-- [X] T024 [US1] Extend `operator/src/main/scala/nakka/operator/LifecycleRules.scala`: a new `Waiting`-for-database status distinct from the existing rollout-in-progress state, reported when `Provisioning.decide` returns a plan that is not yet `NothingToDo`
-- [X] T025 [US1] Extend `operator/src/main/scala/nakka/operator/ServiceReconciler.scala` (or equivalent reconcile entry point) to read `DatabaseObservation` before rendering, and to feed `Provisioning.decide`'s result into both the rendered actions and the reported `DatabaseStatus`
-- [X] T026 [US1] `controlplane/src/main/scala/nakka/controlplane/deploy/ServiceProjection.scala`: set `provisionDatabase = true` by default (the escape-hatch rule itself is US4's job; this task only wires the field through)
+- [X] T022 [US1] `operator/src/main/scala/ankka/operator/CnpgRendering.scala`: pure functions building a `PostgresCluster`, `PostgresDatabase`, `PostgresDatabaseRole` and credential `Secret` from an `AnkkaServiceSpec` and project config, per [contracts/cnpg-resources.md](./contracts/cnpg-resources.md) — `retain` reclaim policies on both CNPG objects (FR-024, forward reference to US4 but cheap to set now)
+- [X] T023 [US1] Wire `Provisioning.decide` + `CnpgRendering` into `operator/src/main/scala/ankka/operator/Rendering.scala`: on the provisioned path, emit the CNPG actions ahead of the Deployment action; the Deployment gets `envFrom` the credential secret
+- [X] T024 [US1] Extend `operator/src/main/scala/ankka/operator/LifecycleRules.scala`: a new `Waiting`-for-database status distinct from the existing rollout-in-progress state, reported when `Provisioning.decide` returns a plan that is not yet `NothingToDo`
+- [X] T025 [US1] Extend `operator/src/main/scala/ankka/operator/ServiceReconciler.scala` (or equivalent reconcile entry point) to read `DatabaseObservation` before rendering, and to feed `Provisioning.decide`'s result into both the rendered actions and the reported `DatabaseStatus`
+- [X] T026 [US1] `controlplane/src/main/scala/ankka/controlplane/deploy/ServiceProjection.scala`: set `provisionDatabase = true` by default (the escape-hatch rule itself is US4's job; this task only wires the field through)
 
 ### Integration and cluster tests for User Story 1
 
-- [X] T027 [US1] `operator/src/test/scala/nakka/operator/OperatorClusterSuite.scala`: extend `beforeAll` to install CNPG (from the shipped manifest, per T001) and wait for its controller; add a case asserting a project's `Cluster` is created lazily on first service and reaches ready
+- [X] T027 [US1] `operator/src/test/scala/ankka/operator/OperatorClusterSuite.scala`: extend `beforeAll` to install CNPG (from the shipped manifest, per T001) and wait for its controller; add a case asserting a project's `Cluster` is created lazily on first service and reaches ready
 - [X] T028 [US1] Extend `OperatorClusterSuite`: a service with no database configuration reaches `Ready`; assert its `Database` and `DatabaseRole` exist and `psql` as that role against that database succeeds
 - [X] T029 [US1] Extend `OperatorClusterSuite`: **the transient window is survived, not reported as failure** — poll status throughout provisioning and assert `Failed` is never observed, even while CNPG's per-cluster secret allowlist has not caught up (research R5) or the role has not yet landed (research R4)
-- [X] T030 [US1] `controlplane/src/test/scala/nakka/controlplane/EndToEndClusterSuite.scala`: extend to install CNPG; the headline case — a descriptor with zero database configuration deploys through the real CLI and reaches `Ready`
+- [X] T030 [US1] `controlplane/src/test/scala/ankka/controlplane/EndToEndClusterSuite.scala`: extend to install CNPG; the headline case — a descriptor with zero database configuration deploys through the real CLI and reaches `Ready`
 
 **Checkpoint**: A descriptor with no database configuration produces a running service on its own database. This is the MVP.
 
@@ -139,19 +139,19 @@ one's credentials and confirm it is refused, including a bare `CONNECT` attempt.
 
 ### Tests for User Story 2
 
-- [X] T031 [P] [US2] `operator/src/test/scala/nakka/operator/SchemaInitSuite.scala`: the init container is rendered on the provisioned path with the three steps from [contracts/schema-init.md](./contracts/schema-init.md) — wait, apply schema, `REVOKE CONNECT ON DATABASE ... FROM PUBLIC` — and is **not** rendered on the escape-hatch path (forward reference to US4's flag, testable now since the field already exists from T008)
+- [X] T031 [P] [US2] `operator/src/test/scala/ankka/operator/SchemaInitSuite.scala`: the init container is rendered on the provisioned path with the three steps from [contracts/schema-init.md](./contracts/schema-init.md) — wait, apply schema, `REVOKE CONNECT ON DATABASE ... FROM PUBLIC` — and is **not** rendered on the escape-hatch path (forward reference to US4's flag, testable now since the field already exists from T008)
 
 ### Implementation for User Story 2
 
-- [X] T032 [US2] `operator/src/main/scala/nakka/operator/SchemaInit.scala`: pure function rendering the init container spec (image, `envFrom` the credential secret, volume mount, the shell script from the contract) from a `NakkaServiceSpec`
-- [X] T033 [US2] `operator/src/main/scala/nakka/operator/CnpgRendering.scala`: render the `nakka-schema` ConfigMap per project namespace, sourced from the classpath resources at `/nakka/ddl/*.sql` (via T012's symlink) — one ConfigMap shared by every service in the project, since the schema does not vary by service
-- [X] T034 [US2] Wire the init container and its ConfigMap volume into the Deployment rendering in `operator/src/main/scala/nakka/operator/Rendering.scala`, ordered before the service's own container; ensure the pod template's checksum/annotation changes when the schema ConfigMap's content changes, so a schema update actually restarts pods (called out explicitly in [contracts/schema-init.md](./contracts/schema-init.md) as the easy thing to miss)
+- [X] T032 [US2] `operator/src/main/scala/ankka/operator/SchemaInit.scala`: pure function rendering the init container spec (image, `envFrom` the credential secret, volume mount, the shell script from the contract) from an `AnkkaServiceSpec`
+- [X] T033 [US2] `operator/src/main/scala/ankka/operator/CnpgRendering.scala`: render the `ankka-schema` ConfigMap per project namespace, sourced from the classpath resources at `/ankka/ddl/*.sql` (via T012's symlink) — one ConfigMap shared by every service in the project, since the schema does not vary by service
+- [X] T034 [US2] Wire the init container and its ConfigMap volume into the Deployment rendering in `operator/src/main/scala/ankka/operator/Rendering.scala`, ordered before the service's own container; ensure the pod template's checksum/annotation changes when the schema ConfigMap's content changes, so a schema update actually restarts pods (called out explicitly in [contracts/schema-init.md](./contracts/schema-init.md) as the easy thing to miss)
 
 ### Integration and cluster tests for User Story 2
 
 - [X] T035 [US2] Extend `OperatorClusterSuite`: deploy two services in one project; assert each has its own `Database`/`DatabaseRole`/credential secret, and that the tables one creates are invisible to the other via `SELECT`
 - [X] T036 [US2] Extend `OperatorClusterSuite`: **the CONNECT grant is measured, not assumed** — using service A's generated credentials, attempt to connect to service B's database and assert it is refused (`permission denied for database ... User does not have CONNECT privilege`), proving the `REVOKE` step in T032 actually ran
-- [X] T037 [US2] Extend `OperatorClusterSuite`: both services' timer tables exist independently and surviving each other's presence is provable at the schema level (assert `nakka_timers` exists in each service's own database, distinct rows, not a shared table) — this is the concrete case that motivated the whole feature (SC-005)
+- [X] T037 [US2] Extend `OperatorClusterSuite`: both services' timer tables exist independently and surviving each other's presence is provable at the schema level (assert `ankka_timers` exists in each service's own database, distinct rows, not a shared table) — this is the concrete case that motivated the whole feature (SC-005)
 
 **Checkpoint**: Two services in one project are provably isolated, including the CONNECT grant most implementations would miss.
 
@@ -167,25 +167,25 @@ CNPG-managed database; restarting that database's pod does not lose recorded des
 
 ### Tests for User Story 3
 
-- [X] T038 [P] [US3] `operator/src/test/scala/nakka/operator/cnpg/PostgresClusterBootstrapSuite.scala` (or fold into `CnpgModelsSuite`): rendering a `Cluster` with `bootstrap.initdb.database`/`.owner` set produces the expected object shape, distinct from a project cluster (which omits `bootstrap` entirely)
+- [X] T038 [P] [US3] `operator/src/test/scala/ankka/operator/cnpg/PostgresClusterBootstrapSuite.scala` (or fold into `CnpgModelsSuite`): rendering a `Cluster` with `bootstrap.initdb.database`/`.owner` set produces the expected object shape, distinct from a project cluster (which omits `bootstrap` entirely)
   - Folded into `CnpgRenderingSuite` (`CnpgModelsSuite` already covered the raw `ClusterSpec` shape) as "the control plane cluster carries bootstrap.initdb, unlike a project cluster", exercising `CnpgRendering.controlPlaneCluster` directly.
 
 ### Implementation for User Story 3
 
-- [X] T039 [US3] Replace `kustomization/components/postgres/deployment.yaml`, `service.yaml` and `secret.yaml` with a single `cluster.yaml`: a CNPG `Cluster` named e.g. `nakka-controlplane-db` in the `nakka-controlplane` namespace, `bootstrap.initdb.database: nakka`, `.owner: nakka`, `storage.size` per [contracts/cnpg-resources.md](./contracts/cnpg-resources.md)
+- [X] T039 [US3] Replace `kustomization/components/postgres/deployment.yaml`, `service.yaml` and `secret.yaml` with a single `cluster.yaml`: a CNPG `Cluster` named e.g. `ankka-controlplane-db` in the `ankka-controlplane` namespace, `bootstrap.initdb.database: ankka`, `.owner: ankka`, `storage.size` per [contracts/cnpg-resources.md](./contracts/cnpg-resources.md)
 - [X] T040 [US3] Update `kustomization/components/postgres/kustomization.yaml` to reference `cluster.yaml` in place of the removed manifests
-- [X] T041 [US3] Update `kustomization/components/controlplane/deployment.yaml`: map the CNPG-generated `{cluster}-app` secret's keys to `NAKKA_DB_*` one-for-one per the table in [contracts/credentials.md](./contracts/credentials.md) (`host`→`NAKKA_DB_HOST`, `port`→`NAKKA_DB_PORT`, `dbname`→`NAKKA_DB_NAME`, `username`→`NAKKA_DB_USER`, `password`→`NAKKA_DB_PASSWORD`) — replacing the old `nakka-postgres-credentials` secret reference
+- [X] T041 [US3] Update `kustomization/components/controlplane/deployment.yaml`: map the CNPG-generated `{cluster}-app` secret's keys to `ANKKA_DB_*` one-for-one per the table in [contracts/credentials.md](./contracts/credentials.md) (`host`→`ANKKA_DB_HOST`, `port`→`ANKKA_DB_PORT`, `dbname`→`ANKKA_DB_NAME`, `username`→`ANKKA_DB_USER`, `password`→`ANKKA_DB_PASSWORD`) — replacing the old `ankka-postgres-credentials` secret reference
 - [X] T042 [US3] Update the `wait-for-postgres` init container already present on the control plane's Deployment (from feature 001) to target the new CNPG service name (`{cluster}-rw`) instead of the old hand-rolled `postgres` Service
   - Targets the CNPG-generated secret's own `host`/`port`/`username` keys rather than a hardcoded service name — equivalent, and one less name to keep in sync.
-- [X] T043 [US3] Update `kustomization/deploy-local.sh`: remove the old `nakka-postgres-init` ConfigMap generation step (the DDL is now applied by the control plane's existing runtime startup path, not a Postgres `docker-entrypoint-initdb.d` mount — CNPG's image does not support that mount point the way the old hand-rolled image did) and add a wait for the control plane's `Cluster` to report `readyInstances: 1` before waiting on the control plane Deployment itself
-  - Deviation from the task's assumed approach: the DDL is applied via CNPG's `bootstrap.initdb.postInitApplicationSQLRefs`, referencing a regenerated `nakka-controlplane-schema` ConfigMap (same single-copy DDL, plus one generated `99-grants.sql` key — see the note in `cluster.yaml`), not by the control plane's own runtime startup path. Found empirically: CNPG runs `postInitApplicationSQLRefs` as the `postgres` superuser, so without the trailing GRANT the `nakka` role could create its own view tables but not touch the DDL's own tables — every write timed out with "permission denied for table projection_management". Verified end-to-end against the real kind cluster: `organizations create`/`list` through the CLI, and data survives deleting the database pod.
+- [X] T043 [US3] Update `kustomization/deploy-local.sh`: remove the old `ankka-postgres-init` ConfigMap generation step (the DDL is now applied by the control plane's existing runtime startup path, not a Postgres `docker-entrypoint-initdb.d` mount — CNPG's image does not support that mount point the way the old hand-rolled image did) and add a wait for the control plane's `Cluster` to report `readyInstances: 1` before waiting on the control plane Deployment itself
+  - Deviation from the task's assumed approach: the DDL is applied via CNPG's `bootstrap.initdb.postInitApplicationSQLRefs`, referencing a regenerated `ankka-controlplane-schema` ConfigMap (same single-copy DDL, plus one generated `99-grants.sql` key — see the note in `cluster.yaml`), not by the control plane's own runtime startup path. Found empirically: CNPG runs `postInitApplicationSQLRefs` as the `postgres` superuser, so without the trailing GRANT the `ankka` role could create its own view tables but not touch the DDL's own tables — every write timed out with "permission denied for table projection_management". Verified end-to-end against the real kind cluster: `organizations create`/`list` through the CLI, and data survives deleting the database pod.
 
 ### Integration and cluster tests for User Story 3
 
 - [X] T044 [US3] Extend `EndToEndClusterSuite`: the control plane's own database is a CNPG `Cluster`; assert it exists and is ready before the control plane's own readiness is asserted
 - [X] T045 [US3] Extend `EndToEndClusterSuite`: apply several services, delete the control plane database's pod (not the `Cluster`), wait for CNPG to recreate it, and assert every previously-applied service is still listed — the recorded desired state survived (FR-019, SC-007)
-  - Not literally addable to `EndToEndClusterSuite`: that suite runs the control plane in-process via `NakkaTestKit`, against `NakkaTestKit`'s own testcontainers Postgres — deliberately decoupled from the k3s container's CNPG install, unchanged by this feature (feature 001's existing split). The control plane there never talks to a CNPG `Cluster` at all, so there is nothing to assert or delete. Making it do so would mean deploying the control plane itself as a k3s workload inside the test, duplicating what `deploy-local.sh` + the kustomize manifests already do.
-  - Verified the underlying capability directly against the real `kind-nakka` cluster instead: recreated `nakka-controlplane-db` from scratch (proving bootstrap + the T043 grants fix together), created an organization through the CLI (`organizations create acme` → succeeded, `organizations list` → returned it), then deleted the database pod (not the `Cluster`) and confirmed `organizations list` still returned the same data once CNPG recreated the pod — the PVC-backed durability FR-019/SC-007 describe, proven end-to-end.
+  - Not literally addable to `EndToEndClusterSuite`: that suite runs the control plane in-process via `AnkkaTestKit`, against `AnkkaTestKit`'s own testcontainers Postgres — deliberately decoupled from the k3s container's CNPG install, unchanged by this feature (feature 001's existing split). The control plane there never talks to a CNPG `Cluster` at all, so there is nothing to assert or delete. Making it do so would mean deploying the control plane itself as a k3s workload inside the test, duplicating what `deploy-local.sh` + the kustomize manifests already do.
+  - Verified the underlying capability directly against the real `kind-ankka` cluster instead: recreated `ankka-controlplane-db` from scratch (proving bootstrap + the T043 grants fix together), created an organization through the CLI (`organizations create acme` → succeeded, `organizations list` → returned it), then deleted the database pod (not the `Cluster`) and confirmed `organizations list` still returned the same data once CNPG recreated the pod — the PVC-backed durability FR-019/SC-007 describe, proven end-to-end.
 
 **Checkpoint**: The control plane runs on durable, CNPG-managed storage. Restarting its database pod no longer loses anything.
 
@@ -197,7 +197,7 @@ CNPG-managed database; restarting that database's pod does not lose recorded des
 is explicit, tested, and honestly documented as not enforcing isolation.
 
 **Independent Test**: Deploy a service and grep every descriptor, manifest and repository file for
-its password — it appears in none of them. Deploy a second service with its own `NAKKA_DB_*` env
+its password — it appears in none of them. Deploy a second service with its own `ANKKA_DB_*` env
 vars and confirm the platform provisions nothing for it.
 
 ### Tests for User Story 4
@@ -206,20 +206,20 @@ vars and confirm the platform provisions nothing for it.
   - Already present from earlier implementation work: "rule 1: the escape hatch decides Supplied regardless of what is observed".
 - [X] T047 [P] [US4] Extend `SchemaInitSuite`: no init container and no schema ConfigMap are rendered on the `Supplied` path
   - Already present: "Rendering: the escape hatch renders no init container and no database envFrom".
-- [X] T048 [P] [US4] `controlplane/src/test/scala/nakka/controlplane/ServiceProjectionSuite.scala`: `provisionDatabase` is `false` exactly when the descriptor's `env` declares any variable whose name starts `NAKKA_DB_`, `true` otherwise, including the boundary case of a descriptor declaring an unrelated env var
+- [X] T048 [P] [US4] `controlplane/src/test/scala/ankka/controlplane/ServiceProjectionSuite.scala`: `provisionDatabase` is `false` exactly when the descriptor's `env` declares any variable whose name starts `ANKKA_DB_`, `true` otherwise, including the boundary case of a descriptor declaring an unrelated env var
 
 ### Implementation for User Story 4
 
-- [X] T049 [US4] `controlplane/src/main/scala/nakka/controlplane/deploy/ServiceProjection.scala`: implement the escape-hatch rule from [research R11](./research.md) — inspect the descriptor's `env` names, not values, and set `provisionDatabase` accordingly
-- [X] T050 [US4] `controlplane-api/src/main/scala/nakka/controlplane/api/descriptors.scala` and `cli/src/main/scala/nakka/cli/Output.scala`: surface `ServiceStatus.database` (from T011) in `nakka services get`, one short phrase per phase (`provisioned`, `supplied`, `recovered existing data`, `waiting for database`)
-  - Threaded the operator's reported phase end to end: `nakka.crd.DatabaseStatus.phase` → `StatusIngest` → `ServiceObservation`/`ServiceEvent.ServiceObserved` → `Service.database` → `Service.toStatus` (via `Service.databasePhrase`) → `ServiceStatus.database` → `Output.service`'s field list.
+- [X] T049 [US4] `controlplane/src/main/scala/ankka/controlplane/deploy/ServiceProjection.scala`: implement the escape-hatch rule from [research R11](./research.md) — inspect the descriptor's `env` names, not values, and set `provisionDatabase` accordingly
+- [X] T050 [US4] `controlplane-api/src/main/scala/ankka/controlplane/api/descriptors.scala` and `cli/src/main/scala/ankka/cli/Output.scala`: surface `ServiceStatus.database` (from T011) in `ankka services get`, one short phrase per phase (`provisioned`, `supplied`, `recovered existing data`, `waiting for database`)
+  - Threaded the operator's reported phase end to end: `com.thinkmorestupidless.ankka.crd.DatabaseStatus.phase` → `StatusIngest` → `ServiceObservation`/`ServiceEvent.ServiceObserved` → `Service.database` → `Service.toStatus` (via `Service.databasePhrase`) → `ServiceStatus.database` → `Output.service`'s field list.
 - [X] T051 [US4] Ensure `Provisioning.decide`'s reported phase (T016) and `LifecycleRules`' `DatabaseStatus` (T024) agree on wording for `Supplied`, so the CR's status and the CLI's phrase are the same concept surfaced twice, not two independently-invented vocabularies
   - Already held by construction: `LifecycleRules.databaseStatus` sets `phase = plan.reportedPhase` directly, never restating it — see the comment at `LifecycleRules.scala:102`. `Service.databasePhrase` (T050) is a pure lookup keyed on exactly those tokens, so the CLI's phrase can only reword the CR's phase, never disagree with it.
 
 ### Integration and cluster tests for User Story 4
 
-- [X] T052 [US4] Extend `EndToEndClusterSuite`: a descriptor carrying `NAKKA_DB_*` env vars deploys successfully, provisions no CNPG objects (assert none exist), and `nakka services get` reports the supplied phase
-- [X] T053 [US4] Extend `EndToEndClusterSuite` or add a dedicated case: grep the deployed service's rendered Deployment, its `NakkaService` status, and the operator's logs for the literal generated password value — assert it appears in none of them (SC-006)
+- [X] T052 [US4] Extend `EndToEndClusterSuite`: a descriptor carrying `ANKKA_DB_*` env vars deploys successfully, provisions no CNPG objects (assert none exist), and `ankka services get` reports the supplied phase
+- [X] T053 [US4] Extend `EndToEndClusterSuite` or add a dedicated case: grep the deployed service's rendered Deployment, its `AnkkaService` status, and the operator's logs for the literal generated password value — assert it appears in none of them (SC-006)
   - The operator runs in-process in this suite, so "its logs" are captured with a logback `ListAppender` attached to the root logger for the suite's lifetime, rather than grepped from a separate container's stdout. Verified against a real k3s cluster.
 
 **Checkpoint**: Both provisioning paths exist, are tested, and are honestly distinguished in every place an operator looks.
@@ -250,9 +250,9 @@ re-apply the same name, confirm the data is back and the status says so.
 
 - [X] T057 [P] [US5] Extend `ProvisioningSuite`: rule 9 vs. rule 10 — a service whose database already existed decides `Recovered`, not `Provisioned`
 - [X] T058 [US5] Extend `OperatorClusterSuite`: delete a service after writing data to its database; assert the `Database` and its data survive; re-apply the same service name; assert the data is back and the reported `DatabaseStatus.recovered` is `true`
-  - Test 19: writes a marker row via `psqlAs`, deletes the `with-db-2` `NakkaService`, confirms the `Database` and the row both survive, re-applies the same name, and asserts `recovered == true` and the row is unchanged. Verified against a real k3s cluster.
-- [X] T059 [US5] Extend `OperatorClusterSuite`: **the withheld verb is structural, not just unused** — using the operator's own ServiceAccount, attempt to `kubectl delete database` directly and assert it is refused by RBAC, not merely never called by nakka's own code (mirrors feature 001's equivalent test for `nakkaservices: update`)
-  - Feature 001 never actually built this — its own tasks.md records it as a known, deferred coverage gap ("closing it properly means standing up a client bound to the ServiceAccount + RBAC inside the test itself"). Built it here: test 20 applies the RBAC objects from the shipped `operator.yaml` (extracted by kind, not the Deployment), mints a real token for `nakka-operator`'s ServiceAccount via `kubectl create token` (exec'd in the k3s container), builds a second `KubernetesClient` authenticated with only that token, and asserts a `Database` delete attempt gets a 403 from the API server itself. Verified against a real k3s cluster.
+  - Test 19: writes a marker row via `psqlAs`, deletes the `with-db-2` `AnkkaService`, confirms the `Database` and the row both survive, re-applies the same name, and asserts `recovered == true` and the row is unchanged. Verified against a real k3s cluster.
+- [X] T059 [US5] Extend `OperatorClusterSuite`: **the withheld verb is structural, not just unused** — using the operator's own ServiceAccount, attempt to `kubectl delete database` directly and assert it is refused by RBAC, not merely never called by ankka's own code (mirrors feature 001's equivalent test for `ankkaservices: update`)
+  - Feature 001 never actually built this — its own tasks.md records it as a known, deferred coverage gap ("closing it properly means standing up a client bound to the ServiceAccount + RBAC inside the test itself"). Built it here: test 20 applies the RBAC objects from the shipped `operator.yaml` (extracted by kind, not the Deployment), mints a real token for `ankka-operator`'s ServiceAccount via `kubectl create token` (exec'd in the k3s container), builds a second `KubernetesClient` authenticated with only that token, and asserts a `Database` delete attempt gets a 403 from the API server itself. Verified against a real k3s cluster.
 - [X] T060 [US5] Extend `EndToEndClusterSuite`: delete a project's only service, confirm the project's `Cluster` and the service's `Database` both remain (FR-024), consistent with "retain always" — no automatic cleanup exists anywhere in this feature
 
 **Checkpoint**: No sequence of platform operations can destroy a database. Verified by trying, not by absence of a delete button.
@@ -273,14 +273,14 @@ design honest.
   - Also added the `postInitApplicationSQLRefs`-runs-as-superuser trap (T043's real bug) and corrected the stale "k3s suites never exercise the shipped RBAC at all" line now that T059 built one that does.
 - [X] T065 [P] Update `CLAUDE.md`'s `sbt test` comment and `kustomization/deploy-local.sh`'s printed walkthrough to mention CNPG installation and the longer cluster-suite runtime (research: CNPG controller ~25s, a 1-instance `Cluster` ~20–60s more)
   - `deploy-local.sh` already echoes `"==> installing CloudNativePG"` as its own step (added during core implementation), so the walkthrough a developer sees while running it already mentions this; the final "Deployed. Try:" block needed no change since CNPG has already finished by the time it prints. Rewrote CLAUDE.md's `sbt test` comment and the "Deploying locally" section, both of which predated CNPG.
-- [X] T066 Tag or otherwise ensure the CNPG-dependent additions to both cluster suites remain behind the existing `-Dnakka.cluster.tests=off` switch from feature 001 — no new switch needed, just confirm the extended `beforeAll` blocks still respect `munitIgnore`
-  - Confirmed: both `OperatorClusterSuite` and `EndToEndClusterSuite` guard their entire `beforeAll` (CRD, CNPG install, operator/control-plane startup) behind `if !munitIgnore then ...`, with `munitIgnore` reading the same `-Dnakka.cluster.tests` property feature 001 introduced.
+- [X] T066 Tag or otherwise ensure the CNPG-dependent additions to both cluster suites remain behind the existing `-Dankka.cluster.tests=off` switch from feature 001 — no new switch needed, just confirm the extended `beforeAll` blocks still respect `munitIgnore`
+  - Confirmed: both `OperatorClusterSuite` and `EndToEndClusterSuite` guard their entire `beforeAll` (CRD, CNPG install, operator/control-plane startup) behind `if !munitIgnore then ...`, with `munitIgnore` reading the same `-Dankka.cluster.tests` property feature 001 introduced.
 - [X] T067 Run `sbt scalafmtAll scalafmtSbt` and confirm `sbt compile` is warning-free under `-Wunused`
 - [X] T068 Confirm the seam holds: `grep -rl "postgresql.cnpg.io" controlplane/src cli/src crd/src` returns nothing — CNPG is the operator's business alone
-- [X] T069 Confirm `crd` still depends on no nakka module and `cli` still depends on `controlplane-api` alone (unchanged by this feature, but worth the same explicit check feature 001 made a habit of)
+- [X] T069 Confirm `crd` still depends on no ankka module and `cli` still depends on `controlplane-api` alone (unchanged by this feature, but worth the same explicit check feature 001 made a habit of)
 - [X] T070 Work through the reviewer's checklist in [quickstart.md](./quickstart.md) in full, including the Tier 5 manual walkthrough and the `\dt` check that the schema actually landed in a service's database
   - Tiers 1-4: ran every named suite directly, plus a full `sbt test` across all modules (0 failed, 0 errors). Tier 1 confirmed to need no Docker (sub-second runs).
-  - Tier 5: ran `./kustomization/deploy-local.sh` from a clean `nakka-controlplane-db`/`nakka-db` state on the real `kind-nakka` cluster (not incremental patches) — CNPG install, both images, the CRD, the control plane's own database, and the operator all came up in one pass. Created an org and project and applied a `cart` service with no database configuration through the real CLI: reached `Ready` with no `Failed` flicker, `status.database.phase == "Provisioned"`, and `\dt` against `cart`'s own database showed all 7 DDL tables owned by `cart` (the per-service path was never subject to the control-plane-only superuser-ownership bug, confirmed rather than assumed). Reused the project's existing `Cluster` correctly alongside two services from earlier manual debugging.
+  - Tier 5: ran `./kustomization/deploy-local.sh` from a clean `ankka-controlplane-db`/`ankka-db` state on the real `kind-ankka` cluster (not incremental patches) — CNPG install, both images, the CRD, the control plane's own database, and the operator all came up in one pass. Created an org and project and applied a `cart` service with no database configuration through the real CLI: reached `Ready` with no `Failed` flicker, `status.database.phase == "Provisioned"`, and `\dt` against `cart`'s own database showed all 7 DDL tables owned by `cart` (the per-service path was never subject to the control-plane-only superuser-ownership bug, confirmed rather than assumed). Reused the project's existing `Cluster` correctly alongside two services from earlier manual debugging.
   - Reviewer's checklist bullets (`sbt compile`/scalafmt clean, the `postgresql.cnpg.io` seam grep, `crd`/`cli` dependencies, the DDL symlink, `docker-compose.yml` untouched, the operator's ClusterRole verbs, `CLAUDE.md` and `README.md` corrected): each individually verified while completing T061-T069 above.
 
 ---
@@ -347,7 +347,7 @@ Task: "T005 PostgresDatabase.scala"
 Task: "T006 PostgresDatabaseRole.scala"
 
 # Contract additions, different modules:
-Task: "T008 provisionDatabase on NakkaServiceSpec (crd)"
+Task: "T008 provisionDatabase on AnkkaServiceSpec (crd)"
 Task: "T011 database field on ServiceStatus (controlplane-api)"
 
 # Independent of the models and of each other:

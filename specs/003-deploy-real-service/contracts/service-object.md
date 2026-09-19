@@ -6,7 +6,7 @@
 > readiness probe below became `httpGet /ready` on the runtime's management port (cluster
 > membership plus the HTTP server having bound), and the `strategy: Recreate` that feature 003's
 > implementation added — with "a deploy is a brief outage" — was reversed to `RollingUpdate`
-> `maxSurge: 1, maxUnavailable: 0` once nodes could find each other. The port, `NAKKA_HTTP_PORT`
+> `maxSurge: 1, maxUnavailable: 0` once nodes could find each other. The port, `ANKKA_HTTP_PORT`
 > and the Service object are unchanged.
 
 ## The Service object
@@ -18,17 +18,17 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cart                      # Names.service — same as the Deployment and container
-  namespace: nakka-checkout       # the project's namespace
+  namespace: ankka-checkout       # the project's namespace
   labels:                         # merged platform + descriptor labels
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
     app.kubernetes.io/name: cart
-    nakka.thinkmorestupidless.com/project: checkout
-    nakka.thinkmorestupidless.com/service: cart
+    ankka.thinkmorestupidless.com/project: checkout
+    ankka.thinkmorestupidless.com/service: cart
   annotations:
-    nakka.thinkmorestupidless.com/generation: "1"
+    ankka.thinkmorestupidless.com/generation: "1"
   ownerReferences:
-    - apiVersion: nakka.thinkmorestupidless.com/v1
-      kind: NakkaService
+    - apiVersion: ankka.thinkmorestupidless.com/v1
+      kind: AnkkaService
       name: cart
       uid: <the resource's uid>
       controller: true
@@ -36,10 +36,10 @@ metadata:
 spec:
   type: ClusterIP
   selector:                       # Labels.identity — the Deployment's selector, not a second one
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
     app.kubernetes.io/name: cart
-    nakka.thinkmorestupidless.com/project: checkout
-    nakka.thinkmorestupidless.com/service: cart
+    ankka.thinkmorestupidless.com/project: checkout
+    ankka.thinkmorestupidless.com/service: cart
   ports:
     - name: http
       port: 9000
@@ -53,7 +53,7 @@ spec:
   Computing a second selector — even one that looks equivalent — is how a Service ends up with no
   endpoints and a service that is `Ready` but unreachable. It is the "a name computed slightly
   differently in two places" failure applied to labels.
-- **`ownerReferences` points at the `NakkaService`.** Deleting the service deletes the Service with
+- **`ownerReferences` points at the `AnkkaService`.** Deleting the service deletes the Service with
   no sweep and no delete verb (FR-009), exactly as the Deployment is removed today. This is the
   *opposite* of feature 002's rule for CNPG objects and credential secrets, which carry no owner
   reference precisely so they outlive the resource — a Service holds no data, and an orphaned address
@@ -118,7 +118,7 @@ The first draft of this plan left the Service behind, reasoning that the operato
 
 Two guards, both of which matter:
 
-- **Delete only what this resource owns.** `RemoveService` carries the `NakkaService`'s uid, and the
+- **Delete only what this resource owns.** `RemoveService` carries the `AnkkaService`'s uid, and the
   executor deletes only a Service whose `ownerReferences` contains it. A user may legitimately
   hand-create a Service named after a no-HTTP workload — for a protocol this platform does not model
   — and the operator must never remove an object it did not create.

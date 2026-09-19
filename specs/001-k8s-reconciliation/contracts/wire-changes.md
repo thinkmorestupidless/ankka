@@ -27,7 +27,7 @@ final case class ServiceStatus(
 | The control plane cannot reach the cluster | `"could not reach the cluster: <message>"` |
 | The resource exists but nothing has reported on it (FR-031) | `"no operator has reported on this service"` |
 
-The second matters more than it looks: it is how an operator discovers that the nakka operator is
+The second matters more than it looks: it is how an operator discovers that the ankka operator is
 not installed, is crash-looping, or is watching a different namespace. Without it that situation is
 indistinguishable from a slow rollout, which is exactly the silence this whole feature exists to
 remove.
@@ -40,7 +40,7 @@ New shared rule beside `ServiceDescriptor.ValidName`, applied by `ProjectEndpoin
 
 ```
 lowercase letter, then lowercase letters / digits / '-', ending alphanumeric
-length ≤ 63 - (namespace-prefix length + 1)    // default prefix "nakka" → 57
+length ≤ 63 - (namespace-prefix length + 1)    // default prefix "ankka" → 57
 ```
 
 The id becomes part of a namespace name, so a value that cannot be expressed in Kubernetes must be

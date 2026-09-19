@@ -8,7 +8,7 @@
 #   PGP_PASSPHRASE      the key's passphrase
 #   SONATYPE_USERNAME   the user-token *username* from the portal (not the account name)
 #   SONATYPE_PASSWORD   the user-token *password*
-# Until then, the same path is proven locally: `sbt -Dnakka.release.local=/tmp/nakka-repo
+# Until then, the same path is proven locally: `sbt -Dankka.release.local=/tmp/ankka-repo
 # publishSigned` with a throwaway key (specs/006-external-applications/quickstart.md, Tier 4).
 #
 # Commits to main publish `-SNAPSHOT`s; only a tag is a release (sbt-dynver derives both).
@@ -37,9 +37,9 @@ jobs:
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
   template:
-    # The template as its own repository, so `sbt new thinkmorestupidless/nakka.g8` works: sbt's
+    # The template as its own repository, so `sbt new thinkmorestupidless/ankka.g8` works: sbt's
     # Giter8 resolver accepts only `owner/repo.g8` (or a `.g8` file path), never a subdirectory of
-    # another repository. Pushed from nakka.g8/ on every tag, after the artifacts it names exist.
+    # another repository. Pushed from ankka.g8/ on every tag, after the artifacts it names exist.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -48,9 +48,9 @@ jobs:
         with:
           fetch-depth: 0
       - run: |
-          git config user.name "nakka release"
-          git config user.email "release@nakka.invalid"
-          git subtree split --prefix nakka.g8 -b nakka-g8
-          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/nakka.g8.git" nakka-g8:main
-          git tag -f "${GITHUB_REF_NAME}" nakka-g8
-          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/nakka.g8.git" "${GITHUB_REF_NAME}"
+          git config user.name "ankka release"
+          git config user.email "release@ankka.invalid"
+          git subtree split --prefix ankka.g8 -b ankka-g8
+          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka.g8.git" ankka-g8:main
+          git tag -f "${GITHUB_REF_NAME}" ankka-g8
+          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka.g8.git" "${GITHUB_REF_NAME}"

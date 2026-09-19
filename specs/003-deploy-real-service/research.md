@@ -1,4 +1,4 @@
-# Research: Deploy a Real nakka Service
+# Research: Deploy a Real ankka Service
 
 **Feature**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
 
@@ -96,7 +96,7 @@ stale Service behind when a service stops serving HTTP — contradicting the spe
 ("the address is created or removed to match"). See R7.
 
 **Rationale**: **Verified by inspection** — `kustomization/components/operator/operator.yaml` grants
-`nakkaservices`, `nakkaservices/status`, `namespaces`, `deployments`, `pods`, the three CNPG kinds,
+`ankkaservices`, `ankkaservices/status`, `namespaces`, `deployments`, `pods`, the three CNPG kinds,
 `secrets` and `configmaps`. There is no rule for `services` at all. The operator would render a
 Service it is forbidden to create.
 
@@ -125,12 +125,12 @@ into a single `Option[Int]` that is the only thing anything downstream ever sees
 | Descriptor | `"port": 8080` | serves HTTP on 8080 |
 | Descriptor | `"http": false` | serves no HTTP (`port` is ignored) |
 | Resolved (`ServiceSpec.resolvedPort`) | `Option.when(http)(port)` | the one value |
-| Custom resource (`NakkaServiceSpec`) | `port: 9000` | serves HTTP on 9000 |
+| Custom resource (`AnkkaServiceSpec`) | `port: 9000` | serves HTTP on 9000 |
 | Custom resource | field absent | serves no HTTP |
 
 **Rationale — and a correction.** The first draft of this plan used `port: Option[Int] = Some(9000)`
 with an explicit `"port": null` meaning "no HTTP". **Verified: that is unrepresentable.** Under
-nakka's shared codec config, jsoniter treats `null` as *absent* and applies the field's default:
+ankka's shared codec config, jsoniter treats `null` as *absent* and applies the field's default:
 
 | Input | Parsed |
 |---|---|
@@ -153,7 +153,7 @@ see exactly the `Option[Int]` they did before. On the CRD side `Option[Int] = No
 codec is Jackson, where absent decodes as `None` (the existing `database: Option[DatabaseStatus]`
 field already relies on this, with a test).
 
-It also gives a free migration at the *resource* layer: a `NakkaService` written before this feature
+It also gives a free migration at the *resource* layer: an `AnkkaService` written before this feature
 has no `port` and keeps behaving as it does today. The *descriptor* layer is the opposite — see R12.
 
 **Alternatives considered**: `Option[Int]` with `null` (unrepresentable, above); `port: 0` (collides
@@ -164,11 +164,11 @@ codec config every other type in the platform relies on).
 
 ## R5 — The port is the single source of truth (FR-005, FR-006)
 
-**Decision**: the operator derives all three of the container port, the injected `NAKKA_HTTP_PORT`
-and the Service's `targetPort` from the one resolved value. A descriptor that sets `NAKKA_HTTP_PORT`
+**Decision**: the operator derives all three of the container port, the injected `ANKKA_HTTP_PORT`
+and the Service's `targetPort` from the one resolved value. A descriptor that sets `ANKKA_HTTP_PORT`
 in its own `env` is **refused at apply time**, always — the `port` field is the only way to set it.
 
-**Rationale**: the runtime reads `nakka.http.port`, overridable by `NAKKA_HTTP_PORT`
+**Rationale**: the runtime reads `ankka.http.port`, overridable by `ANKKA_HTTP_PORT`
 (`modules/http/src/main/resources/reference.conf`). Two independent ways to state one fact is
 precisely the shape of bug this codebase keeps writing down — "a name computed slightly differently
 in two places". Injecting the env var from the same field that renders the port makes the runtime and
@@ -178,10 +178,10 @@ Validating the conflict in `ServiceSpec.problems` (in `controlplane-api`) puts i
 descriptor problem already lives, so it arrives with the rest of them in one response, and the CLI
 and control plane apply the identical check — the reason that module holds validation at all.
 
-There is precedent for a name-based env rule: feature 002's escape hatch keys off any `NAKKA_DB_*`
+There is precedent for a name-based env rule: feature 002's escape hatch keys off any `ANKKA_DB_*`
 variable being present in `env`. This is the same shape, and deliberately simpler — one exact name.
 
-**Note on the runtime's bind interface**: no change needed. `nakka.http.interface` already defaults
+**Note on the runtime's bind interface**: no change needed. `ankka.http.interface` already defaults
 to `0.0.0.0`, so a pod accepts traffic from outside itself. Had it been `127.0.0.1` the Service would
 have routed to a socket refusing every connection — checked precisely because that failure is
 invisible from the manifests.
@@ -229,7 +229,7 @@ that existing deadline rather than introducing a second clock.
 ## R7 — The Service object
 
 **Decision**: a `ClusterIP` Service, named after the service, in the project's namespace, selecting
-the workload's immutable identity labels, owned by the `NakkaService`.
+the workload's immutable identity labels, owned by the `AnkkaService`.
 
 | Field | Value | Why |
 |---|---|---|
@@ -238,7 +238,7 @@ the workload's immutable identity labels, owned by the `NakkaService`.
 | `spec.type` | `ClusterIP` | in-cluster reachability is the whole scope; anything else is ingress, explicitly out |
 | `spec.selector` | `Labels.identity(projectId, serviceName)` | the *same* labels the Deployment's selector uses — computing a second selector is how a Service ends up with no endpoints |
 | `spec.ports[0]` | `port` and `targetPort` both the resolved port, named `http` | one value, twice, from R5 |
-| `ownerReferences` | the `NakkaService` | deletion cascades with no sweep (FR-009), exactly as the Deployment does |
+| `ownerReferences` | the `AnkkaService` | deletion cascades with no sweep (FR-009), exactly as the Deployment does |
 
 **Note on owner references vs. feature 002**: CNPG objects and credential secrets deliberately carry
 **no** owner reference, because they must outlive the resource. A Service is the opposite — it holds
@@ -263,9 +263,9 @@ than discovered, for the reason already recorded on the operator's own setting: 
 **Nothing in the sample's own code needs to change** — checked, and worth stating because it is the
 strongest evidence the platform's contract is already right:
 
-- its database arrives as `NAKKA_DB_*` through `envFrom` on the provisioned credential secret, which
+- its database arrives as `ANKKA_DB_*` through `envFrom` on the provisioned credential secret, which
   is what the runtime's `reference.conf` already reads;
-- it binds `0.0.0.0` on `nakka.http.port`, which this feature now sets from the descriptor;
+- it binds `0.0.0.0` on `ankka.http.port`, which this feature now sets from the descriptor;
 - a single pod forms its own cluster (`seed-nodes` empty, `join-self-if-no-seed-nodes` on) over
   loopback artery, which needs no pod networking;
 - `logback` is a compile dependency of `runtime`, so a deployed sample logs.
@@ -286,7 +286,7 @@ image is absent anyway.
 lazy val sampleImageForClusterTests = taskKey[Unit]("the sample image, unless cluster tests are off")
 
 sampleImageForClusterTests := Def.taskDyn {
-  if (sys.props.get("nakka.cluster.tests").contains("off")) Def.task(())
+  if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
   else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
 }.value
 
@@ -303,7 +303,7 @@ and every option has a real cost:
 
 - `sbt test` must keep working with no preparatory step, which means *something* has to build the
   image first.
-- FR-020 says the existing `-Dnakka.cluster.tests=off` switch must skip this, and a switch that skips
+- FR-020 says the existing `-Dankka.cluster.tests=off` switch must skip this, and a switch that skips
   the suite while still spending a minute building an image it will not use is not skipping it. sbt
   reads that property from its own JVM, so the build can branch on it at task-graph time.
 - `testOnly` bypasses `Test / test` entirely, so the suite must also diagnose a missing image itself
@@ -330,7 +330,7 @@ invokes its own build); an unconditional dependency (violates FR-020 in spirit, 
 **Rationale**: `EndToEndClusterSuite` is already 11 cases and ~2 minutes, and its subject is the
 control plane and operator agreeing about the custom resource — a subject it covers with `pause`
 precisely because the workload is irrelevant to it. The new suite's subject is the opposite: the
-workload is the whole point, and it is the only test in the repository where a nakka runtime, a
+workload is the whole point, and it is the only test in the repository where an ankka runtime, a
 platform-provisioned database, the platform-applied schema and HTTP serving are exercised at once.
 Mixing them would make one slow suite with two unrelated reasons to fail.
 
@@ -367,7 +367,7 @@ Use the IP, never the DNS name, from the node. (Pods resolve the name fine; the 
 **Decision**: every descriptor in the repository that deploys a non-listening image gains
 `"http": false`, in the same change that introduces the probe.
 
-**Rationale**: the default is "serves HTTP on 9000, and is probed". That is right for a nakka
+**Rationale**: the default is "serves HTTP on 9000, and is probed". That is right for an ankka
 service and wrong for `registry.k8s.io/pause`, which opens no port and would therefore **never
 become `Ready`**. Affected:
 
@@ -375,13 +375,13 @@ become `Ready`**. Affected:
   image. Their subject is the control plane and operator agreeing about the resource; the workload is
   irrelevant to them, so `"http": false` is the honest descriptor, not a workaround.
 - **Feature 002's quickstart**, whose walkthrough descriptor is `pause`.
-- **The live `kind-nakka` cluster.** Journaled `ServiceApplied` events carry descriptors with no
+- **The live `kind-ankka` cluster.** Journaled `ServiceApplied` events carry descriptors with no
   `http`/`port`, which now decode as the default; on the next projection pass those services gain a
   probe and a Service, and the `pause`-based ones go un-`Ready`. Re-apply them with `"http": false`.
-  No real nakka service has ever been deployed, so nothing of value is affected — but it will look
+  No real ankka service has ever been deployed, so nothing of value is affected — but it will look
   like a regression to anyone not expecting it, which is the reason to write it down.
 
-`OperatorClusterSuite` is **unaffected**: it writes `NakkaServiceSpec` directly, where an absent
+`OperatorClusterSuite` is **unaffected**: it writes `AnkkaServiceSpec` directly, where an absent
 `port` means no HTTP.
 
 ---

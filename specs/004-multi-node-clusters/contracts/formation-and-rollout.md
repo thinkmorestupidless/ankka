@@ -46,7 +46,7 @@ readinessProbe:
 | a member, HTTP not yet bound (services that serve HTTP) | 500 | no |
 | a member, and HTTP bound if it serves any | 200 | yes |
 
-Cluster Bootstrap registers the membership check. nakka adds one — "the HTTP server is bound" — only
+Cluster Bootstrap registers the membership check. ankka adds one — "the HTTP server is bound" — only
 when a service declares a port, so one probe covers both, and a service with no HTTP is ready on
 membership alone (FR-024).
 
@@ -98,7 +98,7 @@ pod 0 restarts). The one exception is crossing between one instance and several,
 partition test drops remoting traffic with `iptables` on the node. Both are scriptable through the
 k3s container.
 
-The third row depends on `coordinated-shutdown.exit-jvm = on`, which nakka does not set today.
+The third row depends on `coordinated-shutdown.exit-jvm = on`, which ankka does not set today.
 
 ## Status
 

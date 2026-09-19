@@ -35,7 +35,7 @@ object Dependencies {
      *
      * The Scala module refuses to load against a databind outside its own minor range, so a
      * mismatch is a runtime failure in serialisation rather than a build error. Bumping fabric8
-     * will break this; `NakkaServiceCodecSuite` fails immediately and loudly when it does, which is
+     * will break this; `AnkkaServiceCodecSuite` fails immediately and loudly when it does, which is
      * the intended way to find out.
      */
     val jackson = "2.21.4"
@@ -73,7 +73,7 @@ object Dependencies {
   val pekkoHttpTestkit = "org.apache.pekko" %% "pekko-http-testkit" % V.pekkoHttp
 
   /**
-   * Pinned everywhere, not just where nakka uses pekko-http. pekko-management 1.2.1 declares
+   * Pinned everywhere, not just where ankka uses pekko-http. pekko-management 1.2.1 declares
    * pekko-http 1.1.0 and pekko-http-spray-json 1.1.0; eviction lifts the former to 1.4.0 wherever
    * `http` is on the classpath but nothing lifts the latter, and Pekko HTTP checks at startup that
    * every artifact in its family is the same version — a mixed set fails the first ActorSystem.
@@ -118,7 +118,7 @@ object Dependencies {
    *
    * Without it `Option` encodes as `{"empty":false,"defined":true}` and Scala collections do not
    * round-trip at all — both silent, and both only visible once a resource reaches a real API
-   * server. `NakkaServiceCodecSuite` is the guard.
+   * server. `AnkkaServiceCodecSuite` is the guard.
    */
   val jacksonScala = "com.fasterxml.jackson.module" %% "jackson-module-scala" % V.jackson
 

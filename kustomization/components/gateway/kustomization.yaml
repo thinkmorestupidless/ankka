@@ -1,7 +1,7 @@
 # The platform's one Gateway: installer-owned, never rendered by the operator.
 #
 # The operator renders an HTTPRoute per exposed service into that service's own namespace and
-# attaches it here; the Gateway admits routes only from namespaces labelled managed-by nakka, which
+# attaches it here; the Gateway admits routes only from namespaces labelled managed-by ankka, which
 # only the operator (and this kustomization) create. TLS lives on the listener — one wildcard
 # certificate for the base domain — so exposing a service touches no certificate at all.
 #

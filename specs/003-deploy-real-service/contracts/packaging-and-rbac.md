@@ -86,11 +86,11 @@ tests are enabled**:
 | Invocation | Image built? | Suite runs? |
 |---|---|---|
 | `sbt test` | yes | yes |
-| `sbt -Dnakka.cluster.tests=off test` | **no** | no |
+| `sbt -Dankka.cluster.tests=off test` | **no** | no |
 | `sbt 'controlPlane/testOnly …SampleDeploymentClusterSuite'` | no — `testOnly` bypasses `Test / test` | yes, and fails with an actionable message if the image is absent |
 
 A switch that skips the suite but still spends a minute building an image it will not use is not
-skipping it, which is why the branch exists. sbt reads `-Dnakka.cluster.tests` from its own JVM, so
+skipping it, which is why the branch exists. sbt reads `-Dankka.cluster.tests` from its own JVM, so
 the build can branch on it at task-graph time.
 
 This is a **build-level task dependency, not a classpath one**: `controlPlane` gains no dependency on

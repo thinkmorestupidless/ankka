@@ -14,17 +14,17 @@ All in `modules/runtime/src/main/resources/`. See [contracts/config-layering.md]
 | File | Layer | Says how nodes find each other? |
 |---|---|---|
 | `reference.conf` | base | **no** — that is the rule that keeps it a base |
-| `nakka-cluster-local.conf` | overlay | yes: join self, or named seed nodes |
-| `nakka-cluster-kubernetes.conf` | overlay | yes: bootstrap through the Kubernetes API |
+| `ankka-cluster-local.conf` | overlay | yes: join self, or named seed nodes |
+| `ankka-cluster-kubernetes.conf` | overlay | yes: bootstrap through the Kubernetes API |
 
 ### Moves out of the base
 
 | Setting | Today (base) | After |
 |---|---|---|
 | `pekko.remote.artery.canonical.hostname = "127.0.0.1"` | base | local overlay; Kubernetes overlay uses `${POD_IP}` |
-| `pekko.remote.artery.canonical.port = 0` | base | local overlay (`${?NAKKA_CLUSTER_PORT}`); Kubernetes overlay fixes `17355` |
-| `pekko.cluster.seed-nodes = []` | base | gone; the local overlay has `nakka.cluster.seed-nodes`, comma-separated, from `${?NAKKA_CLUSTER_SEED_NODES}` — an env var is a string, and Pekko's key is a list |
-| `nakka.join-self-if-no-seed-nodes = on` | base | local overlay `on`; Kubernetes overlay **`off`** |
+| `pekko.remote.artery.canonical.port = 0` | base | local overlay (`${?ANKKA_CLUSTER_PORT}`); Kubernetes overlay fixes `17355` |
+| `pekko.cluster.seed-nodes = []` | base | gone; the local overlay has `ankka.cluster.seed-nodes`, comma-separated, from `${?ANKKA_CLUSTER_SEED_NODES}` — an env var is a string, and Pekko's key is a list |
+| `ankka.join-self-if-no-seed-nodes = on` | base | local overlay `on`; Kubernetes overlay **`off`** |
 
 ### Added to the base
 
@@ -37,7 +37,7 @@ All in `modules/runtime/src/main/resources/`. See [contracts/config-layering.md]
 
 | Setting | Values | Set by |
 |---|---|---|
-| `nakka.cluster.formation` | `join-self-or-seeds` \| `bootstrap` | each overlay |
+| `ankka.cluster.formation` | `join-self-or-seeds` \| `bootstrap` | each overlay |
 
 ---
 
@@ -47,13 +47,13 @@ Only in Kubernetes, only by the platform (FR-010) — never by the person writin
 
 | Variable | Value | Consumed by |
 |---|---|---|
-| `NAKKA_CLUSTER_MODE` | `kubernetes` | the loader — picks the overlay |
+| `ANKKA_CLUSTER_MODE` | `kubernetes` | the loader — picks the overlay |
 | `POD_IP` | downward API, `status.podIP` | remoting and management bind address |
-| `NAKKA_CLUSTER_SERVICE` | the service name | bootstrap's `service-name` |
-| `NAKKA_CLUSTER_POD_SELECTOR` | `Labels.identity`, as `k=v,k=v` | discovery's `pod-label-selector` |
-| `NAKKA_CLUSTER_CONTACT_POINTS` | `min(instances, 2)` | bootstrap's `required-contact-point-nr` |
+| `ANKKA_CLUSTER_SERVICE` | the service name | bootstrap's `service-name` |
+| `ANKKA_CLUSTER_POD_SELECTOR` | `Labels.identity`, as `k=v,k=v` | discovery's `pod-label-selector` |
+| `ANKKA_CLUSTER_CONTACT_POINTS` | `min(instances, 2)` | bootstrap's `required-contact-point-nr` |
 
-All five join `NAKKA_HTTP_PORT` on the list of names a descriptor's `env` may not set. One rule,
+All five join `ANKKA_HTTP_PORT` on the list of names a descriptor's `env` may not set. One rule,
 extended: the platform's variables are the platform's.
 
 ---
@@ -76,7 +76,7 @@ documentation says so rather than the validator refusing it.
 
 ## Rendered objects
 
-### New, per service — all owned by the `NakkaService`
+### New, per service — all owned by the `AnkkaService`
 
 | Kind | Name | Content |
 |---|---|---|
@@ -97,7 +97,7 @@ though research R8 shows the other order heals itself.
 | `serviceAccountName` | default | `<service>` |
 | ports | `http` | `http`, **`management`** (7626), `remoting` (17355) — the *name* `management` is load-bearing |
 | `readinessProbe` | `tcpSocket` on the HTTP port; none if no HTTP | `httpGet /ready` on `management`, **always** |
-| env | `NAKKA_HTTP_PORT` | + the five above |
+| env | `ANKKA_HTTP_PORT` | + the five above |
 | liveness probe | none | still none |
 
 ### Unchanged

@@ -1,10 +1,10 @@
-# nakka
+# ankka
 
 A serverless application platform for agentic AI, built on the actor model — a
 reimplementation of [Akka's](https://doc.akka.io/) component model in Scala 3 on
 [Apache Pekko](https://pekko.apache.org/).
 
-You write components; nakka supplies the runtime. Sharding, persistence, replay,
+You write components; ankka supplies the runtime. Sharding, persistence, replay,
 projections, durable orchestration and the agent loop are the platform's problem, not
 yours.
 
@@ -28,7 +28,7 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
 
 Akka moved to the Business Source Licence. Pekko is the Apache 2.0 fork of Akka 2.6 with
 the same APIs — typed actors, cluster sharding, persistence, projections, streams, HTTP —
-so nakka can offer Akka's programming model with no licence constraint on who runs it.
+so ankka can offer Akka's programming model with no licence constraint on who runs it.
 
 ## Getting started
 
@@ -56,12 +56,12 @@ sbt "multiAgentPlanner/run"
 ## Your first service
 
 The samples above live in this repository. A service of your own starts from the template and
-depends on nakka's published libraries — six of them: `nakka-core`, `nakka-sdk`, `nakka-runtime`,
-`nakka-http`, `nakka-agent`, `nakka-testkit`, under `com.thinkmorestupidless`. Nothing else in this
+depends on ankka's published libraries — six of them: `ankka-core`, `ankka-sdk`, `ankka-runtime`,
+`ankka-http`, `ankka-agent`, `ankka-testkit`, under `com.thinkmorestupidless`. Nothing else in this
 build is a library.
 
 ```bash
-sbt new thinkmorestupidless/nakka.g8 --name=orders     # or: nakka init orders
+sbt new thinkmorestupidless/ankka.g8 --name=orders     # or: ankka init orders
 cd orders
 sbt test                                               # an entity test, an endpoint test, an integration test
 sbt schema && docker compose up -d && sbt run          # Postgres from the runtime's own schema; :9000
@@ -69,28 +69,28 @@ curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"na
 curl localhost:9000/items/i1
 ```
 
-What comes out is the shape of a nakka service with a trivial domain — an `Item` with a name and a
+What comes out is the shape of an ankka service with a trivial domain — an `Item` with a name and a
 count: one event sourced entity, one endpoint, one view, tests at each level, a compose file, image
 packaging and a `service.json` — all named after your project. Replace the domain; keep the shape.
 Its `README` continues from here to a running, exposed service:
 
 ```bash
-sbt Docker/publishLocal && kind load docker-image orders:latest --name nakka
-nakka services apply -f service.json && nakka services expose orders
-curl --cacert ~/.nakka/local-ca.crt https://orders-checkout.127.0.0.1.sslip.io:8443/items/i1
+sbt Docker/publishLocal && kind load docker-image orders:latest --name ankka
+ankka services apply -f service.json && ankka services expose orders
+curl --cacert ~/.ankka/local-ca.crt https://orders-checkout.127.0.0.1.sslip.io:8443/items/i1
 ```
 
 Until the first release is on Maven Central, `sbt publishLocal` in this repository puts the
-libraries where the template's build finds them, and `nakka init` hands the template the version
-it published (`--nakka_version`), so the two agree. `sbt new file:///path/to/nakka/nakka.g8` is
+libraries where the template's build finds them, and `ankka init` hands the template the version
+it published (`--ankka_version`), so the two agree. `sbt new file:///path/to/ankka/ankka.g8` is
 the same template from a checkout.
 
 **Versions.** The platform — libraries, operator, control plane, CLI — is released as one version
-from one tag. `service.json` declares the nakka version a service was built against, and the
+from one tag. `service.json` declares the ankka version a service was built against, and the
 platform checks it when it deploys: same major, and a minor equal to the platform's or one
 below. A declaration outside that range is reported on `services get` as `Unavailable`, naming
 both versions, and nothing starts; an undeclared version is not checked. It is a declaration —
-the runtime also logs its version at start and serves it at `/nakka/version` on its management
+the runtime also logs its version at start and serves it at `/ankka/version` on its management
 port, which is what to compare against if the two might differ.
 
 ## The component model
@@ -126,7 +126,7 @@ diff and test, and a component that was never registered fails at startup rather
 at its first request.
 
 ```scala
-val service = Nakka.service
+val service = Ankka.service
   .register(ShoppingCartEntity.descriptor)
   .register(CartRows.descriptor)
   .withExtension(ProjectionRuntime.withPublisher(publisher))
@@ -190,7 +190,7 @@ turns it into a puzzling empty result. The same instances parse query values and
 segments, so `?limit=abc` yields the same "expected int" message either way. A parameter
 present with no value counts as a set flag, so `?verbose` and `?verbose=true` agree.
 
-`request` is ambient rather than passed — a deliberate exception to nakka's usual
+`request` is ambient rather than passed — a deliberate exception to ankka's usual
 explicitness, and the same shape entities already use for `currentState`. It is sound
 because each handler runs on its own virtual thread, so there is exactly one request per
 thread and the value is cleared on the way out. The consequence: work handed to *another*
@@ -250,7 +250,7 @@ val agents = AgentRuntime
   .withDefaultModel(model)
   .withCompaction(CompactionSettings(maxHistoryBytes = 100_000, keepRecentMessages = 10))
 
-Nakka.service
+Ankka.service
   .registerAll(agents.descriptors)      // session memory + the compactor
   .withExtension(agents)
   .withExtension(ProjectionRuntime())   // the compactor is a consumer
@@ -329,7 +329,7 @@ object StockLevels
 ```
 
 ```scala
-Nakka.service
+Ankka.service
   .register(StockLevels.descriptor)
   .withExtension(ProjectionRuntime.withKafka("localhost:9092"))
   .start()
@@ -342,7 +342,7 @@ Kafka guarantees order within a partition, and keying by subject puts every mess
 one entity on the same partition.
 
 Offsets commit to Kafka and partitions are assigned by consumer groups, rather than going
-through nakka's projection offset store. Rebalancing across nodes then needs no code —
+through ankka's projection offset store. Rebalancing across nodes then needs no code —
 at the cost of topic sources being at-least-once and unable to rebuild from history, which
 is all a topic can offer anyway, since a broker's retention is not an event journal.
 
@@ -354,8 +354,8 @@ delivering.
 
 ## Control plane and CLI
 
-nakka's control plane is a nakka application. Tenancy is three event sourced entities,
-listings are three views, the API is three endpoints — the thing that operates nakka
+ankka's control plane is an ankka application. Tenancy is three event sourced entities,
+listings are three views, the API is three endpoints — the thing that operates ankka
 services is built out of the same components those services are.
 
 That is not a slogan. It means the control plane inherits sharding, replay and
@@ -384,23 +384,23 @@ A service's desired state is a descriptor:
 
 ```bash
 docker compose up -d
-NAKKA_CONTROLPLANE_TOKEN=$(openssl rand -hex 16) sbt controlPlane/run
+ANKKA_CONTROLPLANE_TOKEN=$(openssl rand -hex 16) sbt controlPlane/run
 
-nakka config set url http://localhost:9000
-nakka config set token "$NAKKA_CONTROLPLANE_TOKEN"
+ankka config set url http://localhost:9000
+ankka config set token "$ANKKA_CONTROLPLANE_TOKEN"
 
-nakka organizations create acme --name "Acme Corp"
-nakka projects create checkout --name Checkout -O acme
-nakka config set project checkout
+ankka organizations create acme --name "Acme Corp"
+ankka projects create checkout --name Checkout -O acme
+ankka config set project checkout
 
-nakka services apply -f cart.json
-nakka services list
+ankka services apply -f cart.json
+ankka services list
 # NAME  STATUS            INSTANCES  GEN  IMAGE
 # cart  UpdateInProgress  0/0        1    registry.example.com/acme/cart:1.4.2
 
-nakka services pause cart
-nakka services restart cart
-nakka services list -o json | jq '.[].lifecycle'
+ankka services pause cart
+ankka services restart cart
+ankka services list -o json | jq '.[].lifecycle'
 ```
 
 The control plane run this way never reaches a cluster, so `cart` sits at `UpdateInProgress`
@@ -408,24 +408,24 @@ forever — there is nothing on the other end of `apply` yet. Running against a 
 the same from the CLI's side, but this time something is listening:
 
 ```bash
-kind create cluster --name nakka --config kustomization/kind.yaml
+kind create cluster --name ankka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh
 
-nakka config set url https://api.127.0.0.1.sslip.io:8443   # printed by the script
-nakka config set ca ~/.nakka/local-ca.crt                    # the local cluster's root, exported by it
-nakka config set token dev-local-token   # see kustomization/components/controlplane/token-secret.yaml
+ankka config set url https://api.127.0.0.1.sslip.io:8443   # printed by the script
+ankka config set ca ~/.ankka/local-ca.crt                    # the local cluster's root, exported by it
+ankka config set token dev-local-token   # see kustomization/components/controlplane/token-secret.yaml
 
-nakka organizations create acme --name "Acme Corp"
-nakka projects create checkout --name Checkout -O acme
-nakka config set project checkout
+ankka organizations create acme --name "Acme Corp"
+ankka projects create checkout --name Checkout -O acme
+ankka config set project checkout
 
 echo '{"name":"cart","service":{"image":"sample-shopping-cart:latest"}}' > cart.json
-nakka services apply -f cart.json
-nakka services list
+ankka services apply -f cart.json
+ankka services list
 # NAME  STATUS  INSTANCES  GEN  IMAGE
 # cart  Ready   1/1        1    sample-shopping-cart:latest
 
-kubectl -n nakka-checkout get nsvc,deploy,svc,pods   # the operator's own work, visible directly
+kubectl -n ankka-checkout get asvc,deploy,svc,pods   # the operator's own work, visible directly
 ```
 
 No `kubectl port-forward` anywhere in that: the control plane answers at a real address, over TLS,
@@ -440,17 +440,17 @@ and reports `Ready` only once it has joined its cluster and bound its port. It i
 cart sample, running for real — and private, until you say otherwise:
 
 ```bash
-nakka services expose cart
+ankka services expose cart
 # https://cart-checkout.127.0.0.1.sslip.io:8443
 
-curl --cacert ~/.nakka/local-ca.crt -XPOST https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1/items \
+curl --cacert ~/.ankka/local-ca.crt -XPOST https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1/items \
      -H 'content-type: application/json' -d '{"productId":"p1","name":"Widget","quantity":2}'
-curl --cacert ~/.nakka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1
+curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1
 # {"cartId":"c1","items":[{"productId":"p1","name":"Widget","quantity":2}],"checkedOut":false}
 
-nakka services restart cart                                          # rolls; the URL keeps answering
-curl --cacert ~/.nakka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1   # the same cart
-nakka services unexpose cart                                         # the hostname stops; nothing else changes
+ankka services restart cart                                          # rolls; the URL keeps answering
+curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1   # the same cart
+ankka services unexpose cart                                         # the hostname stops; nothing else changes
 ```
 
 ### Ports and addresses
@@ -463,18 +463,18 @@ A descriptor's `service` block takes two optional fields:
 | `http` | `true` | `false` for a service that serves no HTTP at all |
 
 From that one resolved value the operator renders three things that therefore cannot disagree: the
-container port, `NAKKA_HTTP_PORT` (so the runtime binds where Kubernetes expects it), and a
+container port, `ANKKA_HTTP_PORT` (so the runtime binds where Kubernetes expects it), and a
 `ClusterIP` Service named after the service. Inside the cluster a service is reachable at
 `<service>` from its own project's namespace, and at `<service>.<prefix>-<project>.svc.cluster.local`
 from anywhere else.
 
-Setting `NAKKA_HTTP_PORT` yourself in `env` is refused at apply time: the `port` field is the only
+Setting `ANKKA_HTTP_PORT` yourself in `env` is refused at apply time: the `port` field is the only
 way to say it, because two ways to say one thing is how an address ends up routing to a port
 nothing listens on. With `"http": false` none of the three is rendered.
 
 Readiness is not tied to the port. The probe is `/ready` on the runtime's management port, and it
 answers 200 only once the instance is a member of the service's cluster *and* every part of the
-runtime with an opinion agrees — the HTTP server, once it has bound. An image that is not a nakka
+runtime with an opinion agrees — the HTTP server, once it has bound. An image that is not an ankka
 service has no such endpoint and is never `Ready`: `registry.k8s.io/pause` is reported `Failed`
 when the rollout's deadline passes, and that is the intended answer, not a gap. See *Instances and
 clusters* below for why membership is the test.
@@ -500,12 +500,12 @@ current.
 
 A service is private by default: reachable at its in-cluster address and nowhere else. Exposing
 it is a decision made after deploying, by a command — the model Akka's platform uses, and the one
-nakka's own `pause`/`resume` already follow — so `apply` never changes it:
+ankka's own `pause`/`resume` already follow — so `apply` never changes it:
 
 ```bash
-nakka services expose cart      # prints the URL
-nakka services unexpose cart    # removes the route; the service is untouched
-nakka services get cart         # hostname  https://cart-checkout.127.0.0.1.sslip.io:8443
+ankka services expose cart      # prints the URL
+ankka services unexpose cart    # removes the route; the service is untouched
+ankka services get cart         # hostname  https://cart-checkout.127.0.0.1.sslip.io:8443
 ```
 
 The hostname is the platform's to derive: **`<service>-<project>.<base domain>`**, the control
@@ -528,10 +528,10 @@ identity cannot read routes at all.
 
 **TLS, always.** Plain HTTP is redirected; there is no HTTP-only mode. Locally the deploy script
 creates a certificate authority inside the cluster, has cert-manager issue the wildcard from it,
-and exports the root to `~/.nakka/local-ca.crt`. Nothing on your machine is asked to trust it —
+and exports the root to `~/.ankka/local-ca.crt`. Nothing on your machine is asked to trust it —
 the CLI is told (`config set ca`) and so is `curl` (`--cacert`) — and neither the CLI nor any
 documented command has an option to skip verification. A real installation supplies its own
-wildcard: a DNS-01 issuer, or a bought certificate in the `nakka-wildcard-tls` secret; HTTP-01
+wildcard: a DNS-01 issuer, or a bought certificate in the `ankka-wildcard-tls` secret; HTTP-01
 cannot issue wildcards, so a DNS provider cert-manager supports is a production prerequisite of
 this design.
 
@@ -546,8 +546,8 @@ routinely has those taken — the port is part of the URL, never of the certific
 rule. If your resolver blocks sslip.io, add a hosts-file line and redeploy with a matching domain:
 
 ```bash
-echo '127.0.0.1  api.nakka.local cart-checkout.nakka.local' | sudo tee -a /etc/hosts
-NAKKA_BASE_DOMAIN=nakka.local ./kustomization/deploy-local.sh
+echo '127.0.0.1  api.ankka.local cart-checkout.ankka.local' | sudo tee -a /etc/hosts
+ANKKA_BASE_DOMAIN=ankka.local ./kustomization/deploy-local.sh
 ```
 
 ### Instances and clusters
@@ -560,11 +560,11 @@ no autoscaler is rendered.
 
 Nodes find each other through the Kubernetes API. The operator gives each service a
 ServiceAccount, a Role that can list pods in its own namespace and nothing else, and the five
-environment variables the runtime's Kubernetes overlay needs (`NAKKA_CLUSTER_MODE=kubernetes`,
+environment variables the runtime's Kubernetes overlay needs (`ANKKA_CLUSTER_MODE=kubernetes`,
 `POD_IP`, the Service to discover through, the pod label selector, the contact-point count). A
-descriptor that sets any of them itself is refused at apply time, the same as `NAKKA_HTTP_PORT`.
+descriptor that sets any of them itself is refused at apply time, the same as `ANKKA_HTTP_PORT`.
 The runtime's base configuration says nothing about peers at all: a laptop run gets the `local`
-overlay (join self, or `NAKKA_CLUSTER_SEED_NODES` for a two-terminal cluster), a pod gets the
+overlay (join self, or `ANKKA_CLUSTER_SEED_NODES` for a two-terminal cluster), a pod gets the
 `kubernetes` one, and the startup code is the same in both — see `CLAUDE.md`'s *Cluster formation
 is an overlay*.
 
@@ -594,8 +594,8 @@ What that buys, each measured on a real cluster by `MultiNodeClusterSuite`:
 Locally there is no API server to ask, so the `local` overlay names peers instead:
 
 ```bash
-NAKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
-NAKKA_CLUSTER_SEED_NODES=pekko://nakka@127.0.0.1:17355 NAKKA_HTTP_PORT=9001 sbt shoppingCart/run
+ANKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
+ANKKA_CLUSTER_SEED_NODES=pekko://ankka@127.0.0.1:17355 ANKKA_HTTP_PORT=9001 sbt shoppingCart/run
 ```
 
 A cart added through `:9000` reads back through `:9001` — one cluster, two terminals. With
@@ -652,12 +652,12 @@ rules, so a bad descriptor is rejected before the round trip using the same code
 server will run — and the end-to-end suite drives `Main.run` directly, which is the only
 way to catch the two ends disagreeing about the wire format.
 
-Settings resolve flags → environment → `~/.nakka/config.json`. The environment sits in
+Settings resolve flags → environment → `~/.ankka/config.json`. The environment sits in
 the middle so CI can point the CLI elsewhere without writing to a home directory it may
 not have. Exit codes are `0` ok, `1` failed, `2` misused. The token is never printed, in
 either output format.
 
-Authentication is a shared bearer token from `nakka.controlplane.auth.token`, and startup
+Authentication is a shared bearer token from `ankka.controlplane.auth.token`, and startup
 *fails* without one — a control plane that came up unauthenticated because a value was
 missing is worse than one that refuses to come up. A shared token is not identity: it
 cannot tell two operators apart and says nothing about which projects a caller may touch.
@@ -693,12 +693,12 @@ sbt test          # 454 tests, no API key needed
 
 Integration suites start their own Postgres, the Kafka suite its own broker, and two
 suites a single-node Kubernetes cluster, all via testcontainers. Docker is required; no
-API key is. `sbt -Dnakka.cluster.tests=off test` skips the two that need a cluster —
+API key is. `sbt -Dankka.cluster.tests=off test` skips the two that need a cluster —
 everything else, including the whole reconciliation loop against a fake, still runs.
 
 ## Deliberate divergences from Akka
 
-| Akka | nakka | Why |
+| Akka | ankka | Why |
 |---|---|---|
 | `@Component`, classpath scanning | explicit `register(...)` | A missing component fails at startup, not at first request |
 | `Entity::method` lambda inspection | typed companion handles | No reflection; call sites checked by the compiler |
@@ -721,10 +721,10 @@ modules/http      endpoint DSL and server
 modules/agent     model providers, session memory, function tools, the agent loop
 modules/testkit   unit and integration test support
 controlplane-api  descriptors, statuses and validation shared by the server and the CLI
-controlplane      the control plane, built as a nakka application
-crd               the NakkaService custom resource — the contract, no nakka dependencies
+controlplane      the control plane, built as an ankka application
+crd               the AnkkaService custom resource — the contract, no ankka dependencies
 operator          the Kubernetes operator: watches resources, owns the workloads
-cli               the `nakka` command, over HTTP
+cli               the `ankka` command, over HTTP
 samples/shopping-cart          entities, views, consumers, HTTP
 samples/multi-agent-planner    dynamic + parallel multi-agent orchestration
 ```
@@ -752,7 +752,7 @@ Honest gaps, not oversights:
   container that applies the same single-copy DDL a service's own database needs before
   its main container starts.
 
-  **One database per service, and this is not a style preference.** `nakka_timers` has no
+  **One database per service, and this is not a style preference.** `ankka_timers` has no
   service column; `TimerSweeper` polls it unfiltered and *deletes* any row whose component
   id is not in its own registry. Two services sharing a database therefore delete each
   other's timers. View row tables are named from the component id alone and collide the
@@ -767,21 +767,21 @@ Honest gaps, not oversights:
   `recovered: true` in its status, rather than starting clean.
 
   **The escape hatch remains, for a specific reason.** A descriptor whose own `env`
-  declares a `NAKKA_DB_*` variable is bringing its own database — checked by variable name,
+  declares a `ANKKA_DB_*` variable is bringing its own database — checked by variable name,
   not value, so a `secretKeyRef`-sourced value counts too. Nothing is provisioned for it,
-  and `nakka services get` reports `supplied` rather than `provisioned`. This exists for
+  and `ankka services get` reports `supplied` rather than `provisioned`. This exists for
   the case a provisioned, single-instance `Cluster` cannot yet serve: an existing database
   with data to migrate, or a durability profile CNPG's defaults do not cover. It does not
   extend cross-service isolation — a supplied database's isolation is whatever its owner
-  configured, not something nakka verifies.
+  configured, not something ankka verifies.
 - **A registry, still.** Images are built into the local Docker daemon and `kind load`ed; the
   template's `README` says so. `DOCKER_REPOSITORY` in the platform's build is the one switch.
 - **The declared runtime is trusted.** `service.json`'s `runtime` is checked, not the image: a
   descriptor can lie, and the platform does not yet compare it with what the pod reports at
-  `/nakka/version`. No compatibility matrix either — one rule, one minor of slack.
-- **The CLI is `sbt cli/stage`.** No binary release, no package; `target/universal/stage/bin/nakka`
-  on `PATH`. `nakka init` needs `sbt` on `PATH` for the same reason.
-- **`sbt new thinkmorestupidless/nakka.g8` waits on the first release**, which pushes the
+  `/ankka/version`. No compatibility matrix either — one rule, one minor of slack.
+- **The CLI is `sbt cli/stage`.** No binary release, no package; `target/universal/stage/bin/ankka`
+  on `PATH`. `ankka init` needs `sbt` on `PATH` for the same reason.
+- **`sbt new thinkmorestupidless/ankka.g8` waits on the first release**, which pushes the
   template to that repository; until then the `file://` form from a checkout.
 - **Custom hostnames.** An exposed service's hostname is the platform's to derive; there is no
   way to give a service a domain of your own. That needs the user to own DNS and certificates for
@@ -812,7 +812,7 @@ Honest gaps, not oversights:
   `namespaces` 403s on every project's first service. Deploying against a real cluster is
   what caught it; nothing in `sbt test` would have. One narrow exception exists: a test
   mints a real token for the operator's own ServiceAccount and asserts the API server
-  itself, not just nakka's own code, refuses a `Database` delete — proving the withheld
+  itself, not just ankka's own code, refuses a `Database` delete — proving the withheld
   verb is structural rather than merely unused.
 - **No console.** The CLI is the only client.
 - **Cross-entity checks are edge checks.** "The project still has services" is counted

@@ -13,13 +13,13 @@
 Feature 001 made deployment real: applying a descriptor produces a running workload. It
 deliberately left one thing out, and the omission is load-bearing rather than cosmetic.
 
-**A nakka service cannot start without a database.** It is event-sourced by definition — it needs
+**An ankka service cannot start without a database.** It is event-sourced by definition — it needs
 Postgres carrying a journal, snapshots, durable state, projection offsets, view rows and timers.
-Today a descriptor has to carry `NAKKA_DB_HOST`, `NAKKA_DB_NAME`, `NAKKA_DB_USER` and
-`NAKKA_DB_PASSWORD` through its `env` block, and whoever writes that descriptor has to have
+Today a descriptor has to carry `ANKKA_DB_HOST`, `ANKKA_DB_NAME`, `ANKKA_DB_USER` and
+`ANKKA_DB_PASSWORD` through its `env` block, and whoever writes that descriptor has to have
 provisioned a database by hand first. The platform provisions nothing.
 
-**And sharing one database between two services is destructive, not untidy.** `nakka_timers` has
+**And sharing one database between two services is destructive, not untidy.** `ankka_timers` has
 no service column; the timer sweeper polls it unfiltered and *deletes* any row whose component id
 it does not recognise, so two services on one database silently delete each other's timers. View
 row tables are named from the component id alone and collide the same way, as do projection
@@ -141,7 +141,7 @@ for its database password; assert it appears in none of them, and that the servi
   yet" at once. Exactly one shared instance must result, not two.
 - **A service is applied before database capacity is ready.** Postgres takes tens of seconds to
   become available; the service must wait rather than crash-loop or report a permanent failure.
-- **A fresh database with none of nakka's tables in it.** Something must apply the journal,
+- **A fresh database with none of ankka's tables in it.** Something must apply the journal,
   snapshot, durable-state, projection and timer schema before the service can function.
 - **A service is deleted and then re-applied under the same name.** Whether it finds its old data
   or a clean database is a decision with irreversible consequences either way.
@@ -181,14 +181,14 @@ for its database password; assert it appears in none of them, and that the servi
   other service's database.
 - **FR-008**: Provisioning MUST be idempotent — re-applying an unchanged descriptor MUST NOT create
   a second database, reset credentials, or destroy data.
-- **FR-009**: A service's database MUST have nakka's required schema applied by an init step that
+- **FR-009**: A service's database MUST have ankka's required schema applied by an init step that
   runs alongside the service's own workload, before the service's container starts.
 - **FR-010**: The service's container MUST NOT start until the schema has been applied
   successfully. A failure to apply it MUST prevent the service starting rather than let it start
   against an incomplete database.
 - **FR-011**: The schema application MUST be safe to run repeatedly against a database that already
   has it, and MUST therefore run on every start rather than only the first.
-- **FR-012**: nakka's required schema MUST be available to the init step in every project's
+- **FR-012**: ankka's required schema MUST be available to the init step in every project's
   namespace, and MUST remain a single copy in the repository — the deploying mechanism MUST NOT
   require the schema to be duplicated per project or per deployment path.
 
@@ -276,7 +276,7 @@ for its database password; assert it appears in none of them, and that the servi
 - **Service credentials**: generated username, password and connection details, delivered to one
   service.
 - **Required schema**: the journal, snapshot, durable-state, projection-offset and timer tables a
-  nakka service needs before it can function, plus the view row tables it creates for itself.
+  ankka service needs before it can function, plus the view row tables it creates for itself.
 - **Control plane database**: the same shape as a service database, for the component that holds
   every service's desired state.
 
@@ -321,7 +321,7 @@ for its database password; assert it appears in none of them, and that the servi
 ## Assumptions
 
 - **CloudNativePG is the provisioning mechanism**, named explicitly in the request. Installed into
-  the cluster as a platform dependency alongside nakka's own operator and custom resource
+  the cluster as a platform dependency alongside ankka's own operator and custom resource
   definition, the same way those are installed today.
 - **Database capacity is per project, not per service and not one global instance.** This is forced
   rather than chosen: CloudNativePG's `Database` and `DatabaseRole` resources can only reference a

@@ -1,7 +1,7 @@
 package shoppingcart.application
 
-import nakka.core.{Codecs, ComponentId}
-import nakka.sdk.*
+import com.thinkmorestupidless.ankka.core.{Codecs, ComponentId}
+import com.thinkmorestupidless.ankka.sdk.*
 import shoppingcart.domain.ShoppingCartEvent
 import shoppingcart.domain.ShoppingCartEvent.*
 

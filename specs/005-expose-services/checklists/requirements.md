@@ -32,7 +32,7 @@
 ## Notes
 
 Three decisions were resolved with the user before finalising: exposure is a **separate command**
-(Akka's model; nakka's `pause`/`resume` precedent), hostnames are **platform-derived only**, and
+(Akka's model; ankka's `pause`/`resume` precedent), hostnames are **platform-derived only**, and
 **TLS is in scope now** — against the recommendation to defer it, which the user overrode. TLS adds
 FR-016 to FR-016c, FR-019a, FR-021a and SC-010: certificates per hostname issued by an
 installation-level authority, a self-signed one locally whose root the deployment exports, and
@@ -48,8 +48,8 @@ without checking what certificate issuance actually needs, which is planning's j
 Two things from reading the code while drafting:
 
 - `pause`/`resume`/`restart` already exist as commands beside `apply`, so "state the descriptor
-  does not carry" has precedent in nakka; Q1 is a choice between two models the codebase already
-  contains, not between nakka's way and Akka's.
+  does not carry" has precedent in ankka; Q1 is a choice between two models the codebase already
+  contains, not between ankka's way and Akka's.
 - Every endpoint declares an `acl`, with `DenyAll` the stated default posture. Exposure changes who
   can *reach* an endpoint and nothing about who is *allowed* to; the spec says the README must make
   that explicit, since an exposed `AllowAll` endpoint on a real cluster is public.

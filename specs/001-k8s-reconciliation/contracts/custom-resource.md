@@ -1,16 +1,16 @@
-# Contract: The `NakkaService` Custom Resource
+# Contract: The `AnkkaService` Custom Resource
 
 **Satisfies**: FR-001 to FR-004
 
 The entire interface between the control plane and the operator. Neither side may depend on
-anything else about the other. Owned by the `crd` module, which depends on nothing from nakka.
+anything else about the other. Owned by the `crd` module, which depends on nothing from ankka.
 
 ```
-group:    nakka.thinkmorestupidless.com
+group:    ankka.thinkmorestupidless.com
 version:  v1alpha1
-kind:     NakkaService
-plural:   nakkaservices
-short:    nsvc
+kind:     AnkkaService
+plural:   ankkaservices
+short:    asvc
 scope:    Namespaced
 subresources: status
 ```
@@ -22,10 +22,10 @@ structural (R6, R10).
 ## Example
 
 ```yaml
-apiVersion: nakka.thinkmorestupidless.com/v1alpha1
-kind: NakkaService
+apiVersion: ankka.thinkmorestupidless.com/v1alpha1
+kind: AnkkaService
 metadata:
-  namespace: nakka-checkout
+  namespace: ankka-checkout
   name: cart
 spec:
   projectId: checkout
@@ -36,7 +36,7 @@ spec:
   env:
     - name: LOG_LEVEL
       value: info
-    - name: NAKKA_DB_PASSWORD
+    - name: ANKKA_DB_PASSWORD
       secretName: cart-db
       secretKey: password
   labels: {}
@@ -62,14 +62,14 @@ status:
 | `status` (subresource) | operator | control plane |
 
 The status subresource is what makes this enforceable rather than a convention: the operator's
-RBAC grants `nakkaservices/status: update` and **not** `nakkaservices: update`, so an operator bug
+RBAC grants `ankkaservices/status: update` and **not** `ankkaservices: update`, so an operator bug
 cannot rewrite desired state.
 
 ## The two generations
 
 | Field | Owner | Meaning |
 |---|---|---|
-| `spec.generation` | control plane | **nakka's** generation. Bumped by every apply and restart. What `Service.onObserved` compares. |
+| `spec.generation` | control plane | **ankka's** generation. Bumped by every apply and restart. What `Service.onObserved` compares. |
 | `metadata.generation` | API server | Bumped on every spec change. Only meaningful against `status.observedGeneration`. |
 
 `status.generation` echoes `spec.generation`; `status.observedGeneration` echoes
@@ -79,7 +79,7 @@ breaks the staleness guard silently.
 
 ## Printer columns
 
-So `kubectl get nsvc` is useful without the CLI, which is a large part of why a resource was chosen
+So `kubectl get asvc` is useful without the CLI, which is a large part of why a resource was chosen
 over a private protocol:
 
 ```

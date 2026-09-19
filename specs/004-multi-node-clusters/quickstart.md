@@ -6,7 +6,7 @@ Fastest signal first.
 
 ## Prerequisites
 
-Unchanged from feature 003: JDK 21, sbt, Docker; `kind create cluster --name nakka` for the manual
+Unchanged from feature 003: JDK 21, sbt, Docker; `kind create cluster --name ankka` for the manual
 tier. The multi-instance suite runs several JVMs in one k3s container — allow a few GB of memory.
 
 ---
@@ -14,10 +14,10 @@ tier. The multi-instance suite runs several JVMs in one k3s container — allow 
 ## Tier 1 — Pure logic (seconds, no Docker)
 
 ```bash
-sbt 'runtime/testOnly nakka.runtime.ClusterConfigSuite'
-sbt 'operator/testOnly nakka.operator.RenderingSuite nakka.operator.IdentityRenderingSuite'
-sbt 'operator/testOnly nakka.operator.LifecycleRulesSuite'
-sbt 'controlPlaneApi/testOnly nakka.controlplane.api.DescriptorSuite'
+sbt 'runtime/testOnly com.thinkmorestupidless.ankka.runtime.ClusterConfigSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.RenderingSuite com.thinkmorestupidless.ankka.operator.IdentityRenderingSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.LifecycleRulesSuite'
+sbt 'controlPlaneApi/testOnly com.thinkmorestupidless.ankka.controlplane.api.DescriptorSuite'
 ```
 
 | Suite | Proves |
@@ -35,8 +35,8 @@ docker compose up -d
 sbt shoppingCart/run                                   # exactly as today: no configuration, one node
 
 # a second node, to see a real cluster without Kubernetes
-NAKKA_CLUSTER_PORT=17355 sbt shoppingCart/run          # terminal 1
-NAKKA_CLUSTER_SEED_NODES=pekko://nakka@127.0.0.1:17355 NAKKA_HTTP_PORT=9001 sbt shoppingCart/run     # terminal 2
+ANKKA_CLUSTER_PORT=17355 sbt shoppingCart/run          # terminal 1
+ANKKA_CLUSTER_SEED_NODES=pekko://ankka@127.0.0.1:17355 ANKKA_HTTP_PORT=9001 sbt shoppingCart/run     # terminal 2
 ```
 
 Add an item through `:9000`, read it through `:9001`.
@@ -44,7 +44,7 @@ Add an item through `:9000`, read it through `:9001`.
 ## Tier 3 — The operator against a real cluster
 
 ```bash
-sbt 'operator/testOnly nakka.operator.OperatorClusterSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.OperatorClusterSuite'
 ```
 
 Extended: the three identity objects exist, owned, and go with the service; **the operator's real
@@ -52,10 +52,10 @@ ServiceAccount can create them**; **a service's real ServiceAccount can list pod
 and nothing else, anywhere**; an existing `Recreate` Deployment moves to `RollingUpdate` without
 wedging.
 
-## Tier 4 — A real multi-node nakka service
+## Tier 4 — A real multi-node ankka service
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.MultiNodeClusterSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.MultiNodeClusterSuite'
 ```
 
 The shopping cart at three instances, through the real CLI. How it measures "one cluster" is in
@@ -77,7 +77,7 @@ read from every pod.
 ## Tier 5 — The control plane at three instances
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.ControlPlaneClusterSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ControlPlaneClusterSuite'
 ```
 
 Apply services while one control-plane instance is replaced: every command accepted; each service
@@ -90,15 +90,15 @@ the journal, not inferred.
 ./kustomization/deploy-local.sh
 echo '{"name":"cart","service":{"image":"sample-shopping-cart:latest",
        "resources":{"autoscaling":{"minInstances":3}}}}' > cart.json
-nakka services apply -f cart.json
-kubectl -n nakka-checkout get pods -l app.kubernetes.io/name=cart        # three, 1/1
-kubectl -n nakka-checkout exec deploy/cart -- wget -qO- http://localhost:7626/cluster/members
+ankka services apply -f cart.json
+kubectl -n ankka-checkout get pods -l app.kubernetes.io/name=cart        # three, 1/1
+kubectl -n ankka-checkout exec deploy/cart -- wget -qO- http://localhost:7626/cluster/members
 ```
 
 | Action | Expected |
 |---|---|
 | `minInstances: 3` | three pods, **one** cluster |
-| `nakka services restart cart` under `curl` in a loop | no failed requests; membership 3 → 4 → 3 |
+| `ankka services restart cart` under `curl` in a loop | no failed requests; membership 3 → 4 → 3 |
 | a one-instance service restarted | **also** no failed requests — feature 003's outage is gone |
 | `kubectl delete pod` | back to three in seconds |
 | `minInstances: 3` → `5` | two new pods; the first three keep their age |
@@ -107,7 +107,7 @@ kubectl -n nakka-checkout exec deploy/cart -- wget -qO- http://localhost:7626/cl
 
 - [ ] `grep -nE "seed-nodes|canonical.hostname|bootstrap|discovery" modules/runtime/src/main/resources/reference.conf` finds nothing.
 - [ ] `sbt shoppingCart/run` with no environment at all still just works, and logs **no** bootstrap warning.
-- [ ] Every existing suite passes unchanged (SC-010); `NakkaTestKit` was not modified.
+- [ ] Every existing suite passes unchanged (SC-010); `AnkkaTestKit` was not modified.
 - [ ] A service's `application.conf` overrides the overlay — tested, not assumed.
 - [ ] `Recreate` is gone from `Rendering`; feature 003's strategy migration is either removed or shown to be needed in reverse.
 - [ ] `README.md`'s "Zero-downtime deploys" and "Multi-replica services" gaps are rewritten, and what is still missing is said plainly: no autoscaler, two instances cannot survive a partition, no network isolation.

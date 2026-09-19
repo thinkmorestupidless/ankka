@@ -10,7 +10,7 @@
 
 ## Context
 
-The control plane records what an operator *wants*: `nakka services apply -f cart.json` durably
+The control plane records what an operator *wants*: `ankka services apply -f cart.json` durably
 stores a descriptor, bumps a generation, and returns. It also knows how to *accept* a report about
 what is actually running, and to drop a report describing a superseded generation.
 
@@ -20,7 +20,7 @@ not happening.
 
 **Two components close that gap, with a custom resource between them.** The control plane keeps
 tenancy, validation, the HTTP API and the audit journal; its only new job is projecting a service's
-desired state into a `NakkaService` custom resource. A **nakka operator**, running inside the target
+desired state into an `AnkkaService` custom resource. An **ankka operator**, running inside the target
 cluster, watches those resources and owns everything below: the namespace, the workload, the
 service account, and the reported status.
 
@@ -35,14 +35,14 @@ and never needs network reach into the cluster — the operator connects outward
 ### User Story 1 - An applied descriptor actually runs (Priority: P1)
 
 An operator applies a service descriptor through the CLI. Without doing anything else, the workload
-appears in the cluster, starts, and `nakka services list` shows it `Ready`. If the operator changes
+appears in the cluster, starts, and `ankka services list` shows it `Ready`. If the operator changes
 the image tag and applies again, the running instance is replaced with the new image.
 
 **Why this priority**: This is the entire point of the control plane. Until an apply produces a
 running workload, every other feature is bookkeeping.
 
 **Independent Test**: Apply a descriptor against a cluster running the operator, then poll
-`nakka services get` until it reports `Ready`, and confirm the workload exists with the image,
+`ankka services get` until it reports `Ready`, and confirm the workload exists with the image,
 environment and resource sizing from the descriptor.
 
 **Acceptance Scenarios**:
@@ -63,7 +63,7 @@ environment and resource sizing from the descriptor.
 
 ### User Story 2 - Reported status reflects reality (Priority: P2)
 
-An operator reads `nakka services list` and trusts it. The lifecycle and instance counts describe
+An operator reads `ankka services list` and trusts it. The lifecycle and instance counts describe
 what the cluster is doing right now. When the instance crashes, the count drops. When the cluster
 recovers it, the count returns.
 
@@ -177,7 +177,7 @@ no duplicate objects.
 
 #### The custom resource contract
 
-- **FR-001**: The platform MUST define a `NakkaService` custom resource whose spec expresses a
+- **FR-001**: The platform MUST define an `AnkkaService` custom resource whose spec expresses a
   service's desired state and whose status expresses its observed state.
 - **FR-002**: The resource MUST carry the control plane's generation, so that a status can be tied
   to the desired state it describes and a stale one recognised.
@@ -201,11 +201,11 @@ no duplicate objects.
   and that removal MUST survive the cluster being unreachable at the time.
 - **FR-010**: An apply MUST succeed and durably record intent even when the cluster is unreachable.
 - **FR-011**: The control plane MUST NOT create, modify or read any cluster object other than
-  `NakkaService` resources and its own namespace-scoped access to them.
+  `AnkkaService` resources and its own namespace-scoped access to them.
 
 #### Operator responsibilities
 
-- **FR-012**: The operator MUST render a `NakkaService` into the complete set of objects needed to
+- **FR-012**: The operator MUST render an `AnkkaService` into the complete set of objects needed to
   run it, deriving: the container image; literal and secret-referenced environment variables;
   labels and annotations; and CPU and memory limits from the named instance type.
 - **FR-013**: Rendering MUST be deterministic — the same resource at the same generation always
@@ -264,7 +264,7 @@ no duplicate objects.
   configurable, with defaults suitable for a development cluster.
 - **FR-036**: The operator MUST obtain cluster access from its own in-cluster identity, holding no
   credential the control plane supplies. The control plane's cluster credentials MUST grant access
-  to `NakkaService` resources and nothing else, and MUST NOT be reachable by the CLI.
+  to `AnkkaService` resources and nothing else, and MUST NOT be reachable by the CLI.
 
 #### Delivery and testability
 
@@ -281,7 +281,7 @@ no duplicate objects.
 - **Desired state**: the service descriptor and its generation, already recorded today.
 - **Generation**: ties an observation to the desired state it describes, and lets a late report
   from a superseded deployment be discarded.
-- **`NakkaService` custom resource**: the contract. Spec is the control plane's projection of
+- **`AnkkaService` custom resource**: the contract. Spec is the control plane's projection of
   desired state; status is the operator's report. The only thing both sides know about.
 - **Rendered object set**: what one custom resource at one generation corresponds to. Owned by the
   resource, so deletion cascades.
@@ -329,18 +329,18 @@ no duplicate objects.
   in a second cluster needs no control plane change beyond addressing.
 - **Services run at exactly one replica, and no autoscaler is rendered.** This is a correctness
   constraint, not a preference: `pekko.cluster.seed-nodes` is empty and
-  `nakka.join-self-if-no-seed-nodes` is on, so each pod joins *itself*; the build carries no
+  `ankka.join-self-if-no-seed-nodes` is on, so each pod joins *itself*; the build carries no
   cluster-bootstrap or Kubernetes discovery dependency. Two replicas would be two independent
   single-node clusters sharing one journal, each hosting the same entity ids — concurrent writers
   to the same `persistence_id`. The descriptor's `autoscaling` block is validated and recorded but
   not honoured, and the operator renders no HorizontalPodAutoscaler. See Out of Scope.
 - **A service's database is supplied by the operator of the service, not provisioned by the
-  platform.** A nakka service is event-sourced and therefore never stateless; it needs Postgres
+  platform.** An ankka service is event-sourced and therefore never stateless; it needs Postgres
   carrying the journal, snapshot, durable-state, projection and timer tables. The descriptor's
-  existing `env` and `secretKeyRef` already carry `NAKKA_DB_HOST`, `NAKKA_DB_PORT`, `NAKKA_DB_NAME`,
-  `NAKKA_DB_USER` and `NAKKA_DB_PASSWORD`, so this needs no new descriptor field.
+  existing `env` and `secretKeyRef` already carry `ANKKA_DB_HOST`, `ANKKA_DB_PORT`, `ANKKA_DB_NAME`,
+  `ANKKA_DB_USER` and `ANKKA_DB_PASSWORD`, so this needs no new descriptor field.
 - **One database per service is mandatory, and the platform must say so.** Sharing a database
-  between two nakka services is not merely untidy — it is destructive. `nakka_timers` has no
+  between two ankka services is not merely untidy — it is destructive. `ankka_timers` has no
   service column, and `TimerSweeper` polls it unfiltered and **deletes** any row whose component id
   is not in its own registry, so two services on one database silently delete each other's timers.
   View row tables are named from the component id alone and collide the same way, as do projection

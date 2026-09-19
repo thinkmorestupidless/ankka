@@ -1,4 +1,4 @@
-# Data Model: Deploy a Real nakka Service
+# Data Model: Deploy a Real ankka Service
 
 **Feature**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
 
@@ -17,7 +17,7 @@ resolved answer — the same split `instanceType` → `cpuMillis`/`memoryMiB` us
 ```
 descriptor (user JSON)        custom resource              rendered objects
   (neither field)      ──►      port: 9000          ──►   containerPort 9000
-  port: 8080           ──►      port: 8080          ──►   NAKKA_HTTP_PORT=8080
+  port: 8080           ──►      port: 8080          ──►   ANKKA_HTTP_PORT=8080
   http: false          ──►      (field absent)      ──►   (nothing rendered)
        ▲                             ▲                          ▲
   controlplane-api              crd module                  operator
@@ -25,7 +25,7 @@ descriptor (user JSON)        custom resource              rendered objects
                                  value or nothing            things from one
 ```
 
-### 1. `ServiceSpec` — `controlplane-api/src/main/scala/nakka/controlplane/api/descriptors.scala`
+### 1. `ServiceSpec` — `controlplane-api/src/main/scala/ankka/controlplane/api/descriptors.scala`
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
@@ -34,7 +34,7 @@ descriptor (user JSON)        custom resource              rendered objects
 | `resolvedPort` (derived) | `Option[Int]` | — | `Option.when(http)(port)` — the only form anything downstream sees |
 
 **Not `port: Option[Int]` with `null` for "no HTTP"** — verified unrepresentable: jsoniter, under
-nakka's shared codec config, reads `null` as absent and applies the default, so `{"port": null}`
+ankka's shared codec config, reads `null` as absent and applies the default, so `{"port": null}`
 parses as 9000 (research R4). "Serves no HTTP" has to be a positive statement.
 
 The default lives here, not in the operator, because this module is where the CLI and the control
@@ -46,23 +46,23 @@ response):
 | Rule | Message shape |
 |---|---|
 | `port` must be within 1–65535 (checked even when `http` is `false`) | `service port <n> is outside the range 1-65535` |
-| `env` must not declare `NAKKA_HTTP_PORT` | `env var 'NAKKA_HTTP_PORT' conflicts with the service port; declare the port instead` |
+| `env` must not declare `ANKKA_HTTP_PORT` | `env var 'ANKKA_HTTP_PORT' conflicts with the service port; declare the port instead` |
 
 Both rules are unconditional. The `port` field is the only way to set the port (research R5).
 It matches by exact variable name, checking names and never values, exactly as feature 002's
-`NAKKA_DB_*` escape hatch does.
+`ANKKA_DB_*` escape hatch does.
 
-### 2. `NakkaServiceSpec` — `crd/src/main/scala/nakka/crd/NakkaService.scala`
+### 2. `AnkkaServiceSpec` — `crd/src/main/scala/ankka/crd/AnkkaService.scala`
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `port` | `Option[Int]` | `None` | present → serves HTTP on it; absent → serves none. Jackson, not jsoniter: absent decodes as `None` here, as `database: Option[DatabaseStatus]` already relies on |
 
-`None` is the default so that a `NakkaService` written before this feature decodes as serving no HTTP and
+`None` is the default so that an `AnkkaService` written before this feature decodes as serving no HTTP and
 keeps behaving exactly as it does today. The CRD types are `@JsonInclude(NON_ABSENT)`, so an absent
 port genuinely does not appear in the object.
 
-**The OpenAPI schema in `kustomization/components/crd/nakkaservice.yaml` must gain the field in the
+**The OpenAPI schema in `kustomization/components/crd/ankkaservice.yaml` must gain the field in the
 same change.** Feature 002 shipped a Scala model whose CRD schema had not been updated, and a real
 cluster rejected every write with "field not declared in schema" — a failure no fake can produce.
 
@@ -84,7 +84,7 @@ A new Kubernetes object, rendered by the operator only when the resolved port is
 | `metadata.namespace` | the project's namespace |
 | `metadata.labels` | the merged platform + descriptor labels, as the Deployment carries |
 | `metadata.annotations` | the descriptor's annotations plus the generation annotation |
-| `metadata.ownerReferences` | the `NakkaService` — deletion cascades, no sweep (FR-009) |
+| `metadata.ownerReferences` | the `AnkkaService` — deletion cascades, no sweep (FR-009) |
 | `spec.type` | `ClusterIP` |
 | `spec.selector` | `Labels.identity(projectId, serviceName)` — the Deployment's selector labels, not a second computation |
 | `spec.ports[0].name` | `http` |
@@ -102,7 +102,7 @@ A new Kubernetes object, rendered by the operator only when the resolved port is
 | What | Before | After |
 |---|---|---|
 | `containerPort` | absent | the resolved port, named `http` — omitted when headless |
-| `NAKKA_HTTP_PORT` | absent | injected from the resolved port — omitted when headless |
+| `ANKKA_HTTP_PORT` | absent | injected from the resolved port — omitted when headless |
 | `readinessProbe` | absent | `tcpSocket` on the resolved port, `initialDelaySeconds: 10`, `periodSeconds: 5` — omitted when headless |
 | `imagePullPolicy` | absent (Kubernetes defaults to `Always` on a `:latest` tag) | **`IfNotPresent`, always** — research R2 |
 | liveness probe | absent | still absent, deliberately (research R6) |
@@ -154,10 +154,10 @@ they belong:
 
 | Layer | An object written before this feature | Behaves as |
 |---|---|---|
-| `NakkaService` custom resource | no `port` field | serves no HTTP — **unchanged** from today |
+| `AnkkaService` custom resource | no `port` field | serves no HTTP — **unchanged** from today |
 | Journaled `ServiceApplied` descriptor | no `http`, no `port` | **serves HTTP on 9000** — gains a probe and a Service on the next projection pass |
 
-The descriptor default is right for a nakka service and wrong for `registry.k8s.io/pause`. No real
-nakka service has ever been deployed, so nothing of value changes — but every `pause`-based
+The descriptor default is right for an ankka service and wrong for `registry.k8s.io/pause`. No real
+ankka service has ever been deployed, so nothing of value changes — but every `pause`-based
 descriptor in the repository, and any still running in a developer's kind cluster, needs
 `"http": false` or it will stop being `Ready` (research R12).

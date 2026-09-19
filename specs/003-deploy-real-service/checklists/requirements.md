@@ -1,4 +1,4 @@
-# Specification Quality Checklist: Deploy a Real nakka Service
+# Specification Quality Checklist: Deploy a Real ankka Service
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-09-17

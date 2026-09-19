@@ -1,7 +1,7 @@
 package shoppingcart
 
-import nakka.core.{Done, ErrorCode}
-import nakka.testkit.EventSourcedTestKit
+import com.thinkmorestupidless.ankka.core.{Done, ErrorCode}
+import com.thinkmorestupidless.ankka.testkit.EventSourcedTestKit
 import shoppingcart.application.ShoppingCartEntity
 import shoppingcart.domain.*
 import shoppingcart.domain.ShoppingCartEvent.*
@@ -79,7 +79,10 @@ class ShoppingCartEntitySuite extends munit.FunSuite:
     // thenReplyState observes the post-event state, so checkedOut is already true.
     assert(result.replyValue.checkedOut, "reply should see the state after the event applied")
     assertEquals(result.events, Vector(CheckedOut))
-    assertEquals(result.retention, Some(nakka.core.effect.Retention.DeleteNow))
+    assertEquals(
+      result.retention,
+      Some(com.thinkmorestupidless.ankka.core.effect.Retention.DeleteNow)
+    )
     assert(kit.isDeleted)
   }
 

@@ -1,7 +1,7 @@
 package shoppingcart
 
-import nakka.http.HttpServer
-import nakka.testkit.NakkaTestKit
+import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.api.ShoppingCartEndpoint
 import shoppingcart.application.ShoppingCartEntity
 
@@ -14,14 +14,14 @@ import scala.concurrent.duration.DurationInt
  * The full stack over real HTTP: JDK client -> pekko-http -> endpoint -> ComponentClient -> sharded
  * entity -> Postgres.
  *
- * Uses the JDK's own HTTP client rather than a pekko one, so the test exercises nakka from outside
+ * Uses the JDK's own HTTP client rather than a pekko one, so the test exercises ankka from outside
  * as an ordinary web service.
  */
 class ShoppingCartHttpSuite extends munit.FunSuite:
 
   override val munitTimeout = 3.minutes
 
-  private var testKit: NakkaTestKit = null
+  private var testKit: AnkkaTestKit = null
   private var server: HttpServer    = null
   private var baseUrl: String       = ""
 
@@ -30,7 +30,7 @@ class ShoppingCartHttpSuite extends munit.FunSuite:
   override def beforeAll(): Unit =
     // Port 0 so concurrent test runs cannot collide.
     server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
-    testKit = NakkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
+    testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
   override def afterAll(): Unit =
@@ -57,7 +57,7 @@ class ShoppingCartHttpSuite extends munit.FunSuite:
     s"""{"productId":"$productId","name":"$name","quantity":$quantity}"""
 
   test("health is served without an endpoint or an acl") {
-    assertEquals(send("GET", "/_nakka/health"), (200, "ok"))
+    assertEquals(send("GET", "/_ankka/health"), (200, "ok"))
   }
 
   test("posting an item returns 204 and the cart reflects it") {

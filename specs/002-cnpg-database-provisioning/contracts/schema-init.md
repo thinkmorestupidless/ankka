@@ -7,20 +7,20 @@ own container. It does three things in order and then exits.
 
 ```yaml
 initContainers:
-  - name: nakka-schema
+  - name: ankka-schema
     image: postgres:17-alpine          # already used by the control plane's wait-for-postgres
     envFrom:
       - secretRef:
           name: cart-db                # the generated credentials
     volumeMounts:
-      - name: nakka-schema
+      - name: ankka-schema
         mountPath: /schema
         readOnly: true
     command: ["sh", "-c", "<see below>"]
 volumes:
-  - name: nakka-schema
+  - name: ankka-schema
     configMap:
-      name: nakka-schema               # published per project namespace by the operator
+      name: ankka-schema               # published per project namespace by the operator
 ```
 
 ## What it runs
@@ -30,21 +30,21 @@ set -e
 
 # 1. Wait. The project's Cluster may still be starting, and the role may not exist yet
 #    because CNPG's per-cluster RBAC allowlist has not caught up (see research R5).
-until pg_isready -h "$NAKKA_DB_HOST" -p "$NAKKA_DB_PORT" -U "$NAKKA_DB_USER"; do sleep 1; done
+until pg_isready -h "$ANKKA_DB_HOST" -p "$ANKKA_DB_PORT" -U "$ANKKA_DB_USER"; do sleep 1; done
 until psql -c 'select 1' >/dev/null 2>&1; do sleep 2; done
 
-# 2. Apply nakka's schema. Every statement is IF NOT EXISTS, so this runs on every start
+# 2. Apply ankka's schema. Every statement is IF NOT EXISTS, so this runs on every start
 #    rather than only the first, which makes it self-healing after a restore.
 for f in /schema/*.sql; do psql -v ON_ERROR_STOP=1 -f "$f"; done
 
 # 3. Close the database. Postgres grants CONNECT to PUBLIC by default, so without this any
 #    other service's role can connect to this database and enumerate every database name.
 #    The owner can revoke it without locking itself out, and REVOKE is idempotent.
-psql -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE \"$NAKKA_DB_NAME\" FROM PUBLIC;"
+psql -v ON_ERROR_STOP=1 -c "REVOKE CONNECT ON DATABASE \"$ANKKA_DB_NAME\" FROM PUBLIC;"
 ```
 
 `psql` reads `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE`; the operator sets those from the
-same credential secret alongside the `NAKKA_DB_*` names, so no connection string is assembled.
+same credential secret alongside the `ANKKA_DB_*` names, so no connection string is assembled.
 
 ## Obligations
 
@@ -69,19 +69,19 @@ Measured on a real cluster with two roles on one `Cluster` (research R9):
 | `CONNECT` to B's database | **allowed** | **denied** |
 | Enumerate all database names | **allowed** | allowed (catalog is global) |
 
-Table data is private by default, which is what makes the `nakka_timers` collision structurally
+Table data is private by default, which is what makes the `ankka_timers` collision structurally
 impossible (SC-005). But `CONNECT` is not, and FR-007 says credentials must not grant access to
 another service's database. Without step 3 this feature would ship a guarantee it does not have.
 
 ## The schema `ConfigMap`
 
-Published by the operator into each project namespace as `nakka-schema`, from the schema on its own
-classpath at `/nakka/ddl/*.sql` — which is a **directory symlink** to
-`modules/runtime/src/main/resources/nakka/ddl`, the canonical copy (research R6, verified).
+Published by the operator into each project namespace as `ankka-schema`, from the schema on its own
+classpath at `/ankka/ddl/*.sql` — which is a **directory symlink** to
+`modules/runtime/src/main/resources/ankka/ddl`, the canonical copy (research R6, verified).
 
 | Obligation | Why |
 |---|---|
-| One copy in the repository | `CLAUDE.md`'s single-copy rule; `docker-compose` and `NakkaTestKit` still read the same files |
+| One copy in the repository | `CLAUDE.md`'s single-copy rule; `docker-compose` and `AnkkaTestKit` still read the same files |
 | Re-applied on every reconcile | a schema change must reach existing namespaces |
 | Content-addressed or checksummed in the pod template | otherwise a changed schema does not restart pods, and nothing applies it |
 

@@ -1,9 +1,9 @@
-# Contract: CNPG Resources nakka Renders
+# Contract: CNPG Resources ankka Renders
 
 **Satisfies**: FR-001 to FR-008
 
 Three partial fabric8 models under `operator/.../cnpg/`, all `postgresql.cnpg.io/v1` and namespaced.
-nakka sets only the fields below; server-side apply means it owns only those and leaves CNPG's
+ankka sets only the fields below; server-side apply means it owns only those and leaves CNPG's
 defaults for everything else.
 
 ## `Cluster` — per-project capacity
@@ -12,11 +12,11 @@ defaults for everything else.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: nakka-db                    # one per project
-  namespace: nakka-checkout         # the project's own namespace
+  name: ankka-db                    # one per project
+  namespace: ankka-checkout         # the project's own namespace
   labels:
-    app.kubernetes.io/managed-by: nakka
-    nakka.thinkmorestupidless.com/project: checkout
+    app.kubernetes.io/managed-by: ankka
+    ankka.thinkmorestupidless.com/project: checkout
 spec:
   instances: 1
   storage:
@@ -42,10 +42,10 @@ apiVersion: postgresql.cnpg.io/v1
 kind: DatabaseRole
 metadata:
   name: cart
-  namespace: nakka-checkout
+  namespace: ankka-checkout
 spec:
   cluster:
-    name: nakka-db
+    name: ankka-db
   name: cart                        # hyphens are safe — CNPG quotes identifiers (R10)
   login: true
   passwordSecret:
@@ -68,10 +68,10 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
   name: cart
-  namespace: nakka-checkout
+  namespace: ankka-checkout
 spec:
   cluster:
-    name: nakka-db
+    name: ankka-db
   name: cart
   owner: cart                       # the DatabaseRole above
   databaseReclaimPolicy: retain
@@ -88,20 +88,20 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cart-db
-  namespace: nakka-checkout
+  namespace: ankka-checkout
 type: kubernetes.io/basic-auth
 stringData:
   username: cart
   password: <generated>
   # Connection details too, so the Deployment needs one envFrom and not a join
-  NAKKA_DB_HOST: nakka-db-rw
-  NAKKA_DB_PORT: "5432"
-  NAKKA_DB_NAME: cart
-  NAKKA_DB_USER: cart
-  NAKKA_DB_PASSWORD: <generated>
+  ANKKA_DB_HOST: ankka-db-rw
+  ANKKA_DB_PORT: "5432"
+  ANKKA_DB_NAME: cart
+  ANKKA_DB_USER: cart
+  ANKKA_DB_PASSWORD: <generated>
 ```
 
-`username`/`password` are there because `DatabaseRole` requires exactly those keys; the `NAKKA_DB_*`
+`username`/`password` are there because `DatabaseRole` requires exactly those keys; the `ANKKA_DB_*`
 keys are there so the service's container can consume the whole thing with one `envFrom` and the
 init container can use the same source.
 
@@ -115,7 +115,7 @@ init container can use the same source.
 
 | Thing | Name | Uniqueness |
 |---|---|---|
-| Project cluster | `nakka-db` | one per namespace, so one per project |
+| Project cluster | `ankka-db` | one per namespace, so one per project |
 | `Database` / `DatabaseRole` / Postgres database / Postgres role | `{serviceName}` | unique within the project's namespace — two projects may both have `cart` (FR-006) |
 | Credential secret | `{serviceName}-db` | same |
 

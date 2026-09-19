@@ -43,7 +43,7 @@
   Deployments directly. Reviewing it against the sibling `cloudflow` project showed it
   reimplemented cascade deletion, change notification, ownership and staleness — all of which
   Kubernetes provides — and put cluster credentials in the control plane. The spec now describes a
-  `NakkaService` custom resource with an in-cluster operator. See `research.md` R0.
+  `AnkkaService` custom resource with an in-cluster operator. See `research.md` R0.
 - **Two gaps were found during that review and are now stated rather than assumed away.** The
   earlier spec claimed services are stateless (false — they are event-sourced and require
   Postgres), and it rendered an autoscaler that would have corrupted journals (each pod joins

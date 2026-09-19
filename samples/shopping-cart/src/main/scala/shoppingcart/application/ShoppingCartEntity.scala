@@ -1,13 +1,13 @@
 package shoppingcart.application
 
-import nakka.core.*
-import nakka.core.Serializers.given
-import nakka.sdk.*
+import com.thinkmorestupidless.ankka.core.*
+import com.thinkmorestupidless.ankka.core.Serializers.given
+import com.thinkmorestupidless.ankka.sdk.*
 import shoppingcart.domain.*
 import shoppingcart.domain.ShoppingCartEvent.*
 
 /**
- * The application layer: connects the cart domain to the nakka runtime.
+ * The application layer: connects the cart domain to the ankka runtime.
  *
  * Every handler is ordinary sequential code returning a description of what should happen. Nothing
  * here knows about sharding, Postgres, replay or JSON.

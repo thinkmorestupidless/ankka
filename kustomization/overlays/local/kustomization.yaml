@@ -1,10 +1,10 @@
-# Everything needed to run nakka's control plane and operator against a local Kubernetes
+# Everything needed to run ankka's control plane and operator against a local Kubernetes
 # cluster, with no image registry — see kustomization/deploy-local.sh.
 #
 # Deliberately not one flat `namePrefix`/`namespace` like a typical kustomize overlay: the CRD
 # is cluster-scoped, the operator and control plane each need their own namespace and their own
 # tightly scoped ServiceAccount (that split is the point — see controlplane-rbac.yaml), and
-# every project's own namespace (`nakka-{projectId}`) is created later, at runtime, by the
+# every project's own namespace (`ankka-{projectId}`) is created later, at runtime, by the
 # control plane. A blanket namespace transformer would either fight all of that or do nothing
 # useful, so each component states its own namespace explicitly instead.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -30,12 +30,12 @@ resources:
 replacements:
   - source:
       kind: ConfigMap
-      name: nakka-platform
+      name: ankka-platform
       fieldPath: data.baseDomain
     targets:
       - select:
           kind: Certificate
-          name: nakka-wildcard
+          name: ankka-wildcard
         fieldPaths:
           - spec.dnsNames.0
         options:
@@ -43,7 +43,7 @@ replacements:
           index: 1
       - select:
           kind: Gateway
-          name: nakka
+          name: ankka
         fieldPaths:
           - spec.listeners.[name=https].hostname
         options:
@@ -51,7 +51,7 @@ replacements:
           index: 1
       - select:
           kind: HTTPRoute
-          name: nakka-controlplane
+          name: ankka-controlplane
         fieldPaths:
           - spec.hostnames.0
         options:
@@ -59,17 +59,17 @@ replacements:
           index: 1
       - select:
           kind: Deployment
-          name: nakka-controlplane
+          name: ankka-controlplane
         fieldPaths:
-          - spec.template.spec.containers.[name=nakka-controlplane].env.[name=NAKKA_BASE_DOMAIN].value
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_BASE_DOMAIN].value
       - select:
           kind: Deployment
-          name: nakka-operator
+          name: ankka-operator
         fieldPaths:
-          - spec.template.spec.containers.[name=nakka-operator].env.[name=NAKKA_BASE_DOMAIN].value
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
   - source:
       kind: ConfigMap
-      name: nakka-platform
+      name: ankka-platform
       fieldPath: data.httpsPort
     targets:
       - select:
@@ -79,6 +79,6 @@ replacements:
           - spec.rules.0.filters.0.requestRedirect.port
       - select:
           kind: Deployment
-          name: nakka-controlplane
+          name: ankka-controlplane
         fieldPaths:
-          - spec.template.spec.containers.[name=nakka-controlplane].env.[name=NAKKA_HTTPS_PORT].value
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HTTPS_PORT].value

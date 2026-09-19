@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nakka-controlplane
-  namespace: nakka-controlplane
+  name: ankka-controlplane
+  namespace: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
-    app.kubernetes.io/name: nakka-controlplane
+    app.kubernetes.io/managed-by: ankka
+    app.kubernetes.io/name: ankka-controlplane
 spec:
-  # Three, forming one cluster (feature 004): the control plane is a nakka application and runs
+  # Three, forming one cluster (feature 004): the control plane is an ankka application and runs
   # on the same mechanism as any service. Odd, because the partition strategy keeps the
   # majority. Memory on a laptop's kind: three of the limits below.
   replicas: 3
@@ -21,20 +21,20 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app.kubernetes.io/name: nakka-controlplane
+      app.kubernetes.io/name: ankka-controlplane
   template:
     metadata:
       labels:
-        app.kubernetes.io/managed-by: nakka
-        app.kubernetes.io/name: nakka-controlplane
+        app.kubernetes.io/managed-by: ankka
+        app.kubernetes.io/name: ankka-controlplane
         # Only pods carrying this are contact points for Cluster Bootstrap (see the selector
         # below). A pod from an older template — no management port — must not be asked, or the
         # new pods wait on it forever and the roll never completes. Found upgrading a real cluster.
-        nakka.thinkmorestupidless.com/formation: bootstrap
+        ankka.thinkmorestupidless.com/formation: bootstrap
     spec:
       # Its own identity, distinct from the operator's — see controlplane-rbac.yaml for why
       # the two must never share a ServiceAccount: this one cannot touch a workload at all.
-      serviceAccountName: nakka-controlplane
+      serviceAccountName: ankka-controlplane
       # The control plane does not retry an r2dbc connection refused at startup — it fails
       # deep inside actor-system initialization, past the point a clean restart is triggered,
       # so the pod is left half-alive rather than crash-looping into a fix. Applying the CNPG
@@ -44,22 +44,22 @@ spec:
         - name: wait-for-postgres
           image: postgres:17-alpine
           env:
-            - name: NAKKA_DB_HOST
+            - name: ANKKA_DB_HOST
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: host }
-            - name: NAKKA_DB_PORT
+                secretKeyRef: { name: ankka-controlplane-db-app, key: host }
+            - name: ANKKA_DB_PORT
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: port }
-            - name: NAKKA_DB_USER
+                secretKeyRef: { name: ankka-controlplane-db-app, key: port }
+            - name: ANKKA_DB_USER
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: username }
+                secretKeyRef: { name: ankka-controlplane-db-app, key: username }
           command:
             - sh
             - -c
-            - until pg_isready -h "$NAKKA_DB_HOST" -p "$NAKKA_DB_PORT" -U "$NAKKA_DB_USER"; do sleep 1; done
+            - until pg_isready -h "$ANKKA_DB_HOST" -p "$ANKKA_DB_PORT" -U "$ANKKA_DB_USER"; do sleep 1; done
       containers:
-        - name: nakka-controlplane
-          image: nakka-controlplane:latest
+        - name: ankka-controlplane
+          image: ankka-controlplane:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 9000
@@ -71,53 +71,53 @@ spec:
               containerPort: 17355
           envFrom:
             - secretRef:
-                name: nakka-controlplane-token
+                name: ankka-controlplane-token
           env:
-            # Must match the operator's NAKKA_K8S_NAMESPACE_PREFIX. A mismatch presents as
+            # Must match the operator's ANKKA_K8S_NAMESPACE_PREFIX. A mismatch presents as
             # every service reporting "no operator has reported on this service".
-            - name: NAKKA_K8S_NAMESPACE_PREFIX
-              value: "nakka"
-            # Must match the operator's NAKKA_BASE_DOMAIN: the control plane derives an exposed
+            - name: ANKKA_K8S_NAMESPACE_PREFIX
+              value: "ankka"
+            # Must match the operator's ANKKA_BASE_DOMAIN: the control plane derives an exposed
             # service's hostname to show it and to refuse a collision; the operator derives the
-            # same one to render the route. Replaced by the overlay from nakka-platform.
-            - name: NAKKA_BASE_DOMAIN
+            # same one to render the route. Replaced by the overlay from ankka-platform.
+            - name: ANKKA_BASE_DOMAIN
               value: "BASE_DOMAIN"
             # The port clients reach HTTPS on, so the URL `services expose` prints is the one
-            # that works; replaced by the overlay from nakka-platform.httpsPort.
-            - name: NAKKA_HTTPS_PORT
+            # that works; replaced by the overlay from ankka-platform.httpsPort.
+            - name: ANKKA_HTTPS_PORT
               value: "443"
             # How this pod finds its peers — the same five variables the operator injects into
-            # every service (feature 004). NAKKA_CLUSTER_MODE selects the Kubernetes overlay.
-            - name: NAKKA_CLUSTER_MODE
+            # every service (feature 004). ANKKA_CLUSTER_MODE selects the Kubernetes overlay.
+            - name: ANKKA_CLUSTER_MODE
               value: kubernetes
             - name: POD_IP
               valueFrom:
                 fieldRef: { fieldPath: status.podIP }
-            - name: NAKKA_CLUSTER_SERVICE
-              value: nakka-controlplane
-            - name: NAKKA_CLUSTER_POD_SELECTOR
-              value: "app.kubernetes.io/name=nakka-controlplane,nakka.thinkmorestupidless.com/formation=bootstrap"
-            - name: NAKKA_CLUSTER_CONTACT_POINTS
+            - name: ANKKA_CLUSTER_SERVICE
+              value: ankka-controlplane
+            - name: ANKKA_CLUSTER_POD_SELECTOR
+              value: "app.kubernetes.io/name=ankka-controlplane,ankka.thinkmorestupidless.com/formation=bootstrap"
+            - name: ANKKA_CLUSTER_CONTACT_POINTS
               value: "2"
             # CNPG's bootstrap.initdb generates this secret itself (contracts/credentials.md)
-            # under its own key names, mapped one-for-one onto the runtime's NAKKA_DB_* — the
+            # under its own key names, mapped one-for-one onto the runtime's ANKKA_DB_* — the
             # runtime cannot tell a CNPG-managed database from any other kind, which is exactly
             # what makes this mapping the whole migration.
-            - name: NAKKA_DB_HOST
+            - name: ANKKA_DB_HOST
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: host }
-            - name: NAKKA_DB_PORT
+                secretKeyRef: { name: ankka-controlplane-db-app, key: host }
+            - name: ANKKA_DB_PORT
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: port }
-            - name: NAKKA_DB_NAME
+                secretKeyRef: { name: ankka-controlplane-db-app, key: port }
+            - name: ANKKA_DB_NAME
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: dbname }
-            - name: NAKKA_DB_USER
+                secretKeyRef: { name: ankka-controlplane-db-app, key: dbname }
+            - name: ANKKA_DB_USER
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: username }
-            - name: NAKKA_DB_PASSWORD
+                secretKeyRef: { name: ankka-controlplane-db-app, key: username }
+            - name: ANKKA_DB_PASSWORD
               valueFrom:
-                secretKeyRef: { name: nakka-controlplane-db-app, key: password }
+                secretKeyRef: { name: ankka-controlplane-db-app, key: password }
           # Cluster membership, plus "the HTTP server is bound" — the runtime's own readiness
           # check, served by Pekko Management. Not the tcpSocket it used to be: a member that
           # is not yet listening must not receive traffic, and a pod that is listening but not

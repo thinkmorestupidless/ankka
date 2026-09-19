@@ -10,7 +10,7 @@
 
 ## Why this exists
 
-Every nakka service runs as exactly one pod. That is not a property of the programming model — the
+Every ankka service runs as exactly one pod. That is not a property of the programming model — the
 runtime already uses cluster sharding, cluster singletons and a split-brain resolver, which is a
 multi-node model through and through. It is a property of how a node finds its peers: it does not.
 Each node binds its cluster transport to loopback, is given no peers, and joins *itself*.
@@ -138,7 +138,7 @@ rejoins to restore three.
 
 ### User Story 5 - The control plane runs as several nodes too (Priority: P3)
 
-The control plane is a nakka application. It runs multiple instances on the same terms as any
+The control plane is an ankka application. It runs multiple instances on the same terms as any
 service, keeps accepting commands while one of them is replaced, and does the same work once, not
 once per node.
 

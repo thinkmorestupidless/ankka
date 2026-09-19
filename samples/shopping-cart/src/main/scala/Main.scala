@@ -1,5 +1,5 @@
-import nakka.http.HttpServer
-import nakka.runtime.Nakka
+import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.runtime.Ankka
 import shoppingcart.api.ShoppingCartEndpoint
 import shoppingcart.application.ShoppingCartEntity
 
@@ -12,7 +12,7 @@ import shoppingcart.application.ShoppingCartEntity
  * Needs Postgres: `docker compose up -d`.
  */
 @main def runShoppingCart(): Unit =
-  val service = Nakka.service
+  val service = Ankka.service
     .register(ShoppingCartEntity.descriptor)
     .withExtension(HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient)))
     .start()

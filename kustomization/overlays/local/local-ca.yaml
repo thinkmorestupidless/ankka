@@ -1,27 +1,27 @@
 # A certificate authority for the local cluster, and the one wildcard certificate the gateway
-# serves. deploy-local.sh exports the root (nakka-root-ca's ca.crt) to ~/.nakka/local-ca.crt so the
+# serves. deploy-local.sh exports the root (ankka-root-ca's ca.crt) to ~/.ankka/local-ca.crt so the
 # CLI (`config set ca`) and curl (`--cacert`) can verify it — nothing is ever installed into the
 # machine's trust store, and nothing is ever served with verification turned off.
 #
 # A real installation replaces this file with its own issuer (DNS-01 for a wildcard) or a supplied
-# certificate in the nakka-wildcard-tls secret; the components reference only that secret.
+# certificate in the ankka-wildcard-tls secret; the components reference only that secret.
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: selfsigned
-  namespace: nakka-gateway
+  namespace: ankka-gateway
 spec:
   selfSigned: {}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: nakka-root-ca
-  namespace: nakka-gateway
+  name: ankka-root-ca
+  namespace: ankka-gateway
 spec:
   isCA: true
-  commonName: nakka local CA
-  secretName: nakka-root-ca
+  commonName: ankka local CA
+  secretName: ankka-root-ca
   duration: 87600h # ten years; a local root, never renewed under a running platform
   privateKey:
     algorithm: ECDSA
@@ -31,26 +31,26 @@ spec:
     kind: Issuer
 ---
 # A namespaced Issuer, not a ClusterIssuer: a ClusterIssuer's `ca.secretName` is looked up in
-# cert-manager's own namespace, not the Certificate's — `secrets "nakka-root-ca" not found`, seen
-# on the first spike. Everything here lives in nakka-gateway, so an Issuer there is the honest shape.
+# cert-manager's own namespace, not the Certificate's — `secrets "ankka-root-ca" not found`, seen
+# on the first spike. Everything here lives in ankka-gateway, so an Issuer there is the honest shape.
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-  name: nakka-ca
-  namespace: nakka-gateway
+  name: ankka-ca
+  namespace: ankka-gateway
 spec:
   ca:
-    secretName: nakka-root-ca
+    secretName: ankka-root-ca
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: nakka-wildcard
-  namespace: nakka-gateway
+  name: ankka-wildcard
+  namespace: ankka-gateway
 spec:
-  secretName: nakka-wildcard-tls
+  secretName: ankka-wildcard-tls
   dnsNames:
     - "*.BASE_DOMAIN"
   issuerRef:
-    name: nakka-ca
+    name: ankka-ca
     kind: Issuer

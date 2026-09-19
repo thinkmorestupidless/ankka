@@ -1,8 +1,8 @@
-# Contract: Cluster State → `NakkaServiceStatus`
+# Contract: Cluster State → `AnkkaServiceStatus`
 
 **Satisfies**: FR-019 to FR-023
 
-`LifecycleRules.observe(spec, observed): NakkaServiceStatus` is pure, total and clock-free (the one
+`LifecycleRules.observe(spec, observed): AnkkaServiceStatus` is pure, total and clock-free (the one
 timestamp is supplied, not read). Every row is a unit test with no cluster.
 
 ## Rules, in order — first match wins
@@ -57,7 +57,7 @@ cannot read one.
 
 ## Generations
 
-`status.generation` echoes `spec.generation` — the nakka generation the operator acted on, never
+`status.generation` echoes `spec.generation` — the ankka generation the operator acted on, never
 one inferred from the cluster. `status.observedGeneration` echoes the `metadata.generation` the
 operator saw. See [custom-resource.md](./custom-resource.md) for why both exist.
 

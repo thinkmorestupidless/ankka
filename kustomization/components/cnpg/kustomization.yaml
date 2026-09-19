@@ -1,4 +1,4 @@
-# CloudNativePG, installed as a platform dependency alongside nakka's own operator and CRD.
+# CloudNativePG, installed as a platform dependency alongside ankka's own operator and CRD.
 #
 # The one component in this feature not vendored: the manifest is fetched from GitHub by URL,
 # pinned to an exact version rather than a branch, so a CRD schema does not change under a

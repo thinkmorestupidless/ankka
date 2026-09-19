@@ -1,4 +1,4 @@
-# Feature Specification: Deploy a Real nakka Service
+# Feature Specification: Deploy a Real ankka Service
 
 **Feature Branch**: `003-deploy-real-service`
 
@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Deploy a real nakka application to the cluster, end to end. Today every deployment path has only ever been proven with `registry.k8s.io/pause` — a placeholder that starts, stays up, and needs nothing. No actual nakka service has ever run in-cluster, and two concrete gaps block it: no sample builds a container image, and the operator renders a Deployment with no containerPort and no Kubernetes Service, so even once an image exists nothing can reach the workload's HTTP endpoints."
+**Input**: User description: "Deploy a real ankka application to the cluster, end to end. Today every deployment path has only ever been proven with `registry.k8s.io/pause` — a placeholder that starts, stays up, and needs nothing. No actual ankka service has ever run in-cluster, and two concrete gaps block it: no sample builds a container image, and the operator renders a Deployment with no containerPort and no Kubernetes Service, so even once an image exists nothing can reach the workload's HTTP endpoints."
 
 ## Why this exists
 
@@ -18,7 +18,7 @@ environment variable, and connects to no database.
 So the platform's central claim — *apply a descriptor, get a running service* — has never been tested
 against a service. Three things are currently believed rather than known:
 
-- that a nakka runtime can reach its platform-provisioned database at all;
+- that an ankka runtime can reach its platform-provisioned database at all;
 - that the schema the platform applies is the schema the runtime expects;
 - that a deployed service can receive a request.
 
@@ -59,7 +59,7 @@ before the port accepts connections.
 
 ---
 
-### User Story 2 - A real nakka application runs on the platform (Priority: P1)
+### User Story 2 - A real ankka application runs on the platform (Priority: P1)
 
 A developer packages the shopping cart sample, applies it through the CLI with no database
 configuration of its own, and uses it: adds items to a cart over HTTP, reads the cart back, and finds
@@ -195,7 +195,7 @@ wrong one — and confirm the automated suite fails.
 - **Service address**: the stable in-cluster name that routes traffic to a service's workload. Exists
   only for a service that declares a port; named after the service; removed with it.
 - **Sample image**: a container image built from the shopping cart sample by the project's own build,
-  carrying a real nakka runtime — the first workload to exercise the platform as an application rather
+  carrying a real ankka runtime — the first workload to exercise the platform as an application rather
   than as a placeholder.
 
 ## Success Criteria *(mandatory)*

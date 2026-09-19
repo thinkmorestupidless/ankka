@@ -113,14 +113,14 @@ CLI at it. No port-forward is needed to use the platform.
 **Why this priority**: it removes the cluster-credential requirement from every platform user, but a
 port-forward still works for the person installing it, so it is not blocking US1.
 
-**Independent Test**: after `deploy-local.sh`, `nakka config set url` to the printed control plane
+**Independent Test**: after `deploy-local.sh`, `ankka config set url` to the printed control plane
 address and `config set ca` to the printed root certificate, then run `services list` from a shell
 with no port-forward open and `KUBECONFIG` unset.
 
 **Acceptance Scenarios**:
 
 1. **Given** the platform is installed, **When** installation finishes, **Then** it prints the
-   control plane's external address, where it wrote the root certificate, and the exact `nakka
+   control plane's external address, where it wrote the root certificate, and the exact `ankka
    config set` commands to use both.
 2. **Given** the CLI is configured with that address, **When** any CLI command runs, **Then** it
    succeeds with no port-forward and no cluster credentials on the machine.
@@ -147,7 +147,7 @@ both the control plane and an exposed shopping cart by hostname with `curl`.
    deployment steps run, **Then** the control plane's hostname answers from that machine.
 2. **Given** that cluster, **When** the shopping cart is deployed and exposed, **Then** `curl` to its
    hostname adds an item and reads it back — no port-forward, no hosts-file edit.
-3. **Given** an existing `kind-nakka` cluster created with the old one-liner, **When** the new steps
+3. **Given** an existing `kind-ankka` cluster created with the old one-liner, **When** the new steps
    are followed, **Then** the documentation says what to do (recreate the cluster) rather than
    failing obscurely.
 
@@ -204,7 +204,7 @@ the identity a service runs as cannot read or write routes.
 - **FR-001**: A service MUST be private by default: a newly applied service is reachable only at its
   in-cluster address.
 - **FR-002**: An operator MUST be able to expose and unexpose a service with a command of its own
-  (`services expose <name>`, `services unexpose <name>`) — the model Akka uses and the one nakka's
+  (`services expose <name>`, `services unexpose <name>`) — the model Akka uses and the one ankka's
   `pause`/`resume` already follow: state beside the descriptor, which `apply` never touches.
   Re-applying a descriptor MUST NOT change whether a service is exposed.
 - **FR-003**: Exposure MUST be desired state recorded by the control plane and folded into the
@@ -358,7 +358,7 @@ the identity a service runs as cannot read or write routes.
 - **The control plane's hostname is a fixed label the derivation can never produce** — e.g. a
   reserved name directly under the base domain, where every service hostname has a project
   component.
-- **Exposure does not change a service's access control.** An endpoint's `acl` (which nakka makes
+- **Exposure does not change a service's access control.** An endpoint's `acl` (which ankka makes
   every endpoint declare, with `DenyAll` the default posture) is what governs who may call it;
   exposure changes who can *reach* it. The README must say this in the same breath as the feature,
   because an exposed `AllowAll` endpoint on a real cluster is on the internet.

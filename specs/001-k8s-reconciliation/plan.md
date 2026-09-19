@@ -14,15 +14,15 @@ The superseded design had the control plane writing Deployments directly. See
 Two components and one contract.
 
 The **control plane** gains a narrow new job: project each service's desired state into a
-`NakkaService` custom resource, and fold that resource's status back into the journal as the
+`AnkkaService` custom resource, and fold that resource's status back into the journal as the
 observation `ServiceEntity` already knows how to accept. It writes one kind of object and reads one
 kind of object. It never sees a Deployment.
 
-The **operator** runs in the target cluster, watches `NakkaService` resources, and owns everything
+The **operator** runs in the target cluster, watches `AnkkaService` resources, and owns everything
 below — namespace, Deployment, and the reported status. It is a small binary with a deliberately
 tiny dependency surface: the custom resource model, a Kubernetes client, and nothing else.
 
-Both halves are built the same way the rest of nakka is: rendering and classification are **total
+Both halves are built the same way the rest of ankka is: rendering and classification are **total
 functions over data**, and a thin interpreter performs the I/O. The operator's `Action` values are
 inert descriptions of cluster mutations, and `Fabric8Executor` is the only thing that executes
 them — the same shape as `EventSourcedEffect` and its materialiser.
@@ -80,7 +80,7 @@ constitution to check against. The project's real invariants are written down in
 | 9 | Test serialization must not be undone | PASS | PASS — the cluster suites are two more serialized suites. |
 | 10 | Compile warning-free under `-Wunused` | PASS | PASS — enforced at implementation. |
 | 11 | DDL has a single copy | PASS | PASS — no schema change. The CRD manifest is a new single-copy artifact under the operator's resources, following the same rule. |
-| 12 | "The control plane is itself a nakka application" (`README.md`) | **AT RISK** | **JUSTIFIED** — see Complexity Tracking. The control plane stays a nakka application; the operator deliberately is not. |
+| 12 | "The control plane is itself an ankka application" (`README.md`) | **AT RISK** | **JUSTIFIED** — see Complexity Tracking. The control plane stays an ankka application; the operator deliberately is not. |
 
 **Gate result**: pass, with three justified deviations recorded in Complexity Tracking.
 
@@ -97,7 +97,7 @@ specs/001-k8s-reconciliation/
 ├── quickstart.md
 ├── checklists/requirements.md
 ├── contracts/
-│   ├── custom-resource.md        # The NakkaService CRD — the whole contract (FR-001..FR-004)
+│   ├── custom-resource.md        # The AnkkaService CRD — the whole contract (FR-001..FR-004)
 │   ├── operator-actions.md       # Resource → objects, and the Action/Executor split
 │   ├── observation-rules.md      # Cluster state → status (FR-020)
 │   ├── control-plane-seam.md     # Projection, status ingest, the fake (FR-005..FR-011)
@@ -113,38 +113,38 @@ Two new sbt modules. The dependency graph gains one leaf and one branch, and the
 ```text
 core → sdk → runtime → {http, agent} → testkit → samples
 core → controlplane-api → cli
-crd → operator                                        ← NEW, no nakka dependencies
+crd → operator                                        ← NEW, no ankka dependencies
 controlplane-api + sdk + runtime + http + crd → controlplane
                                   (cli, operator, testkit are Test-only deps of controlplane)
 ```
 
 ```text
-crd/                                          # NEW MODULE: nakka-crd
-└── src/main/scala/nakka/crd/
-    ├── NakkaService.scala                    # the custom resource: spec, status, metadata
-    └── NakkaServiceDefinition.scala          # group, version, kind, plural, printer columns
+crd/                                          # NEW MODULE: ankka-crd
+└── src/main/scala/ankka/crd/
+    ├── AnkkaService.scala                    # the custom resource: spec, status, metadata
+    └── AnkkaServiceDefinition.scala          # group, version, kind, plural, printer columns
 
-operator/                                     # NEW MODULE: nakka-operator
-├── src/main/scala/nakka/operator/
+operator/                                     # NEW MODULE: ankka-operator
+├── src/main/scala/ankka/operator/
 │   ├── Main.scala                            # one-line wrapper over Operator.run, per CLI precedent
 │   ├── Operator.scala                        # informer wiring + work queue on virtual threads
-│   ├── Rendering.scala                       # PURE: NakkaServiceSpec → Vector[Action]
-│   ├── LifecycleRules.scala                  # PURE: observed → NakkaServiceStatus
+│   ├── Rendering.scala                       # PURE: AnkkaServiceSpec → Vector[Action]
+│   ├── LifecycleRules.scala                  # PURE: observed → AnkkaServiceStatus
 │   ├── Names.scala                           # namespace and object naming, DNS-label rules
 │   ├── Labels.scala                          # identity labels + owner references
 │   ├── Action.scala                          # inert cluster mutations
 │   ├── Fabric8Executor.scala                 # the only thing that performs I/O
 │   └── Settings.scala                        # config, with -D override per CLI precedent
-├── src/main/resources/nakka/crd/
-│   └── nakkaservice.yaml                     # the CRD manifest — single copy (FR-039)
-├── src/main/resources/nakka/install/
+├── src/main/resources/ankka/crd/
+│   └── ankkaservice.yaml                     # the CRD manifest — single copy (FR-039)
+├── src/main/resources/ankka/install/
 │   └── operator.yaml                         # ServiceAccount, ClusterRole, Deployment
-└── src/test/scala/nakka/operator/
+└── src/test/scala/ankka/operator/
     ├── RenderingSuite.scala                  # pure, offline
     ├── LifecycleRulesSuite.scala             # pure, offline
     └── OperatorClusterSuite.scala            # k3s
 
-controlplane/src/main/scala/nakka/controlplane/
+controlplane/src/main/scala/ankka/controlplane/
 ├── ControlPlane.scala                        # MODIFIED: register trigger consumer + ServiceProjector
 ├── domain/{model,events}.scala               # MODIFIED: `confirmed` on observation/state
 ├── application/
@@ -152,17 +152,17 @@ controlplane/src/main/scala/nakka/controlplane/
 │   ├── ServiceRows.scala                     # MODIFIED: row folds `confirmed`
 │   └── ProjectionTrigger.scala               # NEW: Consumer over ServiceEntity events
 └── deploy/
-    ├── ServiceProjection.scala               # PURE: Service → NakkaServiceSpec
-    ├── StatusIngest.scala                    # PURE: NakkaServiceStatus → ServiceObservation
-    ├── NakkaServiceClient.scala              # the seam: put, delete, list, watch
-    ├── Fabric8NakkaServiceClient.scala       # the implementation
+    ├── ServiceProjection.scala               # PURE: Service → AnkkaServiceSpec
+    ├── StatusIngest.scala                    # PURE: AnkkaServiceStatus → ServiceObservation
+    ├── AnkkaServiceClient.scala              # the seam: put, delete, list, watch
+    ├── Fabric8AnkkaServiceClient.scala       # the implementation
     └── ServiceProjector.scala                # RuntimeExtension + cluster singleton
 
-controlplane/src/test/scala/nakka/controlplane/
+controlplane/src/test/scala/ankka/controlplane/
 ├── ServiceProjectionSuite.scala              # pure, offline
 ├── StatusIngestSuite.scala                   # pure, offline
-├── FakeNakkaServiceClient.scala              # in-memory seam
-├── ProjectorSuite.scala                      # NakkaTestKit + fake (Postgres, no cluster)
+├── FakeAnkkaServiceClient.scala              # in-memory seam
+├── ProjectorSuite.scala                      # AnkkaTestKit + fake (Postgres, no cluster)
 └── EndToEndClusterSuite.scala                # k3s + control plane + operator
 
 controlplane-api/…/descriptors.scala          # MODIFIED: ServiceStatus + `confirmed`; project id validation
@@ -170,7 +170,7 @@ cli/…/Output.scala                            # MODIFIED: render an unconfirme
 build.sbt, project/Dependencies.scala         # MODIFIED: two modules, jackson, move fabric8
 ```
 
-**Structure Decision**: `crd` is its own module and depends on nothing from nakka. That is the
+**Structure Decision**: `crd` is its own module and depends on nothing from ankka. That is the
 point — it is a wire contract, and the same reasoning that keeps `controlplane-api` free of Pekko
 so the CLI stays thin keeps `crd` free of everything so both a control plane and an operator can
 hold it without inheriting the other's world. `operator` depends only on `crd` and a Kubernetes
@@ -188,5 +188,5 @@ treatment.
 |-----------|------------|-------------------------------------|
 | **Two new modules and a second deployable** where the superseded plan had none | The custom resource is a versioned contract between two independently deployable processes, and FR-003 requires either to be restarted and upgraded without the other. That is only enforceable if the contract is a module neither side can reach around. | A single process writing Deployments directly was the original plan and was rejected on review: it reimplements cascade deletion, change notification and desired/observed staleness, all of which Kubernetes already provides — and it puts cluster credentials in the control plane. The operator also gives the two deferred features (multi-replica clustering, database provisioning) a home that the single-process design lacked. |
 | **A real cluster in `sbt test`**, against the project's "everything else is deterministic and offline" stance | FR-038, chosen explicitly by the operator during `/speckit-specify`. Rendering is the one part a fake models wrongly and then agrees with itself about: API server validation, selector immutability, and owner-reference cascade are exactly what must be proven against the real thing. | Fake-only leaves "the deployment is not happening" true. Manual verification catches no regression. Contained: two suites need a cluster, both tagged so `--exclude-tags=cluster` stays fast, and Docker is already required by the Postgres and Kafka suites. |
-| **The operator is not a nakka application**, unlike the control plane, which `README.md` makes a point of | An operator is a watch loop over foreign resources. It has no entities, no journal, no sharding and no views, so hosting it on nakka would add an actor system, a Postgres dependency and cluster formation to a process that needs none of them — and would make the operator unable to start when the database it does not use is down. | Building it as a nakka application was considered for dogfooding symmetry and rejected on those grounds. The dogfooding argument is preserved where it is true: the control plane, which does have tenancy state, remains a nakka application. |
+| **The operator is not an ankka application**, unlike the control plane, which `README.md` makes a point of | An operator is a watch loop over foreign resources. It has no entities, no journal, no sharding and no views, so hosting it on ankka would add an actor system, a Postgres dependency and cluster formation to a process that needs none of them — and would make the operator unable to start when the database it does not use is down. | Building it as an ankka application was considered for dogfooding symmetry and rejected on those grounds. The dogfooding argument is preserved where it is true: the control plane, which does have tenancy state, remains an ankka application. |
 | **One new field (`confirmed`) on three types** rather than reusing `detail` | FR-030 requires distinguishing a live `Ready` from an unconfirmed one *in the listing operators scan*. `cli/…/Output.scala:54` prints `NAME STATUS INSTANCES GEN IMAGE` and drops `detail`, so a detail-only signal is invisible exactly there. | Encoding it in `detail` was cheaper and was rejected on that evidence. An eighth `ServiceLifecycle` case was rejected because staleness is orthogonal — any lifecycle can be unconfirmed. |

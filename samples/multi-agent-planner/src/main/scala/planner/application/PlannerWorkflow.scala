@@ -1,9 +1,9 @@
 package planner.application
 
-import nakka.agent.*
-import nakka.core.*
-import nakka.core.Serializers.given
-import nakka.sdk.*
+import com.thinkmorestupidless.ankka.agent.*
+import com.thinkmorestupidless.ankka.core.*
+import com.thinkmorestupidless.ankka.core.Serializers.given
+import com.thinkmorestupidless.ankka.sdk.*
 import planner.domain.*
 
 import scala.concurrent.duration.DurationInt

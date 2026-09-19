@@ -1,6 +1,6 @@
 # What the control plane may do in the cluster, and nothing more.
 #
-# It projects desired state into NakkaService resources and reads their status back. It never
+# It projects desired state into AnkkaService resources and reads their status back. It never
 # creates a workload, never reads a secret, and never writes a status — so even fully
 # compromised it can only ask for services, not make them. The operator, which does make them,
 # holds credentials the control plane never sees.
@@ -15,24 +15,24 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: nakka-controlplane
-  namespace: nakka-controlplane
+  name: ankka-controlplane
+  namespace: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: nakka-controlplane
+  name: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 rules:
-  - apiGroups: ["nakka.thinkmorestupidless.com"]
-    resources: ["nakkaservices"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkaservices"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Read-only on status: the operator writes it, the control plane consumes it.
-  - apiGroups: ["nakka.thinkmorestupidless.com"]
-    resources: ["nakkaservices/status"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkaservices/status"]
     verbs: ["get", "list", "watch"]
   # A project's namespace has to exist before its resource can be written into it, and the
   # operator cannot create it first — it only learns a project exists by seeing the resource.
@@ -49,17 +49,17 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: nakka-controlplane
+  name: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: nakka-controlplane
+  name: ankka-controlplane
 subjects:
   - kind: ServiceAccount
-    name: nakka-controlplane
-    namespace: nakka-controlplane
+    name: ankka-controlplane
+    namespace: ankka-controlplane
 ---
 # Its instances discover each other through the API server: read-only, on pods, in this
 # namespace only. A Role, so the grant cannot reach a project's workloads — the same three verbs
@@ -67,10 +67,10 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: nakka-controlplane-peers
-  namespace: nakka-controlplane
+  name: ankka-controlplane-peers
+  namespace: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 rules:
   - apiGroups: [""]
     resources: ["pods"]
@@ -79,15 +79,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: nakka-controlplane-peers
-  namespace: nakka-controlplane
+  name: ankka-controlplane-peers
+  namespace: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: nakka-controlplane-peers
+  name: ankka-controlplane-peers
 subjects:
   - kind: ServiceAccount
-    name: nakka-controlplane
-    namespace: nakka-controlplane
+    name: ankka-controlplane
+    namespace: ankka-controlplane

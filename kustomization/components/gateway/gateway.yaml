@@ -1,15 +1,15 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: nakka
-  namespace: nakka-gateway
+  name: ankka
+  namespace: ankka-gateway
 spec:
-  gatewayClassName: nakka
+  gatewayClassName: ankka
   infrastructure:
     parametersRef:
       group: gateway.envoyproxy.io
       kind: EnvoyProxy
-      name: nakka
+      name: ankka
   listeners:
     # Plain HTTP exists only to redirect: the one route allowed here is redirect-route.yaml, from
     # this namespace. Nothing an operator renders can attach to it.
@@ -30,10 +30,10 @@ spec:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: nakka-wildcard-tls
+            name: ankka-wildcard-tls
       allowedRoutes:
         namespaces:
           from: Selector
           selector:
             matchLabels:
-              app.kubernetes.io/managed-by: nakka
+              app.kubernetes.io/managed-by: ankka

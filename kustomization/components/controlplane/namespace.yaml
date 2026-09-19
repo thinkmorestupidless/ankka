@@ -1,6 +1,6 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: nakka-controlplane
+  name: ankka-controlplane
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka

@@ -42,28 +42,28 @@ characters. In `controlplane-api` so the CLI rejects a bad id before the round t
 
 ---
 
-## 2. The contract: `NakkaService` (`crd` module)
+## 2. The contract: `AnkkaService` (`crd` module)
 
 A namespaced custom resource. **This is the only thing both sides know about.** Full wire detail in
 [contracts/custom-resource.md](./contracts/custom-resource.md).
 
 ```
-apiVersion: nakka.thinkmorestupidless.com/v1alpha1
-kind: NakkaService
+apiVersion: ankka.thinkmorestupidless.com/v1alpha1
+kind: AnkkaService
 metadata:
-  namespace: nakka-{projectId}
+  namespace: ankka-{projectId}
   name: {serviceName}
 spec:    ← written by the control plane, never by the operator
 status:  ← written by the operator, never by the control plane
 ```
 
-### `NakkaServiceSpec`
+### `AnkkaServiceSpec`
 
 | Field | Type | Notes |
 |---|---|---|
 | `projectId` | `String` | redundant with the namespace, carried so the resource is self-describing |
 | `serviceName` | `String` | |
-| `generation` | `Long` | **nakka's** generation, not `metadata.generation` |
+| `generation` | `Long` | **ankka's** generation, not `metadata.generation` |
 | `paused` | `Boolean` | desired state, not an observation |
 | `image` | `String` | |
 | `env` | `List[EnvEntry]` | literal or secret-sourced |
@@ -75,7 +75,7 @@ status:  ← written by the operator, never by the control plane
 `EnvEntry(name, value: Option[String], secretName: Option[String], secretKey: Option[String])` —
 exactly one of `value` or the secret pair, the same either-or `EnvVar.problems` already enforces.
 
-### `NakkaServiceStatus`
+### `AnkkaServiceStatus`
 
 | Field | Type | Notes |
 |---|---|---|
@@ -87,20 +87,20 @@ exactly one of `value` or the secret pair, the same either-or `EnvVar.problems` 
 | `detail` | `String` (nullable) | operator-readable; **never a secret value** |
 | `lastTransitionTime` | `String` | RFC 3339 |
 
-> **Naming trap.** `spec.generation` (nakka's) and `metadata.generation` (Kubernetes') are
-> different numbers with the same word. nakka's is written by the control plane and is what the
+> **Naming trap.** `spec.generation` (ankka's) and `metadata.generation` (Kubernetes') are
+> different numbers with the same word. ankka's is written by the control plane and is what the
 > staleness guard in `Service.onObserved` compares. Kubernetes' is bumped by the API server on
 > every spec change and is only meaningful against `status.observedGeneration`. Both are needed,
 > and conflating them silently breaks the guard — so both appear in the status with distinct names.
 
 ---
 
-## 3. Control plane pure values (`nakka.controlplane.deploy`)
+## 3. Control plane pure values (`ankka.controlplane.deploy`)
 
 ### `ServiceProjection.project`
 
 ```
-project(service: Service, config: DeployConfig): Either[Vector[String], NakkaServiceSpec]
+project(service: Service, config: DeployConfig): Either[Vector[String], AnkkaServiceSpec]
 ```
 
 Total and pure. Fails — reporting every problem at once, matching `ServiceDescriptor.problems` —
@@ -109,7 +109,7 @@ when the project id is not a DNS label or the namespace would exceed 63 characte
 ### `StatusIngest.observe`
 
 ```
-observe(desired: Service, status: Option[NakkaServiceStatus], reachable: Boolean): ServiceObservation
+observe(desired: Service, status: Option[AnkkaServiceStatus], reachable: Boolean): ServiceObservation
 ```
 
 Total and pure, no clock. Three cases, and the separation is the point:
@@ -124,20 +124,20 @@ A status whose `generation` is below the service's is passed through unchanged a
 existing guard in the fold — the ingest does not second-guess it, so there is exactly one place
 staleness is decided.
 
-### `NakkaServiceClient` — the seam
+### `AnkkaServiceClient` — the seam
 
-`put`, `delete`, `list`, `watch`, in terms of `NakkaServiceSpec`/`Status` only. Two
-implementations: `Fabric8NakkaServiceClient` and `FakeNakkaServiceClient`. Contract in
+`put`, `delete`, `list`, `watch`, in terms of `AnkkaServiceSpec`/`Status` only. Two
+implementations: `Fabric8AnkkaServiceClient` and `FakeAnkkaServiceClient`. Contract in
 [contracts/control-plane-seam.md](./contracts/control-plane-seam.md).
 
 ---
 
-## 4. Operator pure values (`nakka.operator`)
+## 4. Operator pure values (`com.thinkmorestupidless.ankka.operator`)
 
 ### `Action` — inert cluster mutations
 
 The operator's whole vocabulary. Producing one performs no I/O; `Fabric8Executor` is the only
-interpreter. Same shape as nakka's component effects, and the same shape as `cloudflow`'s
+interpreter. Same shape as ankka's component effects, and the same shape as `cloudflow`'s
 `akka.kube.actions.Action`.
 
 | Case | Meaning |
@@ -151,7 +151,7 @@ interpreter. Same shape as nakka's component effects, and the same shape as `clo
 ### `Rendering.render`
 
 ```
-render(resource: NakkaService, config: OperatorConfig): Either[Vector[String], Vector[Action]]
+render(resource: AnkkaService, config: OperatorConfig): Either[Vector[String], Vector[Action]]
 ```
 
 Total, pure, clock-free, deterministic (FR-013). Renders a namespace, a Deployment, and an owner
@@ -165,7 +165,7 @@ What the informer cache holds for one service; the only input to lifecycle class
 | Field | Type |
 |---|---|
 | `exists` | `Boolean` |
-| `nakkaGeneration` | `Option[Long]` — read back from the annotation |
+| `ankkaGeneration` | `Option[Long]` — read back from the annotation |
 | `specReplicas`, `readyReplicas`, `updatedReplicas` | `Int` |
 | `k8sGeneration`, `observedGeneration` | `Option[Long]` |
 | `progressing`, `available` | `Option[ConditionState]` |
@@ -177,7 +177,7 @@ What the informer cache holds for one service; the only input to lifecycle class
 ### `LifecycleRules.observe`
 
 ```
-observe(spec: NakkaServiceSpec, observed: Option[ClusterSnapshot]): NakkaServiceStatus
+observe(spec: AnkkaServiceSpec, observed: Option[ClusterSnapshot]): AnkkaServiceStatus
 ```
 
 Total and pure. Full table in [contracts/observation-rules.md](./contracts/observation-rules.md).
@@ -224,8 +224,8 @@ Organization 1─* Project 1─* Service                          (control plane
                                         ▲                 │
                                         │ StatusIngest    │ ServiceProjection
                                         │                 ▼
-Project ──▶ Namespace nakka-{projectId}
-Service ──▶ NakkaService resource  ──owns──▶ Deployment ──▶ Pod
+Project ──▶ Namespace ankka-{projectId}
+Service ──▶ AnkkaService resource  ──owns──▶ Deployment ──▶ Pod
                                    (ownerReference: cascade delete)
 ```
 

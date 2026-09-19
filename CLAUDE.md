@@ -4,9 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`nakka` reimplements [Akka's](https://doc.akka.io/) component model — a serverless
+`ankka` reimplements [Akka's](https://doc.akka.io/) component model — a serverless
 platform for agentic AI — in Scala 3 on Apache Pekko. Pekko is the Apache 2.0 fork of
 Akka 2.6, chosen so the programming model carries no BSL constraint.
+
+It was called `nakka` until September 2026, before anything was released. Every reference was
+renamed — packages `nakka.*` became `com.thinkmorestupidless.ankka.*`, and every artifact, image,
+namespace, label domain, config key, environment variable, CRD (`AnkkaService`, short name `asvc`)
+and file path followed — so git history before that commit reads `nakka` throughout, and a
+`~/.nakka/` or a kind cluster named `nakka` on a machine is a leftover, not something the code reads.
 
 `README.md` is the user-facing reference (component model, agents, streaming, topics,
 the control plane and CLI, divergences from Akka, and an honest "Not implemented" list).
@@ -25,7 +31,7 @@ sbt test                          # everything, including three suites that star
                                    # another 20-60s on top, so they run minutes, not seconds.
                                    # One of them deploys the real shopping cart, so this also
                                    # builds its image and imports ~650MB into the k3s node
-sbt -Dnakka.cluster.tests=off test  # skip the three k3s suites AND the sample image build they
+sbt -Dankka.cluster.tests=off test  # skip the three k3s suites AND the sample image build they
                                    # need; everything else still runs, in about a minute
 sbt agent/test                    # one module: core sdk runtime http agent testkit
 sbt operator/test                 # the Kubernetes operator (one k3s suite)
@@ -38,8 +44,8 @@ sbt shoppingCart/Docker/publishLocal  # just the sample's image — what `testOn
 sbt buildAll                      # everything: format check, compile, test, every image —
                                    # one command, stops at the first failing stage
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
-sbt 'testkit/testOnly nakka.testkit.WorkflowSuite'
-sbt 'agent/testOnly nakka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
+sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
+sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
 ```
 
@@ -49,7 +55,7 @@ Running the samples needs the bundled Postgres:
 docker compose up -d
 sbt shoppingCart/run              # HTTP on :9000
 ANTHROPIC_API_KEY=sk-ant-... sbt multiAgentPlanner/run
-NAKKA_CONTROLPLANE_TOKEN=dev sbt controlPlane/run
+ANKKA_CONTROLPLANE_TOKEN=dev sbt controlPlane/run
 sbt 'cli/run services list --url http://localhost:9000 --token dev -p checkout'
 ```
 
@@ -58,8 +64,8 @@ first node's port so the second can name it (the default is a random port, so se
 and test suites can share a laptop):
 
 ```bash
-NAKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
-NAKKA_CLUSTER_SEED_NODES=pekko://nakka@127.0.0.1:17355 NAKKA_HTTP_PORT=9001 sbt shoppingCart/run
+ANKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
+ANKKA_CLUSTER_SEED_NODES=pekko://ankka@127.0.0.1:17355 ANKKA_HTTP_PORT=9001 sbt shoppingCart/run
 ```
 
 `AnthropicProviderSuite` exercises the live API and **skips** unless `ANTHROPIC_API_KEY`
@@ -82,7 +88,7 @@ sbt scalafmtAll scalafmtSbt        # format; scalafmtCheckAll verifies
 ```
 
 `SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites
-`private[nakka] final` to `final private[nakka]`, which is scalafmt's canonical order but
+`private[ankka] final` to `final private[ankka]`, which is scalafmt's canonical order but
 reads worse, and it churned 99 declarations for no benefit.
 
 ## Architecture
@@ -111,7 +117,7 @@ before computing the reply — is the reason that shape exists.
 ```
 core → sdk → runtime → {http, agent} → testkit → samples
 core → controlplane-api → cli
-crd → operator                                           (no nakka dependencies at all)
+crd → operator                                           (no ankka dependencies at all)
 controlplane-api + crd + sdk + runtime + http → controlplane
                                   (cli, operator, testkit are Test-only deps)
 ```
@@ -132,9 +138,9 @@ nothing else can catch them disagreeing about the custom resource.
 (`sampleImageForClusterTests` in `build.sbt`), because `SampleDeploymentClusterSuite` deploys the
 real sample into k3s. That is a build-level **task** dependency, not a classpath one: `controlplane`
 gains no dependency on `shoppingCart` in any compilation scope, and the graph above is unchanged.
-It is gated on `-Dnakka.cluster.tests`, so switching the suites off skips the build as well.
+It is gated on `-Dankka.cluster.tests`, so switching the suites off skips the build as well.
 
-`crd` depends on **nothing** — not even `core`. It holds the `NakkaService` resource, and
+`crd` depends on **nothing** — not even `core`. It holds the `AnkkaService` resource, and
 both the control plane and the operator have to hold it without inheriting the other's
 world. It also holds `Hostnames`, the one derivation of an exposed service's hostname, for the
 same reason: the control plane shows and refuses it, the operator renders it, and the resource
@@ -148,7 +154,7 @@ corrected.
 
 `ComponentClient` therefore lives in `sdk` over a `CallTransport` interface, with
 `runtime` supplying the sharding-backed implementation. Components receive it through
-their context, because nakka has no container — a component is constructed by its own
+their context, because ankka has no container — a component is constructed by its own
 companion and anything it needs arrives that way.
 
 ### Component hosting
@@ -165,8 +171,8 @@ companion and anything it needs arrives that way.
 | HTTP Endpoint | pekko-http route tree |
 
 Entity and workflow hosts pre-serialize domain values into `JournalRecord` /
-`StateRecord` via Pekko event and snapshot adapters, so the journal holds nakka's JSON
-under nakka's manifest rather than a reflected form of the domain type.
+`StateRecord` via Pekko event and snapshot adapters, so the journal holds ankka's JSON
+under ankka's manifest rather than a reflected form of the domain type.
 
 ### Registration and handler identity
 
@@ -192,7 +198,7 @@ reason — see the discussion in the git history.
 
 ### The RuntimeExtension seam
 
-`nakka-runtime` must not depend on `nakka-http` or `nakka-agent`, so anything that needs
+`ankka-runtime` must not depend on `ankka-http` or `ankka-agent`, so anything that needs
 the service to exist before starting plugs in as a `RuntimeExtension`:
 `HttpServer`, `ProjectionRuntime`, `TimerRuntime`, `AgentRuntime`. Extensions take
 factories rather than instances where a dependency needs the `ActorSystem`.
@@ -208,24 +214,24 @@ claiming exhaustivity was preserved was wrong; that mistake let exactly that han
 
 `reference.conf` says nothing about how a node finds its peers — no hostname, no port, no seed
 nodes, no join-self. That lives in one overlay per means of execution,
-`modules/runtime/src/main/resources/nakka-cluster-<mode>.conf`, selected by `NAKKA_CLUSTER_MODE`:
+`modules/runtime/src/main/resources/ankka-cluster-<mode>.conf`, selected by `ANKKA_CLUSTER_MODE`:
 
 | mode | set by | formation |
 |---|---|---|
-| `local` (default) | nobody | join `NAKKA_CLUSTER_SEED_NODES` if given, else join self; loopback, random port |
+| `local` (default) | nobody | join `ANKKA_CLUSTER_SEED_NODES` if given, else join self; loopback, random port |
 | `kubernetes` | the operator, never a descriptor | Cluster Bootstrap over the Kubernetes API, `${POD_IP}`, fixed ports 17355/7626 |
 
 `ClusterConfig.load` stacks them — system properties > the service's `application.conf` > the
 overlay > `reference.conf` — so a service's own file can override any choice the platform made,
 and a *new* means of execution is a new overlay file plus one entry in `ClusterConfig.Modes`.
-`ClusterFormation.form` then reads `nakka.cluster.formation` and either joins programmatically
+`ClusterFormation.form` then reads `ankka.cluster.formation` and either joins programmatically
 or starts Pekko Management and Cluster Bootstrap; the startup code is identical in every mode.
 
 The Kubernetes overlay's substitutions are `${X}`, not `${?X}`: a missing `POD_IP` must be a
 startup failure naming it, not a node that binds loopback and quietly joins nothing. The operator
-supplies all five (`NAKKA_CLUSTER_MODE`, `POD_IP`, `NAKKA_CLUSTER_SERVICE`,
-`NAKKA_CLUSTER_POD_SELECTOR`, `NAKKA_CLUSTER_CONTACT_POINTS`), and `ServiceSpec.problems`
-refuses a descriptor that sets any of them — the same rule as `NAKKA_HTTP_PORT`.
+supplies all five (`ANKKA_CLUSTER_MODE`, `POD_IP`, `ANKKA_CLUSTER_SERVICE`,
+`ANKKA_CLUSTER_POD_SELECTOR`, `ANKKA_CLUSTER_CONTACT_POINTS`), and `ServiceSpec.problems`
+refuses a descriptor that sets any of them — the same rule as `ANKKA_HTTP_PORT`.
 
 Readiness in that mode is `/ready` on the management port: cluster membership (Bootstrap's
 own check) AND every `RuntimeExtension` with an opinion — `HttpServer` says no until it has
@@ -244,7 +250,7 @@ belongs to the service, not the platform.
 ### Virtual threads
 
 Endpoints, workflow steps, consumers, timers and agent loops all run on
-`NakkaExecutors.virtual`. That is what makes the blocking `ComponentClient.invoke` free —
+`AnkkaExecutors.virtual`. That is what makes the blocking `ComponentClient.invoke` free —
 an await parks the virtual thread and releases its carrier — so tool loops and workflow
 steps can be written as ordinary sequential code.
 
@@ -264,7 +270,7 @@ compaction hooks and durability fall out rather than being features.
 
 ### Reconciliation is split across two processes
 
-The control plane projects a service's desired state into a `NakkaService` custom resource
+The control plane projects a service's desired state into an `AnkkaService` custom resource
 and folds the status back; an in-cluster **operator** watches those resources and owns
 everything below — namespace, Deployment, reported status. The resource is the only thing
 either side knows about the other.
@@ -274,15 +280,15 @@ anywhere in this design), sub-second change notification (watches, not polling),
 control plane that holds no credential able to create a workload. Doing it in one process
 was the original plan and was rejected on review — it reimplemented all three.
 
-The operator is deliberately **not** a nakka application. It has no entities, no journal
-and no sharding, so hosting it on nakka would give it a cluster to form and a database not
+The operator is deliberately **not** an ankka application. It has no entities, no journal
+and no sharding, so hosting it on ankka would give it a cluster to form and a database not
 to use — and a process whose entire job is to keep working while other things are broken
 should depend on as little as possible.
 
 `Action` values are inert descriptions of cluster mutations and `Fabric8Executor` is the
 only thing that performs them, which is the same organising idea as the component effects.
 
-### The control plane is a nakka application
+### The control plane is an ankka application
 
 `ControlPlane.components` and `ControlPlane.endpoints` are the whole inventory: three
 event sourced entities (organization, project, service), three views for listing, three
@@ -344,20 +350,20 @@ factory shapes would break lambda parameter inference at every call site.
   provider. (A compaction test passed for the wrong reason until this was separated.)
 - **A workflow left mid-flight keeps consuming a shared scripted model**, starving the
   next test. Drain it before the test ends.
-- **A fieldless Scala 3 enum encodes as `{"type":"Ready"}` under nakka's shared codec
+- **A fieldless Scala 3 enum encodes as `{"type":"Ready"}` under ankka's shared codec
   config.** The discriminator is right for events and wrong for a status word a CLI
   prints. Give such an enum an explicit string `JsonValueCodec` **in its companion
   object**, so it is in implicit scope everywhere the enum appears — putting it at each
   derivation site invites missing one and shipping two wire formats.
   (`ServiceLifecycle` does this.)
-- **Anything reading `~/.nakka/config.json` or `$HOME` must be overridable by a system
-  property.** Environment variables cannot be set in-process, so `NAKKA_CONFIG` alone
+- **Anything reading `~/.ankka/config.json` or `$HOME` must be overridable by a system
+  property.** Environment variables cannot be set in-process, so `ANKKA_CONFIG` alone
   makes `config set` untestable without writing to the developer's own home directory.
-  `Settings.path` checks `-Dnakka.config` first for exactly this reason.
+  `Settings.path` checks `-Dankka.config` first for exactly this reason.
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.
-- **A Deployment's `spec.selector` is immutable.** It must never contain nakka's
+- **A Deployment's `spec.selector` is immutable.** It must never contain ankka's
   generation, or the second apply is rejected permanently and the service is bricked at
   generation 2. The generation lives on the Deployment's own annotations.
 - **The generation must not be on the pod template either.** Feature 001 put it there so a
@@ -384,24 +390,24 @@ factory shapes would break lambda parameter inference at every call site.
   start from an empty cluster cannot see it**. It took a real cluster with a real leftover
   object, and the rolling-update migration test exists to keep it in view.
 - **Never render a HorizontalPodAutoscaler.** `minInstances` is honoured as a fixed count, and
-  that is the whole story until nakka has a reason to scale on load. An autoscaler that
+  that is the whole story until ankka has a reason to scale on load. An autoscaler that
   scaled to zero would also be a cold start nobody asked for.
 - **`pekko.coordinated-shutdown.exit-jvm = on` belongs in the Kubernetes overlay only, never
   `reference.conf`.** In a pod a process is a node and exiting after a split-brain down is the
   point — without it the pod stays `Running`, never ready, never restarted. Anywhere else it
   turns the first stopped `ActorSystem` into a dead process: put in the base, it killed the
   forked test JVM (`Forked test harness failed: EOFException`) the moment a suite called
-  `NakkaTestKit.stop()`.
+  `AnkkaTestKit.stop()`.
 - **`pekko.cluster.seed-nodes = ${?ENV}` is a type error at load.** It is a list, and an
-  environment variable is a string. The local overlay's `nakka.cluster.seed-nodes` is a
-  comma-separated *string* under nakka's own key, and `ClusterFormation` splits it and joins
+  environment variable is a string. The local overlay's `ankka.cluster.seed-nodes` is a
+  comma-separated *string* under ankka's own key, and `ClusterFormation` splits it and joins
   programmatically — the same call it makes to join itself.
 - **`ClusterConfig.layered` puts the overlay *above* a config a caller built for itself.**
   The obvious precedence (overlay beneath the application) is what `load` does, and it is wrong
   for a config that came from `ConfigFactory.load()` — the test kit's — because that config
   already carries Pekko's reference defaults for every key the overlay sets, a fixed remoting
   port among them. Two test systems on one machine then bind the same port. A config that
-  already has `nakka.cluster.formation` came from the loader and passes through untouched.
+  already has `ankka.cluster.formation` came from the loader and passes through untouched.
 - **pekko-management pulls `pekko-http` 1.1.0, and eviction lifts only part of the family.**
   `pekko-http` goes to 1.4.0 but `pekko-http-spray-json` stays, and Pekko HTTP checks family
   versions at startup — every HTTP suite died in `beforeAll`. `dependencyOverrides ++=
@@ -409,16 +415,16 @@ factory shapes would break lambda parameter inference at every call site.
   list, not only to `libraryDependencies`.
 - **Scaling a Deployment directly is undone within one resync.** The operator's reconcile
   loop restores the replica count from the resource, so `kubectl scale --replicas=0` is not how
-  a test takes a service down: it is back before the assertion runs. `nakka services pause` /
+  a test takes a service down: it is back before the assertion runs. `ankka services pause` /
   `resume` is — the count is rendered from the spec, and pause is the spec saying zero.
 - **`dependencyOverrides` never reaches a POM.** Feature 004 pinned the Pekko HTTP family with an
   override in `commonSettings`; the first build *outside* this repository (feature 006) got
   `pekko-http-spray-json 1.1.0` from pekko-management beside `pekko-http 1.4.0` and Pekko HTTP
   refused to start. Anything a consumer must see is a direct `libraryDependencies` entry in the
-  published module — `nakka-runtime` now declares the family.
+  published module — `ankka-runtime` now declares the family.
 - **A Docker tag may not contain `+`, and a dynver snapshot version does.** `docker:publishLocal`
   failed on every image the moment `ThisBuild / version` went: `invalid tag
-  "nakka-operator:0.0.0+12-…"`. `dockerSettings` sets `Docker / version` with `+` → `-`; a
+  "ankka-operator:0.0.0+12-…"`. `dockerSettings` sets `Docker / version` with `+` → `-`; a
   release version has no `+` and tags exactly as itself. The template's build does the same.
 - **`JavaAppPackaging` enables `DockerPlugin`**, so `sbt cli/stage` for the CLI also made root's
   `docker:publishLocal` build a CLI image. The CLI's `Docker / publishLocal` and `Docker / publish`
@@ -438,12 +444,12 @@ factory shapes would break lambda parameter inference at every call site.
   `*.example.test` covers `cart-checkout.example.test` and not `cart.checkout.example.test`; two
   implementations that got the listener rule wrong filed it as a bug. With TLS on the
   installation's single Gateway, that is *why* an exposed service's hostname is
-  `<service>-<project>.<base>` (one label; `nakka.crd.Hostnames`) and not the two-level form
+  `<service>-<project>.<base>` (one label; `com.thinkmorestupidless.ankka.crd.Hostnames`) and not the two-level form
   that reads better. Two costs, both refused at expose time: a label over 63 characters, and a
   collision between hyphenated names (`a-b` in `c`, `a` in `b-c`).
 - **A cert-manager `ClusterIssuer` looks up its `ca.secretName` in cert-manager's own namespace,
-  not the Certificate's.** `secrets "nakka-root-ca" not found` with the secret sitting right there
-  in `nakka-gateway`. A namespaced `Issuer` beside the secret is the honest shape for a local CA.
+  not the Certificate's.** `secrets "ankka-root-ca" not found` with the secret sitting right there
+  in `ankka-gateway`. A namespaced `Issuer` beside the secret is the honest shape for a local CA.
 - **A Gateway API `RequestRedirect` without `port` keeps the *request's* port in the Location.**
   `http://…:8080/x` → `https://…:8080/x`, which goes nowhere on kind, where HTTPS is on 8443. The
   redirect route names its port (443 in the component, the kind host port in the overlay).
@@ -482,7 +488,7 @@ factory shapes would break lambda parameter inference at every call site.
   answer on a management port that did not exist, and Pekko's join decider refused to form a
   cluster while any contact point was silent — `Exceeded stable margins but missing seed node
   information from some contact points`, forever. The discovery selector therefore includes
-  `nakka.thinkmorestupidless.com/formation=bootstrap`, a label only pod templates rendered since
+  `ankka.thinkmorestupidless.com/formation=bootstrap`, a label only pod templates rendered since
   feature 004 carry (`Labels.FormationKey`); it is *not* in the Deployment's immutable
   `spec.selector` nor the Service's. Empty-cluster suites cannot see this class of bug — the
   same lesson as the `Recreate` migration, from the other direction.
@@ -494,7 +500,7 @@ factory shapes would break lambda parameter inference at every call site.
   workload image owes the platform no shell) runs *before* SIGTERM and the pod serves through it.
   Rendered on every workload and in the control plane's manifest; do not remove it as "unused".
 - **A k3s test node running five sample JVMs answers in seconds, not milliseconds.** A suite that
-  deploys several real nakka services into one k3s container starves it: the control plane's GET
+  deploys several real ankka services into one k3s container starves it: the control plane's GET
   latency went to a median of 5.2s and a throughput assertion failed for the wrong reason. Deploy
   the real image only for the service a case actually needs to be `Ready`; the rest can be
   `pause` with `"http": false`.
@@ -510,11 +516,11 @@ factory shapes would break lambda parameter inference at every call site.
   and the node runs coordinated shutdown, so it proves nothing about failure detection or the
   split-brain resolver. A crash test is `kill -9` of the JVM from the node (`crictl` inside the
   k3s container), and a partition test is `iptables` — `MultiNodeClusterSuite` does both.
-- **Two things are called "generation".** nakka's lives in the resource's `spec` and is
+- **Two things are called "generation".** ankka's lives in the resource's `spec` and is
   what `Service.onObserved` compares; Kubernetes' is `metadata.generation` and is only
   meaningful against `status.observedGeneration`. Conflating them reports the right answer
   about the wrong generation.
-- **Two nakka services must never share a Postgres database.** `nakka_timers` has no
+- **Two ankka services must never share a Postgres database.** `ankka_timers` has no
   service column, and `TimerSweeper` *deletes* rows whose component id it does not
   recognise — so they silently delete each other's timers. View row tables, named from the
   component id alone, collide the same way.
@@ -587,11 +593,11 @@ factory shapes would break lambda parameter inference at every call site.
   to its `clusterIP` (`k3s.execInContainer("wget", …)`). By IP: the node does not resolve cluster
   DNS names, only pods do.
 - **Forked tests do not inherit sbt's `-D` properties.** `Test / fork := true`, so a switch passed
-  as `sbt -Dfoo=bar test` is set in a JVM that runs no tests. `-Dnakka.cluster.tests=off` was a
+  as `sbt -Dfoo=bar test` is set in a JVM that runs no tests. `-Dankka.cluster.tests=off` was a
   documented no-op for two features — the "skipped" suites quietly took seven minutes — until
   `Test / javaOptions` started forwarding it. Any new test switch needs the same forwarding.
 - **A service's default descriptor now asserts something.** Saying nothing means "serves HTTP on
-  9000" and the pod is not `Ready` until that port opens. Right for a nakka service; an image that
+  9000" and the pod is not `Ready` until that port opens. Right for an ankka service; an image that
   listens on nothing (`pause`) needs `"http": false` or it is `Failed` when the rollout deadline
   passes. Every `pause` descriptor in the test suites carries it.
 - **Kustomize's load restrictor is checked per component directory, not against the
@@ -599,8 +605,8 @@ factory shapes would break lambda parameter inference at every call site.
   not via a relative path, not via a symlink resolving there — even when a common ancestor
   contains both. There is no override for `kubectl apply -k`. The CRD, the operator's
   install manifest and the control plane's RBAC are therefore canonical *inside*
-  `kustomization/components/`, with `operator/src/main/resources/nakka/{crd,install}/` and
-  `controlplane/src/main/resources/nakka/install/` holding symlinks *into* them — the
+  `kustomization/components/`, with `operator/src/main/resources/ankka/{crd,install}/` and
+  `controlplane/src/main/resources/ankka/install/` holding symlinks *into* them — the
   reverse of the direction that seems obvious, and the only direction that works, since sbt
   and the JVM follow symlinks transparently but kustomize does not. Never `ln -sf` onto a
   path that might already hold the real content; copy it out first. This one cost real file
@@ -612,7 +618,7 @@ factory shapes would break lambda parameter inference at every call site.
 ## Publishing
 
 Six modules are libraries an application depends on — `core`, `sdk`, `runtime`, `http`, `agent`,
-`testkit` — and are published as `com.thinkmorestupidless:nakka-<module>_3`. Everything else
+`testkit` — and are published as `com.thinkmorestupidless:ankka-<module>_3`. Everything else
 (`controlplane-api`, `crd`, `operator`, `controlplane`, `cli`, the samples, root) carries
 `publish / skip := true`: a platform-side jar cannot reach a repository by accident, and "these
 are not libraries" is a build fact rather than a note.
@@ -620,25 +626,25 @@ are not libraries" is a build fact rather than a note.
 ```bash
 sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly six artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
-sbt -Dnakka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
+sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the release: .github/workflows/release.yml runs `sbt ci-release`
 ```
 
 **There is no `ThisBuild / version`, and there must never be one.** The version comes from the
 git tag through `sbt-dynver`; a version set in the build silently overrides the tag, which is the
-one thing a release must not do. `nakka.core.BuildInfo.version` carries the same value into code
+one thing a release must not do. `com.thinkmorestupidless.ankka.core.BuildInfo.version` carries the same value into code
 — the CLI prints it, the control plane compares an application's declared runtime against it.
 
-**The template** is `nakka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which
-publishes locally, expands it into a temp directory through the real `nakka init`, and runs the
-expansion's own `sbt test` and image build as subprocesses (`-Dnakka.template.tests=off` skips
-it; it needs `sbt` on `PATH` and Docker). `nakka init` shells out to `sbt new` and carries no
-template of its own; it passes its `BuildInfo.version` as `--nakka_version`. The directory is
-named `nakka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
+**The template** is `ankka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which
+publishes locally, expands it into a temp directory through the real `ankka init`, and runs the
+expansion's own `sbt test` and image build as subprocesses (`-Dankka.template.tests=off` skips
+it; it needs `sbt` on `PATH` and Docker). `ankka init` shells out to `sbt new` and carries no
+template of its own; it passes its `BuildInfo.version` as `--ankka_version`. The directory is
+named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
-new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/nakka.g8`.
+new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
 
-**Compatibility** (`nakka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
+**Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,
 minor equal or one below — and an unsupported one takes the existing "cannot project" path as
 `ClusterView.Refused` → `Unavailable` with both versions in the detail, before any resource is
@@ -653,7 +659,7 @@ the workflow names. Every other step is proven locally.
 ## Deploying locally
 
 ```bash
-kind create cluster --name nakka --config kustomization/kind.yaml
+kind create cluster --name ankka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh
 ```
 
@@ -669,12 +675,12 @@ anything other than the `kind-*` cluster it targets, and refuses a cluster whose
 publish the gateway's NodePorts (30080/30443 → the host's 8080/8443, from `kind.yaml`) — kind
 decides that at creation and it cannot be added later.
 
-It ends by exporting the local CA's root to `~/.nakka/local-ca.crt` and printing the control
-plane's address, `https://api.127.0.0.1.sslip.io:8443`, with the `nakka config set url` /
+It ends by exporting the local CA's root to `~/.ankka/local-ca.crt` and printing the control
+plane's address, `https://api.127.0.0.1.sslip.io:8443`, with the `ankka config set url` /
 `config set ca` lines to use it. No port-forward anywhere. The base domain and the HTTPS host port
 are written once, in `kustomization/overlays/local/platform-configmap.yaml`, and kustomize
 `replacements` copy them into the wildcard `Certificate`, the `Gateway` listener, both
-Deployments' `NAKKA_BASE_DOMAIN` and the control plane's own `HTTPRoute`; `NAKKA_BASE_DOMAIN` on the
+Deployments' `ANKKA_BASE_DOMAIN` and the control plane's own `HTTPRoute`; `ANKKA_BASE_DOMAIN` on the
 script overrides the domain for a machine whose resolver blocks sslip.io.
 
 It ends by `rollout restart`ing the operator and control plane. Without that a *re*-run changes
@@ -688,19 +694,19 @@ and RBAC — see the load-restrictor trap below for why the direction is `kustom
 `Cluster` for the control plane's own database, the one case in this codebase using
 `bootstrap.initdb` rather than the operator's per-service `Database`/`DatabaseRole` machinery; its
 schema ConfigMap is generated by the deploy script directly from
-`modules/runtime/src/main/resources/nakka/ddl`, not by a kustomize generator, for the same
+`modules/runtime/src/main/resources/ankka/ddl`, not by a kustomize generator, for the same
 load-restrictor reason, plus one generated `99-grants.sql` key alongside the DDL — see the trap
 above about CNPG running `postInitApplicationSQLRefs` as its own superuser, not as the role that
 owns the database.
 
-Every service's own database is provisioned separately, by the operator, per `NakkaServiceSpec` —
+Every service's own database is provisioned separately, by the operator, per `AnkkaServiceSpec` —
 see `README.md`'s "Databases are provisioned automatically" for the model, and
 `kustomization/components/cnpg/` for the install component itself.
 
 ## Schema
 
-DDL lives in `modules/runtime/src/main/resources/nakka/ddl/` and is the single copy:
-`docker-compose.yml` mounts that directory, and `NakkaTestKit` copies the same files into
+DDL lives in `modules/runtime/src/main/resources/ankka/ddl/` and is the single copy:
+`docker-compose.yml` mounts that directory, and `AnkkaTestKit` copies the same files into
 its container. A test can never pass against a schema local development does not have.
 The journal and projection scripts are taken verbatim from the Pekko projects.
 
@@ -713,7 +719,7 @@ cluster or database — effects are inert values, so this is milliseconds. Input
 replies still round-trip through the component's own serializers, so a missing codec
 fails there rather than on first deployment.
 
-`NakkaTestKit` boots the whole service against a throwaway Postgres. `restartService()`
+`AnkkaTestKit` boots the whole service against a throwaway Postgres. `restartService()`
 drops every entity from memory, so a test can prove durability rather than caching.
 
 `TestModelProvider` answers from a script and **fails loudly** when the script runs out —

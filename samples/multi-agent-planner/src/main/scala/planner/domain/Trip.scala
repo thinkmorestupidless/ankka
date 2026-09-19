@@ -3,7 +3,7 @@ package planner.domain
 /**
  * The planner domain.
  *
- * Plain Scala, no nakka types — the same discipline as the shopping cart. These records are what
+ * Plain Scala, no ankka types — the same discipline as the shopping cart. These records are what
  * the agents talk about; nothing here knows an agent exists.
  */
 final case class Preferences(

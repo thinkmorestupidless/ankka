@@ -14,7 +14,7 @@ implementation detail belongs in `tasks.md`.
 | JDK 21, sbt | everything | already required |
 | Docker | integration and cluster suites | already required by the Postgres and Kafka suites |
 | A Kubernetes cluster | the manual walkthrough only | Docker Desktop, k3d, kind or minikube; the automated suites start their own |
-| `kubectl` | the manual walkthrough only | `kubectl get nsvc` is a first-class debugging surface here |
+| `kubectl` | the manual walkthrough only | `kubectl get asvc` is a first-class debugging surface here |
 
 No API key. No cloud account.
 
@@ -26,10 +26,10 @@ Rendering, projection and classification are total functions over data, so every
 staleness, ordering and failure is provable with no cluster and no database.
 
 ```bash
-sbt 'operator/testOnly nakka.operator.RenderingSuite'
-sbt 'operator/testOnly nakka.operator.LifecycleRulesSuite'
-sbt 'controlPlane/testOnly nakka.controlplane.ServiceProjectionSuite'
-sbt 'controlPlane/testOnly nakka.controlplane.StatusIngestSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.RenderingSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.LifecycleRulesSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ServiceProjectionSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.StatusIngestSuite'
 ```
 
 **Expected**: all pass in well under a second each; no container starts.
@@ -46,11 +46,11 @@ sbt 'controlPlane/testOnly nakka.controlplane.StatusIngestSuite'
 ## Tier 2 — The control plane, with Postgres and a fake cluster (minutes, Docker)
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.ProjectorSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ProjectorSuite'
 ```
 
-**Expected**: one Postgres container, the real control plane through `NakkaTestKit` against
-`FakeNakkaServiceClient`.
+**Expected**: one Postgres container, the real control plane through `AnkkaTestKit` against
+`FakeAnkkaServiceClient`.
 
 - **FR-006** — applying projects immediately via the journal consumer, *and* the periodic sweep
   alone converges a service the consumer never saw.
@@ -71,11 +71,11 @@ sbt 'controlPlane/testOnly nakka.controlplane.ProjectorSuite'
 ## Tier 3 — The operator against a real cluster (slower, Docker)
 
 ```bash
-sbt 'operator/testOnly nakka.operator.OperatorClusterSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.OperatorClusterSuite'
 ```
 
 Starts k3s, installs the CRD **from the shipped manifest** (so FR-039's install path is exercised,
-not bypassed), runs the operator, and writes `NakkaService` resources directly.
+not bypassed), runs the operator, and writes `AnkkaService` resources directly.
 
 What only a real API server can prove:
 
@@ -89,7 +89,7 @@ What only a real API server can prove:
 - **A bad image tag** reaches `Failed` with an `ImagePullBackOff` detail within a short progress
   deadline (FR-021).
 - **Status is written to the subresource only** — assert the operator's service account cannot
-  update `nakkaservices` itself (FR-003).
+  update `ankkaservices` itself (FR-003).
 - **An unknown `apiVersion`** is reported and not acted on (FR-004).
 
 ---
@@ -97,7 +97,7 @@ What only a real API server can prove:
 ## Tier 4 — Both halves, end to end (slowest)
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.EndToEndClusterSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.EndToEndClusterSuite'
 ```
 
 Postgres **and** k3s, the real control plane and the real operator, driven through the CLI's
@@ -110,7 +110,7 @@ out of band → healed; delete → nothing left.
 To run everything except the cluster suites:
 
 ```bash
-sbt -Dnakka.cluster.tests=off test
+sbt -Dankka.cluster.tests=off test
 ```
 
 A system property rather than a munit tag: `--exclude-tags` filters tests but still runs
@@ -123,52 +123,52 @@ the whole cost anyway.
 
 ```bash
 # install into whatever cluster KUBECONFIG points at
-kubectl apply -f operator/src/main/resources/nakka/crd/nakkaservice.yaml
-kubectl apply -f operator/src/main/resources/nakka/install/operator.yaml
+kubectl apply -f operator/src/main/resources/ankka/crd/ankkaservice.yaml
+kubectl apply -f operator/src/main/resources/ankka/install/operator.yaml
 
 docker compose up -d
-NAKKA_CONTROLPLANE_TOKEN=$(openssl rand -hex 16) sbt controlPlane/run
+ANKKA_CONTROLPLANE_TOKEN=$(openssl rand -hex 16) sbt controlPlane/run
 
-nakka config set url http://localhost:9000
-nakka config set token "$NAKKA_CONTROLPLANE_TOKEN"
-nakka organizations create acme --name "Acme Corp"
-nakka projects create checkout --name Checkout -O acme
-nakka config set project checkout
-nakka services apply -f cart.json
+ankka config set url http://localhost:9000
+ankka config set token "$ANKKA_CONTROLPLANE_TOKEN"
+ankka organizations create acme --name "Acme Corp"
+ankka projects create checkout --name Checkout -O acme
+ankka config set project checkout
+ankka services apply -f cart.json
 ```
 
 Watch both sides — and note the third view the resource gives you for free:
 
 ```bash
-nakka services list
-kubectl -n nakka-checkout get nsvc,deploy,pods
-kubectl -n nakka-checkout describe nsvc cart      # spec and status side by side
+ankka services list
+kubectl -n ankka-checkout get asvc,deploy,pods
+kubectl -n ankka-checkout describe asvc cart      # spec and status side by side
 ```
 
 | Action | Expected |
 |---|---|
 | apply | `Ready` `1/1` within about a minute |
-| `kubectl -n nakka-checkout delete deploy cart` | recreated within ~10s (the operator watches owned objects) |
-| `kubectl -n nakka-checkout edit nsvc cart` (change the image) | the control plane restores its own record (FR-007) |
-| `nakka services pause cart` | `Paused` `0/0`, no pods, configuration retained |
-| `nakka services restart cart` | generation bumps, pod replaced, back to `Ready` |
+| `kubectl -n ankka-checkout delete deploy cart` | recreated within ~10s (the operator watches owned objects) |
+| `kubectl -n ankka-checkout edit asvc cart` (change the image) | the control plane restores its own record (FR-007) |
+| `ankka services pause cart` | `Paused` `0/0`, no pods, configuration retained |
+| `ankka services restart cart` | generation bumps, pod replaced, back to `Ready` |
 | apply with a nonexistent image tag | `Failed` with an `ImagePullBackOff` detail |
-| `kubectl delete deploy -n nakka-operator nakka-operator` | services become `Ready (unconfirmed)` with "no operator has reported" (FR-031) |
-| stop the cluster, then `nakka services list` | `Ready (unconfirmed)` — not a silent stale `Ready` |
-| stop the cluster, then `nakka services apply` | **succeeds**; intent durable; deploys when the cluster returns |
-| `nakka services delete cart` | resource gone, Deployment and pods gone with it |
+| `kubectl delete deploy -n ankka-operator ankka-operator` | services become `Ready (unconfirmed)` with "no operator has reported" (FR-031) |
+| stop the cluster, then `ankka services list` | `Ready (unconfirmed)` — not a silent stale `Ready` |
+| stop the cluster, then `ankka services apply` | **succeeds**; intent durable; deploys when the cluster returns |
+| `ankka services delete cart` | resource gone, Deployment and pods gone with it |
 
-**A deployed service needs a database.** A nakka service is event-sourced and will not start
+**A deployed service needs a database.** An ankka service is event-sourced and will not start
 without Postgres carrying the journal, projection and timer tables. Supply it through the
 descriptor's `env`, one database *per service*:
 
 ```json
-{ "name": "NAKKA_DB_HOST",     "value": "postgres.default.svc" },
-{ "name": "NAKKA_DB_NAME",     "value": "cart" },
-{ "name": "NAKKA_DB_PASSWORD", "secretKeyRef": { "name": "cart-db", "key": "password" } }
+{ "name": "ANKKA_DB_HOST",     "value": "postgres.default.svc" },
+{ "name": "ANKKA_DB_NAME",     "value": "cart" },
+{ "name": "ANKKA_DB_PASSWORD", "secretKeyRef": { "name": "cart-db", "key": "password" } }
 ```
 
-Two services sharing one database **delete each other's timers** — `nakka_timers` has no service
+Two services sharing one database **delete each other's timers** — `ankka_timers` has no service
 column and `TimerSweeper` drops rows it does not recognise. See spec Assumptions.
 
 ---
@@ -178,8 +178,8 @@ column and `TimerSweeper` drops rows it does not recognise. See spec Assumptions
 - [ ] Tier 1 runs with no Docker daemon at all.
 - [ ] `sbt compile` is warning-free — `-Wunused` is on.
 - [ ] `sbt scalafmtCheckAll` passes.
-- [ ] `grep -rl "io.fabric8" controlplane/src/main` hits **only** `Fabric8NakkaServiceClient.scala`
-      (the `NakkaServiceClient` trait names it in prose, never in a signature).
+- [ ] `grep -rl "io.fabric8" controlplane/src/main` hits **only** `Fabric8AnkkaServiceClient.scala`
+      (the `AnkkaServiceClient` trait names it in prose, never in a signature).
 - [ ] `grep -rl "KubernetesClient" operator/src/main` hits **only** `Executor.scala`,
       `Operator.scala`, `ServiceReconciler.scala` and `Main.scala`.
 
@@ -189,9 +189,9 @@ column and `TimerSweeper` drops rows it does not recognise. See spec Assumptions
   zero references to `KubernetesClient`. A parallel model of `Deployment` would have bought a
   cleaner grep and an untested conversion between what the tests assert on and what the API
   server sees.
-- [ ] `crd` depends on no nakka module; `operator` depends only on `crd`.
+- [ ] `crd` depends on no ankka module; `operator` depends only on `crd`.
 - [ ] `cli`'s dependencies are unchanged — `controlplane-api` only.
-- [ ] No new file under `modules/runtime/src/main/resources/nakka/ddl/`; no schema change.
+- [ ] No new file under `modules/runtime/src/main/resources/ankka/ddl/`; no schema change.
 - [ ] The CRD and install manifests exist in exactly one place each, and the k3s suites apply those files rather than an inline copy.
 - [ ] `README.md`'s "Not implemented" entry for reconciliation is rewritten, not deleted — the single-replica cap and bring-your-own database belong there, stated as plainly as the gap they replace.
 - [ ] `README.md`'s divergence table entry for `minInstances` defaulting to 1 is corrected: it is 1 because more than 1 does not work, not because of dev-cluster ergonomics.

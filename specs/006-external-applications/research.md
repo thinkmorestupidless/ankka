@@ -1,4 +1,4 @@
-# Research: A nakka Application Built Outside This Repository
+# Research: An ankka Application Built Outside This Repository
 
 **Feature**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
 
@@ -39,8 +39,8 @@ namespace is claimed" (FR-005, SC-006).
 ## R2 — One version for everything, carried in code by sbt-buildinfo
 
 **Decision**: one tag versions the libraries, the two images and the CLI (the user's choice, FR-007).
-`sbt-buildinfo` on `core` generates `nakka.core.BuildInfo.version`, so the platform's own version
-is a value every module can read: the CLI prints it (`nakka version`), the control plane compares
+`sbt-buildinfo` on `core` generates `com.thinkmorestupidless.ankka.core.BuildInfo.version`, so the platform's own version
+is a value every module can read: the CLI prints it (`ankka version`), the control plane compares
 against it, the runtime logs it at start and serves it on its management endpoint.
 
 **Rationale**: the compatibility rule (R3) needs the platform to *know* its version at runtime;
@@ -52,9 +52,9 @@ manifest — works for jars, not for `sbt run` or tests, where it is null.
 
 ## R3 — The compatibility contract: a declared runtime version, checked at projection
 
-**Decision**: the descriptor gains an optional `runtime` field — the nakka version the image was
+**Decision**: the descriptor gains an optional `runtime` field — the ankka version the image was
 built against (`"runtime": "0.2.0"`). The template writes it at expansion, the same value as its
-build's `nakkaVersion`. The **control plane** checks it when it *projects* the service: a
+build's `ankkaVersion`. The **control plane** checks it when it *projects* the service: a
 declared runtime outside the platform's supported range makes `ServiceProjection.project` return
 a problem, which already surfaces as `lifecycle: Unavailable` with the problem as `detail` and
 never reaches the operator — no pod starts, `services get` names both versions, nothing is
@@ -73,7 +73,7 @@ a field the developer's build writes is the one place both sides agree on. The p
 the existing "cannot project" mechanism (feature 001), so no new lifecycle or status shape.
 
 **The honesty gap, stated**: a descriptor can lie. So the runtime *also* serves its version on the
-management endpoint (`/nakka/version`), and the operator's pod-level status could compare it in a
+management endpoint (`/ankka/version`), and the operator's pod-level status could compare it in a
 later feature. For this release, the README says the declared version is what is checked.
 
 **Additive schema** (FR-011): the DDL is versioned files (`10-journal`, `20-projection`,
@@ -81,35 +81,35 @@ later feature. For this release, the README says the declared version is what is
 as a constraint on future DDL changes, and the operator's schema init is unchanged — it already
 applies `CREATE ... IF NOT EXISTS`.
 
-## R4 — The template: Giter8 in this repository, `sbt new` by git URL, `nakka init` shelling out
+## R4 — The template: Giter8 in this repository, `sbt new` by git URL, `ankka init` shelling out
 
-**Decision**: the template lives at `nakka.g8/` in this repository, as a Giter8 template
+**Decision**: the template lives at `ankka.g8/` in this repository, as a Giter8 template
 (`src/main/g8/...`, `default.properties`). It is expanded three ways, all the same expansion:
 
-- `sbt new file:///path/to/nakka/nakka.g8 --name=orders` — local development and the suites;
-- `sbt new thinkmorestupidless/nakka.g8 --name=orders` — the public form, a repository the release
+- `sbt new file:///path/to/ankka/ankka.g8 --name=orders` — local development and the suites;
+- `sbt new thinkmorestupidless/ankka.g8 --name=orders` — the public form, a repository the release
   workflow fills by subtree push (see the correction below);
-- `nakka init orders` — runs the second command via `ProcessBuilder` (needs `sbt` on `PATH`; a
+- `ankka init orders` — runs the second command via `ProcessBuilder` (needs `sbt` on `PATH`; a
   clear message if not), with `--template <ref>` to point at a file URL. The CLI carries no
   template engine and no copy of the template (the user's choice, FR-012, on the condition the
   spec set).
 
 **Rationale**: a template inside the repository is versioned with the libraries it names — the
-`nakka_version` default in `default.properties` is the tag's version, kept in step by the release
-workflow — and is tested by this repository's own suites. A separate `nakka.g8` mirror is a later
-nicety for the shorter `sbt new thinkmorestupidless/nakka.g8` form.
+`ankka_version` default in `default.properties` is the tag's version, kept in step by the release
+workflow — and is tested by this repository's own suites. A separate `ankka.g8` mirror is a later
+nicety for the shorter `sbt new thinkmorestupidless/ankka.g8` form.
 
 **Verified, and corrected (T007)**: `sbt new`'s Giter8 resolver (sbt-giter8-resolver 0.18.0, read
 from its bytecode) matches only `^owner/repo.g8$`, `^file://…\.g8/?$` and `….g8.git` — a plain git
-URL is rejected before `--directory` could reach Giter8. So the template directory is **`nakka.g8/`**
+URL is rejected before `--directory` could reach Giter8. So the template directory is **`ankka.g8/`**
 (the `.g8` suffix is what the resolver keys on, for `file://` too), the local form is
-`sbt new file:///path/to/nakka/nakka.g8 --name=orders`, and the public form is the conventional
-`sbt new thinkmorestupidless/nakka.g8` — a repository the release workflow populates with a
-subtree push of `nakka.g8/` on every tag. `default.properties` lives in `src/main/g8/`, not the
+`sbt new file:///path/to/ankka/ankka.g8 --name=orders`, and the public form is the conventional
+`sbt new thinkmorestupidless/ankka.g8` — a repository the release workflow populates with a
+subtree push of `ankka.g8/` on every tag. `default.properties` lives in `src/main/g8/`, not the
 template root (Giter8 ignores it there — "Ignoring unrecognized parameter: name"). Name formatting
 (T008): `$name;format="norm"$` turns `My Orders` into `my-orders`, keeps `orders-2`, lowercases
 `Orders` — all valid service names; the package uses `format="word,lower"` (`myorders`). Edge
-cases `norm` cannot fix (a leading hyphen, over 63 characters) are caught by `nakka init`'s
+cases `norm` cannot fix (a leading hyphen, over 63 characters) are caught by `ankka init`'s
 validation and the generated `build.sbt`'s `require`.
 
 ## R5 — The template's content: the shopping cart, generalised, with the rules baked in
@@ -117,7 +117,7 @@ validation and the generated `build.sbt`'s `require`.
 **Decision**: one event sourced entity (`Item` — a name, a count; `add-item`, `get-item`), one
 endpoint (`POST /items/{id}`, `GET /items/{id}`, `GET /items`), one view (`ItemRows`, the
 listing); an entity test with `EventSourcedTestKit`, an endpoint test and an integration test
-with `NakkaTestKit` (including `restartService()` for durability); `Main.scala` with the explicit
+with `AnkkaTestKit` (including `restartService()` for durability); `Main.scala` with the explicit
 `register` list; `logback.xml`; `application.conf` empty but present (with a comment saying
 what goes there); `build.sbt` with `JavaAppPackaging + DockerPlugin`, `dockerBaseImage
 eclipse-temurin:21-jre`, `dockerUpdateLatest`, the `schema` task; `docker-compose.yml` mounting
@@ -125,13 +125,13 @@ eclipse-temurin:21-jre`, `dockerUpdateLatest`, the `schema` task; `docker-compos
 
 **Rationale**: the shopping cart is the one service proven in-cluster since feature 003; the
 template is that shape with the domain made trivial and the platform's conventions kept —
-`NAKKA_HTTP_PORT` honoured by default, `port` 9000, `http: true`, the endpoint's `acl` declared.
+`ANKKA_HTTP_PORT` honoured by default, `port` 9000, `http: true`, the endpoint's `acl` declared.
 Everything a developer would otherwise discover by reading this repository is in the expansion.
 
 ## R6 — The first run: an `sbt schema` task that extracts the DDL from the runtime jar
 
-**Decision**: the template's `build.sbt` defines `schema`, which locates the `nakka-runtime` jar
-on the runtime classpath, copies `nakka/ddl/*.sql` out of it into `target/ddl`, and the template's
+**Decision**: the template's `build.sbt` defines `schema`, which locates the `ankka-runtime` jar
+on the runtime classpath, copies `ankka/ddl/*.sql` out of it into `target/ddl`, and the template's
 `docker-compose.yml` mounts `./target/ddl:/docker-entrypoint-initdb.d:ro`. Order in the README:
 `sbt schema`, `docker compose up -d`, `sbt run`. The runtime never applies schema (the user's
 choice, FR-016).
@@ -139,16 +139,16 @@ choice, FR-016).
 **Rationale**: still one copy of the DDL — the jar's — which is the rule since feature 001; no new
 runtime capability; and the only cost is one command the README states first.
 
-**Verified (T009)**: the task finds `nakka-runtime_3-<version>.jar` on `Compile / dependencyClasspath`,
-`IO.unzip`s the `nakka/ddl/*.sql` entries and flattens them into `target/ddl`; Postgres 17's init
+**Verified (T009)**: the task finds `ankka-runtime_3-<version>.jar` on `Compile / dependencyClasspath`,
+`IO.unzip`s the `ankka/ddl/*.sql` entries and flattens them into `target/ddl`; Postgres 17's init
 directory ran them and produced all seven tables. 7s cold.
 
 ## R7 — Testing the template: expand it and run its own build, gated like the k3s suites
 
-**Decision**: a `TemplateSuite` in `cli` (where `nakka init` lives): `publishLocal` the six
+**Decision**: a `TemplateSuite` in `cli` (where `ankka init` lives): `publishLocal` the six
 artifacts (a build-level task dependency, like `sampleImageForClusterTests`), expand the template
-with `nakka init --template file://…` into a temp directory, and run `sbt test` and
-`sbt Docker/publishLocal` in it as subprocesses. Gated by `-Dnakka.template.tests=off` and by
+with `ankka init --template file://…` into a temp directory, and run `sbt test` and
+`sbt Docker/publishLocal` in it as subprocesses. Gated by `-Dankka.template.tests=off` and by
 `sbt` being on `PATH`. Also asserts SC-003 (no reference to this repository's paths in the
 expansion) and FR-014 (the stub name appears nowhere the developer's name belongs).
 
@@ -157,20 +157,20 @@ build outside this one. It is slow (a cold sbt start plus a test kit Postgres, ~
 is the feature.
 
 **Verified (T010)**: an external build resolves `~/.ivy2/local` with no configuration; a cold
-`sbt test` with one `NakkaTestKit` case took 10s (cached dependencies). `TemplateSuite` budgets ten
+`sbt test` with one `AnkkaTestKit` case took 10s (cached dependencies). `TemplateSuite` budgets ten
 minutes for a clean cache.
 
-## R8 — The CLI as a program: `nakka version`, `nakka init`, and staging as the distribution
+## R8 — The CLI as a program: `ankka version`, `ankka init`, and staging as the distribution
 
 **Decision**: `sbt cli/stage` (already available through `JavaAppPackaging` — to add to `cli`) is
-how the CLI is run as a program; `nakka version` prints `BuildInfo.version`; `nakka init` per R4.
+how the CLI is run as a program; `ankka version` prints `BuildInfo.version`; `ankka init` per R4.
 Publishing a native binary or a Homebrew formula is out of scope — the README says `sbt cli/stage`
 and `PATH`.
 
 ## R9 — Nothing about the platform's own build changes for its own tests
 
 **Decision**: the samples keep `.dependsOn(sdk, runtime, …)`; no suite in this repository
-resolves nakka from a repository except `TemplateSuite`, which is the point. `publish / skip`
+resolves ankka from a repository except `TemplateSuite`, which is the point. `publish / skip`
 on the samples stays.
 
 ## Carried to tasks as "verify first"

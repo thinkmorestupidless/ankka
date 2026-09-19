@@ -1,9 +1,9 @@
 package planner.application
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
-import nakka.agent.*
-import nakka.core.*
-import nakka.core.Serializers.given
+import com.thinkmorestupidless.ankka.agent.*
+import com.thinkmorestupidless.ankka.core.*
+import com.thinkmorestupidless.ankka.core.Serializers.given
 import planner.domain.AgentSelection
 
 /** Named once so the selector, the workflow and the agents cannot disagree. */
@@ -52,7 +52,7 @@ object SelectorAgent extends Agent.Companion[SelectorAgent](ComponentId("selecto
  * Answers weather questions, with a tool.
  *
  * The tool stands in for a forecast API. What matters for the sample is that the model decides to
- * call it and nakka runs it.
+ * call it and ankka runs it.
  */
 final class WeatherAgent extends Agent:
 

@@ -16,11 +16,11 @@ from its single `install.yaml`, which bundles the Gateway API CRDs.
 and archived in March 2026 with no further releases; the Kubernetes steering committee's guidance
 is to migrate to Gateway API, and the Ingress API itself is GA but feature-frozen. Building a new
 platform's external routing on a frozen API in late 2026 is a choice a reviewer would rightly
-question. Beyond longevity, the Gateway API's ownership model is nakka's tenancy model drawn out:
+question. Beyond longevity, the Gateway API's ownership model is ankka's tenancy model drawn out:
 an installer-owned `Gateway` in a platform namespace, tenant-owned routes in their own namespaces
 that *attach* to it, attachment admitted by namespace selector, and cross-namespace backends
 forbidden unless a `ReferenceGrant` says otherwise. FR-015, FR-024 and FR-025 fall out of the API
-rather than being enforced by nakka.
+rather than being enforced by ankka.
 
 Envoy Gateway over the alternatives because it is the Gateway API's reference-quality
 implementation, CNCF-hosted, ships as one manifest (`kubectl apply --server-side -f
@@ -59,7 +59,7 @@ project on a listener per project — which the operator cannot create without o
 which FR-024 forbids. The one-label form costs two things the spec must own:
 
 - **Length**: a DNS label is at most 63 characters; a service name and a project id can each be
-  up to 63 (project ids are already capped at 57 so `nakka-<project>` fits a namespace). Exposure
+  up to 63 (project ids are already capped at 57 so `ankka-<project>` fits a namespace). Exposure
   is **refused** when `<service>-<project>` exceeds 63, naming the limit and the length. This
   narrows spec FR-007 ("valid for every accepted name") to "valid or refused with the reason" —
   recorded as a spec deviation, not hidden.
@@ -86,9 +86,9 @@ implementation bug reports); X.509 single-label wildcard is standard.
 ## R3 — Certificates: cert-manager issuing one wildcard from a local CA; the operator never touches TLS
 
 **Decision**: cert-manager v1.21.2 from its single manifest. The local overlay creates a
-self-signed `Issuer` → a CA `Certificate` → a `ClusterIssuer nakka-ca` → one `Certificate` for
+self-signed `Issuer` → a CA `Certificate` → a `ClusterIssuer ankka-ca` → one `Certificate` for
 `*.<base>` in the gateway's namespace, referenced by the Gateway's HTTPS listener. `deploy-local.sh`
-exports the CA's `ca.crt` to `~/.nakka/local-ca.crt` and prints the `nakka config set ca` and
+exports the CA's `ca.crt` to `~/.ankka/local-ca.crt` and prints the `ankka config set ca` and
 `curl --cacert` lines. An HTTP (`:80`) listener exists only to carry an installer-owned `HTTPRoute`
 that redirects everything to HTTPS (301).
 
@@ -105,8 +105,8 @@ with that stated.
 issued 2s after its issuer existed; the https listener `Programmed` with the secret; `curl
 --cacert` against the exported root verifies (`ssl_verify=0`) on k3s and on kind, and fails
 without it. **Correction**: a `ClusterIssuer` resolves `ca.secretName` in cert-manager's own
-namespace, not the Certificate's (`secrets "nakka-root-ca" not found`) — the local CA uses a
-namespaced `Issuer` in `nakka-gateway`. **Correction**: the redirect must name the HTTPS port
+namespace, not the Certificate's (`secrets "ankka-root-ca" not found`) — the local CA uses a
+namespaced `Issuer` in `ankka-gateway`. **Correction**: the redirect must name the HTTPS port
 (`requestRedirect.port`), or Envoy keeps the request's port in the `Location`; the local overlay
 sets it to the kind host port.
 
@@ -114,7 +114,7 @@ sets it to the kind host port.
 
 **Decision**: the local base domain is `127.0.0.1.sslip.io`, so `cart-checkout.127.0.0.1.sslip.io`
 and `api.127.0.0.1.sslip.io` resolve to the developer's own machine through public DNS with nothing
-configured. `NAKKA_BASE_DOMAIN` overrides it for the whole deployment (one kustomize replacement
+configured. `ANKKA_BASE_DOMAIN` overrides it for the whole deployment (one kustomize replacement
 fans it out — R7). The README documents the fallback: a `/etc/hosts` line and a matching override,
 for a machine whose resolver blocks the service.
 
@@ -172,9 +172,9 @@ targets; its absence skips the suite with a message, the way a missing image doe
 
 ## R7 — One base domain, fanned out by kustomize; the two processes share the derivation
 
-**Decision**: `NAKKA_BASE_DOMAIN` reaches the operator and the control plane as environment (the
-same "MUST match" contract as `NAKKA_K8S_NAMESPACE_PREFIX`). In the local overlay, a ConfigMap
-`nakka-platform` carries it once and kustomize `replacements` copy it into: both Deployments' env,
+**Decision**: `ANKKA_BASE_DOMAIN` reaches the operator and the control plane as environment (the
+same "MUST match" contract as `ANKKA_K8S_NAMESPACE_PREFIX`). In the local overlay, a ConfigMap
+`ankka-platform` carries it once and kustomize `replacements` copy it into: both Deployments' env,
 the wildcard `Certificate`'s `dnsNames`, the Gateway listener's `hostname`, and the control plane's
 own `HTTPRoute` hostname. The hostname derivation itself is one function in `crd`
 (`Hostnames.of(service, projectId, baseDomain)`), which both `controlplane` and `operator` already
@@ -205,14 +205,14 @@ status as `route: accepted | rejected(<reason>) | pending`; `StatusIngest` turns
 ## R9 — What the operator renders, and its RBAC
 
 **Decision**: for an exposed service with a resolved port, an `HTTPRoute` in the service's
-namespace: owner reference to the `NakkaService`; `parentRefs` → Gateway `nakka` in namespace
-`nakka-gateway`, `sectionName: https`; `hostnames: [<derived>]`; one rule, `backendRefs` →
+namespace: owner reference to the `AnkkaService`; `parentRefs` → Gateway `ankka` in namespace
+`ankka-gateway`, `sectionName: https`; `hostnames: [<derived>]`; one rule, `backendRefs` →
 Service `<name>` port `<resolved>`. Unexposed, or `http: false`: the route is deleted if present
 (`Action.DeleteHttpRoute`). Rendered before the Deployment like the identity objects, after the
 Service.
 
 The Gateway's `allowedRoutes.namespaces.from: Selector` matches the label the operator already puts
-on every project namespace (`Labels.ManagedByKey`), so a route from a namespace nakka did not
+on every project namespace (`Labels.ManagedByKey`), so a route from a namespace ankka did not
 create cannot attach.
 
 **RBAC** (operator ClusterRole): `httproutes.gateway.networking.k8s.io` get/list/watch/create/
@@ -222,7 +222,7 @@ test extends to `httproutes`.
 
 ## R10 — The CLI trusts a named root, and nothing else changes about its transport
 
-**Decision**: `nakka config set ca <path>` saves the path; `ControlPlaneClient` builds its
+**Decision**: `ankka config set ca <path>` saves the path; `ControlPlaneClient` builds its
 `java.net.http.HttpClient` with an `SSLContext` whose trust store holds the platform default roots
 *plus* that PEM. No `insecure`/`-k` option exists anywhere (SC-010). An `https://` URL with no `ca`
 set uses the system roots, which is right for a real domain.

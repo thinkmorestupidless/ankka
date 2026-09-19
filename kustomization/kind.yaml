@@ -1,6 +1,6 @@
 # The local cluster. Create it with:
 #
-#   kind create cluster --name nakka --config kustomization/kind.yaml
+#   kind create cluster --name ankka --config kustomization/kind.yaml
 #
 # The port mappings publish the gateway's fixed NodePorts (components/gateway/envoyproxy.yaml) on
 # the host's 8080 and 8443, so https://api.127.0.0.1.sslip.io:8443 and every exposed service's

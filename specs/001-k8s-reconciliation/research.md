@@ -10,7 +10,7 @@ where they did not.
 
 ## R0 — Why a custom resource and an operator, not a direct reconciler
 
-**Decision**: the control plane projects desired state into a `NakkaService` custom resource; an
+**Decision**: the control plane projects desired state into an `AnkkaService` custom resource; an
 in-cluster operator renders and owns the workload and writes status back.
 
 **Rationale**: The first design had a cluster singleton inside the control plane writing
@@ -22,20 +22,20 @@ Kubernetes already provides.
 |---|---|---|
 | Cascade delete | sweep the cluster for orphans, join against desired state | `ownerReferences` — the API server deletes children |
 | Change notification | poll every service on a timer | watch; reaction is sub-second |
-| Desired vs observed staleness | hand-rolled generation guard on both sides | `metadata.generation` vs `status.observedGeneration`, plus nakka's own generation carried in the spec |
+| Desired vs observed staleness | hand-rolled generation guard on both sides | `metadata.generation` vs `status.observedGeneration`, plus ankka's own generation carried in the spec |
 | Ownership | a `managed-by` label and a discipline of checking it | ownership is structural, and the operator's RBAC is namespace-scoped |
 | Credentials | the control plane holds cluster write access to workloads | the operator uses its own in-cluster identity; the control plane's access is narrowed to one resource kind |
 
 `cloudflow` also demonstrates the shape working in Scala:
 `core/cloudflow-operator/src/main/scala/akka/kube/actions/Action.scala` defines inert values
 describing cluster mutations and `Fabric8ActionExecutor` is the only code that performs them. That
-is exactly nakka's organising idea — effects are inert data, the runtime interprets them — so the
+is exactly ankka's organising idea — effects are inert data, the runtime interprets them — so the
 pattern is idiomatic here rather than imported.
 
 **What was *not* adopted from cloudflow**: its CLI is a `kubectl` plugin that writes the custom
-resource itself, with no server in between — Kubernetes *is* its control plane database. nakka
+resource itself, with no server in between — Kubernetes *is* its control plane database. ankka
 cannot do that without deleting organizations, projects, tombstoned ids, the bearer-token HTTP API
-and the audit journal, none of which are Kubernetes-shaped, and all of which exist because nakka
+and the audit journal, none of which are Kubernetes-shaped, and all of which exist because ankka
 mirrors Akka's hosted platform. So the control plane stays, and the custom resource becomes the
 boundary between it and the cluster rather than the system of record.
 
@@ -61,7 +61,7 @@ and server-side apply. It is blocking, which suits both callers: the operator ru
 virtual threads, and the control plane's projector does too.
 
 Its custom-resource support requires **Jackson**, which is a new dependency for the `crd` module.
-This does not conflict with nakka's use of jsoniter: jsoniter serialises nakka's own journal and
+This does not conflict with ankka's use of jsoniter: jsoniter serialises ankka's own journal and
 HTTP payloads, Jackson serialises the Kubernetes resource. They meet nowhere, and forcing jsoniter
 into fabric8's serialisation path would mean reimplementing its resource handling.
 
@@ -91,7 +91,7 @@ not transfer.
 
 **Alternatives considered**: Pekko Streams over a watch source, mirroring `cloudflow`'s
 `watchCr → toAction → executeActions` pipeline (elegant, and rejected only for the dependency cost
-— the flow structure is worth copying even without the library); hosting the operator as a nakka
+— the flow structure is worth copying even without the library); hosting the operator as an ankka
 application for dogfooding symmetry (rejected in Complexity Tracking); a bare `watch()` without an
 informer (no resync, no local cache, and a disconnect silently stops reconciliation).
 
@@ -101,7 +101,7 @@ informer (no resync, no local cache, and a disconnect silently stops reconciliat
 
 **Decision**:
 
-- **Operator**: informer events on `NakkaService`, plus informer events on the objects it owns
+- **Operator**: informer events on `AnkkaService`, plus informer events on the objects it owns
   (so an out-of-band Deployment deletion is noticed immediately), plus a periodic resync.
 - **Control plane**: a `Consumer` over `ServiceEntity` events for immediate projection, plus a
   periodic sweep that re-projects everything and reconciles against what is actually in the
@@ -124,7 +124,7 @@ during a disconnect would never be recovered).
 ## R4 — How each side writes
 
 **Decision**: **server-side apply** with a distinct field manager on each side —
-`nakka-controlplane` for the resource spec, `nakka-operator` for the objects it owns.
+`ankka-controlplane` for the resource spec, `ankka-operator` for the objects it owns.
 
 **Rationale**: Distinct field managers are what make FR-007 and FR-017 separable. The control plane
 owns the resource's `spec` and reverts an out-of-band `kubectl edit` of it; the operator owns the
@@ -149,8 +149,8 @@ descriptor's `autoscaling` block is validated and carried into the resource but 
 **Rationale**: The superseded plan rendered an HPA with `minInstances`/`maxInstances` from the
 descriptor. That was actively dangerous, and the evidence is in the runtime's own configuration:
 `modules/runtime/src/main/resources/reference.conf` sets `pekko.cluster.seed-nodes = []`,
-`nakka.join-self-if-no-seed-nodes = on` and `remote.artery.canonical.hostname = "127.0.0.1"`, and
-`Nakka.joinSelfIfUnseeded` joins the node to itself when no seeds are configured. The build carries
+`ankka.join-self-if-no-seed-nodes = on` and `remote.artery.canonical.hostname = "127.0.0.1"`, and
+`Ankka.joinSelfIfUnseeded` joins the node to itself when no seeds are configured. The build carries
 no `pekko-management`, no `pekko-management-cluster-bootstrap` and no `pekko-discovery-kubernetes-api`.
 
 Two replicas is therefore two independent single-node clusters sharing one journal, each running
@@ -158,7 +158,7 @@ its own sharding region and each able to host the same entity id. Two writers to
 `persistence_id` is the failure event sourcing is defined to prevent. An HPA would reach that state
 automatically.
 
-`README.md`'s divergence table currently attributes `minInstances = 1` to nakka targeting a
+`README.md`'s divergence table currently attributes `minInstances = 1` to ankka targeting a
 development cluster. That framing should be corrected: it is 1 because more than 1 does not
 currently work.
 
@@ -175,12 +175,12 @@ and management health routes wired to the readiness and liveness probes. `cloudf
 
 **Decision**:
 
-- Namespace per project: `{prefix}-{projectId}`, default prefix `nakka`.
-- The `NakkaService` resource lives in that namespace, named for the service.
+- Namespace per project: `{prefix}-{projectId}`, default prefix `ankka`.
+- The `AnkkaService` resource lives in that namespace, named for the service.
 - Every object the operator creates carries an `ownerReference` to the resource.
-- Identity labels: `app.kubernetes.io/managed-by=nakka`, `app.kubernetes.io/name={service}`,
-  `nakka.thinkmorestupidless.com/project`, `nakka.thinkmorestupidless.com/service`.
-- nakka's generation is an **annotation**, never a label.
+- Identity labels: `app.kubernetes.io/managed-by=ankka`, `app.kubernetes.io/name={service}`,
+  `ankka.thinkmorestupidless.com/project`, `ankka.thinkmorestupidless.com/service`.
+- ankka's generation is an **annotation**, never a label.
 - The Deployment's `spec.selector` is the identity labels and **never** the generation.
 
 **Rationale**: Owner references make FR-015 and FR-029 structural — deleting the resource deletes
@@ -201,7 +201,7 @@ segment. Rendering an unvalidated id into a namespace name is unsafe, so this fe
 validation on project creation, bounded to 63 minus the prefix length.
 
 **Alternatives considered**: one shared namespace with `{projectId}-{name}` object names (the
-existing `nakka.controlplane.namespace` key implies this) — rejected because the combined name can
+existing `ankka.controlplane.namespace` key implies this) — rejected because the combined name can
 exceed 63 characters and because owner references would then be the only isolation; a label-only
 ownership discipline (the superseded design — strictly worse now that owner references are
 available).
@@ -250,7 +250,7 @@ reach the cluster; it also reports it when a resource exists but carries no stat
 how FR-031 ("nothing is acting on it") is distinguished from a rollout in progress.
 
 **Rationale**: FR-030. Encoding it in `detail` fails on evidence:
-`cli/src/main/scala/nakka/cli/Output.scala:54` prints `NAME STATUS INSTANCES GEN IMAGE` and drops
+`cli/src/main/scala/ankka/cli/Output.scala:54` prints `NAME STATUS INSTANCES GEN IMAGE` and drops
 `detail`, so the signal would be invisible in the one view an operator scans. An eighth
 `ServiceLifecycle` case was rejected because staleness is orthogonal to lifecycle.
 
@@ -267,8 +267,8 @@ event per service rather than one per tick.
 **Rationale**: This is what owner references are for, and it replaces the superseded design's
 union-sweep entirely. The only remaining obligations are that the control plane's tombstone
 survives so a pending delete completes when the cluster returns (FR-009), and that the periodic
-sweep deletes any `NakkaService` resource with no desired state behind it — a much smaller problem
-than sweeping arbitrary workloads, because the resource kind is nakka's own.
+sweep deletes any `AnkkaService` resource with no desired state behind it — a much smaller problem
+than sweeping arbitrary workloads, because the resource kind is ankka's own.
 
 **Alternatives considered**: finalizers on the resource (they guard deletion of the object, which
 is not the problem here — the control plane's record is already the authority, and a finalizer
@@ -298,8 +298,8 @@ either side starts, which makes FR-039's install path a test dependency rather t
 
 ## R12 — Configuration
 
-**Decision**: a `nakka.controlplane.kubernetes { }` block for the control plane and a separate
-`nakka.operator { }` block for the operator. The existing `nakka.controlplane.namespace` key is
+**Decision**: an `ankka.controlplane.kubernetes { }` block for the control plane and a separate
+`ankka.operator { }` block for the operator. The existing `ankka.controlplane.namespace` key is
 **removed** and replaced by `kubernetes.namespace-prefix`.
 
 **Rationale**: The existing key declares one namespace for every service, contradicting per-project
@@ -317,14 +317,14 @@ deployment concern. Full listing and the RBAC split in
 through the existing `env` and `secretKeyRef` fields. The platform provisions nothing. **One
 database per service is mandatory** and the documentation must say so and say why.
 
-**Rationale**: The superseded spec said "services are assumed stateless", which is false — a nakka
+**Rationale**: The superseded spec said "services are assumed stateless", which is false — an ankka
 service is event-sourced and cannot start without Postgres carrying the journal, snapshot,
-durable-state, projection and timer tables. The runtime already reads `NAKKA_DB_HOST`, `PORT`,
+durable-state, projection and timer tables. The runtime already reads `ANKKA_DB_HOST`, `PORT`,
 `NAME`, `USER` and `PASSWORD` from the environment, so the existing descriptor already expresses
 this and no new field is needed.
 
-Sharing one database between two nakka services is **destructive, not merely untidy**, and the
-reason is specific: `nakka_timers` has no service or application column, `TimerStore.due` selects
+Sharing one database between two ankka services is **destructive, not merely untidy**, and the
+reason is specific: `ankka_timers` has no service or application column, `TimerStore.due` selects
 from it with no filter, and `TimerSweeper.fire` **deletes** any row whose `component_id` is not in
 its own registry — logging "not registered; dropping it". Two services on one database therefore
 delete each other's timers. View row tables compound it: `ViewDescriptor.tableFor(componentId)`

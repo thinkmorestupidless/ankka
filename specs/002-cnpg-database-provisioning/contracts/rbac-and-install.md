@@ -19,7 +19,7 @@ Added to the operator's `ClusterRole` in `kustomization/components/operator/oper
 FR-024 and FR-027 say no platform operation may destroy a database. Withholding the verb makes that
 a thing the API server refuses rather than a promise the code keeps — the same technique feature 001
 used to make "the operator cannot rewrite desired state" structural by withholding
-`nakkaservices: update`. Combined with `databaseReclaimPolicy: retain`, a database survives even a
+`ankkaservices: update`. Combined with `databaseReclaimPolicy: retain`, a database survives even a
 hand-deleted custom resource.
 
 ### `secrets` is a real regression, stated plainly
@@ -64,7 +64,7 @@ resources:
 | Obligation | Why |
 |---|---|
 | Idempotent — applying twice is a no-op | FR-035 |
-| Applied before anything referencing a CNPG kind | the CRDs must exist first, exactly as `nakkaservice.yaml` must |
+| Applied before anything referencing a CNPG kind | the CRDs must exist first, exactly as `ankkaservice.yaml` must |
 | Pinned to an exact version, not `latest` | a CRD schema that changes under a running operator is not a surprise anyone wants |
 | `deploy-local.sh` waits for `cnpg-controller-manager` | measured ~25s; applying a `Cluster` before its webhook is up fails admission |
 

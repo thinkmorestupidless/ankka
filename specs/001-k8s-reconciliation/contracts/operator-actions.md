@@ -1,4 +1,4 @@
-# Contract: `NakkaService` → Cluster Objects
+# Contract: `AnkkaService` → Cluster Objects
 
 **Satisfies**: FR-012 to FR-017, FR-024 to FR-029
 
@@ -6,11 +6,11 @@ Two pure functions and one interpreter.
 
 ```scala
 Rendering.render(resource, config): Either[Vector[String], Vector[Action]]   // pure, total
-LifecycleRules.observe(spec, observed): NakkaServiceStatus                   // pure, total
+LifecycleRules.observe(spec, observed): AnkkaServiceStatus                   // pure, total
 Fabric8Executor.execute(action): Unit                                        // the only I/O
 ```
 
-`Action` is inert data — the same discipline as nakka's component effects, and the same shape as
+`Action` is inert data — the same discipline as ankka's component effects, and the same shape as
 `cloudflow`'s `akka.kube.actions.Action` / `Fabric8ActionExecutor` split. Rendering performs no
 I/O, so every rule below is a unit test with no cluster.
 
@@ -24,7 +24,7 @@ to check is therefore **`KubernetesClient` appears in no pure file**, not that f
 | Thing | Value | Bound |
 |---|---|---|
 | Namespace | `{namespace-prefix}-{projectId}` | DNS label, ≤ 63 chars |
-| `NakkaService` | `{serviceName}` | already validated by `ServiceDescriptor.ValidName` |
+| `AnkkaService` | `{serviceName}` | already validated by `ServiceDescriptor.ValidName` |
 | Deployment | `{serviceName}` | same |
 | Container | `{serviceName}` | same |
 
@@ -34,8 +34,8 @@ Every object the operator creates carries:
 
 ```yaml
 ownerReferences:
-  - apiVersion: nakka.thinkmorestupidless.com/v1alpha1
-    kind: NakkaService
+  - apiVersion: ankka.thinkmorestupidless.com/v1alpha1
+    kind: AnkkaService
     name: cart
     uid: <the resource's uid>
     controller: true
@@ -51,10 +51,10 @@ children of the old one are collected rather than silently adopted.
 Identity labels are still applied, for selectors and for `kubectl` ergonomics:
 
 ```
-app.kubernetes.io/managed-by           = nakka
+app.kubernetes.io/managed-by           = ankka
 app.kubernetes.io/name                 = {serviceName}
-nakka.thinkmorestupidless.com/project  = {projectId}
-nakka.thinkmorestupidless.com/service  = {serviceName}
+ankka.thinkmorestupidless.com/project  = {projectId}
+ankka.thinkmorestupidless.com/service  = {serviceName}
 ```
 
 Descriptor labels merge **under** these — a descriptor cannot override an identity label, because
@@ -66,7 +66,7 @@ that would let it impersonate another service.
    the selector bricks the service at generation 2, permanently, because the API server rejects a
    selector change. This has a dedicated regression test.
 
-2. **Restart works through the pod template annotation.** `nakka.thinkmorestupidless.com/generation`
+2. **Restart works through the pod template annotation.** `ankka.thinkmorestupidless.com/generation`
    on the *pod template* changes on every apply and restart, triggering a rolling replacement. That
    is why restart needs no separate mechanism (FR-027).
 
@@ -82,7 +82,7 @@ that would let it impersonate another service.
 | `spec.selector.matchLabels` | identity labels (**immutable**) |
 | `spec.replicas` | `1`, or `0` when `spec.paused` |
 | `spec.template.metadata.labels` | identity labels ++ spec labels |
-| `spec.template.metadata.annotations` | spec annotations ++ nakka generation |
+| `spec.template.metadata.annotations` | spec annotations ++ ankka generation |
 | `…containers[0].image` | `spec.image` |
 | `…containers[0].env` | literal `value`, or `valueFrom.secretKeyRef` |
 | `…containers[0].resources.limits.cpu` | `InstanceType.cpuMillis` as `{n}m` |
@@ -98,10 +98,10 @@ its database through environment variables the descriptor supplies (see
 
 ## Writing
 
-Server-side apply, field manager `nakka-operator`, `forceConflicts`. Drift policy is enforce, so a
+Server-side apply, field manager `ankka-operator`, `forceConflicts`. Drift policy is enforce, so a
 conflict means someone claimed a field the operator owns and the resource wins (FR-017).
 
-The operator's field manager is distinct from the control plane's (`nakka-controlplane`), which is
+The operator's field manager is distinct from the control plane's (`ankka-controlplane`), which is
 what lets each revert edits to its own fields without touching the other's.
 
 ## Determinism (FR-013)

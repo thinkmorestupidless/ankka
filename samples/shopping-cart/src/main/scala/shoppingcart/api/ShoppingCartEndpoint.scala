@@ -1,9 +1,9 @@
 package shoppingcart.api
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
-import nakka.core.{Codecs, EntityId}
-import nakka.http.*
-import nakka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.core.{Codecs, EntityId}
+import com.thinkmorestupidless.ankka.http.*
+import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import shoppingcart.application.ShoppingCartEntity
 import shoppingcart.domain.{LineItem, ShoppingCart}
 

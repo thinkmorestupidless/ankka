@@ -5,36 +5,36 @@
 ## Dependencies
 
 ```scala
-val nakkaVersion = "0.2.0"
+val ankkaVersion = "0.2.0"
 libraryDependencies ++= Seq(
-  "com.thinkmorestupidless" %% "nakka-sdk"     % nakkaVersion,
-  "com.thinkmorestupidless" %% "nakka-runtime" % nakkaVersion,
-  "com.thinkmorestupidless" %% "nakka-http"    % nakkaVersion,
-  "com.thinkmorestupidless" %% "nakka-agent"   % nakkaVersion,   // only if the service has agents
-  "com.thinkmorestupidless" %% "nakka-testkit" % nakkaVersion % Test
+  "com.thinkmorestupidless" %% "ankka-sdk"     % ankkaVersion,
+  "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,
+  "com.thinkmorestupidless" %% "ankka-http"    % ankkaVersion,
+  "com.thinkmorestupidless" %% "ankka-agent"   % ankkaVersion,   // only if the service has agents
+  "com.thinkmorestupidless" %% "ankka-testkit" % ankkaVersion % Test
 )
 ```
 
-`nakka-core` arrives transitively. These six are the whole published surface; naming
-`nakka-controlplane`, `nakka-crd`, `nakka-operator`, `nakka-cli` or `nakka-controlplane-api` fails
+`ankka-core` arrives transitively. These six are the whole published surface; naming
+`ankka-controlplane`, `ankka-crd`, `ankka-operator`, `ankka-cli` or `ankka-controlplane-api` fails
 to resolve, by design.
 
 | Artifact | Brings | An application uses it for |
 |---|---|---|
-| `nakka-sdk` | the component API: entities, views, consumers, workflows, timers, `ComponentClient` | writing components |
-| `nakka-runtime` | Pekko, r2dbc, projections, cluster formation, the DDL under `nakka/ddl/` | `Nakka.service…start()`; the schema for local runs |
-| `nakka-http` | the endpoint DSL, `HttpServer`, `Acl` | endpoints |
-| `nakka-agent` | the agent loop, providers | agents |
-| `nakka-testkit` | `EventSourcedTestKit`, `NakkaTestKit`, `TestModelProvider` | tests at both levels |
+| `ankka-sdk` | the component API: entities, views, consumers, workflows, timers, `ComponentClient` | writing components |
+| `ankka-runtime` | Pekko, r2dbc, projections, cluster formation, the DDL under `ankka/ddl/` | `Ankka.service…start()`; the schema for local runs |
+| `ankka-http` | the endpoint DSL, `HttpServer`, `Acl` | endpoints |
+| `ankka-agent` | the agent loop, providers | agents |
+| `ankka-testkit` | `EventSourcedTestKit`, `AnkkaTestKit`, `TestModelProvider` | tests at both levels |
 
 ## What the runtime promises an application
 
-- `NAKKA_HTTP_PORT` is honoured; 9000 by default.
-- `NAKKA_CLUSTER_MODE` unset means "join self" (a laptop); the platform sets it in a pod. An
+- `ANKKA_HTTP_PORT` is honoured; 9000 by default.
+- `ANKKA_CLUSTER_MODE` unset means "join self" (a laptop); the platform sets it in a pod. An
   application never sets it.
-- `nakka/ddl/*.sql` on the classpath is the schema the runtime needs, in apply order.
-- The management endpoint on 7626 serves `/ready` and `/nakka/version` in a pod.
-- `nakka.core.BuildInfo.version` is the runtime's version.
+- `ankka/ddl/*.sql` on the classpath is the schema the runtime needs, in apply order.
+- The management endpoint on 7626 serves `/ready` and `/ankka/version` in a pod.
+- `com.thinkmorestupidless.ankka.core.BuildInfo.version` is the runtime's version.
 
 ## What the platform promises an application
 

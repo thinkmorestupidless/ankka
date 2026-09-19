@@ -1,8 +1,8 @@
 package planner.application
 
-import nakka.core.*
-import nakka.core.Serializers.given
-import nakka.sdk.*
+import com.thinkmorestupidless.ankka.core.*
+import com.thinkmorestupidless.ankka.core.Serializers.given
+import com.thinkmorestupidless.ankka.sdk.*
 import planner.domain.Preferences
 
 /** A user's stated preferences, so an agent can be given context it did not ask for. */

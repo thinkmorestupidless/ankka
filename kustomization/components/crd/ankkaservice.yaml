@@ -1,0 +1,210 @@
+# The AnkkaService custom resource definition.
+#
+# This is the single copy. The k3s test suites install this exact file, so a manifest that
+# does not work cannot pass CI — the same rule the runtime's DDL follows.
+#
+# The schema is deliberately not exhaustive: it pins the fields the operator cannot act
+# without, and leaves the rest to the validation in controlplane-api, which runs on both the
+# CLI and the server and produces a message an operator can act on. What the API server adds
+# is a third check neither process can bypass, including a `kubectl apply` by hand.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ankkaservices.ankka.thinkmorestupidless.com
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  group: ankka.thinkmorestupidless.com
+  # Namespaced, and that is load-bearing: owner references only work within a namespace, and
+  # the resource living beside the objects it owns is what makes cascade deletion structural
+  # rather than something the operator has to implement.
+  scope: Namespaced
+  names:
+    kind: AnkkaService
+    listKind: AnkkaServiceList
+    plural: ankkaservices
+    singular: ankkaservice
+    shortNames:
+      - asvc
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        # Status is a subresource so the operator's RBAC can grant `ankkaservices/status:
+        # update` without granting `ankkaservices: update`. An operator bug then cannot
+        # rewrite desired state.
+        status: {}
+      additionalPrinterColumns:
+        - name: Status
+          type: string
+          jsonPath: .status.lifecycle
+        - name: Ready
+          type: string
+          jsonPath: .status.readyInstances
+        - name: Desired
+          type: string
+          jsonPath: .status.desiredInstances
+        - name: Gen
+          type: integer
+          jsonPath: .spec.generation
+        - name: Image
+          type: string
+          jsonPath: .spec.image
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required:
+                - projectId
+                - serviceName
+                - generation
+                - image
+              properties:
+                projectId:
+                  type: string
+                  description: The project this service belongs to. Also the namespace suffix.
+                serviceName:
+                  type: string
+                generation:
+                  type: integer
+                  format: int64
+                  description: >-
+                    ankka's generation, bumped on every apply and restart. Distinct from
+                    metadata.generation, which the API server owns.
+                paused:
+                  type: boolean
+                image:
+                  type: string
+                env:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
+                      secretName:
+                        type: string
+                      secretKey:
+                        type: string
+                labels:
+                  type: object
+                  additionalProperties:
+                    type: string
+                annotations:
+                  type: object
+                  additionalProperties:
+                    type: string
+                instanceType:
+                  type: string
+                  description: >-
+                    Informational. The operator renders cpuMillis and memoryMiB; this is
+                    carried so `kubectl describe` reads in the vocabulary an operator used.
+                cpuMillis:
+                  type: integer
+                memoryMiB:
+                  type: integer
+                autoscaling:
+                  type: object
+                  description: >-
+                    Recorded but not honoured. The operator renders one replica and no
+                    autoscaler, because each pod joins itself as a single-node cluster and a
+                    second replica would be a second writer to the same journal. Present so
+                    that enabling multi-replica support later is not a breaking change.
+                  properties:
+                    minInstances:
+                      type: integer
+                    maxInstances:
+                      type: integer
+                    targetCpuPercent:
+                      type: integer
+                progressDeadlineSeconds:
+                  type: integer
+                provisionDatabase:
+                  type: boolean
+                  description: >-
+                    Whether the platform should provision this service's database. false means
+                    the descriptor supplied its own connection details (the escape hatch) and
+                    the operator renders no CNPG objects and no schema-init container.
+                port:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                  description: >-
+                    The port the workload serves HTTP on, already resolved by the control plane.
+                    Absent means it serves none: no container port, no readiness probe and no
+                    Service are rendered. Present means all three, plus ANKKA_HTTP_PORT, from
+                    this one value.
+                restarts:
+                  type: integer
+                  minimum: 0
+                  description: >-
+                    How many restarts an operator has asked for. Carried on the pod template so
+                    a restart rolls the pods; the generation is not, so a scale does not.
+                exposed:
+                  type: boolean
+                  description: >-
+                    Whether the service answers at its platform-derived hostname. The hostname
+                    itself is never in the resource: the operator derives it.
+            status:
+              type: object
+              properties:
+                generation:
+                  type: integer
+                  format: int64
+                observedGeneration:
+                  type: integer
+                  format: int64
+                lifecycle:
+                  type: string
+                  enum:
+                    - NotDeployed
+                    - UpdateInProgress
+                    - Ready
+                    - PartiallyReady
+                    - Unavailable
+                    - Paused
+                    - Failed
+                readyInstances:
+                  type: integer
+                desiredInstances:
+                  type: integer
+                detail:
+                  type: string
+                lastTransitionTime:
+                  type: string
+                route:
+                  type: string
+                  description: >-
+                    The gateway's verdict on an exposed service's route: accepted, pending, or
+                    "rejected: <reason>". Absent when the service is not exposed.
+                database:
+                  type: object
+                  description: What the platform did about this service's database. Absent on
+                    the escape-hatch path.
+                  properties:
+                    phase:
+                      type: string
+                      enum:
+                        - Supplied
+                        - Waiting
+                        - Provisioned
+                        - Recovered
+                        - Failed
+                    name:
+                      type: string
+                    cluster:
+                      type: string
+                    recovered:
+                      type: boolean
+                    detail:
+                      type: string

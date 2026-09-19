@@ -7,8 +7,8 @@
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
-  name: nakka
-  namespace: nakka-gateway
+  name: ankka
+  namespace: ankka-gateway
 spec:
   provider:
     type: Kubernetes

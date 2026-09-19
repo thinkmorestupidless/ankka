@@ -9,7 +9,7 @@ the pure values the operator computes.
 
 ## 1. The contract gains two fields
 
-### `NakkaServiceSpec` — `crd/src/main/scala/nakka/crd/NakkaService.scala`
+### `AnkkaServiceSpec` — `crd/src/main/scala/ankka/crd/AnkkaService.scala`
 
 | Field | Type | Notes |
 |---|---|---|
@@ -18,7 +18,7 @@ the pure values the operator computes.
 Defaulted `true` so a resource written by an older control plane is provisioned rather than
 silently skipped — the safe direction, since skipping would leave a service with no database at all.
 
-### `NakkaServiceStatus` — same file
+### `AnkkaServiceStatus` — same file
 
 | Field | Type | Notes |
 |---|---|---|
@@ -50,14 +50,14 @@ requirements, so both belong in the one place the platform reports.
 ### `ServiceStatus` — `controlplane-api/.../descriptors.scala`
 
 Gains `database: Option[String]` — a short human phrase (`"provisioned"`, `"supplied"`,
-`"recovered existing data"`) for `nakka services get`. Not the full structure: the CLI's job is to
+`"recovered existing data"`) for `ankka services get`. Not the full structure: the CLI's job is to
 say which path was taken, not to mirror a Kubernetes status.
 
 ---
 
 ## 2. Partial CNPG models (`operator/.../cnpg/`)
 
-Only the fields nakka sets. Server-side apply gives per-field ownership, so modelling six fields of
+Only the fields ankka sets. Server-side apply gives per-field ownership, so modelling six fields of
 `Cluster.spec` and ignoring the rest is correct, not lossy (R1). All three are
 `postgresql.cnpg.io/v1`, namespaced, and carry `@JsonInclude(NON_ABSENT)` so an unset field is
 omitted rather than sent as null.
@@ -108,7 +108,7 @@ Read back: `status.applied`, `status.message` — and **a `forbidden` message he
 ### `Provisioning.decide`
 
 ```
-decide(spec: NakkaServiceSpec, observed: DatabaseObservation, config: Settings)
+decide(spec: AnkkaServiceSpec, observed: DatabaseObservation, config: Settings)
   : Either[Vector[String], ProvisioningPlan]
 ```
 
@@ -182,13 +182,13 @@ Organization 1─* Project 1─* Service                      (control plane, it
                     │            └─ spec.provisionDatabase ──┐
                     │                                        ▼
                     ▼                              ┌──────────────────────┐
-         Namespace nakka-{projectId}               │ provision, or supply │
+         Namespace ankka-{projectId}               │ provision, or supply │
                     │                              └──────────────────────┘
-                    ├─ Cluster  "nakka-db"          (one per project, lazily created)
+                    ├─ Cluster  "ankka-db"          (one per project, lazily created)
                     │     ├─ Database      {service}   owner = {service}
                     │     └─ DatabaseRole  {service}   passwordSecret = {service}-db
                     ├─ Secret   {service}-db           (generated once, never rotated)
-                    ├─ ConfigMap "nakka-schema"        (the DDL, one per namespace)
+                    ├─ ConfigMap "ankka-schema"        (the DDL, one per namespace)
                     └─ Deployment {service}
                           └─ initContainer: wait → apply schema → REVOKE CONNECT FROM PUBLIC
                           └─ container: env ← Secret {service}-db

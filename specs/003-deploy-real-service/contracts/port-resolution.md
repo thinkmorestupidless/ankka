@@ -15,11 +15,11 @@ Two fields on `ServiceSpec`, both optional:
 | `http` | `Boolean` | `true` | whether this service serves HTTP at all |
 | `port` | `Int` | `9000` | the port it serves on; ignored when `http` is `false` |
 
-`9000` is `nakka.http.port`'s existing default in `modules/http/src/main/resources/reference.conf`.
+`9000` is `ankka.http.port`'s existing default in `modules/http/src/main/resources/reference.conf`.
 This feature adopts it rather than choosing a number, so a descriptor that says nothing produces the
 behaviour the runtime already had.
 
-**Why "serves no HTTP" is a boolean and not `"port": null`** — verified, research R4: under nakka's
+**Why "serves no HTTP" is a boolean and not `"port": null`** — verified, research R4: under ankka's
 shared codec config jsoniter treats `null` as *absent* and applies the default, so
 `{"port": null}` parses as port 9000. Absent and `null` cannot be told apart, so the statement has to
 be a positive one. (With `port` now a plain `Int`, that same `{"port": null}` is a loud decode error
@@ -46,7 +46,7 @@ could not be enforced consistently.
 
 ## What the resolved value renders
 
-| Resolved | `containerPort` | `NAKKA_HTTP_PORT` | `readinessProbe` | Service | `imagePullPolicy` |
+| Resolved | `containerPort` | `ANKKA_HTTP_PORT` | `readinessProbe` | Service | `imagePullPolicy` |
 |---|---|---|---|---|---|
 | `Some(p)` | `p`, named `http` | `p` | `tcpSocket` on `p` | rendered, targeting `p` | `IfNotPresent` |
 | `None` | none | not injected | none | not rendered — removed if one exists | `IfNotPresent` |
@@ -64,14 +64,14 @@ apply.
 | # | Condition | Problem |
 |---|---|---|
 | 1 | `port` is outside `1..65535` | `service port <n> is outside the range 1-65535` |
-| 2 | `env` declares a variable named exactly `NAKKA_HTTP_PORT` | `env var 'NAKKA_HTTP_PORT' conflicts with the service port; declare the port instead` |
+| 2 | `env` declares a variable named exactly `ANKKA_HTTP_PORT` | `env var 'ANKKA_HTTP_PORT' conflicts with the service port; declare the port instead` |
 
 **Both rules are unconditional** — they apply when `http` is `false` too. A nonsense port is
 nonsense whether or not it is used, and the `port` field is the only way to set the runtime's HTTP
 port: a descriptor with two ways to say one thing is refused rather than silently resolved in favour
 of one of them (FR-006).
 
-Rule 2 matches by **variable name only, never value** — the same shape as feature 002's `NAKKA_DB_*`
+Rule 2 matches by **variable name only, never value** — the same shape as feature 002's `ANKKA_DB_*`
 escape hatch, and for the same reason: a value may arrive from a secret reference, so only the name
 is reliably inspectable.
 
@@ -88,7 +88,7 @@ is reliably inspectable.
 ```json
 { "name": "cart", "service": { "image": "sample-shopping-cart:latest" } }
 ```
-→ `Some(9000)`; container port 9000, `NAKKA_HTTP_PORT=9000`, probe on 9000, Service `cart:9000`.
+→ `Some(9000)`; container port 9000, `ANKKA_HTTP_PORT=9000`, probe on 9000, Service `cart:9000`.
 
 ```json
 { "name": "cart", "service": { "image": "cart:1.0", "port": 8080 } }
@@ -98,12 +98,12 @@ is reliably inspectable.
 ```json
 { "name": "sweeper", "service": { "image": "sweeper:1.0", "http": false } }
 ```
-→ `None`; no container port, no `NAKKA_HTTP_PORT`, no probe, no Service. Reaches `Ready` on the
+→ `None`; no container port, no `ANKKA_HTTP_PORT`, no probe, no Service. Reaches `Ready` on the
 container running (FR-012).
 
 ```json
 { "name": "cart", "service": { "image": "cart:1.0", "port": 8080,
-    "env": [{ "name": "NAKKA_HTTP_PORT", "value": "9000" }] } }
+    "env": [{ "name": "ANKKA_HTTP_PORT", "value": "9000" }] } }
 ```
 → **refused**, rule 2. Accepting it would deploy a workload listening on 9000 behind an address
 routing to 8080 — the exact silent break this contract exists to prevent.
@@ -112,5 +112,5 @@ routing to 8080 — the exact silent break this contract exists to prevent.
 
 Before this feature a descriptor naming only an image deployed anything. After it, the same
 descriptor asserts "this serves HTTP on 9000" and **will not become `Ready` until that is true**.
-Correct for a nakka service; fatal for `registry.k8s.io/pause`, which every existing end-to-end case
+Correct for an ankka service; fatal for `registry.k8s.io/pause`, which every existing end-to-end case
 deploys. Those descriptors gain `"http": false` in the same change — research R12.

@@ -6,14 +6,14 @@
 
 ## Summary
 
-A nakka node does not find its peers; it joins itself. That one fact is why services run as a single
+An ankka node does not find its peers; it joins itself. That one fact is why services run as a single
 pod, why `autoscaling` is ignored, and why feature 003 had to make every deploy a brief outage. The
 fix is to teach a node how to find its peers — differently depending on where it runs, with the
 service's code identical in both places.
 
 **Configuration in three layers**, following the user's reference project: a base that says nothing
 about peer-finding, a local overlay (join self, or named seed nodes), and a Kubernetes overlay
-(Pekko Management and Cluster Bootstrap over the Kubernetes API). Selected by `NAKKA_CLUSTER_MODE`,
+(Pekko Management and Cluster Bootstrap over the Kubernetes API). Selected by `ANKKA_CLUSTER_MODE`,
 which the operator sets — **not** by `-Dconfig.resource` as the reference does, because that replaces
 `application.conf`, and on a platform that file belongs to someone else.
 
@@ -24,14 +24,14 @@ the pods in its own project and nothing else, brings back `RollingUpdate`, and m
 **The control plane runs on it too.** It turns out to be mostly ready: its sweeper is already a
 cluster singleton, and duplicate status observations are already refused by the entity.
 
-Almost everything asserted here was **measured on the real `kind-nakka` cluster** with a standalone
+Almost everything asserted here was **measured on the real `kind-ankka` cluster** with a standalone
 spike, since removed. Two results changed the design:
 
 - **A rolling update keeps one cluster even at a single instance** — the surge pod joins the old pod's
   cluster and is ready before the old one leaves, so there was never fewer than one ready pod. Feature
   003's "a deploy is a brief outage" goes away for **every** service, not only multi-instance ones.
   The spec asked only that single-instance updates stay correct (FR-020).
-- **nakka lacks `coordinated-shutdown.exit-jvm = on`.** The partition test recovered cleanly only
+- **ankka lacks `coordinated-shutdown.exit-jvm = on`.** The partition test recovered cleanly only
   because the spike set it: the isolated node downed itself, its JVM exited, Kubernetes restarted it
   and it rejoined. Without it a downed node lingers — `Running`, never ready, never restarted.
 
@@ -43,7 +43,7 @@ evidence of safety. The conservative value stands and SC-002's twenty rounds go 
 
 **Language/Version**: Scala 3.9.0, JDK 21 — unchanged
 
-**Primary Dependencies**: **new**, in `nakka-runtime`: `pekko-management`,
+**Primary Dependencies**: **new**, in `ankka-runtime`: `pekko-management`,
 `pekko-management-cluster-http`, `pekko-management-cluster-bootstrap`,
 `pekko-discovery-kubernetes-api` — all 1.2.1, verified against Pekko 1.7.0 — and `pekko-discovery`
 1.7.0. In the runtime rather than a separate module so the same build runs locally and deployed
@@ -65,7 +65,7 @@ formation itself measured at 10–15 s; ≥ 99% of requests succeed through a ro
 entities from a killed instance answering within 60 s (SC-004) — measured ~4 s for a crash, ~25 s for
 a partition
 
-**Constraints**: every existing suite passes **unchanged** and `NakkaTestKit` is not modified
+**Constraints**: every existing suite passes **unchanged** and `AnkkaTestKit` is not modified
 (SC-010); `sbt shoppingCart/run` with no environment still just works; the base contains no
 peer-finding setting; no autoscaler; compile stays warning-free
 
@@ -115,16 +115,16 @@ specs/004-multi-node-clusters/
 project/Dependencies.scala                       # + management, bootstrap, discovery
 modules/runtime/src/main/resources/
 ├── reference.conf                               # loses every peer-finding setting; gains exit-jvm
-├── nakka-cluster-local.conf                     # new
-└── nakka-cluster-kubernetes.conf                # new
-modules/runtime/src/main/scala/nakka/runtime/
+├── ankka-cluster-local.conf                     # new
+└── ankka-cluster-kubernetes.conf                # new
+modules/runtime/src/main/scala/ankka/runtime/
 ├── ClusterConfig.scala                          # new — the layered loader
 ├── ClusterFormation.scala                       # new — replaces joinSelfIfUnseeded
-└── Nakka.scala                                  # default config → the loader; host → formation
+└── Ankka.scala                                  # default config → the loader; host → formation
 modules/http/                                    # registers the "HTTP is bound" readiness check
 modules/runtime/.../ViewStore.scala              # advisory lock around CREATE TABLE IF NOT EXISTS
 
-operator/src/main/scala/nakka/operator/
+operator/src/main/scala/ankka/operator/
 ├── Rendering.scala                              # replicas, RollingUpdate, identity, ports, /ready, env
 ├── Action.scala / Executor.scala                # + EnsureServiceAccount, EnsureRole, EnsureRoleBinding
 ├── ClusterSnapshot.scala / LifecycleRules.scala # + totalReplicas; old-template pods → UpdateInProgress
@@ -142,7 +142,7 @@ operator/src/test/.../IdentityRenderingSuite.scala         # new
 ```
 
 **Structure Decision**: no new modules. The loader and formation step are small and live in
-`runtime` beside the code they replace. A separate `nakka-cluster-kubernetes` module was considered —
+`runtime` beside the code they replace. A separate `ankka-cluster-kubernetes` module was considered —
 it would keep the Kubernetes libraries off a local classpath — and rejected: it makes "the same
 build" (FR-006, SC-006) false, and turns choosing a means of execution into a dependency decision
 made by whoever builds the image, which is exactly who FR-010 says should not have to know.

@@ -33,7 +33,7 @@ and disproportionate resource cost).
 **Decision**: partial fabric8 `CustomResource` models under `operator/.../cnpg/`. No new module, no
 new Scala dependency, and nothing added to `crd`.
 
-**Rationale**: Only the operator talks to CNPG. `crd` holds the `NakkaService` contract between the
+**Rationale**: Only the operator talks to CNPG. `crd` holds the `AnkkaService` contract between the
 control plane and the operator — CNPG is not part of that contract, and putting it there would
 imply the control plane needs it. Partial models are safe with server-side apply: a manager owns
 only the fields it sends, so modelling six fields of `Cluster.spec` and ignoring the other few
@@ -79,7 +79,7 @@ running service on every sweep, which is a self-inflicted outage on a timer.
 
 **Alternatives considered**: `disablePassword` with TLS client certificates, which CNPG *does*
 generate and rotate itself (genuinely attractive, and the direction CNPG is pushing — rejected for
-now because nakka's runtime reads `NAKKA_DB_PASSWORD` and would need certificate-based auth support
+now because ankka's runtime reads `ANKKA_DB_PASSWORD` and would need certificate-based auth support
 first; noted as the better long-term answer).
 
 ---
@@ -107,14 +107,14 @@ allowlist. Verified, immediately after creating a role and its secret together:
 
 ```
 {"applied":false, "message":"secrets \"hyphen-test-pw\" is forbidden: User
- \"system:serviceaccount:verify-cnpg:nakka-db\" cannot get resource \"secrets\" ..."}
+ \"system:serviceaccount:verify-cnpg:ankka-db\" cannot get resource \"secrets\" ..."}
 ```
 
 Roughly 20–40 seconds later, with no intervention, the same object reported `{"applied":true}` and
 the secret name had appeared in the allowlist:
 
 ```
-["secrets"] -> ["get","watch"] names=["hyphen-test-pw","nakka-db-app","nakka-db-ca", ...]
+["secrets"] -> ["get","watch"] names=["hyphen-test-pw","ankka-db-app","ankka-db-ca", ...]
 ```
 
 CNPG adds a newly-referenced `passwordSecret` to its per-cluster allowlist only when it next
@@ -128,20 +128,20 @@ is not part of CNPG's API); ignoring it (the service would report `Failed` on ev
 
 ---
 
-## R6 — Getting nakka's schema to the operator
+## R6 — Getting ankka's schema to the operator
 
-**Decision**: a **directory symlink**, `operator/src/main/resources/nakka/ddl` →
-`modules/runtime/src/main/resources/nakka/ddl`. The operator then publishes the schema as a
+**Decision**: a **directory symlink**, `operator/src/main/resources/ankka/ddl` →
+`modules/runtime/src/main/resources/ankka/ddl`. The operator then publishes the schema as a
 `ConfigMap` in each project namespace, and the init container mounts it.
 
 **Rationale**: This was the consequence flagged at specification time, and it resolves cleanly.
-Verified: sbt follows a directory symlink and all three `.sql` files land at `/nakka/ddl/` on the
+Verified: sbt follows a directory symlink and all three `.sql` files land at `/ankka/ddl/` on the
 operator's classpath, with the canonical copy untouched in `modules/runtime` — so `docker-compose`'s
-bind mount and `NakkaTestKit` keep working exactly as they do, and there is still one copy of the
+bind mount and `AnkkaTestKit` keep working exactly as they do, and there is still one copy of the
 schema in the repository. Same technique as feature 001 used for the CRD, in the same direction
 (the build tool follows symlinks; kustomize does not).
 
-**Alternatives considered**: a third `nakka-schema` Docker image bundling the schema and a psql
+**Alternatives considered**: a third `ankka-schema` Docker image bundling the schema and a psql
 client (clean single-copy story and no `ConfigMap` at all — rejected as a third deployable to build,
 load and version for three SQL files, and awkward to build with a JVM-oriented packager); a new
 `schema` sbt module depended on by both `runtime` and `operator` (honest and symlink-free, but a
@@ -173,7 +173,7 @@ unified those; that was the rejected alternative.
 ## R8 — The control plane's own database
 
 **Decision**: replace the hand-written Postgres `Deployment` with a CNPG `Cluster`, applied
-statically by kustomize, using `bootstrap.initdb` to create the `nakka` database and owner.
+statically by kustomize, using `bootstrap.initdb` to create the `ankka` database and owner.
 
 **Rationale**: It must exist before any service is ever applied, so nothing can create it in
 response to a service — it stays a static resource, which is exactly what keeps the control plane
@@ -182,15 +182,15 @@ needs no `DatabaseRole`, no generated password and none of R3. It also fixes a r
 001: that Postgres used `emptyDir`, so the control plane's journal did not survive its own pod.
 
 Verified key names in the auto-generated `{cluster}-app` secret, which the control plane's
-Deployment maps into its `NAKKA_DB_*` variables one-for-one:
+Deployment maps into its `ANKKA_DB_*` variables one-for-one:
 
-| CNPG secret key | nakka variable |
+| CNPG secret key | ankka variable |
 |---|---|
-| `host` (= `{cluster}-rw`) | `NAKKA_DB_HOST` |
-| `port` (= `5432`) | `NAKKA_DB_PORT` |
-| `dbname` | `NAKKA_DB_NAME` |
-| `username` | `NAKKA_DB_USER` |
-| `password` | `NAKKA_DB_PASSWORD` |
+| `host` (= `{cluster}-rw`) | `ANKKA_DB_HOST` |
+| `port` (= `5432`) | `ANKKA_DB_PORT` |
+| `dbname` | `ANKKA_DB_NAME` |
+| `username` | `ANKKA_DB_USER` |
+| `password` | `ANKKA_DB_PASSWORD` |
 
 (Also present: `user`, `uri`, `jdbc-uri`, `fqdn-uri`, `fqdn-jdbc-uri`, `pgpass`.) Services created
 per `Cluster`: `{name}-rw`, `{name}-ro`, `{name}-r`, all on 5432.
@@ -215,7 +215,7 @@ database's own owner, in addition to applying the schema.
 
 So the guarantee that actually matters holds by default: table data is private, because each
 service's tables live in its own database owned by its own role — which is what makes the
-`nakka_timers` collision (SC-005) structurally impossible. But `CONNECT` is granted to `PUBLIC` by
+`ankka_timers` collision (SC-005) structurally impossible. But `CONNECT` is granted to `PUBLIC` by
 default, so any service can open a connection to any other's database and enumerate all database
 names. FR-007 says credentials must not grant access to another service's database; connecting *is*
 access.
@@ -257,15 +257,15 @@ so two projects may both have a `cart` without collision (FR-006). No project-qu
 
 ## R11 — Deciding between provisioning and the escape hatch
 
-**Decision**: the **control plane** decides and states the answer in the `NakkaService` spec as
+**Decision**: the **control plane** decides and states the answer in the `AnkkaService` spec as
 `provisionDatabase: Boolean`. The rule: if the descriptor's `env` declares any variable named
-`NAKKA_DB_*`, the descriptor is supplying its own database and the platform provisions nothing.
+`ANKKA_DB_*`, the descriptor is supplying its own database and the platform provisions nothing.
 
 **Rationale**: The decision is a judgement about a descriptor, and descriptor validation already
 lives in the control plane and `controlplane-api` where the CLI can apply the same rule before the
 round trip. Putting it in the spec rather than leaving the operator to infer it makes the resource
-self-describing and satisfies FR-017 — `kubectl get nsvc -o yaml` shows which path a service took,
-and the field can be surfaced in `nakka services get`.
+self-describing and satisfies FR-017 — `kubectl get asvc -o yaml` shows which path a service took,
+and the field can be surfaced in `ankka services get`.
 
 **Alternatives considered**: the operator inspecting `spec.env` itself (same outcome, but the rule
 would live in the component that cannot validate descriptors, and it would be invisible in the
@@ -282,7 +282,7 @@ existing descriptors' meaning).
 
 **Rationale**: FR-024 and FR-027 say no platform operation may destroy a database. Withholding the
 verb turns that from a promise into something the API server refuses, exactly as feature 001 made
-"the operator cannot rewrite desired state" structural by withholding `nakkaservices: update`. The
+"the operator cannot rewrite desired state" structural by withholding `ankkaservices: update`. The
 reclaim policies are belt-and-braces for the case where a CR is deleted by hand: `retain` leaves
 the actual Postgres database in place.
 

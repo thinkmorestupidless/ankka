@@ -4,7 +4,7 @@
 
 ## What each service gets
 
-In its project's namespace, all carrying an owner reference to the `NakkaService`, so they are
+In its project's namespace, all carrying an owner reference to the `AnkkaService`, so they are
 removed with it and need no `delete` verb anywhere (FR-030):
 
 ```yaml
@@ -58,6 +58,6 @@ the k3s suites could not see it because they run the operator on admin credentia
 
 ## The control plane
 
-The same three objects, as static kustomize manifests in `nakka-controlplane`. A `Role`, so
+The same three objects, as static kustomize manifests in `ankka-controlplane`. A `Role`, so
 `controlplane-rbac.yaml`'s "still no workload access" stays true: the grant does not reach a project
 namespace.

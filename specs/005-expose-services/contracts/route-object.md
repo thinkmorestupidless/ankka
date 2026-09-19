@@ -11,14 +11,14 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: cart
-  namespace: nakka-checkout
+  namespace: ankka-checkout
   labels:
     app.kubernetes.io/name: cart
     app.kubernetes.io/part-of: checkout
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
   ownerReferences:
-    - apiVersion: nakka.thinkmorestupidless.com/v1alpha1
-      kind: NakkaService
+    - apiVersion: ankka.thinkmorestupidless.com/v1alpha1
+      kind: AnkkaService
       name: cart
       uid: …
       controller: true
@@ -26,8 +26,8 @@ spec:
   parentRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: nakka
-      namespace: nakka-gateway
+      name: ankka
+      namespace: ankka-gateway
       sectionName: https
   hostnames:
     - cart-checkout.127.0.0.1.sslip.io
@@ -41,13 +41,13 @@ spec:
 |---|---|---|
 | hostname | `Hostnames.of(name, projectId, baseDomain)` — derived by the operator, never read from the resource | a resource cannot claim a name it does not own (FR-025) |
 | backend | the service's own Service, same namespace, resolved port | Gateway API forbids cross-namespace backends without a `ReferenceGrant`; none is rendered |
-| owner | the `NakkaService` | route dies with the service and the project (FR-014) |
+| owner | the `AnkkaService` | route dies with the service and the project (FR-014) |
 | absent when | not exposed, or `http: false` | there is nothing to route to; the operator deletes a leftover |
 | readiness | inherited: backend is the Service, whose endpoints are the ready pods | FR-012 by construction |
 
 ## Status copied to the resource
 
-From the route's `status.parents[]` entry whose `parentRef` is the nakka Gateway, the `Accepted`
+From the route's `status.parents[]` entry whose `parentRef` is the ankka Gateway, the `Accepted`
 condition:
 
 | Condition | `status.route` | `services get` |
@@ -61,11 +61,11 @@ condition:
 ```yaml
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
-metadata: { name: nakka, namespace: nakka-gateway }
+metadata: { name: ankka, namespace: ankka-gateway }
 spec:
-  gatewayClassName: nakka
+  gatewayClassName: ankka
   infrastructure:
-    parametersRef: { group: gateway.envoyproxy.io, kind: EnvoyProxy, name: nakka }
+    parametersRef: { group: gateway.envoyproxy.io, kind: EnvoyProxy, name: ankka }
   listeners:
     - name: http
       port: 80
@@ -74,15 +74,15 @@ spec:
     - name: https
       port: 443
       protocol: HTTPS
-      hostname: "*.127.0.0.1.sslip.io"                     # replaced from nakka-platform.baseDomain
+      hostname: "*.127.0.0.1.sslip.io"                     # replaced from ankka-platform.baseDomain
       tls:
         mode: Terminate
-        certificateRefs: [{ kind: Secret, name: nakka-wildcard-tls }]
+        certificateRefs: [{ kind: Secret, name: ankka-wildcard-tls }]
       allowedRoutes:
         namespaces:
           from: Selector
           selector:
-            matchLabels: { app.kubernetes.io/managed-by: nakka }
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
 ```
 
 A route from a namespace without that label is not admitted — and the operator is the only thing

@@ -19,4 +19,4 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - run: sbt -Dnakka.cluster.tests=off -Dnakka.template.tests=off scalafmtCheckAll scalafmtSbtCheck compile test
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off scalafmtCheckAll scalafmtSbtCheck compile test

@@ -1,9 +1,9 @@
 package planner.api
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
-import nakka.core.{Codecs, EntityId}
-import nakka.http.*
-import nakka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.core.{Codecs, EntityId}
+import com.thinkmorestupidless.ankka.http.*
+import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import planner.application.{PlannerWorkflow, PreferencesEntity}
 import planner.domain.{AgentSelection, Contribution, PlanState, Preferences}
 
@@ -36,7 +36,7 @@ final class PlannerEndpoint(client: ComponentClient) extends HttpEndpoint("/plan
   /**
    * Starts a plan. Returns 204; poll the plan for progress.
    *
-   * The destination arrives in the body rather than the path: nakka's endpoint DSL does not expose
+   * The destination arrives in the body rather than the path: ankka's endpoint DSL does not expose
    * query parameters yet, and a free-text destination does not belong in a path segment.
    */
   postBody("/{planId}") { (planId: String, request: PlannerWorkflow.Start) =>

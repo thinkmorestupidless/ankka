@@ -1,37 +1,37 @@
-# The nakka operator: identity, permissions, and the deployment itself.
+# The ankka operator: identity, permissions, and the deployment itself.
 #
 # Single copy — the k3s suites apply this exact file, so a manifest that does not work
 # cannot pass CI. Applying it twice is a no-op.
 #
 # Install the CustomResourceDefinition first:
-#   kubectl apply -f nakka/crd/nakkaservice.yaml
-#   kubectl apply -f nakka/install/operator.yaml
+#   kubectl apply -f ankka/crd/ankkaservice.yaml
+#   kubectl apply -f ankka/install/operator.yaml
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: nakka-operator
+  name: ankka-operator
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: nakka-operator
-  namespace: nakka-operator
+  name: ankka-operator
+  namespace: ankka-operator
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 ---
 # The permissions are the security property, so they are listed exhaustively and kept tight.
 #
 # Absences that are deliberate and load-bearing:
 #
-#   - No `update` or `patch` on nakkaservices itself, only on its status subresource. The
+#   - No `update` or `patch` on ankkaservices itself, only on its status subresource. The
 #     operator therefore cannot rewrite desired state, even with a bug.
 #   - `secrets` gained `get`, `create`, `patch` with feature 002 (CNPG database provisioning):
 #     the operator generates and reads back one credential secret per provisioned database. It
 #     still has no `list` — it cannot enumerate secrets it was not told the name of by a
-#     NakkaServiceSpec — and no `delete` on `secrets` or on the CNPG kinds below: nothing this
+#     AnkkaServiceSpec — and no `delete` on `secrets` or on the CNPG kinds below: nothing this
 #     platform does may destroy a database or the credentials that unlock it. (`delete` *is*
 #     granted on deployments and services, which hold no data.) A descriptor's *own* env-var secret references still go straight to the
 #     kubelet, never through the operator, so "a status detail can never contain a value from one
@@ -39,15 +39,15 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: nakka-operator
+  name: ankka-operator
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 rules:
-  - apiGroups: ["nakka.thinkmorestupidless.com"]
-    resources: ["nakkaservices"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkaservices"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["nakka.thinkmorestupidless.com"]
-    resources: ["nakkaservices/status"]
+  - apiGroups: ["ankka.thinkmorestupidless.com"]
+    resources: ["ankkaservices/status"]
     verbs: ["get", "update", "patch"]
   # "patch" alongside "create": ensureNamespace writes via server-side apply, which is always
   # a PATCH even for an object that does not exist yet — "create" alone 403s on first use.
@@ -61,7 +61,7 @@ rules:
   # here is a server-side apply, which is a PATCH even for an object that does not exist yet.
   # "delete" IS granted, unlike on the CNPG kinds and secrets below — that withholding protects
   # *data*, and a Service holds none. It is used by exactly one action, which first checks the
-  # Service is owned by the NakkaService in hand and leaves anyone else's alone.
+  # Service is owned by the AnkkaService in hand and leaves anyone else's alone.
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
@@ -72,7 +72,7 @@ rules:
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
   # A service's own identity and its one permission — reading its project's pods, so its nodes
-  # can find each other (feature 004). All three are owned by the NakkaService and go with it, so
+  # can find each other (feature 004). All three are owned by the AnkkaService and go with it, so
   # no delete. "patch" because every ensure is a server-side apply, a PATCH even for a new object.
   # Proven under this ClusterRole's REAL identity by OperatorClusterSuite, not assumed: the suites
   # otherwise run the operator as admin, and this file has been wrong that way twice before.
@@ -111,26 +111,26 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: nakka-operator
+  name: ankka-operator
   labels:
-    app.kubernetes.io/managed-by: nakka
+    app.kubernetes.io/managed-by: ankka
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: nakka-operator
+  name: ankka-operator
 subjects:
   - kind: ServiceAccount
-    name: nakka-operator
-    namespace: nakka-operator
+    name: ankka-operator
+    namespace: ankka-operator
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nakka-operator
-  namespace: nakka-operator
+  name: ankka-operator
+  namespace: ankka-operator
   labels:
-    app.kubernetes.io/managed-by: nakka
-    app.kubernetes.io/name: nakka-operator
+    app.kubernetes.io/managed-by: ankka
+    app.kubernetes.io/name: ankka-operator
 spec:
   # One. The operator holds an informer cache and a work queue keyed by resource; a second
   # replica would be a second writer with no leader election between them. Horizontal scale
@@ -138,30 +138,30 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: nakka-operator
+      app.kubernetes.io/name: ankka-operator
   strategy:
     # Never two operators at once, even briefly during a rollout.
     type: Recreate
   template:
     metadata:
       labels:
-        app.kubernetes.io/managed-by: nakka
-        app.kubernetes.io/name: nakka-operator
+        app.kubernetes.io/managed-by: ankka
+        app.kubernetes.io/name: ankka-operator
     spec:
-      serviceAccountName: nakka-operator
+      serviceAccountName: ankka-operator
       containers:
-        - name: nakka-operator
-          image: nakka-operator:latest
+        - name: ankka-operator
+          image: ankka-operator:latest
           imagePullPolicy: IfNotPresent
           env:
             # Must match the control plane's namespace-prefix. A mismatch presents as every
             # service reporting that no operator has reported on it.
-            - name: NAKKA_K8S_NAMESPACE_PREFIX
-              value: "nakka"
+            - name: ANKKA_K8S_NAMESPACE_PREFIX
+              value: "ankka"
             # The domain every exposed service's hostname sits under; replaced by the overlay
-            # from the nakka-platform ConfigMap. Must match the control plane's, which derives
+            # from the ankka-platform ConfigMap. Must match the control plane's, which derives
             # the same hostname for display and refusals.
-            - name: NAKKA_BASE_DOMAIN
+            - name: ANKKA_BASE_DOMAIN
               value: "BASE_DOMAIN"
           resources:
             requests:

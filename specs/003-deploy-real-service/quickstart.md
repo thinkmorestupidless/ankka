@@ -13,7 +13,7 @@ Fastest signal first. These are the runs a reviewer performs; implementation det
 |---|---|---|
 | JDK 21, sbt | everything | unchanged |
 | Docker | the cluster suites and every image build | unchanged |
-| A local cluster | the manual walkthrough | `kind create cluster --name nakka`; the suites start their own |
+| A local cluster | the manual walkthrough | `kind create cluster --name ankka`; the suites start their own |
 | Disk headroom | the new suite | it imports a ~700MB image into a throwaway k3s container |
 
 ---
@@ -23,18 +23,18 @@ Fastest signal first. These are the runs a reviewer performs; implementation det
 Port resolution, validation and rendering are total functions over data.
 
 ```bash
-sbt 'controlPlaneApi/testOnly nakka.controlplane.api.DescriptorSuite'
-sbt 'controlPlane/testOnly nakka.controlplane.ServiceProjectionSuite'
-sbt 'operator/testOnly nakka.operator.RenderingSuite'
-sbt 'operator/testOnly nakka.operator.ServiceRenderingSuite'
+sbt 'controlPlaneApi/testOnly com.thinkmorestupidless.ankka.controlplane.api.DescriptorSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ServiceProjectionSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.RenderingSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.ServiceRenderingSuite'
 ```
 
 | Suite | Proves |
 |---|---|
-| `DescriptorSuite` (extended) | The resolution table in [contracts/port-resolution.md](./contracts/port-resolution.md): neither field → 9000, explicit port kept, `"http": false` → none; **`"port": null` parses as 9000, asserted so nobody reintroduces it**; a port outside 1–65535 is a problem; `NAKKA_HTTP_PORT` in `env` is a problem **even with `"http": false`**. |
+| `DescriptorSuite` (extended) | The resolution table in [contracts/port-resolution.md](./contracts/port-resolution.md): neither field → 9000, explicit port kept, `"http": false` → none; **`"port": null` parses as 9000, asserted so nobody reintroduces it**; a port outside 1–65535 is a problem; `ANKKA_HTTP_PORT` in `env` is a problem **even with `"http": false`**. |
 | `ServiceProjectionSuite` | The resolved port reaches the custom resource, and `"http": false` projects as an absent field. |
 | `ServiceRenderingSuite` | The Service's selector is the *same* value as the Deployment's selector; owner reference present; `port` and `targetPort` equal; `RemoveService` (not `EnsureService`) when there is no port. |
-| `RenderingSuite` | `containerPort`, `NAKKA_HTTP_PORT` and the readiness probe all follow the one resolved port; all three absent with no port; **`imagePullPolicy: IfNotPresent` always**. |
+| `RenderingSuite` | `containerPort`, `ANKKA_HTTP_PORT` and the readiness probe all follow the one resolved port; all three absent with no port; **`imagePullPolicy: IfNotPresent` always**. |
 
 The highest-value assertion in this tier is the selector one: a Service whose selector drifts from the
 Deployment's is a service that reports `Ready` and accepts no connections.
@@ -44,7 +44,7 @@ Deployment's is a service that reports `Ready` and accepts no connections.
 ## Tier 2 — The operator against a real cluster (minutes, Docker)
 
 ```bash
-sbt 'operator/testOnly nakka.operator.OperatorClusterSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.OperatorClusterSuite'
 ```
 
 Existing suite, extended:
@@ -59,10 +59,10 @@ Existing suite, extended:
 
 ---
 
-## Tier 3 — A real nakka application, end to end (slowest)
+## Tier 3 — A real ankka application, end to end (slowest)
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.SampleDeploymentClusterSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.SampleDeploymentClusterSuite'
 ```
 
 The point of the feature. Builds the shopping cart image, imports it into a throwaway k3s cluster,
@@ -81,7 +81,7 @@ it over HTTP:
 To skip everything needing a cluster — and, with it, the sample image build:
 
 ```bash
-sbt -Dnakka.cluster.tests=off test
+sbt -Dankka.cluster.tests=off test
 ```
 
 ---
@@ -89,15 +89,15 @@ sbt -Dnakka.cluster.tests=off test
 ## Tier 4 — Manual walkthrough
 
 ```bash
-kind create cluster --name nakka
+kind create cluster --name ankka
 ./kustomization/deploy-local.sh          # now also loads the sample image
-kubectl -n nakka-controlplane port-forward svc/nakka-controlplane 9000:9000 &
+kubectl -n ankka-controlplane port-forward svc/ankka-controlplane 9000:9000 &
 
-nakka config set url http://localhost:9000
-nakka config set token dev-local-token
-nakka organizations create acme --name "Acme Corp"
-nakka projects create checkout --name Checkout -O acme
-nakka config set project checkout
+ankka config set url http://localhost:9000
+ankka config set token dev-local-token
+ankka organizations create acme --name "Acme Corp"
+ankka projects create checkout --name Checkout -O acme
+ankka config set project checkout
 ```
 
 A descriptor with **nothing but an image** — no database, no port:
@@ -107,13 +107,13 @@ A descriptor with **nothing but an image** — no database, no port:
 ```
 
 ```bash
-nakka services apply -f cart.json
-nakka services list
+ankka services apply -f cart.json
+ankka services list
 # NAME  STATUS  INSTANCES  GEN  IMAGE
 # cart  Ready   1/1        1    sample-shopping-cart:latest
 
-kubectl -n nakka-checkout get svc,deploy,pods
-kubectl -n nakka-checkout port-forward svc/cart 8080:9000 &
+kubectl -n ankka-checkout get svc,deploy,pods
+kubectl -n ankka-checkout port-forward svc/cart 8080:9000 &
 ```
 
 Use it:
@@ -130,8 +130,8 @@ curl localhost:8080/carts/c1
 Prove it is really persisted:
 
 ```bash
-kubectl -n nakka-checkout delete pod -l app.kubernetes.io/name=cart
-kubectl -n nakka-checkout rollout status deployment/cart
+kubectl -n ankka-checkout delete pod -l app.kubernetes.io/name=cart
+kubectl -n ankka-checkout rollout status deployment/cart
 curl localhost:8080/carts/c1        # the same item, from the journal
 ```
 
@@ -142,13 +142,13 @@ curl localhost:8080/carts/c1        # the same item, from the journal
 | `kubectl get svc` | one `ClusterIP` Service named `cart`, port 9000, with a live endpoint |
 | pod deleted | the cart survives; the address keeps working once the replacement is ready |
 | a descriptor with `"http": false` | deploys, reaches `Ready`, and gets **no** Service |
-| a descriptor with `NAKKA_HTTP_PORT` in `env` | refused at apply time, naming the conflict |
+| a descriptor with `ANKKA_HTTP_PORT` in `env` | refused at apply time, naming the conflict |
 
 **The schema actually landed** — the same check feature 002 ends on:
 
 ```bash
-kubectl -n nakka-checkout exec nakka-db-1 -c postgres -- psql -U postgres -d cart -c '\dt'
-kubectl -n nakka-checkout exec nakka-db-1 -c postgres -- \
+kubectl -n ankka-checkout exec ankka-db-1 -c postgres -- psql -U postgres -d cart -c '\dt'
+kubectl -n ankka-checkout exec ankka-db-1 -c postgres -- \
   psql -U postgres -d cart -c 'select persistence_id, seq_nr from event_journal limit 5;'
 # the cart's own events, owned by the cart role
 ```
@@ -159,13 +159,13 @@ kubectl -n nakka-checkout exec nakka-db-1 -c postgres -- \
 
 - [ ] Tier 1 runs with no Docker daemon at all.
 - [ ] `sbt compile` warning-free; `sbt scalafmtCheckAll scalafmtSbtCheck` clean.
-- [ ] `sbt -Dnakka.cluster.tests=off test` builds **no** sample image and skips all three cluster suites.
+- [ ] `sbt -Dankka.cluster.tests=off test` builds **no** sample image and skips all three cluster suites.
 - [ ] `sbt docker:publishLocal` builds three images with nothing named on the command line.
 - [ ] The Service's selector is literally the same value as the Deployment's, not a copy that matches.
 - [ ] `imagePullPolicy: IfNotPresent` is rendered on every workload, whether or not it serves HTTP.
 - [ ] The operator's `ClusterRole` grants `services`, a test proves the grant with the operator's real ServiceAccount, and `RemoveService` refuses a Service the resource does not own.
-- [ ] `crd`'s OpenAPI schema in `kustomization/components/crd/nakkaservice.yaml` carries `port` — the model and the schema moved together, which is the mistake feature 002 shipped.
-- [ ] A `NakkaService` written before this feature still deploys, serving no HTTP, unchanged.
+- [ ] `crd`'s OpenAPI schema in `kustomization/components/crd/ankkaservice.yaml` carries `port` — the model and the schema moved together, which is the mistake feature 002 shipped.
+- [ ] An `AnkkaService` written before this feature still deploys, serving no HTTP, unchanged.
 - [ ] Every `pause` descriptor in the repository carries `"http": false`, and `EndToEndClusterSuite` still passes.
 - [ ] `sbt shoppingCart/Docker/publishLocal` really produces an image — `publish / skip := true` did not silently suppress it.
 - [ ] The sample suite talks to the Service's `clusterIP` from the node, not through a port-forward.

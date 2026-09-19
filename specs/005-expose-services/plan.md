@@ -6,11 +6,11 @@
 
 ## Summary
 
-A service is private until `nakka services expose <name>`; then it answers at
+A service is private until `ankka services expose <name>`; then it answers at
 `https://<service>-<project>.<base-domain>` with a certificate the platform issued, and
 `unexpose` removes only that. The control plane records exposure as one boolean beside the
 descriptor (two events, two commands, two routes, two CLI verbs) and projects it onto the
-`NakkaService` resource; the operator renders a Gateway API `HTTPRoute` per exposed service into
+`AnkkaService` resource; the operator renders a Gateway API `HTTPRoute` per exposed service into
 the service's namespace, attached to one installer-owned `Gateway` whose HTTPS listener carries
 one wildcard certificate from cert-manager. The control plane is exposed the same way at
 `api.<base-domain>`, and the CLI learns `config set ca` so it can trust the local cluster's root
@@ -34,7 +34,7 @@ manifests: cert-manager v1.21.2, Envoy Gateway v1.9.1 (bundles the Gateway API C
 **Storage**: the control plane's journal gains two event types; the listing view two columns. No
 DDL change.
 
-**Testing**: munit; `NakkaTestKit`; the k3s suites (testcontainers). One new k3s suite,
+**Testing**: munit; `AnkkaTestKit`; the k3s suites (testcontainers). One new k3s suite,
 `ExposureClusterSuite`, which additionally needs `curl` on the host and maps a NodePort out of the
 k3s container. `OperatorClusterSuite`, `ControlPlaneClusterSuite`, `RenderingSuite`,
 `ServiceEntitySuite`, `ControlPlaneSuite` (CLI) and `DescriptorSuite` gain cases.
@@ -89,14 +89,14 @@ specs/005-expose-services/
 ### Source Code (repository root)
 
 ```text
-crd/src/main/scala/nakka/crd/
+crd/src/main/scala/ankka/crd/
 ├── Hostnames.scala                          # NEW: of / label / controlPlane / problems
-└── NakkaService.scala                       # spec.exposed; status.route
+└── AnkkaService.scala                       # spec.exposed; status.route
 
-controlplane-api/src/main/scala/nakka/controlplane/api/
+controlplane-api/src/main/scala/ankka/controlplane/api/
 └── descriptors.scala                        # ServiceStatus.hostname; RouteStatus wire enum
 
-controlplane/src/main/scala/nakka/controlplane/
+controlplane/src/main/scala/ankka/controlplane/
 ├── domain/{model,events}.scala              # Service.exposed; ServiceExposed/Unexposed
 ├── application/ServiceEntity.scala          # expose / unexpose commands
 ├── application/ServiceRows.scala            # exposed, hostname columns
@@ -105,13 +105,13 @@ controlplane/src/main/scala/nakka/controlplane/
 ├── deploy/ServiceProjection.scala           # exposed → spec.exposed
 └── deploy/StatusIngest.scala                # route status → detail
 
-cli/src/main/scala/nakka/cli/
+cli/src/main/scala/ankka/cli/
 ├── Main.scala                               # services expose|unexpose; config set|unset ca
 ├── Settings.scala                           # ca
 ├── ControlPlaneClient.scala                 # SSLContext from ca; hostname in output
 └── Output.scala                             # HOSTNAME column/row
 
-operator/src/main/scala/nakka/operator/
+operator/src/main/scala/ankka/operator/
 ├── Action.scala                             # EnsureHttpRoute, DeleteHttpRoute
 ├── Rendering.scala                          # httpRoute(spec); GatewayName/GatewayNamespace
 ├── Executor.scala                           # the two cases; route status read
@@ -128,21 +128,21 @@ kustomization/
 ├── components/gateway/                      # NEW: GatewayClass, EnvoyProxy, Gateway, redirect route, ReferenceGrant if needed
 ├── components/controlplane/
 │   ├── httproute.yaml                       # NEW: api.<base>
-│   ├── deployment.yaml                      # NAKKA_BASE_DOMAIN
+│   ├── deployment.yaml                      # ANKKA_BASE_DOMAIN
 │   └── namespace.yaml                       # managed-by label so its route may attach
-├── components/operator/operator.yaml        # NAKKA_BASE_DOMAIN; httproutes RBAC
+├── components/operator/operator.yaml        # ANKKA_BASE_DOMAIN; httproutes RBAC
 └── overlays/local/
     ├── platform-configmap.yaml              # NEW: baseDomain = 127.0.0.1.sslip.io
     ├── local-ca.yaml                        # NEW: selfsigned Issuer, root CA, ClusterIssuer, wildcard Certificate
     └── kustomization.yaml                   # replacements fanning baseDomain out
 
-controlplane/src/test/scala/nakka/controlplane/
+controlplane/src/test/scala/ankka/controlplane/
 ├── ExposureClusterSuite.scala               # NEW: Tier 4
 ├── ControlPlaneClusterSuite.scala           # the control plane's own route + CLI with ca
 └── ControlPlaneSuite.scala                  # Tier 2 cases
-operator/src/test/scala/nakka/operator/
+operator/src/test/scala/ankka/operator/
 ├── RenderingSuite.scala, OperatorClusterSuite.scala
-crd/src/test/scala/nakka/crd/HostnamesSuite.scala   # NEW
+crd/src/test/scala/ankka/crd/HostnamesSuite.scala   # NEW
 ```
 
 **Structure Decision**: the existing module layout absorbs the feature without a new module.

@@ -1,6 +1,6 @@
-import nakka.agent.{AgentRuntime, AnthropicProvider}
-import nakka.http.HttpServer
-import nakka.runtime.Nakka
+import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
+import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.runtime.Ankka
 import planner.api.PlannerEndpoint
 import planner.application.*
 
@@ -15,7 +15,7 @@ import planner.application.*
 @main def runPlanner(): Unit =
   val model = AnthropicProvider.fromEnv()
 
-  val service = Nakka.service
+  val service = Ankka.service
     .register(PreferencesEntity.descriptor)
     .register(PlannerWorkflow.descriptor)
     .register(SelectorAgent.descriptor)

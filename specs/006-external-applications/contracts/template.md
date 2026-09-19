@@ -1,19 +1,19 @@
-# Contract: The Template and `nakka init`
+# Contract: The Template and `ankka init`
 
 **Satisfies**: FR-012 to FR-018
 
 ## Expanding
 
 ```bash
-sbt new thinkmorestupidless/nakka.g8 --name=orders
+sbt new thinkmorestupidless/ankka.g8 --name=orders
 # or, with the CLI on PATH:
-nakka init orders
+ankka init orders
 # or, from a checkout:
-sbt new file:///path/to/nakka/nakka.g8 --name=orders
+sbt new file:///path/to/ankka/ankka.g8 --name=orders
 ```
 
 Parameters: `name` (the service name; also the image and descriptor name; validated), `package`
-(default `com.example.<name>`), `nakka_version` (default: the template's release version).
+(default `com.example.<name>`), `ankka_version` (default: the template's release version).
 
 ## What comes out
 
@@ -33,18 +33,18 @@ that is a decision, and that `expose` puts it on the internet.
 
 ```bash
 sbt test                          # entity, endpoint and integration suites (Docker for the last)
-sbt schema                        # the platform's DDL, extracted from nakka-runtime into target/ddl
+sbt schema                        # the platform's DDL, extracted from ankka-runtime into target/ddl
 docker compose up -d              # Postgres, initialised from target/ddl
 sbt run                           # http://localhost:9000
 curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"name":"Widget","count":2}'
 curl localhost:9000/items/i1
 
 sbt Docker/publishLocal           # orders:<version> and orders:latest
-kind load docker-image orders:latest --name nakka      # or push, once there is a registry
-nakka services apply -f service.json
-nakka services list
-nakka services expose orders
-curl --cacert ~/.nakka/local-ca.crt https://orders-<project>.127.0.0.1.sslip.io:8443/items/i1
+kind load docker-image orders:latest --name ankka      # or push, once there is a registry
+ankka services apply -f service.json
+ankka services list
+ankka services expose orders
+curl --cacert ~/.ankka/local-ca.crt https://orders-<project>.127.0.0.1.sslip.io:8443/items/i1
 ```
 
 ## `service.json`
@@ -59,14 +59,14 @@ curl --cacert ~/.nakka/local-ca.crt https://orders-<project>.127.0.0.1.sslip.io:
 }
 ```
 
-`runtime` and `build.sbt`'s `nakkaVersion` are written from one template parameter; the README's
-"upgrading nakka" section says to change both.
+`runtime` and `build.sbt`'s `ankkaVersion` are written from one template parameter; the README's
+"upgrading ankka" section says to change both.
 
-## `nakka init`
+## `ankka init`
 
 | Situation | Behaviour |
 |---|---|
-| `sbt` not on `PATH` | exit 1: `nakka init needs sbt on PATH; install it from https://www.scala-sbt.org/` |
+| `sbt` not on `PATH` | exit 1: `ankka init needs sbt on PATH; install it from https://www.scala-sbt.org/` |
 | target directory exists and is not empty | exit 1, naming it |
-| invalid name | exit 1 with the service-name rule — the same message `nakka services apply` gives |
+| invalid name | exit 1 with the service-name rule — the same message `ankka services apply` gives |
 | success | prints the expanded path and the first three README commands |

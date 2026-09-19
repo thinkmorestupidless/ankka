@@ -1,8 +1,8 @@
 package planner
 
-import nakka.agent.*
-import nakka.core.{CommandError, Done, EntityId, ErrorCode, SessionId}
-import nakka.testkit.NakkaTestKit
+import com.thinkmorestupidless.ankka.agent.*
+import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode, SessionId}
+import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import planner.application.*
 import planner.domain.*
 
@@ -19,11 +19,11 @@ class PlannerSuite extends munit.FunSuite:
 
   override val munitTimeout = 5.minutes
 
-  private var testKit: NakkaTestKit = null
+  private var testKit: AnkkaTestKit = null
   private val model                 = TestModelProvider()
 
   override def beforeAll(): Unit =
-    testKit = NakkaTestKit.start(
+    testKit = AnkkaTestKit.start(
       Seq(
         PreferencesEntity.descriptor,
         PlannerWorkflow.descriptor,

@@ -8,7 +8,7 @@ ThisBuild / organization := "com.thinkmorestupidless"
 // commit past it → `0.2.0+3-abc1234-SNAPSHOT`; a dirty tree → `…+<timestamp>-SNAPSHOT`). Setting the
 // version anywhere silently overrides the tag, which is the one thing a release must not do.
 ThisBuild / versionScheme := Some("early-semver")
-ThisBuild / homepage      := Some(url("https://github.com/thinkmorestupidless/nakka"))
+ThisBuild / homepage      := Some(url("https://github.com/thinkmorestupidless/ankka"))
 ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
 ThisBuild / developers := List(
   Developer(
@@ -18,11 +18,11 @@ ThisBuild / developers := List(
     url("https://github.com/thinkmorestupidless")
   )
 )
-// The local proof of the release path (feature 006): `-Dnakka.release.local=<dir>` points
+// The local proof of the release path (feature 006): `-Dankka.release.local=<dir>` points
 // `publishSigned` at a Maven-layout directory instead of the Central Portal, so signing, sources,
 // javadoc and POM metadata are exercised end to end before the public namespace exists.
 ThisBuild / publishTo := sys.props
-  .get("nakka.release.local")
+  .get("ankka.release.local")
   .map(dir =>
     Resolver.file("local-release", file(dir))(Patterns(true, Resolver.mavenStyleBasePattern))
   )
@@ -42,7 +42,7 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
  * binary.
  *
  * `dockerRepository` is unset until a registry exists — sbt-native-packager then tags the image
- * unqualified (`nakka-operator:0.1.0-SNAPSHOT`), which is exactly what a local cluster needs and
+ * unqualified (`ankka-operator:0.1.0-SNAPSHOT`), which is exactly what a local cluster needs and
  * exactly wrong for anywhere images have to be pulled from a registry. Setting `DOCKER_REPOSITORY`
  * is the one-line change that flips it over once that need exists.
  *
@@ -57,25 +57,25 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
  * not published alongside it.
  *
  * Only for a release version: a snapshot carries a commit and a timestamp that change on every
- * dirty-tree publish, and rewriting the checked-in file for each would be noise. Locally, `nakka
- * init` passes its own `BuildInfo.version` as `--nakka_version` (the CLI you run is the version you
+ * dirty-tree publish, and rewriting the checked-in file for each would be noise. Locally, `ankka
+ * init` passes its own `BuildInfo.version` as `--ankka_version` (the CLI you run is the version you
  * get) and `TemplateSuite` does the same, so the checked-in default matters only to someone running
- * `sbt new thinkmorestupidless/nakka.g8` — who gets the last release, which is right.
+ * `sbt new thinkmorestupidless/ankka.g8` — who gets the last release, which is right.
  */
 lazy val templateVersion =
-  taskKey[Unit]("Writes the build's version into nakka.g8's default.properties")
+  taskKey[Unit]("Writes the build's version into ankka.g8's default.properties")
 
 ThisBuild / templateVersion := {
   val file =
-    (ThisBuild / baseDirectory).value / "nakka.g8" / "src" / "main" / "g8" / "default.properties"
+    (ThisBuild / baseDirectory).value / "ankka.g8" / "src" / "main" / "g8" / "default.properties"
   val current = IO.read(file)
   val v       = version.value
   val updated = current.linesIterator
-    .map(line => if (line.startsWith("nakka_version=")) s"nakka_version=$v" else line)
+    .map(line => if (line.startsWith("ankka_version=")) s"ankka_version=$v" else line)
     .mkString("", "\n", "\n")
   if (updated != current && !v.endsWith("-SNAPSHOT")) {
     IO.write(file, updated)
-    streams.value.log.info(s"templateVersion: nakka_version=$v")
+    streams.value.log.info(s"templateVersion: ankka_version=$v")
   }
 }
 
@@ -118,13 +118,14 @@ lazy val commonSettings = Seq(
   // Virtual threads carry ComponentClient.invoke; keep the surface honest under test too.
   Test / javaOptions ++= Seq("-XX:+EnableDynamicAgentLoading"),
   // Tests fork, and a forked JVM does not inherit sbt's own -D properties — so without this,
-  // `sbt -Dnakka.cluster.tests=off test` set the switch in a JVM that runs no tests and the k3s
+  // `sbt -Dankka.cluster.tests=off test` set the switch in a JVM that runs no tests and the k3s
   // suites ran regardless. It was a documented no-op from feature 001 until feature 003 noticed
   // the "skipped" suites taking seven minutes.
-  Test / javaOptions ++= sys.props
-    .get("nakka.cluster.tests")
-    .map(v => s"-Dnakka.cluster.tests=$v")
-    .toSeq,
+  // Every test switch needs the same forwarding; TemplateSuite ran under `template.tests=off` until
+  // its switch was added here too.
+  Test / javaOptions ++= Seq("ankka.cluster.tests", "ankka.template.tests").flatMap { key =>
+    sys.props.get(key).map(v => s"-D$key=$v")
+  },
   testFrameworks += new TestFramework("munit.Framework")
 )
 
@@ -134,11 +135,11 @@ lazy val core = project
   .enablePlugins(BuildInfoPlugin)
   .settings(commonSettings)
   .settings(
-    name := "nakka-core",
+    name := "ankka-core",
     libraryDependencies ++= Seq(jsoniterCore, jsoniterMacros),
-    // nakka.core.BuildInfo.version — the one version everything published from a tag shares.
+    // com.thinkmorestupidless.ankka.core.BuildInfo.version — the one version everything published from a tag shares.
     buildInfoKeys    := Seq[BuildInfoKey](version),
-    buildInfoPackage := "nakka.core",
+    buildInfoPackage := "com.thinkmorestupidless.ankka.core",
     buildInfoObject  := "BuildInfo",
     // core is the first artifact every publish produces, so this is where the template learns the
     // version being published.
@@ -151,7 +152,7 @@ lazy val sdk = project
   .in(file("modules/sdk"))
   .dependsOn(core)
   .settings(commonSettings)
-  .settings(name := "nakka-sdk")
+  .settings(name := "ankka-sdk")
 
 /**
  * Interprets the effects the SDK describes: sharding hosts, persistence, ComponentClient,
@@ -163,10 +164,10 @@ lazy val runtime = project
   .dependsOn(core, sdk)
   .settings(commonSettings)
   .settings(
-    name := "nakka-runtime",
+    name := "ankka-runtime",
     // The Pekko HTTP family as *direct* dependencies, not only the build-wide
     // `dependencyOverrides` in commonSettings: an override never reaches a POM, so an application
-    // resolving the published nakka-runtime would still get pekko-http-spray-json 1.1.0 from
+    // resolving the published ankka-runtime would still get pekko-http-spray-json 1.1.0 from
     // pekko-management beside pekko-http 1.4.0 — and Pekko HTTP refuses to start on a mixed
     // family. Found by the first build outside this repository (feature 006). A direct dependency
     // at the family version is what a consumer's eviction honours.
@@ -202,7 +203,7 @@ lazy val http = project
   .dependsOn(core, sdk, runtime)
   .settings(commonSettings)
   .settings(
-    name := "nakka-http",
+    name := "ankka-http",
     libraryDependencies ++= Seq(pekkoHttp, pekkoHttpTestkit % Test)
   )
 
@@ -212,7 +213,7 @@ lazy val agent = project
   .dependsOn(core, sdk, runtime)
   .settings(commonSettings)
   .settings(
-    name := "nakka-agent",
+    name := "ankka-agent",
     libraryDependencies ++= Seq(anthropicJava, pekkoHttp, pekkoStreamTyped)
   )
 
@@ -222,7 +223,7 @@ lazy val testkit = project
   .dependsOn(core, sdk, runtime, http, agent)
   .settings(commonSettings)
   .settings(
-    name := "nakka-testkit",
+    name := "ankka-testkit",
     libraryDependencies ++= Seq(
       munit,
       pekkoActorTestkit,
@@ -245,12 +246,12 @@ lazy val controlPlaneApi = project
   .in(file("controlplane-api"))
   .dependsOn(core)
   .settings(commonSettings)
-  .settings(name := "nakka-controlplane-api", publish / skip := true)
+  .settings(name := "ankka-controlplane-api", publish / skip := true)
 
 /**
- * The `NakkaService` custom resource: the contract between the control plane and the operator.
+ * The `AnkkaService` custom resource: the contract between the control plane and the operator.
  *
- * Depends on no nakka module, by the same reasoning that keeps `controlplane-api` free of Pekko. It
+ * Depends on no ankka module, by the same reasoning that keeps `controlplane-api` free of Pekko. It
  * is a wire format, and both ends have to hold it without inheriting the other's world — the
  * control plane drags in Pekko and a Postgres driver, the operator must not.
  */
@@ -258,7 +259,7 @@ lazy val crd = project
   .in(file("crd"))
   .settings(commonSettings)
   .settings(
-    name           := "nakka-crd",
+    name           := "ankka-crd",
     publish / skip := true,
     libraryDependencies ++= Seq(fabric8, jacksonScala)
   )
@@ -266,10 +267,10 @@ lazy val crd = project
 /**
  * The Kubernetes operator.
  *
- * Deliberately not a nakka application. It has no entities, no journal, no sharding and no views,
- * so hosting it on nakka would give it a cluster to form and a database not to use — and a process
+ * Deliberately not an ankka application. It has no entities, no journal, no sharding and no views,
+ * so hosting it on ankka would give it a cluster to form and a database not to use — and a process
  * whose whole job is to keep working while other things are broken should depend on as little as
- * possible. Its only nakka dependency is the resource contract.
+ * possible. Its only ankka dependency is the resource contract.
  */
 lazy val operator = project
   .in(file("operator"))
@@ -278,26 +279,26 @@ lazy val operator = project
   .settings(commonSettings)
   .settings(dockerSettings)
   .settings(
-    name           := "nakka-operator",
+    name           := "ankka-operator",
     publish / skip := true,
     // Explicit rather than auto-discovered: sbt-native-packager needs exactly one entry
     // point, and leaving it to discovery is one new `@main` away from an ambiguous-main
     // build failure that has nothing to do with what changed.
-    Compile / mainClass := Some("nakka.operator.Main"),
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.operator.Main"),
     libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test),
     // As for controlPlane below: OperatorClusterSuite deploys the real sample since feature 004,
-    // because only a real nakka image can be Ready now that readiness is cluster membership.
+    // because only a real ankka image can be Ready now that readiness is cluster membership.
     sampleImageForClusterTests := Def.taskDyn {
-      if (sys.props.get("nakka.cluster.tests").contains("off")) Def.task(())
+      if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
       else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
     }.value,
     Test / test := (Test / test).dependsOn(sampleImageForClusterTests).value
   )
 
 /**
- * The control plane, built as a nakka application.
+ * The control plane, built as an ankka application.
  *
- * Tenancy is entities, listings are views, and desired state is projected into a `NakkaService`
+ * Tenancy is entities, listings are views, and desired state is projected into an `AnkkaService`
  * resource for the operator to act on — the control plane itself never writes a workload.
  *
  * A perpetual reconcile loop is deliberately *not* modelled as a workflow: a workflow writes a step
@@ -317,7 +318,7 @@ lazy val controlPlane = project
     http,
     cli % Test,
     // test->test as well: the cluster suites share the image-import helper, and since feature
-    // 004 both modules' suites must deploy a real nakka image to see a service go Ready.
+    // 004 both modules' suites must deploy a real ankka image to see a service go Ready.
     operator % "test->test;test->compile",
     testkit  % Test
   )
@@ -325,9 +326,9 @@ lazy val controlPlane = project
   .settings(commonSettings)
   .settings(dockerSettings)
   .settings(
-    name                := "nakka-controlplane",
+    name                := "ankka-controlplane",
     publish / skip      := true,
-    Compile / mainClass := Some("nakka.controlplane.runControlPlane"),
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.controlplane.runControlPlane"),
     dockerExposedPorts  := Seq(9000),
     libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test),
     // SampleDeploymentClusterSuite deploys the *real* shopping cart, so something has to build its
@@ -342,7 +343,7 @@ lazy val controlPlane = project
     sampleImageForClusterTests := Def.taskDyn {
       // Read in sbt's own JVM, at task-graph time. A switch that skips the suite but still spends
       // a minute building an image it will not use is not skipping it.
-      if (sys.props.get("nakka.cluster.tests").contains("off")) Def.task(())
+      if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
       else
         Def.task {
           // ControlPlaneClusterSuite (feature 004) deploys the control plane itself into k3s.
@@ -354,30 +355,30 @@ lazy val controlPlane = project
     Test / test := (Test / test).dependsOn(sampleImageForClusterTests).value
   )
 
-/** The `nakka` command-line client. */
+/** The `ankka` command-line client. */
 lazy val cli = project
   .in(file("cli"))
   .dependsOn(controlPlaneApi)
   .settings(commonSettings)
   .enablePlugins(JavaAppPackaging)
   .settings(
-    name           := "nakka-cli",
+    name           := "ankka-cli",
     publish / skip := true,
-    // `sbt cli/stage` is how the CLI is run as a program: target/universal/stage/bin/nakka.
-    executableScriptName := "nakka",
+    // `sbt cli/stage` is how the CLI is run as a program: target/universal/stage/bin/ankka.
+    executableScriptName := "ankka",
     // JavaAppPackaging drags DockerPlugin in, and root's `docker:publishLocal` aggregates to every
     // project that has the task. The CLI is a local binary, never an image: make the task a no-op
     // here rather than let it build one.
     Docker / publishLocal := (),
     Docker / publish      := (),
     libraryDependencies ++= Seq(decline, munit % Test),
-    // TemplateSuite expands the template into a build outside this one, which resolves nakka from
+    // TemplateSuite expands the template into a build outside this one, which resolves ankka from
     // ~/.ivy2/local — so the artifacts have to be there first. A build-level task dependency, the
-    // same shape as sampleImageForClusterTests; off with -Dnakka.template.tests=off. On both
+    // same shape as sampleImageForClusterTests; off with -Dankka.template.tests=off. On both
     // `test` and `testOnly`: the second is how a single suite is run, and it does not go through
     // the first.
     templateArtifacts := Def.taskDyn {
-      if (sys.props.get("nakka.template.tests").contains("off")) Def.task(())
+      if (sys.props.get("ankka.template.tests").contains("off")) Def.task(())
       else
         // The six by name: a task dependency on the root's publishLocal runs only the root's own
         // (skipped) publish — aggregation is how the command line fans out, not the task graph.
@@ -454,6 +455,6 @@ lazy val root = project
     multiAgentPlanner
   )
   .settings(
-    name           := "nakka",
+    name           := "ankka",
     publish / skip := true
   )

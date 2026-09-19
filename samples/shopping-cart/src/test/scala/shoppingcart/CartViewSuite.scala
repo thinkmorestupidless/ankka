@@ -1,9 +1,9 @@
 package shoppingcart
 
-import nakka.core.EntityId
-import nakka.runtime.SqlSyntax.{jsonText, sql}
-import nakka.runtime.{InMemoryPublisher, ProjectionRuntime}
-import nakka.testkit.NakkaTestKit
+import com.thinkmorestupidless.ankka.core.EntityId
+import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
+import com.thinkmorestupidless.ankka.runtime.{InMemoryPublisher, ProjectionRuntime}
+import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.application.{CartRows, CheckoutNotifier, ShoppingCartEntity}
 import shoppingcart.domain.LineItem
 
@@ -14,17 +14,17 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  *
  * Projections are asynchronous, so every assertion here polls to a deadline rather than reading
  * once. That is not test hygiene papering over a race — it is the actual consistency model, and a
- * test that pretended otherwise would be testing a system nakka does not provide.
+ * test that pretended otherwise would be testing a system ankka does not provide.
  */
 class CartViewSuite extends munit.FunSuite:
 
   override val munitTimeout = 4.minutes
 
-  private var testKit: NakkaTestKit = null
+  private var testKit: AnkkaTestKit = null
   private val publisher             = InMemoryPublisher()
 
   override def beforeAll(): Unit =
-    testKit = NakkaTestKit.start(
+    testKit = AnkkaTestKit.start(
       Seq(ShoppingCartEntity.descriptor, CartRows.descriptor, CheckoutNotifier.descriptor),
       Seq(ProjectionRuntime.withPublisher(publisher))
     )

@@ -7,17 +7,17 @@ the documentation did not say.
 ## Tier 1 — Pure (seconds)
 
 ```bash
-sbt 'crd/testOnly nakka.crd.HostnamesSuite'                 # derivation, the 63-char refusal, api never derivable
-sbt 'controlPlane/testOnly nakka.controlplane.ServiceEntitySuite'   # expose/unexpose events, idempotence, generation untouched
-sbt 'controlPlaneApi/testOnly nakka.controlplane.api.*'     # ServiceStatus.hostname wire round-trip
-sbt 'operator/testOnly nakka.operator.RenderingSuite'       # HTTPRoute shape; absent when unexposed or http:false
+sbt 'crd/testOnly com.thinkmorestupidless.ankka.crd.HostnamesSuite'                 # derivation, the 63-char refusal, api never derivable
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ServiceEntitySuite'   # expose/unexpose events, idempotence, generation untouched
+sbt 'controlPlaneApi/testOnly com.thinkmorestupidless.ankka.controlplane.api.*'     # ServiceStatus.hostname wire round-trip
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.RenderingSuite'       # HTTPRoute shape; absent when unexposed or http:false
 sbt 'cli/test'                                              # config set ca; expose/unexpose commands
 ```
 
 ## Tier 2 — Control plane in-process (a minute)
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.ControlPlaneSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ControlPlaneSuite'
 ```
 
 Through the real CLI against a real control plane on a throwaway Postgres: expose prints the
@@ -27,7 +27,7 @@ refusals return their exact messages; `http: false` cannot be exposed.
 ## Tier 3 — Operator on k3s (minutes)
 
 ```bash
-sbt 'operator/testOnly nakka.operator.OperatorClusterSuite'
+sbt 'operator/testOnly com.thinkmorestupidless.ankka.operator.OperatorClusterSuite'
 ```
 
 Adds: an HTTPRoute is created for an exposed resource and deleted on unexpose; none for `http:
@@ -37,7 +37,7 @@ service's token cannot list `httproutes`.
 ## Tier 4 — End to end on k3s, from the host (5–8 minutes)
 
 ```bash
-sbt 'controlPlane/testOnly nakka.controlplane.ExposureClusterSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.ExposureClusterSuite'
 ```
 
 Installs cert-manager and Envoy Gateway into the k3s container, applies the gateway component with
@@ -63,7 +63,7 @@ runs `curl --cacert <exported root> --resolve …` against the mapped NodePort:
       finds nothing (SC-010).
 - [ ] The operator's ClusterRole mentions `httproutes` and no other Gateway API or cert-manager
       resource.
-- [ ] `NAKKA_BASE_DOMAIN` appears in the local overlay **once** (the ConfigMap) and reaches every
+- [ ] `ANKKA_BASE_DOMAIN` appears in the local overlay **once** (the ConfigMap) and reaches every
       consumer by replacement — `kubectl kustomize kustomization/overlays/local | grep sslip` shows
       the same value in the Certificate, the Gateway, both Deployments and the control plane's route.
 - [ ] Every existing suite passes; an unexposed service's rendered objects are byte-identical to
@@ -74,37 +74,37 @@ runs `curl --cacert <exported root> --resolve …` against the mapped NodePort:
 The kind cluster must be created from the config file now — port mappings cannot be added later:
 
 ```bash
-kind delete cluster --name nakka                           # if it predates this feature
-kind create cluster --name nakka --config kustomization/kind.yaml
+kind delete cluster --name ankka                           # if it predates this feature
+kind create cluster --name ankka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh
 ```
 
 The script ends by printing the control plane's address and the root certificate's path:
 
 ```bash
-nakka config set url https://api.127.0.0.1.sslip.io
-nakka config set ca ~/.nakka/local-ca.crt
-nakka config set token dev-local-token
-nakka services list                                        # no port-forward anywhere
+ankka config set url https://api.127.0.0.1.sslip.io
+ankka config set ca ~/.ankka/local-ca.crt
+ankka config set token dev-local-token
+ankka services list                                        # no port-forward anywhere
 
 echo '{"name":"cart","service":{"image":"sample-shopping-cart:latest"}}' > cart.json
-nakka services apply -f cart.json
-nakka services expose cart
+ankka services apply -f cart.json
+ankka services expose cart
 #   https://cart-checkout.127.0.0.1.sslip.io
 
-curl --cacert ~/.nakka/local-ca.crt -XPOST https://cart-checkout.127.0.0.1.sslip.io/carts/c1/items \
+curl --cacert ~/.ankka/local-ca.crt -XPOST https://cart-checkout.127.0.0.1.sslip.io/carts/c1/items \
      -H 'content-type: application/json' -d '{"productId":"p1","name":"Widget","quantity":2}'
-curl --cacert ~/.nakka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io/carts/c1
+curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io/carts/c1
 curl -I http://cart-checkout.127.0.0.1.sslip.io/carts/c1   # 301 to https
 
-nakka services unexpose cart
-curl --cacert ~/.nakka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io/carts/c1   # 404 from the gateway
+ankka services unexpose cart
+curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io/carts/c1   # 404 from the gateway
 ```
 
 | Action | Expected |
 |---|---|
 | `deploy-local.sh` on a cluster created with the old one-liner | refuses, names `kustomization/kind.yaml`, says to recreate |
 | `dig +short cart-checkout.127.0.0.1.sslip.io` | `127.0.0.1` — if not, the README's hosts-file fallback |
-| `services expose` with `NAKKA_BASE_DOMAIN` unset on the control plane | refused, message names the variable |
-| `kubectl -n nakka-gateway get gateway nakka` | `PROGRAMMED: True` |
-| `kubectl get httproutes -A` after `nakka projects delete` | none for that project |
+| `services expose` with `ANKKA_BASE_DOMAIN` unset on the control plane | refused, message names the variable |
+| `kubectl -n ankka-gateway get gateway ankka` | `PROGRAMMED: True` |
+| `kubectl get httproutes -A` after `ankka projects delete` | none for that project |

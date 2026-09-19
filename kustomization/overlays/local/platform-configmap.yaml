@@ -8,8 +8,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nakka-platform
-  namespace: nakka-gateway
+  name: ankka-platform
+  namespace: ankka-gateway
 data:
   baseDomain: 127.0.0.1.sslip.io
   # The host port kind publishes the HTTPS NodePort on (kustomization/kind.yaml); the http→https

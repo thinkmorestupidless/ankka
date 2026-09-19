@@ -30,6 +30,22 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
+      # dynver derives the version from git, and it appends a timestamp and -SNAPSHOT when the
+      # working tree is dirty. So a dirty tree silently turns a tag into a snapshot, and ci-release
+      # then publishes to the snapshot repository instead of staging a release — which is exactly
+      # what v0.1.0 did: 0.1.0+0-963a43e8+20260919-1005-SNAPSHOT. A fresh checkout can also *look*
+      # dirty from stale index stat info alone, which `update-index --refresh` settles; anything
+      # still dirty after that is real, and is named here rather than shipped as a snapshot.
+      - name: The version comes from a clean tree, or not at all
+        run: |
+          git update-index -q --refresh
+          if ! git diff-index --quiet HEAD --; then
+            echo "::error::working tree is dirty; dynver would build a -SNAPSHOT, not a release"
+            git status --porcelain
+            git diff --stat
+            exit 1
+          fi
+          echo "clean: $(git describe --long --tags --abbrev=8 --match 'v[0-9]*' --always --dirty=+DIRTY)"
       - run: sbt templateVersion ci-release
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}

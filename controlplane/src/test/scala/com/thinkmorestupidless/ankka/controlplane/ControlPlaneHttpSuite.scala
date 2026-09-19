@@ -163,11 +163,15 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
   }
 
   test("the service appears in its project's listing once the view catches up") {
-    val body = eventually("the cart service reaches the services view") {
+    // Wait for the generation-2 image, not merely for the row: the previous test re-applied
+    // cart:2.0, and the generation-1 row already satisfies `"name":"cart"`. Waiting on the
+    // weaker condition and asserting the stronger one outside the retry is a race that a slow
+    // machine loses — CI did, on a projection that was one generation behind.
+    val body = eventually("the cart service reaches the services view at cart:2.0") {
       val (status, listing) = send("GET", "/services/checkout")
-      Option.when(status == 200 && listing.contains("\"name\":\"cart\""))(listing)
+      Option.when(status == 200 && listing.contains("\"image\":\"cart:2.0\""))(listing)
     }
-    assert(body.contains("\"image\":\"cart:2.0\""), body)
+    assert(body.contains("\"name\":\"cart\""), body)
     assert(!body.contains("\"name\":\"broken\""), "a rejected apply must not create a row")
   }
 

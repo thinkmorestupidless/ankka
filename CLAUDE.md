@@ -616,6 +616,13 @@ factory shapes would break lambda parameter inference at every call site.
   and the JVM follow symlinks transparently but kustomize does not. Never `ln -sf` onto a
   path that might already hold the real content; copy it out first. This one cost real file
   content, recovered only because the compiled classpath still had it.
+- **An `eventually` must wait for the thing it asserts.** `ControlPlaneHttpSuite` waited for the
+  cart's row to appear and then asserted, outside the retry, that the row carried the image the
+  *previous* test had applied. The generation-1 row satisfies "a row exists", so on a machine where
+  the projection lags the test read a stale row and failed — green on a laptop, red on CI. Every
+  other `eventually` in that suite has the right shape: retry on the value that changes
+  (`"services":0`, the hostname, the row disappearing), assert the identity that does not.
+
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.

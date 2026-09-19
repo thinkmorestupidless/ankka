@@ -623,6 +623,48 @@ factory shapes would break lambda parameter inference at every call site.
   reads exactly like a repository that does not exist — it did exist, and the token was never
   tried. `persist-credentials: false` on that checkout is the fix.
 
+- **Local mode runs no management server, so observability needs its own local exposure.**
+  `ClusterFormation` starts Pekko Management only in the `bootstrap` path, and says why: it binds a
+  fixed port, which two services on one laptop would fight over. `VersionRoute` is therefore the
+  obvious model for an observability endpoint and the wrong one — it does not exist where the local
+  console needs it. Observability is exposed twice, chosen by where the process runs, exactly as
+  formation is: a loopback endpoint on an ephemeral port locally (`ObservabilityEndpoint`, on the
+  JDK's own HTTP server so `runtime` gains no dependency), and a `ManagementRouteProvider`
+  (`ObservabilityRoute`) under Kubernetes. One recorder, two exposures.
+- **A trace set on the caller's thread is invisible to the thread doing the work.** `dispatch`
+  returns a `Future`; the handler runs later on its own virtual thread. Wrapping the *call to*
+  `dispatch` in `Trace.within` compiles, runs, and produces an endpoint span and an entity span in
+  two unrelated traces — a list, not a tree. The trace belongs where `RequestScope` already puts
+  the request context: inside the `Future`, on the handler's thread. The general rule is the one
+  `RequestContext` already states — work handed to another thread cannot see a thread-local — and
+  tracing inherits it exactly. Where it genuinely cannot follow, the time shows as *unattributed*
+  and an orphan span stays at the root marked unknown. **Never re-parent an orphan to the nearest
+  plausible candidate**: a tree that reads correctly and describes something that did not happen is
+  worse than a visible hole.
+- **A refusal is not a failure, and the recorder has to be told which it was.** `effects.error(...)`
+  returns a *value*, so a refused command reaches the caller looking exactly like a success — a
+  `try`/`finally` around the handler records `Ok` for a working ACL. `interpret` returns the span
+  outcome rather than leaving the caller to infer it from an exception that never comes. A console
+  that paints a refusal red, or a fault green, teaches its reader to ignore the column.
+- **Never intern anything unbounded into the recorder's name table.** Component and handler names
+  are interned once and become `Int`s, which is what keeps a span allocation-free. That table is
+  bounded *only* because registration is explicit and handler names are declared on companions.
+  Entity ids, session ids and request paths with parameters filled in are not bounded, and interning
+  one would grow the table for the life of the process.
+- **A benchmark needs a denominator that is the thing the criterion names.** SC-003 asked for
+  instrumentation within 5% of "a service's throughput". Measured against an empty loop recording
+  cost 58%; against a jsoniter round-trip, 28%; against a testkit entity call, 50% *while measuring
+  faster than the serializer alone*, which is the JIT folding a monomorphic loop. All three numbers
+  were arithmetically true and answered a question nobody asked. Against a real service — HTTP in,
+  entity, journal, reply — one invocation is 640µs and recording is 22ns, or 0.003%. A ratio that
+  moves with the shape of the harness is measuring the harness.
+- **A script that fails an assertion has still done nothing — check what it left behind.** An edit
+  meant to remove the first attempt at the HTTP entry span asserted on two call sites, found one,
+  and threw before writing; the follow-up added the replacement without removing the original. Both
+  shipped, every request recorded two spans, every metric double-counted, and no test could see it.
+  It took reading metrics off a real deployment and noticing one request wearing two component
+  names. Re-grep for what a failed edit was supposed to remove.
+
 - **An `eventually` must wait for the thing it asserts.** `ControlPlaneHttpSuite` waited for the
   cart's row to appear and then asserted, outside the retry, that the row carried the image the
   *previous* test had applied. The generation-1 row satisfies "a row exists", so on a machine where

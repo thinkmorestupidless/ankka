@@ -60,6 +60,42 @@ export ANTHROPIC_API_KEY=sk-ant-...
 sbt "multiAgentPlanner/run"
 ```
 
+### Seeing what it is doing
+
+```bash
+ankka local console          # → http://localhost:9889
+```
+
+Every ankka service running on this machine, and for each one: its registered components, a form
+per HTTP route so a request can be sent without leaving the page, the traces of requests it has
+served, and — for a service with agents — a session's stored conversation and the tokens it has
+cost.
+
+A trace is the useful part. It shows which components a request went through, how long each took,
+and how much of the request the platform *cannot* account for:
+
+```
+POST /{cartId}/items            84 ms
+└── shopping-cart#add-item     1.8 ms
+```
+
+Two milliseconds in the entity, eighty-two somewhere else. Time the platform cannot attribute —
+waiting on a model, waiting on a database, work a handler handed to another thread — gets its own
+row rather than being spread across the spans to make the percentages tidy, because it is usually
+the answer.
+
+The invoke panel sends its request to the service's own HTTP port as an ordinary client, so an
+endpoint's `acl` refuses the console exactly as it refuses `curl`. There is no privileged path
+from the console to a handler.
+
+The console is for services on your own machine: it binds loopback and holds no credential. For a
+deployed service, the CLI reads what it printed:
+
+```bash
+ankka services logs cart --follow
+ankka services logs cart --previous    # the container before the last restart
+```
+
 ## Your first service
 
 The samples above live in this repository. A service of your own starts from the template and
@@ -821,7 +857,37 @@ Honest gaps, not oversights:
   mints a real token for the operator's own ServiceAccount and asserts the API server
   itself, not just ankka's own code, refuses a `Database` delete — proving the withheld
   verb is structural rather than merely unused.
-- **No console.** The CLI is the only client.
+- **The console is local only.** `ankka local console` serves the services running on your own
+  machine and nothing else: it binds loopback, holds no credential, and shows entity state and
+  agent memory, which is whatever the application put there. A console over a *deployed*
+  installation is a feature of its own — the expensive half of it is reassembling one trace from
+  several pods' separate windows, not the authentication — and the data it would read is already
+  shaped for it (a service carries a list of instances, and `partial` means "this window does not
+  hold it all" rather than "spans aged out"). Deployed services are served by `ankka services logs`
+  and by metrics instead.
+- **Traces are a window, not a history.** Every component invocation is recorded, always, into a
+  fixed ring — 4096 spans by default, the one tuning knob — and the oldest are overwritten. Nothing
+  is persisted, there is no sampling and no query language, and a trace whose older spans have gone
+  is reported as partial rather than returned as a tree that merely looks whole. Recording costs
+  about 22ns per span against a request measured at 0.64ms, which is what makes always-on a
+  defensible default rather than a hope.
+- **Time the platform cannot account for is reported, not distributed.** A model call, a database
+  wait, or work a handler hands to another thread all show as *unattributed* on the trace, because
+  the request context is a thread-local and cannot follow work to another thread. A span whose
+  parent has gone stays at the root marked "parent unknown" and is never re-parented to the nearest
+  plausible candidate: a tree that reads correctly and describes something that did not happen is
+  worse than a visible hole.
+- **Token counts, but not money.** Agent usage is reported as tokens, because the provider reports
+  tokens. Cost needs a price the platform is told, there is no price table yet, and a model without
+  one shows cost as *unknown* rather than as zero — a zero would be read as free.
+- **`ankka services logs` is not a log store.** It reads what Kubernetes holds for a pod at the
+  moment of asking: no search, no aggregation, no retention. A service that has restarted many
+  times has lost everything but its last two containers, which is Kubernetes' behaviour reported
+  rather than papered over. Reading logs is also the one thing that widened the control plane's
+  rights — it now holds `get` on `pods` and `pods/log`, which changes what a compromised control
+  plane *discloses* though not what it can *do*: every mutating verb is still withheld, `pods/exec`
+  included.
+- **No console for a deployed installation.** The CLI is the only client for anything in a cluster.
 - **Cross-entity checks are edge checks.** "The project still has services" is counted
   from a projection, so a service created moments earlier may not be counted yet. It
   guards against the obvious mistake; it is not a transactional constraint.

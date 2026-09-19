@@ -1,0 +1,118 @@
+# Quickstart: Seeing What a Service Is Doing
+
+How to prove the feature, cheapest first.
+
+## Tier 1 — Pure (seconds)
+
+```bash
+sbt 'runtime/testOnly com.thinkmorestupidless.ankka.runtime.RecorderSuite'
+# the ring bounds; oldest overwritten; a partial trace is labelled, not silently truncated
+sbt 'runtime/testOnly com.thinkmorestupidless.ankka.runtime.TraceSuite'
+# nesting from flat records; unattributed time is reported and never redistributed;
+# an orphan span stays at the root with an unknown parent
+sbt 'cli/testOnly com.thinkmorestupidless.ankka.cli.DiscoverySuite'
+# a stale registry entry is dropped and its file removed; -D override keeps $HOME out of it
+```
+
+## Tier 2 — The budget (a minute, and it is a gate)
+
+```bash
+sbt 'runtime/testOnly com.thinkmorestupidless.ankka.runtime.RecorderBenchmark'
+```
+
+Throughput and median latency, recording on versus off, same workload. **Within 5% (SC-003) or the
+always-on decision goes back to the user** — not quietly replaced by sampling, which would leave
+the spec's assumption and its checklist both reading as though they still held.
+
+Memory (SC-004): the same workload at 10,000 and 100,000 requests holds the same trace footprint.
+A ring that grows is a ring that is not a ring.
+
+## Tier 3 — The console, by hand (~5 minutes, the feature itself)
+
+```bash
+docker compose up -d
+sbt shoppingCart/run &            # and, in another terminal, a second service
+ankka local console               # → http://localhost:9889
+```
+
+Then, without touching a terminal again:
+
+1. **Services** — both services listed. Kill one with `kill -9`; it disappears within 5s (SC-007)
+   and its registry file is gone.
+2. **Components** — the cart's entities, views and endpoints, grouped.
+3. **Invoke** — `POST /carts/{id}/items`, fill the form, send. Response shown.
+4. **Traces** — open that request. Endpoint → entity, nested, each with a duration, and
+   unattributed time on its own row.
+5. **Agents** — with the multi-agent sample, open a session: its memory, its tokens, its cost.
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-… sbt multiAgentPlanner/run
+```
+
+The negative worth doing by hand: point the console at a service whose endpoint ACL denies you and
+confirm the refusal is identical to `curl`'s (FR-012). The console is not a way round an ACL, and
+this is the check that it stayed that way.
+
+## Tier 4 — Deployed logs (~10 minutes, needs the local cluster)
+
+```bash
+./kustomization/deploy-local.sh
+ankka services apply -f cart.json && ankka services expose cart
+curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:8443/carts/c1
+
+ankka services logs cart                 # the request appears
+ankka services logs cart --follow        # streams; ctrl-c exits cleanly
+ankka services restart cart
+ankka services logs cart --previous      # what the old instance said before it went
+ankka services pause cart
+ankka services logs cart                 # says so, exits non-zero — never hangs, never empty-0
+```
+
+**Prove it with no cluster credentials** (SC-006):
+
+```bash
+env -u KUBECONFIG HOME=$(mktemp -d) ankka services logs cart --url … --token …
+```
+
+## Tier 5 — The RBAC, against a real cluster
+
+```bash
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.LogsClusterSuite'
+```
+
+Mints a token for the control plane's **own ServiceAccount** and reads logs through it — not with
+kind's admin credentials. `CLAUDE.md` records why this is the only form that proves anything: the
+suites mostly use admin credentials, so a missing verb fails silently in CI and loudly on a real
+deploy, which has already happened once (`ensureNamespace` needing `patch`, not `create`).
+
+The same suite asserts the verbs that were *withheld*: the control plane's token must still be
+refused when it tries to create, delete or exec into a pod. A read-only widening that quietly
+became more is the thing to catch.
+
+## Tier 6 — Metrics
+
+```bash
+kubectl -n ankka-checkout port-forward deploy/cart 7626:7626
+curl -s localhost:7626/ankka/metrics | grep ankka_
+```
+
+Counts and durations by component and handler; agent tokens and cost by model. A service that has
+served nothing returns zeroed series rather than an error. A model with no configured price shows
+**no cost series at all** — absent, not zero.
+
+## Reviewer's checklist
+
+- [ ] `runtime` and `cli` gained **no** dependency. `git diff project/Dependencies.scala` is empty.
+- [ ] `EntityProtocol.Command` is unchanged; trace identity travels as `Metadata`.
+- [ ] The console reaches handlers only over the service's own HTTP port — no privileged path.
+- [ ] Unattributed time is reported, never redistributed; no orphan is reattached by guessing.
+- [ ] The registry directory honours a system property, so no suite writes to `$HOME`.
+- [ ] The control plane's new rights are `get` on `pods` and `pods/log` and nothing else.
+- [ ] `ankka local console` works with no control plane configured; `services logs` works with the
+      console never started.
+- [ ] `README.md`'s "Not implemented" gains: the console is local-only; no persistence, sampling or
+      log search; the control plane can now read every service's output.
+- [ ] Every existing suite passes, and no existing component changed to be observed (SC-008).
+- [ ] The seam holds: the UI and the aggregation API reference `Source`, never the registry; a
+      service carries an `instances` list; `partial` is never described in terms of eviction. Grep
+      the UI for "registry", "pid" and "aged out" — none should appear.

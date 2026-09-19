@@ -108,9 +108,10 @@ lazy val commonSettings = Seq(
   // the "skipped" suites taking seven minutes.
   // Every test switch needs the same forwarding; TemplateSuite ran under `template.tests=off` until
   // its switch was added here too.
-  Test / javaOptions ++= Seq("ankka.cluster.tests", "ankka.template.tests").flatMap { key =>
-    sys.props.get(key).map(v => s"-D$key=$v")
-  },
+  Test / javaOptions ++= Seq("ankka.cluster.tests", "ankka.template.tests", "ankka.benchmarks")
+    .flatMap { key =>
+      sys.props.get(key).map(v => s"-D$key=$v")
+    },
   testFrameworks += new TestFramework("munit.Framework")
 )
 

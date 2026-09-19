@@ -37,6 +37,10 @@ private[ankka] object KeyValueEntityHost:
         SimpleEntityContext(entityId, descriptor.componentId, componentClient)
       )
       val empty = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
+      // Resolved inside setup, where touching the context is safe, and once per entity rather
+      // than once per invocation.
+      val observability = Observability(ctx.system)
+      val componentRef  = observability.names.intern(descriptor.componentId.toString)
 
       DurableStateBehavior
         .withEnforcedReplies[EntityProtocol.Command, Stored[S]](
@@ -50,7 +54,9 @@ private[ankka] object KeyValueEntityHost:
               empty,
               state,
               command,
-              DurableStateBehavior.lastSequenceNumber(ctx)
+              DurableStateBehavior.lastSequenceNumber(ctx),
+              observability,
+              componentRef
             )
         )
         .snapshotAdapter(snapshotAdapter(descriptor))
@@ -63,7 +69,9 @@ private[ankka] object KeyValueEntityHost:
       empty: Stored[S],
       state: Stored[S],
       command: EntityProtocol.Command,
-      sequenceNumber: Long
+      sequenceNumber: Long,
+      observability: Observability,
+      componentRef: Int
   ): ReplyEffect[Stored[S]] =
     command match
       case invoke: EntityProtocol.Invoke =>
@@ -93,8 +101,24 @@ private[ankka] object KeyValueEntityHost:
                 )
               )
             )
-            try interpret(binding, entity, invoke, visible)
-            finally entity._setContext(None)
+            // Same span as the event sourced host records: the handler and the effect it
+            // returned, parented by whatever the caller's metadata carried.
+            val metadata = MetaEntry.toMetadata(invoke.metadata)
+            val span = observability.recorder.begin(
+              traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
+              parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+              componentRef = componentRef,
+              handlerRef = observability.names.intern(invoke.method)
+            )
+            // Failed until proven otherwise: if the handler throws, that is what is recorded.
+            var spanOutcome = SpanOutcome.Failed
+            try
+              val (effect, handlerOutcome) = interpret(binding, entity, invoke, visible)
+              spanOutcome = handlerOutcome
+              effect
+            finally
+              observability.recorder.complete(span, spanOutcome)
+              entity._setContext(None)
 
       case request: EntityProtocol.InvokeStream =>
         // See the note in EventSourcedEntityHost: reply, do not drop.
@@ -115,7 +139,7 @@ private[ankka] object KeyValueEntityHost:
       entity: C,
       invoke: EntityProtocol.Invoke,
       visibleState: S
-  ): ReplyEffect[Stored[S]] =
+  ): (ReplyEffect[Stored[S]], SpanOutcome) =
     val effect =
       binding.decodeAndInvoke(entity, invoke.payload).asInstanceOf[KeyValueEffect[S, Any]]
 
@@ -125,13 +149,16 @@ private[ankka] object KeyValueEntityHost:
       case Outcome.Reply(_, metadata) => metadata
       case _                          => Metadata.empty
 
+    // Returned, not inferred: `effects.error(...)` is a value rather than an exception, so a
+    // refusal is indistinguishable from success to the caller. See the note in the event sourced
+    // host for why a console must not show the two the same way.
     result.reply match
       case Left(error) =>
-        PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
+        (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
       case Right(replyValue) =>
         val builder = storageEffect(result)
-        replyValue match
+        val effectOut = replyValue match
           case Some(value) =>
             builder.thenReply(invoke.replyTo) { _ =>
               EntityProtocol.Succeeded(
@@ -140,6 +167,7 @@ private[ankka] object KeyValueEntityHost:
               )
             }
           case None => builder.thenNoReply()
+        (effectOut, SpanOutcome.Ok)
     end match
   end interpret
 

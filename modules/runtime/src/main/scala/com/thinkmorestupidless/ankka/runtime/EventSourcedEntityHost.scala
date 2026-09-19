@@ -46,7 +46,11 @@ private[ankka] object EventSourcedEntityHost:
       val entity = descriptor.create(
         SimpleEntityContext(entityId, descriptor.componentId, componentClient)
       )
-      val empty = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
+      // Resolved here, inside setup, where touching the context is safe. Never from a Future
+      // callback, and never per invocation: the component's name is interned once per entity.
+      val observability = Observability(ctx.system)
+      val componentRef  = observability.names.intern(descriptor.componentId.toString)
+      val empty         = Stored(entity.emptyState, deleted = false, expiryMillis = 0L)
 
       val base = EventSourcedBehavior
         .withEnforcedReplies[
@@ -63,7 +67,9 @@ private[ankka] object EventSourcedEntityHost:
               entityId,
               state,
               command,
-              EventSourcedBehavior.lastSequenceNumber(ctx)
+              EventSourcedBehavior.lastSequenceNumber(ctx),
+              observability,
+              componentRef
             ),
           eventHandler = (state, event) => onEvent(entity, state, event)
         )
@@ -83,7 +89,9 @@ private[ankka] object EventSourcedEntityHost:
       entityId: EntityId,
       state: Stored[S],
       command: EntityProtocol.Command,
-      sequenceNumber: Long
+      sequenceNumber: Long,
+      observability: Observability,
+      componentRef: Int
   ): ReplyEffect[Journaled[E], Stored[S]] =
     command match
       case invoke: EntityProtocol.Invoke =>
@@ -117,8 +125,25 @@ private[ankka] object EventSourcedEntityHost:
                 )
               )
             )
-            try interpret(binding, entity, invoke)
-            finally entity._setContext(None)
+            // The span covers the handler and the effect it returns — the work this component
+            // did for this request. The parent comes from the caller's metadata, which is how a
+            // trace survives a sharding hop without any protocol type changing.
+            val metadata = MetaEntry.toMetadata(invoke.metadata)
+            val span = observability.recorder.begin(
+              traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
+              parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+              componentRef = componentRef,
+              handlerRef = observability.names.intern(invoke.method)
+            )
+            // Failed until proven otherwise: if the handler throws, that is what is recorded.
+            var outcome = SpanOutcome.Failed
+            try
+              val (effect, handlerOutcome) = interpret(binding, entity, invoke)
+              outcome = handlerOutcome
+              effect
+            finally
+              observability.recorder.complete(span, outcome)
+              entity._setContext(None)
 
       case request: EntityProtocol.InvokeStream =>
         // Entities have no streaming surface. Reply rather than drop it, so a caller
@@ -148,7 +173,7 @@ private[ankka] object EventSourcedEntityHost:
       binding: HandlerBinding[C],
       entity: C,
       invoke: EntityProtocol.Invoke
-  ): ReplyEffect[Journaled[E], Stored[S]] =
+  ): (ReplyEffect[Journaled[E], Stored[S]], SpanOutcome) =
     val effect =
       binding
         .decodeAndInvoke(entity, invoke.payload)
@@ -157,20 +182,26 @@ private[ankka] object EventSourcedEntityHost:
     val journaled: Vector[Journaled[E]] =
       effect.events.map(Journaled.Domain(_)) ++ retentionRecord(effect.retention)
 
+    // The span outcome is returned rather than inferred by the caller, because the caller cannot
+    // see it: `effects.error(...)` produces a *value*, not an exception, so a refusal reaches the
+    // caller looking exactly like a success. A console that painted a working ACL red would teach
+    // its reader that red means nothing, which is how a real failure gets ignored.
     effect.outcome match
       case Outcome.Fail(error) =>
-        PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
+        (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
       case Outcome.NoReply =>
-        persist(journaled).thenNoReply()
+        (persist(journaled).thenNoReply(), SpanOutcome.Ok)
 
       case Outcome.Reply(compute, metadata) =>
-        persist(journaled).thenReply(invoke.replyTo) { stored =>
-          EntityProtocol.Succeeded(
-            binding.encodeReply(compute(stored.value)),
-            MetaEntry.from(metadata)
-          )
-        }
+        val reply: ReplyEffect[Journaled[E], Stored[S]] =
+          persist(journaled).thenReply(invoke.replyTo) { stored =>
+            EntityProtocol.Succeeded(
+              binding.encodeReply(compute(stored.value)),
+              MetaEntry.from(metadata)
+            )
+          }
+        (reply, SpanOutcome.Ok)
     end match
   end interpret
 

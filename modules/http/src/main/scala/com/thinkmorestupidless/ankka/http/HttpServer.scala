@@ -177,31 +177,7 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
             Future.successful(
               problem(HttpProblem.forbidden("not permitted by this endpoint's acl"))
             )
-          else
-            // The request's own span, and the trace everything it causes hangs from. Without this
-            // an entity invocation is its own root and the Traces panel shows isolated component
-            // calls rather than requests — which looks plausible and explains nothing.
-            //
-            // The span covers dispatch only. A handler that returns a Future does its real work
-            // after this returns, and that work is a child span in its own right; the gap between
-            // them is reported as unattributed rather than guessed at.
-            val observability = Observability(system)
-            val span = observability.recorder.begin(
-              traceId = Trace.mint(),
-              parentSpanId = 0L,
-              componentRef = observability.names.intern(endpoint.prefix),
-              handlerRef =
-                observability.names.intern(s"${request.method.value} ${request.uri.path}")
-            )
-            var outcome = SpanOutcome.Failed
-            try
-              val response =
-                Trace.within(span.traceId, span.id)(
-                  dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
-                )
-              outcome = SpanOutcome.Ok
-              response
-            finally observability.recorder.complete(span, outcome)
+          else dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
 
   /**
    * The request as a handler and an ACL both see it.

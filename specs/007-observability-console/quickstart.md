@@ -76,18 +76,48 @@ env -u KUBECONFIG HOME=$(mktemp -d) ankka services logs cart --url … --token �
 
 ## Tier 5 — The RBAC, against a real cluster
 
+Two halves, because neither alone proves it.
+
+**What the manifest says**, in CI, in milliseconds:
+
 ```bash
-sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.LogsClusterSuite'
+sbt 'controlPlane/testOnly com.thinkmorestupidless.ankka.controlplane.LogsRbacSuite'
 ```
 
-Mints a token for the control plane's **own ServiceAccount** and reads logs through it — not with
-kind's admin credentials. `CLAUDE.md` records why this is the only form that proves anything: the
-suites mostly use admin credentials, so a missing verb fails silently in CI and loudly on a real
-deploy, which has already happened once (`ensureNamespace` needing `patch`, not `create`).
+Catches a later edit that adds `delete` to make a cleanup easier, or `pods/exec` to make debugging
+easier — either of which breaks the argument that let this widening in.
 
-The same suite asserts the verbs that were *withheld*: the control plane's token must still be
-refused when it tries to create, delete or exec into a pod. A read-only widening that quietly
-became more is the thing to catch.
+**What the API server agrees to**, against a real cluster, asking as the control plane's own
+ServiceAccount rather than as an admin:
+
+```bash
+SA=system:serviceaccount:ankka-controlplane:ankka-controlplane
+for c in "get pods/log" "get pods" "create pods" "delete pods" "patch pods" \
+         "create pods/exec" "delete deployments" "create deployments"; do
+  printf "  %-22s %s\n" "$c" "$(kubectl auth can-i ${=c} -n ankka-checkout --as=$SA)"
+done
+```
+
+Expected, and verified on kind:
+
+```
+  get pods/log           yes
+  get pods               yes
+  create pods            no
+  delete pods            no
+  patch pods             no
+  create pods/exec       no
+  delete deployments     no
+  create deployments     no
+```
+
+`CLAUDE.md` records why only this half proves the *granted* side: the suites mostly use admin
+credentials, so a missing verb fails silently in CI and loudly on a real deploy — which has already
+happened once, when `ensureNamespace` needed `patch` and had only `create`.
+
+**Still outstanding**: an automated cluster suite that mints the ServiceAccount's token and reads a
+log through it, so the granted side is covered in CI too rather than by a command someone
+remembers to run. `OperatorClusterSuite` already does this for the operator and is the pattern.
 
 ## Tier 6 — Metrics
 

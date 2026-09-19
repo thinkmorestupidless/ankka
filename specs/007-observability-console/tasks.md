@@ -117,8 +117,8 @@ CLI alone on a machine with no kubeconfig, then restart and read the previous in
 - [X] T046 [US2] Add `services logs` to `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/Main.scala` with `--follow`, `--previous`, `--instance`, `--since` and `--tail` per [contracts/cli-commands.md](./contracts/cli-commands.md).
 - [X] T047 [US2] Identify the instance on each line in `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/Output.scala` when a service runs several; stream lines **unwrapped** so piping to `grep` gives the service's own output.
 - [X] T048 [US2] Handle the empty cases in `Main.scala`: a paused service, or one with no running instance, **says so and exits non-zero** — never hangs, and never exits 0 with empty output, which reads as "logged nothing".
-- [ ] T049 [P] [US2] Write `controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/LogsEndpointSuite.scala`: another project's service is refused; an unknown service gives the same error `services get` gives; follow closes cleanly on interrupt.
-- [ ] T050 [US2] Write `controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/LogsClusterSuite.scala`: mint a token for the control plane's **own ServiceAccount** and read logs through it — not kind's admin credentials, which is the recorded reason an RBAC gap once reached a real deploy. Assert the **withheld** verbs too: that token must still be refused creating, deleting or exec'ing into a pod.
+- [X] T049 [P] [US2] Write `controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/LogsEndpointSuite.scala`: another project's service is refused; an unknown service gives the same error `services get` gives; follow closes cleanly on interrupt.
+- [~] T050 [US2] **Partly done.** `LogsRbacSuite` asserts the shipped manifest grants `get` on pods and pods/log and withholds every mutating verb, `pods/exec`, `pods/attach`, `pods/portforward` and all of `deployments`; the granted side was verified against kind with `kubectl auth can-i --as` the control plane's ServiceAccount (quickstart Tier 5, output recorded). **Remaining**: the automated form, so the granted side is covered in CI rather than by a command someone remembers — original: Write `controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/LogsClusterSuite.scala`: mint a token for the control plane's **own ServiceAccount** and read logs through it — not kind's admin credentials, which is the recorded reason an RBAC gap once reached a real deploy. Assert the **withheld** verbs too: that token must still be refused creating, deleting or exec'ing into a pod.
 - [ ] T051 [US2] Walk [quickstart.md](./quickstart.md) Tier 4 by hand, including the no-credentials proof (`env -u KUBECONFIG HOME=$(mktemp -d)`).
 
 **Checkpoint**: US2 is independently shippable, with or without the console.
@@ -132,11 +132,11 @@ scrape.
 
 **Independent Test**: deploy a service, drive traffic, and read values that match what was driven.
 
-- [ ] T052 [US3] Create `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityRoute.scala` as a `ManagementRouteProvider`, following `VersionRoute.scala` exactly — the Kubernetes exposure of the same recorder.
-- [ ] T053 [US3] Implement `GET /ankka/metrics` in `ObservabilityRoute.scala`: Prometheus text exposition, **hand-written — no dependency may be added to a published artifact**. Counts and durations by component and handler; tokens and cost by model.
-- [ ] T054 [US3] Register the route in `modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf` under `http.routes`, beside `ankka-version`. The key is `http.routes.*`, not `routes.*` — the wrong one is silently ignored.
-- [ ] T055 [P] [US3] Write metrics cases in `modules/runtime/src/test/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityEndpointSuite.scala`: a service that has served nothing returns **zeroed series, not an error**; a model with no configured price emits **no cost series at all** — absent, not zero, which would be charted as free.
-- [ ] T056 [US3] Walk [quickstart.md](./quickstart.md) Tier 6 against the local cluster.
+- [X] T052 [US3] Create `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityRoute.scala` as a `ManagementRouteProvider`, following `VersionRoute.scala` exactly — the Kubernetes exposure of the same recorder.
+- [X] T053 [US3] Implement `GET /ankka/metrics` in `ObservabilityRoute.scala`: Prometheus text exposition, **hand-written — no dependency may be added to a published artifact**. Counts and durations by component and handler; tokens and cost by model.
+- [X] T054 [US3] Register the route in `modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf` under `http.routes`, beside `ankka-version`. The key is `http.routes.*`, not `routes.*` — the wrong one is silently ignored.
+- [X] T055 [P] [US3] Write metrics cases in `modules/runtime/src/test/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityEndpointSuite.scala`: a service that has served nothing returns **zeroed series, not an error**; a model with no configured price emits **no cost series at all** — absent, not zero, which would be charted as free.
+- [X] T056 [US3] Walk [quickstart.md](./quickstart.md) Tier 6 against the local cluster.
 
 **Checkpoint**: all three stories complete.
 

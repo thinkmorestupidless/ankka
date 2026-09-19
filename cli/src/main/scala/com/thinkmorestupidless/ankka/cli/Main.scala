@@ -7,6 +7,8 @@ import com.monovore.decline.{Command, Opts}
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
+import com.thinkmorestupidless.ankka.cli.console.{ConsoleServer, LocalSource}
+
 import java.io.PrintStream
 import java.nio.file.{Files, Paths}
 
@@ -310,6 +312,46 @@ object Main:
     }
   }
 
+  /**
+   * `ankka local console` — a web UI over the services running on this machine.
+   *
+   * Talks to no control plane at all: no URL, no token, no cluster. A developer who has never run
+   * `ankka config set url` must be able to use it, because it is a development tool and the
+   * services it shows are on the same machine as the browser.
+   */
+  private val localCommand =
+    Opts.subcommand("local", "Tools for services running on this machine.") {
+      Opts.subcommand("console", "Serve a console over the services running on this machine.") {
+        (
+          Opts
+            .option[Int]("port", s"Port to serve on; defaults to ${ConsoleServer.DefaultPort}.")
+            .withDefault(ConsoleServer.DefaultPort),
+          Opts.flag("no-open", "Do not open a browser.").orFalse
+        ).mapN { (port, noOpen) => () =>
+          val server = ConsoleServer.start(new LocalSource(), port, System.out)
+          if !noOpen then openBrowser(server.address)
+          // Serve until interrupted. The console is a foreground tool: a developer stops looking at
+          // it by pressing ctrl-c, which is also how they stop it.
+          val latch = java.util.concurrent.CountDownLatch(1)
+          Runtime.getRuntime.addShutdownHook(Thread { () =>
+            server.stop(); latch.countDown()
+          })
+          latch.await()
+          ""
+        }
+      }
+    }
+
+  private def openBrowser(address: String): Unit =
+    val opener =
+      if sys.props.getOrElse("os.name", "").toLowerCase.contains("mac") then Some("open")
+      else if sys.props.getOrElse("os.name", "").toLowerCase.contains("linux") then Some("xdg-open")
+      else None
+    opener.foreach { cmd =>
+      try ProcessBuilder(cmd, address).start(): Unit
+      catch case _: Throwable => () // a console you must click on is still a console
+    }
+
   private val command = Command(
     name = "ankka",
     header = "Operate an ankka control plane."
@@ -320,6 +362,7 @@ object Main:
       .orElse(configCommand)
       .orElse(versionCommand)
       .orElse(initCommand)
+      .orElse(localCommand)
   )
 
   /**

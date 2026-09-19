@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.http
 
+import com.thinkmorestupidless.ankka.runtime.{Observability, SpanOutcome, Trace}
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, AnkkaService, RuntimeExtension}
 import org.apache.pekko.actor.typed.ActorSystem
@@ -85,6 +86,15 @@ final class HttpServer private (
   def boundPort: Option[Int] = binding.map(_.localAddress.getPort)
 
   /**
+   * Where this server is actually serving, for the local console's invoke panel.
+   *
+   * Loopback rather than the bound host: the console runs on the same machine, and a service bound
+   * to 0.0.0.0 should not advertise that as an address to call.
+   */
+  override def boundAddress: Option[String] =
+    binding.map(b => s"http://127.0.0.1:${b.localAddress.getPort}")
+
+  /**
    * Rejects two endpoints sharing a prefix, and duplicate routes within one endpoint.
    *
    * Overlapping prefixes would make dispatch depend on registration order, which is the kind of
@@ -159,7 +169,31 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
             Future.successful(
               problem(HttpProblem.forbidden("not permitted by this endpoint's acl"))
             )
-          else dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
+          else
+            // The request's own span, and the trace everything it causes hangs from. Without this
+            // an entity invocation is its own root and the Traces panel shows isolated component
+            // calls rather than requests — which looks plausible and explains nothing.
+            //
+            // The span covers dispatch only. A handler that returns a Future does its real work
+            // after this returns, and that work is a child span in its own right; the gap between
+            // them is reported as unattributed rather than guessed at.
+            val observability = Observability(system)
+            val span = observability.recorder.begin(
+              traceId = Trace.mint(),
+              parentSpanId = 0L,
+              componentRef = observability.names.intern(endpoint.prefix),
+              handlerRef =
+                observability.names.intern(s"${request.method.value} ${request.uri.path}")
+            )
+            var outcome = SpanOutcome.Failed
+            try
+              val response =
+                Trace.within(span.traceId, span.id)(
+                  dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
+                )
+              outcome = SpanOutcome.Ok
+              response
+            finally observability.recorder.complete(span, outcome)
 
   /**
    * The request as a handler and an ACL both see it.
@@ -226,9 +260,16 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
             // Handlers run on a virtual thread, which is what makes the blocking
             // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
             // and what makes the request context safe to hold in a ThreadLocal.
-            Future(RequestScope.withContext(context)(route.run(args, bytes)))(using
-              AnkkaExecutors.virtual
-            )
+            Future(
+              RequestScope.withContext(context)(
+                // Traced here, on the handler's own virtual thread, and not around this
+                // Future's creation: a trace set on the caller's thread is invisible to
+                // this one. It is the same reason RequestScope sets its context here. This
+                // is what makes the entity's span a child of the request instead of a root
+                // of its own — the difference between a trace and a list.
+                Tracing.request(route.describe)(route.run(args, bytes))
+              )
+            )(using AnkkaExecutors.virtual)
           }
           .map { encoded =>
             HttpResponse(
@@ -275,9 +316,16 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       .flatMap { bytes =>
         // The context is scoped around *building* the source, not around draining it:
         // elements are pulled later, by pekko-http, on another thread entirely.
-        Future(RequestScope.withContext(context)(route.run(args, bytes)))(using
-          AnkkaExecutors.virtual
-        )
+        Future(
+          RequestScope.withContext(context)(
+            // Traced here, on the handler's own virtual thread, and not around this
+            // Future's creation: a trace set on the caller's thread is invisible to
+            // this one. It is the same reason RequestScope sets its context here. This
+            // is what makes the entity's span a child of the request instead of a root
+            // of its own — the difference between a trace and a list.
+            Tracing.request(route.describe)(route.run(args, bytes))
+          )
+        )(using AnkkaExecutors.virtual)
       }
       .flatMap { source =>
         // JSON-encoded per event: see JsonText for why raw text is not safe here.
@@ -307,3 +355,27 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
         s"""{"status":${failure.status},"error":"$escaped"}"""
       )
     )
+
+/**
+ * The request's own span: the root every component invocation it causes hangs from.
+ *
+ * Lives in `http` rather than `runtime` because only this module knows what a request is, and
+ * reaches the recorder through the extension `runtime` publishes — the same direction every other
+ * part of the seam runs in.
+ */
+private[http] object Tracing:
+
+  def request[A](describe: String)(body: => A)(using system: ActorSystem[?]): A =
+    val observability = Observability(system)
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = observability.names.intern("http"),
+      handlerRef = observability.names.intern(describe)
+    )
+    var outcome = SpanOutcome.Failed
+    try
+      val result = Trace.within(span.traceId, span.id)(body)
+      outcome = SpanOutcome.Ok
+      result
+    finally observability.recorder.complete(span, outcome)

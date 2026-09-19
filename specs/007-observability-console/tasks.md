@@ -63,35 +63,35 @@ response, open the trace, see the entity's state change.
 
 ### The service side
 
-- [ ] T016 [US1] Create `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ServiceRegistration.scala`: write the registry entry at startup and remove it on graceful shutdown, **only in `local` cluster mode**. Fields per [data-model.md](./data-model.md), including `instanceId`.
-- [ ] T017 [US1] Make the registry directory overridable by a system property in `ServiceRegistration.scala`, defaulting to `~/.ankka/running/`. This follows the recorded rule that anything reading `~/.ankka` or `$HOME` must be overridable, or no suite can exercise discovery without writing into the developer's home.
-- [ ] T018 [US1] Create `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityEndpoint.scala`: `jdk.httpserver`, **loopback only**, ephemeral port, started in `local` mode only. Loopback is the whole of the access control.
-- [ ] T019 [US1] Implement `GET /observability/service` in `ObservabilityEndpoint.scala` per [contracts/observability-endpoint.md](./contracts/observability-endpoint.md), returning the component inventory the runtime already holds and an **`instances` list that always holds exactly one entry locally**.
-- [ ] T020 [US1] Implement `GET /observability/traces` and `GET /observability/traces/{traceId}` in `ObservabilityEndpoint.scala`, including `oldestOverwritten`, `unattributedMillis` and `partial`.
+- [X] T016 [US1] Create `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ServiceRegistration.scala`: write the registry entry at startup and remove it on graceful shutdown, **only in `local` cluster mode**. Fields per [data-model.md](./data-model.md), including `instanceId`.
+- [X] T017 [US1] Make the registry directory overridable by a system property in `ServiceRegistration.scala`, defaulting to `~/.ankka/running/`. This follows the recorded rule that anything reading `~/.ankka` or `$HOME` must be overridable, or no suite can exercise discovery without writing into the developer's home.
+- [X] T018 [US1] Create `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityEndpoint.scala`: `jdk.httpserver`, **loopback only**, ephemeral port, started in `local` mode only. Loopback is the whole of the access control.
+- [X] T019 [US1] Implement `GET /observability/service` in `ObservabilityEndpoint.scala` per [contracts/observability-endpoint.md](./contracts/observability-endpoint.md), returning the component inventory the runtime already holds and an **`instances` list that always holds exactly one entry locally**.
+- [X] T020 [US1] Implement `GET /observability/traces` and `GET /observability/traces/{traceId}` in `ObservabilityEndpoint.scala`, including `oldestOverwritten`, `unattributedMillis` and `partial`.
 - [ ] T021 [P] [US1] Implement `GET /observability/entities/{component}/{id}` in `ObservabilityEndpoint.scala`: current state, and `404` when the entity has never been created — never an empty state that looks real.
 - [ ] T022 [P] [US1] Implement `GET /observability/sessions/{sessionId}` and `GET /observability/usage` in `ObservabilityEndpoint.scala`, returning stored agent memory plus tokens and cost.
 - [ ] T023 [US1] Record model usage in `modules/agent/src/main/scala/com/thinkmorestupidless/ankka/agent/AgentLoop.scala` against the current trace — **including calls that failed part-way**, which still consumed input tokens.
 - [ ] T024 [P] [US1] Implement cost in `modules/runtime/src/main/scala/com/thinkmorestupidless/ankka/runtime/Recorder.scala` from the price table: a model absent from the table yields tokens with **unknown cost, never zero** — zero reads as free.
-- [ ] T025 [US1] Mint a trace at the HTTP entry point in `modules/http/src/main/scala/com/thinkmorestupidless/ankka/http/HttpServer.scala`, carrying it in the existing request context.
+- [X] T025 [US1] Mint a trace at the HTTP entry point in `modules/http/src/main/scala/com/thinkmorestupidless/ankka/http/HttpServer.scala`, carrying it in the existing request context.
 - [ ] T026 [P] [US1] Write `modules/runtime/src/test/scala/com/thinkmorestupidless/ankka/runtime/ObservabilityEndpointSuite.scala`: every route's shape matches the contract; an absent entity is `404`; a service with `"http": false` reports no HTTP instance address.
 
 ### The console side
 
-- [ ] T027 [US1] Create the seam `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/Source.scala`: everything the console can ask for, defined independently of where it comes from. The UI and aggregation API talk to this and nothing else.
+- [X] T027 [US1] Create the seam `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/Source.scala`: everything the console can ask for, defined independently of where it comes from. The UI and aggregation API talk to this and nothing else.
 - [ ] T028 [US1] Create `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/Discovery.scala`: read the registry directory, honour the system-property override, and **drop entries whose observability address does not answer, removing the stale file**. `kill -9` during development is the common case.
-- [ ] T029 [US1] Create `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/LocalSource.scala` implementing `Source` over `Discovery` — the only implementation this feature ships.
+- [X] T029 [US1] Create `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/LocalSource.scala` implementing `Source` over `Discovery` — the only implementation this feature ships.
 - [ ] T030 [P] [US1] Write `cli/src/test/scala/com/thinkmorestupidless/ankka/cli/DiscoverySuite.scala`: a live entry is listed; a stale entry is dropped and its file removed; the `-D` override keeps `$HOME` out of the test.
-- [ ] T031 [US1] Create `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/ConsoleServer.scala`: `jdk.httpserver` on loopback, serving static assets from resources and a JSON aggregation API backed by `Source`. Default port 9889 (Akka's); **if taken, take the next free one and say so — never fail on a busy port.**
-- [ ] T032 [US1] Add the `local console` command to `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/Main.scala` with `--port` and `--no-open`. It must work with **no control plane configured** — no URL, no token, no cluster.
+- [X] T031 [US1] Create `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/ConsoleServer.scala`: `jdk.httpserver` on loopback, serving static assets from resources and a JSON aggregation API backed by `Source`. Default port 9889 (Akka's); **if taken, take the next free one and say so — never fail on a busy port.**
+- [X] T032 [US1] Add the `local console` command to `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/Main.scala` with `--port` and `--no-open`. It must work with **no control plane configured** — no URL, no token, no cluster.
 - [ ] T033 [P] [US1] Write `cli/src/test/scala/com/thinkmorestupidless/ankka/cli/ConsoleServerSuite.scala`: the aggregation API is served; a busy default port is handled; `Main.run` returns the right exit code.
 
 ### The UI
 
-- [ ] T034 [US1] Create `cli/src/main/resources/console/index.html` and `style.css`: the shell and the five panels. Hand-written, no build step, no bundler.
-- [ ] T035 [US1] Implement the **Services** panel in `cli/src/main/resources/console/app.js`: name, state, instances (always `1` locally, **and a column anyway**) and address. No services running says so plainly; a service appearing or vanishing is reflected within 5 seconds.
-- [ ] T036 [P] [US1] Implement the **Components** panel in `app.js`: registered components grouped by kind.
+- [X] T034 [US1] Create `cli/src/main/resources/console/index.html` and `style.css`: the shell and the five panels. Hand-written, no build step, no bundler.
+- [X] T035 [US1] Implement the **Services** panel in `cli/src/main/resources/console/app.js`: name, state, instances (always `1` locally, **and a column anyway**) and address. No services running says so plainly; a service appearing or vanishing is reflected within 5 seconds.
+- [X] T036 [P] [US1] Implement the **Components** panel in `app.js`: registered components grouped by kind.
 - [ ] T037 [US1] Implement the **Invoke** panel in `app.js`: route templates become a form, and the request goes to the **service's own HTTP address as an ordinary client** — which is what makes "cannot bypass an ACL" structural. A streaming response renders as it arrives, not on completion.
-- [ ] T038 [US1] Implement the **Traces** panel in `app.js`: the tree, per-span durations and shares, **unattributed time as its own row**, an orphan at the root with an unknown parent, and a `partial` trace labelled "this window does not hold all of it" **without naming eviction as the cause**.
+- [X] T038 [US1] Implement the **Traces** panel in `app.js`: the tree, per-span durations and shares, **unattributed time as its own row**, an orphan at the root with an unknown parent, and a `partial` trace labelled "this window does not hold all of it" **without naming eviction as the cause**.
 - [ ] T039 [P] [US1] Implement the **Agents** panel in `app.js`: sessions, stored memory, tokens and cost per session and per service. Unknown cost shows `—` with a reason; a service with no agents shows no panel rather than an empty one.
 - [ ] T040 [US1] Offer the trace for a request directly from the Invoke panel's response in `app.js` — the invoke-then-explain loop is the point of the panel.
 - [ ] T041 [US1] Walk [quickstart.md](./quickstart.md) Tier 3 by hand with two services running, including `kill -9` on one, and the ACL negative: a route that refuses `curl` must refuse the console identically.

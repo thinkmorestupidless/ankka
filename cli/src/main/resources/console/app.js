@@ -1,0 +1,262 @@
+// The local console. Hand-written, no framework, no build step.
+//
+// It talks to the aggregation API and never to a registry, a file or a service directly — see
+// Source.scala for why. Two consequences show up all over this file and are deliberate:
+//
+//   * a service is rendered from a list of instances, and that list happens to have one entry.
+//     The Services panel shows an instance count even though it always reads 1, because a panel
+//     that renders a single address is the one that has to be rebuilt for a deployed console.
+//   * a partial trace is labelled "this window does not hold all of it", never "spans aged out".
+//     Locally eviction is the only cause; saying so here would make the other cause a new case.
+
+const state = { services: [], selected: null, tab: 'traces' };
+
+const $ = (id) => document.getElementById(id);
+
+async function api(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path} -> ${response.status}`);
+  return response.json();
+}
+
+// ── Services ────────────────────────────────────────────────────────────────
+
+async function loadServices() {
+  let services = [];
+  try {
+    services = (await api('/api/services')).services || [];
+    $('status').textContent = '';
+  } catch (e) {
+    // Degrade, never blank: the console itself is still here and should say what it knows.
+    $('status').textContent = 'console cannot reach its own API';
+  }
+
+  const known = JSON.stringify(state.services.map((s) => s.name));
+  state.services = services;
+  if (JSON.stringify(services.map((s) => s.name)) !== known) render();
+
+  // A service that has gone must not stay selected with a dead detail pane.
+  if (state.selected && !services.some((s) => s.name === state.selected)) {
+    state.selected = null;
+    render();
+  }
+}
+
+function render() {
+  const list = $('services');
+  list.innerHTML = '';
+  $('services-empty').hidden = state.services.length > 0;
+
+  for (const service of state.services) {
+    const button = document.createElement('button');
+    button.className = 'service';
+    button.setAttribute('aria-current', String(service.name === state.selected));
+    const instances = (service.instances || []).length;
+    button.innerHTML =
+      `<div class="name"></div>` +
+      `<div class="meta">${instances} instance${instances === 1 ? '' : 's'}</div>`;
+    button.querySelector('.name').textContent = service.name;
+    button.onclick = () => select(service.name);
+    list.appendChild(button);
+  }
+
+  $('detail-empty').hidden = state.selected !== null;
+  for (const panel of ['components', 'traces']) {
+    $(`panel-${panel}`).hidden = state.selected === null || state.tab !== panel;
+  }
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.setAttribute('aria-selected', String(tab.dataset.panel === state.tab));
+  });
+}
+
+function select(name) {
+  state.selected = name;
+  render();
+  refreshDetail();
+}
+
+// ── Components ──────────────────────────────────────────────────────────────
+
+async function loadComponents(name) {
+  const container = $('components');
+  container.innerHTML = '';
+  let service;
+  try {
+    service = await api(`/api/service/${encodeURIComponent(name)}`);
+  } catch (e) {
+    container.textContent = 'This service stopped answering.';
+    return;
+  }
+
+  const byKind = {};
+  for (const component of service.components || []) {
+    (byKind[component.kind] ||= []).push(component);
+  }
+
+  for (const kind of Object.keys(byKind).sort()) {
+    const group = document.createElement('div');
+    group.className = 'kind';
+    const heading = document.createElement('h3');
+    heading.textContent = kind;
+    group.appendChild(heading);
+    for (const component of byKind[kind]) {
+      const chip = document.createElement('span');
+      chip.className = 'component';
+      chip.textContent = component.id;
+      group.appendChild(chip);
+    }
+    container.appendChild(group);
+  }
+
+  if (!(service.components || []).length) {
+    container.innerHTML = '<p class="empty">No components registered.</p>';
+  }
+}
+
+// ── Traces ──────────────────────────────────────────────────────────────────
+
+async function loadTraces(name) {
+  const container = $('traces');
+  let window_;
+  try {
+    window_ = await api(`/api/traces/${encodeURIComponent(name)}`);
+  } catch (e) {
+    container.innerHTML = '<p class="empty">This service stopped answering.</p>';
+    return;
+  }
+
+  // Always say this is a window, never a history (FR-017).
+  $('traces-note').textContent =
+    `Showing the ${window_.held} most recent spans of ${window_.capacity} held` +
+    (window_.oldestOverwritten ? ' — older ones have been discarded.' : '.');
+
+  const traces = window_.traces || [];
+  $('traces-empty').hidden = traces.length > 0;
+  container.innerHTML = '';
+
+  for (const trace of traces) {
+    const details = document.createElement('details');
+    details.className = 'trace';
+
+    const summary = document.createElement('summary');
+    const entry = document.createElement('span');
+    entry.className = 'entry';
+    entry.textContent = trace.entry;
+    const outcome = document.createElement('span');
+    outcome.className = `outcome ${trace.outcome}`;
+    outcome.textContent = trace.outcome;
+    const duration = document.createElement('span');
+    duration.className = 'dur';
+    duration.textContent = `${trace.durationMillis} ms`;
+    summary.append(entry, outcome);
+    if (trace.partial) {
+      const flag = document.createElement('span');
+      flag.className = 'flag';
+      flag.textContent = 'partial';
+      flag.title = 'This window does not hold all of this trace.';
+      summary.appendChild(flag);
+    }
+    summary.appendChild(duration);
+    details.appendChild(summary);
+
+    const body = document.createElement('div');
+    body.className = 'body';
+    body.textContent = 'Loading…';
+    details.appendChild(body);
+
+    details.ontoggle = async () => {
+      if (!details.open || details.dataset.loaded) return;
+      details.dataset.loaded = '1';
+      try {
+        const full = await api(`/api/traces/${encodeURIComponent(name)}/${trace.traceId}`);
+        body.innerHTML = '';
+        renderSpans(body, full.spans || [], full.durationMillis, 0);
+        // Unattributed time gets its own row. It is usually the answer — a model call, a database
+        // wait, work handed to another thread — and spreading it across spans to tidy the
+        // percentages would hide exactly the finding this panel exists to surface.
+        if (full.unattributedMillis > 0) {
+          renderSpan(body, {
+            component: 'unattributed',
+            handler: '',
+            durationMillis: full.unattributedMillis,
+            outcome: null,
+            children: [],
+          }, full.durationMillis, 0, true);
+        }
+      } catch (e) {
+        body.textContent = 'This trace is no longer available.';
+      }
+    };
+
+    container.appendChild(details);
+  }
+}
+
+function renderSpans(container, spans, total, depth) {
+  for (const span of spans) {
+    renderSpan(container, span, total, depth, false);
+    renderSpans(container, span.children || [], total, depth + 1);
+  }
+}
+
+function renderSpan(container, span, total, depth, unattributed) {
+  const row = document.createElement('div');
+  row.className = 'span' + (unattributed ? ' unattributed' : '');
+  row.style.paddingLeft = `${depth * 16}px`;
+
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = span.handler ? `${span.component}#${span.handler}` : span.component;
+
+  const bar = document.createElement('span');
+  bar.className = 'bar';
+  const fill = document.createElement('i');
+  const share = total > 0 ? Math.max(1, (span.durationMillis / total) * 100) : 0;
+  fill.style.width = `${Math.min(100, share)}%`;
+  bar.appendChild(fill);
+
+  const time = document.createElement('span');
+  time.className = 't';
+  time.textContent =
+    span.durationMillis > 0 ? `${span.durationMillis} ms` : `${span.durationMicros || 0} µs`;
+
+  row.append(who);
+  // An orphan keeps the parent it claimed and says the parent is unknown. Never re-parented:
+  // a tree that looks complete and describes something that did not happen is worse than a hole.
+  if (span.parentUnknown) {
+    const flag = document.createElement('span');
+    flag.className = 'flag';
+    flag.textContent = 'parent unknown';
+    row.appendChild(flag);
+  }
+  if (span.outcome && span.outcome !== 'Ok') {
+    const outcome = document.createElement('span');
+    outcome.className = `outcome ${span.outcome}`;
+    outcome.textContent = span.outcome;
+    row.appendChild(outcome);
+  }
+  row.append(bar, time);
+  container.appendChild(row);
+}
+
+// ── Wiring ──────────────────────────────────────────────────────────────────
+
+function refreshDetail() {
+  if (!state.selected) return;
+  if (state.tab === 'components') loadComponents(state.selected);
+  else loadTraces(state.selected);
+}
+
+document.querySelectorAll('.tab').forEach((tab) => {
+  tab.onclick = () => {
+    state.tab = tab.dataset.panel;
+    render();
+    refreshDetail();
+  };
+});
+
+loadServices().then(() => {
+  // A service that starts appears within 5 seconds, and one that exits disappears (SC-007).
+  setInterval(loadServices, 3000);
+  setInterval(() => { if (state.tab === 'traces') refreshDetail(); }, 3000);
+});

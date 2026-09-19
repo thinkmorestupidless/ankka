@@ -40,6 +40,17 @@ trait RuntimeExtension:
    */
   def readiness: Option[() => Boolean] = None
 
+  /**
+   * Where this extension accepts requests, once it has bound — `http://127.0.0.1:9000` and such.
+   *
+   * `None` means "serves nothing addressable", which is the honest answer for a projection or a
+   * timer runtime. It exists so the local console can offer to invoke a service's own routes
+   * without `runtime` learning anything about `http`: the extension knows its address, the runtime
+   * only knows that an extension may have one. Read when asked rather than at start, because
+   * binding completes on its own schedule.
+   */
+  def boundAddress: Option[String] = None
+
 /** Entry point for defining and starting an ankka service. */
 object Ankka:
 
@@ -95,6 +106,8 @@ final class ServiceBuilder private[ankka] (
   def startWith(system: ActorSystem[?]): AnkkaService =
     host(system, ownsSystem = false)
 
+  @volatile private var observabilityEndpoint: Option[ObservabilityEndpoint] = None
+
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =
     val registry = ComponentRegistry.fromOrThrow(descriptors)
     val sharding = ClusterSharding(system)
@@ -149,6 +162,17 @@ final class ServiceBuilder private[ankka] (
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)
     }
+
+    // After the extensions, so the endpoint can report the address they bound. Local mode only:
+    // in Kubernetes the pod is the registry and management is the exposure, and management is
+    // started there and only there because it binds a fixed port two local services would fight
+    // over — which is the whole reason this endpoint exists separately.
+    // "bootstrap" is the Kubernetes overlay's formation; anything else is a locally-run service.
+    // Keyed off formation rather than the mode variable because that is what the overlay actually
+    // sets, and a service given a config by hand still gets the right answer.
+    val runningLocally =
+      !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap")
+    if runningLocally then observabilityEndpoint = ObservabilityEndpoint.start(service, system.name)
 
     service
 
@@ -232,6 +256,15 @@ final class AnkkaService private[ankka] (
       throw IllegalStateException(
         s"node did not reach Up within $timeout (status ${cluster.selfMember.status})"
       )
+
+  /**
+   * The addresses this service's extensions are serving on, asked at the moment of asking.
+   *
+   * Used by the observability endpoint so the console can send a request to the service's *own*
+   * port, as an ordinary client — which is what makes "the console cannot bypass an ACL" a
+   * structural fact rather than a rule someone has to remember.
+   */
+  def boundAddresses: Vector[String] = extensions.flatMap(_.boundAddress)
 
   def whenTerminated: Future[?] = system.whenTerminated
 

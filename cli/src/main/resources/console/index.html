@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ankka local console</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="mark" aria-hidden="true">
+      <!-- The duck, drawn small: the lockup's silhouette at a size where detail would only blur. -->
+      <svg viewBox="0 0 2520 1254" width="34" height="17" role="img" aria-label="ankka">
+        <path d="M 591 259 L 233 977 L 857 977 L 591 259 Z" fill="currentColor" opacity="0.9"/>
+      </svg>
+    </div>
+    <h1>ankka <span class="dim">local console</span></h1>
+    <div class="spacer"></div>
+    <span id="status" class="status"></span>
+  </header>
+
+  <main>
+    <nav id="services-panel">
+      <h2>Services</h2>
+      <div id="services"></div>
+      <p class="empty" id="services-empty" hidden>
+        No ankka services are running on this machine.
+        <span class="dim">Start one with <code>sbt run</code> — it will appear here.</span>
+      </p>
+    </nav>
+
+    <section id="detail">
+      <div class="tabs" role="tablist">
+        <button class="tab" data-panel="components" role="tab">Components</button>
+        <button class="tab" data-panel="traces" role="tab">Traces</button>
+      </div>
+
+      <div class="panel" id="panel-components" hidden>
+        <div id="components"></div>
+      </div>
+
+      <div class="panel" id="panel-traces" hidden>
+        <p class="note" id="traces-note"></p>
+        <div id="traces"></div>
+        <p class="empty" id="traces-empty" hidden>
+          Nothing recorded yet. <span class="dim">Send this service a request and it will appear.</span>
+        </p>
+      </div>
+
+      <p class="empty" id="detail-empty">Select a service.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

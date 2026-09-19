@@ -1,0 +1,124 @@
+package com.thinkmorestupidless.ankka.cli.console
+
+import java.net.URI
+import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.nio.file.{Files, Path, Paths}
+import java.time.Duration
+import scala.jdk.CollectionConverters.*
+import scala.util.Try
+
+/**
+ * Services running on this machine, found by reading the registry directory.
+ *
+ * The only `Source` this feature ships. It discovers nothing by scanning ports or guessing: a
+ * service announces itself by writing a file, which mirrors how components reach the runtime —
+ * explicitly, never by discovery.
+ */
+final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends Source:
+
+  private val client = HttpClient
+    .newBuilder()
+    .connectTimeout(Duration.ofMillis(300))
+    .build()
+
+  def services(): Vector[ServiceSummary] =
+    entries().sortBy(_.startedAt)
+
+  def service(name: String): Option[String] =
+    forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/service"))
+
+  def traces(name: String): Option[String] =
+    forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/traces"))
+
+  def trace(name: String, traceId: String): Option[String] =
+    forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/traces/$traceId"))
+
+  private def forName(name: String): Option[ServiceSummary] =
+    services().find(_.name == name)
+
+  /**
+   * Reads the directory, dropping entries nothing answers for — and deleting their files.
+   *
+   * **A stale entry is the normal case, not an error.** `kill -9` is how a developer stops a
+   * service far more often than a clean shutdown, so the writer cannot be relied on to clean up and
+   * the reader must. A dead row that errors when clicked is worse than no row at all, which is why
+   * this probes rather than trusting the file's existence.
+   */
+  private def entries(): Vector[ServiceSummary] =
+    if !Files.isDirectory(directory) then Vector.empty
+    else
+      val files =
+        try Files.list(directory).iterator().asScala.filter(_.toString.endsWith(".json")).toVector
+        catch case _: Throwable => Vector.empty
+
+      files.flatMap { file =>
+        parse(file) match
+          case None =>
+            // Unreadable or malformed: not ours to interpret, and not ours to keep.
+            discard(file)
+            None
+          case Some(entry) =>
+            if alive(entry) then Some(entry)
+            else
+              discard(file)
+              None
+      }
+
+  private def alive(entry: ServiceSummary): Boolean =
+    get(s"${entry.observabilityAddress}/observability/service").isDefined
+
+  private def discard(file: Path): Unit =
+    try Files.deleteIfExists(file): Unit
+    catch case _: Throwable => ()
+
+  private def parse(file: Path): Option[ServiceSummary] =
+    Try {
+      val json = Files.readString(file)
+      ServiceSummary(
+        name = field(json, "name").get,
+        instanceId = field(json, "instanceId").getOrElse("?"),
+        observabilityAddress = field(json, "observabilityAddress").get,
+        startedAt = field(json, "startedAt").getOrElse("")
+      )
+    }.toOption
+
+  /**
+   * One string field out of a flat object.
+   *
+   * The registry entry is written by this same project and has five string fields, so a parser is
+   * not worth a dependency in a module whose defining property is carrying almost none. Anything it
+   * cannot read is treated as a stale entry and removed, which is the same handling a corrupt file
+   * would get from a real parser.
+   */
+  private def field(json: String, key: String): Option[String] =
+    val marker = s""""$key":""""
+    json.indexOf(marker) match
+      case -1 => None
+      case at =>
+        val from = at + marker.length
+        json.indexOf('"', from) match
+          case -1 => None
+          case to => Some(json.substring(from, to))
+
+  private def get(url: String): Option[String] =
+    try
+      val response = client.send(
+        HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(2)).GET().build(),
+        HttpResponse.BodyHandlers.ofString()
+      )
+      if response.statusCode() == 200 then Some(response.body) else None
+    catch case _: Throwable => None
+
+object LocalSource:
+
+  /**
+   * `-Dankka.running.dir`, else `~/.ankka/running`.
+   *
+   * Overridable for the reason `Settings.path` checks `-Dankka.config` first: environment variables
+   * cannot be set in-process, so without this no suite could exercise discovery without writing
+   * into the developer's own home directory.
+   */
+  def defaultDirectory: Path =
+    sys.props.get("ankka.running.dir") match
+      case Some(path) => Paths.get(path)
+      case None       => Paths.get(sys.props("user.home"), ".ankka", "running")

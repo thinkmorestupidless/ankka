@@ -266,6 +266,7 @@ class MultiNodeClusterSuite extends munit.FunSuite:
   private def sigkill(pod: Pod): Unit =
     def attempt(): Either[String, Unit] =
       val fresh = k8s.pods().inNamespace(Namespace).withName(pod.getMetadata.getName).get()
+      if fresh == null then return Left(s"pod ${pod.getMetadata.getName} no longer exists")
       val cid =
         fresh.getStatus.getContainerStatuses.get(0).getContainerID.stripPrefix("containerd://")
       val (c1, pid) =

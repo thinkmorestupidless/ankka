@@ -31,7 +31,8 @@ class ProjectorSuite extends munit.FunSuite:
   private var fake: FakeNakkaServiceClient = null
 
   // A one-second sweep so a test asserts on the next pass rather than waiting thirty.
-  private val config = DeployConfig.default.copy(sweepInterval = 1.second)
+  private val config =
+    DeployConfig.default.copy(sweepInterval = 1.second, platformVersion = "0.3.1")
 
   override def beforeAll(): Unit =
     fake = new FakeNakkaServiceClient
@@ -214,4 +215,41 @@ class ProjectorSuite extends munit.FunSuite:
       fake.current(Namespace, Service).exists(_.spec.image == "cart:4.0")
     }
     assertEquals(fake.all.count(r => r.name == Service && r.namespace == Namespace), 1)
+  }
+
+  test(
+    "12. a declared runtime outside the platform's range is refused: Unavailable, both versions, no resource"
+  ) {
+    // Feature 006. An apply records intent and succeeds; the projector is what declines.
+    val before = fake.current(Namespace, Service).map(_.spec.image)
+    val _ = client
+      .forEventSourcedEntity(EntityId(Key.id))
+      .call(ServiceEntity.applyDescriptor)
+      .invoke(
+        ApplyService(
+          Project,
+          ServiceDescriptor(Service, ServiceSpec("cart:5.0", runtime = Some("9.0.0")))
+        )
+      )
+    eventually() {
+      val s = status()
+      s.lifecycle == ServiceLifecycle.Unavailable && s.confirmed &&
+      s.detail.exists(d => d.contains("9.0.0") && d.contains("runtimes 0.2.x–0.3.x"))
+    }
+    // The resource in the cluster is the previous one: nothing was written for 9.0.0.
+    assertEquals(fake.current(Namespace, Service).map(_.spec.image), before)
+
+    // A supported declaration proceeds as if nothing happened.
+    val _ = client
+      .forEventSourcedEntity(EntityId(Key.id))
+      .call(ServiceEntity.applyDescriptor)
+      .invoke(
+        ApplyService(
+          Project,
+          ServiceDescriptor(Service, ServiceSpec("cart:6.0", runtime = Some("0.2.0")))
+        )
+      )
+    eventually() {
+      fake.current(Namespace, Service).exists(_.spec.image == "cart:6.0")
+    }
   }

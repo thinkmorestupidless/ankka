@@ -1,0 +1,26 @@
+# Postgres for running $name;format="norm"$ locally: the event journal, snapshots, durable state,
+# view tables and projection offsets all live here.
+#
+# The schema comes from target/ddl, which `sbt schema` fills from the nakka-runtime artifact —
+# run that first. Postgres applies an init directory only when its data volume is empty, so after
+# a nakka upgrade: `docker compose down -v`, `sbt schema`, `docker compose up -d`.
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: nakka
+      POSTGRES_PASSWORD: nakka
+      POSTGRES_DB: nakka
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./target/ddl:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nakka -d nakka"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:

@@ -272,10 +272,55 @@ object Main:
     get.orElse(set).orElse(unset)
   }
 
+  private val versionCommand = Opts.subcommand("version", "Print the nakka version of this CLI.") {
+    Opts.unit.map(_ => () => nakka.core.BuildInfo.version)
+  }
+
+  private val initCommand = Opts.subcommand(
+    "init",
+    "Create a new service from the nakka template (runs `sbt new`; needs sbt on PATH)."
+  ) {
+    (
+      Opts.argument[String]("name"),
+      Opts
+        .option[String]("template", "A Giter8 template reference, e.g. file:///path/to/nakka.g8.")
+        .withDefault(Init.DefaultTemplate),
+      Opts.option[String]("package", "The Scala package; defaults to com.example.<name>.").orNone,
+      Opts
+        .option[String]("dir", "Where to create the project; defaults to the current directory.")
+        .orNone
+    ).mapN { (name, template, pkg, dir) => () =>
+      val request = Init.Request(
+        name,
+        template,
+        pkg,
+        dir.map(java.nio.file.Path.of(_)).getOrElse(java.nio.file.Path.of("."))
+      )
+      val problems = Init.problems(request)
+      if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+      if !Init.sbtOnPath() then
+        throw ApiError(
+          0,
+          "nakka init needs sbt on PATH; install it from https://www.scala-sbt.org/"
+        )
+      val code = Init.run(request)
+      if code != 0 then throw ApiError(0, s"sbt new exited with $code")
+      val where = request.directory.resolve(name).toAbsolutePath.normalize
+      s"created $where\n\n  cd $name\n  sbt test\n  sbt schema && docker compose up -d && sbt run\n\nsee README.md for the rest"
+    }
+  }
+
   private val command = Command(
     name = "nakka",
     header = "Operate a nakka control plane."
-  )(organizationsCommand.orElse(projectsCommand).orElse(servicesCommand).orElse(configCommand))
+  )(
+    organizationsCommand
+      .orElse(projectsCommand)
+      .orElse(servicesCommand)
+      .orElse(configCommand)
+      .orElse(versionCommand)
+      .orElse(initCommand)
+  )
 
   /**
    * Runs one command and returns the exit code: 0 ok, 1 failed, 2 misused.

@@ -1,0 +1,16 @@
+<configuration>
+  <!-- With no logback.xml on the classpath logback falls back to everything-at-DEBUG, and for a
+       deployed service that means the whole r2dbc wire protocol, row by row, on stdout. Found by
+       reading this sample's logs in a real pod (feature 003). logback.xml rather than
+       logback-test.xml, so it is what the packaged image uses; the testkit's own
+       logback-test.xml still wins under test, which is the order logback looks them up in. -->
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{30} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

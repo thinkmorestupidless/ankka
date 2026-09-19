@@ -1,0 +1,7 @@
+{
+  "name": "$name;format="norm"$",
+  "service": {
+    "image": "$name;format="norm"$:latest",
+    "runtime": "$nakka_version$"
+  }
+}

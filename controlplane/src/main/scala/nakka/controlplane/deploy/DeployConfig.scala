@@ -18,7 +18,12 @@ final case class DeployConfig(
      */
     baseDomain: Option[String] = None,
     /** The port clients reach HTTPS on; omitted from URLs when it is the default 443. */
-    httpsPort: Int = 443
+    httpsPort: Int = 443,
+    /**
+     * This platform's version, against which a descriptor's declared `runtime` is checked
+     * (`Compatibility`). From the build; overridable so a test can be a platform of any version.
+     */
+    platformVersion: String = nakka.core.BuildInfo.version
 ):
   def namespaceFor(projectId: String): String = s"$namespacePrefix-$projectId"
 

@@ -128,7 +128,8 @@ final class ServiceBuilder private[nakka] (
     }
 
     system.log.info(
-      "nakka service started: {}",
+      "nakka {} service started: {}",
+      nakka.core.BuildInfo.version,
       if registry.isEmpty then "no components registered" else registry.toString
     )
 

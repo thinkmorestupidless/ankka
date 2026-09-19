@@ -97,6 +97,16 @@ class StatusIngestSuite extends munit.FunSuite:
     )
   }
 
+  test("a refusal is a confirmed decision: Unavailable, with the reason as the detail") {
+    // Not "could not reach the cluster": the platform read the desired state and declined to
+    // run it — a declared runtime outside the supported range, say. That is certain, not stale.
+    val refused = StatusIngest.observe(service(), ClusterView.Refused("runtime 9.0.0 is outside…"))
+    assertEquals(refused.lifecycle, ServiceLifecycle.Unavailable)
+    assertEquals(refused.detail, Some("runtime 9.0.0 is outside…"))
+    assertEquals(refused.confirmed, true)
+    assertEquals(refused.readyInstances, 0)
+  }
+
   test("every lifecycle name the operator can write maps back") {
     for name <- ServiceLifecycle.values.map(_.toString) do
       val observation =

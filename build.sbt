@@ -2,10 +2,31 @@ import Dependencies.*
 import com.typesafe.sbt.packager.docker.DockerPlugin
 import com.typesafe.sbt.packager.archetypes.JavaAppPackaging
 
-ThisBuild / scalaVersion  := V.scala
-ThisBuild / organization  := "com.thinkmorestupidless"
-ThisBuild / version       := "0.1.0-SNAPSHOT"
+ThisBuild / scalaVersion := V.scala
+ThisBuild / organization := "com.thinkmorestupidless"
+// No `ThisBuild / version`: sbt-dynver derives it from the nearest tag (`v0.2.0` → `0.2.0`; a
+// commit past it → `0.2.0+3-abc1234-SNAPSHOT`; a dirty tree → `…+<timestamp>-SNAPSHOT`). Setting the
+// version anywhere silently overrides the tag, which is the one thing a release must not do.
 ThisBuild / versionScheme := Some("early-semver")
+ThisBuild / homepage      := Some(url("https://github.com/thinkmorestupidless/nakka"))
+ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / developers := List(
+  Developer(
+    "thinkmorestupidless",
+    "Trevor Burton-McCreadie",
+    "",
+    url("https://github.com/thinkmorestupidless")
+  )
+)
+// The local proof of the release path (feature 006): `-Dnakka.release.local=<dir>` points
+// `publishSigned` at a Maven-layout directory instead of the Central Portal, so signing, sources,
+// javadoc and POM metadata are exercised end to end before the public namespace exists.
+ThisBuild / publishTo := sys.props
+  .get("nakka.release.local")
+  .map(dir =>
+    Resolver.file("local-release", file(dir))(Patterns(true, Resolver.mavenStyleBasePattern))
+  )
+  .orElse((ThisBuild / publishTo).value)
 
 /**
  * Integration suites each start their own Postgres container and run real projections. Letting
@@ -29,6 +50,40 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
  * the install manifests is what makes `sbt operator/docker:publishLocal` followed by deleting the
  * pod the whole local iteration loop — no image tag to bump in any YAML.
  */
+/**
+ * The template names the platform version it was released with — as the artifact version its
+ * generated build resolves and as the runtime version its generated descriptor declares. This task
+ * writes that value from the build's own version, so the template can never name a version that was
+ * not published alongside it.
+ *
+ * Only for a release version: a snapshot carries a commit and a timestamp that change on every
+ * dirty-tree publish, and rewriting the checked-in file for each would be noise. Locally, `nakka
+ * init` passes its own `BuildInfo.version` as `--nakka_version` (the CLI you run is the version you
+ * get) and `TemplateSuite` does the same, so the checked-in default matters only to someone running
+ * `sbt new thinkmorestupidless/nakka.g8` — who gets the last release, which is right.
+ */
+lazy val templateVersion =
+  taskKey[Unit]("Writes the build's version into nakka.g8's default.properties")
+
+ThisBuild / templateVersion := {
+  val file =
+    (ThisBuild / baseDirectory).value / "nakka.g8" / "src" / "main" / "g8" / "default.properties"
+  val current = IO.read(file)
+  val v       = version.value
+  val updated = current.linesIterator
+    .map(line => if (line.startsWith("nakka_version=")) s"nakka_version=$v" else line)
+    .mkString("", "\n", "\n")
+  if (updated != current && !v.endsWith("-SNAPSHOT")) {
+    IO.write(file, updated)
+    streams.value.log.info(s"templateVersion: nakka_version=$v")
+  }
+}
+
+lazy val templateArtifacts =
+  taskKey[Unit](
+    "Publishes the six library artifacts locally for TemplateSuite, unless template tests are off"
+  )
+
 lazy val sampleImageForClusterTests =
   taskKey[Unit](
     "Builds the sample image SampleDeploymentClusterSuite deploys, unless cluster tests are off"
@@ -37,7 +92,10 @@ lazy val sampleImageForClusterTests =
 lazy val dockerSettings = Seq(
   dockerBaseImage    := "eclipse-temurin:21-jre",
   dockerUpdateLatest := true,
-  dockerRepository   := sys.env.get("DOCKER_REPOSITORY")
+  dockerRepository   := sys.env.get("DOCKER_REPOSITORY"),
+  // A Docker tag may not contain '+', and a dynver snapshot version does (`0.2.0+3-sha-SNAPSHOT`).
+  // A release version has no '+', so a released image is tagged exactly with its version.
+  Docker / version := version.value.replace('+', '-')
 )
 
 lazy val commonSettings = Seq(
@@ -73,10 +131,19 @@ lazy val commonSettings = Seq(
 /** Effects, identifiers, codecs, component descriptors. No Pekko, no I/O. */
 lazy val core = project
   .in(file("modules/core"))
+  .enablePlugins(BuildInfoPlugin)
   .settings(commonSettings)
   .settings(
     name := "nakka-core",
-    libraryDependencies ++= Seq(jsoniterCore, jsoniterMacros)
+    libraryDependencies ++= Seq(jsoniterCore, jsoniterMacros),
+    // nakka.core.BuildInfo.version — the one version everything published from a tag shares.
+    buildInfoKeys    := Seq[BuildInfoKey](version),
+    buildInfoPackage := "nakka.core",
+    buildInfoObject  := "BuildInfo",
+    // core is the first artifact every publish produces, so this is where the template learns the
+    // version being published.
+    publishLocal := publishLocal.dependsOn(ThisBuild / templateVersion).value,
+    publish      := publish.dependsOn(ThisBuild / templateVersion).value
   )
 
 /** The user-facing component API: entities, views, workflows, consumers, timers. */
@@ -97,6 +164,13 @@ lazy val runtime = project
   .settings(commonSettings)
   .settings(
     name := "nakka-runtime",
+    // The Pekko HTTP family as *direct* dependencies, not only the build-wide
+    // `dependencyOverrides` in commonSettings: an override never reaches a POM, so an application
+    // resolving the published nakka-runtime would still get pekko-http-spray-json 1.1.0 from
+    // pekko-management beside pekko-http 1.4.0 — and Pekko HTTP refuses to start on a mixed
+    // family. Found by the first build outside this repository (feature 006). A direct dependency
+    // at the family version is what a consumer's eviction honours.
+    libraryDependencies ++= pekkoHttpFamily.filterNot(_.name == "pekko-http-testkit"),
     libraryDependencies ++= Seq(
       pekkoActorTyped,
       pekkoStream,
@@ -171,7 +245,7 @@ lazy val controlPlaneApi = project
   .in(file("controlplane-api"))
   .dependsOn(core)
   .settings(commonSettings)
-  .settings(name := "nakka-controlplane-api")
+  .settings(name := "nakka-controlplane-api", publish / skip := true)
 
 /**
  * The `NakkaService` custom resource: the contract between the control plane and the operator.
@@ -184,7 +258,8 @@ lazy val crd = project
   .in(file("crd"))
   .settings(commonSettings)
   .settings(
-    name := "nakka-crd",
+    name           := "nakka-crd",
+    publish / skip := true,
     libraryDependencies ++= Seq(fabric8, jacksonScala)
   )
 
@@ -203,7 +278,8 @@ lazy val operator = project
   .settings(commonSettings)
   .settings(dockerSettings)
   .settings(
-    name := "nakka-operator",
+    name           := "nakka-operator",
+    publish / skip := true,
     // Explicit rather than auto-discovered: sbt-native-packager needs exactly one entry
     // point, and leaving it to discovery is one new `@main` away from an ambiguous-main
     // build failure that has nothing to do with what changed.
@@ -250,6 +326,7 @@ lazy val controlPlane = project
   .settings(dockerSettings)
   .settings(
     name                := "nakka-controlplane",
+    publish / skip      := true,
     Compile / mainClass := Some("nakka.controlplane.runControlPlane"),
     dockerExposedPorts  := Seq(9000),
     libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test),
@@ -282,9 +359,40 @@ lazy val cli = project
   .in(file("cli"))
   .dependsOn(controlPlaneApi)
   .settings(commonSettings)
+  .enablePlugins(JavaAppPackaging)
   .settings(
-    name := "nakka-cli",
-    libraryDependencies ++= Seq(decline, munit % Test)
+    name           := "nakka-cli",
+    publish / skip := true,
+    // `sbt cli/stage` is how the CLI is run as a program: target/universal/stage/bin/nakka.
+    executableScriptName := "nakka",
+    // JavaAppPackaging drags DockerPlugin in, and root's `docker:publishLocal` aggregates to every
+    // project that has the task. The CLI is a local binary, never an image: make the task a no-op
+    // here rather than let it build one.
+    Docker / publishLocal := (),
+    Docker / publish      := (),
+    libraryDependencies ++= Seq(decline, munit % Test),
+    // TemplateSuite expands the template into a build outside this one, which resolves nakka from
+    // ~/.ivy2/local — so the artifacts have to be there first. A build-level task dependency, the
+    // same shape as sampleImageForClusterTests; off with -Dnakka.template.tests=off. On both
+    // `test` and `testOnly`: the second is how a single suite is run, and it does not go through
+    // the first.
+    templateArtifacts := Def.taskDyn {
+      if (sys.props.get("nakka.template.tests").contains("off")) Def.task(())
+      else
+        // The six by name: a task dependency on the root's publishLocal runs only the root's own
+        // (skipped) publish — aggregation is how the command line fans out, not the task graph.
+        Def.task {
+          (core / publishLocal).value
+          (sdk / publishLocal).value
+          (runtime / publishLocal).value
+          (http / publishLocal).value
+          (agent / publishLocal).value
+          (testkit / publishLocal).value
+          ()
+        }
+    }.value,
+    Test / test     := (Test / test).dependsOn(templateArtifacts).value,
+    Test / testOnly := (Test / testOnly).dependsOn(templateArtifacts).evaluated
   )
 
 /**

@@ -53,6 +53,46 @@ export ANTHROPIC_API_KEY=sk-ant-...
 sbt "multiAgentPlanner/run"
 ```
 
+## Your first service
+
+The samples above live in this repository. A service of your own starts from the template and
+depends on nakka's published libraries — six of them: `nakka-core`, `nakka-sdk`, `nakka-runtime`,
+`nakka-http`, `nakka-agent`, `nakka-testkit`, under `com.thinkmorestupidless`. Nothing else in this
+build is a library.
+
+```bash
+sbt new thinkmorestupidless/nakka.g8 --name=orders     # or: nakka init orders
+cd orders
+sbt test                                               # an entity test, an endpoint test, an integration test
+sbt schema && docker compose up -d && sbt run          # Postgres from the runtime's own schema; :9000
+curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"name":"Widget","count":2}'
+curl localhost:9000/items/i1
+```
+
+What comes out is the shape of a nakka service with a trivial domain — an `Item` with a name and a
+count: one event sourced entity, one endpoint, one view, tests at each level, a compose file, image
+packaging and a `service.json` — all named after your project. Replace the domain; keep the shape.
+Its `README` continues from here to a running, exposed service:
+
+```bash
+sbt Docker/publishLocal && kind load docker-image orders:latest --name nakka
+nakka services apply -f service.json && nakka services expose orders
+curl --cacert ~/.nakka/local-ca.crt https://orders-checkout.127.0.0.1.sslip.io:8443/items/i1
+```
+
+Until the first release is on Maven Central, `sbt publishLocal` in this repository puts the
+libraries where the template's build finds them, and `nakka init` hands the template the version
+it published (`--nakka_version`), so the two agree. `sbt new file:///path/to/nakka/nakka.g8` is
+the same template from a checkout.
+
+**Versions.** The platform — libraries, operator, control plane, CLI — is released as one version
+from one tag. `service.json` declares the nakka version a service was built against, and the
+platform checks it when it deploys: same major, and a minor equal to the platform's or one
+below. A declaration outside that range is reported on `services get` as `Unavailable`, naming
+both versions, and nothing starts; an undeclared version is not checked. It is a declaration —
+the runtime also logs its version at start and serves it at `/nakka/version` on its management
+port, which is what to compare against if the two might differ.
+
 ## The component model
 
 | Component | What it is | Hosted as |
@@ -734,6 +774,15 @@ Honest gaps, not oversights:
   with data to migrate, or a durability profile CNPG's defaults do not cover. It does not
   extend cross-service isolation — a supplied database's isolation is whatever its owner
   configured, not something nakka verifies.
+- **A registry, still.** Images are built into the local Docker daemon and `kind load`ed; the
+  template's `README` says so. `DOCKER_REPOSITORY` in the platform's build is the one switch.
+- **The declared runtime is trusted.** `service.json`'s `runtime` is checked, not the image: a
+  descriptor can lie, and the platform does not yet compare it with what the pod reports at
+  `/nakka/version`. No compatibility matrix either — one rule, one minor of slack.
+- **The CLI is `sbt cli/stage`.** No binary release, no package; `target/universal/stage/bin/nakka`
+  on `PATH`. `nakka init` needs `sbt` on `PATH` for the same reason.
+- **`sbt new thinkmorestupidless/nakka.g8` waits on the first release**, which pushes the
+  template to that repository; until then the `file://` form from a checkout.
 - **Custom hostnames.** An exposed service's hostname is the platform's to derive; there is no
   way to give a service a domain of your own. That needs the user to own DNS and certificates for
   a domain the platform does not control, and is a feature of its own.

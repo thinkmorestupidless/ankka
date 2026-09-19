@@ -9,6 +9,13 @@ enum ClusterView:
   /** The cluster could not be reached, or the watch is not connected. */
   case Unreachable(reason: String)
 
+  /**
+   * The platform read the desired state and declined to run it — a descriptor that cannot be
+   * projected, a declared runtime outside the supported range. Unlike `Unreachable`, this is a
+   * certain answer about the service itself, not a stale reading of the cluster.
+   */
+  case Refused(reason: String)
+
   /** The resource exists, and nothing has ever written a status to it. */
   case NoReport
 
@@ -41,6 +48,17 @@ object StatusIngest:
         desiredInstances = service.desiredInstances,
         detail = Some(s"could not reach the cluster: $reason"),
         confirmed = false,
+        database = service.database
+      )
+
+    case ClusterView.Refused(reason) =>
+      ServiceObservation(
+        generation = service.generation,
+        lifecycle = ServiceLifecycle.Unavailable,
+        readyInstances = 0,
+        desiredInstances = service.desiredInstances,
+        detail = Some(reason),
+        confirmed = true,
         database = service.database
       )
 

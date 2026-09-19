@@ -27,6 +27,12 @@ final case class ServiceDescriptor(name: String, service: ServiceSpec):
   def isValid: Boolean = problems.isEmpty
 
 object ServiceDescriptor:
+
+  /** Why a name cannot be a service name, or nothing — the one rule, shared with `nakka init`. */
+  def nameProblems(name: String): Vector[String] =
+    ServiceDescriptor(name, ServiceSpec("x")).problems
+      .filter(_.startsWith("service name"))
+
   /**
    * Kubernetes DNS label rules.
    *
@@ -94,8 +100,21 @@ final case class ServiceSpec(
      * the runtime already had. `0` is not "none": `HttpServer.at` already gives it a meaning — pick
      * a free port — and a second, opposite one here would be a trap.
      */
-    port: Int = ServiceSpec.DefaultPort
+    port: Int = ServiceSpec.DefaultPort,
+    /**
+     * The nakka version the image was built against — `"0.2.0"`, the same value as the build's
+     * `nakkaVersion` (the template writes both from one parameter). Absent means unchecked: every
+     * descriptor written before this field existed stays valid and silent. Present, it is compared
+     * against the platform's own version when the service is projected (`Compatibility`), and an
+     * unsupported one is reported — naming both — rather than run against a schema it may not
+     * match. A declaration, not a measurement: the runtime also logs and serves its version, but
+     * the platform must be able to refuse before anything starts (feature 006, research R3).
+     */
+    runtime: Option[String] = None
 ):
+
+  /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
+  def declaredRuntime: Option[Either[String, Version]] = runtime.map(Version.parse)
 
   /**
    * The one value everything downstream sees.
@@ -109,7 +128,8 @@ final case class ServiceSpec(
   def problems: Vector[String] =
     val imageProblems =
       if image.isEmpty then Vector("service image must not be empty") else Vector.empty
-    val envProblems = env.flatMap(_.problems)
+    val runtimeProblems = declaredRuntime.flatMap(_.left.toOption).map("runtime " + _).toVector
+    val envProblems     = env.flatMap(_.problems)
     // Both unconditional — checked when `http` is false too. A nonsense port is nonsense whether
     // or not it is used, and one rule with no exceptions is one nobody has to remember.
     val portProblems =
@@ -134,7 +154,7 @@ final case class ServiceSpec(
       env
         .filter(e => ServiceSpec.PlatformEnvVars.contains(e.name))
         .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
-    imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
+    runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
       resources.problems
 
 object ServiceSpec:

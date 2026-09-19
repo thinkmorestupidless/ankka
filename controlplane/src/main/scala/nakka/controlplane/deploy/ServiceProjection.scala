@@ -1,6 +1,6 @@
 package nakka.controlplane.deploy
 
-import nakka.controlplane.api.{InstanceType, ProjectId}
+import nakka.controlplane.api.{Compatibility, InstanceType, ProjectId, ServiceDescriptor, Version}
 import nakka.controlplane.domain.Service
 import nakka.crd.{AutoscalingSpec, EnvEntry, NakkaServiceSpec}
 
@@ -16,6 +16,23 @@ import nakka.crd.{AutoscalingSpec, EnvEntry, NakkaServiceSpec}
  * then a control plane change alone.
  */
 object ServiceProjection:
+
+  /**
+   * A declared runtime outside the platform's supported range refuses the projection: the service
+   * is reported `Unavailable` naming both versions and no resource is written, so no pod ever
+   * starts against a schema it may not match. Undeclared means unchecked (feature 006).
+   */
+  private def runtimeProblems(descriptor: ServiceDescriptor, config: DeployConfig): Vector[String] =
+    descriptor.service.declaredRuntime match
+      case Some(Right(runtime)) =>
+        Version.parse(config.platformVersion) match
+          case Right(platform) if !Compatibility.supports(platform, runtime) =>
+            Vector(
+              s"runtime $runtime is outside the platform's supported range: " +
+                Compatibility.describe(platform)
+            )
+          case _ => Vector.empty
+      case _ => Vector.empty // absent, or malformed (already a descriptor problem)
 
   def project(service: Service, config: DeployConfig): Either[Vector[String], NakkaServiceSpec] =
     service.descriptor match
@@ -33,7 +50,8 @@ object ServiceProjection:
                   "shorten the project id or the namespace prefix"
               )
               .toVector ++
-            descriptor.problems
+            descriptor.problems ++
+            runtimeProblems(descriptor, config)
 
         if problems.nonEmpty then Left(problems)
         else

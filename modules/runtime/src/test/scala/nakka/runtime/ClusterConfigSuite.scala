@@ -213,3 +213,28 @@ class ClusterConfigSuite extends munit.FunSuite:
         .isAssignableFrom(cls)
     )
   }
+
+  test("the kubernetes overlay registers the version route where Pekko Management looks") {
+    // `pekko.management.http.routes.<name>`, not `pekko.management.routes`: the wrong key is
+    // silently ignored and /nakka/version is a 404 in every pod — which is how it was found.
+    val config = ClusterConfig.load(
+      env = Map(
+        "NAKKA_CLUSTER_MODE"           -> "kubernetes",
+        "POD_IP"                       -> "10.0.0.1",
+        "NAKKA_CLUSTER_SERVICE"        -> "cart",
+        "NAKKA_CLUSTER_POD_SELECTOR"   -> "a=b",
+        "NAKKA_CLUSTER_CONTACT_POINTS" -> "2"
+      )
+    )
+    val className = config.getString("pekko.management.http.routes.nakka-version")
+    val cls       = Class.forName(className)
+    assert(
+      classOf[org.apache.pekko.management.scaladsl.ManagementRouteProvider].isAssignableFrom(cls)
+    )
+    assert(
+      cls.getConstructors.exists(
+        _.getParameterTypes.toSeq == Seq(classOf[org.apache.pekko.actor.ExtendedActorSystem])
+      ),
+      cls.getConstructors.mkString
+    )
+  }

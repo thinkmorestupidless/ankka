@@ -181,3 +181,26 @@ class ServiceProjectionSuite extends munit.FunSuite:
   test("the namespace is one per project") {
     assertEquals(config.namespaceFor("checkout"), "nakka-checkout")
   }
+
+  // --- The declared runtime (feature 006): checked here, where "cannot project" already lives.
+
+  private val platform = config.copy(platformVersion = "0.3.1")
+
+  test("a declared runtime within the platform's range projects, and says nothing") {
+    val d = descriptor().copy(service = descriptor().service.copy(runtime = Some("0.2.4")))
+    val Right(spec) = ServiceProjection.project(service(d = d), platform): @unchecked
+    assertEquals(spec.image, "cart:1.0")
+  }
+
+  test("a declared runtime outside the range is refused, naming both versions") {
+    val d      = descriptor().copy(service = descriptor().service.copy(runtime = Some("9.0.0")))
+    val result = ServiceProjection.project(service(d = d), platform)
+    val Left(problems) = result: @unchecked
+    assertEquals(problems.size, 1)
+    assert(problems.head.contains("9.0.0"), problems.head)
+    assert(problems.head.contains("runtimes 0.2.x–0.3.x (platform 0.3.1)"), problems.head)
+  }
+
+  test("an undeclared runtime is not checked") {
+    assert(ServiceProjection.project(service(), platform).isRight)
+  }

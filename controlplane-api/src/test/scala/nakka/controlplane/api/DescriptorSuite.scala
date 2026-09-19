@@ -251,6 +251,26 @@ class DescriptorSuite extends munit.FunSuite:
     assert(problems.exists(_.contains("conflicts with the service port")), problems.toString)
   }
 
+  // --- The declared runtime (feature 006)
+
+  test("a declared runtime round-trips and is absent from the wire when undeclared") {
+    val declared = ServiceSpec("i:1", runtime = Some("0.2.0"))
+    val json     = writeToString(ServiceDescriptor("s", declared))
+    assert(json.contains("\"runtime\":\"0.2.0\""), json)
+    assertEquals(readFromString[ServiceDescriptor](json).service.runtime, Some("0.2.0"))
+    assert(!writeToString(ServiceDescriptor("s", ServiceSpec("i:1"))).contains("runtime"))
+  }
+
+  test("a malformed runtime is a problem naming the format; an absent one is no problem") {
+    assertEquals(ServiceSpec("i:1").problems, Vector.empty)
+    val problems = ServiceSpec("i:1", runtime = Some("latest")).problems
+    assert(
+      problems.exists(p => p.startsWith("runtime ") && p.contains("MAJOR.MINOR.PATCH")),
+      problems
+    )
+    assertEquals(ServiceSpec("i:1", runtime = Some("0.2.0+3-abc-SNAPSHOT")).problems, Vector.empty)
+  }
+
   test("the platform's cluster variables are refused by name, whatever their value") {
     for name <- ServiceSpec.PlatformEnvVars do
       val literal = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("x")))).problems

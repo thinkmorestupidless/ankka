@@ -1,0 +1,22 @@
+# The subset of the build that runs without Docker-in-Docker. The k3s suites (three modules'
+# worth, each starting a Kubernetes node in a container) and the template suite (which publishes
+# locally and runs an external sbt build) stay local for now: see CLAUDE.md, "Commands".
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # sbt-dynver derives the version from tags; a shallow clone sees none
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - run: sbt -Dnakka.cluster.tests=off -Dnakka.template.tests=off scalafmtCheckAll scalafmtSbtCheck compile test

@@ -65,6 +65,13 @@ NAKKA_CLUSTER_SEED_NODES=pekko://nakka@127.0.0.1:17355 NAKKA_HTTP_PORT=9001 sbt 
 `AnthropicProviderSuite` exercises the live API and **skips** unless `ANTHROPIC_API_KEY`
 is set. Everything else is deterministic and offline.
 
+**A full `sbt test` is an hour of wall-clock on a laptop, and a laptop sleeps.** A sleeping Mac
+pauses Docker and every container in it while the test JVM's deadlines keep counting; an
+overnight run came back after 9h50m with two k3s cases failed on timeouts across a 5-hour gap in
+the log's timestamps, and every other suite green. Run long suites under `caffeinate -i sbt test`,
+and read a failure whose duration is absurd (`MultiNodeClusterSuite … 20549s`) as the machine's,
+not the platform's — then rerun it awake.
+
 **Tests are serialized deliberately** (`Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)`
 and `Test / parallelExecution := false` in `build.sbt`). Overlapping suites each start
 their own container and contend: one suite measured 147s in parallel versus 6s alone.
@@ -404,6 +411,29 @@ factory shapes would break lambda parameter inference at every call site.
   loop restores the replica count from the resource, so `kubectl scale --replicas=0` is not how
   a test takes a service down: it is back before the assertion runs. `nakka services pause` /
   `resume` is — the count is rendered from the spec, and pause is the spec saying zero.
+- **`dependencyOverrides` never reaches a POM.** Feature 004 pinned the Pekko HTTP family with an
+  override in `commonSettings`; the first build *outside* this repository (feature 006) got
+  `pekko-http-spray-json 1.1.0` from pekko-management beside `pekko-http 1.4.0` and Pekko HTTP
+  refused to start. Anything a consumer must see is a direct `libraryDependencies` entry in the
+  published module — `nakka-runtime` now declares the family.
+- **A Docker tag may not contain `+`, and a dynver snapshot version does.** `docker:publishLocal`
+  failed on every image the moment `ThisBuild / version` went: `invalid tag
+  "nakka-operator:0.0.0+12-…"`. `dockerSettings` sets `Docker / version` with `+` → `-`; a
+  release version has no `+` and tags exactly as itself. The template's build does the same.
+- **`JavaAppPackaging` enables `DockerPlugin`**, so `sbt cli/stage` for the CLI also made root's
+  `docker:publishLocal` build a CLI image. The CLI's `Docker / publishLocal` and `Docker / publish`
+  are no-ops; the CLI is a local binary, never an image.
+- **A task dependency on `root / publishLocal` publishes nothing.** Aggregation is how the
+  *command line* fans a task out to the aggregated projects; in the task graph, `(root /
+  publishLocal).value` runs the root's own — skipped — publish and returns in 0s. `templateArtifacts`
+  names the six modules. The same is true of `root / test` and `root / compile`.
+- **`testOnly` does not go through `test`.** A dependency hung on `Test / test` is bypassed by
+  `sbt module/testOnly X`, which is exactly how one suite is run; hook both.
+- **A top-level `require(...)` is not an sbt DSL entry** (`required: sbt.internal.DslEntry`); a
+  check in a `build.sbt` is a `val` whose body calls `sys.error`.
+- **Giter8 reads `default.properties` from `src/main/g8/`, not the template root** — at the root
+  it is silently ignored ("Ignoring unrecognized parameter: name"). Spaces in `--name` must be
+  quoted inside the sbt command string; an empty directory needs `sbt --allow-empty`.
 - **A wildcard is one label deep — for X.509 certificates and for Gateway API listeners alike.**
   `*.example.test` covers `cart-checkout.example.test` and not `cart.checkout.example.test`; two
   implementations that got the listener rule wrong filed it as a bug. With TLS on the
@@ -578,6 +608,47 @@ factory shapes would break lambda parameter inference at every call site.
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.
+
+## Publishing
+
+Six modules are libraries an application depends on — `core`, `sdk`, `runtime`, `http`, `agent`,
+`testkit` — and are published as `com.thinkmorestupidless:nakka-<module>_3`. Everything else
+(`controlplane-api`, `crd`, `operator`, `controlplane`, `cli`, the samples, root) carries
+`publish / skip := true`: a platform-side jar cannot reach a repository by accident, and "these
+are not libraries" is a build fact rather than a note.
+
+```bash
+sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly six artifacts
+sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
+sbt -Dnakka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
+git tag v0.2.0 && git push --tags    # the release: .github/workflows/release.yml runs `sbt ci-release`
+```
+
+**There is no `ThisBuild / version`, and there must never be one.** The version comes from the
+git tag through `sbt-dynver`; a version set in the build silently overrides the tag, which is the
+one thing a release must not do. `nakka.core.BuildInfo.version` carries the same value into code
+— the CLI prints it, the control plane compares an application's declared runtime against it.
+
+**The template** is `nakka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which
+publishes locally, expands it into a temp directory through the real `nakka init`, and runs the
+expansion's own `sbt test` and image build as subprocesses (`-Dnakka.template.tests=off` skips
+it; it needs `sbt` on `PATH` and Docker). `nakka init` shells out to `sbt new` and carries no
+template of its own; it passes its `BuildInfo.version` as `--nakka_version`. The directory is
+named `nakka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
+`file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
+new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/nakka.g8`.
+
+**Compatibility** (`nakka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
+checked against `BuildInfo.version` when the control plane *projects* the service — same major,
+minor equal or one below — and an unsupported one takes the existing "cannot project" path as
+`ClusterView.Refused` → `Unavailable` with both versions in the detail, before any resource is
+written. Undeclared is unchecked. The rule lives in `controlplane-api` so the CLI can one day
+print it without the control plane. **A consequence for DDL changes**: within a supported range
+the schema is additive — a running application must never lose a table or column it needs.
+
+A release to Maven Central waits on one action outside this repository: claiming the
+`com.thinkmorestupidless` namespace on the Sonatype Central Portal and setting the four secrets
+the workflow names. Every other step is proven locally.
 
 ## Deploying locally
 

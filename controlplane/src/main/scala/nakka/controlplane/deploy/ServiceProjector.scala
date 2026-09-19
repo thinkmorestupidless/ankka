@@ -131,7 +131,7 @@ private[deploy] final class Projection(
           ServiceProjection.project(service, config) match
             case Left(problems) =>
               log.warn("cannot project {}: {}", key.id, problems.mkString("; "))
-              observe(key, ClusterView.Unreachable(problems.mkString("; ")))
+              observe(key, ClusterView.Refused(problems.mkString("; ")))
             case Right(spec) =>
               // Before the resource, not after: a namespaced object cannot be created in a
               // namespace that does not exist yet.

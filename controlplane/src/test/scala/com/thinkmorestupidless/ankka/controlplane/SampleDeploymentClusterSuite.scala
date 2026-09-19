@@ -34,10 +34,10 @@ import scala.jdk.CollectionConverters.*
  * Every other cluster test deploys `registry.k8s.io/pause`, chosen because it needs nothing: it
  * opens no port, reads no environment and connects to no database. That makes it the right workload
  * for testing the platform's plumbing and useless for testing the platform's *claim* — apply a
- * descriptor, get a running service. This is the only test in the repository where an ankka runtime,
- * a platform-provisioned database, the platform-applied schema, single-node cluster formation, the
- * readiness probe and the Service are all exercised at once, by doing what a user would: adding an
- * item to a cart and reading it back.
+ * descriptor, get a running service. This is the only test in the repository where an ankka
+ * runtime, a platform-provisioned database, the platform-applied schema, single-node cluster
+ * formation, the readiness probe and the Service are all exercised at once, by doing what a user
+ * would: adding an item to a cart and reading it back.
  *
  * Separate from `EndToEndClusterSuite` on purpose. That suite's subject is the two halves agreeing
  * about the resource, and the workload is irrelevant to it; here the workload is the entire point.

@@ -292,7 +292,11 @@ lazy val operator = project
       if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
       else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
     }.value,
-    Test / test := (Test / test).dependsOn(sampleImageForClusterTests).value
+    // Both, as for templateArtifacts: `testOnly` is how one k3s suite is run, and since the suites
+    // name the sample by the build's own version tag, an image from an earlier sbt session (a
+    // different dynver timestamp on a dirty tree) is not the one they ask for.
+    Test / test     := (Test / test).dependsOn(sampleImageForClusterTests).value,
+    Test / testOnly := (Test / testOnly).dependsOn(sampleImageForClusterTests).evaluated
   )
 
 /**
@@ -352,7 +356,11 @@ lazy val controlPlane = project
           ()
         }
     }.value,
-    Test / test := (Test / test).dependsOn(sampleImageForClusterTests).value
+    // Both, as for templateArtifacts: `testOnly` is how one k3s suite is run, and since the suites
+    // name the sample by the build's own version tag, an image from an earlier sbt session (a
+    // different dynver timestamp on a dirty tree) is not the one they ask for.
+    Test / test     := (Test / test).dependsOn(sampleImageForClusterTests).value,
+    Test / testOnly := (Test / testOnly).dependsOn(sampleImageForClusterTests).evaluated
   )
 
 /** The `ankka` command-line client. */

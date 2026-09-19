@@ -67,9 +67,17 @@ class EndToEndClusterSuite extends munit.FunSuite:
    * membership, and an image with no ankka runtime can never be Ready — by design (FR-022). So the
    * workload is now the real sample, and "change the image" is the same image under its other tag,
    * which still changes the pod template and still rolls.
+   *
+   * The other tag is the build's own version (`Docker / version`: dynver with `+` → `-`), never a
+   * literal. It was `0.1.0-SNAPSHOT` until feature 006 deleted `ThisBuild / version`, and the suite
+   * kept passing on a stale image of that name in the Docker daemon — one built before the rename,
+   * reading environment variables the operator no longer sets, so it could start but never be
+   * `Ready`. Case 5 hid it (a rolling update keeps the old pod `Ready`); the first case where that
+   * image was the only pod timed out.
    */
-  private val FirstImage  = "sample-shopping-cart:latest"
-  private val SecondImage = "sample-shopping-cart:0.1.0-SNAPSHOT"
+  private val FirstImage = "sample-shopping-cart:latest"
+  private val SecondImage =
+    s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')}"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null

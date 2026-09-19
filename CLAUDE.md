@@ -39,8 +39,6 @@ sbt controlPlane/test             # control plane: controlPlaneApi crd controlPl
 sbt docker:publishLocal           # build all three images — aggregates to operator,
                                    # controlPlane and the shoppingCart sample; every other
                                    # project is silently skipped, same as compile and test
-sbt shoppingCart/Docker/publishLocal  # just the sample's image — what `testOnly` on
-                                   # SampleDeploymentClusterSuite needs and does not build
 sbt buildAll                      # everything: format check, compile, test, every image —
                                    # one command, stops at the first failing stage
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
@@ -435,6 +433,13 @@ factory shapes would break lambda parameter inference at every call site.
   names the six modules. The same is true of `root / test` and `root / compile`.
 - **`testOnly` does not go through `test`.** A dependency hung on `Test / test` is bypassed by
   `sbt module/testOnly X`, which is exactly how one suite is run; hook both.
+- **A test must never name an image by a literal tag.** `EndToEndClusterSuite` said
+  `sample-shopping-cart:0.1.0-SNAPSHOT` — the fixed version feature 006 deleted — and kept passing
+  for two features on a stale image of that name in the Docker daemon, until the rename made that
+  image one that reads environment variables the operator no longer sets: it started, was never
+  `Ready`, and only the cases where it was the *only* pod timed out. The second tag is
+  `BuildInfo.version` with `+` → `-` (what `Docker / version` produces), and `testOnly` builds the
+  images too, so the tag a suite asks for is the one this sbt session made.
 - **A top-level `require(...)` is not an sbt DSL entry** (`required: sbt.internal.DslEntry`); a
   check in a `build.sbt` is a `val` whose body calls `sys.error`.
 - **Giter8 reads `default.properties` from `src/main/g8/`, not the template root** — at the root

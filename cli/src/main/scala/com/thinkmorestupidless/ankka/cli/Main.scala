@@ -192,6 +192,22 @@ object Main:
       }
     }
 
+    val logs = Opts.subcommand("logs", "Print a deployed service's recent output.") {
+      (
+        Opts.argument[String]("name"),
+        Opts.option[String]("instance", "One instance; otherwise every instance.").orNone,
+        Opts
+          .flag("previous", "The container before the last restart — usually where the answer is.")
+          .orFalse,
+        Opts.option[Int]("tail", "Only the last N lines.").orNone,
+        Opts.option[Int]("since", "Only the last N seconds.").orNone,
+        contextOpt
+      ).mapN { (name, instance, previous, tail, since, ctx) => () =>
+        val response = ctx.client.serviceLogs(ctx.project, name, instance, previous, tail, since)
+        Output.logs(response, ctx.format)
+      }
+    }
+
     val expose = Opts.subcommand(
       "expose",
       "Make a service reachable outside the cluster at its platform-derived hostname."
@@ -228,6 +244,7 @@ object Main:
       .orElse(pause)
       .orElse(resume)
       .orElse(restart)
+      .orElse(logs)
       .orElse(expose)
       .orElse(unexpose)
       .orElse(delete)

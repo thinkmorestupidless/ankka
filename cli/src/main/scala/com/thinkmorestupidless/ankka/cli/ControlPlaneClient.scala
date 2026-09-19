@@ -105,6 +105,30 @@ final class ControlPlaneClient(settings: Settings):
   def exposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "expose"))
 
+  /**
+   * A service's recent output, per instance.
+   *
+   * Bounded by default. A service that has been logging for a week cannot be returned whole, and a
+   * developer asking for logs wants the recent ones — `--since` and `--tail` widen the window
+   * deliberately rather than by accident.
+   */
+  def serviceLogs(
+      projectId: String,
+      name: String,
+      instance: Option[String],
+      previous: Boolean,
+      tail: Option[Int],
+      since: Option[Int]
+  ): LogsResponse =
+    val params = Vector(
+      instance.map(i => s"instance=${segment(i)}"),
+      Option.when(previous)("previous=true"),
+      tail.map(t => s"tail=$t"),
+      since.map(s => s"since=$s")
+    ).flatten
+    val query = if params.isEmpty then "" else params.mkString("?", "&", "")
+    get[LogsResponse](s"/services/${segment(projectId)}/${segment(name)}/logs$query")
+
   def unexposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "unexpose"))
 

@@ -45,6 +45,27 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "create", "patch"]
+  # `ankka services logs`, and nothing more than reading.
+  #
+  # This is a change in what a compromised control plane DISCLOSES, and not in what it can DO.
+  # The invariant that matters — and that buys "a control plane that holds no credential able to
+  # create a workload" — is about mutating verbs, and none are granted here: no create, no update,
+  # no patch, no delete, and pointedly no pods/exec, which would be a shell in every service in
+  # the installation. `get` on pods/log lets it read what an application printed.
+  #
+  # The alternative was to have the operator proxy logs, since it already has the pod access. That
+  # was rejected: the operator has no API surface at all, and is deliberately "a process whose
+  # entire job is to keep working while other things are broken". Giving it an HTTP server and an
+  # auth story to serve a convenience is a large change with a small motivation.
+  #
+  # The developer's own kubeconfig was the other option, and it fails the requirement: logs have
+  # to work on a machine with no cluster credentials, using the same token that deploys a service.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

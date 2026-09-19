@@ -130,3 +130,31 @@ object Output:
         cells.zip(widths).map((cell, width) => cell.padTo(width, ' ')).mkString("  ").stripTrailing
       }
       rendered.mkString("\n")
+
+  /**
+   * A service's output, unwrapped.
+   *
+   * Lines go out exactly as the service produced them, with no decoration: a developer piping this
+   * to `grep` must be searching their own output, not a rendering of it. The instance prefix
+   * appears only when there is more than one, because a prefix on every line of a single-instance
+   * service is noise that breaks every grep for a line start.
+   */
+  def logs(response: LogsResponse, format: Format): String =
+    format match
+      case Format.Json => writeToString(response)
+      case Format.Table =>
+        val many = response.instances.size > 1
+        response.instances
+          .map { instance =>
+            val body = instance.error match
+              // Reported inline rather than thrown: one unreadable instance must not cost the
+              // reader the output of the others.
+              case Some(problem)                   => s"($problem)"
+              case None if instance.output.isEmpty => "(no output)"
+              case None                            => instance.output.stripLineEnd
+            if many then
+              val prefix = s"${instance.instance}: "
+              s"$prefix${body.linesIterator.mkString(s"\n$prefix")}"
+            else body
+          }
+          .mkString("\n")

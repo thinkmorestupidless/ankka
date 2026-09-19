@@ -6,7 +6,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ServiceEntity,
   ServiceRows
 }
-import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
+import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, PodLogs}
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.crd.Hostnames
@@ -28,7 +28,8 @@ import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 final class ServiceEndpoint(
     clients: EndpointClients,
     val acl: Acl,
-    deploy: DeployConfig = DeployConfig.default
+    deploy: DeployConfig = DeployConfig.default,
+    logs: PodLogs = PodLogs(DeployConfig.default.namespacePrefix)
 ) extends HttpEndpoint("/services"):
 
   private val services = clients.viewClient.forView(ServiceRows)
@@ -106,6 +107,47 @@ final class ServiceEndpoint(
       .ordered(jsonText("exposed") ++ sql" = 'true'", order = jsonText("name"))
       .map(row => ServiceKey(row.projectId, row.name))
       .find(other => other != key && Hostnames.label(other.name, other.projectId) == label)
+
+  /**
+   * A deployed service's output.
+   *
+   * On `ServiceEndpoint` rather than an endpoint of its own so it is governed by exactly the same
+   * acl and the same project scoping as every other service command. Logs are not a side channel
+   * around who may see what: if a caller cannot `get` a service, it cannot read what that service
+   * printed either.
+   *
+   * Reading is all this does. The control plane holds `get` on pods and pods/log and no mutating
+   * verb at all — see controlplane-rbac.yaml for why that keeps the split intact.
+   */
+  get("/{projectId}/{name}/logs") { (projectId: String, name: String) =>
+    // Confirms the service exists, and 404s with the same message `services get` gives when it
+    // does not — one vocabulary, rather than a second way of saying the same thing.
+    val _ = entity(projectId, name).call(ServiceEntity.get).invoke()
+
+    // Read on the handler's own thread, which is where the request context lives.
+    val instance = query.optional[String]("instance")
+    val previous = query.flag("previous")
+    val tail     = query.optional[Int]("tail")
+    val since    = query.optional[Int]("since")
+
+    val instances = instance.map(Vector(_)).getOrElse(logs.instances(projectId, name))
+
+    if instances.isEmpty then
+      // Never an empty success: "this service logged nothing" and "this service is not running"
+      // are different facts, and a reader who cannot tell them apart will chase the wrong one.
+      throw CommandError(
+        s"service '$name' has no running instance; it may be paused",
+        ErrorCode.NotFound
+      )
+    else
+      LogsResponse(
+        instances.map { pod =>
+          logs.read(projectId, pod, tail, since, previous) match
+            case Right(output) => InstanceLogs(pod, output, error = None)
+            case Left(problem) => InstanceLogs(pod, "", error = Some(problem))
+        }
+      )
+  }
 
   delete("/{projectId}/{name}") { (projectId: String, name: String) =>
     entity(projectId, name).call(ServiceEntity.delete).invoke(): Done

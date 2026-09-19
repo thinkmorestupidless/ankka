@@ -381,6 +381,23 @@ object ProjectSummary:
  * Named explicitly because anonymous givens for `Vector[X]` all synthesise the same name and
  * collide.
  */
+/**
+ * One instance's output, as the platform received it.
+ *
+ * `error` rather than an exception because a service with several instances may have one that
+ * cannot be read — restarting, or just gone — and losing the other instances' output to report that
+ * would be the wrong trade. Each instance says for itself whether it could be read.
+ */
+final case class InstanceLogs(instance: String, output: String, error: Option[String])
+
+/**
+ * A service's output, per instance.
+ *
+ * Always a list, even for the single-instance case, because which instance produced a line is
+ * exactly what a reader needs when a service runs several and only one is misbehaving.
+ */
+final case class LogsResponse(instances: Vector[InstanceLogs])
+
 object Wire:
   given descriptorCodec: JsonValueCodec[ServiceDescriptor] = Codecs.make[ServiceDescriptor]
   given specCodec: JsonValueCodec[ServiceSpec]             = Codecs.make[ServiceSpec]
@@ -404,3 +421,6 @@ object Wire:
 
   given organizationListCodec: JsonValueCodec[Vector[OrganizationSummary]] =
     Codecs.make[Vector[OrganizationSummary]]
+
+  given instanceLogsCodec: JsonValueCodec[InstanceLogs] = Codecs.make[InstanceLogs]
+  given logsCodec: JsonValueCodec[LogsResponse]         = Codecs.make[LogsResponse]

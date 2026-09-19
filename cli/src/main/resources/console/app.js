@@ -61,7 +61,7 @@ function render() {
   }
 
   $('detail-empty').hidden = state.selected !== null;
-  for (const panel of ['components', 'traces']) {
+  for (const panel of ['components', 'invoke', 'traces']) {
     $(`panel-${panel}`).hidden = state.selected === null || state.tab !== panel;
   }
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -110,6 +110,142 @@ async function loadComponents(name) {
 
   if (!(service.components || []).length) {
     container.innerHTML = '<p class="empty">No components registered.</p>';
+  }
+}
+
+// ── Invoke ──────────────────────────────────────────────────────────────────
+//
+// The built-in HTTP client, replacing the curl a developer would otherwise write. The request is
+// proxied through the console process to the service's own port — a browser cannot read a response
+// from a different origin, and teaching a production HTTP server to send CORS headers so that a
+// development tool can call it would be letting the tool dictate terms to the thing it observes.
+//
+// It remains an ordinary request either way: no privilege, matched the same, and refused by an
+// endpoint's acl exactly as any other client would be. A 403 here is the platform working.
+
+let selectedRoute = null;
+
+async function loadRoutes(name) {
+  const container = $('routes');
+  container.innerHTML = '';
+  let service;
+  try {
+    service = await api(`/api/service/${encodeURIComponent(name)}`);
+  } catch (e) {
+    container.textContent = 'This service stopped answering.';
+    return;
+  }
+
+  const routes = service.routes || [];
+  // A service with "http": false has nothing to invoke. Say so rather than show a dead form.
+  $('invoke-none').hidden = routes.length > 0;
+  $('invoke-form').hidden = routes.length === 0;
+  if (!routes.length) return;
+
+  for (const route of routes) {
+    const button = document.createElement('button');
+    button.className = 'route';
+    button.setAttribute('aria-pressed', 'false');
+    button.innerHTML = `<span class="m"></span><span class="p"></span>`;
+    button.querySelector('.m').textContent = route.method;
+    button.querySelector('.p').textContent = route.path;
+    button.onclick = () => chooseRoute(route, container);
+    container.appendChild(button);
+  }
+
+  chooseRoute(selectedRoute && routes.find((r) => r.path === selectedRoute.path && r.method === selectedRoute.method) || routes[0], container);
+}
+
+function chooseRoute(route, container) {
+  selectedRoute = route;
+  for (const button of container.querySelectorAll('.route')) {
+    const method = button.querySelector('.m').textContent;
+    const path = button.querySelector('.p').textContent;
+    button.setAttribute('aria-pressed', String(method === route.method && path === route.path));
+  }
+  // The template is the starting point; the developer fills in the parameters.
+  $('invoke-path').value = route.path;
+  $('invoke-template').textContent = route.path.includes('{') ? 'replace {…} with real values' : '';
+  const sends = route.method !== 'GET' && route.method !== 'DELETE';
+  $('invoke-body-field').hidden = !sends;
+  $('invoke-result').innerHTML = '';
+}
+
+async function send(name) {
+  const button = $('invoke-send');
+  const path = $('invoke-path').value;
+  if (path.includes('{')) {
+    $('invoke-note').textContent = 'fill in the path parameters first';
+    return;
+  }
+  $('invoke-note').textContent = '';
+  button.disabled = true;
+  button.textContent = 'Sending…';
+
+  const sends = !$('invoke-body-field').hidden;
+  try {
+    const response = await fetch(`/api/invoke/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        method: selectedRoute.method,
+        path,
+        body: sends ? $('invoke-body').value : '',
+        contentType: sends ? $('invoke-type').value : '',
+      }),
+    });
+    renderResponse(await response.json());
+  } catch (e) {
+    renderResponse({ status: 0, body: 'the console could not reach the service', headers: [] });
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Send';
+  }
+}
+
+function renderResponse(response) {
+  const result = $('invoke-result');
+  result.innerHTML = '';
+
+  const line = document.createElement('div');
+  line.className = 'status-line';
+  const code = document.createElement('span');
+  // A refusal is shown as a refusal, not as a fault: 4xx is the platform saying no on purpose.
+  code.className =
+    'code ' + (response.status === 0 ? 'failed' : response.status < 400 ? 'ok' : response.status < 500 ? 'refused' : 'failed');
+  code.textContent = response.status === 0 ? 'no response' : response.status;
+  line.appendChild(code);
+
+  if (response.status >= 400 && response.status < 500) {
+    const note = document.createElement('span');
+    note.className = 'dim';
+    note.textContent = 'refused — the same answer any other client would get';
+    line.appendChild(note);
+  }
+  result.appendChild(line);
+
+  const body = document.createElement('pre');
+  body.className = 'body';
+  body.textContent = pretty(response.body);
+  result.appendChild(body);
+
+  // Invoke, then explain: the trace for what just happened is one click away.
+  if (state.tab === 'invoke') {
+    const link = document.createElement('button');
+    link.className = 'route';
+    link.style.marginTop = '10px';
+    link.textContent = 'see the trace for this request →';
+    link.onclick = () => { state.tab = 'traces'; render(); refreshDetail(); };
+    result.appendChild(link);
+  }
+}
+
+function pretty(body) {
+  if (!body) return '(empty)';
+  try {
+    return JSON.stringify(JSON.parse(body), null, 2);
+  } catch (e) {
+    return body;
   }
 }
 
@@ -244,8 +380,11 @@ function renderSpan(container, span, total, depth, unattributed) {
 function refreshDetail() {
   if (!state.selected) return;
   if (state.tab === 'components') loadComponents(state.selected);
+  else if (state.tab === 'invoke') loadRoutes(state.selected);
   else loadTraces(state.selected);
 }
+
+$('invoke-send').onclick = () => { if (state.selected) send(state.selected); };
 
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.onclick = () => {
@@ -258,5 +397,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 loadServices().then(() => {
   // A service that starts appears within 5 seconds, and one that exits disappears (SC-007).
   setInterval(loadServices, 3000);
+  // Traces refresh on their own; the invoke panel does not, because re-rendering a form
+  // someone is typing into is the fastest way to make a tool infuriating.
   setInterval(() => { if (state.tab === 'traces') refreshDetail(); }, 3000);
 });

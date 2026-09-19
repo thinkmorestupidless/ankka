@@ -51,6 +51,16 @@ trait RuntimeExtension:
    */
   def boundAddress: Option[String] = None
 
+  /**
+   * What this extension will answer, as `(method, path template)` — `("POST", "/carts/{cartId}")`.
+   *
+   * Empty for an extension that answers nothing addressable. It exists so the console can turn a
+   * service's own routes into a form, and it is a *description* rather than a way in: invoking one
+   * means making an ordinary HTTP request to the address `boundAddress` reports, subject to the
+   * same ACL as any other caller. There is deliberately no privileged path from here to a handler.
+   */
+  def routes: Vector[(String, String)] = Vector.empty
+
 /** Entry point for defining and starting an ankka service. */
 object Ankka:
 
@@ -265,6 +275,9 @@ final class AnkkaService private[ankka] (
    * structural fact rather than a rule someone has to remember.
    */
   def boundAddresses: Vector[String] = extensions.flatMap(_.boundAddress)
+
+  /** Every route this service's extensions serve, for the console's invoke panel. */
+  def routes: Vector[(String, String)] = extensions.flatMap(_.routes)
 
   def whenTerminated: Future[?] = system.whenTerminated
 

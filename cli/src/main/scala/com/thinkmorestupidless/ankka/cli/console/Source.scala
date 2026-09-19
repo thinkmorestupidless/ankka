@@ -32,10 +32,36 @@ trait Source:
   /** One trace in full, as the contract's JSON. */
   def trace(name: String, traceId: String): Option[String]
 
+  /**
+   * Sends a request to a service's own HTTP port, as an ordinary client.
+   *
+   * This is the invoke panel, and it is deliberately not a route into the observability endpoint.
+   * The request goes to the address the service is actually serving on, so it matches routes the
+   * same way, carries no privilege, and is refused by the endpoint's `acl` exactly as `curl` would
+   * be. "The console cannot bypass an ACL" is therefore structural — there is no code path in which
+   * it could — rather than a rule someone has to remember not to break.
+   */
+  def invoke(name: String, request: InvokeRequest): Option[InvokeResponse]
+
 /** What the Services panel lists. `instances` is always 1 locally — and a column anyway. */
 final case class ServiceSummary(
     name: String,
     instanceId: String,
     observabilityAddress: String,
     startedAt: String
+)
+
+/** What the invoke panel sends: a route, filled in. */
+final case class InvokeRequest(
+    method: String,
+    path: String,
+    headers: Vector[(String, String)],
+    body: Option[String]
+)
+
+/** What came back, whole — status, headers and body, including a refusal. */
+final case class InvokeResponse(
+    status: Int,
+    headers: Vector[(String, String)],
+    body: String
 )

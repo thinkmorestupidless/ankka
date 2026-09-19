@@ -39,6 +39,7 @@ object ConsoleServer:
     server.createContext("/api/services", exchange => handler.services(exchange))
     server.createContext("/api/service/", exchange => handler.service(exchange))
     server.createContext("/api/traces/", exchange => handler.traces(exchange))
+    server.createContext("/api/invoke/", exchange => handler.invoke(exchange))
     server.setExecutor(null)
     server.start()
 
@@ -95,6 +96,66 @@ object ConsoleServer:
             case Some(body) => json200(exchange, body)
             case None       => notFound(exchange)
         case _ => notFound(exchange)
+
+    /**
+     * Sends the invoke panel's request to the service's own port and hands back what came.
+     *
+     * A refusal is a result, not an error: a 403 from an endpoint's ACL is the console showing the
+     * platform working, and is displayed exactly as a 200 is.
+     */
+    def invoke(exchange: HttpExchange): Unit =
+      val name = exchange.getRequestURI.getPath.stripPrefix("/api/invoke/")
+      val body = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+      val request = InvokeRequest(
+        method = str(body, "method").getOrElse("GET"),
+        path = str(body, "path").getOrElse("/"),
+        headers = str(body, "contentType") match
+          case Some(ct) if ct.nonEmpty => Vector("content-type" -> ct)
+          case _                       => Vector.empty,
+        body = str(body, "body").filter(_.nonEmpty)
+      )
+      source.invoke(name, request) match
+        case None => notFound(exchange)
+        case Some(response) =>
+          json200(
+            exchange,
+            s"""{"status":${response.status},"body":${quote(response.body)},""" +
+              s""""headers":${response.headers
+                  .map((k, v) => s"""{"name":${quote(k)},"value":${quote(v)}}""")
+                  .mkString("[", ",", "]")}}"""
+          )
+
+    /**
+     * One string field from the panel's own JSON.
+     *
+     * The console writes this object and this reads it, four fields, all strings. A parser would be
+     * a dependency in the module whose defining property is carrying almost none.
+     */
+    private def str(json: String, key: String): Option[String] =
+      val marker = s""""$key":""""
+      json.indexOf(marker) match
+        case -1 => None
+        case at =>
+          val from    = at + marker.length
+          val builder = StringBuilder()
+          var i       = from
+          var done    = false
+          while !done && i < json.length do
+            json.charAt(i) match
+              case '\\' if i + 1 < json.length =>
+                json.charAt(i + 1) match
+                  case 'n'   => builder.append('\n')
+                  case 't'   => builder.append('\t')
+                  case 'r'   => builder.append('\r')
+                  case '"'   => builder.append('"')
+                  case '\\'  => builder.append('\\')
+                  case other => builder.append(other)
+                i += 2
+              case '"' => done = true
+              case c =>
+                builder.append(c)
+                i += 1
+          Some(builder.toString)
 
     /** The UI itself, read out of the jar. */
     def asset(exchange: HttpExchange): Unit =

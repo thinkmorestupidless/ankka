@@ -32,11 +32,38 @@
     <section id="detail">
       <div class="tabs" role="tablist">
         <button class="tab" data-panel="components" role="tab">Components</button>
+        <button class="tab" data-panel="invoke" role="tab">Invoke</button>
         <button class="tab" data-panel="traces" role="tab">Traces</button>
       </div>
 
       <div class="panel" id="panel-components" hidden>
         <div id="components"></div>
+      </div>
+
+      <div class="panel" id="panel-invoke" hidden>
+        <div id="routes"></div>
+        <p class="empty" id="invoke-none" hidden>
+          This service serves no HTTP routes.
+          <span class="dim">A descriptor with <code>"http": false</code> has nothing to invoke.</span>
+        </p>
+        <div id="invoke-form" hidden>
+          <div class="field">
+            <label for="invoke-path">Path</label>
+            <input id="invoke-path" spellcheck="false">
+            <span class="dim" id="invoke-template"></span>
+          </div>
+          <div class="field" id="invoke-body-field">
+            <label for="invoke-body">Body</label>
+            <textarea id="invoke-body" rows="5" spellcheck="false"></textarea>
+          </div>
+          <div class="field">
+            <label for="invoke-type">Content-Type</label>
+            <input id="invoke-type" value="application/json" spellcheck="false">
+          </div>
+          <button id="invoke-send" class="send">Send</button>
+          <span class="dim" id="invoke-note"></span>
+          <div id="invoke-result"></div>
+        </div>
       </div>
 
       <div class="panel" id="panel-traces" hidden>

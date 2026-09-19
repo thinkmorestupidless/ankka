@@ -104,11 +104,17 @@ object ObservabilityEndpoint:
         }
         .mkString("[", ",", "]")
 
+      // The routes the console turns into a form. Reported by the extensions that serve them,
+      // because `runtime` knows nothing about HTTP and should not start now.
+      val routes = service.routes
+        .map((method, path) => s"""{"method":${Json.str(method)},"path":${Json.str(path)}}""")
+        .mkString("[", ",", "]")
+
       respond(
         exchange,
         s"""{"name":${Json.str(serviceName)},""" +
           s""""runtime":${Json.str(com.thinkmorestupidless.ankka.core.BuildInfo.version)},""" +
-          s""""instances":$instances,"components":$components}"""
+          s""""instances":$instances,"components":$components,"routes":$routes}"""
       )
 
     /** The recent window, newest first, or one trace in full when asked for by id. */

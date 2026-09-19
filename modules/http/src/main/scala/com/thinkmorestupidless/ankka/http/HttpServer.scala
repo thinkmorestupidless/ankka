@@ -29,6 +29,7 @@ final class HttpServer private (
 ) extends RuntimeExtension:
 
   @volatile private var binding: Option[Http.ServerBinding] = None
+  @volatile private var served: Vector[(String, String)]    = Vector.empty
 
   def name: String = "http-server"
 
@@ -47,6 +48,11 @@ final class HttpServer private (
     val clients   = EndpointClients(service.componentClient, service.viewClient)
     val endpoints = factories.map(_(clients)).toVector
     validate(endpoints)
+    // Kept so the local console can render a form per route. A description, not a door.
+    served = endpoints.flatMap { endpoint =>
+      endpoint.routes.map(r => (r.method, s"${endpoint.prefix}${r.template.render}")) ++
+        endpoint.streamRoutes.map(r => (r.method, s"${endpoint.prefix}${r.template.render}"))
+    }
 
     endpoints.foreach { endpoint =>
       endpoint.routes.foreach { route =>
@@ -91,6 +97,8 @@ final class HttpServer private (
    * Loopback rather than the bound host: the console runs on the same machine, and a service bound
    * to 0.0.0.0 should not advertise that as an address to call.
    */
+  override def routes: Vector[(String, String)] = served
+
   override def boundAddress: Option[String] =
     binding.map(b => s"http://127.0.0.1:${b.localAddress.getPort}")
 

@@ -33,6 +33,49 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
   def trace(name: String, traceId: String): Option[String] =
     forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/traces/$traceId"))
 
+  /**
+   * Proxied through this process rather than made from the browser.
+   *
+   * Not for want of trying to keep it in the page: a service's HTTP port is a different origin from
+   * the console's, so a browser will not read the response without CORS headers — and adding CORS
+   * to a *production* HTTP server so that a development tool can call it would be letting the tool
+   * dictate terms to the thing it observes. The console process makes the call instead.
+   *
+   * Nothing about the ACL changes: this is still an ordinary HTTP request to the service's own
+   * port, carrying no privilege, matched and refused exactly as any other client's would be.
+   */
+  def invoke(name: String, request: InvokeRequest): Option[InvokeResponse] =
+    for
+      entry   <- forName(name)
+      address <- httpAddressOf(entry)
+    yield try
+      val builder = HttpRequest
+        .newBuilder(URI.create(address + request.path))
+        .timeout(Duration.ofSeconds(30))
+      request.headers.foreach((k, v) => builder.header(k, v): Unit)
+      val publisher = request.body match
+        case Some(body) => HttpRequest.BodyPublishers.ofString(body)
+        case None       => HttpRequest.BodyPublishers.noBody()
+      builder.method(request.method, publisher): Unit
+
+      val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
+      val headers = response
+        .headers()
+        .map()
+        .asScala
+        .toVector
+        .flatMap((k, vs) => vs.asScala.map(v => (k, v)))
+      InvokeResponse(response.statusCode(), headers, response.body)
+    catch
+      // A service that refuses the connection is a fact worth showing, not an error page.
+      case failure: Throwable =>
+        InvokeResponse(0, Vector.empty, s"could not reach the service: ${failure.getMessage}")
+
+  /** The service's real HTTP address, asked of the service rather than read from a file. */
+  private def httpAddressOf(entry: ServiceSummary): Option[String] =
+    get(s"${entry.observabilityAddress}/observability/service")
+      .flatMap(json => field(json, "address"))
+
   private def forName(name: String): Option[ServiceSummary] =
     services().find(_.name == name)
 

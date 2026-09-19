@@ -1,4 +1,7 @@
-# ankka
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/ankka-lockup-dark.svg">
+  <img src="assets/ankka-lockup.svg" alt="ankka" width="400">
+</picture>
 
 A serverless application platform for agentic AI, built on the actor model — a
 reimplementation of [Akka's](https://doc.akka.io/) component model in Scala 3 on

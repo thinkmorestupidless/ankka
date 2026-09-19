@@ -44,7 +44,8 @@ private[ankka] object TimerSweeper:
           database,
           actions,
           componentClient,
-          ctx.system.executionContext
+          ctx.system.executionContext,
+          Observability(ctx.system)
         )
 
         Behaviors.withTimers { timers =>
@@ -84,7 +85,8 @@ private[ankka] final class Sweep(
     database: Database,
     actions: Map[ComponentId, TimedActionDescriptor[?]],
     componentClient: ComponentClient,
-    ec: ExecutionContext
+    ec: ExecutionContext,
+    observability: Observability
 ):
   private given ExecutionContext = ec
 
@@ -148,8 +150,23 @@ private[ankka] final class Sweep(
     val execution = Future {
       val action = descriptor.create(context)
       action._setContext(Some(context))
-      try handler(action, timer.payload)
-      finally action._setContext(None)
+      // A fired timer is a trace root: it is its own piece of work, not a continuation of
+      // whatever scheduled it, possibly days earlier. The recorder holds no actor reference,
+      // so calling it from this Future is safe where touching ActorContext would not be.
+      val span = observability.recorder.begin(
+        traceId = Trace.mint(),
+        parentSpanId = 0L,
+        componentRef = observability.names.intern(descriptor.componentId.toString),
+        handlerRef = observability.names.intern(timer.method.toString)
+      )
+      var outcome = SpanOutcome.Failed
+      try
+        val effect = Trace.within(span.traceId, span.id)(handler(action, timer.payload))
+        outcome = SpanOutcome.Ok
+        effect
+      finally
+        observability.recorder.complete(span, outcome)
+        action._setContext(None)
     }(using AnkkaExecutors.virtual)
 
     execution.transformWith {

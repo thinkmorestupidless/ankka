@@ -46,10 +46,17 @@ private[ankka] final class ShardingTransport(
       payload: Array[Byte],
       metadata: Metadata
   ): Future[Array[Byte]] =
+    // The caller's span becomes the callee's parent, carried in the metadata that already
+    // crosses the sharding boundary. Nothing about the protocol changes: MetaEntry is already
+    // serialized, so a trace spans nodes for free.
+    val outbound = Trace.currentTrace match
+      case Some((traceId, spanId)) => Trace.into(metadata, traceId, spanId)
+      case None                    => metadata
+
     sharding
       .entityRefFor(EntityKeys.forComponent(componentId), entityId)
       .ask[EntityProtocol.Reply](replyTo =>
-        EntityProtocol.Invoke(method, payload, MetaEntry.from(metadata), replyTo)
+        EntityProtocol.Invoke(method, payload, MetaEntry.from(outbound), replyTo)
       )
       .transform {
         case Success(EntityProtocol.Succeeded(reply, _)) =>

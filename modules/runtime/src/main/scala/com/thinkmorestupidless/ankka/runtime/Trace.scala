@@ -80,6 +80,27 @@ object Trace:
   /** Reads the caller's span, which becomes this invocation's parent. */
   def parentSpanIdOf(metadata: Metadata): Option[Long] = parse(metadata.get(SpanIdKey))
 
+  /**
+   * The trace and span the current thread is working for, if any.
+   *
+   * A `ThreadLocal` is sound here for exactly the reason `RequestContext` gives for being one:
+   * handlers run on their own virtual thread, one request to one thread, so there is no sharing to
+   * get wrong. It carries the same consequence too — **work handed to another thread cannot see
+   * it**, so a component that dispatches to its own executor produces invocations this cannot
+   * attribute. That shows up as unattributed time and an orphan span, which is the honest answer;
+   * guessing a parent would produce a trace that reads correctly and is wrong.
+   */
+  private val current = ThreadLocal[(Long, Long)]()
+
+  def currentTrace: Option[(Long, Long)] = Option(current.get())
+
+  /** Runs `body` as the work of this span, restoring whatever was current before. */
+  def within[A](traceId: Long, spanId: Long)(body: => A): A =
+    val previous = current.get()
+    current.set((traceId, spanId))
+    try body
+    finally if previous eq null then current.remove() else current.set(previous)
+
   private def parse(value: Option[String]): Option[Long] =
     value.flatMap(v => scala.util.Try(java.lang.Long.parseUnsignedLong(v, 16)).toOption)
 

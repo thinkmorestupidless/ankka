@@ -38,19 +38,34 @@ private[ankka] object ProjectionSupport:
       subject: String,
       sequenceNr: Long,
       row: Option[Any],
-      record: JournalRecord
+      record: JournalRecord,
+      observability: Observability
   ): ViewEffect[Any] =
     view._setRow(row)
     view._setContext(Some(SimpleChangeContext(subject, sequenceNr, localOrigin = true)))
+    // A projection has no inbound request, so this span is a trace root — correctly so. A view
+    // catching up is its own piece of work, not part of whatever wrote the event minutes ago,
+    // and threading the writer's trace into it would make one request appear to last for hours.
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = observability.names.intern(descriptor.componentId.toString),
+      handlerRef = observability.names.intern("on-change")
+    )
+    var outcome = SpanOutcome.Failed
     try
-      record.kind match
+      val effect = record.kind match
         case JournalRecord.KindDomain =>
           view.onChange(descriptor.source.decoder.fromBytes(record.payload))
         case JournalRecord.KindDeleted => view.onDelete
         // A TTL being set is a storage fact, not a domain change — nothing for a view
         // to project. The row disappears when the deletion itself is journalled.
         case _ => ViewEffect.Ignore
-    finally view._setContext(None)
+      outcome = SpanOutcome.Ok
+      effect
+    finally
+      observability.recorder.complete(span, outcome)
+      view._setContext(None)
 
   /** Writes the row change through the projection's transaction. */
   def applyView(

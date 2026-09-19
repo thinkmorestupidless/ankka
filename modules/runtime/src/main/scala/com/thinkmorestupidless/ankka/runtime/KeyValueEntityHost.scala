@@ -113,7 +113,10 @@ private[ankka] object KeyValueEntityHost:
             // Failed until proven otherwise: if the handler throws, that is what is recorded.
             var spanOutcome = SpanOutcome.Failed
             try
-              val (effect, handlerOutcome) = interpret(binding, entity, invoke, visible)
+              // Published as current for the duration of the handler, so a nested
+              // ComponentClient call is recorded as this span's child rather than a root.
+              val (effect, handlerOutcome) =
+                Trace.within(span.traceId, span.id)(interpret(binding, entity, invoke, visible))
               spanOutcome = handlerOutcome
               effect
             finally

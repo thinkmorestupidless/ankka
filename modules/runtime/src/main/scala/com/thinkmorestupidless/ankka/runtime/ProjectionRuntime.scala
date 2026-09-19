@@ -291,6 +291,10 @@ private final class ViewEventHandler(
   private given ExecutionContext = system.executionContext
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Captured here, at construction, not looked up inside `process`: projection handlers run on
+  // the projection's own threads, and the recorded rule is to take what async work needs while
+  // you are still somewhere it is safe to take it.
+  private val observability = Observability(system)
 
   def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
@@ -298,7 +302,8 @@ private final class ViewEventHandler(
 
     ProjectionSupport.loadRow(session, table, subject, descriptor.rowSerializer).flatMap { row =>
       val effect =
-        ProjectionSupport.runView(view, descriptor, subject, envelope.sequenceNr, row, record)
+        ProjectionSupport
+          .runView(view, descriptor, subject, envelope.sequenceNr, row, record, observability)
       ProjectionSupport.applyView(session, table, subject, effect, descriptor.rowSerializer)
     }
 

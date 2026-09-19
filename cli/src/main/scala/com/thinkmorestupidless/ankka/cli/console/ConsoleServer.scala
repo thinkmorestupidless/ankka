@@ -44,7 +44,8 @@ object ConsoleServer:
     server.setExecutor(null)
     server.start()
 
-    if port != preferred then out.println(s"port $preferred was busy")
+    // Compared against what was asked for, so "any free port" (0) is never reported as busy.
+    if preferred != 0 && port != preferred then out.println(s"port $preferred was busy")
     out.println(s"Local console: http://localhost:$port")
     new ConsoleServer(server, port)
 
@@ -60,7 +61,9 @@ object ConsoleServer:
           port += 1
           remaining -= 1
     bound match
-      case Some(server) => (server, port)
+      // The port the server actually bound, never the one we asked for: a request for 0 means
+      // "any free port", and reporting 0 back would make `address` read http://localhost:0.
+      case Some(server) => (server, server.getAddress.getPort)
       case None         =>
         // Every port in the range was taken. Fall back to whatever the OS will give us rather
         // than refusing to start.

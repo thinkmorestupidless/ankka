@@ -83,7 +83,7 @@ response, open the trace, see the entity's state change.
 - [X] T030 [P] [US1] Write `cli/src/test/scala/com/thinkmorestupidless/ankka/cli/DiscoverySuite.scala`: a live entry is listed; a stale entry is dropped and its file removed; the `-D` override keeps `$HOME` out of the test.
 - [X] T031 [US1] Create `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/console/ConsoleServer.scala`: `jdk.httpserver` on loopback, serving static assets from resources and a JSON aggregation API backed by `Source`. Default port 9889 (Akka's); **if taken, take the next free one and say so — never fail on a busy port.**
 - [X] T032 [US1] Add the `local console` command to `cli/src/main/scala/com/thinkmorestupidless/ankka/cli/Main.scala` with `--port` and `--no-open`. It must work with **no control plane configured** — no URL, no token, no cluster.
-- [ ] T033 [P] [US1] Write `cli/src/test/scala/com/thinkmorestupidless/ankka/cli/ConsoleServerSuite.scala`: the aggregation API is served; a busy default port is handled; `Main.run` returns the right exit code.
+- [X] T033 [P] [US1] Write `cli/src/test/scala/com/thinkmorestupidless/ankka/cli/ConsoleServerSuite.scala`: the aggregation API is served; a busy default port is handled; `Main.run` returns the right exit code.
 
 ### The UI
 
@@ -149,7 +149,7 @@ scrape.
 - [X] T059 [P] Add the traps to `CLAUDE.md`: local mode runs no management server, so observability needs its own local exposure; unattributed time is never redistributed and an orphan span is never reattached; the registry directory needs a `-D` override like `~/.ankka/config.json`; the console invokes over the service's real HTTP port so an ACL cannot be bypassed.
 - [X] T060 Verify the seam holds, per [quickstart.md](./quickstart.md)'s reviewer checklist: the UI and aggregation API reference `Source` and never the registry; a service carries an `instances` list; `partial` is nowhere described as eviction. Grep `cli/src/main/resources/console/` for `registry`, `pid` and `aged out` — none should appear.
 - [X] T061 Confirm `git diff project/Dependencies.scala build.sbt` shows **no dependency added** to `runtime` or `cli`, and that `EntityProtocol.Command` is unchanged.
-- [ ] T062 Run `sbt scalafmtAll scalafmtSbt` from the repository root, then the full `caffeinate -i sbt test`; every existing suite must pass and no existing component may have changed in order to be observed (SC-008).
+- [X] T062 Run `sbt scalafmtAll scalafmtSbt` from the repository root, then the full `caffeinate -i sbt test`; every existing suite must pass and no existing component may have changed in order to be observed (SC-008).
 
 ---
 

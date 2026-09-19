@@ -659,10 +659,12 @@ job checks the repository out afresh, so the publish job's workspace never reach
 that is pushed. The version is now written by that job, immediately before `git subtree split`.
 
 **A tag currently *stages* the release rather than publishing it**, via
-`CI_SONATYPE_RELEASE: sonatypeCentralUpload` in the workflow — `publishingType` `USER_MANAGED`, so
-the bundle waits under Deployments on the portal for a human. `ci-release`'s default is
-`sonatypeCentralRelease` (`AUTOMATIC`), which is live on Central at once, and nothing on Central
-can be unpublished. The override is there because the release endpoint has never run — every
+`CI_SONATYPE_RELEASE: sonaUpload` in the workflow — the bundle is uploaded and then waits under
+Deployments on the portal for a human to press Publish. `ci-release`'s default is `sonaRelease`,
+which uploads *and* publishes, and nothing on Central can ever be unpublished. Both are sbt's own
+commands: sbt-ci-release 1.12.1 depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's
+`sonatypeCentral*` task names do not exist here, whatever a stale copy of that plugin in the
+coursier cache suggests. The override is there because the release endpoint has never run — every
 failure so far, the first `v0.1.0` included, went to the snapshot repository instead. Remove the
 line once a release has been through by hand.
 

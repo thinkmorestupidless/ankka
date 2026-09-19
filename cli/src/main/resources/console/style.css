@@ -228,3 +228,26 @@ pre.body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Agents */
+.usage { display: flex; gap: 22px; margin: 14px 0; flex-wrap: wrap; }
+.usage .stat { min-width: 90px; }
+.usage .stat .n { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage .stat .l {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+.usage .stat .n.unknown { color: var(--dim); font-weight: 400; font-size: 15px; }
+
+.msg { border-left: 2px solid var(--line); padding: 4px 0 4px 10px; margin-bottom: 8px; }
+.msg .role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+.msg .text { white-space: pre-wrap; word-break: break-word; }
+.msg.Assistant { border-left-color: var(--accent); }

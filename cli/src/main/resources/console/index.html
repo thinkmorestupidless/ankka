@@ -34,6 +34,7 @@
         <button class="tab" data-panel="components" role="tab">Components</button>
         <button class="tab" data-panel="invoke" role="tab">Invoke</button>
         <button class="tab" data-panel="traces" role="tab">Traces</button>
+        <button class="tab" data-panel="agents" role="tab">Agents</button>
       </div>
 
       <div class="panel" id="panel-components" hidden>
@@ -72,6 +73,24 @@
         <p class="empty" id="traces-empty" hidden>
           Nothing recorded yet. <span class="dim">Send this service a request and it will appear.</span>
         </p>
+      </div>
+
+      <div class="panel" id="panel-agents" hidden>
+        <p class="empty" id="agents-none" hidden>
+          This service registers no agents.
+        </p>
+        <div id="agents-form" hidden>
+          <div class="field">
+            <label for="session-id">Session</label>
+            <input id="session-id" spellcheck="false" placeholder="the session id your agent was given">
+            <span class="dim">
+              Sessions are not listed: a session is a sharded entity keyed by an id your
+              application chose, and the platform keeps no index of conversations.
+            </span>
+          </div>
+          <button id="session-open" class="send">Open</button>
+          <div id="session-result"></div>
+        </div>
       </div>
 
       <p class="empty" id="detail-empty">Select a service.</p>

@@ -43,6 +43,16 @@ trait Source:
    */
   def invoke(name: String, request: InvokeRequest): Option[InvokeResponse]
 
+  /**
+   * One agent session's stored memory and the tokens it has cost.
+   *
+   * By id, because sessions cannot be listed. A session is a sharded entity keyed by an id the
+   * application chose, and there is no index of them — building one would mean the platform keeping
+   * a registry of every conversation, which is a durable cost imposed on every service for the
+   * benefit of a development tool. The id is the thing a developer already has.
+   */
+  def session(name: String, sessionId: String): Option[String]
+
 /** What the Services panel lists. `instances` is always 1 locally — and a column anyway. */
 final case class ServiceSummary(
     name: String,

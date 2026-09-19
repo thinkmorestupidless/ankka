@@ -61,7 +61,7 @@ function render() {
   }
 
   $('detail-empty').hidden = state.selected !== null;
-  for (const panel of ['components', 'invoke', 'traces']) {
+  for (const panel of ['components', 'invoke', 'traces', 'agents']) {
     $(`panel-${panel}`).hidden = state.selected === null || state.tab !== panel;
   }
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -375,16 +375,114 @@ function renderSpan(container, span, total, depth, unattributed) {
   container.appendChild(row);
 }
 
+// ── Agents ──────────────────────────────────────────────────────────────────
+//
+// Read from the session entity, not from the trace ring: the conversation is event sourced, so
+// the entity is the durable record while the ring is a window that evicts. Cost that disappeared
+// because the service got busy would be worse than no cost at all.
+
+async function loadAgents(name) {
+  let service;
+  try {
+    service = await api(`/api/service/${encodeURIComponent(name)}`);
+  } catch (e) {
+    return;
+  }
+  const hasAgents = (service.components || []).some((c) => c.kind === 'Agent');
+  // A service with no agents shows no panel rather than an empty one.
+  $('agents-none').hidden = hasAgents;
+  $('agents-form').hidden = !hasAgents;
+}
+
+async function openSession(name) {
+  const id = $('session-id').value.trim();
+  const result = $('session-result');
+  if (!id) { result.innerHTML = '<p class="empty">Enter a session id.</p>'; return; }
+
+  let history;
+  try {
+    history = await api(`/api/session/${encodeURIComponent(name)}/${encodeURIComponent(id)}`);
+  } catch (e) {
+    result.innerHTML = '<p class="empty">No such session — nothing has been said in it.</p>';
+    return;
+  }
+
+  result.innerHTML = '';
+  const usage = history.usage || {};
+
+  const stats = document.createElement('div');
+  stats.className = 'usage';
+  stats.appendChild(stat(usage.inputTokens, 'tokens in'));
+  stats.appendChild(stat(usage.outputTokens, 'tokens out'));
+
+  // Unknown cost shows as unknown, never as zero: a zero reads as free, which is the one wrong
+  // answer that looks like an answer. The price of a model is configuration the platform is told.
+  const cost = document.createElement('div');
+  cost.className = 'stat';
+  const amount = document.createElement('div');
+  if (usage.cost === undefined || usage.cost === null) {
+    amount.className = 'n unknown';
+    amount.textContent = '—';
+    amount.title = 'No price is configured for this model, so cost is unknown rather than zero.';
+  } else {
+    amount.className = 'n';
+    amount.textContent = usage.cost;
+  }
+  const label = document.createElement('div');
+  label.className = 'l';
+  label.textContent = 'cost';
+  cost.append(amount, label);
+  stats.appendChild(cost);
+  result.appendChild(stats);
+
+  for (const message of history.messages || []) {
+    const kind = Object.keys(message)[0] || 'message';
+    const value = message[kind] || message;
+    const block = document.createElement('div');
+    block.className = `msg ${kind}`;
+    const role = document.createElement('div');
+    role.className = 'role';
+    role.textContent = kind;
+    const text = document.createElement('div');
+    text.className = 'text';
+    text.textContent = value.text !== undefined ? value.text : JSON.stringify(value, null, 2);
+    block.append(role, text);
+    result.appendChild(block);
+  }
+
+  if (!(history.messages || []).length) {
+    result.appendChild(Object.assign(document.createElement('p'), {
+      className: 'empty',
+      textContent: 'This session exists but holds no messages.',
+    }));
+  }
+}
+
+function stat(value, label) {
+  const box = document.createElement('div');
+  box.className = 'stat';
+  const n = document.createElement('div');
+  n.className = 'n';
+  n.textContent = value === undefined ? '0' : value;
+  const l = document.createElement('div');
+  l.className = 'l';
+  l.textContent = label;
+  box.append(n, l);
+  return box;
+}
+
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
 function refreshDetail() {
   if (!state.selected) return;
   if (state.tab === 'components') loadComponents(state.selected);
   else if (state.tab === 'invoke') loadRoutes(state.selected);
+  else if (state.tab === 'agents') loadAgents(state.selected);
   else loadTraces(state.selected);
 }
 
 $('invoke-send').onclick = () => { if (state.selected) send(state.selected); };
+$('session-open').onclick = () => { if (state.selected) openSession(state.selected); };
 
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.onclick = () => {

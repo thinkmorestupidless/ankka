@@ -1,7 +1,13 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer as JdkHttpServer}
-import com.thinkmorestupidless.ankka.core.ComponentKind
+import com.thinkmorestupidless.ankka.core.{
+  ComponentId,
+  ComponentKind,
+  EntityId,
+  Metadata,
+  MethodName
+}
 
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -63,6 +69,7 @@ object ObservabilityEndpoint:
 
       server.createContext("/observability/service", exchange => handler.service(exchange))
       server.createContext("/observability/traces", exchange => handler.traces(exchange))
+      server.createContext("/observability/sessions", exchange => handler.sessions(exchange))
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
@@ -170,6 +177,45 @@ object ObservabilityEndpoint:
         s""""parentUnknown":${node.parentUnknown},""" +
         s""""children":${node.children.map(span).mkString("[", ",", "]")}}"""
 
+    /**
+     * An agent session's stored memory and the tokens it has cost.
+     *
+     * Read from the session entity itself, not from the recorder — the conversation is event
+     * sourced, so the entity is the durable record while the ring is a window that evicts. Cost
+     * that vanished because a service got busy would be worse than no cost at all.
+     *
+     * The reply is passed through as bytes. A handler's reply is already JSON on the wire, so the
+     * endpoint never has to name a type from `agent` — which it could not do anyway, since
+     * `runtime` must not depend on it. The coupling that remains is the component's *name*, which
+     * is a platform constant rather than a type, and is the narrowest form this can take.
+     */
+    def sessions(exchange: HttpExchange): Unit =
+      val id =
+        exchange.getRequestURI.getPath.stripPrefix("/observability/sessions").stripPrefix("/")
+      if id.isEmpty then respond(exchange, """{"error":"name a session"}""")
+      else
+        val reply =
+          try
+            Some(
+              scala.concurrent.Await.result(
+                service.componentClient.transportRef.ask(
+                  ComponentId(SessionMemoryComponent),
+                  EntityId(id),
+                  MethodName("history"),
+                  Array.emptyByteArray,
+                  Metadata.empty
+                ),
+                scala.concurrent.duration.Duration(10, java.util.concurrent.TimeUnit.SECONDS)
+              )
+            )
+          catch case _: Throwable => None
+
+        reply match
+          // A session nobody has spoken to has no memory. Say so, rather than invent an empty
+          // conversation that reads as though it happened.
+          case None        => respondNotFound(exchange)
+          case Some(bytes) => respondBytes(exchange, bytes)
+
     private def nameOf(span: RecordedSpan): String =
       val component = observability.names.nameOf(span.componentRef).getOrElse("?")
       val handler   = observability.names.nameOf(span.handlerRef).getOrElse("?")
@@ -177,6 +223,26 @@ object ObservabilityEndpoint:
 
     private val instanceId = ProcessHandle.current().pid().toString
     private val startedAt  = java.time.Instant.now().toString
+
+  /** The platform's own session-memory component. Coupled by name, never by type. */
+  private val SessionMemoryComponent = "ankka-session-memory"
+
+  private def respondBytes(exchange: HttpExchange, bytes: Array[Byte]): Unit =
+    exchange.getResponseHeaders.add("Content-Type", "application/json")
+    exchange.getResponseHeaders.add("Access-Control-Allow-Origin", "*")
+    exchange.sendResponseHeaders(200, bytes.length.toLong)
+    val out = exchange.getResponseBody
+    try out.write(bytes)
+    finally out.close()
+
+  private def respondNotFound(exchange: HttpExchange): Unit =
+    val bytes = """{"error":"no such session"}""".getBytes(StandardCharsets.UTF_8)
+    exchange.getResponseHeaders.add("Content-Type", "application/json")
+    exchange.getResponseHeaders.add("Access-Control-Allow-Origin", "*")
+    exchange.sendResponseHeaders(404, bytes.length.toLong)
+    val out = exchange.getResponseBody
+    try out.write(bytes)
+    finally out.close()
 
   private def respond(exchange: HttpExchange, body: String): Unit =
     val bytes = body.getBytes(StandardCharsets.UTF_8)

@@ -72,23 +72,25 @@ not a history.
 - An orphan span — a parent that is gone or was never recorded — is returned at the root with its
   parent marked unknown. **It is never reattached by guessing.**
 
-### `GET /observability/entities/{component}/{id}`
-
-Current state as the platform holds it, for the inspection panel (FR-014). `404` when no such
-entity exists — an entity that has never been created must not be shown as an empty one that looks
-real.
-
 ### `GET /observability/sessions/{sessionId}`
 
-An agent session's stored memory and its usage (FR-015, FR-016):
+An agent session's stored memory and the tokens it has cost, read from the session entity — which
+is event sourced, so it is the durable record while the trace ring is a window that evicts.
 
-```json
-{ "sessionId": "…", "messages": [ … ],
-  "usage": { "inputTokens": 8120, "outputTokens": 640,
-             "cost": { "amount": 0.0341, "currency": "USD" } } }
-```
+**This returns `200` with an empty conversation for a session nobody has used, and that corrects
+the spec.** FR-014 asked for a `404` on an entity that "does not exist", and the platform has no
+such state: an entity id is an address, not a record, and asking for an unused one returns
+`emptyState` by design. A `404` here would be the console asserting something the platform does not
+know. The console renders the empty answer as "this session holds no messages", which is true,
+rather than fabricating a conversation.
 
-`cost` is `{ "unknown": true }` when the model has no configured price — never `0` (R9).
+The reply is passed through as bytes rather than re-encoded: a handler's reply is already JSON on
+the wire, so `runtime` never names a type from `agent` — which it could not, since it must not
+depend on it. What remains is a coupling by component *name*, which is the narrowest form available.
+
+Sessions cannot be listed. A session is a sharded entity keyed by an id the application chose, and
+there is no index; building one would make the platform keep a durable registry of every
+conversation for a development tool's benefit. The console asks for an id.
 
 ### `GET /observability/usage`
 

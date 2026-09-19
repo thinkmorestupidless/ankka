@@ -76,6 +76,11 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
     get(s"${entry.observabilityAddress}/observability/service")
       .flatMap(json => field(json, "address"))
 
+  def session(name: String, sessionId: String): Option[String] =
+    forName(name).flatMap { e =>
+      get(s"${e.observabilityAddress}/observability/sessions/$sessionId")
+    }
+
   private def forName(name: String): Option[ServiceSummary] =
     services().find(_.name == name)
 

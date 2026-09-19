@@ -40,6 +40,7 @@ object ConsoleServer:
     server.createContext("/api/service/", exchange => handler.service(exchange))
     server.createContext("/api/traces/", exchange => handler.traces(exchange))
     server.createContext("/api/invoke/", exchange => handler.invoke(exchange))
+    server.createContext("/api/session/", exchange => handler.session(exchange))
     server.setExecutor(null)
     server.start()
 
@@ -156,6 +157,14 @@ object ConsoleServer:
                 builder.append(c)
                 i += 1
           Some(builder.toString)
+
+    def session(exchange: HttpExchange): Unit =
+      exchange.getRequestURI.getPath.stripPrefix("/api/session/").split("/").toList match
+        case name :: sessionId :: Nil =>
+          source.session(name, sessionId) match
+            case Some(body) => json200(exchange, body)
+            case None       => notFound(exchange)
+        case _ => notFound(exchange)
 
     /** The UI itself, read out of the jar. */
     def asset(exchange: HttpExchange): Unit =

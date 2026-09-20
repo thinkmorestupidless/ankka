@@ -71,6 +71,45 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
       case failure: Throwable =>
         InvokeResponse(0, Vector.empty, s"could not reach the service: ${failure.getMessage}")
 
+  /**
+   * The streaming counterpart, read a line at a time and handed on immediately.
+   *
+   * `ofInputStream` rather than `ofString`: the point is to not wait for the end. Server-sent
+   * events are line-delimited, so a line is the natural unit to forward.
+   */
+  def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean =
+    val target =
+      for
+        entry   <- forName(name)
+        address <- httpAddressOf(entry)
+      yield address
+
+    target match
+      case None => false
+      case Some(address) =>
+        try
+          val builder = HttpRequest
+            .newBuilder(URI.create(address + request.path))
+            // No timeout: a stream that is doing its job may stay open for a long time, and
+            // cutting it off after an arbitrary interval would look exactly like the service
+            // failing.
+            .version(java.net.http.HttpClient.Version.HTTP_1_1)
+          request.headers.foreach((k, v) => builder.header(k, v): Unit)
+          val publisher = request.body match
+            case Some(body) => HttpRequest.BodyPublishers.ofString(body)
+            case None       => HttpRequest.BodyPublishers.noBody()
+          builder.method(request.method, publisher): Unit
+
+          val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream())
+          val reader   = scala.io.Source.fromInputStream(response.body())
+          try reader.getLines().foreach(line => onChunk(line + "\n"))
+          finally reader.close()
+          true
+        catch
+          case failure: Throwable =>
+            onChunk(s"\n(stream ended: ${failure.getMessage})\n")
+            true
+
   /** The service's real HTTP address, asked of the service rather than read from a file. */
   private def httpAddressOf(entry: ServiceSummary): Option[String] =
     get(s"${entry.observabilityAddress}/observability/service")

@@ -41,6 +41,7 @@ object ConsoleServer:
     server.createContext("/api/traces/", exchange => handler.traces(exchange))
     server.createContext("/api/invoke/", exchange => handler.invoke(exchange))
     server.createContext("/api/session/", exchange => handler.session(exchange))
+    server.createContext("/api/invoke-stream/", exchange => handler.invokeStream(exchange))
     server.setExecutor(null)
     server.start()
 
@@ -160,6 +161,43 @@ object ConsoleServer:
                 builder.append(c)
                 i += 1
           Some(builder.toString)
+
+    /**
+     * The streaming invoke, forwarded chunk by chunk.
+     *
+     * `sendResponseHeaders(200, 0)` means chunked: no length is known, because the point is that
+     * the end has not happened yet. Each line is written and flushed as it arrives, so the browser
+     * can render it — a buffered proxy in the middle would defeat the whole exercise just as
+     * thoroughly as a buffered client.
+     */
+    def invokeStream(exchange: HttpExchange): Unit =
+      val name = exchange.getRequestURI.getPath.stripPrefix("/api/invoke-stream/")
+      val body = String(exchange.getRequestBody.readAllBytes(), StandardCharsets.UTF_8)
+      val request = InvokeRequest(
+        method = str(body, "method").getOrElse("GET"),
+        path = str(body, "path").getOrElse("/"),
+        headers = str(body, "contentType") match
+          case Some(ct) if ct.nonEmpty => Vector("content-type" -> ct)
+          case _                       => Vector.empty,
+        body = str(body, "body").filter(_.nonEmpty)
+      )
+
+      exchange.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
+      exchange.sendResponseHeaders(200, 0)
+      val out = exchange.getResponseBody
+      try
+        val reached = source.invokeStream(
+          name,
+          request,
+          chunk =>
+            out.write(chunk.getBytes(StandardCharsets.UTF_8))
+            out.flush()
+        )
+        if !reached then out.write("(no such service)".getBytes(StandardCharsets.UTF_8)): Unit
+      catch
+        // The browser closing the tab shows up here. Not a fault — the reader stopped reading.
+        case _: Throwable => ()
+      finally out.close()
 
     def session(exchange: HttpExchange): Unit =
       exchange.getRequestURI.getPath.stripPrefix("/api/session/").split("/").toList match

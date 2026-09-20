@@ -114,7 +114,10 @@ object ObservabilityEndpoint:
       // The routes the console turns into a form. Reported by the extensions that serve them,
       // because `runtime` knows nothing about HTTP and should not start now.
       val routes = service.routes
-        .map((method, path) => s"""{"method":${Json.str(method)},"path":${Json.str(path)}}""")
+        .map(r =>
+          s"""{"method":${Json.str(r.method)},"path":${Json.str(r.path)},""" +
+            s""""streaming":${r.streaming}}"""
+        )
         .mkString("[", ",", "]")
 
       respond(

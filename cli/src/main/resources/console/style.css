@@ -251,3 +251,6 @@ pre.body {
 }
 .msg .text { white-space: pre-wrap; word-break: break-word; }
 .msg.Assistant { border-left-color: var(--accent); }
+
+/* A streaming body follows its own tail, like a terminal would. */
+pre.body { max-height: 420px; overflow-y: auto; }

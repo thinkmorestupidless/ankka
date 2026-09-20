@@ -53,6 +53,18 @@ trait Source:
    */
   def session(name: String, sessionId: String): Option[String]
 
+  /**
+   * Sends a request whose response arrives over time, handing each piece on as it lands.
+   *
+   * Separate from `invoke` because a stream has no end to wait for. An agent answering a question
+   * may take a minute, and buffering it would show the developer nothing for the whole of the
+   * interesting part — which is precisely the part they opened the console to watch.
+   *
+   * `onChunk` is called on the caller's thread as data arrives; it returns when the stream ends or
+   * the service stops.
+   */
+  def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean
+
 /** What the Services panel lists. `instances` is always 1 locally — and a column anyway. */
 final case class ServiceSummary(
     name: String,

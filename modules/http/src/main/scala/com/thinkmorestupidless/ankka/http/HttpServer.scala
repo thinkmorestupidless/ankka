@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.http
 
-import com.thinkmorestupidless.ankka.runtime.{Observability, SpanOutcome, Trace}
+import com.thinkmorestupidless.ankka.runtime.{Observability, ServedRoute, SpanOutcome, Trace}
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, AnkkaService, RuntimeExtension}
 import org.apache.pekko.actor.typed.ActorSystem
@@ -29,7 +29,7 @@ final class HttpServer private (
 ) extends RuntimeExtension:
 
   @volatile private var binding: Option[Http.ServerBinding] = None
-  @volatile private var served: Vector[(String, String)]    = Vector.empty
+  @volatile private var served: Vector[ServedRoute]         = Vector.empty
 
   def name: String = "http-server"
 
@@ -50,8 +50,11 @@ final class HttpServer private (
     validate(endpoints)
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap { endpoint =>
-      endpoint.routes.map(r => (r.method, s"${endpoint.prefix}${r.template.render}")) ++
-        endpoint.streamRoutes.map(r => (r.method, s"${endpoint.prefix}${r.template.render}"))
+      endpoint.routes.map(r =>
+        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = false)
+      ) ++ endpoint.streamRoutes.map(r =>
+        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = true)
+      )
     }
 
     endpoints.foreach { endpoint =>
@@ -97,7 +100,7 @@ final class HttpServer private (
    * Loopback rather than the bound host: the console runs on the same machine, and a service bound
    * to 0.0.0.0 should not advertise that as an address to call.
    */
-  override def routes: Vector[(String, String)] = served
+  override def routes: Vector[ServedRoute] = served
 
   override def boundAddress: Option[String] =
     binding.map(b => s"http://127.0.0.1:${b.localAddress.getPort}")

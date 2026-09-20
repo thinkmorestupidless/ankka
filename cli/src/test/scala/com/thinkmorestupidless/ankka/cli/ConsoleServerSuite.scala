@@ -44,6 +44,10 @@ final class ConsoleServerSuite extends FunSuite:
       invoked = Some((name, request))
       Option.when(name == "orders")(InvokeResponse(204, Vector("x" -> "y"), ""))
 
+    // Streaming has its own suite; here it only has to exist. See ConsoleStreamSuite.
+    def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean =
+      false
+
   private def withConsole[A](source: Source)(body: ConsoleServer => A): A =
     val quiet  = PrintStream(ByteArrayOutputStream())
     val server = ConsoleServer.start(source, 0, quiet)

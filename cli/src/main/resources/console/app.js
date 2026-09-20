@@ -148,7 +148,7 @@ async function loadRoutes(name) {
     button.setAttribute('aria-pressed', 'false');
     button.innerHTML = `<span class="m"></span><span class="p"></span>`;
     button.querySelector('.m').textContent = route.method;
-    button.querySelector('.p').textContent = route.path;
+    button.querySelector('.p').textContent = route.path + (route.streaming ? '  ⋯' : '');
     button.onclick = () => chooseRoute(route, container);
     container.appendChild(button);
   }
@@ -165,7 +165,11 @@ function chooseRoute(route, container) {
   }
   // The template is the starting point; the developer fills in the parameters.
   $('invoke-path').value = route.path;
-  $('invoke-template').textContent = route.path.includes('{') ? 'replace {…} with real values' : '';
+  $('invoke-template').textContent = route.streaming
+    ? 'streams — output appears as it arrives'
+    : route.path.includes('{')
+      ? 'replace {…} with real values'
+      : '';
   const sends = route.method !== 'GET' && route.method !== 'DELETE';
   $('invoke-body-field').hidden = !sends;
   $('invoke-result').innerHTML = '';
@@ -183,6 +187,14 @@ async function send(name) {
   button.textContent = 'Sending…';
 
   const sends = !$('invoke-body-field').hidden;
+
+  if (selectedRoute.streaming) {
+    await stream(name, path, sends);
+    button.disabled = false;
+    button.textContent = 'Send';
+    return;
+  }
+
   try {
     const response = await fetch(`/api/invoke/${encodeURIComponent(name)}`, {
       method: 'POST',
@@ -200,6 +212,58 @@ async function send(name) {
   } finally {
     button.disabled = false;
     button.textContent = 'Send';
+  }
+}
+
+/**
+ * A streaming response, rendered as it arrives.
+ *
+ * Waiting for the end would show nothing for the whole of the interesting part — an agent's
+ * answer arrives over a minute, and the point of watching is to watch. The body is appended to as
+ * chunks land, so a reader sees the shape of the answer forming.
+ */
+async function stream(name, path, sends) {
+  const result = $('invoke-result');
+  result.innerHTML = '';
+
+  const line = document.createElement('div');
+  line.className = 'status-line';
+  const code = document.createElement('span');
+  code.className = 'code';
+  code.textContent = 'streaming…';
+  line.appendChild(code);
+  result.appendChild(line);
+
+  const body = document.createElement('pre');
+  body.className = 'body';
+  result.appendChild(body);
+
+  try {
+    const response = await fetch(`/api/invoke-stream/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        method: selectedRoute.method,
+        path,
+        body: sends ? $('invoke-body').value : '',
+        contentType: sends ? $('invoke-type').value : '',
+      }),
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      body.textContent += decoder.decode(value, { stream: true });
+      // Follow the tail, the way a terminal would.
+      body.scrollTop = body.scrollHeight;
+    }
+    code.className = 'code ok';
+    code.textContent = 'stream ended';
+  } catch (e) {
+    code.className = 'code failed';
+    code.textContent = 'stream interrupted';
   }
 }
 

@@ -59,7 +59,7 @@ trait RuntimeExtension:
    * means making an ordinary HTTP request to the address `boundAddress` reports, subject to the
    * same ACL as any other caller. There is deliberately no privileged path from here to a handler.
    */
-  def routes: Vector[(String, String)] = Vector.empty
+  def routes: Vector[ServedRoute] = Vector.empty
 
 /** Entry point for defining and starting an ankka service. */
 object Ankka:
@@ -240,6 +240,15 @@ final class ServiceBuilder private[ankka] (
       }
     )
 
+/**
+ * A route an extension answers, as the console needs to render it.
+ *
+ * `streaming` is not decoration: a streaming response has no end the panel can wait for, so it has
+ * to be read as it arrives. An agent's stream may run for a minute, and a panel that buffers shows
+ * nothing for the whole of the interesting part.
+ */
+final case class ServedRoute(method: String, path: String, streaming: Boolean)
+
 /** A running ankka service. */
 final class AnkkaService private[ankka] (
     val system: ActorSystem[?],
@@ -277,7 +286,7 @@ final class AnkkaService private[ankka] (
   def boundAddresses: Vector[String] = extensions.flatMap(_.boundAddress)
 
   /** Every route this service's extensions serve, for the console's invoke panel. */
-  def routes: Vector[(String, String)] = extensions.flatMap(_.routes)
+  def routes: Vector[ServedRoute] = extensions.flatMap(_.routes)
 
   def whenTerminated: Future[?] = system.whenTerminated
 

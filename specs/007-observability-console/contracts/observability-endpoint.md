@@ -29,12 +29,21 @@ it is a list anyway.
     { "kind": "EventSourcedEntity", "id": "item",
       "handlers": [ { "name": "add-item", "kind": "command" },
                     { "name": "get-item", "kind": "query" } ] },
-    { "kind": "HttpEndpoint", "id": "item-endpoint",
-      "routes": [ { "method": "POST", "path": "/items/{id}" },
-                  { "method": "GET",  "path": "/items" } ] }
+    { "kind": "HttpEndpoint", "id": "item-endpoint" }
   ]
 }
 ```
+
+Routes are reported separately, by the extensions that serve them:
+
+```json
+"routes": [ { "method": "POST", "path": "/items/{id}", "streaming": false },
+            { "method": "GET",  "path": "/chat/{session}", "streaming": true } ]
+```
+
+`streaming` is not decoration. A streaming response has no end for the panel to wait for, so it
+must be read as it arrives — an agent's answer may take a minute, and buffering it shows the
+developer nothing for the whole of the interesting part.
 
 An instance's `http` is absent when the service declared `"http": false`. The console must then say there is
 nothing to invoke rather than render an unusable panel.

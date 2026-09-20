@@ -826,6 +826,24 @@ load-restrictor reason, plus one generated `99-grants.sql` key alongside the DDL
 above about CNPG running `postInitApplicationSQLRefs` as its own superuser, not as the role that
 owns the database.
 
+## Deploying anywhere else
+
+`kustomization/overlays/remote/` is the same eight components with only what must differ: a
+`LoadBalancer` instead of the kind node ports, an ACME issuer over **DNS-01** instead of a
+self-signed root (a wildcard certificate cannot be had from HTTP-01), a real base domain on 443,
+and the development bearer token **deleted** rather than overridden — `dev-local-token` is public
+in this repository, so the control plane is made to refuse to start until a real Secret exists
+out of band. Images are the remaining gap: every Deployment names an unqualified image with
+`imagePullPolicy: IfNotPresent`, which is right for `kind load` and useless for a cluster that
+must pull, so a registry needs `DOCKER_REPOSITORY` and an `images:` block (left commented in the
+overlay — a wrong registry fails minutes later as `ImagePullBackOff`, an absent one immediately).
+
+`deploy-local.sh` will not apply it: that script refuses any context that is not the local kind
+cluster, on purpose, and that guard is worth more than the convenience. Apply it by hand, after
+the three CRD-bearing controllers. `RemoteOverlaySuite` renders both overlays and asserts they
+differ in exactly the intended ways — it skips when `kubectl` is not on the host's PATH, which is
+the only thing that can render kustomize.
+
 Every service's own database is provisioned separately, by the operator, per `AnkkaServiceSpec` —
 see `README.md`'s "Databases are provisioned automatically" for the model, and
 `kustomization/components/cnpg/` for the install component itself.

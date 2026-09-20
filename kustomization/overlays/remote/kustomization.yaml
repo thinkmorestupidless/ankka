@@ -1,0 +1,151 @@
+# ankka's control plane and operator on a real Kubernetes cluster: one with a load balancer, a
+# domain you control, and an image registry.
+#
+# The same eight components as overlays/local — the CRD, the operator, the control plane and its
+# RBAC, CNPG, cert-manager, Envoy Gateway and the Gateway itself are not local-specific and are not
+# copied here. What differs is only what *has* to:
+#
+#   * the gateway gets a LoadBalancer instead of pinned node ports   (loadbalancer.yaml)
+#   * certificates come from a real CA over DNS-01, not a self-signed root   (acme-issuer.yaml)
+#   * the base domain is a real one and HTTPS is on 443   (platform-configmap.yaml)
+#   * the development bearer token is *removed* rather than overridden   (see `patches` below)
+#   * images come from a registry rather than `kind load`   (see the note on images below)
+#
+# This is not applied by deploy-local.sh, which refuses any context that is not the local kind
+# cluster — deliberately, and that guard is worth keeping. Apply this one by hand, against a
+# context you have checked:
+#
+#   kubectl config current-context          # look at it. really look at it.
+#   kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
+#   kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
+#   kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
+#   # wait for those three controllers to be Ready, then:
+#   kubectl apply -k kustomization/overlays/remote --server-side --force-conflicts
+#
+# CNPG, cert-manager and Envoy Gateway go first for the same reason deploy-local.sh installs them
+# first: each brings CRDs that later resources are instances of, and `kubectl apply -k` gives no
+# ordering guarantee between a CRD and a custom resource of that kind inside one invocation.
+#
+# **Images.** Every Deployment here names an image without a registry
+# (`ankka-controlplane:latest`) and sets `imagePullPolicy: IfNotPresent`, which is right for a node
+# the image was copied onto and useless for a cluster that has to pull. Build and push with
+# DOCKER_REPOSITORY set, and add a matching `images:` block below:
+#
+#   DOCKER_REPOSITORY=europe-west2-docker.pkg.dev/PROJECT/ankka sbt docker:publishLocal
+#   docker push europe-west2-docker.pkg.dev/PROJECT/ankka/ankka-controlplane:<version>
+#
+#   images:
+#     - name: ankka-controlplane
+#       newName: europe-west2-docker.pkg.dev/PROJECT/ankka/ankka-controlplane
+#       newTag: "0.1.0"
+#     - name: ankka-operator
+#       newName: europe-west2-docker.pkg.dev/PROJECT/ankka/ankka-operator
+#       newTag: "0.1.0"
+#
+# Left commented rather than filled in with a placeholder registry: a wrong registry name fails at
+# pull time with `ImagePullBackOff`, minutes after a deploy that reported success, whereas an
+# absent one fails immediately and says which image it could not find.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+components:
+  - ../../components/cnpg
+  - ../../components/certmanager
+  - ../../components/envoy-gateway
+  - ../../components/crd
+  - ../../components/gateway
+  - ../../components/operator
+  - ../../components/postgres
+  - ../../components/controlplane
+
+resources:
+  - platform-configmap.yaml
+  - acme-issuer.yaml
+
+patches:
+  # A real load balancer rather than the local overlay's pinned node ports.
+  - path: loadbalancer.yaml
+    target:
+      group: gateway.envoyproxy.io
+      version: v1alpha1
+      kind: EnvoyProxy
+      name: ankka
+
+  # Remove the development token outright. components/controlplane ships
+  # `ANKKA_CONTROLPLANE_TOKEN: dev-local-token` so a fresh local cluster needs no extra step, and
+  # that value is public in this repository — patching it to something else here would put the
+  # real token in git instead, which is worse. Deleting it means the control plane's Deployment
+  # cannot start until a Secret of the same name exists, created out of band:
+  #
+  #   kubectl -n ankka-controlplane create secret generic ankka-controlplane-token \
+  #     --from-literal=ANKKA_CONTROLPLANE_TOKEN="$(openssl rand -base64 32)"
+  #
+  # A pod stuck on a missing Secret is a loud, immediate and obvious failure. A platform reachable
+  # on the internet with a token published in a public repository is none of those things.
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ankka-controlplane-token
+        namespace: ankka-controlplane
+
+# Identical in mechanism to overlays/local: the base domain and HTTPS port are each written once,
+# above, and copied into every place that must agree. Where the target holds a prefixed form
+# (`*.BASE_DOMAIN`, `api.BASE_DOMAIN`), the replacement swaps only the label after the first dot,
+# so the prefix survives.
+replacements:
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.baseDomain
+    targets:
+      - select:
+          kind: Certificate
+          name: ankka-wildcard
+        fieldPaths:
+          - spec.dnsNames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Gateway
+          name: ankka
+        fieldPaths:
+          - spec.listeners.[name=https].hostname
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: HTTPRoute
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_BASE_DOMAIN].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.httpsPort
+    targets:
+      - select:
+          kind: HTTPRoute
+          name: https-redirect
+        fieldPaths:
+          - spec.rules.0.filters.0.requestRedirect.port
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HTTPS_PORT].value

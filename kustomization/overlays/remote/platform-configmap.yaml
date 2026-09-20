@@ -1,0 +1,20 @@
+# The one place this installation's base domain is written; kustomization.yaml's replacements copy
+# it into the wildcard certificate, the Gateway's listener, both Deployments' environment and the
+# control plane's own route, so the five places that must agree cannot disagree. Same mechanism as
+# overlays/local, different values.
+#
+# SET BOTH BEFORE DEPLOYING. `baseDomain` must be a domain whose DNS you control: a service exposed
+# by this platform is reachable at <service>-<project>.<baseDomain>, the gateway serves one
+# wildcard certificate for *.<baseDomain>, and issuing that certificate needs a DNS-01 challenge
+# (see acme-issuer.yaml) — which is only possible for a zone you can write TXT records into.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ankka-platform
+  namespace: ankka-gateway
+data:
+  baseDomain: ankka.example.com
+  # 443, unlike the local overlay's 8443: nothing is remapping ports here, the load balancer
+  # listens on the real one. This is what the http->https redirect puts in its Location header, so
+  # a wrong value sends every plain-HTTP caller somewhere that does not answer.
+  httpsPort: "443"

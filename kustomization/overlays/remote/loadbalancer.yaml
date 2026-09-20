@@ -1,0 +1,17 @@
+# A real load balancer, instead of the fixed node ports the shared component pins.
+#
+# components/gateway/envoyproxy.yaml asks for a NodePort Service on 30080/30443 because neither
+# kind nor the k3s test container has a load balancer to give — a LoadBalancer Service there sits
+# `Pending` forever, and those two node ports are what kind maps to the host. On a cloud cluster
+# the opposite holds: the provider assigns a real external address, and pinning node ports on a
+# LoadBalancer Service is at best noise and at worst a collision with another workload.
+#
+# A JSON patch rather than a strategic merge, and that is not a style choice:
+# `envoyService.patch.value` is an embedded merge document, and merging *into* it cannot remove the
+# ports it already names — both would survive and the node ports would still be pinned. `remove`
+# deletes the whole embedded patch.
+- op: replace
+  path: /spec/provider/kubernetes/envoyService/type
+  value: LoadBalancer
+- op: remove
+  path: /spec/provider/kubernetes/envoyService/patch

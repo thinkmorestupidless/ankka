@@ -46,6 +46,10 @@ down:
     -kind delete cluster --name {{cluster}}
     -docker compose down
 
+# Render an overlay without applying it — `just render remote` before touching a real cluster.
+render overlay="local":
+    kubectl kustomize kustomization/overlays/{{overlay}}
+
 # ── Running a service on this machine ───────────────────────────────────────
 
 # Postgres for the samples: journal, views, timers, offsets.

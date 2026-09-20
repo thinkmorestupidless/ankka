@@ -1,0 +1,71 @@
+# The wildcard certificate the gateway serves, from a real certificate authority.
+#
+# This replaces overlays/local/local-ca.yaml, and the contract it has to satisfy is exactly one
+# thing: a Secret named `ankka-wildcard-tls` in `ankka-gateway`, holding a certificate valid for
+# `*.<baseDomain>`. components/gateway/gateway.yaml names that secret on its HTTPS listener and
+# knows nothing else about how it got there. Any issuer that produces it will do.
+#
+# **DNS-01, not HTTP-01, and that is forced rather than chosen.** The certificate is a wildcard,
+# and no CA will issue a wildcard against an HTTP-01 challenge — proving control of one hostname
+# says nothing about every other name under it. So cert-manager has to write a TXT record into the
+# zone, which means a credential for the DNS provider, in-cluster.
+#
+# The solver below is Google Cloud DNS. To use another provider, replace the `dns01` block and
+# nothing else — Cloudflare, Route53 and the rest take the same shape with a different key. See
+# https://cert-manager.io/docs/configuration/acme/dns01/
+#
+# Three things to set before this works, all marked SET:
+#   1. `email` — where the CA sends expiry warnings.
+#   2. `project` — the GCP project holding the DNS zone for the base domain.
+#   3. the solver credential, created out of band (it is a credential, so it is not in git):
+#
+#        gcloud iam service-accounts create cert-manager-dns01
+#        gcloud projects add-iam-policy-binding PROJECT \
+#          --member=serviceAccount:cert-manager-dns01@PROJECT.iam.gserviceaccount.com \
+#          --role=roles/dns.admin
+#        gcloud iam service-accounts keys create key.json \
+#          --iam-account=cert-manager-dns01@PROJECT.iam.gserviceaccount.com
+#        kubectl -n ankka-gateway create secret generic clouddns-solver --from-file=key.json
+#
+# Start against the staging server, commented below: Let's Encrypt rate-limits failed issuance of
+# production certificates hard (5 per account per hostname per week), and a DNS-01 misconfiguration
+# is discovered by failing. Staging issues an untrusted certificate, which proves the whole path
+# without spending the budget; switch the server line once a staging certificate goes Ready.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: ankka-acme
+  namespace: ankka-gateway
+spec:
+  acme:
+    # server: https://acme-staging-v02.api.letsencrypt.org/directory   # prove it here first
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: SET-ME@example.com # SET
+    privateKeySecretRef:
+      # cert-manager creates this; it is the ACME account key, not something you supply.
+      name: ankka-acme-account
+    solvers:
+      - dns01:
+          cloudDNS:
+            project: SET-ME # SET: the GCP project holding the DNS zone
+            serviceAccountSecretRef:
+              name: clouddns-solver
+              key: key.json
+---
+# Named and shaped identically to the local overlay's, because deploy-local.sh, the k3s suites and
+# anything else that waits on the gateway wait on `certificate/ankka-wildcard` being Ready. Only
+# the issuer differs.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-wildcard
+  namespace: ankka-gateway
+spec:
+  secretName: ankka-wildcard-tls
+  dnsNames:
+    # BASE_DOMAIN is replaced from platform-configmap.yaml; the replacement swaps the label after
+    # the first dot, so the `*.` prefix survives.
+    - "*.BASE_DOMAIN"
+  issuerRef:
+    name: ankka-acme
+    kind: Issuer

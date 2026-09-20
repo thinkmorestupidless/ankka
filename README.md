@@ -475,6 +475,7 @@ the same from the CLI's side, but this time something is listening:
 ```bash
 kind create cluster --name ankka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh
+# or `just up`, which does both — see the Justfile for `down`, `deploy`, `console`, `test`
 
 ankka config set url https://api.127.0.0.1.sslip.io:8443   # printed by the script
 ankka config set ca ~/.ankka/local-ca.crt                    # the local cluster's root, exported by it

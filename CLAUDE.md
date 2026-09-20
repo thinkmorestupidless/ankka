@@ -85,6 +85,12 @@ Do not "optimise" this back.
 sbt scalafmtAll scalafmtSbt        # format; scalafmtCheckAll verifies
 ```
 
+A `Justfile` wraps the multi-step ones — `just up` (create the kind cluster and deploy
+everything), `just down`, `just deploy`, `just test`, `just console`. It is deliberately thin:
+every recipe is one command or a call to `deploy-local.sh`, which owns the logic and the guards.
+Keep it that way — a recipe that reimplements a step becomes a second copy to keep in step with
+this file, and everything here still works without `just` installed.
+
 `SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites
 `private[ankka] final` to `final private[ankka]`, which is scalafmt's canonical order but
 reads worse, and it churned 99 declarations for no benefit.

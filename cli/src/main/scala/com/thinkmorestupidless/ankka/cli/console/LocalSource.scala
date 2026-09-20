@@ -120,9 +120,23 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
       get(s"${e.observabilityAddress}/observability/sessions/$sessionId")
     }
 
-  def query(name: String, component: String, entityId: String, method: String): Option[String] =
+  def query(
+      name: String,
+      component: String,
+      entityId: String,
+      method: String
+  ): Option[QueryResponse] =
     forName(name).flatMap { e =>
-      get(s"${e.observabilityAddress}/observability/query/$component/$entityId/$method")
+      // Forwarded whole, including a refusal: the console is a window onto the service's answer,
+      // not a second opinion about it.
+      val url = s"${e.observabilityAddress}/observability/query/$component/$entityId/$method"
+      try
+        val response = client.send(
+          HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(12)).GET().build(),
+          HttpResponse.BodyHandlers.ofString()
+        )
+        Some(QueryResponse(response.statusCode(), response.body))
+      catch case _: Throwable => None
     }
 
   private def forName(name: String): Option[ServiceSummary] =

@@ -26,13 +26,13 @@ final class ConsoleStreamSuite extends FunSuite:
    * A source whose stream emits on demand, so a test can observe arrival rather than completion.
    */
   private final class SlowSource(release: CountDownLatch) extends Source:
-    def services(): Vector[ServiceSummary]                                = Vector.empty
-    def service(name: String): Option[String]                             = None
-    def traces(name: String): Option[String]                              = None
-    def trace(name: String, id: String): Option[String]                   = None
-    def session(name: String, id: String): Option[String]                 = None
-    def invoke(name: String, r: InvokeRequest): Option[InvokeResponse]    = None
-    def query(n: String, c: String, i: String, m: String): Option[String] = None
+    def services(): Vector[ServiceSummary]                                       = Vector.empty
+    def service(name: String): Option[String]                                    = None
+    def traces(name: String): Option[String]                                     = None
+    def trace(name: String, id: String): Option[String]                          = None
+    def session(name: String, id: String): Option[String]                        = None
+    def invoke(name: String, r: InvokeRequest): Option[InvokeResponse]           = None
+    def query(n: String, c: String, i: String, m: String): Option[QueryResponse] = None
 
     def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean =
       if name != "agent" then false

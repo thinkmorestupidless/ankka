@@ -48,8 +48,12 @@ final class ConsoleServerSuite extends FunSuite:
     def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean =
       false
 
-    def query(name: String, component: String, id: String, method: String): Option[String] =
-      Option.when(name == "orders" && method == "get")("""{"name":"Ada"}""")
+    def query(name: String, component: String, id: String, method: String): Option[QueryResponse] =
+      Option.when(name == "orders")(
+        if method == "get" then QueryResponse(200, """{"name":"Ada"}""")
+        // What the service answers for a handler declared with `command`.
+        else QueryResponse(405, """{"error":"'rename' is a command, not a query"}""")
+      )
 
   private def withConsole[A](source: Source)(body: ConsoleServer => A): A =
     val quiet  = PrintStream(ByteArrayOutputStream())
@@ -128,6 +132,23 @@ final class ConsoleServerSuite extends FunSuite:
       assertEquals(request.body, Some("""{"name":"W"}"""))
       assertEquals(request.headers, Vector("content-type" -> "application/json"))
     }
+  }
+
+  test("a refusal keeps the service's status and its reason, rather than becoming a 404") {
+    // The console is a window onto the service's answer, not a second opinion about it. This
+    // collapsed to a bare 404 in a live check: `LocalSource` turned every non-200 into None and
+    // the route rendered None as "not found", so the panel said the handler did not exist while
+    // the service was answering 405 and explaining precisely why.
+    withConsole(FakeSource()) { server =>
+      val (status, body) = get(server, "/api/query/orders/profile/p1/rename")
+      assertEquals(status, 405, "the service's status travels")
+      assert(body.contains("is a command, not a query"), s"and so does its reason: $body")
+    }
+
+    // A service this source does not have is still a genuine 404 — the one thing None means.
+    withConsole(FakeSource())(server =>
+      assertEquals(get(server, "/api/query/ghost/profile/p1/get")._1, 404)
+    )
   }
 
   test("a busy port is not a failure — the console takes the next one and says so") {

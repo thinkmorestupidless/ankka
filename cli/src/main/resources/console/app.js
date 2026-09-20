@@ -444,14 +444,15 @@ async function loadTraces(name) {
         const full = await api(`/api/traces/${encodeURIComponent(name)}/${trace.traceId}`);
         body.innerHTML = '';
         renderSpans(body, full.spans || [], full.durationMillis, 0);
-        // Unattributed time gets its own row. It is usually the answer — a model call, a database
-        // wait, work handed to another thread — and spreading it across spans to tidy the
-        // percentages would hide exactly the finding this panel exists to surface.
+        // Time outside every root span — the gap between two roots of one trace, belonging to
+        // nobody. Distinct from the per-span gaps `renderSpans` draws beneath their own span, so
+        // it says which it is rather than showing a second bare "unattributed" row.
         if (full.unattributedMillis > 0) {
           renderSpan(body, {
             component: 'unattributed',
-            handler: '',
+            handler: 'between spans',
             durationMillis: full.unattributedMillis,
+            durationMicros: full.unattributedMillis * 1000,
             outcome: null,
             children: [],
           }, full.durationMillis, 0, true);
@@ -469,6 +470,20 @@ function renderSpans(container, spans, total, depth) {
   for (const span of spans) {
     renderSpan(container, span, total, depth, false);
     renderSpans(container, span.children || [], total, depth + 1);
+    // The span's own time that none of its children account for, as a sibling of those children.
+    // This is usually the answer — an endpoint that spent 2ms in the entity and 80ms waiting on a
+    // database has one interesting row, and it is this one. Only spans *with* children have a gap
+    // worth stating: a leaf's whole duration is already attributed to the leaf.
+    if (span.unattributedMicros > 0 && (span.children || []).length) {
+      renderSpan(container, {
+        component: 'unattributed',
+        handler: '',
+        durationMillis: span.unattributedMillis,
+        durationMicros: span.unattributedMicros,
+        outcome: null,
+        children: [],
+      }, total, depth + 1, true);
+    }
   }
 }
 

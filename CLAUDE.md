@@ -678,6 +678,14 @@ factory shapes would break lambda parameter inference at every call site.
   other `eventually` in that suite has the right shape: retry on the value that changes
   (`"services":0`, the hostname, the row disappearing), assert the identity that does not.
 
+- **A test that binds a fixed port cannot run beside the documented workflow.** `HttpServer.of`
+  takes the default 9000, so a suite registering one fails with `Address already in use` on any
+  machine already serving that port — including a developer running `sbt shoppingCart/run` next to
+  their tests, which is how this repository says to work. Every HTTP suite uses
+  `HttpServer.at("127.0.0.1", 0)`: loopback, ephemeral, the same reason the cluster's remoting port
+  defaults to random. CI passes either way, so this only ever fails on the machine of the person
+  doing the thing the README recommends.
+
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.

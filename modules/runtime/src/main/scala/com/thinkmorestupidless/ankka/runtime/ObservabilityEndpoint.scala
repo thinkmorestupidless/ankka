@@ -191,6 +191,8 @@ object ObservabilityEndpoint:
         s""""durationMicros":${node.durationNanos / 1000},""" +
         s""""outcome":${Json.str(node.outcome.toString)},""" +
         s""""parentUnknown":${node.parentUnknown},""" +
+        s""""unattributedMillis":${node.unattributedNanos / 1000000},""" +
+        s""""unattributedMicros":${node.unattributedNanos / 1000},""" +
         s""""children":${node.children.map(span).mkString("[", ",", "]")}}"""
 
     /**

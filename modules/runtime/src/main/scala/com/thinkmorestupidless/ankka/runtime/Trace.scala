@@ -18,6 +18,14 @@ import java.util.concurrent.ThreadLocalRandom
  *     request context cannot follow. It is usually the answer: Akka's own console example is a
  *     request that turned out to be 99.9% waiting on a model. Spreading it across spans to make the
  *     percentages tidy would hide exactly the finding the panel exists to surface.
+ *
+ * It is measured **per span**, as the gap between a span's own duration and the sum of its
+ * children's, and that is the whole of the rule: measuring it only at the trace level reports zero
+ * for every single-root trace, because the root by definition covers the entire elapsed time. Every
+ * ordinary HTTP request is exactly that shape, so the number was zero on every trace a developer
+ * would ever look at while 99% of the time went unexplained — the panel's headline finding,
+ * silently absent. A leaf span has no gap to report: its duration is attributed to it, and a second
+ * row under every entity call would say nothing.
  *   - **An orphan stays an orphan.** A span whose parent is gone from the ring, or was never
  *     recorded, is returned at the root with its parent marked unknown. Attaching it to the most
  *     recent plausible parent would produce a tree that looks complete and describes something that
@@ -42,7 +50,8 @@ final case class TraceSpan(
     durationNanos: Long,
     outcome: SpanOutcome,
     children: Vector[TraceSpan],
-    parentUnknown: Boolean
+    parentUnknown: Boolean,
+    unattributedNanos: Long
 )
 
 /**
@@ -119,6 +128,7 @@ object Trace:
       val childrenOf = spans.groupBy(_.parentSpanId)
 
       def build(span: RecordedSpan): TraceSpan =
+        val kids = childrenOf.getOrElse(span.spanId, Vector.empty).sortBy(_.startedNanos).map(build)
         TraceSpan(
           spanId = span.spanId,
           parentSpanId = span.parentSpanId,
@@ -127,10 +137,16 @@ object Trace:
           startedNanos = span.startedNanos,
           durationNanos = span.durationNanos,
           outcome = span.outcome,
-          children =
-            childrenOf.getOrElse(span.spanId, Vector.empty).sortBy(_.startedNanos).map(build),
+          children = kids,
           // A parent id that names a span this window does not hold. Reported, never re-parented.
-          parentUnknown = span.parentSpanId != 0L && !byId.contains(span.parentSpanId)
+          parentUnknown = span.parentSpanId != 0L && !byId.contains(span.parentSpanId),
+          // The span's own elapsed time that none of its children account for — a database wait, a
+          // model call, work handed to a thread the trace cannot follow. Only meaningful where
+          // there *are* children: a leaf's whole duration is attributed to the leaf, and reporting
+          // that as unattributed would put a second row under every entity call saying nothing.
+          unattributedNanos =
+            if kids.isEmpty then 0L
+            else math.max(0L, span.durationNanos - kids.map(_.durationNanos).sum)
         )
 
       // Roots are spans with no parent, plus orphans — whose parent is named but absent.

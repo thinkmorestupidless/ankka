@@ -212,8 +212,10 @@ object ConsoleServer:
       exchange.getRequestURI.getPath.stripPrefix("/api/query/").split("/").toList match
         case name :: component :: entityId :: method :: Nil =>
           source.query(name, component, entityId, method) match
-            case Some(body) => json200(exchange, body)
-            case None       => notFound(exchange)
+            // The service's status travels. A command refused with 405 and a reason must not
+            // arrive at the panel as a bare 404 — the reason is the whole value of the refusal.
+            case Some(response) => json(exchange, response.status, response.body)
+            case None           => notFound(exchange)
         case _ => notFound(exchange)
 
     /** The UI itself, read out of the jar. */
@@ -241,9 +243,13 @@ object ConsoleServer:
       else "application/octet-stream"
 
   private def json200(exchange: HttpExchange, body: String): Unit =
+    json(exchange, 200, body)
+
+  /** A JSON body under the status the service itself gave, refusals included. */
+  private def json(exchange: HttpExchange, status: Int, body: String): Unit =
     val bytes = body.getBytes(StandardCharsets.UTF_8)
     exchange.getResponseHeaders.add("Content-Type", "application/json")
-    exchange.sendResponseHeaders(200, bytes.length.toLong)
+    exchange.sendResponseHeaders(status, bytes.length.toLong)
     val out = exchange.getResponseBody
     try out.write(bytes)
     finally out.close()

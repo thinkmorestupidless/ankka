@@ -82,12 +82,32 @@ final class TraceSuite extends FunSuite:
 
   test("unattributed time is reported, not redistributed across spans") {
     // A root that took 100 with a single child of 20: 80 went somewhere the platform cannot see.
+    // That 80 is the single most useful number in the trace — an endpoint that spent 2ms in an
+    // entity and 80ms waiting on a database has exactly one interesting row — so it is asserted
+    // on the span that owns it. This case previously asserted the trace-level figure was 0 and
+    // called that correct; it *is* 0, and it is 0 for every single-root trace ever recorded,
+    // because a root covers the whole elapsed time by construction. Every ordinary HTTP request
+    // is that shape, so the headline number read zero on every trace anyone would look at.
     val assembled = Trace.assemble(1L, Vector(span(1, 0, 0, 100), span(2, 1, 10, 20)), false)
 
     assertEquals(assembled.durationNanos, 100L)
-    assertEquals(assembled.unattributedNanos, 0L, "a root's own duration accounts for its children")
+    assertEquals(
+      assembled.roots.head.unattributedNanos,
+      80L,
+      "the gap belongs to the span above it"
+    )
+    assertEquals(
+      assembled.roots.head.children.head.unattributedNanos,
+      0L,
+      "a leaf has nothing unaccounted: its whole duration is attributed to it"
+    )
+    assertEquals(
+      assembled.unattributedNanos,
+      0L,
+      "and nothing fell outside the root, which is what the trace-level figure measures"
+    )
 
-    // Two sibling roots, 30 apart: the gap between them is nobody's.
+    // Two sibling roots, 30 apart: the gap between them is nobody's, and that is the trace's.
     val siblings = Trace.assemble(1L, Vector(span(1, 0, 0, 10), span(2, 0, 40, 10)), false)
     assertEquals(siblings.durationNanos, 50L)
     assertEquals(siblings.unattributedNanos, 30L)
@@ -96,6 +116,42 @@ final class TraceSuite extends FunSuite:
       Vector(10L, 10L),
       "and the spans keep their own durations — the gap is not spread over them"
     )
+  }
+
+  test("a real request's shape: one root, one short child, and the rest visible as the gap") {
+    // The shape of every HTTP request this platform serves, and the one the old measurement was
+    // blind to. Measured off a running shopping cart: 3500us at the endpoint, 21us in the entity.
+    val assembled = Trace.assemble(1L, Vector(span(1, 0, 0, 3500), span(2, 1, 100, 21)), false)
+
+    val root = assembled.roots.head
+    assertEquals(root.unattributedNanos, 3479L, "99% of the request, and it must not read as zero")
+    assert(
+      root.unattributedNanos > root.children.map(_.durationNanos).sum,
+      "the gap dwarfs the work the trace can name — which is the finding, not a rounding error"
+    )
+  }
+
+  test("a span's gap never goes negative, however the clock behaved") {
+    // Children whose durations exceed the parent's: impossible in principle, and a timer that
+    // went backwards or a child recorded across a restart can still produce it. A negative row
+    // would render as a bar pointing the wrong way rather than as the non-answer it is.
+    val assembled = Trace.assemble(1L, Vector(span(1, 0, 0, 10), span(2, 1, 0, 40)), false)
+    assertEquals(assembled.roots.head.unattributedNanos, 0L)
+  }
+
+  test("the gap is each span's own, not inherited down the tree") {
+    // root 100 → child 60 → grandchild 10. The root cannot see 40; the child cannot see 50.
+    val assembled = Trace.assemble(
+      1L,
+      Vector(span(1, 0, 0, 100), span(2, 1, 0, 60), span(3, 2, 0, 10)),
+      false
+    )
+
+    val root  = assembled.roots.head
+    val child = root.children.head
+    assertEquals(root.unattributedNanos, 40L)
+    assertEquals(child.unattributedNanos, 50L)
+    assertEquals(child.children.head.unattributedNanos, 0L, "the grandchild is a leaf")
   }
 
   test("an orphan stays at the root with its parent marked unknown, never re-parented") {

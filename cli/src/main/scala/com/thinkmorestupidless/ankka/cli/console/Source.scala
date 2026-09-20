@@ -70,8 +70,22 @@ trait Source:
    *
    * Queries only, and the service enforces that rather than trusting the console to ask nicely: a
    * handler declared with `command` is refused there, not merely left off the menu here.
+   *
+   * The service's own status and body come back rather than an `Option[String]`, because the
+   * refusal is the interesting case and it carries a reason — `'add-item' is a command, not a
+   * query`. Collapsing a non-200 to "nothing" turned that into a bare 404 in the console while the
+   * service was answering 405 and saying exactly why. `None` here means only what it says: this
+   * source has no such service.
    */
-  def query(name: String, component: String, entityId: String, method: String): Option[String]
+  def query(
+      name: String,
+      component: String,
+      entityId: String,
+      method: String
+  ): Option[QueryResponse]
+
+/** A query handler's answer, forwarded with the status the service gave it. */
+final case class QueryResponse(status: Int, body: String)
 
 /** What the Services panel lists. `instances` is always 1 locally — and a column anyway. */
 final case class ServiceSummary(

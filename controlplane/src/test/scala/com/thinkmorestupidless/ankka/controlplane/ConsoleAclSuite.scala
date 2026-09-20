@@ -44,7 +44,11 @@ final class ConsoleAclSuite extends FunSuite:
     sys.props.put("ankka.running.dir", registryDir.toString)
     testKit = AnkkaTestKit.start(
       Seq.empty,
-      Seq(HttpServer.of(_ => GatedEndpoint()))
+      // Loopback and an ephemeral port, as every other HTTP suite does. `HttpServer.of` takes the
+      // default 9000, which made this suite fail on any machine already serving that port — a
+      // developer running `sbt shoppingCart/run` beside their tests, which is the documented way
+      // to work on this repository. The same reason the cluster port defaults to random.
+      Seq(HttpServer.at("127.0.0.1", 0)(_ => GatedEndpoint()))
     )
 
   override def afterAll(): Unit =

@@ -53,6 +53,9 @@ curl localhost:9000/carts/c1
 curl -X POST localhost:9000/carts/c1/checkout
 ```
 
+With that running, `ankka local console` shows you what it is doing — see
+[below](#seeing-what-it-is-doing).
+
 The agentic sample needs a key:
 
 ```bash
@@ -62,14 +65,23 @@ sbt "multiAgentPlanner/run"
 
 ### Seeing what it is doing
 
+There is a local console, and it needs the CLI — which is built from this repository rather than
+installed, since there is no binary release yet:
+
 ```bash
-ankka local console          # → http://localhost:9889
+sbt cli/stage                                   # builds target/universal/stage/bin/ankka
+export PATH="$PWD/cli/target/universal/stage/bin:$PATH"
+
+ankka local console                             # → http://localhost:9889
 ```
 
-Every ankka service running on this machine, and for each one: its registered components, a form
-per HTTP route so a request can be sent without leaving the page, the traces of requests it has
-served, and — for a service with agents — a session's stored conversation and the tokens it has
-cost.
+It finds every ankka service running on this machine by itself — a service announces where its
+observability endpoint is listening, and the console lists them — so start it before or after your
+service, the order does not matter, and leave it running while you restart things.
+
+For each service: its registered components, a form per HTTP route so a request can be sent without
+leaving the page, the traces of requests it has served, and — for a service with agents — a
+session's stored conversation and the tokens it has cost.
 
 To look inside an entity, the console runs the component's **own declared queries** against an id —
 `get-cart` on the cart, and nothing the component did not itself publish. It cannot run a command:
@@ -82,14 +94,17 @@ A trace is the useful part. It shows which components a request went through, ho
 and how much of the request the platform *cannot* account for:
 
 ```
-POST /{cartId}/items            84 ms
-└── shopping-cart#add-item     1.8 ms
+POST /{cartId}/items           118 ms
+├── shopping-cart#add-item     1.8 ms
+└── unattributed               117 ms   (98%)
 ```
 
-Two milliseconds in the entity, eighty-two somewhere else. Time the platform cannot attribute —
-waiting on a model, waiting on a database, work a handler handed to another thread — gets its own
-row rather than being spread across the spans to make the percentages tidy, because it is usually
-the answer.
+Two milliseconds in the entity, a hundred and seventeen somewhere else — that one is the journal
+write. Time the platform cannot attribute — waiting on a model, waiting on a database, work a
+handler handed to another thread — gets its own row rather than being spread across the spans to
+make the percentages tidy, because it is usually the answer. It is measured per span, as the gap
+between a span's own time and its children's; a leaf gets no such row, because its whole duration
+is already attributed to it.
 
 The invoke panel sends its request to the service's own HTTP port as an ordinary client, so an
 endpoint's `acl` refuses the console exactly as it refuses `curl`. There is no privileged path

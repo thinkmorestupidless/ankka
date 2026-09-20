@@ -30,6 +30,25 @@ curl localhost:9000/items/
 Postgres applies its init directory only to an empty volume: after `sbt schema` changes anything,
 `docker compose down -v` first.
 
+## See what it is doing
+
+```bash
+ankka local console       # http://localhost:9889
+```
+
+Lists every ankka service running on this machine, this one included, and for each: its registered
+components, a form per HTTP route so you can send a request without leaving the page, and the trace
+of each request it served — which components it went through, how long each took, and how much of
+the elapsed time the platform cannot account for. That last figure is usually the interesting one.
+
+The console also reads an entity's state, through the queries a component declares for itself
+(`get-item` on `ItemEntity`). It will not run a command — `add-item` is refused — because
+`query` accepts only a `ReadOnlyEffect`, so
+"cannot persist" is the compiler's guarantee rather than a rule the console enforces.
+
+It is local-only — loopback, no credential. For a service deployed to a platform, `ankka services
+logs` is the equivalent.
+
 ## Build the image
 
 ```bash

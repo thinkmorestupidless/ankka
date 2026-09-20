@@ -37,11 +37,17 @@ body {
   background: var(--paper);
 }
 
+/* Fixed, because `main` below subtracts this exact height to fill the rest of the window. It was
+   a padding-derived 53px and a matching constant in the calc, which meant changing anything in the
+   bar — the mark grew from 17px to 26px tall — silently left the two disagreeing and put a
+   scrollbar on a page that fits. */
 header {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 20px;
+  height: 53px;
+  box-sizing: border-box;
+  padding: 0 20px;
   border-bottom: 1px solid var(--line);
 }
 header h1 { font-size: 15px; font-weight: 600; margin: 0; }
@@ -53,6 +59,7 @@ header h1 { font-size: 15px; font-weight: 600; margin: 0; }
 main {
   display: grid;
   grid-template-columns: 280px 1fr;
+  /* 53px is the header's declared height above — the two must stay in step. */
   min-height: calc(100vh - 53px);
 }
 @media (max-width: 720px) {

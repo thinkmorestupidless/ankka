@@ -3,17 +3,23 @@
 # control plane's own route, so the five places that must agree cannot disagree. Same mechanism as
 # overlays/local, different values.
 #
-# SET BOTH BEFORE DEPLOYING. `baseDomain` must be a domain whose DNS you control: a service exposed
-# by this platform is reachable at <service>-<project>.<baseDomain>, the gateway serves one
-# wildcard certificate for *.<baseDomain>, and issuing that certificate needs a DNS-01 challenge
-# (see acme-issuer.yaml) — which is only possible for a zone you can write TXT records into.
+# `baseDomain` must be a domain whose DNS you control: a service exposed by this platform is
+# reachable at <service>-<project>.<baseDomain>, the gateway serves one wildcard certificate for
+# *.<baseDomain>, and issuing that certificate needs a DNS-01 challenge (see acme-issuer.yaml) —
+# which is only possible for a zone you can write TXT records into. Here: ankka.cloud, in DNSimple.
+#
+# One label deep, and that is load-bearing. An exposed service is `<service>-<project>.ankka.cloud`
+# — `cart-checkout.ankka.cloud`, not `cart.checkout.ankka.cloud` — because a wildcard covers
+# exactly one label, for the certificate and for the Gateway listener alike. `Hostnames` in the
+# `crd` module is the single derivation of that name, and expose-time refuses the two cases it
+# cannot serve: a label over 63 characters, and a collision between hyphenated names.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ankka-platform
   namespace: ankka-gateway
 data:
-  baseDomain: ankka.example.com
+  baseDomain: ankka.cloud
   # 443, unlike the local overlay's 8443: nothing is remapping ports here, the load balancer
   # listens on the real one. This is what the http->https redirect puts in its Location header, so
   # a wrong value sends every plain-HTTP caller somewhere that does not answer.

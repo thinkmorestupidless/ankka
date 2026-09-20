@@ -19,12 +19,22 @@
 #   kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
-#   # wait for those three controllers to be Ready, then:
+#   # wait for those three controllers to be Ready, then the one thing here that is not kustomize:
+#   helm repo add certmanager-webhook https://puzzle.github.io/cert-manager-webhook-dnsimple
+#   helm install cert-manager-webhook-dnsimple \
+#     certmanager-webhook/cert-manager-webhook-dnsimple \
+#     --namespace cert-manager --version 0.1.17 --set dnsimple.token='<DNSIMPLE_API_TOKEN>'
+#   # then:
 #   kubectl apply -k kustomization/overlays/remote --server-side --force-conflicts
 #
 # CNPG, cert-manager and Envoy Gateway go first for the same reason deploy-local.sh installs them
 # first: each brings CRDs that later resources are instances of, and `kubectl apply -k` gives no
 # ordering guarantee between a CRD and a custom resource of that kind inside one invocation.
+#
+# The Helm step is the DNS-01 solver for DNSimple, which cert-manager does not implement natively —
+# see acme-issuer.yaml for why that forces both a webhook and a ClusterIssuer. It is the only part
+# of this installation that is not a manifest in this repository, and the `ankka-acme` ClusterIssuer
+# below will sit unusable until it exists.
 #
 # **Images.** Every Deployment here names an image without a registry
 # (`ankka-controlplane:latest`) and sets `imagePullPolicy: IfNotPresent`, which is right for a node

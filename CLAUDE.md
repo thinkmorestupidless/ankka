@@ -467,6 +467,17 @@ factory shapes would break lambda parameter inference at every call site.
 - **A cert-manager `ClusterIssuer` looks up its `ca.secretName` in cert-manager's own namespace,
   not the Certificate's.** `secrets "ankka-root-ca" not found` with the secret sitting right there
   in `ankka-gateway`. A namespaced `Issuer` beside the secret is the honest shape for a local CA.
+- **The ClusterIssuer trap runs both ways, and the remote overlay needs the other direction.**
+  A cluster-scoped issuer resolves its secrets in *cert-manager's* namespace rather than the
+  Certificate's, which is why a `ClusterIssuer` was wrong for the local CA (above) — its secret
+  sits beside the Certificate. `overlays/remote` is the mirror: DNSimple is not one of
+  cert-manager's built-in DNS-01 solvers, so it needs the out-of-tree webhook, and that webhook
+  reads its API token with *its own* ServiceAccount in the namespace of the challenge. The chart
+  grants that with a Role in its release namespace, pinned by `resourceNames` to its own secret.
+  A namespaced `Issuer` in `ankka-gateway` therefore sends the webhook after a secret it cannot
+  read, and issuance fails `forbidden` on the *token* — which reads nothing like the wildcard
+  certificate being the problem. Same property, opposite answer, and `RemoteOverlaySuite` pins
+  both directions so neither gets "tidied" into the other.
 - **A Gateway API `RequestRedirect` without `port` keeps the *request's* port in the Location.**
   `http://…:8080/x` → `https://…:8080/x`, which goes nowhere on kind, where HTTPS is on 8443. The
   redirect route names its port (443 in the component, the kind host port in the overlay).

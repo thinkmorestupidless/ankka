@@ -91,6 +91,19 @@ final class RemoteOverlaySuite extends FunSuite:
       assert(!remote.contains(leaked), s"'$leaked' leaked into the remote overlay")
   }
 
+  test("the real domain reaches every place that must agree about it") {
+    // Five places, one source (platform-configmap.yaml). They cannot be allowed to drift: the
+    // certificate covers one of them, the listener matches on another, and a mismatch is a
+    // gateway that serves a certificate for a name nobody asked for.
+    val domain = "ankka.cloud"
+    assert(remote.contains(s"'*.$domain'"), "the wildcard certificate and listener")
+    assert(remote.contains(s"api.$domain"), "the control plane's own route")
+    assert(
+      remote.linesIterator.count(_.contains(domain)) >= 5,
+      "the domain should reach the certificate, the listener, the route and both Deployments"
+    )
+  }
+
   test("the gateway asks for a load balancer, and pins no node ports") {
     assert(remote.contains("type: LoadBalancer"), "a cloud cluster should get a LoadBalancer")
     for pinned <- Vector("30080", "30443") do
@@ -129,4 +142,38 @@ final class RemoteOverlaySuite extends FunSuite:
     // And the local overlay is the opposite, which is what makes the split worth having.
     val localIssuers = documentsOfKind(local, "Issuer")
     assert(localIssuers.exists(_.contains("selfSigned")), "the local overlay signs its own")
+  }
+
+  test("the wildcard is issued by a ClusterIssuer, which the webhook's RBAC requires") {
+    // Not interchangeable with a namespaced Issuer, and the failure if it were would be obscure.
+    // The DNSimple solver reads its API token with the *webhook's* ServiceAccount, in the
+    // namespace of the challenge; the webhook chart grants that only in cert-manager's namespace,
+    // pinned by resourceNames to its own secret. A namespaced Issuer in ankka-gateway therefore
+    // sends it looking for a secret it cannot read, and issuance fails with `forbidden` on the
+    // token — which reads nothing like "the wildcard certificate is the problem".
+    val cert = documentsOfKind(remote, "Certificate")
+      .find(_.contains("name: ankka-wildcard"))
+      .getOrElse(fail("the wildcard certificate is missing from the remote overlay"))
+    assert(cert.contains("kind: ClusterIssuer"), s"must reference a ClusterIssuer: $cert")
+
+    // The local overlay is the mirror image, and for the mirror-image reason: its CA secret sits
+    // beside the Certificate, so a ClusterIssuer would look in the wrong namespace (CLAUDE.md).
+    val localCert = documentsOfKind(local, "Certificate")
+      .find(_.contains("name: ankka-wildcard"))
+      .getOrElse(fail("the local wildcard certificate is missing"))
+    assert(localCert.contains("kind: Issuer"), "the local one must stay namespaced")
+    assert(!localCert.contains("kind: ClusterIssuer"), "...and must not become a ClusterIssuer")
+  }
+
+  test("the DNSimple solver is named exactly as the webhook registers it") {
+    // cert-manager matches a webhook solver by (groupName, solverName) and silently finds nothing
+    // if either is wrong — the Certificate simply never progresses. Both come from the chart:
+    // groupName is its `groupName` value, solverName is the solver's own Name() in its source.
+    val issuers = documentsOfKind(remote, "ClusterIssuer")
+    assert(
+      issuers.exists(i =>
+        i.contains("groupName: acme.dnsimple.com") && i.contains("solverName: dnsimple")
+      ),
+      "the webhook solver must match what cert-manager-webhook-dnsimple registers"
+    )
   }

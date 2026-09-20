@@ -71,6 +71,13 @@ per HTTP route so a request can be sent without leaving the page, the traces of 
 served, and — for a service with agents — a session's stored conversation and the tokens it has
 cost.
 
+To look inside an entity, the console runs the component's **own declared queries** against an id —
+`get-cart` on the cart, and nothing the component did not itself publish. It cannot run a command:
+`query` accepts only a `ReadOnlyEffect`, so the binding already knows which handlers can persist,
+and asking for one answers `405 'add-item' is a command, not a query`. That is the compiler's
+guarantee carried onto the wire, not a list of safe names the console maintains — which is also why
+a component that declares no query shows none rather than having its journal read behind its back.
+
 A trace is the useful part. It shows which components a request went through, how long each took,
 and how much of the request the platform *cannot* account for:
 
@@ -858,8 +865,8 @@ Honest gaps, not oversights:
   itself, not just ankka's own code, refuses a `Database` delete — proving the withheld
   verb is structural rather than merely unused.
 - **The console is local only.** `ankka local console` serves the services running on your own
-  machine and nothing else: it binds loopback, holds no credential, and shows entity state and
-  agent memory, which is whatever the application put there. A console over a *deployed*
+  machine and nothing else: it binds loopback, holds no credential, and reads entity state only
+  through the queries a component declared for itself. A console over a *deployed*
   installation is a feature of its own — the expensive half of it is reassembling one trace from
   several pods' separate windows, not the authentication — and the data it would read is already
   shaped for it (a service carries a list of instances, and `partial` means "this window does not

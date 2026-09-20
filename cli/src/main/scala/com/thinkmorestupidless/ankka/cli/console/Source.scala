@@ -65,6 +65,14 @@ trait Source:
    */
   def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean
 
+  /**
+   * Runs one of a component's query handlers against an entity id.
+   *
+   * Queries only, and the service enforces that rather than trusting the console to ask nicely: a
+   * handler declared with `command` is refused there, not merely left off the menu here.
+   */
+  def query(name: String, component: String, entityId: String, method: String): Option[String]
+
 /** What the Services panel lists. `instances` is always 1 locally — and a column anyway. */
 final case class ServiceSummary(
     name: String,

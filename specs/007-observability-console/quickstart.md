@@ -71,8 +71,29 @@ ankka services logs cart                 # says so, exits non-zero — never han
 **Prove it with no cluster credentials** (SC-006):
 
 ```bash
-env -u KUBECONFIG HOME=$(mktemp -d) ankka services logs cart --url … --token …
+H=$(mktemp -d); mkdir -p $H/.ankka
+cp ~/.ankka/local-ca.crt $H/.ankka/                        # a TLS trust anchor, not a credential
+printf '{"ca":"%s/.ankka/local-ca.crt"}' "$H" > $H/config.json
+
+env -u KUBECONFIG HOME=$H kubectl get pods -A              # fails: there are no kube credentials here
+env -u KUBECONFIG HOME=$H ANKKA_CONFIG=$H/config.json \
+  ankka services logs cart -p checkout --url "$URL" --token "$TOKEN" --tail 2
+env -u KUBECONFIG HOME=$H ANKKA_CONFIG=$H/config.json \
+  ankka services logs cart -p checkout --url "$URL" --token wrong --tail 2   # 403, exit 1
 ```
+
+Two details this command gets wrong if written the obvious way, both found by writing it the
+obvious way first:
+
+- **`HOME=…` alone does not move the CLI's config.** `Settings.path` resolves `~` through the
+  JVM's `user.home`, which the launcher fixes at startup — so the process reads the developer's
+  *real* `~/.ankka/config.json` and the isolation is a fiction. `ANKKA_CONFIG` is the override
+  that exists for exactly this, and the one a test uses.
+- **The CA has to come too, and that is not a hole in the proof.** It is a TLS trust anchor: it
+  says which certificate authority to believe, not who the caller is. It is needed only because
+  kind's gateway uses a private CA — an installation with a publicly-issued certificate needs
+  none. The credential is the token, and the third command is what shows it: the same call with
+  the wrong token is refused by the endpoint's ACL, not by Kubernetes.
 
 ## Tier 5 — The RBAC, against a real cluster
 

@@ -48,6 +48,9 @@ final class ConsoleServerSuite extends FunSuite:
     def invokeStream(name: String, request: InvokeRequest, onChunk: String => Unit): Boolean =
       false
 
+    def query(name: String, component: String, id: String, method: String): Option[String] =
+      Option.when(name == "orders" && method == "get")("""{"name":"Ada"}""")
+
   private def withConsole[A](source: Source)(body: ConsoleServer => A): A =
     val quiet  = PrintStream(ByteArrayOutputStream())
     val server = ConsoleServer.start(source, 0, quiet)

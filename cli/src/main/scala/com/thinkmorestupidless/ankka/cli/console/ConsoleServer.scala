@@ -42,6 +42,7 @@ object ConsoleServer:
     server.createContext("/api/invoke/", exchange => handler.invoke(exchange))
     server.createContext("/api/session/", exchange => handler.session(exchange))
     server.createContext("/api/invoke-stream/", exchange => handler.invokeStream(exchange))
+    server.createContext("/api/query/", exchange => handler.query(exchange))
     server.setExecutor(null)
     server.start()
 
@@ -203,6 +204,14 @@ object ConsoleServer:
       exchange.getRequestURI.getPath.stripPrefix("/api/session/").split("/").toList match
         case name :: sessionId :: Nil =>
           source.session(name, sessionId) match
+            case Some(body) => json200(exchange, body)
+            case None       => notFound(exchange)
+        case _ => notFound(exchange)
+
+    def query(exchange: HttpExchange): Unit =
+      exchange.getRequestURI.getPath.stripPrefix("/api/query/").split("/").toList match
+        case name :: component :: entityId :: method :: Nil =>
+          source.query(name, component, entityId, method) match
             case Some(body) => json200(exchange, body)
             case None       => notFound(exchange)
         case _ => notFound(exchange)

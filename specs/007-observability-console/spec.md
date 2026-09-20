@@ -213,8 +213,17 @@ standard scrapeable form, with values that match what was driven.
 - **FR-013**: The console MUST show the trace of a request: every component invoked, in call
   order and nesting, each with its own duration, and the portion of elapsed time the platform
   cannot account for shown as such.
-- **FR-014**: The console MUST show the current state of an entity identified by id, and MUST
-  report plainly when no such entity exists.
+- **FR-014**: The console MUST show the current state of an entity identified by id, by running a
+  handler the component itself declared as a **query**, and MUST refuse to run a command.
+  *Corrected during implementation, twice.* It first required a plain report "when no such entity
+  exists": the platform has no such state — an id that has never been used answers with
+  `emptyState`, which is the defined answer rather than a missing one, so the requirement asked for
+  a distinction nothing could truthfully draw. It then left open *which* handlers a read-only
+  console may call; serving the component's own declared queries is the answer, because `query`
+  accepts only a `ReadOnlyEffect` and so "this cannot persist" is already enforced by the compiler.
+  The console reads nothing a component did not publish about itself — in particular it does not
+  read the journal or durable-state tables directly, which would be a larger grant than inspection
+  needs.
 - **FR-015**: The console MUST show an agent session's stored memory as the platform holds it.
 - **FR-016**: The console MUST show tokens consumed and cost, per agent session and in total for
   the service.

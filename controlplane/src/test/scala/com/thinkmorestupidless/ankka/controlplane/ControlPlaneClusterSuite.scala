@@ -519,3 +519,75 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
     assertEquals(refused, 1, refusedOut)
     assert(refusedOut.contains("ankka config set ca"), refusedOut)
   }
+
+  test("8. the shipped RBAC, both ways: it can read a log and cannot touch a workload") {
+    // The manifest side is covered cheaply by LogsRbacSuite. This is the half that a manifest
+    // test cannot do: asking the API server, as the control plane's own ServiceAccount rather
+    // than as an admin. CLAUDE.md records why that distinction matters — the suites mostly use
+    // admin credentials, so a *missing* verb fails silently in CI and loudly on a real deploy,
+    // which has already happened once (`ensureNamespace` needed `patch` and had only `create`).
+    val tokenResult =
+      k3s.execInContainer(
+        "kubectl",
+        "create",
+        "token",
+        "ankka-controlplane",
+        "-n",
+        Namespace,
+        "--duration=10m"
+      )
+    assertEquals(tokenResult.getExitCode, 0, tokenResult.getStderr)
+    val token = tokenResult.getStdout.trim
+
+    val restricted = new KubernetesClientBuilder()
+      .withConfig(
+        new io.fabric8.kubernetes.client.ConfigBuilder()
+          .withMasterUrl(k8s.getConfiguration.getMasterUrl)
+          .withTrustCerts(true)
+          .withOauthToken(token)
+          .build()
+      )
+      .build()
+
+    try
+      // Granted: it can find a pod and read what that pod printed. `ankka services logs` is
+      // exactly these two calls, so this is the feature working rather than a proxy for it.
+      val pods = restricted.pods().inNamespace(Namespace).list().getItems
+      assert(!pods.isEmpty, "the control plane's own token could not list pods")
+
+      val log = restricted
+        .pods()
+        .inNamespace(Namespace)
+        .withName(pods.get(0).getMetadata.getName)
+        .tailingLines(5)
+        .getLog(true)
+      assert(log != null, "the control plane's own token could not read a pod's log")
+
+      // Withheld, and refused by the API server itself rather than by ankka's own code. A
+      // read-only widening that quietly became more is the thing this catches.
+      for (what, attempt) <- Vector[(String, () => Unit)](
+          "delete a pod" -> (() =>
+            restricted
+              .pods()
+              .inNamespace(Namespace)
+              .withName(pods.get(0).getMetadata.getName)
+              .delete(): Unit
+          ),
+          "delete a deployment" -> (() =>
+            restricted
+              .apps()
+              .deployments()
+              .inNamespace(Namespace)
+              .withName("ankka-controlplane")
+              .delete(): Unit
+          )
+        )
+      do
+        val ex = intercept[io.fabric8.kubernetes.client.KubernetesClientException](attempt())
+        assertEquals(
+          ex.getCode,
+          403,
+          s"expected the API server to refuse to $what: ${ex.getMessage}"
+        )
+    finally restricted.close()
+  }

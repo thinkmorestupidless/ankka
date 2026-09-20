@@ -357,7 +357,13 @@ factory shapes would break lambda parameter inference at every call site.
 - **Anything reading `~/.ankka/config.json` or `$HOME` must be overridable by a system
   property.** Environment variables cannot be set in-process, so `ANKKA_CONFIG` alone
   makes `config set` untestable without writing to the developer's own home directory.
-  `Settings.path` checks `-Dankka.config` first for exactly this reason.
+  `Settings.path` checks `-Dankka.config` first for exactly this reason. The mirror of that trap
+  bites from the *shell*: `HOME=$(mktemp -d) ankka …` does **not** isolate the CLI, because `~`
+  resolves through the JVM's `user.home`, which the launcher fixes at startup — the process goes
+  on reading the developer's real `~/.ankka/config.json` while the command looks isolated. Two
+  attempts at feature 007's "no cluster credentials" proof were spent on a TLS error that was
+  really a config never consulted. From a shell the override is `ANKKA_CONFIG`; in-process,
+  `-Dankka.config`.
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.

@@ -9,6 +9,13 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 
+import com.thinkmorestupidless.ankka.sdk.{
+  EventSourcedEntityDescriptor,
+  HandlerBinding,
+  KeyValueEntityDescriptor,
+  WorkflowDescriptor
+}
+
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
@@ -70,6 +77,7 @@ object ObservabilityEndpoint:
       server.createContext("/observability/service", exchange => handler.service(exchange))
       server.createContext("/observability/traces", exchange => handler.traces(exchange))
       server.createContext("/observability/sessions", exchange => handler.sessions(exchange))
+      server.createContext("/observability/query", exchange => handler.query(exchange))
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
@@ -105,9 +113,14 @@ object ObservabilityEndpoint:
 
       val components = service.registry.components
         .map { descriptor =>
+          // Only the queries. A command is not offered, because the console will not run one.
+          val queries = handlersOf(descriptor.componentId.toString).collect {
+            case (name, binding) if binding.readOnly => Json.str(name.toString)
+          }
           s"""{"kind":${Json.str(descriptor.kind.toString)},""" +
             s""""id":${Json.str(descriptor.componentId.toString)},""" +
-            s""""sharded":${descriptor.kind.sharded}}"""
+            s""""sharded":${descriptor.kind.sharded},""" +
+            s""""queries":${queries.mkString("[", ",", "]")}}"""
         }
         .mkString("[", ",", "]")
 
@@ -181,6 +194,81 @@ object ObservabilityEndpoint:
         s""""children":${node.children.map(span).mkString("[", ",", "]")}}"""
 
     /**
+     * Runs one of a component's **query** handlers against an entity id.
+     *
+     * The console is read-only except for the invoke panel, and this is how that is kept true: a
+     * binding carries `readOnly`, set by whether its companion declared it with `query` or with
+     * `command`, and a `query` accepts only a `ReadOnlyEffect` — so "this handler cannot persist"
+     * is already a compiler guarantee. This route refuses anything else rather than inventing a
+     * second notion of safety beside the one the platform already enforces.
+     *
+     * The reply is passed through as bytes. A handler's reply is already JSON on the wire, so
+     * reading an entity's state needs no knowledge here of what that state is.
+     */
+    def query(exchange: HttpExchange): Unit =
+      exchange.getRequestURI.getPath
+        .stripPrefix("/observability/query")
+        .stripPrefix("/")
+        .split("/")
+        .toList match
+        case component :: entityId :: method :: Nil =>
+          handlersOf(component).get(MethodName(method)) match
+            case None =>
+              respondError(exchange, 404, s"no handler '$method' on component '$component'")
+
+            case Some(binding) if !binding.readOnly =>
+              // A command would persist. The console does not offer one and will not run one,
+              // whatever a caller asks for.
+              respondError(
+                exchange,
+                405,
+                s"'$method' is a command, not a query; the console only runs queries"
+              )
+
+            case Some(_) =>
+              val reply =
+                try
+                  Right(
+                    scala.concurrent.Await.result(
+                      service.componentClient.transportRef.ask(
+                        ComponentId(component),
+                        EntityId(entityId),
+                        MethodName(method),
+                        Array.emptyByteArray,
+                        Metadata.empty
+                      ),
+                      scala.concurrent.duration.Duration(10, java.util.concurrent.TimeUnit.SECONDS)
+                    )
+                  )
+                catch
+                  // The reader is the developer whose service this is, so the reason travels. A
+                  // flat "did not answer" would make a timeout, a missing serializer and a handler
+                  // that threw all look alike — the same mistake as a `waitFor` that swallows.
+                  case t: Throwable =>
+                    Left(s"${t.getClass.getSimpleName}: ${Option(t.getMessage).getOrElse("")}")
+
+              reply match
+                case Right(bytes) => respondBytes(exchange, bytes)
+                case Left(why) =>
+                  respondError(exchange, 502, s"the component did not answer — $why")
+
+        case _ =>
+          respondError(exchange, 400, "expected /observability/query/{component}/{id}/{method}")
+
+    /**
+     * The handlers a component declares, whatever kind of entity it is.
+     *
+     * Only the sharded kinds have handlers addressable by entity id; everything else answers with
+     * none, so the console offers nothing to click rather than a route that cannot work.
+     */
+    private def handlersOf(component: String): Map[MethodName, HandlerBinding[?]] =
+      service.registry.components.find(_.componentId.toString == component) match
+        case Some(d: EventSourcedEntityDescriptor[?, ?, ?]) => d.handlers
+        case Some(d: KeyValueEntityDescriptor[?, ?])        => d.handlers
+        case Some(d: WorkflowDescriptor[?, ?])              => d.handlers
+        case _                                              => Map.empty
+
+    /**
      * An agent session's stored memory and the tokens it has cost.
      *
      * Read from the session entity itself, not from the recorder — the conversation is event
@@ -234,6 +322,15 @@ object ObservabilityEndpoint:
     exchange.getResponseHeaders.add("Content-Type", "application/json")
     exchange.getResponseHeaders.add("Access-Control-Allow-Origin", "*")
     exchange.sendResponseHeaders(200, bytes.length.toLong)
+    val out = exchange.getResponseBody
+    try out.write(bytes)
+    finally out.close()
+
+  private def respondError(exchange: HttpExchange, status: Int, message: String): Unit =
+    val bytes = s"""{"error":${Json.str(message)}}""".getBytes(StandardCharsets.UTF_8)
+    exchange.getResponseHeaders.add("Content-Type", "application/json")
+    exchange.getResponseHeaders.add("Access-Control-Allow-Origin", "*")
+    exchange.sendResponseHeaders(status, bytes.length.toLong)
     val out = exchange.getResponseBody
     try out.write(bytes)
     finally out.close()

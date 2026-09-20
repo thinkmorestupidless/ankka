@@ -112,6 +112,41 @@ final class ConsoleEndpointSuite extends FunSuite:
     assert(body.contains("usage"), "with the tokens it has cost")
   }
 
+  test("a query handler can be run against an entity, and returns its state") {
+    val id = EntityId("query-me")
+    val _ = testKit.componentClient
+      .forKeyValueEntity(id)
+      .call(ProfileEntity.register)
+      .invoke(Profile("Ada", "ada@example.com", 1))
+
+    val (status, body) = get(s"/observability/query/profile/$id/get")
+    assertEquals(status, 200, body)
+    assert(body.contains("Ada"), s"the entity's own state came back: $body")
+  }
+
+  test("a command is refused, because the console does not run commands") {
+    val id = EntityId("query-me")
+
+    // `rename` is declared with `command`, so its binding is not readOnly — and `query` accepts
+    // only a ReadOnlyEffect, so that distinction is a compiler guarantee rather than a label.
+    // The console refuses rather than inventing a second notion of what is safe to run.
+    val (status, body) = get(s"/observability/query/profile/$id/rename")
+    assertEquals(status, 405, body)
+    assert(body.contains("command"), body)
+  }
+
+  test("an unknown handler is a 404, not a 405") {
+    val (status, _) = get("/observability/query/profile/any/no-such-handler")
+    assertEquals(status, 404, "absent and refused are different answers")
+  }
+
+  test("only queries are advertised, so the console never offers a command") {
+    val (_, body) = get("/observability/service")
+    assert(body.contains("\"queries\""), body)
+    assert(body.contains("get"), "the query is listed")
+    assert(!body.contains("\"rename\""), s"the command is not: $body")
+  }
+
   test("the endpoint is loopback only, which is the whole of its access control") {
     val port = observabilityAddress.substring(observabilityAddress.lastIndexOf(':') + 1)
     val lan = java.net.NetworkInterface

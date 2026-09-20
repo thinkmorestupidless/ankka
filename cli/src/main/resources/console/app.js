@@ -15,7 +15,17 @@ const $ = (id) => document.getElementById(id);
 
 async function api(path) {
   const response = await fetch(path);
-  if (!response.ok) throw new Error(`${path} -> ${response.status}`);
+  if (!response.ok) {
+    // The platform's error bodies are `{"error": "..."}` and say something specific — a command
+    // asked for as a query, a handler that threw. Drop that on the floor here and every caller
+    // is left rendering "something went wrong".
+    const error = new Error(`${path} -> ${response.status}`);
+    try {
+      const body = await response.json();
+      if (body && body.error) error.detail = body.error;
+    } catch (ignored) { /* not every failure has a JSON body */ }
+    throw error;
+  }
   return response.json();
 }
 
@@ -100,16 +110,79 @@ async function loadComponents(name) {
     heading.textContent = kind;
     group.appendChild(heading);
     for (const component of byKind[kind]) {
-      const chip = document.createElement('span');
+      const chip = document.createElement('button');
       chip.className = 'component';
       chip.textContent = component.id;
+      // A component with no queries has nothing to show: the platform offers commands only, and
+      // the console does not run those. Say so by not offering the click.
+      if ((component.queries || []).length) {
+        chip.onclick = () => inspect(name, component);
+      } else {
+        chip.disabled = true;
+        chip.title = 'This component declares no query handlers, so there is nothing to read.';
+      }
       group.appendChild(chip);
     }
     container.appendChild(group);
   }
 
+  $('inspect').hidden = true;
   if (!(service.components || []).length) {
     container.innerHTML = '<p class="empty">No components registered.</p>';
+  }
+}
+
+/**
+ * Read one entity's state, through a query handler the component declared.
+ *
+ * Only queries appear here, and the service refuses a command even if one is asked for — a
+ * `query` accepts only a `ReadOnlyEffect`, so "this cannot persist" is a compiler guarantee and
+ * the console leans on it rather than inventing its own idea of what is safe to run.
+ */
+function inspect(service, component) {
+  $('inspect').hidden = false;
+  $('inspect-title').textContent = component.id;
+  $('inspect-result').innerHTML = '';
+
+  const container = $('inspect-queries');
+  container.innerHTML = '';
+  for (const query of component.queries || []) {
+    const button = document.createElement('button');
+    button.className = 'route';
+    button.textContent = query;
+    button.onclick = () => runQuery(service, component.id, query);
+    container.appendChild(button);
+  }
+}
+
+async function runQuery(service, component, method) {
+  const id = $('inspect-id').value.trim();
+  const result = $('inspect-result');
+  if (!id) {
+    result.innerHTML = '<p class="empty">Enter an entity id.</p>';
+    return;
+  }
+
+  try {
+    const path = `/api/query/${encodeURIComponent(service)}/${encodeURIComponent(component)}` +
+      `/${encodeURIComponent(id)}/${encodeURIComponent(method)}`;
+    const state = await api(path);
+    result.innerHTML = '';
+    const body = document.createElement('pre');
+    body.className = 'body';
+    body.textContent = JSON.stringify(state, null, 2);
+    result.appendChild(body);
+  } catch (e) {
+    // Note an id that has never been used is *not* this path: `emptyState` is the platform's
+    // defined answer, so an unused id returns a real, empty entity rather than a failure. What
+    // lands here is a handler that threw, timed out, or could not serialize its reply — and the
+    // endpoint puts that reason in the body, so show it rather than a line that fits every case.
+    const why = (e && e.detail) || (e && e.message) || 'the component did not answer';
+    result.innerHTML = '';
+    const line = document.createElement('p');
+    line.className = 'empty';
+    line.textContent = why;
+    result.appendChild(line);
   }
 }
 

@@ -254,3 +254,9 @@ pre.body {
 
 /* A streaming body follows its own tail, like a terminal would. */
 pre.body { max-height: 420px; overflow-y: auto; }
+
+/* A component with no queries cannot be inspected, and says so by not inviting the click. */
+button.component { cursor: pointer; font: inherit; color: inherit; background: transparent; }
+button.component:hover:not(:disabled) { border-color: var(--dim); }
+button.component:disabled { cursor: default; opacity: 0.55; }
+#inspect { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }

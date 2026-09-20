@@ -7,6 +7,8 @@ import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.{DockerImageName, MountableFile}
 
+import java.nio.file.{Files, Path}
+
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
@@ -55,6 +57,7 @@ final class AnkkaTestKit private (
   def stop(): Unit =
     current.terminate()
     container.stop()
+    AnkkaTestKit.releaseRegistryDirectory()
 
 object AnkkaTestKit:
 
@@ -91,6 +94,14 @@ object AnkkaTestKit:
 
     container.start()
 
+    // Keep the service registry out of the developer's home directory. A service announces itself
+    // into `~/.ankka/running` for `ankka local console` to find; a *test* doing that leaves an
+    // entry per suite on the machine of whoever ran it — 38 of them had accumulated before anyone
+    // noticed, because the console sweeps stale entries on read and so nothing ever complained.
+    // Only set when a suite has not chosen its own directory: the console suites point this at a
+    // temp directory they then read, and must keep the one they picked.
+    claimRegistryDirectory()
+
     val config = configFor(container)
 
     val service =
@@ -104,6 +115,31 @@ object AnkkaTestKit:
 
   def start(first: ComponentDescriptor, rest: ComponentDescriptor*): AnkkaTestKit =
     start(first +: rest)
+
+  private val RegistryProperty = "ankka.running.dir"
+
+  /** Set only if the suite has not chosen one, and remembered so `stop` can put it back. */
+  @volatile private var claimedRegistry: Option[Path] = None
+
+  private def claimRegistryDirectory(): Unit =
+    if sys.props.get(RegistryProperty).isEmpty then
+      val directory = Files.createTempDirectory("ankka-testkit-running")
+      sys.props.put(RegistryProperty, directory.toString): Unit
+      claimedRegistry = Some(directory)
+
+  private def releaseRegistryDirectory(): Unit =
+    claimedRegistry.foreach { directory =>
+      sys.props.remove(RegistryProperty): Unit
+      try
+        Files
+          .list(directory)
+          .iterator()
+          .asScala
+          .foreach(entry => Files.deleteIfExists(entry): Unit)
+        Files.deleteIfExists(directory): Unit
+      catch case _: Throwable => ()
+    }
+    claimedRegistry = None
 
   private def configFor(container: AnkkaPostgres): Config =
     ConfigFactory

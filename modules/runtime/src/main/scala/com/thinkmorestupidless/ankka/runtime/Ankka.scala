@@ -116,8 +116,6 @@ final class ServiceBuilder private[ankka] (
   def startWith(system: ActorSystem[?]): AnkkaService =
     host(system, ownsSystem = false)
 
-  @volatile private var observabilityEndpoint: Option[ObservabilityEndpoint] = None
-
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =
     val registry = ComponentRegistry.fromOrThrow(descriptors)
     val sharding = ClusterSharding(system)
@@ -182,7 +180,12 @@ final class ServiceBuilder private[ankka] (
     // sets, and a service given a config by hand still gets the right answer.
     val runningLocally =
       !system.settings.config.getString(ClusterFormation.FormationKey).equals("bootstrap")
-    if runningLocally then observabilityEndpoint = ObservabilityEndpoint.start(service, system.name)
+    // Handed to the service rather than held here: the service is what gets terminated, and this
+    // builder is a singleton that would keep only the most recently started endpoint. It was a
+    // `var` on this object that nothing ever read, so nothing ever withdrew the registration and
+    // every locally-run service leaked its entry into `~/.ankka/running` permanently.
+    if runningLocally then
+      service.attachObservability(ObservabilityEndpoint.start(service, system.name))
 
     service
 
@@ -290,8 +293,21 @@ final class AnkkaService private[ankka] (
 
   def whenTerminated: Future[?] = system.whenTerminated
 
+  /** The local console endpoint, when this service is running outside Kubernetes. */
+  @volatile private var observability: Option[ObservabilityEndpoint] = None
+
+  private[runtime] def attachObservability(endpoint: Option[ObservabilityEndpoint]): Unit =
+    observability = endpoint
+
   /** Stops every extension, then terminates the actor system if this service created it. */
   def terminate(): Unit =
+    // First, so the console stops listing a service that is on its way out — and so the registry
+    // entry is withdrawn even if an extension then fails to stop.
+    try observability.foreach(_.stop())
+    catch
+      case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
+    observability = None
+
     extensions.reverse.foreach { extension =>
       try extension.stop()
       catch

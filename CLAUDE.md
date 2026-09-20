@@ -678,6 +678,16 @@ factory shapes would break lambda parameter inference at every call site.
   other `eventually` in that suite has the right shape: retry on the value that changes
   (`"services":0`, the hostname, the row disappearing), assert the identity that does not.
 
+- **A `var` that is assigned and never read is a lifecycle that never runs.** The local console
+  endpoint was held in a `@volatile var` on the `Ankka` builder object; nothing read it, so
+  `stop()` — and with it `ServiceRegistration.withdraw` — was unreachable, and every locally-run
+  service left its entry in `~/.ankka/running` forever. Unit tests of `announce` and `withdraw`
+  passed throughout: both were correct, and the defect was that one was never called. The console
+  sweeps entries nothing answers for, so the only symptom was a directory quietly filling up. It
+  belongs to `AnkkaService`, which is the thing that gets terminated — a singleton builder would
+  keep only the most recently started endpoint anyway. `ServiceRegistrationSuite` drives the whole
+  lifecycle for this reason; nothing narrower can catch a call that is never made.
+
 - **A test that binds a fixed port cannot run beside the documented workflow.** `HttpServer.of`
   takes the default 9000, so a suite registering one fails with `Address already in use` on any
   machine already serving that port — including a developer running `sbt shoppingCart/run` next to

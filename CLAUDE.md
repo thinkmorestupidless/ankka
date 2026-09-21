@@ -495,6 +495,15 @@ factory shapes would break lambda parameter inference at every call site.
   as much as with fabric8, so it looked like a client bug first. The k3s test image moved from
   v1.31.2 to v1.35.1 for this; and `kubectl apply` of a multi-document manifest applies everything
   *else* and exits 1, so a `grep -c applied` after it hides exactly this — check the exit code.
+- **`curl -o /dev/null` without checking the status accepts a 404.** `deploy-local.sh` ended by
+  curling `$API_URL/health` and testing only curl's exit code — and there is no `/health` endpoint
+  on the control plane, which serves `/organizations`, `/projects` and `/services`. A 404 is a
+  *successful* HTTP exchange, so curl exited 0 and the smoke test passed on every deploy it ever
+  ran, including ones where every route was broken. It now asks for the organizations listing with
+  the token read from the cluster and requires a 200, which exercises DNS, TLS, the gateway route,
+  a control plane pod, the ACL and a database query. Note also that `curl -w '%{http_code}'`
+  prints `000` of its own accord when it never got a response, so `|| echo 000` yields `000000`
+  and the "could not connect" branch never matches — `|| true` is the guard `set -e` needs.
 - **A `waitFor` that swallows exceptions turns a broken check into "it never happened".** Two
   runs were spent on a certificate that was `Ready` in 20s by hand, because the fabric8
   generic-resource status parsing in the check threw and the loop reported a timeout. For

@@ -162,8 +162,33 @@ mkdir -p "$HOME/.ankka"
 kubectl -n ankka-gateway get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$HOME/.ankka/local-ca.crt"
 
 API_URL="https://api.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
-if ! curl -sS --cacert "$HOME/.ankka/local-ca.crt" -m 10 -o /dev/null "$API_URL/health"; then
-  cat >&2 <<MSG
+
+# A real request to a real route, and the status is checked.
+#
+# This used to curl "$API_URL/health" and test only curl's exit code. There is no /health endpoint
+# — the control plane serves /organizations, /projects and /services — so it got a 404, and a 404
+# is a *successful* HTTP exchange: curl exits 0 and the check passed. It could still catch a name
+# that does not resolve or a TLS failure, which is what the warning below is about, but it would
+# have reported a healthy platform just as happily if every route were broken.
+#
+# Asking for the organizations listing with the deployed token exercises the whole path instead:
+# DNS, TLS against the exported root, the gateway's route, a control plane pod, the bearer-token
+# ACL, and a database query behind it. The token is read from the cluster rather than hardcoded, so
+# this still works when the secret has been changed.
+TOKEN="$(kubectl -n ankka-controlplane get secret ankka-controlplane-token \
+  -o jsonpath='{.data.ANKKA_CONTROLPLANE_TOKEN}' 2>/dev/null | base64 -d)"
+# `|| true` rather than `|| echo 000`: curl already prints 000 as %{http_code} when it never got
+# a response, so a fallback echo appends a *second* 000 and the case below falls through to the
+# wrong branch — reporting a broken control plane where the real answer is that the name did not
+# resolve. `set -e` is why some guard is needed at all.
+STATUS="$(curl -s --cacert "$HOME/.ankka/local-ca.crt" -H "Authorization: Bearer $TOKEN" \
+  -o /dev/null -w '%{http_code}' -m 15 "$API_URL/organizations" || true)"
+STATUS="${STATUS:-000}"
+
+case "$STATUS" in
+  200) ;;
+  000)
+    cat >&2 <<MSG
 
 warning: $API_URL did not answer from this machine.
   If 'dig +short api.${BASE_DOMAIN}' does not print 127.0.0.1, your resolver blocks sslip.io;
@@ -171,7 +196,15 @@ warning: $API_URL did not answer from this machine.
     127.0.0.1  api.ankka.local cart-checkout.ankka.local
     ANKKA_BASE_DOMAIN=ankka.local ./kustomization/deploy-local.sh
 MSG
-fi
+    ;;
+  403)
+    echo >&2 "warning: $API_URL refused the token in ankka-controlplane/ankka-controlplane-token."
+    ;;
+  *)
+    echo >&2 "warning: $API_URL answered $STATUS for /organizations, not 200."
+    echo >&2 "  kubectl -n ankka-controlplane logs -l app.kubernetes.io/name=ankka-controlplane --tail=50"
+    ;;
+esac
 
 cat <<MSG
 

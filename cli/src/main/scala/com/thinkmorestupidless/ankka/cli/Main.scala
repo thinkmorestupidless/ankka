@@ -109,7 +109,106 @@ object Main:
       }
     }
 
-    list.orElse(get).orElse(create).orElse(rename).orElse(delete)
+    val roleOpt = Opts
+      .option[String]("role", "owner or member.")
+      .mapValidated(text =>
+        Role
+          .byName(text)
+          .fold(Validated.invalidNel(s"unknown role '$text'; owner or member"))(Validated.valid)
+      )
+
+    val members = Opts.subcommand("members", "Who belongs to an organization.") {
+      val list = Opts.subcommand("list", "List members and pending invitations.") {
+        (Opts.argument[String]("organization"), contextOpt).mapN { (org, ctx) => () =>
+          Output.members(ctx.client.listMembers(org), ctx.format)
+        }
+      }
+      val add = Opts.subcommand(
+        "add",
+        "Invite an email address; membership starts on their first verified login."
+      ) {
+        (
+          Opts.argument[String]("organization"),
+          Opts.option[String]("email", "The address to invite."),
+          roleOpt.withDefault(Role.Member),
+          contextOpt
+        ).mapN { (org, email, role, ctx) => () =>
+          ctx.client.invite(org, email, role)
+          s"invited $email to '$org' as ${Role.name(role)}"
+        }
+      }
+      val remove = Opts.subcommand("remove", "Remove a member.") {
+        (Opts.argument[String]("organization"), Opts.argument[String]("subject"), contextOpt).mapN {
+          (org, subject, ctx) => () =>
+            ctx.client.removeMember(org, subject)
+            s"removed $subject from '$org'"
+        }
+      }
+      val role = Opts.subcommand("role", "Change a member's role.") {
+        (
+          Opts.argument[String]("organization"),
+          Opts.argument[String]("subject"),
+          roleOpt,
+          contextOpt
+        ).mapN { (org, subject, role, ctx) => () =>
+          ctx.client.changeRole(org, subject, role)
+          s"$subject is now ${Role.name(role)} of '$org'"
+        }
+      }
+      val repair =
+        Opts.subcommand("repair", "Add a member directly (platform administrators only).") {
+          (
+            Opts.argument[String]("organization"),
+            Opts.option[String]("subject", "The user's subject id, as `ankka whoami` shows it."),
+            roleOpt.withDefault(Role.Owner),
+            contextOpt
+          ).mapN { (org, subject, role, ctx) => () =>
+            ctx.client.repairMember(org, subject, role)
+            s"added $subject to '$org' as ${Role.name(role)}"
+          }
+        }
+      list.orElse(add).orElse(remove).orElse(role).orElse(repair)
+    }
+
+    val invitations = Opts.subcommand("invitations", "Pending invitations.") {
+      Opts.subcommand("revoke", "Withdraw an invitation that has not been claimed.") {
+        (Opts.argument[String]("organization"), Opts.argument[String]("email"), contextOpt).mapN {
+          (org, email, ctx) => () =>
+            ctx.client.revokeInvitation(org, email)
+            s"revoked the invitation for $email to '$org'"
+        }
+      }
+    }
+
+    val disable = Opts.subcommand(
+      "disable",
+      "Stop every service in the organization and refuse changes (platform administrators only)."
+    ) {
+      (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+        ctx.client.disableOrganization(id)
+        s"organization '$id' disabled; its services are being suspended"
+      }
+    }
+
+    val enable = Opts.subcommand(
+      "enable",
+      "Re-enable a disabled organization (platform administrators only)."
+    ) {
+      (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+        ctx.client.enableOrganization(id)
+        s"organization '$id' enabled; its services are being reinstated"
+      }
+    }
+
+    list
+      .orElse(get)
+      .orElse(create)
+      .orElse(rename)
+      .orElse(delete)
+      .orElse(members)
+      .orElse(invitations)
+      .orElse(disable)
+      .orElse(enable)
   }
 
   // ── projects ──────────────────────────────────────────────────────────────
@@ -208,6 +307,12 @@ object Main:
       }
     }
 
+    val history = Opts.subcommand("history", "Who did what to a service, newest first.") {
+      (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+        Output.history(ctx.client.serviceHistory(ctx.project, name), ctx.format)
+      }
+    }
+
     val expose = Opts.subcommand(
       "expose",
       "Make a service reachable outside the cluster at its platform-derived hostname."
@@ -245,6 +350,7 @@ object Main:
       .orElse(resume)
       .orElse(restart)
       .orElse(logs)
+      .orElse(history)
       .orElse(expose)
       .orElse(unexpose)
       .orElse(delete)
@@ -254,10 +360,15 @@ object Main:
 
   private val configCommand = Opts.subcommand("config", "Read and write the saved settings.") {
     val get = Opts.subcommand("get", "Show the effective settings.") {
-      contextOpt.map(ctx => () => Output.settings(ctx.settings, ctx.format))
+      contextOpt.map(ctx =>
+        () => Output.settings(ctx.settings, ctx.format, Session.saved(ctx.settings))
+      )
     }
 
-    val set = Opts.subcommand("set", "Set url, token, project or ca.") {
+    val set = Opts.subcommand(
+      "set",
+      "Set url, token, project or ca. A token set here is presented as given; interactive users run `ankka login` instead."
+    ) {
       (
         Opts.argument[String]("key"),
         Opts.argument[String]("value")
@@ -290,6 +401,89 @@ object Main:
 
     get.orElse(set).orElse(unset)
   }
+
+  // ── identity ──────────────────────────────────────────────────────────────
+
+  /**
+   * `ankka login`: the OAuth 2.0 device authorization grant against the installation's identity
+   * provider, found through the control plane's own `GET /auth` — so the only setting a login needs
+   * is the URL the CLI already has (and the trust root, for a local cluster).
+   *
+   * The code and address are printed and the sign-in can be completed in any browser, on any
+   * device; opening one here is a convenience that is allowed to fail.
+   */
+  private val loginCommand =
+    Opts.subcommand("login", "Log in through the installation's identity provider.") {
+      (
+        urlOpt,
+        Opts.flag("no-browser", "Print the address and code; do not try to open a browser.").orFalse
+      )
+        .mapN { (url, noBrowser) => () =>
+          val settings  = Settings.resolve(url, None, None)
+          val discovery = ControlPlaneClient(settings).discovery()
+          val flow      = DeviceFlow(settings)
+          val endpoints = flow.discover(discovery.issuer)
+          val device    = flow.start(endpoints, discovery.clientId)
+          Console.out.println(s"To log in, open  ${device.verificationUri}")
+          Console.out.println(s"and enter the code  ${device.userCode}")
+          Console.out.println()
+          if !noBrowser then
+            openBrowser(device.verificationUriComplete.getOrElse(device.verificationUri))
+          val tokens = flow.poll(endpoints, discovery.clientId, device)
+          val refresh = tokens.refreshToken.getOrElse(
+            throw ApiError(
+              0,
+              "the identity provider issued no refresh token; the ankka-cli client needs the offline_access scope"
+            )
+          )
+          val now = java.time.Instant.now().getEpochSecond
+          Credentials.put(
+            settings.url,
+            Login(
+              discovery.issuer,
+              discovery.clientId,
+              refresh,
+              tokens.accessToken,
+              now + tokens.expiresIn
+            )
+          ): Unit
+          val who = ControlPlaneClient(settings).whoami()
+          s"logged in to ${settings.url} as ${who.email.orElse(who.name).getOrElse(who.subject)}"
+        }
+    }
+
+  private val logoutCommand =
+    Opts.subcommand("logout", "Forget the saved login for the control plane.") {
+      (urlOpt, Opts.flag("all", "Forget every saved login.").orFalse).mapN { (url, all) => () =>
+        val settings = Settings.resolve(url, None, None)
+        if all then
+          Credentials.clear(): Unit
+          "forgot every saved login"
+        else
+          Credentials.get(settings.url) match
+            case None        => s"no saved login for ${settings.url}"
+            case Some(login) =>
+              // Best effort at the issuer; the local entry goes regardless.
+              val flow = DeviceFlow(settings)
+              val revoked =
+                scala.util
+                  .Try(flow.discover(login.issuer))
+                  .toEither
+                  .left
+                  .map(_.getMessage)
+                  .flatMap(d => flow.revoke(d, login.clientId, login.refreshToken))
+              Credentials.remove(settings.url): Unit
+              revoked match
+                case Right(_) => s"logged out of ${settings.url}"
+                case Left(reason) =>
+                  s"logged out of ${settings.url} (the issuer could not be told: $reason)"
+      }
+    }
+
+  private val whoamiCommand =
+    Opts.subcommand("whoami", "Show who the control plane thinks you are.") {
+      contextOpt.map(ctx => () => Output.whoami(ctx.client.whoami(), ctx.format))
+    }
 
   private val versionCommand = Opts.subcommand("version", "Print the ankka version of this CLI.") {
     Opts.unit.map(_ => () => com.thinkmorestupidless.ankka.core.BuildInfo.version)
@@ -373,7 +567,10 @@ object Main:
     name = "ankka",
     header = "Operate an ankka control plane."
   )(
-    organizationsCommand
+    loginCommand
+      .orElse(logoutCommand)
+      .orElse(whoamiCommand)
+      .orElse(organizationsCommand)
       .orElse(projectsCommand)
       .orElse(servicesCommand)
       .orElse(configCommand)
@@ -398,8 +595,12 @@ object Main:
         2
 
       case Right(action) =>
+        // A command that talks while it works (`login` prints a code to type) writes through
+        // Console, which these redirect — so a test sees it and a script gets it on the stream it
+        // expects, without every action having to be handed two streams.
         try
-          out.println(action())
+          val result = Console.withOut(out)(Console.withErr(err)(action()))
+          out.println(result)
           0
         catch
           case error: ApiError =>

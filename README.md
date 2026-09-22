@@ -448,11 +448,11 @@ A service's desired state is a descriptor:
 ```
 
 ```bash
-docker compose up -d
-ANKKA_CONTROLPLANE_TOKEN=$(openssl rand -hex 16) sbt controlPlane/run
+docker compose up -d                       # Postgres, and Keycloak with the platform's realm
+ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run
 
 ankka config set url http://localhost:9000
-ankka config set token "$ANKKA_CONTROLPLANE_TOKEN"
+ankka login                                # user dev, password dev — a code to type into a browser
 
 ankka organizations create acme --name "Acme Corp"
 ankka projects create checkout --name Checkout -O acme
@@ -479,7 +479,7 @@ kind create cluster --name ankka --config kustomization/kind.yaml
 
 ankka config set url https://api.127.0.0.1.sslip.io:8443   # printed by the script
 ankka config set ca ~/.ankka/local-ca.crt                    # the local cluster's root, exported by it
-ankka config set token dev-local-token   # see kustomization/components/controlplane/token-secret.yaml
+ankka login                              # user dev, password dev; users are added at https://auth.<base>:8443/admin/
 
 ankka organizations create acme --name "Acme Corp"
 ankka projects create checkout --name Checkout -O acme
@@ -723,11 +723,75 @@ the middle so CI can point the CLI elsewhere without writing to a home directory
 not have. Exit codes are `0` ok, `1` failed, `2` misused. The token is never printed, in
 either output format.
 
-Authentication is a shared bearer token from `ankka.controlplane.auth.token`, and startup
-*fails* without one — a control plane that came up unauthenticated because a value was
-missing is worse than one that refuses to come up. A shared token is not identity: it
-cannot tell two operators apart and says nothing about which projects a caller may touch.
-It is the floor, not the ceiling.
+### Who may operate the platform
+
+Every call to the control plane carries an OpenID Connect access token from the installation's
+own identity provider — a Keycloak that is part of the platform, deployed by the same command as
+everything else, in its own namespace with its own database, reachable at `https://auth.<base>`.
+There is no shared token, and no compatibility mode for one: a secret shared by everyone who
+operates a platform is not identity, and the control plane's journal is only an audit trail once
+every write names who asked for it.
+
+Two responsibilities, kept apart on purpose. **Keycloak authenticates**: it decides who is a user
+of the installation (self-registration is off; an administrator adds people in its console at
+`/admin/`), signs their tokens, and holds their passwords, sessions and second factors — none of
+which the control plane ever sees. **The control plane authorizes**: it verifies a token offline
+against the realm's published keys (no call to Keycloak on the request path once the keys are
+cached), takes the token's stable subject as the caller's identity, and answers every question
+about organizations and membership from its own event-sourced state. It holds no credential for
+Keycloak's administration and needs none.
+
+`ankka login` is the OAuth 2.0 device authorization grant: the CLI asks the control plane where
+the issuer is (`GET /auth`, the one route that answers without a credential), prints an address
+and a short code, and waits while you sign in — in any browser, on any device, so it works over
+SSH. The login it saves is renewable without a browser, lives in `~/.ankka/credentials.json`
+readable by you alone, keyed by control plane URL, and is never printed. `ankka logout` forgets
+it; `ankka whoami` says who you are. A non-interactive client — a CI job — passes a token it
+obtained itself (a confidential client's client-credentials grant) through `ANKKA_TOKEN` or
+`--token`, and that token is presented exactly as given: a machine identity is just another
+Keycloak principal, so there is no second kind of credential to create, rotate or audit.
+
+**Organizations are the boundary.** Anyone logged in may create one and becomes its first
+*owner*; owners invite people by email (`ankka organizations members add acme --email
+bob@example.test`), and the invitation becomes a membership the first time a token with that
+email — *verified* by Keycloak — arrives, on the next listing or on the first thing they try to
+do. *Members* create projects and deploy, pause, restart, expose and delete services in the
+organization's projects; owners also manage members and rename or delete the organization. The
+last owner cannot be removed or demoted. Membership is recorded on the organization's own journal
+and checked on every request against the entity — never against a listing — so removal takes
+effect on the very next request. What a non-member gets for an organization, project or service
+they are not in is exactly what they get for one that never existed: a `404`. Listings show only
+your organizations, each with your role and whether it is active.
+
+One installation-level role lives in Keycloak: `platform-admin`, a realm role, whose holders see
+every organization, can add an owner to one whose owners have all left (`members repair`), and
+can *disable* an organization — every service in its projects is suspended, its members can read
+but change nothing, and re-enabling brings back exactly what was running (a service its members
+had paused stays paused). Every recorded change carries who asked for it and when, and whether
+the platform-admin role was what let them do it; `ankka services history cart` reads it back.
+Changes recorded before this existed show no actor.
+
+**A machine is a Keycloak client.** For CI, create a confidential client in the console with
+service accounts enabled and the `ankka-controlplane` scope assigned (and, if it is to be invited
+by email like anyone else, an email on its service-account user, marked verified — `ankka
+organizations members add` then works for it exactly as for a person). The job obtains a token
+with the client-credentials grant and passes it as given:
+
+```bash
+TOKEN=$(curl -s -d grant_type=client_credentials -d client_id=ci-deployer -d "client_secret=$SECRET" \
+  https://auth.example.com/realms/ankka/protocol/openid-connect/token | jq -r .access_token)
+ANKKA_TOKEN="$TOKEN" ankka services apply -f cart.json      # no browser, no prompt, no saved login
+```
+
+The apply's history names the client as its actor. A request without a valid token is a `401`
+with a `WWW-Authenticate` challenge, which the CLI turns into "run `ankka login`"; a valid token
+for an action its holder may not take is a `403`.
+The realm is one file, `kustomization/components/keycloak/realm.json`, imported by the operator
+in a cluster and mounted by docker-compose locally: the public `ankka-cli` client with the device
+grant, a client scope that puts the control plane's audience and the identity claims it reads on
+every token, and the `platform-admin` realm role. The realm import is one-shot — it creates a
+realm and never updates one — so a change to that file on an existing installation is applied in
+Keycloak's console, not by redeploying.
 
 ## Testing
 
@@ -855,6 +919,13 @@ Honest gaps, not oversights:
 - **Nothing at the route but routing.** No authentication, rate limit or header policy at the
   gateway; who may call an endpoint is the endpoint's `acl`. HTTP/1.1 only through the gateway —
   no gRPC or HTTP/2 upstream — and one gateway per installation.
+- **Identity is for operating the platform, not for the services it hosts.** The control plane
+  verifies Keycloak's tokens; a deployed service's endpoints still keep whatever `acl` their author
+  wrote, and the platform provisions no realm, client or token check for them. That is a feature of
+  its own — a realm per project, a credential per service delivered like `ANKKA_DB_*`, and a token
+  ACL in the HTTP module — and it is why Keycloak runs under its operator here: it will be an
+  added resource, not a replaced deployment. Per-project roles and a read-only role are not built
+  either; membership is per organization, as owner or member.
 - **Readiness means the node has joined and bound, not that the application is healthy.** The
   probe is the runtime's own `/ready`; it does not call a route, because the operator knows
   neither a workload's routes nor its ACL. There is deliberately no liveness probe: entities

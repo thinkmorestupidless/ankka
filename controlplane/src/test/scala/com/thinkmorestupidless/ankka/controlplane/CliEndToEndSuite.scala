@@ -1,7 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.cli.{Main, Settings}
-import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
@@ -24,7 +23,11 @@ class CliEndToEndSuite extends munit.FunSuite:
 
   override val munitTimeout = 4.minutes
 
-  private val Token = "cli-test-token"
+  // A real issuer is not needed to prove anything here: an in-process one mints tokens the
+  // verifier accepts, and KeycloakRealmSuite is where real ones are read.
+  private lazy val identity = TestIdentity()
+  private lazy val Token =
+    identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
 
   private var testKit: AnkkaTestKit = null
   private var url: String           = ""
@@ -33,7 +36,7 @@ class CliEndToEndSuite extends munit.FunSuite:
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
-        ControlPlaneAcl.bearer(Token),
+        identity.acl(),
         DeployConfig.default.copy(baseDomain = Some("example.test"))
       )*
     )
@@ -47,6 +50,7 @@ class CliEndToEndSuite extends munit.FunSuite:
     sys.props("ankka.config") = config.toString
 
   override def afterAll(): Unit =
+    if testKit != null then identity.stop()
     sys.props.remove("ankka.config"): Unit
     if config != null then Files.deleteIfExists(config): Unit
     if testKit != null then testKit.stop()
@@ -69,6 +73,42 @@ class CliEndToEndSuite extends munit.FunSuite:
   /** The connection flags every call needs before `config set` has run. */
   private def connected(args: String*): Seq[String] =
     args ++ Seq("--url", url, "--token", Token)
+
+  private def connectedAs(token: String, args: String*): Seq[String] =
+    args ++ Seq("--url", url, "--token", token)
+
+  test("a second user sees nothing until invited, and then sees the organization as a member") {
+    val bob            = identity.token("bob", Some("bob@example.test"), expiresIn = 2.hours)
+    val _              = cli(connected("organizations", "create", "tenancy", "--name", "Tenancy")*)
+    val (code, out, _) = cli(connectedAs(bob, "organizations", "list")*)
+    assertEquals(code, 0)
+    assert(!out.contains("tenancy"), out)
+    val (refused, _, err) = cli(connectedAs(bob, "organizations", "get", "tenancy")*)
+    assertEquals(refused, 1)
+    assert(err.contains("no such organization 'tenancy'"), err)
+
+    assertEquals(
+      cli(
+        connected("organizations", "members", "add", "tenancy", "--email", "bob@example.test")*
+      )._1,
+      0
+    )
+    val (_, members, _) = cli(connected("organizations", "members", "list", "tenancy")*)
+    assert(members.contains("bob@example.test") && members.contains("tester"), members)
+    eventually("bob's listing shows tenancy as member") {
+      val (_, listed, _) = cli(connectedAs(bob, "organizations", "list")*)
+      Option.when(listed.contains("tenancy") && listed.contains("member"))(listed)
+    }
+    val (_, who, _) = cli(connectedAs(bob, "whoami")*)
+    assert(who.contains("tenancy") && who.contains("member"), who)
+    val (_, mine, _) = cli(connected("organizations", "list")*)
+    assert(
+      mine.linesIterator.exists(l =>
+        l.contains("tenancy") && l.contains("owner") && l.contains("active")
+      ),
+      mine
+    )
+  }
 
   private def eventually(description: String, within: FiniteDuration = 30.seconds)(
       check: => Option[String]

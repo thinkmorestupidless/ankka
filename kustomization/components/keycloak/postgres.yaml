@@ -1,0 +1,24 @@
+# Keycloak's own database. A CNPG Cluster of its own — two services must never share a database —
+# bootstrapped with initdb like the control plane's, but with no schema refs: Keycloak owns and
+# migrates its schema itself. CNPG generates the credential secret, "ankka-keycloak-db-app", whose
+# username/password keys the Keycloak resource references.
+#
+# The Keycloak pod starts before this database accepts connections and exits once or twice with
+# "Connection to ankka-keycloak-db-rw:5432 refused" until it does. That is the two controllers
+# converging independently, not a fault: the operator restarts it and it comes up. Wait on the
+# Keycloak resource's Ready condition, as deploy-local.sh does, not on the pod's first start.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ankka-keycloak-db
+  namespace: ankka-auth
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  instances: 1
+  storage:
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: keycloak

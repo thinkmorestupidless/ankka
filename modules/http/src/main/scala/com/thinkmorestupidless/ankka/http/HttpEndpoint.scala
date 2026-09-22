@@ -34,6 +34,39 @@ object HttpProblem:
       case ErrorCode.Internal     => 500
     HttpProblem(status, error.message)
 
+/**
+ * Who a request came from, as an ACL established it.
+ *
+ * Plain data. `ankka-http` never constructs one and does not know what a token is: an
+ * `Acl.Authenticate` decides, and whatever it verified — a signed token, a client certificate — is
+ * its business. `subject` is the one field meant to be used as a key; the rest are display claims
+ * and can go stale.
+ */
+final case class Principal(
+    subject: String,
+    name: Option[String] = None,
+    email: Option[String] = None,
+    emailVerified: Boolean = false,
+    roles: Set[String] = Set.empty,
+    claims: Map[String, String] = Map.empty
+)
+
+/**
+ * What an authenticating ACL answers.
+ *
+ * Three ways to say no, because a caller needs to be told which: `Unauthenticated` is "log in"
+ * (401, with a challenge), `Forbidden` is "you are logged in and may not" (403), and `Unavailable`
+ * is "I cannot tell right now" (503) — the verifier's keys could not be fetched, say. Folding those
+ * into one boolean is how a CLI ends up printing "forbidden" to someone whose login merely expired.
+ */
+enum AuthDecision:
+  case Allow(principal: Principal)
+
+  /** Rendered as `WWW-Authenticate: Bearer <challenge>`. */
+  case Unauthenticated(challenge: String)
+  case Forbidden(reason: String)
+  case Unavailable(reason: String)
+
 /** What the caller of an endpoint is allowed to do. */
 enum Acl:
   /** Nothing gets through. The default posture for anything not explicitly opened up. */
@@ -47,9 +80,19 @@ enum Acl:
    *
    * ankka does not ship a "same service" or "named service" principal, because establishing who the
    * caller actually is needs mTLS or a verified token, and a check against a client-settable header
-   * would be security theatre. Plug in a real check here.
+   * would be security theatre. Plug in a real check here. Every refusal is a 403; when the answer
+   * depends on *who* the caller is, use `Authenticate`, which can also say "log in".
    */
   case AllowIf(predicate: RequestContext => Boolean)
+
+  /**
+   * A caller-supplied authenticator.
+   *
+   * On `Allow` the principal is placed on the request context before dispatch, so a handler reads
+   * it as `principal` on its own thread — the same `ThreadLocal` rule as the rest of the context:
+   * work handed to another thread cannot see it.
+   */
+  case Authenticate(decide: RequestContext => AuthDecision)
 
 private[ankka] final case class EncodedResponse(
     status: Int,
@@ -115,6 +158,20 @@ abstract class HttpEndpoint(val prefix: String):
 
   /** Shorthand for `request.query`. */
   protected def query: QueryParams = request.query
+
+  /**
+   * Who is calling, as this endpoint's `Acl.Authenticate` established it.
+   *
+   * Throws when there is none: an endpoint whose ACL does not authenticate has no business asking,
+   * and the mistake should fail on the first request in a test rather than hand `None` into a
+   * permission check.
+   */
+  protected def principal: Principal =
+    request.principal.getOrElse(
+      throw IllegalStateException(
+        s"endpoint '$prefix' asked for a principal, but its acl does not authenticate callers"
+      )
+    )
 
   private val collected        = mutable.ListBuffer.empty[Route]
   private val collectedStreams = mutable.ListBuffer.empty[StreamRoute]

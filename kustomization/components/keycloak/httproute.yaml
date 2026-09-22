@@ -1,0 +1,32 @@
+# The identity provider's external address: https://auth.<base domain>. The same mechanism as the
+# control plane's api.<base domain> — one label, so it can never collide with a service's
+# <service>-<project> hostname. The backend is the Service the Keycloak operator creates for the
+# instance, "<name>-service", on Keycloak's plain HTTP port; TLS is the gateway's.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ankka-keycloak
+  namespace: ankka-auth
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ankka
+      namespace: ankka-gateway
+      sectionName: https
+  hostnames:
+    - auth.BASE_DOMAIN
+  rules:
+    - filters:
+        # The port a client reached the gateway on. Keycloak takes the issuer's scheme and port
+        # from the forwarded headers, and the gateway forwards no port — so with kind's 8443 every
+        # token named a port-less URL nothing could reach. Replaced by the overlay from
+        # ankka-platform.httpsPort, like the redirect route's port; 443 makes Keycloak omit it.
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            set:
+              - name: X-Forwarded-Port
+                value: "8443"
+      backendRefs:
+        - name: ankka-keycloak-service
+          port: 8080

@@ -266,6 +266,11 @@ enum ServiceLifecycle:
   case Paused
   case Failed
 
+  /**
+   * Stopped by its organization being disabled (feature 008) — not by its members, unlike `Paused`.
+   */
+  case Suspended
+
 object ServiceLifecycle:
 
   def byName(name: String): Option[ServiceLifecycle] = values.find(_.toString == name)
@@ -328,7 +333,78 @@ final case class ServiceStatus(
      * `hostname` being present: an exposed service on a control plane with no base domain
      * configured is exposed and has no hostname, and the CLI should say so rather than show `-`.
      */
-    exposed: Boolean = false
+    exposed: Boolean = false,
+    /**
+     * Whether the service's organization is disabled and it has been stopped for it (feature 008).
+     */
+    suspended: Boolean = false,
+    /**
+     * Whether its members paused it. Beside `lifecycle` because the listing view needs to tell a
+     * member's pause from an operator *reporting* `Paused`: a stale report landing just after a
+     * resume otherwise leaves the listing saying Paused while the entity says Ready.
+     */
+    paused: Boolean = false
+)
+
+/** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
+final case class HistoryActor(
+    subject: String,
+    display: Option[String] = None,
+    administrative: Boolean = false
+)
+
+final case class HistoryEntry(
+    kind: String,
+    generation: Long,
+    actor: Option[HistoryActor] = None,
+    at: Option[java.time.Instant] = None
+)
+
+// ── Identity (feature 008) ─────────────────────────────────────────────────
+
+/**
+ * What `ankka login` needs to start, and nothing else: served without a credential at `GET /auth`.
+ * The issuer is public by nature (every token names it) and the client id is a public client's.
+ */
+final case class AuthDiscovery(issuer: String, clientId: String, audience: String)
+
+/** A caller's role in one organization. */
+enum Role:
+  case Owner
+  case Member
+
+object Role:
+  def byName(name: String): Option[Role] = name.trim.toLowerCase match
+    case "owner"  => Some(Owner)
+    case "member" => Some(Member)
+    case _        => None
+
+  def name(role: Role): String = role match
+    case Owner  => "owner"
+    case Member => "member"
+
+  /**
+   * Encodes as `"owner"` / `"member"`, not `{"type":"Owner"}` — the same reasoning, and the same
+   * placement in the companion, as `ServiceLifecycle`'s codec.
+   */
+  given codec: JsonValueCodec[Role] = new JsonValueCodec[Role]:
+    def decodeValue(in: JsonReader, default: Role): Role =
+      val text = in.readString(null)
+      byName(text).getOrElse(in.decodeError(s"unknown role '$text'; one of owner, member"))
+    def encodeValue(x: Role, out: JsonWriter): Unit = out.writeVal(name(x))
+    def nullValue: Role                             = null
+
+/** One of the caller's organizations, with their role in it. */
+final case class OrganizationMembership(id: String, name: String, role: Role)
+
+/** The caller, as the control plane sees them: `GET /auth/whoami`, and `ankka whoami`. */
+final case class Whoami(
+    subject: String,
+    name: Option[String] = None,
+    email: Option[String] = None,
+    emailVerified: Boolean = false,
+    platformAdmin: Boolean = false,
+    organizations: Vector[OrganizationMembership] = Vector.empty
 )
 
 /**
@@ -352,18 +428,70 @@ final case class Rename(name: String)
  * fill with a placeholder zero is a type that will eventually be read as if the zero meant
  * something.
  */
-final case class OrganizationDetail(id: String, name: String)
+final case class OrganizationDetail(id: String, name: String, disabled: Boolean = false)
 
 final case class ProjectDetail(id: String, name: String, organizationId: String)
 
-/** A detail plus the counts a listing needs, composed where both are available. */
-final case class OrganizationSummary(id: String, name: String, projects: Int)
+/**
+ * A detail plus the counts a listing needs, composed where both are available — and, since feature
+ * 008, whether the organization is disabled and the *caller's* role in it (`None` for a platform
+ * administrator looking at an organization they are not a member of).
+ */
+final case class OrganizationSummary(
+    id: String,
+    name: String,
+    projects: Int,
+    disabled: Boolean = false,
+    role: Option[Role] = None
+)
 
 final case class ProjectSummary(id: String, name: String, organizationId: String, services: Int)
 
 object OrganizationSummary:
-  def of(detail: OrganizationDetail, projects: Int): OrganizationSummary =
-    OrganizationSummary(detail.id, detail.name, projects)
+  def of(
+      detail: OrganizationDetail,
+      projects: Int,
+      role: Option[Role] = None
+  ): OrganizationSummary =
+    OrganizationSummary(detail.id, detail.name, projects, detail.disabled, role)
+
+// ── Membership (feature 008) ───────────────────────────────────────────────
+
+/**
+ * `POST /organizations/{id}/members`: invite an email address, claimed on its first verified login.
+ */
+final case class Invite(email: String, role: Role = Role.Member)
+
+/** `PUT /organizations/{id}/members/{subject}/role`. */
+final case class RoleChange(role: Role)
+
+/**
+ * `POST /organizations/{id}/members/{subject}/repair` — a platform administrator adding a member
+ * directly.
+ */
+final case class Repair(role: Role = Role.Owner)
+
+final case class MemberSummary(
+    subject: String,
+    role: Role,
+    email: Option[String] = None,
+    display: Option[String] = None,
+    since: Option[java.time.Instant] = None,
+    /** Who invited or added them — an actor's display, never a key. */
+    addedBy: Option[String] = None
+)
+
+final case class InvitationSummary(
+    email: String,
+    role: Role,
+    invitedAt: Option[java.time.Instant] = None,
+    invitedBy: Option[String] = None
+)
+
+final case class MembersResponse(
+    members: Vector[MemberSummary] = Vector.empty,
+    invitations: Vector[InvitationSummary] = Vector.empty
+)
 
 object ProjectSummary:
   def of(detail: ProjectDetail, services: Int): ProjectSummary =
@@ -424,3 +552,11 @@ object Wire:
 
   given instanceLogsCodec: JsonValueCodec[InstanceLogs] = Codecs.make[InstanceLogs]
   given logsCodec: JsonValueCodec[LogsResponse]         = Codecs.make[LogsResponse]
+
+  given authDiscoveryCodec: JsonValueCodec[AuthDiscovery]  = Codecs.make[AuthDiscovery]
+  given whoamiCodec: JsonValueCodec[Whoami]                = Codecs.make[Whoami]
+  given inviteCodec: JsonValueCodec[Invite]                = Codecs.make[Invite]
+  given roleChangeCodec: JsonValueCodec[RoleChange]        = Codecs.make[RoleChange]
+  given repairCodec: JsonValueCodec[Repair]                = Codecs.make[Repair]
+  given membersCodec: JsonValueCodec[MembersResponse]      = Codecs.make[MembersResponse]
+  given historyCodec: JsonValueCodec[Vector[HistoryEntry]] = Codecs.make[Vector[HistoryEntry]]

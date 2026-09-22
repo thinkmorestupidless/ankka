@@ -1,11 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.api
 
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
-import com.thinkmorestupidless.ankka.controlplane.application.{
-  ProjectEntity,
-  ServiceEntity,
-  ServiceRows
-}
+import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, ServiceRows}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, PodLogs}
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
@@ -29,12 +25,20 @@ final class ServiceEndpoint(
     clients: EndpointClients,
     val acl: Acl,
     deploy: DeployConfig = DeployConfig.default,
-    logs: PodLogs = PodLogs(DeployConfig.default.namespacePrefix)
-) extends HttpEndpoint("/services"):
+    logs: PodLogs = PodLogs(DeployConfig.default.namespacePrefix),
+    protected val clock: java.time.Clock = java.time.Clock.systemUTC()
+) extends HttpEndpoint("/services")
+    with Attributing:
 
   private val services = clients.viewClient.forView(ServiceRows)
+  private val authz = com.thinkmorestupidless.ankka.controlplane.auth.Authorization(clients, clock)
+
+  /** The caller's standing in the project's organization, as command metadata (feature 008). */
+  private def access(projectId: String, write: Boolean) =
+    authz.metadata(authz.project(principal, projectId, write))
 
   get("/{projectId}") { (projectId: String) =>
+    authz.project(principal, projectId, write = false)
     services
       .ordered(
         jsonText("projectId") ++ sql" = $projectId",
@@ -44,29 +48,46 @@ final class ServiceEndpoint(
   }
 
   get("/{projectId}/{name}") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false)
     withHostname(entity(projectId, name).call(ServiceEntity.get).invoke())
   }
 
   putBody("/{projectId}/{name}") {
     (projectId: String, name: String, descriptor: ServiceDescriptor) =>
-      requireProject(projectId)
+      val by = access(projectId, write = true)
       withHostname(
         entity(projectId, name)
           .call(ServiceEntity.applyDescriptor)
+          .withMetadata(by)
           .invoke(ApplyService(projectId, descriptor))
       )
   }
 
   post("/{projectId}/{name}/pause") { (projectId: String, name: String) =>
-    withHostname(entity(projectId, name).call(ServiceEntity.pause).invoke())
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.pause)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
   }
 
   post("/{projectId}/{name}/resume") { (projectId: String, name: String) =>
-    withHostname(entity(projectId, name).call(ServiceEntity.resume).invoke())
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.resume)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
   }
 
   post("/{projectId}/{name}/restart") { (projectId: String, name: String) =>
-    withHostname(entity(projectId, name).call(ServiceEntity.restart).invoke())
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.restart)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
   }
 
   /**
@@ -84,11 +105,21 @@ final class ServiceEndpoint(
     ExposureRules.refusal(current, deploy, hostnameHolder(current.key)).foreach { reason =>
       throw CommandError(reason, ErrorCode.Conflict)
     }
-    withHostname(entity(projectId, name).call(ServiceEntity.expose).invoke())
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.expose)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
   }
 
   post("/{projectId}/{name}/unexpose") { (projectId: String, name: String) =>
-    withHostname(entity(projectId, name).call(ServiceEntity.unexpose).invoke())
+    withHostname(
+      entity(projectId, name)
+        .call(ServiceEntity.unexpose)
+        .withMetadata(access(projectId, write = true))
+        .invoke()
+    )
   }
 
   /** The URL an exposed service answers at, added on the way out: the entity does not know it. */
@@ -120,6 +151,7 @@ final class ServiceEndpoint(
    * verb at all — see controlplane-rbac.yaml for why that keeps the split intact.
    */
   get("/{projectId}/{name}/logs") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false)
     // Confirms the service exists, and 404s with the same message `services get` gives when it
     // does not — one vocabulary, rather than a second way of saying the same thing.
     val _ = entity(projectId, name).call(ServiceEntity.get).invoke()
@@ -149,23 +181,18 @@ final class ServiceEndpoint(
       )
   }
 
-  delete("/{projectId}/{name}") { (projectId: String, name: String) =>
-    entity(projectId, name).call(ServiceEntity.delete).invoke(): Done
+  /** Who did what to this service, newest first (feature 008, FR-025). */
+  get("/{projectId}/{name}/history") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false)
+    entity(projectId, name).call(ServiceEntity.history).invoke()
   }
 
-  /**
-   * Only checked on apply.
-   *
-   * An apply is the one operation that can bring a service into existence, so it is the only one
-   * where a mistyped project id would silently create something unreachable. Every other route
-   * addresses a service that already exists or returns 404 anyway.
-   */
-  private def requireProject(projectId: String): Unit =
-    val known = clients.componentClient
-      .forEventSourcedEntity(EntityId(projectId))
-      .call(ProjectEntity.exists)
-      .invoke()
-    if !known then throw CommandError(s"no such project '$projectId'", ErrorCode.NotFound)
+  delete("/{projectId}/{name}") { (projectId: String, name: String) =>
+    entity(projectId, name)
+      .call(ServiceEntity.delete)
+      .withMetadata(access(projectId, write = true))
+      .invoke(): Done
+  }
 
   private def entity(projectId: String, name: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))

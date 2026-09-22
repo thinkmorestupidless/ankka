@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.crd.AnkkaSerialization
 import com.thinkmorestupidless.ankka.operator.{
   ClusterImages,
   GatewayStack,
+  KeycloakStack,
   Membership,
   Operator,
   ServiceReconciler,
@@ -41,9 +42,20 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
   private val BaseDomain        = "test.local"
   private val ControlPlaneImage = "ankka-controlplane:latest"
   private val SampleImage       = "sample-shopping-cart:latest"
-  private val Token             = "dev-local-token" // what token-secret.yaml ships
-  private val Namespace         = "ankka-controlplane"
-  private val Project           = "checkout"
+  // A real token from the deployed identity provider, through the gateway, for a client this
+  // suite creates: the deployed control plane verifies against the in-cluster key set and expects
+  // the issuer it derives from ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT — so this is also the proof
+  // that the derivation agrees with what Keycloak writes into a token (research R3).
+  private lazy val Token: String =
+    KeycloakStack.mintToken(
+      GatewayStack.exportCa(k8s),
+      BaseDomain,
+      k3s.getMappedPort(GatewayStack.HttpsNodePort),
+      "e2e-cli",
+      "e2e-secret"
+    )
+  private val Namespace = "ankka-controlplane"
+  private val Project   = "checkout"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
@@ -129,19 +141,35 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
 
       applyManifest("kustomization/components/postgres/cluster.yaml")
       applyManifest("kustomization/components/controlplane/controlplane-rbac.yaml")
-      applyManifest("kustomization/components/controlplane/token-secret.yaml")
       applyManifest("kustomization/components/controlplane/service.yaml")
       // cert-manager, Envoy Gateway, the platform's Gateway and the local CA — so the control
       // plane's own route can be proven, and the CLI driven over verified TLS. Before the route
       // below, for the same reason CNPG is installed before anything references a Cluster: the
       // CRD has to exist first.
       GatewayStack.install(k3s, k8s, repoRoot, BaseDomain)
+      // The identity provider (feature 008), as deploy-local.sh installs it, and a client whose
+      // service account is a platform admin — what every request in this suite authenticates as.
+      KeycloakStack.install(
+        k3s,
+        k8s,
+        repoRoot,
+        BaseDomain,
+        k3s.getMappedPort(GatewayStack.HttpsNodePort)
+      )
+      KeycloakStack.createServiceClient(k3s, "e2e-cli", "e2e-secret", platformAdmin = true)
 
-      // The base domain the overlay would have fanned out, filled in by hand here.
+      // The base domain the overlay would have fanned out, filled in by hand here — and the HTTPS
+      // port clients actually reach the gateway on, which the deploy script substitutes the same
+      // way: the control plane derives the issuer it expects from both.
+      val httpsPort = k3s.getMappedPort(GatewayStack.HttpsNodePort)
       for name <- Vector("deployment.yaml", "httproute.yaml") do
+        // The placeholder only — not the `ANKKA_BASE_DOMAIN` variable *name* beside it, which a
+        // plain replace mangled into `ANKKA_test.local`, leaving the pod with no base domain and,
+        // since feature 008, no issuer to derive: every instance crash-looped at startup.
         val yaml = Files
           .readString(repoRoot.resolve(s"kustomization/components/controlplane/$name"))
-          .replace("BASE_DOMAIN", BaseDomain)
+          .replaceAll("(?<!ANKKA_)BASE_DOMAIN", BaseDomain)
+          .replace("""value: "443"""", s"""value: "$httpsPort"""")
         k8s.load(new java.io.ByteArrayInputStream(yaml.getBytes("UTF-8"))).serverSideApply(): Unit
 
       // The operator, in-process on admin credentials: not what this suite is about.
@@ -288,7 +316,48 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
     else s"""{"name":"$name","service":{"image":"registry.k8s.io/pause:3.9","http":false}}"""
 
   test("1. three control-plane instances form one cluster from the shipped manifests") {
-    waitFor(420.seconds)(readyPods.size == 3)
+    try waitFor(420.seconds)(readyPods.size == 3)
+    catch
+      case failure: Throwable =>
+        // Say what the pods were doing: an image that will not start, a node out of memory and a
+        // cluster that will not form look identical from a ready count.
+        val report = k8s.pods().inNamespace(Namespace).list().getItems.asScala.map { pod =>
+          val status = Option(pod.getStatus)
+          val containers = status.toList
+            .flatMap(_.getContainerStatuses.asScala)
+            .map(c =>
+              s"${c.getName} ready=${c.getReady} restarts=${c.getRestartCount} state=${c.getState}"
+            )
+          val conditions = status.toList
+            .flatMap(_.getConditions.asScala)
+            .map(c => s"${c.getType}=${c.getStatus}(${c.getReason})")
+          s"${pod.getMetadata.getName}: phase=${status.map(_.getPhase)} $containers $conditions"
+        }
+        val logs = k8s
+          .pods()
+          .inNamespace(Namespace)
+          .list()
+          .getItems
+          .asScala
+          .headOption
+          .map(pod =>
+            scala.util
+              .Try(
+                k8s
+                  .pods()
+                  .inNamespace(Namespace)
+                  .withName(pod.getMetadata.getName)
+                  .tailingLines(40)
+                  .getLog
+              )
+              .getOrElse("(no log)")
+          )
+        val node =
+          k8s.nodes().list().getItems.asScala.headOption.map(n => s"allocatable=${n.getStatus.getAllocatable} conditions=${n.getStatus.getConditions.asScala.map(c => s"${c.getType}=${c.getStatus}")}")
+        fail(
+          s"three instances never became ready:\n  ${report.mkString("\n  ")}\n  node: $node\n  log of first pod:\n${logs.getOrElse("")}",
+          failure
+        )
     val views = pods.map(membership)
     assertEquals(Membership.disjointClusters(views), 1, views.toString)
     views.foreach(v => assertEquals(v.size, 3, v.toString))

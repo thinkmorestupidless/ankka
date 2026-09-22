@@ -35,20 +35,20 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
           )
         )
         event match
-          case ServiceApplied(_, descriptor, generation) =>
+          case ServiceApplied(_, descriptor, generation, _, _) =>
             effects.updateRow(
               row.copy(
                 image = descriptor.service.image,
                 generation = generation,
                 lifecycle =
-                  if row.lifecycle == ServiceLifecycle.Paused then ServiceLifecycle.Paused
+                  if row.paused then ServiceLifecycle.Paused
                   else ServiceLifecycle.UpdateInProgress,
                 detail = None,
                 confirmed = true
               )
             )
 
-          case ServiceRestarted(generation) =>
+          case ServiceRestarted(generation, _, _) =>
             effects.updateRow(
               row.copy(
                 generation = generation,
@@ -59,20 +59,24 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
               )
             )
 
-          case ServicePaused =>
+          case _: ServicePaused =>
             effects.updateRow(
               row.copy(
                 lifecycle = ServiceLifecycle.Paused,
+                paused = true,
                 desiredInstances = 0,
                 detail = None,
                 confirmed = true
               )
             )
 
-          case ServiceResumed =>
+          case _: ServiceResumed =>
             effects.updateRow(
               row.copy(
-                lifecycle = ServiceLifecycle.UpdateInProgress,
+                lifecycle =
+                  if row.suspended then ServiceLifecycle.Suspended
+                  else ServiceLifecycle.UpdateInProgress,
+                paused = false,
                 detail = None,
                 confirmed = true
               )
@@ -80,8 +84,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
 
           // The row carries the boolean only; the endpoint adds the hostname on the way out, since
           // the base domain is configuration the view does not have.
-          case ServiceExposed   => effects.updateRow(row.copy(exposed = true))
-          case ServiceUnexposed => effects.updateRow(row.copy(exposed = false))
+          case _: ServiceExposed   => effects.updateRow(row.copy(exposed = true))
+          case _: ServiceUnexposed => effects.updateRow(row.copy(exposed = false))
 
           case ServiceObserved(
                 generation,
@@ -99,7 +103,14 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
             else
               effects.updateRow(
                 row.copy(
-                  lifecycle = lifecycle,
+                  // The same rule as the entity's fold: what the members and the organization
+                  // asked for wins over what the operator reported — and the row carries the
+                  // members' choice itself, because an operator *reports* Paused too, and a stale
+                  // one landing after a resume must not read as a pause nobody asked for.
+                  lifecycle =
+                    if row.paused then ServiceLifecycle.Paused
+                    else if row.suspended then ServiceLifecycle.Suspended
+                    else lifecycle,
                   readyInstances = ready,
                   desiredInstances = desired,
                   detail = detail,
@@ -108,7 +119,30 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 )
               )
 
-          case ServiceDeleted =>
+          case _: ServiceSuspended =>
+            effects.updateRow(
+              row.copy(
+                lifecycle =
+                  if row.paused then ServiceLifecycle.Paused else ServiceLifecycle.Suspended,
+                desiredInstances = 0,
+                detail = None,
+                confirmed = true,
+                suspended = true
+              )
+            )
+
+          case _: ServiceReinstated =>
+            effects.updateRow(
+              row.copy(
+                lifecycle =
+                  if row.paused then ServiceLifecycle.Paused else ServiceLifecycle.UpdateInProgress,
+                detail = None,
+                confirmed = true,
+                suspended = false
+              )
+            )
+
+          case _: ServiceDeleted =>
             // Unlike the entity, which keeps a tombstone for the audit trail, the row
             // goes: `services list` should show what exists now.
             effects.deleteRow()

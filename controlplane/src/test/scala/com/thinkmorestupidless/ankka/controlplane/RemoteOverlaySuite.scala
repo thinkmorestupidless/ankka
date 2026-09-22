@@ -77,13 +77,116 @@ final class RemoteOverlaySuite extends FunSuite:
     assert(remote.contains("ankka-operator"), "the operator is missing")
   }
 
-  test("the development bearer token cannot reach a remote cluster") {
-    // The single most damaging thing that could leak out of this overlay. `components/controlplane`
-    // ships `dev-local-token` so a fresh kind cluster needs no extra step, and that value is public
-    // in this repository; the remote overlay deletes the Secret outright rather than overriding it,
-    // so the control plane will not start until a real one is created out of band.
-    assert(!remote.contains("dev-local-token"), "the development token is in the remote render")
-    assert(local.contains("dev-local-token"), "...but it should still be in the local one")
+  test("the shared bearer token is gone from both overlays (feature 008)") {
+    // Not deleted by the remote overlay any more: removed. Every caller is a Keycloak user.
+    for render <- Vector(local, remote) do
+      assert(!render.contains("ANKKA_CONTROLPLANE_TOKEN"), "the token variable is still rendered")
+      assert(!render.contains("dev-local-token"), "the development token is still rendered")
+      assert(documentsOfKind(render, "Secret").forall(!_.contains("ankka-controlplane-token")))
+  }
+
+  test("Keycloak's development administrator cannot reach a remote cluster") {
+    // The single most damaging thing that could leak out of this overlay now. `components/keycloak`
+    // ships `ankka-keycloak-admin` as admin/admin so a fresh kind cluster has a console to add users
+    // in; the remote overlay deletes the Secret outright, and the Keycloak resource names it, so the
+    // operator cannot create the instance until a real one exists out of band.
+    val remoteSecrets = documentsOfKind(remote, "Secret")
+    assert(
+      !remoteSecrets.exists(_.contains("name: ankka-keycloak-admin")),
+      "the admin secret is in the remote render"
+    )
+    val localSecrets = documentsOfKind(local, "Secret")
+    assert(
+      localSecrets.exists(_.contains("name: ankka-keycloak-admin")),
+      "...but it should still be in the local one"
+    )
+    // Both still *reference* it — that reference is what makes the deletion bite.
+    for render <- Vector(local, remote) do
+      assert(documentsOfKind(render, "Keycloak").exists(_.contains("secret: ankka-keycloak-admin")))
+  }
+
+  test("the identity provider is rendered whole in both overlays, in its own namespace") {
+    for render <- Vector(local, remote) do
+      val deployments = documentsOfKind(render, "Deployment")
+      assert(
+        deployments.exists(d =>
+          d.contains("name: keycloak-operator") && d.contains("namespace: ankka-auth")
+        ),
+        "the operator"
+      )
+      assert(
+        documentsOfKind(render, "Keycloak").exists(_.contains("namespace: ankka-auth")),
+        "the instance"
+      )
+      assert(
+        documentsOfKind(render, "Cluster").exists(_.contains("name: ankka-keycloak-db")),
+        "its database"
+      )
+      assert(
+        documentsOfKind(render, "Namespace").exists(_.contains("name: ankka-auth")),
+        "the namespace"
+      )
+      // The one thing the namespace transformer does not reach, patched by hand upstream of here.
+      val binding = documentsOfKind(render, "ClusterRoleBinding")
+        .find(_.contains("name: keycloak-operator-clusterrole-binding"))
+        .getOrElse(fail("the operator's ClusterRoleBinding is missing"))
+      assert(
+        binding.contains("namespace: ankka-auth"),
+        "the binding's subject still names the upstream namespace"
+      )
+      assert(!binding.contains("namespace: keycloak\n"), binding)
+      // The realm is not a resource: it is imported after the instance is Ready.
+      assert(
+        documentsOfKind(render, "KeycloakRealmImport").isEmpty,
+        "the realm import must be rendered by the deploy script, not checked in"
+      )
+  }
+
+  test(
+    "auth.<base domain> reaches the route, the instance's hostname and the control plane's derivation"
+  ) {
+    val routes = documentsOfKind(remote, "HTTPRoute")
+    assert(
+      routes.exists(r => r.contains("name: ankka-keycloak") && r.contains("- auth.ankka.cloud")),
+      "the identity provider's route"
+    )
+    assert(
+      documentsOfKind(remote, "Keycloak").exists(_.contains("hostname: auth.ankka.cloud")),
+      "the instance's own hostname"
+    )
+    assert(
+      documentsOfKind(local, "Keycloak").exists(_.contains("hostname: auth.127.0.0.1.sslip.io"))
+    )
+    // The control plane derives its issuer from ANKKA_BASE_DOMAIN and reads keys in-cluster: no
+    // issuer variable to replace, one key URL that names the service, never the gateway.
+    val controlPlane =
+      documentsOfKind(remote, "Deployment").find(_.contains("name: ankka-controlplane")).get
+    assert(!controlPlane.contains("ANKKA_AUTH_ISSUER"), "the issuer is derived, not rendered")
+    assert(
+      controlPlane.contains(
+        "ankka-keycloak-service.ankka-auth.svc:8080/realms/ankka/protocol/openid-connect/certs"
+      )
+    )
+  }
+
+  test("the Keycloak version is written once for code and agrees with the manifests and compose") {
+    val version = sys.props.getOrElse(
+      "ankka.keycloak.version",
+      fail("build.sbt did not forward keycloakVersion")
+    )
+    val manifests = Files.readString(
+      repoRoot.resolve("kustomization/components/keycloak-operator/manifests/kustomization.yaml")
+    )
+    assert(
+      manifests.contains(s"keycloak-k8s-resources/$version/"),
+      s"the operator reference does not pin $version"
+    )
+    val compose = Files.readString(repoRoot.resolve("docker-compose.yml"))
+    assert(
+      compose.contains(s"quay.io/keycloak/keycloak:$version"),
+      s"docker-compose does not run $version"
+    )
+    assert(!compose.contains("keycloak:latest"))
   }
 
   test("no local-only address survives into the remote render") {

@@ -53,8 +53,9 @@ Running the samples needs the bundled Postgres:
 docker compose up -d
 sbt shoppingCart/run              # HTTP on :9000
 ANTHROPIC_API_KEY=sk-ant-... sbt multiAgentPlanner/run
-ANKKA_CONTROLPLANE_TOKEN=dev sbt controlPlane/run
-sbt 'cli/run services list --url http://localhost:9000 --token dev -p checkout'
+ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run   # compose runs Keycloak on 8081
+ankka login                                                                   # dev / dev, in a browser
+sbt 'cli/run services list --url http://localhost:9000 -p checkout'   # after `ankka login`
 ```
 
 A two-node cluster on one machine, to see sharding and handoff without Kubernetes — fix the
@@ -292,12 +293,36 @@ should depend on as little as possible.
 `Action` values are inert descriptions of cluster mutations and `Fabric8Executor` is the
 only thing that performs them, which is the same organising idea as the component effects.
 
+### Identity: Keycloak authenticates, the control plane authorizes
+
+Every control plane route but `GET /auth` and the health probe is behind `Acl.Authenticate`
+(`ControlPlaneAcl.oidc`): a token is verified offline against the realm's cached JWKS
+(`controlplane/auth/TokenVerifier`, nimbus — the one library added, in `controlplane` only), and
+the caller becomes a `Principal` on the request. Only the token's `sub` is ever a key; email and
+name are display. Keycloak decides who is a user; the `Organization` entity decides what they may
+touch; the control plane holds no Keycloak admin credential and the design (invitations claimed on
+first verified login, research R9) exists so it never needs one. Every command carries an
+`Attribution` as *metadata* (`Attribution.from(commandContext.metadata)`), and every
+command-produced event has `actor: Option[Actor]` and `at: Option[Instant]` with `None` defaults so
+pre-feature journals replay (`EventCompatibilitySuite` pins the old JSON).
+
+The issuer inside a cluster is **derived** from `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT`
+(`AuthConfig.derivedIssuer`: `https://auth.<base>[:port]/realms/ankka`) and keys are read over
+the plain in-cluster service address (`ANKKA_AUTH_JWKS_URL`); locally, `ANKKA_AUTH_ISSUER` names
+the compose Keycloak. The realm is one file, `kustomization/components/keycloak/realm.json`,
+imported by a `KeycloakRealmImport` that `deploy-local.sh` renders (never checked in) and mounted
+by compose; it carries no users — the deploy script and compose's init create `dev`, so a remote
+installation cannot inherit one.
+
 ### The control plane is an ankka application
 
 `ControlPlane.components` and `ControlPlane.endpoints` are the whole inventory: three
-event sourced entities (organization, project, service), three views for listing, three
-endpoints. `ControlPlane.builder` also registers `ProjectionRuntime()` — without it every
-listing stays permanently empty while every write succeeds.
+event sourced entities (organization, project, service), three views for listing, and the
+endpoints — organizations, projects, services, `whoami`, and the one open discovery route.
+`componentsWith(projector)` adds the two consumers that react to desired-state changes
+(`ProjectionTrigger`, `SuspensionTrigger`). `ControlPlane.builder` also registers
+`ProjectionRuntime()` — without it every listing stays permanently empty while every write
+succeeds.
 
 Two invariants carry most of the weight:
 
@@ -726,6 +751,57 @@ factory shapes would break lambda parameter inference at every call site.
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.
 
+- **`KeycloakRealmImport` is one-shot.** It creates a realm that does not exist and never updates
+  or deletes one; a re-apply is a no-op and deleting the resource leaves the realm. So the realm
+  JSON is a file the deploy script renders into the resource (and compose mounts), and a change to
+  it on an existing installation is a console job. Never check the rendered resource in.
+- **Keycloak writes a lone `aud` as a string and several as an array.** A test (or a verifier)
+  that reads `aud` as an array sees nothing on a service-account token. nimbus handles both;
+  `KeycloakAdmin.audiences` does for tests.
+- **A token has no `sub` unless a scope maps it.** The built-in `basic` scope was not attached to
+  a client created through the admin API with an explicit scope list, and the token verified but
+  carried no subject. The `ankka-controlplane` scope carries its own subject mapper so a client
+  needs nothing else.
+- **A Keycloak user with no first and last name cannot log in with a password grant** — "Account
+  is not fully set up", a pending profile action. The deploy script, compose and the test helper
+  all set both on the users they create.
+- **A kustomize Component's `namespace:` transformer runs over everything the overlay accumulated
+  before it.** Setting it on the Keycloak operator component renamed CNPG's namespace and the render
+  failed with an ID conflict. The operator's manifests sit in a nested plain Kustomization
+  (`components/keycloak-operator/manifests`) whose transformer sees only them — and the
+  ClusterRoleBinding's subject, which no namespace transformer reaches, is patched by hand there
+  and in `KeycloakStack`.
+- **The Keycloak operator needs all four of its CRDs, not the two ankka uses.** With only
+  `keycloaks` and `keycloakrealmimports` applied it crash-loops on
+  `keycloakoidcclients … Not Found` and never reconciles anything. The component's nested
+  kustomization and `KeycloakStack` install the OIDC and SAML client CRDs too.
+- **The control plane's issuer must equal what Keycloak writes into `iss`, port included — and
+  Keycloak learns the port only from `X-Forwarded-Port`.** With a bare `hostname` it takes scheme
+  and port from the proxy headers; Envoy forwards the proto and not the port, so through kind's
+  8443 every token and every discovery URL named `https://auth.<base>/…` — unreachable on kind and
+  a 401 on every request. The identity provider's `HTTPRoute` sets `X-Forwarded-Port` to the HTTPS
+  port (the overlay replaces it from `ankka-platform.httpsPort`, the deploy script's sed too, and
+  `KeycloakStack` templates the mapped port), the control plane derives the same string from
+  `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT`, and `EndToEndClusterSuite` asserts the advertised
+  issuer equals the derived one. `X-Forwarded-Host` with a port works as well; `Host` with a port
+  does not — measured against the image, not read from the docs.
+- **An operator *reports* `Paused`, so a listing row cannot infer "the members paused it" from
+  its own lifecycle word.** `ServiceRows` kept `Paused` on any observation while the row said
+  `Paused` — and a stale operator report of the pause, landing just after a resume, pinned the
+  listing at `Paused 1/1` while `services get` said `Ready` (the k3s end-to-end suite caught it;
+  the fast harness could not until it replayed that exact report). The row now carries the
+  members' `paused` flag and the organization's `suspended` flag and applies the same rule as the
+  entity's fold: desired state wins over a report. `SuspensionSuite` pins the sequence.
+- **A suite that fills a manifest placeholder with a plain `replace` also rewrites variable
+  *names* that contain it.** `ControlPlaneClusterSuite` turned `ANKKA_BASE_DOMAIN` into
+  `ANKKA_test.local`, so the deployed control plane had no base domain — harmless for two
+  features, and a crash-loop at startup once the issuer was derived from it. Replace the
+  placeholder with a lookbehind (`(?<!ANKKA_)BASE_DOMAIN`), and read a deployed pod's `env` before
+  blaming its image.
+- **A CLI test that deletes the credentials file after removing the config override deletes the
+  developer's own.** `Credentials.path` follows `Settings.path`; clean up *before* the property
+  goes, in a directory the test owns.
+
 ## Publishing
 
 Six modules are libraries an application depends on — `core`, `sdk`, `runtime`, `http`, `agent`,
@@ -851,9 +927,9 @@ owns the database.
 `kustomization/overlays/remote/` is the same eight components with only what must differ: a
 `LoadBalancer` instead of the kind node ports, an ACME issuer over **DNS-01** instead of a
 self-signed root (a wildcard certificate cannot be had from HTTP-01), a real base domain on 443,
-and the development bearer token **deleted** rather than overridden — `dev-local-token` is public
-in this repository, so the control plane is made to refuse to start until a real Secret exists
-out of band. Images are the remaining gap: every Deployment names an unqualified image with
+and Keycloak's development admin secret **deleted** rather than overridden — `admin`/`admin` is
+public in this repository, so the identity provider is made to refuse to start until a real Secret
+exists out of band. (The shared control plane token this once applied to no longer exists.) Images are the remaining gap: every Deployment names an unqualified image with
 `imagePullPolicy: IfNotPresent`, which is right for `kind load` and useless for a cluster that
 must pull, so a registry needs `DOCKER_REPOSITORY` and an `images:` block (left commented in the
 overlay — a wrong registry fails minutes later as `ImagePullBackOff`, an absent one immediately).

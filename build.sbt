@@ -83,6 +83,14 @@ lazy val dockerSettings = Seq(
   Docker / version := version.value.replace('+', '-')
 )
 
+/**
+ * Keycloak, the platform's identity provider (feature 008). Pinned by exact release like CNPG and
+ * cert-manager; bump here, in kustomization/components/keycloak/kustomization.yaml (the operator
+ * reference), keycloak.yaml is versioned by the operator, and docker-compose.yml — the overlay
+ * suite checks they agree.
+ */
+val keycloakVersion = "26.7.4"
+
 lazy val commonSettings = Seq(
   scalacOptions ++= Seq(
     "-deprecation",
@@ -112,6 +120,10 @@ lazy val commonSettings = Seq(
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")
     },
+  // The one place the Keycloak version is written for code: the suites read it from here, so no
+  // test names the image by a literal tag (feature 006's lesson). The manifests and compose carry
+  // the same string, and RemoteOverlaySuite asserts they agree with this one.
+  Test / javaOptions += s"-Dankka.keycloak.version=$keycloakVersion",
   testFrameworks += new TestFramework("munit.Framework")
 )
 
@@ -316,7 +328,7 @@ lazy val controlPlane = project
     publish / skip      := true,
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.controlplane.runControlPlane"),
     dockerExposedPorts  := Seq(9000),
-    libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test),
+    libraryDependencies ++= Seq(fabric8, nimbusJoseJwt, testcontainersK3s % Test),
     // SampleDeploymentClusterSuite deploys the *real* shopping cart, so something has to build its
     // image before the suite starts, and `sbt test` has to keep working with no preparatory step.
     //

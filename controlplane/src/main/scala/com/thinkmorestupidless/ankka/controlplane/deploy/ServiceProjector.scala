@@ -1,9 +1,15 @@
 package com.thinkmorestupidless.ankka.controlplane.deploy
 
-import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, ServiceRows}
+import com.thinkmorestupidless.ankka.controlplane.application.{
+  OrganizationRows,
+  ProjectRows,
+  ServiceEntity,
+  ServiceRows
+}
+import com.thinkmorestupidless.ankka.controlplane.domain.Attribution
 import com.thinkmorestupidless.ankka.controlplane.domain.ServiceKey
 import com.thinkmorestupidless.ankka.core.EntityId
-import com.thinkmorestupidless.ankka.runtime.SqlSyntax.jsonText
+import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 import com.thinkmorestupidless.ankka.runtime.{
   AnkkaService as RunningService,
   RuntimeExtension,
@@ -51,6 +57,15 @@ final class ServiceProjector private (
    * apply-to-running off the sweep interval.
    */
   def project(key: ServiceKey): Unit = projection.foreach(_.projectOne(key))
+
+  /**
+   * Every service in the organization's projects, suspended — by `SuspensionTrigger`, on the event.
+   */
+  def organizationDisabled(organizationId: String, by: Option[Attribution]): Unit =
+    projection.foreach(_.setSuspended(organizationId, suspended = true, by))
+
+  def organizationEnabled(organizationId: String, by: Option[Attribution]): Unit =
+    projection.foreach(_.setSuspended(organizationId, suspended = false, by))
 
   def start(service: RunningService): Unit =
     given system: ActorSystem[?] = service.system
@@ -174,6 +189,7 @@ private[deploy] final class Projection(
    * never look at it again and its resource would survive forever.
    */
   def sweep(): Unit =
+    reconcileSuspensions()
     val desired = knownServices
     val existing =
       try client.list().map(r => ServiceKey(r.spec.projectId, r.spec.serviceName))
@@ -183,6 +199,70 @@ private[deploy] final class Projection(
           Vector.empty
 
     (desired ++ existing).distinct.foreach(projectOne)
+
+  /**
+   * Every service in the organization's projects, suspended or reinstated (feature 008, FR-033).
+   *
+   * Enumerated through the listing views, which lag: a service applied moments before the disable
+   * may have no row yet. That one is caught by `reconcileSuspensions` on the next sweep — the
+   * correctness half — so this half only has to be prompt, and idempotent.
+   */
+  def setSuspended(organizationId: String, suspended: Boolean, by: Option[Attribution]): Unit =
+    val metadata = by.getOrElse(Attribution(Attribution.platform, java.time.Instant.now())).metadata
+    for
+      project <- projectsOf(organizationId)
+      row     <- servicesIn(project)
+    do
+      val key = ServiceKey(row.projectId, row.name)
+      try
+        val handle = if suspended then ServiceEntity.suspend else ServiceEntity.reinstate
+        val _      = entity(key).call(handle).withMetadata(metadata).invoke()
+        projectOne(key)
+      catch
+        case NonFatal(failure) =>
+          log.warn(s"could not ${if suspended then "suspend" else "reinstate"} ${key.id}", failure)
+
+  /**
+   * The correctness half of disabling an organization: any running service whose organization is
+   * disabled is suspended, and any suspended one whose organization is enabled is reinstated —
+   * whatever the trigger managed to see at the time. Runs before the projection sweep so the
+   * resources rendered below already reflect it.
+   */
+  private def reconcileSuspensions(): Unit =
+    try
+      val organizations =
+        viewClient.forView(OrganizationRows).ordered(SqlFragment.empty, order = jsonText("name"))
+      val disabled = organizations.filter(_.disabled).map(_.id).toSet
+      val enabled  = organizations.filterNot(_.disabled).map(_.id).toSet
+      val projectToOrganization =
+        viewClient
+          .forView(ProjectRows)
+          .ordered(SqlFragment.empty, order = jsonText("name"))
+          .map(p => p.id -> p.organizationId)
+          .toMap
+      val stamp = Attribution(Attribution.platform, java.time.Instant.now()).metadata
+      viewClient.forView(ServiceRows).ordered(SqlFragment.empty, order = jsonText("name")).foreach {
+        row =>
+          projectToOrganization.get(row.projectId).foreach { organizationId =>
+            val key = ServiceKey(row.projectId, row.name)
+            if disabled.contains(organizationId) && !row.suspended then
+              val _ = entity(key).call(ServiceEntity.suspend).withMetadata(stamp).invoke()
+            else if enabled.contains(organizationId) && row.suspended then
+              val _ = entity(key).call(ServiceEntity.reinstate).withMetadata(stamp).invoke()
+          }
+      }
+    catch
+      case NonFatal(failure) =>
+        log.warn("could not reconcile suspensions; the next sweep will", failure)
+
+  private def projectsOf(organizationId: String): Vector[String] =
+    viewClient
+      .forView(ProjectRows)
+      .where(jsonText("organizationId") ++ sql" = $organizationId")
+      .map(_.id)
+
+  private def servicesIn(projectId: String) =
+    viewClient.forView(ServiceRows).where(jsonText("projectId") ++ sql" = $projectId")
 
   /** Every service the control plane knows about, from the listing view. */
   private def knownServices: Vector[ServiceKey] =

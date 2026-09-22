@@ -69,10 +69,13 @@ spec:
               containerPort: 7626
             - name: remoting
               containerPort: 17355
-          envFrom:
-            - secretRef:
-                name: ankka-controlplane-token
           env:
+            # Identity (feature 008). The issuer tokens must name is derived in-process from
+            # ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT below — https://auth.<base>[:port]/realms/ankka
+            # — so nothing here has to be replaced by the overlay a second time. Keys are read over
+            # the plain in-cluster address: no gateway, no TLS, no certificate to trust.
+            - name: ANKKA_AUTH_JWKS_URL
+              value: "http://ankka-keycloak-service.ankka-auth.svc:8080/realms/ankka/protocol/openid-connect/certs"
             # Must match the operator's ANKKA_K8S_NAMESPACE_PREFIX. A mismatch presents as
             # every service reporting "no operator has reported on this service".
             - name: ANKKA_K8S_NAMESPACE_PREFIX

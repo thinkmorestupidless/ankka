@@ -85,20 +85,35 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
 
   /** Invokes a one-argument handler. */
   def call[I, O](handle: CommandHandle[C, I, O])(input: I): CommandResult[S, E, O] =
-    run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer)
+    run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer, Metadata.empty)
 
   /** Invokes a no-argument handler. */
   def call[O](handle: NoArgHandle[C, O]): CommandResult[S, E, O] =
-    run(handle, Array.emptyByteArray, handle.outputSerializer)
+    run(handle, Array.emptyByteArray, handle.outputSerializer, Metadata.empty)
+
+  /**
+   * Invokes a handler with command metadata, as a caller using `withMetadata` would.
+   *
+   * What a handler reads from `commandContext.metadata` — who is asking, a trace — arrives this way
+   * in production, and a test of a handler that records it needs to supply it.
+   */
+  def call[I, O](handle: CommandHandle[C, I, O], metadata: Metadata)(
+      input: I
+  ): CommandResult[S, E, O] =
+    run(handle, handle.inputSerializer.toBytes(input), handle.outputSerializer, metadata)
+
+  def call[O](handle: NoArgHandle[C, O], metadata: Metadata): CommandResult[S, E, O] =
+    run(handle, Array.emptyByteArray, handle.outputSerializer, metadata)
 
   private def run[O](
       binding: HandlerBinding[C],
       payload: Array[Byte],
-      output: Serializer[O]
+      output: Serializer[O],
+      metadata: Metadata
   ): CommandResult[S, E, O] =
     entity._setState(state)
     entity._setContext(
-      Some(SimpleCommandContext(entityId, companion.componentId, Metadata.empty, sequenceNumber))
+      Some(SimpleCommandContext(entityId, companion.componentId, metadata, sequenceNumber))
     )
 
     val effect =

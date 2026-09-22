@@ -8,7 +8,7 @@
 #   * the gateway gets a LoadBalancer instead of pinned node ports   (loadbalancer.yaml)
 #   * certificates come from a real CA over DNS-01, not a self-signed root   (acme-issuer.yaml)
 #   * the base domain is a real one and HTTPS is on 443   (platform-configmap.yaml)
-#   * the development bearer token is *removed* rather than overridden   (see `patches` below)
+#   * Keycloak's development admin secret is *removed* rather than overridden   (see `patches` below)
 #   * images come from a registry rather than `kind load`   (see the note on images below)
 #
 # This is not applied by deploy-local.sh, which refuses any context that is not the local kind
@@ -66,6 +66,8 @@ components:
   - ../../components/gateway
   - ../../components/operator
   - ../../components/postgres
+  - ../../components/keycloak-operator
+  - ../../components/keycloak
   - ../../components/controlplane
 
 resources:
@@ -81,24 +83,28 @@ patches:
       kind: EnvoyProxy
       name: ankka
 
-  # Remove the development token outright. components/controlplane ships
-  # `ANKKA_CONTROLPLANE_TOKEN: dev-local-token` so a fresh local cluster needs no extra step, and
-  # that value is public in this repository — patching it to something else here would put the
-  # real token in git instead, which is worse. Deleting it means the control plane's Deployment
-  # cannot start until a Secret of the same name exists, created out of band:
+  # Remove Keycloak's development administrator outright. components/keycloak ships
+  # `ankka-keycloak-admin` as admin/admin so a fresh local cluster has a console to add users in
+  # with no extra step, and that value is public in this repository — patching it to something
+  # else here would put the real password in git instead, which is worse. The Keycloak resource
+  # names the secret explicitly, so with it deleted the operator cannot create the instance until
+  # one exists, created out of band:
   #
-  #   kubectl -n ankka-controlplane create secret generic ankka-controlplane-token \
-  #     --from-literal=ANKKA_CONTROLPLANE_TOKEN="$(openssl rand -base64 32)"
+  #   kubectl -n ankka-auth create secret generic ankka-keycloak-admin \
+  #     --from-literal=username=admin --from-literal=password="$(openssl rand -base64 32)"
   #
-  # A pod stuck on a missing Secret is a loud, immediate and obvious failure. A platform reachable
-  # on the internet with a token published in a public repository is none of those things.
+  # An identity provider that will not start is a loud, immediate and obvious failure. One
+  # reachable on the internet with an admin password published in a public repository is none of
+  # those things. (The shared control plane token this patch used to delete no longer exists:
+  # every caller is a Keycloak user, and there is no development user in the realm at all —
+  # deploy-local.sh creates one, and only deploy-local.sh.)
   - patch: |-
       $patch: delete
       apiVersion: v1
       kind: Secret
       metadata:
-        name: ankka-controlplane-token
-        namespace: ankka-controlplane
+        name: ankka-keycloak-admin
+        namespace: ankka-auth
 
 # Identical in mechanism to overlays/local: the base domain and HTTPS port are each written once,
 # above, and copied into every place that must agree. Where the target holds a prefixed form
@@ -134,6 +140,24 @@ replacements:
         options:
           delimiter: "."
           index: 1
+      # The identity provider's route and its own idea of its hostname — the latter is what every
+      # token's issuer names, and the control plane derives the same string from ANKKA_BASE_DOMAIN.
+      - select:
+          kind: HTTPRoute
+          name: ankka-keycloak
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Keycloak
+          name: ankka-keycloak
+        fieldPaths:
+          - spec.hostname.hostname
+        options:
+          delimiter: "."
+          index: 1
       - select:
           kind: Deployment
           name: ankka-controlplane
@@ -154,6 +178,11 @@ replacements:
           name: https-redirect
         fieldPaths:
           - spec.rules.0.filters.0.requestRedirect.port
+      - select:
+          kind: HTTPRoute
+          name: ankka-keycloak
+        fieldPaths:
+          - spec.rules.0.filters.0.requestHeaderModifier.set.0.value
       - select:
           kind: Deployment
           name: ankka-controlplane

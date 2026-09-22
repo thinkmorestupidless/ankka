@@ -23,8 +23,16 @@ object Output:
       case Format.Json => writeToString(rows)
       case Format.Table =>
         table(
-          Vector("ID", "NAME", "PROJECTS"),
-          rows.map(row => Vector(row.id, row.name, row.projects.toString))
+          Vector("ID", "NAME", "PROJECTS", "ROLE", "STATE"),
+          rows.map(row =>
+            Vector(
+              row.id,
+              row.name,
+              row.projects.toString,
+              row.role.fold("-")(Role.name),
+              if row.disabled then "disabled" else "active"
+            )
+          )
         )
 
   def organization(row: OrganizationSummary, format: Format): String =
@@ -105,7 +113,7 @@ object Output:
    * A config listing is the sort of thing that ends up in a screen share or a bug report, so
    * `--output json` here is not round-trippable on purpose.
    */
-  def settings(current: Settings, format: Format): String =
+  def settings(current: Settings, format: Format, loginSaved: Boolean = false): String =
     val redacted = current.copy(token = current.token.map(_ => "(set)"))
     format match
       case Format.Json => writeToString(redacted)(using settingsCodec)
@@ -113,9 +121,81 @@ object Output:
         Vector(
           "url     " -> current.url,
           "token   " -> current.token.fold("(unset)")(_ => "(set)"),
+          "login   " -> (if loginSaved then "saved" else "none"),
           "project " -> current.project.getOrElse("(unset)"),
           "ca      " -> current.ca.getOrElse("(unset)")
         ).map((label, value) => s"$label $value").mkString("\n")
+
+  def history(entries: Vector[HistoryEntry], format: Format): String =
+    format match
+      case Format.Json => writeToString(entries)
+      case Format.Table =>
+        table(
+          Vector("WHEN", "KIND", "GEN", "BY"),
+          entries.map(e =>
+            Vector(
+              e.at.fold("-")(_.toString),
+              e.kind,
+              e.generation.toString,
+              e.actor.fold("-")(a =>
+                a.display.getOrElse(a.subject) + (if a.administrative then " (admin)" else "")
+              )
+            )
+          )
+        )
+
+  def members(response: MembersResponse, format: Format): String =
+    format match
+      case Format.Json => writeToString(response)
+      case Format.Table =>
+        val members = table(
+          Vector("SUBJECT", "ROLE", "EMAIL", "SINCE", "ADDED BY"),
+          response.members.map(m =>
+            Vector(
+              m.subject,
+              Role.name(m.role),
+              m.email.getOrElse("-"),
+              m.since.fold("-")(_.toString),
+              m.addedBy.getOrElse("-")
+            )
+          )
+        )
+        val invitations =
+          if response.invitations.isEmpty then "no pending invitations"
+          else
+            table(
+              Vector("EMAIL", "ROLE", "INVITED", "BY"),
+              response.invitations.map(i =>
+                Vector(
+                  i.email,
+                  Role.name(i.role),
+                  i.invitedAt.fold("-")(_.toString),
+                  i.invitedBy.getOrElse("-")
+                )
+              )
+            )
+        s"$members\n\n$invitations"
+
+  def whoami(who: Whoami, format: Format): String =
+    format match
+      case Format.Json => writeToString(who)
+      case Format.Table =>
+        val identity = Vector(
+          "subject        " -> who.subject,
+          "name           " -> who.name.getOrElse("(none)"),
+          "email          " -> who.email.fold("(none)")(e =>
+            s"$e (${if who.emailVerified then "verified" else "unverified"})"
+          ),
+          "platform admin " -> (if who.platformAdmin then "yes" else "no")
+        ).map((label, value) => s"$label $value").mkString("\n")
+        val organizations =
+          if who.organizations.isEmpty then "no organizations"
+          else
+            table(
+              Vector("ORGANIZATION", "NAME", "ROLE"),
+              who.organizations.map(o => Vector(o.id, o.name, Role.name(o.role)))
+            )
+        s"$identity\n\n$organizations"
 
   private val settingsCodec: JsonValueCodec[Settings] =
     com.thinkmorestupidless.ankka.core.Codecs.make[Settings]

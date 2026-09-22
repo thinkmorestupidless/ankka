@@ -1,9 +1,100 @@
 package com.thinkmorestupidless.ankka.controlplane.domain
 
 import com.thinkmorestupidless.ankka.controlplane.api.*
+import com.thinkmorestupidless.ankka.core.Metadata
 
-/** An organization. The outermost tenancy boundary. */
-final case class Organization(id: String, name: String, deleted: Boolean = false):
+import java.time.Instant
+
+/**
+ * Who did something, recorded on the event it produced (feature 008, FR-023).
+ *
+ * `subject` is the identity provider's stable id. `display` is a label — email, else name — for
+ * listings, and may go stale. `administrative` is true only when the caller needed the
+ * installation-level `platform-admin` role for the action: the audit trail distinguishes "acted as
+ * owner" from "acted as administrator".
+ */
+final case class Actor(
+    subject: String,
+    display: Option[String] = None,
+    administrative: Boolean = false
+)
+
+/**
+ * What every command carries about its caller: who, and when.
+ *
+ * Carried as command *metadata* rather than in each payload, so that adding it changed no command's
+ * shape and no existing test — and so that an entity reads it from `commandContext` exactly as it
+ * reads its own id. Absent on a command that came from nowhere (a test, or a platform process
+ * acting on its own behalf); the events it produces then carry no actor, which is exactly how
+ * events from before this feature read (FR-024).
+ */
+final case class Attribution(actor: Actor, at: Instant):
+  def metadata: Metadata =
+    val base = Metadata.empty
+      .set(Attribution.SubjectKey, actor.subject)
+      .set(Attribution.AtKey, at.toString)
+      .set(Attribution.AdministrativeKey, actor.administrative.toString)
+    actor.display.fold(base)(display => base.set(Attribution.DisplayKey, display))
+
+object Attribution:
+  val SubjectKey        = "ankka.actor.subject"
+  val DisplayKey        = "ankka.actor.display"
+  val AdministrativeKey = "ankka.actor.administrative"
+  val AtKey             = "ankka.actor.at"
+
+  /**
+   * An event's actor and time as a command's attribution — for acting *on behalf of* that event.
+   */
+  def from(actor: Option[Actor], at: Option[Instant]): Option[Attribution] =
+    for a <- actor; t <- at yield Attribution(a, t)
+
+  /** The platform acting for itself — the sweep converging a disabled organization, say. */
+  val platform: Actor =
+    Actor("ankka-controlplane", Some("the control plane"), administrative = true)
+
+  def from(metadata: Metadata): Option[Attribution] =
+    for
+      subject <- metadata.get(SubjectKey)
+      at      <- metadata.get(AtKey).flatMap(v => scala.util.Try(Instant.parse(v)).toOption)
+    yield Attribution(
+      Actor(
+        subject,
+        metadata.get(DisplayKey),
+        metadata.get(AdministrativeKey).contains("true")
+      ),
+      at
+    )
+
+/** A member of an organization: their role, and the display claims recorded when they joined. */
+final case class Member(
+    role: Role,
+    email: Option[String] = None,
+    display: Option[String] = None,
+    since: Option[Instant] = None,
+    addedBy: Option[String] = None
+)
+
+/** A pending invitation: an email, claimed by whoever first presents it *verified*. */
+final case class Invitation(
+    role: Role,
+    invitedAt: Option[Instant] = None,
+    invitedBy: Option[String] = None
+)
+
+/**
+ * An organization. The outermost tenancy boundary — and since feature 008 a real one: it records
+ * its members by the identity provider's stable subject id, its pending invitations by email, and
+ * whether a platform administrator has disabled it. All of it is folded from events, so it replays,
+ * audits and enforces like everything else here.
+ */
+final case class Organization(
+    id: String,
+    name: String,
+    deleted: Boolean = false,
+    members: Map[String, Member] = Map.empty,
+    invitations: Map[String, Invitation] = Map.empty,
+    disabled: Boolean = false
+):
   def exists: Boolean = name.nonEmpty && !deleted
 
   /**
@@ -15,12 +106,97 @@ final case class Organization(id: String, name: String, deleted: Boolean = false
    */
   def known: Boolean = name.nonEmpty || deleted
 
-  def onCreated(name: String): Organization = copy(name = name)
+  def roleOf(subject: String): Option[Role] = members.get(subject).map(_.role)
+  def owners: Int                           = members.values.count(_.role == Role.Owner)
+  def isLastOwner(subject: String): Boolean = roleOf(subject).contains(Role.Owner) && owners == 1
+  def pendingFor(email: String): Option[Invitation] = invitations.get(Organization.key(email))
+
+  /** The creator becomes the first owner. An event with no actor (pre-feature) creates no owner. */
+  def onCreated(name: String, creator: Option[Actor], at: Option[Instant]): Organization =
+    // An actor carries a display label, which is the email when the token had one — the only
+    // thing this has to go on to refuse a later invitation of the owner's own address.
+    val first = creator.map(a =>
+      a.subject -> Member(
+        Role.Owner,
+        a.display.filter(_.contains('@')).map(Organization.key),
+        a.display,
+        at,
+        a.display
+      )
+    )
+    copy(name = name, members = members ++ first)
+
   def onRenamed(name: String): Organization = copy(name = name)
-  def onDeleted: Organization               = copy(deleted = true)
+
+  /** A tombstone that also lets go of its people: nobody is a member of nothing. */
+  def onDeleted: Organization = copy(deleted = true, members = Map.empty, invitations = Map.empty)
+
+  def onInvited(
+      email: String,
+      role: Role,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Organization =
+    copy(invitations =
+      invitations + (Organization.key(email) -> Invitation(role, at, actor.flatMap(_.display)))
+    )
+
+  def onInvitationRevoked(email: String): Organization =
+    copy(invitations = invitations - Organization.key(email))
+
+  /** The invitation's role goes to the subject; the invitation itself is spent. */
+  def onClaimed(
+      email: String,
+      subject: String,
+      display: Option[String],
+      at: Option[Instant]
+  ): Organization =
+    val key = Organization.key(email)
+    invitations.get(key) match
+      case None => this
+      case Some(invitation) =>
+        copy(
+          invitations = invitations - key,
+          members = members + (subject -> Member(
+            invitation.role,
+            Some(key),
+            display,
+            at,
+            invitation.invitedBy
+          ))
+        )
+
+  def onMemberAdded(
+      subject: String,
+      role: Role,
+      email: Option[String],
+      display: Option[String],
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Organization =
+    copy(members =
+      members + (subject -> Member(
+        role,
+        email.map(Organization.key),
+        display,
+        at,
+        actor.flatMap(_.display)
+      ))
+    )
+
+  def onMemberRemoved(subject: String): Organization = copy(members = members - subject)
+
+  def onRoleChanged(subject: String, role: Role): Organization =
+    members.get(subject).fold(this)(m => copy(members = members + (subject -> m.copy(role = role))))
+
+  def onDisabled: Organization = copy(disabled = true)
+  def onEnabled: Organization  = copy(disabled = false)
 
 object Organization:
   def empty(id: String): Organization = Organization(id, "")
+
+  /** Emails compare case-insensitively and without surrounding space. */
+  def key(email: String): String = email.trim.toLowerCase
 
 /** A project. Services live in one. */
 final case class Project(
@@ -94,7 +270,15 @@ final case class Service(
      * not stored — the endpoint derives it from the name, the project and the base domain, and the
      * operator derives the same one to render the route.
      */
-    exposed: Boolean = false
+    exposed: Boolean = false,
+    /**
+     * Desired state, owned by the *organization*: disabled means every one of its services stops
+     * (feature 008). Separate from `paused`, which the members own, so that re-enabling restores
+     * exactly what they had chosen.
+     */
+    suspended: Boolean = false,
+    /** The last `Service.HistoryLimit` command-produced changes, newest first (FR-025). */
+    history: Vector[HistoryEntry] = Vector.empty
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -105,10 +289,23 @@ final case class Service(
 
   def isPaused: Boolean = paused
 
-  /** The replica count the reconciler should aim for, which is zero while paused. */
+  /** The replica count the reconciler should aim for, which is zero while paused or suspended. */
   def targetInstances: Int =
-    if isPaused then 0
+    if isPaused || suspended then 0
     else descriptor.fold(0)(_.service.resources.autoscaling.minInstances)
+
+  private def remembering(kind: String, actor: Option[Actor], at: Option[Instant]): Service =
+    val entry = HistoryEntry(
+      kind,
+      generation,
+      actor.map(a => HistoryActor(a.subject, a.display, a.administrative)),
+      at
+    )
+    copy(history = (entry +: history).take(Service.HistoryLimit))
+
+  /** Every command-produced fold remembers who asked; an observation is not a command. */
+  def remember(kind: String, actor: Option[Actor], at: Option[Instant]): Service =
+    remembering(kind, actor, at)
 
   /**
    * Applies a descriptor, which also un-deletes the service.
@@ -171,7 +368,13 @@ final case class Service(
     if event.generation < generation then this
     else
       copy(
-        lifecycle = event.lifecycle,
+        // Desired state wins over the report for the two words the members and the
+        // organization own: a paused or suspended service says so whatever the operator saw —
+        // an operator that has scaled it to zero has nothing more specific to add.
+        lifecycle =
+          if isPaused then ServiceLifecycle.Paused
+          else if suspended then ServiceLifecycle.Suspended
+          else event.lifecycle,
         readyInstances = event.readyInstances,
         desiredInstances = event.desiredInstances,
         detail = event.detail,
@@ -182,10 +385,32 @@ final case class Service(
   def onExposed: Service   = copy(exposed = true)
   def onUnexposed: Service = copy(exposed = false)
 
+  /** A paused service keeps saying `Paused`: its members' choice is the more specific fact. */
+  def onSuspended: Service =
+    copy(
+      suspended = true,
+      lifecycle = if isPaused then ServiceLifecycle.Paused else ServiceLifecycle.Suspended,
+      desiredInstances = 0,
+      detail = None,
+      confirmed = true
+    )
+
+  /** Back to what the members had chosen: paused stays paused, anything else is in flight again. */
+  def onReinstated: Service =
+    copy(
+      suspended = false,
+      lifecycle = if isPaused then ServiceLifecycle.Paused else ServiceLifecycle.UpdateInProgress,
+      detail = None,
+      confirmed = true
+    )
+
   def onDeleted: Service =
     copy(
       deleted = true,
       paused = false,
+      // Likewise: an organization enabled again has nothing to reinstate here, and a disabled one
+      // refuses the apply that would recreate it.
+      suspended = false,
       // A re-applied name starts private again: the route died with the service.
       exposed = false,
       lifecycle = ServiceLifecycle.NotDeployed,
@@ -205,10 +430,38 @@ final case class Service(
       detail = detail,
       confirmed = confirmed,
       database = database.map(Service.databasePhrase),
-      exposed = exposed
+      exposed = exposed,
+      suspended = suspended,
+      paused = paused
     )
 
 object Service:
+
+  /**
+   * How much history a service keeps in its state. Enough to answer "who did this"; never
+   * unbounded.
+   */
+  val HistoryLimit = 50
+
+  /**
+   * The fold, as a pure function: the entity applies it, and a test that wants to prove replay
+   * reproduces the state applies the same one rather than a second copy of it.
+   */
+  def fold(current: Service, event: ServiceEvent): Service =
+    import ServiceEvent.*
+    event match
+      case ServiceApplied(_, descriptor, generation, actor, at) =>
+        current.onApplied(descriptor, generation).remember("applied", actor, at)
+      case ServiceRestarted(generation, actor, at) =>
+        current.onRestarted(generation).remember("restarted", actor, at)
+      case ServicePaused(actor, at)     => current.onPaused.remember("paused", actor, at)
+      case ServiceResumed(actor, at)    => current.onResumed.remember("resumed", actor, at)
+      case ServiceExposed(actor, at)    => current.onExposed.remember("exposed", actor, at)
+      case ServiceUnexposed(actor, at)  => current.onUnexposed.remember("unexposed", actor, at)
+      case observed: ServiceObserved    => current.onObserved(observed)
+      case ServiceDeleted(actor, at)    => current.onDeleted.remember("deleted", actor, at)
+      case ServiceSuspended(actor, at)  => current.onSuspended.remember("suspended", actor, at)
+      case ServiceReinstated(actor, at) => current.onReinstated.remember("reinstated", actor, at)
 
   /**
    * The operator's reported database phase

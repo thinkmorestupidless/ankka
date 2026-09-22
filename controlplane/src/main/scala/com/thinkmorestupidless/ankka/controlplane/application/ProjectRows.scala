@@ -10,15 +10,15 @@ import com.thinkmorestupidless.ankka.sdk.*
 final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
 
   def onChange(event: ProjectEvent): Effect = event match
-    case ProjectCreated(name, organizationId) =>
+    case ProjectCreated(name, organizationId, _, _) =>
       effects.updateRow(ProjectDetail(updateContext.subject, name, organizationId))
 
-    case ProjectRenamed(name) =>
+    case ProjectRenamed(name, _, _) =>
       rowState match
         case Some(row) => effects.updateRow(row.copy(name = name))
         case None      => effects.ignore()
 
-    case ProjectDeleted => effects.deleteRow()
+    case _: ProjectDeleted => effects.deleteRow()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

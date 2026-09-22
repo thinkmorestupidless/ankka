@@ -8,7 +8,6 @@ kind: Component
 resources:
   - namespace.yaml
   - controlplane-rbac.yaml
-  - token-secret.yaml
   - deployment.yaml
   - service.yaml
   - httproute.yaml

@@ -1,0 +1,13 @@
+# Keycloak, the platform's identity provider (feature 008): its database, its bootstrap admin, the
+# instance itself and its route. The operator that runs it is components/keycloak-operator, applied
+# first — see there for why the two are separate.
+#
+# realm.json is not a resource: it is imported by a KeycloakRealmImport that deploy-local.sh renders
+# from it after the instance is Ready (research R2), and mounted as-is by docker-compose. One copy.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - postgres.yaml
+  - admin-secret.yaml
+  - keycloak.yaml
+  - httproute.yaml

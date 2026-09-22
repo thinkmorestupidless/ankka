@@ -28,6 +28,12 @@ trait RequestContext:
 
   def remoteAddress: Option[String]
 
+  /**
+   * The caller, when the endpoint's ACL is an `Acl.Authenticate` that allowed the request. `None`
+   * under every other ACL — read it through `HttpEndpoint.principal`, which insists.
+   */
+  def principal: Option[Principal]
+
 /**
  * A request's query string.
  *
@@ -93,7 +99,8 @@ private[ankka] final case class SimpleRequestContext(
     path: String,
     query: QueryParams,
     headers: Vector[(String, String)],
-    remoteAddress: Option[String]
+    remoteAddress: Option[String],
+    principal: Option[Principal] = None
 ) extends RequestContext
 
 /**

@@ -1,6 +1,5 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
@@ -25,7 +24,11 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
 
   override val munitTimeout = 4.minutes
 
-  private val Token = "test-token-not-a-secret"
+  // A real issuer is not needed to prove anything here: an in-process one mints tokens the
+  // verifier accepts, and KeycloakRealmSuite is where real ones are read.
+  private lazy val identity = TestIdentity()
+  private lazy val Token =
+    identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
 
   private var testKit: AnkkaTestKit = null
   private var baseUrl: String       = ""
@@ -35,14 +38,18 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
-        ControlPlaneAcl.bearer(Token),
-        DeployConfig.default.copy(baseDomain = Some("example.test"))
+        identity.acl(),
+        DeployConfig.default.copy(baseDomain = Some("example.test")),
+        auth = Some(identity.config())
       )*
     )
     testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
-  override def afterAll(): Unit = if testKit != null then testKit.stop()
+  override def afterAll(): Unit =
+    if testKit != null then
+      testKit.stop()
+      identity.stop()
 
   private def send(
       method: String,
@@ -75,14 +82,60 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
   private def descriptor(name: String, image: String) =
     s"""{"name":"$name","service":{"image":"$image"}}"""
 
+  private def sendRaw(path: String, token: Option[String]): JdkResponse[String] =
+    val builder = JdkRequest.newBuilder(URI.create(baseUrl + path)).timeout(Duration.ofSeconds(30))
+    token.foreach(value => builder.header("Authorization", s"Bearer $value"): Unit)
+    http.send(builder.GET().build(), JdkResponse.BodyHandlers.ofString())
+
+  test("GET /auth needs no credential and reveals only where to log in (US1)") {
+    val (status, body) = send("GET", "/auth", token = None)
+    assertEquals(status, 200)
+    assert(body.contains(s"\"issuer\":\"${identity.issuer}\""), body)
+    assert(body.contains("\"clientId\":\"ankka-cli\""), body)
+    assert(body.contains("\"audience\":\"ankka-controlplane\""), body)
+    assert(!body.contains("jwks"), "the key URL is the control plane's business, not the CLI's")
+  }
+
+  test("GET /auth/whoami needs a credential and echoes the principal") {
+    assertEquals(sendRaw("/auth/whoami", None).statusCode, 401)
+    val (status, body) = send("GET", "/auth/whoami")
+    assertEquals(status, 200)
+    assert(body.contains("\"subject\":\"tester\""), body)
+    assert(body.contains("\"email\":\"tester@example.test\""), body)
+    // Defaults are omitted on the wire (false, empty), and the CLI's codec fills them back in.
+    assert(!body.contains("\"platformAdmin\":true"), body)
+  }
+
+  test("every kind of bad credential is 401 with a challenge that says why (S1.2, S1.7)") {
+    def challenge(token: Option[String]): (Int, String) =
+      val response = sendRaw("/organizations", token)
+      (response.statusCode, response.headers.firstValue("WWW-Authenticate").orElse(""))
+    val (noneStatus, noneChallenge) = challenge(None)
+    assertEquals(noneStatus, 401)
+    assertEquals(noneChallenge, "Bearer realm=\"ankka\"")
+    val expired = challenge(
+      Some(identity.token("tester", expiresIn = scala.concurrent.duration.Duration(-2, "min")))
+    )
+    assert(expired._1 == 401 && expired._2.contains("error=\"invalid_token\""), expired.toString)
+    val elsewhere = challenge(Some(identity.token("tester", issuer = "https://elsewhere/realms/x")))
+    assert(elsewhere._1 == 401 && elsewhere._2.contains("invalid_token"), elsewhere.toString)
+    val otherAudience = challenge(Some(identity.token("tester", audience = Seq("account"))))
+    assert(
+      otherAudience._1 == 401 && otherAudience._2.toLowerCase.contains("aud"),
+      otherAudience.toString
+    )
+    val shared = challenge(Some("dev-local-token"))
+    assert(shared._1 == 401 && shared._2.contains("run 'ankka login'"), shared.toString)
+  }
+
   test("health needs no token, everything else does") {
     assertEquals(send("GET", "/_ankka/health", token = None), (200, "ok"))
 
     val (noToken, _) = send("GET", "/organizations", token = None)
-    assertEquals(noToken, 403)
+    assertEquals(noToken, 401, "no credential is 'log in', never 'forbidden'")
 
     val (wrongToken, _) = send("GET", "/organizations", token = Some("nope"))
-    assertEquals(wrongToken, 403)
+    assertEquals(wrongToken, 401)
   }
 
   test("an organization can be created and read back by id") {

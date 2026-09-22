@@ -88,6 +88,26 @@ object SqlSyntax:
     val nav   = steps.init.map(s => s"->$s").mkString
     SqlFragment.raw(s"payload::jsonb$nav->>${steps.last}")
 
+  /**
+   * Whether a JSON array field contains a value: `jsonContains("members", "alice")` renders
+   * `payload::jsonb->'members' @> '["alice"]'`, with the value bound as a parameter. Postgres'
+   * containment operator, so a GIN index on the same term makes it fast if it needs to be.
+   */
+  def jsonContains(field: String, value: String): SqlFragment =
+    val json = "[" + jsonString(value) + "]"
+    SqlFragment.raw(
+      s"payload::jsonb->'${escapeIdentifier(field)}' @> "
+    ) ++ sql"$json" ++ SqlFragment.raw("::jsonb")
+
+  private def jsonString(value: String): String =
+    val escaped = value.flatMap {
+      case '"'          => "\\\""
+      case '\\'         => "\\\\"
+      case c if c < ' ' => f"\\u${c.toInt}%04x"
+      case c            => c.toString
+    }
+    "\"" + escaped + "\""
+
   /** A numeric field, cast so comparisons and ordering behave numerically. */
   def jsonNumber(field: String): SqlFragment =
     SqlFragment.raw(s"(payload::jsonb->>'${escapeIdentifier(field)}')::numeric")

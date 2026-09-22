@@ -71,7 +71,9 @@ object ServiceProjection:
               projectId = service.projectId,
               serviceName = service.name,
               generation = service.generation,
-              paused = service.isPaused,
+              // Paused by its members or suspended by its organization (feature 008): the
+              // operator scales to zero for either, and does not need to know which.
+              paused = service.isPaused || service.suspended,
               image = descriptor.service.image,
               env = descriptor.service.env
                 .map(entry =>

@@ -66,6 +66,12 @@ echo "==> installing cert-manager and Envoy Gateway"
 # Certificate can be admitted, hence the rollout waits.
 kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
 kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
+
+echo "==> installing the Keycloak operator"
+# The fourth CRD-bearing controller (feature 008): its Keycloak and KeycloakRealmImport CRDs must
+# exist before the overlay's Keycloak resource is an instance of one. The overlay lists this
+# component too, so the second apply is a no-op.
+kubectl apply -k kustomization/components/keycloak-operator --server-side --force-conflicts
 kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=180s
 kubectl -n envoy-gateway-system rollout status deployment/envoy-gateway --timeout=180s
 
@@ -154,6 +160,65 @@ echo "==> waiting for the gateway and its certificate"
 kubectl -n ankka-gateway wait --for=condition=Ready certificate/ankka-wildcard --timeout=120s
 kubectl -n ankka-gateway wait --for=condition=Programmed gateway/ankka --timeout=120s
 
+echo "==> waiting for the identity provider"
+# Keycloak's own database first, then the instance the operator runs from it. Both are slow starts
+# — a Postgres bootstrap and a JVM — so the timeouts are generous rather than the waits optional.
+kubectl -n ankka-auth wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-keycloak-db --timeout=300s
+kubectl -n ankka-auth wait --for=condition=Ready keycloak/ankka-keycloak --timeout=420s
+
+echo "==> importing the realm"
+# Rendered from the single copy docker-compose also mounts. A KeycloakRealmImport is one-shot: it
+# creates a realm that does not exist and never updates or deletes one (research R2), so on a
+# re-run this is a no-op and a change to realm.json on an existing cluster is a console job.
+# JSON is YAML, so the file is indented straight under spec.realm — the same technique as the
+# schema ConfigMap above, and no tool beyond sed.
+{
+  cat <<'HEADER'
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: ankka-realm
+  namespace: ankka-auth
+spec:
+  keycloakCRName: ankka-keycloak
+  realm:
+HEADER
+  sed 's/^/    /' kustomization/components/keycloak/realm.json
+} | kubectl apply -f - --server-side --force-conflicts
+kubectl -n ankka-auth wait --for=condition=Done keycloakrealmimport/ankka-realm --timeout=300s
+
+echo "==> creating the development user and the smoke-test client"
+# Through kcadm.sh inside the Keycloak pod, exactly as docker-compose's keycloak-init does, so the
+# two local paths cannot drift. The realm file carries no users at all: this script is the only
+# thing that creates one, and this script only ever runs against a local kind cluster — which is
+# how a remote installation is guaranteed not to have a "dev" user (research R2). Idempotent, so
+# a re-run passes.
+KCADM="kubectl -n ankka-auth exec statefulset/ankka-keycloak -- /opt/keycloak/bin/kcadm.sh"
+KC_ADMIN_USER="$(kubectl -n ankka-auth get secret ankka-keycloak-admin -o jsonpath='{.data.username}' | base64 -d)"
+KC_ADMIN_PASSWORD="$(kubectl -n ankka-auth get secret ankka-keycloak-admin -o jsonpath='{.data.password}' | base64 -d)"
+$KCADM config credentials --server http://localhost:8080 --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
+if $KCADM get users -r ankka -q username=dev -q exact=true | grep -q '"username" : "dev"'; then
+  echo "user dev already exists"
+else
+  $KCADM create users -r ankka -s username=dev -s email="dev@${BASE_DOMAIN}" -s emailVerified=true \
+    -s firstName=Dev -s lastName=User -s enabled=true >/dev/null
+  $KCADM set-password -r ankka --username dev --new-password dev
+  $KCADM add-roles -r ankka --uusername dev --rolename platform-admin
+  echo "created user dev (password dev, platform-admin)"
+fi
+# A confidential client whose service account is a platform admin, for the smoke test below and
+# for scripts on this machine: the same shape as a CI client on a real installation.
+SMOKE_SECRET="local-smoke-secret"
+if $KCADM get clients -r ankka -q clientId=ankka-local-smoke | grep -q '"clientId" : "ankka-local-smoke"'; then
+  echo "client ankka-local-smoke already exists"
+else
+  $KCADM create clients -r ankka -s clientId=ankka-local-smoke -s secret="$SMOKE_SECRET" \
+    -s publicClient=false -s standardFlowEnabled=false -s serviceAccountsEnabled=true \
+    -s 'defaultClientScopes=["basic","profile","email","roles","ankka-controlplane"]' >/dev/null
+  $KCADM add-roles -r ankka --uusername service-account-ankka-local-smoke --rolename platform-admin
+  echo "created client ankka-local-smoke (service account, platform-admin)"
+fi
+
 echo "==> exporting the local certificate authority"
 # The root that signed the wildcard the gateway serves. Nothing on this machine trusts it, and
 # nothing is made to: the CLI is told about it (config set ca) and so is curl (--cacert). No step
@@ -171,12 +236,19 @@ API_URL="https://api.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
 # that does not resolve or a TLS failure, which is what the warning below is about, but it would
 # have reported a healthy platform just as happily if every route were broken.
 #
-# Asking for the organizations listing with the deployed token exercises the whole path instead:
-# DNS, TLS against the exported root, the gateway's route, a control plane pod, the bearer-token
-# ACL, and a database query behind it. The token is read from the cluster rather than hardcoded, so
-# this still works when the secret has been changed.
-TOKEN="$(kubectl -n ankka-controlplane get secret ankka-controlplane-token \
-  -o jsonpath='{.data.ANKKA_CONTROLPLANE_TOKEN}' 2>/dev/null | base64 -d)"
+# Asking for the organizations listing with a real token exercises the whole path: DNS, TLS
+# against the exported root, the gateway's route to the identity provider, a client-credentials
+# login there, the gateway's route to a control plane pod, its token verification against the
+# in-cluster key set, the ACL, and a database query behind it. Nothing is hardcoded: the client was
+# created above and the token is minted now.
+AUTH_URL="https://auth.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
+TOKEN="$(curl -s --cacert "$HOME/.ankka/local-ca.crt" -m 15 \
+  -d grant_type=client_credentials -d client_id=ankka-local-smoke -d "client_secret=${SMOKE_SECRET}" \
+  "$AUTH_URL/realms/ankka/protocol/openid-connect/token" 2>/dev/null \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p' || true)"
+if [[ -z "$TOKEN" ]]; then
+  echo >&2 "warning: could not obtain a token from $AUTH_URL; the control plane check below will report 401."
+fi
 # `|| true` rather than `|| echo 000`: curl already prints 000 as %{http_code} when it never got
 # a response, so a fallback echo appends a *second* 000 and the case below falls through to the
 # wrong branch — reporting a broken control plane where the real answer is that the name did not
@@ -197,8 +269,10 @@ warning: $API_URL did not answer from this machine.
     ANKKA_BASE_DOMAIN=ankka.local ./kustomization/deploy-local.sh
 MSG
     ;;
-  403)
-    echo >&2 "warning: $API_URL refused the token in ankka-controlplane/ankka-controlplane-token."
+  401)
+    echo >&2 "warning: $API_URL did not accept a token from $AUTH_URL."
+    echo >&2 "  The control plane derives the issuer it expects from ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT;"
+    echo >&2 "  compare it with: curl --cacert ~/.ankka/local-ca.crt $AUTH_URL/realms/ankka/.well-known/openid-configuration"
     ;;
   *)
     echo >&2 "warning: $API_URL answered $STATUS for /organizations, not 200."
@@ -208,11 +282,12 @@ esac
 
 cat <<MSG
 
-Deployed. The control plane is at $API_URL — no port-forward needed:
+Deployed. The control plane is at $API_URL — no port-forward needed. The identity provider's
+console is at $AUTH_URL/admin/ (admin / admin); users are created there.
 
   ankka config set url $API_URL
   ankka config set ca ~/.ankka/local-ca.crt
-  ankka config set token dev-local-token
+  ankka login                      # user dev, password dev — opens $AUTH_URL; a code to type if not
   ankka organizations create acme --name "Acme Corp"
   ankka projects create checkout --name Checkout -O acme
   ankka config set project checkout

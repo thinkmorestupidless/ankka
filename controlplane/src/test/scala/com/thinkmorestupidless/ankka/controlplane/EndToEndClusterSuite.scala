@@ -5,7 +5,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
-import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.auth.AuthConfig
+import com.thinkmorestupidless.ankka.operator.{GatewayStack, KeycloakStack}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   Fabric8AnkkaServiceClient,
@@ -32,7 +33,7 @@ import org.testcontainers.utility.DockerImageName
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Path}
+import java.nio.file.{Files, Path, Paths}
 import java.util.Base64
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
@@ -52,8 +53,17 @@ class EndToEndClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val Image     = "rancher/k3s:v1.35.1-k3s1"
-  private val Token     = "e2e-test-token"
+  private val Image = "rancher/k3s:v1.35.1-k3s1"
+  // Feature 008: the real identity provider, deployed as deploy-local.sh deploys it, and a real
+  // token from it through the gateway. The control plane runs in this JVM but verifies against
+  // Keycloak's key set exactly as a deployed one would (over a port-forward that stands in for the
+  // cluster network), and every request below carries this token.
+  private val BaseDomain                                             = "test.local"
+  private var ca: Path                                               = null
+  private var forward: io.fabric8.kubernetes.client.LocalPortForward = null
+  private var httpsPort: Int                                         = 0
+  private lazy val Token: String =
+    KeycloakStack.mintToken(ca, BaseDomain, httpsPort, "e2e-cli", "e2e-secret")
   private val Prefix    = "ankka"
   private val Project   = "checkout"
   private val Namespace = s"$Prefix-$Project"
@@ -100,7 +110,9 @@ class EndToEndClusterSuite extends munit.FunSuite:
       root.addAppender(logAppender)
 
       k3s = new K3sContainer(DockerImageName.parse(Image))
+      k3s.withExposedPorts(6443, GatewayStack.HttpsNodePort, GatewayStack.HttpNodePort)
       k3s.start()
+      httpsPort = k3s.getMappedPort(GatewayStack.HttpsNodePort)
 
       k8s = new KubernetesClientBuilder()
         .withConfig(Config.fromKubeconfig(k3s.getKubeConfigYaml))
@@ -135,6 +147,27 @@ class EndToEndClusterSuite extends munit.FunSuite:
         d != null && Option(d.getStatus).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
       }
 
+      GatewayStack.install(k3s, k8s, repoRoot, BaseDomain)
+      ca = GatewayStack.exportCa(k8s)
+      KeycloakStack.install(
+        k3s,
+        k8s,
+        repoRoot,
+        BaseDomain,
+        k3s.getMappedPort(GatewayStack.HttpsNodePort)
+      )
+      KeycloakStack.createServiceClient(k3s, "e2e-cli", "e2e-secret", platformAdmin = true)
+      forward = KeycloakStack.forwardService(k8s)
+      val auth = AuthConfig(
+        issuer = AuthConfig.derivedIssuer(BaseDomain, httpsPort),
+        jwksUrl =
+          s"http://127.0.0.1:${forward.getLocalPort}/realms/ankka/protocol/openid-connect/certs",
+        audience = "ankka-controlplane",
+        clientId = "ankka-cli",
+        realmHint = "ankka",
+        clockSkew = 60.seconds
+      )
+
       val operatorSettings = OperatorSettings.default.copy(resyncInterval = 2.seconds)
       operator = new Operator(k8s, operatorSettings, ServiceReconciler(k8s, operatorSettings))
       operator.start()
@@ -147,7 +180,7 @@ class EndToEndClusterSuite extends munit.FunSuite:
       )
 
       val server = HttpServer.at("127.0.0.1", 0)(
-        ControlPlane.endpoints(ControlPlaneAcl.bearer(Token))*
+        ControlPlane.endpoints(ControlPlane.aclFor(auth), deployConfig, Some(auth))*
       )
       testKit = AnkkaTestKit.start(
         ControlPlane.componentsWith(projector),
@@ -160,6 +193,8 @@ class EndToEndClusterSuite extends munit.FunSuite:
       sys.props("ankka.config") = config.toString
 
   override def afterAll(): Unit =
+    if forward != null then forward.close()
+    if ca != null then Files.deleteIfExists(ca): Unit
     sys.props.remove("ankka.config"): Unit
     if config != null then Files.deleteIfExists(config): Unit
     if testKit != null then testKit.stop()
@@ -232,6 +267,41 @@ class EndToEndClusterSuite extends munit.FunSuite:
     Files.deleteIfExists(file): Unit
     assertEquals(code, 0, s"apply failed: $out")
 
+  private def repoRoot: Path =
+    var dir = Paths.get("").toAbsolutePath
+    while !Files.exists(dir.resolve("build.sbt")) do dir = dir.getParent
+    dir
+
+  test("0. nothing answers without a token from the installation's own issuer (SC-001)") {
+    val http = java.net.http.HttpClient.newHttpClient()
+    def status(path: String, token: Option[String]): Int =
+      val builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url + path))
+      token.foreach(t => builder.header("Authorization", s"Bearer $t"): Unit)
+      http
+        .send(builder.GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString())
+        .statusCode
+    for path <- Vector("/organizations", "/projects", s"/services/$Project", "/auth/whoami") do
+      assertEquals(status(path, None), 401, path)
+      assertEquals(status(path, Some("dev-local-token")), 401, s"$path with the old shared token")
+    assertEquals(status("/auth", None), 200, "discovery is the one open route")
+    // The whole point of the derivation: what Keycloak writes into `iss` through the gateway must
+    // be exactly what the control plane derived from the base domain and port.
+    val discovery  = KeycloakStack.discovery(ca, BaseDomain, httpsPort)
+    val advertised = "\"issuer\":\"([^\"]+)\"".r.findFirstMatchIn(discovery).map(_.group(1))
+    assertEquals(advertised, Some(AuthConfig.derivedIssuer(BaseDomain, httpsPort)), discovery)
+    val builder = java.net.http.HttpRequest
+      .newBuilder(java.net.URI.create(url + "/auth/whoami"))
+      .header("Authorization", s"Bearer $Token")
+    val verified =
+      http.send(builder.GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString())
+    assertEquals(
+      verified.statusCode,
+      200,
+      s"a real token from Keycloak should verify; challenge: ${verified.headers.firstValue("WWW-Authenticate").orElse("")}; " +
+        s"claims: ${com.thinkmorestupidless.ankka.operator.KeycloakAdmin.claims(Token)}"
+    )
+  }
+
   test("1. an organization and a project are created through the CLI") {
     assertEquals(ankka("organizations", "create", "acme", "--name", "Acme")._1, 0)
     assertEquals(ankka("projects", "create", Project, "--name", "Checkout", "-O", "acme")._1, 0)
@@ -293,8 +363,21 @@ class EndToEndClusterSuite extends munit.FunSuite:
     waitFor(120.seconds)(listed.contains("Paused"))
 
     assertEquals(ankka("services", "resume", Service, "-p", Project)._1, 0)
-    waitFor(180.seconds)(deployment.exists(_.getSpec.getReplicas.intValue == 1))
-    waitFor(180.seconds)(listed.contains("Ready"))
+    try waitFor(180.seconds)(deployment.exists(_.getSpec.getReplicas.intValue == 1))
+    catch
+      case failure: Throwable =>
+        fail(
+          s"the deployment did not scale back up: ${deployment.map(_.getSpec.getReplicas)}; resource: ${resource.map(_.getSpec)}",
+          failure
+        )
+    try waitFor(180.seconds)(listed.contains("Ready"))
+    catch
+      case failure: Throwable =>
+        val (_, got) = ankka("services", "get", Service, "-p", Project, "-o", "json")
+        fail(
+          s"the listing never said Ready; listing: $listed; get: $got; history: ${ankka("services", "history", Service, "-p", Project)._2}",
+          failure
+        )
   }
 
   test("7. restarting replaces the instance without changing the descriptor") {

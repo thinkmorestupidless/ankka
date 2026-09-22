@@ -29,6 +29,7 @@ object Dependencies {
     val r2dbcPostgres  = "1.1.2.RELEASE"
     val fabric8        = "7.9.0"
     val decline        = "2.6.2"
+    val nimbusJoseJwt  = "10.9.1"
 
     /**
      * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.
@@ -112,6 +113,9 @@ object Dependencies {
   // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8
   val decline = "com.monovore" %% "decline"           % V.decline
+
+  /** JOSE/JWT verification for the control plane. Deliberately not in any published module. */
+  val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt
 
   /**
    * Scala support for fabric8's serialisation.

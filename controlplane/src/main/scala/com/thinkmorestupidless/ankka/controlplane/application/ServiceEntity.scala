@@ -35,15 +35,7 @@ final class ServiceEntity(context: EventSourcedEntityContext)
 
   def emptyState: Service = Service.empty(key)
 
-  def applyEvent(event: ServiceEvent): Service = event match
-    case ServiceApplied(_, descriptor, generation) => currentState.onApplied(descriptor, generation)
-    case ServiceRestarted(generation)              => currentState.onRestarted(generation)
-    case ServicePaused                             => currentState.onPaused
-    case ServiceResumed                            => currentState.onResumed
-    case ServiceExposed                            => currentState.onExposed
-    case ServiceUnexposed                          => currentState.onUnexposed
-    case observed: ServiceObserved                 => currentState.onObserved(observed)
-    case ServiceDeleted                            => currentState.onDeleted
+  def applyEvent(event: ServiceEvent): Service = Service.fold(currentState, event)
 
   /**
    * Applies a descriptor, creating the service if it is new.
@@ -72,7 +64,13 @@ final class ServiceEntity(context: EventSourcedEntityContext)
         case _ =>
           effects
             .persist(
-              ServiceApplied(key.projectId, request.descriptor, currentState.generation + 1)
+              ServiceApplied(
+                key.projectId,
+                request.descriptor,
+                currentState.generation + 1,
+                actor,
+                at
+              )
             )
             .thenReply(_.toStatus)
 
@@ -80,17 +78,20 @@ final class ServiceEntity(context: EventSourcedEntityContext)
     if !currentState.exists then notFound
     else if currentState.isPaused then
       effects.error(s"service '${key.name}' is paused; resume it first", ErrorCode.Conflict)
-    else effects.persist(ServiceRestarted(currentState.generation + 1)).thenReply(_.toStatus)
+    else
+      effects
+        .persist(ServiceRestarted(currentState.generation + 1, actor, at))
+        .thenReply(_.toStatus)
 
   def pause: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if currentState.isPaused then effects.reply(currentState.toStatus)
-    else effects.persist(ServicePaused).thenReply(_.toStatus)
+    else effects.persist(ServicePaused(actor, at)).thenReply(_.toStatus)
 
   def resume: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if !currentState.isPaused then effects.reply(currentState.toStatus)
-    else effects.persist(ServiceResumed).thenReply(_.toStatus)
+    else effects.persist(ServiceResumed(actor, at)).thenReply(_.toStatus)
 
   /**
    * Whether the service *may* be exposed — no HTTP, a hostname too long, a hostname another service
@@ -100,12 +101,26 @@ final class ServiceEntity(context: EventSourcedEntityContext)
   def expose: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if currentState.exposed then effects.reply(currentState.toStatus)
-    else effects.persist(ServiceExposed).thenReply(_.toStatus)
+    else effects.persist(ServiceExposed(actor, at)).thenReply(_.toStatus)
 
   def unexpose: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if !currentState.exposed then effects.reply(currentState.toStatus)
-    else effects.persist(ServiceUnexposed).thenReply(_.toStatus)
+    else effects.persist(ServiceUnexposed(actor, at)).thenReply(_.toStatus)
+
+  /**
+   * The organization's decision, not the members' (feature 008). Idempotent: the trigger and the
+   * sweep may both ask, and redelivery is at-least-once.
+   */
+  def suspend: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if currentState.suspended then effects.reply(currentState.toStatus)
+    else effects.persist(ServiceSuspended(actor, at)).thenReply(_.toStatus)
+
+  def reinstate: Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else if !currentState.suspended then effects.reply(currentState.toStatus)
+    else effects.persist(ServiceReinstated(actor, at)).thenReply(_.toStatus)
 
   /**
    * Records what the reconciler saw.
@@ -132,11 +147,17 @@ final class ServiceEntity(context: EventSourcedEntityContext)
 
   def delete: Effect[Done] =
     if !currentState.exists then notFound
-    else effects.persist(ServiceDeleted).thenReply(_ => Done)
+    else effects.persist(ServiceDeleted(actor, at)).thenReply(_ => Done)
 
   def get: ReadOnlyEffect[ServiceStatus] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
     else effects.reply(currentState.toStatus)
+
+  /** Who did what, newest first. A deleted service still answers: the history is the point. */
+  def history: ReadOnlyEffect[Vector[HistoryEntry]] =
+    if currentState.history.isEmpty && !currentState.exists then
+      effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.history)
 
   /**
    * Everything the projector needs, in one call. Absent once the service is deleted.
@@ -147,6 +168,10 @@ final class ServiceEntity(context: EventSourcedEntityContext)
    */
   def desiredState: ReadOnlyEffect[Option[Service]] =
     effects.reply(Option.when(currentState.exists)(currentState))
+
+  private def attribution: Option[Attribution] = Attribution.from(commandContext.metadata)
+  private def actor: Option[Actor]             = attribution.map(_.actor)
+  private def at: Option[java.time.Instant]    = attribution.map(_.at)
 
   private def notFoundMessage = s"no such service '${key.name}' in project '${key.projectId}'"
 
@@ -167,6 +192,9 @@ object ServiceEntity
   given Serializer[Option[Service]] =
     Codecs.serializer[Option[Service]]("service-state-option")
 
+  given Serializer[Vector[HistoryEntry]] =
+    Codecs.serializer[Vector[HistoryEntry]]("service-history")
+
   def create(context: EventSourcedEntityContext) = new ServiceEntity(context)
 
   val applyDescriptor = command("apply")(_.apply)
@@ -177,5 +205,8 @@ object ServiceEntity
   val unexpose        = command("unexpose")(_.unexpose)
   val observe         = command("observe")(_.observe)
   val delete          = command("delete")(_.delete)
+  val suspend         = command("suspend")(_.suspend)
+  val reinstate       = command("reinstate")(_.reinstate)
   val get             = query("get")(_.get)
+  val history         = query("history")(_.history)
   val desiredState    = query("desired")(_.desiredState)

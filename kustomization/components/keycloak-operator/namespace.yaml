@@ -1,0 +1,9 @@
+# The platform's identity provider lives in its own namespace: its CNPG cluster has to be beside the
+# Keycloak that uses it (a cross-namespace database reference gets no status at all), and the
+# managed-by label is what admits its route to the gateway's HTTPS listener.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ankka-auth
+  labels:
+    app.kubernetes.io/managed-by: ankka

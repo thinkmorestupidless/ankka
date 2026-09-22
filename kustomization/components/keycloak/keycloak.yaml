@@ -1,0 +1,42 @@
+# The platform's own Keycloak, run by the Keycloak operator (feature 008, research R1–R3).
+#
+# TLS ends at the platform's gateway, so HTTP is enabled and no certificate is mounted here; the
+# proxy headers setting is what lets Keycloak see the external scheme and host the gateway
+# forwarded. The hostname is the external one — it is what every token's issuer names — and the
+# overlay replaces its base domain from the ankka-platform ConfigMap like every other hostname.
+# The bootstrap admin secret is named explicitly (see admin-secret.yaml for why).
+#
+# The realm is not here: KeycloakRealmImport is one-shot (it neither updates nor deletes a realm),
+# so deploy-local.sh renders it from realm.json, the single copy docker-compose also imports.
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: ankka-keycloak
+  namespace: ankka-auth
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  instances: 1
+  db:
+    vendor: postgres
+    host: ankka-keycloak-db-rw
+    port: 5432
+    database: keycloak
+    usernameSecret:
+      name: ankka-keycloak-db-app
+      key: username
+    passwordSecret:
+      name: ankka-keycloak-db-app
+      key: password
+  hostname:
+    hostname: auth.BASE_DOMAIN
+    strict: false
+  http:
+    httpEnabled: true
+  proxy:
+    headers: xforwarded
+  ingress:
+    enabled: false
+  bootstrapAdmin:
+    user:
+      secret: ankka-keycloak-admin

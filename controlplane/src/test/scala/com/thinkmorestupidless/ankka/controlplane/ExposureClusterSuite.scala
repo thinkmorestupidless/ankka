@@ -4,7 +4,6 @@ import io.fabric8.kubernetes.api.model.Pod
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
-import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   Fabric8AnkkaServiceClient,
@@ -53,12 +52,16 @@ class ExposureClusterSuite extends munit.FunSuite:
 
   private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
   private val SampleImage = "sample-shopping-cart:latest"
-  private val Token       = "exposure-token"
-  private val Prefix      = "ankka"
-  private val Project     = "checkout"
-  private val Other       = "returns"
-  private val Service     = "cart"
-  private val BaseDomain  = "test.local"
+  // A real issuer is not needed to prove anything here: an in-process one mints tokens the
+  // verifier accepts, and KeycloakRealmSuite is where real ones are read.
+  private lazy val identity = TestIdentity()
+  private lazy val Token =
+    identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)
+  private val Prefix     = "ankka"
+  private val Project    = "checkout"
+  private val Other      = "returns"
+  private val Service    = "cart"
+  private val BaseDomain = "test.local"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
@@ -123,7 +126,7 @@ class ExposureClusterSuite extends munit.FunSuite:
         new Fabric8AnkkaServiceClient(k8s, Prefix, resyncMillis = 2000L)
       )
       val server = HttpServer.at("127.0.0.1", 0)(
-        ControlPlane.endpoints(ControlPlaneAcl.bearer(Token), deployConfig)*
+        ControlPlane.endpoints(identity.acl(), deployConfig)*
       )
       testKit = AnkkaTestKit.start(
         ControlPlane.componentsWith(projector),
@@ -136,6 +139,7 @@ class ExposureClusterSuite extends munit.FunSuite:
       sys.props("ankka.config") = config.toString
 
   override def afterAll(): Unit =
+    if testKit != null then identity.stop()
     sys.props.remove("ankka.config"): Unit
     if config != null then Files.deleteIfExists(config): Unit
     if ca != null then Files.deleteIfExists(ca): Unit

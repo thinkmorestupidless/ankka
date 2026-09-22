@@ -35,6 +35,14 @@ final class ControlPlaneClient(settings: Settings):
     settings.ca.foreach(pem => builder.sslContext(Trust.sslContext(Paths.get(pem))): Unit)
     builder.build()
 
+  // ── Identity ──────────────────────────────────────────────────────────────
+
+  /** Where to log in. The one call that needs no credential. */
+  def discovery(): AuthDiscovery =
+    decode[AuthDiscovery](send("GET", "/auth", None, authenticated = false))
+
+  def whoami(): Whoami = get[Whoami]("/auth/whoami")
+
   // ── Organizations ─────────────────────────────────────────────────────────
 
   def listOrganizations(): Vector[OrganizationSummary] =
@@ -55,6 +63,44 @@ final class ControlPlaneClient(settings: Settings):
 
   def deleteOrganization(id: String): Unit =
     send("DELETE", s"/organizations/${segment(id)}", None): Unit
+
+  // ── Membership ────────────────────────────────────────────────────────────
+
+  def listMembers(id: String): MembersResponse =
+    get[MembersResponse](s"/organizations/${segment(id)}/members")
+
+  def invite(id: String, email: String, role: Role): Unit =
+    send(
+      "POST",
+      s"/organizations/${segment(id)}/members",
+      Some(writeToString(Invite(email, role)))
+    ): Unit
+
+  def removeMember(id: String, subject: String): Unit =
+    send("DELETE", s"/organizations/${segment(id)}/members/${segment(subject)}", None): Unit
+
+  def changeRole(id: String, subject: String, role: Role): Unit =
+    send(
+      "PUT",
+      s"/organizations/${segment(id)}/members/${segment(subject)}/role",
+      Some(writeToString(RoleChange(role)))
+    ): Unit
+
+  def revokeInvitation(id: String, email: String): Unit =
+    send("DELETE", s"/organizations/${segment(id)}/invitations/${segment(email)}", None): Unit
+
+  def repairMember(id: String, subject: String, role: Role): Unit =
+    send(
+      "POST",
+      s"/organizations/${segment(id)}/members/${segment(subject)}/repair",
+      Some(writeToString(Repair(role)))
+    ): Unit
+
+  def disableOrganization(id: String): Unit =
+    send("POST", s"/organizations/${segment(id)}/disable", None): Unit
+
+  def enableOrganization(id: String): Unit =
+    send("POST", s"/organizations/${segment(id)}/enable", None): Unit
 
   // ── Projects ──────────────────────────────────────────────────────────────
 
@@ -129,6 +175,9 @@ final class ControlPlaneClient(settings: Settings):
     val query = if params.isEmpty then "" else params.mkString("?", "&", "")
     get[LogsResponse](s"/services/${segment(projectId)}/${segment(name)}/logs$query")
 
+  def serviceHistory(projectId: String, name: String): Vector[HistoryEntry] =
+    get[Vector[HistoryEntry]](s"/services/${segment(projectId)}/${segment(name)}/history")
+
   def unexposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "unexpose"))
 
@@ -152,11 +201,20 @@ final class ControlPlaneClient(settings: Settings):
           s"could not read the control plane's response: ${error.getMessage}\n  body: $body"
         )
 
-  private def send(method: String, path: String, body: Option[String]): String =
+  // Resolved once per command, and only by a call that needs it: `discovery()` must work with no
+  // login at all, and resolving eagerly would turn "log in" into "cannot even find out where".
+  private lazy val bearer: String = Session.bearer(settings)
+
+  private def send(
+      method: String,
+      path: String,
+      body: Option[String],
+      authenticated: Boolean = true
+  ): String =
     val builder = HttpRequest
       .newBuilder(URI.create(settings.url + path))
       .timeout(Duration.ofSeconds(60))
-    settings.token.foreach(token => builder.header("Authorization", s"Bearer $token"): Unit)
+    if authenticated then builder.header("Authorization", s"Bearer $bearer"): Unit
     body match
       case Some(json) =>
         builder.header("Content-Type", "application/json")
@@ -191,16 +249,18 @@ final class ControlPlaneClient(settings: Settings):
    * Turns an error response into something an operator can act on.
    *
    * The control plane replies with a JSON problem carrying the entity's own message, so the useful
-   * text is in there — but a 401 or 403 usually means a missing token rather than a missing
-   * permission, and saying so saves a support round-trip.
+   * text is in there. A 401 and a 403 are different answers and get different advice: the first is
+   * "log in" (the credential was not accepted), the second "you may not" (it was, and the action is
+   * not yours to take) — folding them together is how a CLI tells someone whose login merely
+   * expired that they are forbidden.
    */
   private def explain(status: Int, body: String): String =
     val detail = Problem.message(body).getOrElse(body.take(500))
     status match
-      case 401 | 403 if settings.token.isEmpty =>
-        s"$detail\n  no token configured; set ANKKA_TOKEN or run `ankka config set token <value>`"
-      case 401 | 403 => s"$detail\n  the configured token was rejected"
-      case _         => detail
+      case 401 if settings.token.isDefined => s"the token was rejected: $detail"
+      case 401 => s"${settings.url} rejected the login; run 'ankka login'"
+      case 403 => s"not permitted: $detail"
+      case _   => detail
 
   private def encode(value: String): String =
     URLEncoder.encode(value, StandardCharsets.UTF_8)

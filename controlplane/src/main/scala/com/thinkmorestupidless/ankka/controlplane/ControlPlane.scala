@@ -4,6 +4,7 @@ import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.*
+import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, TokenVerifier}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceProjector}
 import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime, ServiceBuilder}
@@ -37,22 +38,30 @@ object ControlPlane:
 
   /** The full inventory, including the consumer that projects on a desired-state change. */
   def componentsWith(projector: ServiceProjector): Seq[ComponentDescriptor] =
-    components :+ ProjectionTrigger.companion(projector).descriptor
+    components :+ ProjectionTrigger.companion(projector).descriptor :+
+      SuspensionTrigger.companion(projector).descriptor
 
   /**
-   * The three endpoints, all sharing one ACL. The service endpoint also needs the deployment
-   * configuration — the base domain under which exposed services answer.
+   * The endpoints, all but one sharing the ACL. The service endpoint also needs the deployment
+   * configuration — the base domain under which exposed services answer. With an `auth`
+   * configuration, `GET /auth` advertises the issuer to the CLI, unauthenticated by design.
    */
   def endpoints(
       acl: Acl,
-      deploy: DeployConfig = DeployConfig.default
+      deploy: DeployConfig = DeployConfig.default,
+      auth: Option[AuthConfig] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
-    Seq(
+    Seq[
+      com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
+    ](
       clients => OrganizationEndpoint(clients, acl),
       clients => ProjectEndpoint(clients, acl),
-      clients => ServiceEndpoint(clients, acl, deploy)
+      clients => ServiceEndpoint(clients, acl, deploy),
+      clients => WhoamiEndpoint(clients, acl)
+    ) ++ auth.map(config =>
+      (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)
     )
 
   /**
@@ -65,12 +74,14 @@ object ControlPlane:
       acl: Acl,
       interface: Option[String] = None,
       port: Option[Int] = None,
-      config: Config = ConfigFactory.load()
+      config: Config = ConfigFactory.load(),
+      auth: Option[AuthConfig] = None
   ): ServiceBuilder =
     val deploy = DeployConfig.from(config)
     val server = (interface, port) match
-      case (Some(host), Some(bindPort)) => HttpServer.at(host, bindPort)(endpoints(acl, deploy)*)
-      case _                            => HttpServer.of(endpoints(acl, deploy)*)
+      case (Some(host), Some(bindPort)) =>
+        HttpServer.at(host, bindPort)(endpoints(acl, deploy, auth)*)
+      case _ => HttpServer.of(endpoints(acl, deploy, auth)*)
     val projector = ServiceProjector(deploy)
     Ankka.service
       .registerAll(componentsWith(projector))
@@ -79,16 +90,12 @@ object ControlPlane:
       .withExtension(server)
 
   /**
-   * Reads the bearer token from configuration, refusing to start without one.
+   * The ACL from configuration: verified OpenID Connect tokens from the configured issuer.
    *
-   * A control plane that comes up unauthenticated because a value was missing is worse than one
-   * that refuses to come up.
+   * Refuses to start without an issuer. A control plane that comes up unauthenticated because a
+   * value was missing is worse than one that refuses to come up. The issuer being *unreachable* is
+   * different — that is a 503 on each request, not a process that will not start (FR-005).
    */
-  def aclFrom(config: Config): Acl =
-    val token = config.getString("ankka.controlplane.auth.token")
-    if token.isEmpty then
-      throw IllegalStateException(
-        "ankka.controlplane.auth.token is not set; set ANKKA_CONTROLPLANE_TOKEN or pass " +
-          "an Acl explicitly"
-      )
-    ControlPlaneAcl.bearer(token)
+  def aclFrom(config: Config): Acl = aclFor(AuthConfig.from(config))
+
+  def aclFor(auth: AuthConfig): Acl = ControlPlaneAcl.oidc(TokenVerifier.remote(auth), auth)

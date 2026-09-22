@@ -20,9 +20,9 @@ final class ProjectEntity(context: EventSourcedEntityContext)
   def emptyState: Project = Project(context.entityId, "", "")
 
   def applyEvent(event: ProjectEvent): Project = event match
-    case ProjectCreated(name, organizationId) => currentState.onCreated(name, organizationId)
-    case ProjectRenamed(name)                 => currentState.onRenamed(name)
-    case ProjectDeleted                       => currentState.onDeleted
+    case ProjectCreated(name, organizationId, _, _) => currentState.onCreated(name, organizationId)
+    case ProjectRenamed(name, _, _)                 => currentState.onRenamed(name)
+    case _: ProjectDeleted                          => currentState.onDeleted
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -36,17 +36,17 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     else if request.organizationId.isEmpty then effects.error("project needs an organization")
     else
       effects
-        .persist(ProjectCreated(request.name, request.organizationId))
+        .persist(ProjectCreated(request.name, request.organizationId, actor, at))
         .thenReply(_ => Done)
 
   def rename(name: String): Effect[Done] =
     if !currentState.exists then notFound
     else if name.isEmpty then effects.error("project name must not be empty")
-    else effects.persist(ProjectRenamed(name)).thenReply(_ => Done)
+    else effects.persist(ProjectRenamed(name, actor, at)).thenReply(_ => Done)
 
   def delete: Effect[Done] =
     if !currentState.exists then notFound
-    else effects.persist(ProjectDeleted).thenReply(_ => Done)
+    else effects.persist(ProjectDeleted(actor, at)).thenReply(_ => Done)
 
   def get: ReadOnlyEffect[ProjectDetail] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
@@ -56,6 +56,10 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       )
 
   def exists: ReadOnlyEffect[Boolean] = effects.reply(currentState.exists)
+
+  private def attribution: Option[Attribution] = Attribution.from(commandContext.metadata)
+  private def actor: Option[Actor]             = attribution.map(_.actor)
+  private def at: Option[java.time.Instant]    = attribution.map(_.at)
 
   private def notFoundMessage = s"no such project '${context.entityId}'"
   private def notFound        = effects.error(notFoundMessage, ErrorCode.NotFound)

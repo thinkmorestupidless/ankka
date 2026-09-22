@@ -1,0 +1,18 @@
+# The Keycloak operator, installed as a platform dependency beside CNPG, cert-manager and Envoy
+# Gateway (feature 008, research R1).
+#
+# Its manifests are fetched by URL and pinned to an exact release, exactly as CNPG's and
+# cert-manager's are: a CRD schema must not change under a running platform without a deliberate
+# bump here (manifests/kustomization.yaml) — and in build.sbt's keycloakVersion and
+# docker-compose.yml, which RemoteOverlaySuite checks agree. The operator watches its own namespace
+# only, so it lives in ankka-auth, beside the instance it manages (components/keycloak).
+#
+# A component of its own, separate from the instance, for the same reason CNPG is installed in a
+# step of its own: `kubectl apply -k` gives no ordering guarantee between a CRD and a resource of
+# that kind inside one invocation, so deploy-local.sh applies this first and the overlay (which
+# lists both) is idempotent over it.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - manifests

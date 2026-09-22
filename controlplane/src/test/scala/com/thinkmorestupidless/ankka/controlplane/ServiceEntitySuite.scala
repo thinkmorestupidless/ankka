@@ -164,7 +164,7 @@ class ServiceEntitySuite extends munit.FunSuite:
     )
 
     val paused = kit.call(ServiceEntity.pause)
-    assertEquals(paused.events, Vector(ServicePaused))
+    assertEquals(paused.events, Vector(ServicePaused()))
     assertEquals(paused.replyValue.lifecycle, ServiceLifecycle.Paused)
     assertEquals(paused.replyValue.desiredInstances, 0)
     assertEquals(kit.currentState.targetInstances, 0)
@@ -181,7 +181,7 @@ class ServiceEntitySuite extends munit.FunSuite:
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())
 
     val exposed = kit.call(ServiceEntity.expose)
-    assertEquals(exposed.events, Vector(ServiceExposed))
+    assertEquals(exposed.events, Vector(ServiceExposed()))
     assertEquals(exposed.replyValue.exposed, true)
     assertEquals(exposed.replyValue.generation, 1L)
     assertEquals(kit.currentState.exposed, true)
@@ -200,7 +200,7 @@ class ServiceEntitySuite extends munit.FunSuite:
     val before = kit.call(ServiceEntity.expose).replyValue
 
     val unexposed = kit.call(ServiceEntity.unexpose)
-    assertEquals(unexposed.events, Vector(ServiceUnexposed))
+    assertEquals(unexposed.events, Vector(ServiceUnexposed()))
     assertEquals(unexposed.replyValue, before.copy(exposed = false))
     assertEquals(unexposed.replyValue.lifecycle, ServiceLifecycle.Ready)
 
@@ -237,9 +237,9 @@ class ServiceEntitySuite extends munit.FunSuite:
     val replayed = kit.allEvents.foldLeft(Service.empty(kit.currentState.key)) {
       case (service, applied: ServiceApplied) =>
         service.onApplied(applied.descriptor, applied.generation)
-      case (service, ServiceExposed)   => service.onExposed
-      case (service, ServiceUnexposed) => service.onUnexposed
-      case (service, _)                => service
+      case (service, _: ServiceExposed)   => service.onExposed
+      case (service, _: ServiceUnexposed) => service.onUnexposed
+      case (service, _)                   => service
     }
     assertEquals(replayed.exposed, true)
 
@@ -375,16 +375,8 @@ class ServiceEntitySuite extends munit.FunSuite:
     val _   = kit.call(ServiceEntity.resume)
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying(image = "cart:2.0"))
 
-    val folded = kit.allEvents.foldLeft(Service.empty(ServiceKey("acme", "cart"))) {
-      case (service, ServiceApplied(_, d, generation)) => service.onApplied(d, generation)
-      case (service, ServiceRestarted(generation))     => service.onRestarted(generation)
-      case (service, ServicePaused)                    => service.onPaused
-      case (service, ServiceResumed)                   => service.onResumed
-      case (service, ServiceExposed)                   => service.onExposed
-      case (service, ServiceUnexposed)                 => service.onUnexposed
-      case (service, observed: ServiceObserved)        => service.onObserved(observed)
-      case (service, ServiceDeleted)                   => service.onDeleted
-    }
+    // The entity's own fold, applied from empty over the journal it wrote — no second copy of it.
+    val folded = kit.allEvents.foldLeft(Service.empty(ServiceKey("acme", "cart")))(Service.fold)
     assertEquals(folded, kit.currentState, "replaying the journal must reproduce the state")
   }
 
@@ -501,4 +493,85 @@ class ServiceEntitySuite extends munit.FunSuite:
 
     assert(!kit.currentState.isPaused)
     assertEquals(kit.currentState.targetInstances, 1)
+  }
+
+  // ── suspension and history (feature 008) ───────────────────────────────────
+
+  private val now   = java.time.Instant.parse("2026-09-22T10:00:00Z")
+  private val alice = Attribution(Actor("alice", Some("alice@example.test")), now)
+  private val carol =
+    Attribution(Actor("carol", Some("carol@example.test"), administrative = true), now)
+
+  test("suspend stops a running service and says so; a paused one keeps saying paused") {
+    val kit       = newKit
+    val _         = kit.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val suspended = kit.call(ServiceEntity.suspend, carol.metadata)
+    assertEquals(suspended.events, Vector(ServiceSuspended(Some(carol.actor), Some(now))))
+    assertEquals(suspended.replyValue.lifecycle, ServiceLifecycle.Suspended)
+    assertEquals(suspended.replyValue.suspended, true)
+    assertEquals(kit.call(ServiceEntity.desiredState).replyValue.map(_.targetInstances), Some(0))
+    assertEquals(kit.call(ServiceEntity.suspend, carol.metadata).events, Vector.empty, "idempotent")
+
+    val paused = newKit
+    val _      = paused.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val _      = paused.call(ServiceEntity.pause, alice.metadata)
+    val both   = paused.call(ServiceEntity.suspend, carol.metadata).replyValue
+    assertEquals((both.lifecycle, both.suspended), (ServiceLifecycle.Paused, true))
+  }
+
+  test("reinstate restores what the members had chosen, and an observation cannot un-suspend") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val _   = kit.call(ServiceEntity.suspend, carol.metadata)
+    val observed =
+      kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1))
+    assertEquals(
+      observed.state.lifecycle,
+      ServiceLifecycle.Suspended,
+      "desired state wins over a stale report"
+    )
+    assertEquals(
+      kit.call(ServiceEntity.reinstate, carol.metadata).replyValue.lifecycle,
+      ServiceLifecycle.UpdateInProgress
+    )
+    assertEquals(
+      kit.call(ServiceEntity.reinstate, carol.metadata).events,
+      Vector.empty,
+      "idempotent"
+    )
+
+    val paused = newKit
+    val _      = paused.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val _      = paused.call(ServiceEntity.pause, alice.metadata)
+    val _      = paused.call(ServiceEntity.suspend, carol.metadata)
+    val back   = paused.call(ServiceEntity.reinstate, carol.metadata).replyValue
+    assertEquals((back.lifecycle, back.suspended), (ServiceLifecycle.Paused, false))
+  }
+
+  test("history names who did what, newest first, capped, and never counts observations") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val bob = Attribution(Actor("bob", Some("bob@example.test")), now.plusSeconds(60))
+    val _   = kit.call(ServiceEntity.pause, bob.metadata)
+    val _   = kit.call(ServiceEntity.observe)(ServiceObservation(1L, ServiceLifecycle.Paused, 0, 0))
+    val history = kit.call(ServiceEntity.history).replyValue
+    assertEquals(history.map(_.kind), Vector("paused", "applied"))
+    assertEquals(history.head.actor.map(_.subject), Some("bob"))
+    assertEquals(history.head.at, Some(now.plusSeconds(60)))
+    assertEquals(history.last.actor.map(_.display), Some(Some("alice@example.test")))
+
+    // An unattributed command (pre-feature shape) is remembered with no actor.
+    val _ = kit.call(ServiceEntity.resume)
+    assertEquals(kit.call(ServiceEntity.history).replyValue.head.actor, None)
+
+    (1 to 60).foreach(_ => kit.call(ServiceEntity.restart, alice.metadata))
+    assertEquals(kit.call(ServiceEntity.history).replyValue.size, Service.HistoryLimit)
+  }
+
+  test("the history of a deleted service is still readable; a never-applied one is not") {
+    val kit = newKit
+    val _   = kit.call(ServiceEntity.applyDescriptor, alice.metadata)(applying())
+    val _   = kit.call(ServiceEntity.delete, alice.metadata)
+    assertEquals(kit.call(ServiceEntity.history).replyValue.head.kind, "deleted")
+    assertEquals(newKit.call(ServiceEntity.history).error.code, ErrorCode.NotFound)
   }

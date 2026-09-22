@@ -1,0 +1,26 @@
+# The operator's own manifests, placed in ankka-auth. A nested Kustomization rather than the
+# Component setting `namespace:` itself, because a Component's transformers run over everything
+# the overlay had accumulated before it — a `namespace:` here renamed CNPG's namespace too and
+# kustomize refused the render. Scoped this way, the transformer sees only these three files.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ankka-auth
+resources:
+  - https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.7.4/kubernetes/keycloaks.k8s.keycloak.org-v1.yml
+  - https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.7.4/kubernetes/keycloakrealmimports.k8s.keycloak.org-v1.yml
+  # The operator refuses to start unless every CRD it has a controller for exists — including the
+  # two client kinds ankka never creates. Found by an operator in CrashLoopBackOff with
+  # "keycloakoidcclients ... Not Found"; the upstream kustomization installs all four.
+  - https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.7.4/kubernetes/keycloakoidcclients.k8s.keycloak.org-v1.yml
+  - https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.7.4/kubernetes/keycloaksamlclients.k8s.keycloak.org-v1.yml
+  - https://raw.githubusercontent.com/keycloak/keycloak-k8s-resources/26.7.4/kubernetes/kubernetes.yml
+patches:
+  # The namespace transformer does not reach a ClusterRoleBinding's subjects, and upstream hardcodes
+  # theirs to "keycloak".
+  - target:
+      kind: ClusterRoleBinding
+      name: keycloak-operator-clusterrole-binding
+    patch: |-
+      - op: replace
+        path: /subjects/0/namespace
+        value: ankka-auth

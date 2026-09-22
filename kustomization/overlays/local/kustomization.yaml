@@ -18,6 +18,8 @@ components:
   - ../../components/gateway
   - ../../components/operator
   - ../../components/postgres
+  - ../../components/keycloak-operator
+  - ../../components/keycloak
   - ../../components/controlplane
 
 resources:
@@ -57,6 +59,24 @@ replacements:
         options:
           delimiter: "."
           index: 1
+      # The identity provider's route and its own idea of its hostname — the latter is what every
+      # token's issuer names, and the control plane derives the same string from ANKKA_BASE_DOMAIN.
+      - select:
+          kind: HTTPRoute
+          name: ankka-keycloak
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+      - select:
+          kind: Keycloak
+          name: ankka-keycloak
+        fieldPaths:
+          - spec.hostname.hostname
+        options:
+          delimiter: "."
+          index: 1
       - select:
           kind: Deployment
           name: ankka-controlplane
@@ -77,6 +97,11 @@ replacements:
           name: https-redirect
         fieldPaths:
           - spec.rules.0.filters.0.requestRedirect.port
+      - select:
+          kind: HTTPRoute
+          name: ankka-keycloak
+        fieldPaths:
+          - spec.rules.0.filters.0.requestHeaderModifier.set.0.value
       - select:
           kind: Deployment
           name: ankka-controlplane

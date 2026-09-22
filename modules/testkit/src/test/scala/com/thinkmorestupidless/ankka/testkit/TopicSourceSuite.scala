@@ -103,9 +103,11 @@ class TopicSourceSuite extends munit.FunSuite:
   test("rows can be queried by a field, as with any view") {
     import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
     publish(StockEvent("sku-6", 1, "w1"))
-    val _ = eventually("the row appears")(rows.get("sku-6"))
-
-    val found = rows.where(jsonText("sku") ++ sql" = ${"sku-6"}")
+    // Wait on the query that is asserted, not on a read by key that can land first (CLAUDE.md:
+    // an `eventually` must wait for the thing it asserts) — this failed once in a full run.
+    val found = eventually("the row is queryable by field") {
+      Some(rows.where(jsonText("sku") ++ sql" = ${"sku-6"}")).filter(_.nonEmpty)
+    }
     assertEquals(found.map(_.sku), Vector("sku-6"))
   }
 

@@ -1,5 +1,6 @@
-# Local persistence for the ankka runtime: event journal, snapshots,
-# durable state, view row tables, and projection offsets all live here.
+# Local persistence for the ankka runtime — event journal, snapshots, durable state, view row tables
+# and projection offsets — and, for the control plane, the identity provider it verifies callers
+# against (feature 008).
 services:
   postgres:
     image: postgres:17-alpine
@@ -19,6 +20,62 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Keycloak in development mode, with the platform's realm imported from the same file the
+  # Keycloak operator imports in a cluster (kustomization/components/keycloak/realm.json — one
+  # copy). Port 8081 on the host so it never collides with a service on 8080. Point the control
+  # plane at it:
+  #
+  #   ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run
+  #   ankka config set url http://localhost:9000
+  #   ankka login                       # user dev, password dev (created by keycloak-init below)
+  #
+  # The version is build.sbt's keycloakVersion; RemoteOverlaySuite checks the two agree.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.4
+    container_name: ankka-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "8080"
+    ports:
+      - "8081:8080"
+    # No volume for Keycloak's embedded database, deliberately: a named volume arrives root-owned
+    # and Keycloak runs unprivileged, so it could not create its files. Development mode needs
+    # nothing kept — the realm is re-imported and keycloak-init re-creates the user on every start.
+    volumes:
+      - ./kustomization/components/keycloak/realm.json:/opt/keycloak/data/import/ankka-realm.json:ro
+    healthcheck:
+      # The realm answering is the whole readiness story: the import ran and the server is up.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /realms/ankka HTTP/1.0\r\n\r\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  # The development user, created after import rather than shipped in the realm: the realm file
+  # carries no users at all, so a remote installation cannot inherit one (research R2). Runs once,
+  # idempotently, and exits.
+  keycloak-init:
+    image: quay.io/keycloak/keycloak:26.7.4
+    container_name: ankka-keycloak-init
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        cd /opt/keycloak/bin
+        ./kcadm.sh config credentials --server http://keycloak:8080 --realm master --user admin --password admin
+        if ./kcadm.sh get users -r ankka -q username=dev -q exact=true | grep -q '"username" : "dev"'; then
+          echo "user dev already exists"
+        else
+          ./kcadm.sh create users -r ankka -s username=dev -s email=dev@example.test -s emailVerified=true -s firstName=Dev -s lastName=User -s enabled=true
+          ./kcadm.sh set-password -r ankka --username dev --new-password dev
+          ./kcadm.sh add-roles -r ankka --uusername dev --rolename platform-admin
+          echo "created user dev (password dev, platform-admin)"
+        fi
 
 volumes:
   ankka-pgdata:

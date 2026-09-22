@@ -169,18 +169,19 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
     // any auth story exists.
     if path == HealthPath then Future.successful(text(200, "ok"))
     else
-      endpoints.find(e => path.startsWith(e.prefixPath)) match
+      // The longest matching prefix, not the first declared: `/auth/whoami` and `/auth` can then
+      // be two endpoints with two ACLs (one open discovery route beside an authenticated one)
+      // without the answer depending on registration order.
+      endpoints.filter(e => path.startsWith(e.prefixPath)).maxByOption(_.prefixPath.size) match
         case None =>
           Future.successful(
             problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
           )
         case Some(endpoint) =>
-          val context = contextFor(request)
-          if !permitted(endpoint, context) then
-            Future.successful(
-              problem(HttpProblem.forbidden("not permitted by this endpoint's acl"))
-            )
-          else dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
+          admit(endpoint, contextFor(request)) match
+            case Left(refused) => Future.successful(refused)
+            case Right(context) =>
+              dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
 
   /**
    * The request as a handler and an ACL both see it.
@@ -188,7 +189,7 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
    * Built once per request and shared: an ACL predicate that inspects a query parameter should be
    * looking at exactly what the handler will.
    */
-  private def contextFor(request: HttpRequest): RequestContext =
+  private def contextFor(request: HttpRequest): SimpleRequestContext =
     SimpleRequestContext(
       method = request.method.value,
       path = request.uri.path.toString,
@@ -197,11 +198,32 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       remoteAddress = None
     )
 
-  private def permitted(endpoint: HttpEndpoint, context: RequestContext): Boolean =
+  /**
+   * Applies the endpoint's ACL: the context to dispatch with (carrying the principal, if the ACL
+   * established one), or the response that refuses the request.
+   */
+  private def admit(
+      endpoint: HttpEndpoint,
+      context: SimpleRequestContext
+  ): Either[HttpResponse, RequestContext] =
+    def forbidden(reason: String) = Left(problem(HttpProblem.forbidden(reason)))
     endpoint.acl match
-      case Acl.DenyAll            => false
-      case Acl.AllowAll           => true
-      case Acl.AllowIf(predicate) => predicate(context)
+      case Acl.DenyAll  => forbidden("not permitted by this endpoint's acl")
+      case Acl.AllowAll => Right(context)
+      case Acl.AllowIf(predicate) =>
+        if predicate(context) then Right(context)
+        else forbidden("not permitted by this endpoint's acl")
+      case Acl.Authenticate(decide) =>
+        decide(context) match
+          case AuthDecision.Allow(principal) => Right(context.copy(principal = Some(principal)))
+          case AuthDecision.Unauthenticated(challenge) =>
+            Left(
+              problem(HttpProblem.unauthorized("authentication required"))
+                .addHeader(headers.RawHeader("WWW-Authenticate", s"Bearer $challenge"))
+            )
+          case AuthDecision.Forbidden(reason) => forbidden(reason)
+          case AuthDecision.Unavailable(reason) =>
+            Left(problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5")))
 
   private def dispatch(
       endpoint: HttpEndpoint,

@@ -1,0 +1,23 @@
+{
+  "comment": "One sample of every command-produced event as the journal held it before feature 008 added actor and at. EventCompatibilitySuite decodes each through the current codec and asserts it reads as unattributed. Add a case here when an event gains a field; never edit an existing one.",
+  "organization-event": [
+    {"type":"OrganizationCreated","name":"Acme Corp"},
+    {"type":"OrganizationRenamed","name":"Acme Limited"},
+    {"type":"OrganizationDeleted"}
+  ],
+  "project-event": [
+    {"type":"ProjectCreated","name":"Checkout","organizationId":"acme"},
+    {"type":"ProjectRenamed","name":"Checkout v2"},
+    {"type":"ProjectDeleted"}
+  ],
+  "service-event": [
+    {"type":"ServiceApplied","projectId":"checkout","descriptor":{"name":"cart","service":{"image":"cart:1.0","env":[],"resources":{"instanceType":"small","autoscaling":{"minInstances":1,"maxInstances":1,"targetCpuPercent":80}},"http":true}},"generation":1},
+    {"type":"ServiceRestarted","generation":2},
+    {"type":"ServicePaused"},
+    {"type":"ServiceResumed"},
+    {"type":"ServiceExposed"},
+    {"type":"ServiceUnexposed"},
+    {"type":"ServiceObserved","generation":2,"lifecycle":"Ready","readyInstances":1,"desiredInstances":1,"detail":null},
+    {"type":"ServiceDeleted"}
+  ]
+}

@@ -60,9 +60,13 @@ metadata:
   name: ankka-acme
 spec:
   acme:
-    # server: https://acme-staging-v02.api.letsencrypt.org/directory   # prove it here first
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: SET-ME@example.com # SET
+    # Staging for the first issuance, deliberately: it proves the whole DNS-01 path — webhook
+    # reachable, token valid, account id right, TXT record written and observed — against a CA
+    # that does not rate-limit failure. The certificate it issues is not trusted by anything, so
+    # once `certificate/ankka-wildcard` reaches Ready, swap the two server lines and tag again.
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    # server: https://acme-v02.api.letsencrypt.org/directory
+    email: trevor@thinkmorestupidless.com
     privateKeySecretRef:
       # cert-manager creates this; it is the ACME account key, not something you supply.
       name: ankka-acme-account
@@ -81,7 +85,9 @@ spec:
                 # release name, and its Role pins `resourceNames` to exactly this.
                 name: cert-manager-webhook-dnsimple
                 key: token
-              # accountID: "SET-ME"   # SET, only for a user token — see above
+              # The token in cert-manager's namespace is a user token (ankka-deployments writes
+              # it), so the account that owns the zone has to be named — see above.
+              accountID: "80646"
 ---
 # Named and shaped like the local overlay's, because deploy-local.sh, the k3s suites and anything
 # else that waits on the gateway wait on `certificate/ankka-wildcard` in `ankka-gateway` being

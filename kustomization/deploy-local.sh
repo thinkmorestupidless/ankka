@@ -150,25 +150,12 @@ echo "==> waiting for the identity provider"
 kubectl -n ankka-auth wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-keycloak-db --timeout=300s
 kubectl -n ankka-auth wait --for=condition=Ready keycloak/ankka-keycloak --timeout=420s
 
-echo "==> importing the realm"
-# Rendered from the single copy docker-compose also mounts. A KeycloakRealmImport is one-shot: it
-# creates a realm that does not exist and never updates or deletes one (research R2), so on a
-# re-run this is a no-op and a change to realm.json on an existing cluster is a console job.
-# JSON is YAML, so the file is indented straight under spec.realm — the same technique as the
-# schema ConfigMap above, and no tool beyond sed.
-{
-  cat <<'HEADER'
-apiVersion: k8s.keycloak.org/v2alpha1
-kind: KeycloakRealmImport
-metadata:
-  name: ankka-realm
-  namespace: ankka-auth
-spec:
-  keycloakCRName: ankka-keycloak
-  realm:
-HEADER
-  sed 's/^/    /' kustomization/components/keycloak/realm.json
-} | kubectl apply -f - --server-side --force-conflicts
+echo "==> waiting for the realm import"
+# The KeycloakRealmImport is part of the keycloak component (realm-import.json, the one copy), so
+# the apply above already created it; the operator runs the import once the instance is Ready.
+# It is one-shot — it creates a realm that does not exist and never updates or deletes one
+# (research R2) — so on a re-run this is a no-op and a change to the realm on an existing cluster
+# is a console job.
 kubectl -n ankka-auth wait --for=condition=Done keycloakrealmimport/ankka-realm --timeout=300s
 
 echo "==> creating the development user and the smoke-test client"

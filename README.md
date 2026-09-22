@@ -786,8 +786,8 @@ ANKKA_TOKEN="$TOKEN" ankka services apply -f cart.json      # no browser, no pro
 The apply's history names the client as its actor. A request without a valid token is a `401`
 with a `WWW-Authenticate` challenge, which the CLI turns into "run `ankka login`"; a valid token
 for an action its holder may not take is a `403`.
-The realm is one file, `kustomization/components/keycloak/realm.json`, imported by the operator
-in a cluster and mounted by docker-compose locally: the public `ankka-cli` client with the device
+The realm is one file, `kustomization/components/keycloak/realm-import.json` — the operator's
+import resource, applied with the platform in a cluster and read by docker-compose locally: the public `ankka-cli` client with the device
 grant, a client scope that puts the control plane's audience and the identity claims it reads on
 every token, and the `platform-admin` realm role. The realm import is one-shot — it creates a
 realm and never updates one — so a change to that file on an existing installation is applied in

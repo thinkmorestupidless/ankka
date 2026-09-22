@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.thinkmorestupidless.ankka.operator.KeycloakAdmin
+import com.thinkmorestupidless.ankka.operator.{KeycloakAdmin, KeycloakStack}
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
 import org.testcontainers.utility.{DockerImageName, MountableFile}
@@ -13,11 +13,11 @@ import scala.jdk.CollectionConverters.*
 /**
  * The shipped realm against a real Keycloak.
  *
- * The one test that can catch `realm.json` and the verifier disagreeing: it starts the pinned image
- * with the same file the operator imports and docker-compose mounts, creates a user and clients
- * through the admin API the way an administrator would in the console, and reads the claims real
- * tokens carry. Research R5 (audience by client scope), R6 (device grant, offline refresh) and
- * "verify at implementation" items 3–5 are pinned here.
+ * The one test that can catch the realm and the verifier disagreeing: it starts the pinned image
+ * with the realm out of the same import resource the operator applies and docker-compose reads,
+ * creates a user and clients through the admin API the way an administrator would in the console,
+ * and reads the claims real tokens carry. Research R5 (audience by client scope), R6 (device grant,
+ * offline refresh) and "verify at implementation" items 3–5 are pinned here.
  *
  * Needs Docker, like every integration suite.
  */
@@ -31,13 +31,15 @@ class KeycloakRealmSuite extends munit.FunSuite:
   private val Secret = "test-secret-not-a-secret"
 
   override def beforeAll(): Unit =
-    val realm = repoRoot.resolve("kustomization/components/keycloak/realm.json")
+    val realm = Files.createTempFile("ankka-realm", ".json")
+    Files.writeString(realm, KeycloakStack.realm(repoRoot))
     keycloak = new KeycloakContainer(DockerImageName.parse(KeycloakAdmin.image))
       .withCommand("start-dev", "--import-realm")
       .withEnv("KC_BOOTSTRAP_ADMIN_USERNAME", "admin")
       .withEnv("KC_BOOTSTRAP_ADMIN_PASSWORD", "admin")
       .withCopyFileToContainer(
-        MountableFile.forHostPath(realm),
+        // World-readable: a temp file is 0600, and Keycloak runs unprivileged in the image.
+        MountableFile.forHostPath(realm, 0x1a4),
         "/opt/keycloak/data/import/ankka-realm.json"
       )
       .withExposedPorts(8080)

@@ -2,12 +2,20 @@
 # instance itself and its route. The operator that runs it is components/keycloak-operator, applied
 # first — see there for why the two are separate.
 #
-# realm.json is not a resource: it is imported by a KeycloakRealmImport that deploy-local.sh renders
-# from it after the instance is Ready (research R2), and mounted as-is by docker-compose. One copy.
+# realm-import.json is the realm: a KeycloakRealmImport, and the one copy. It is JSON rather than
+# YAML so that everything that needs the realm *itself* can take it out of `.spec.realm` without a
+# YAML parser — docker-compose with jq, the test helpers with Jackson — while kustomize lists it as
+# a resource like any other, since YAML is a superset of JSON. It used to be a bare realm.json that
+# deploy-local.sh wrapped into the resource at deploy time, which meant an overlay applied by
+# anything but that script (Flux, on the first real cluster) brought up a Keycloak with no realm.
+#
+# The import is one-shot (research R2): it creates a realm that does not exist and never updates
+# or deletes one, so a change to this file on an existing installation is a console job.
 apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - postgres.yaml
   - admin-secret.yaml
   - keycloak.yaml
+  - realm-import.json
   - httproute.yaml

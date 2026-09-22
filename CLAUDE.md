@@ -315,10 +315,10 @@ pre-feature journals replay (`EventCompatibilitySuite` pins the old JSON).
 The issuer inside a cluster is **derived** from `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT`
 (`AuthConfig.derivedIssuer`: `https://auth.<base>[:port]/realms/ankka`) and keys are read over
 the plain in-cluster service address (`ANKKA_AUTH_JWKS_URL`); locally, `ANKKA_AUTH_ISSUER` names
-the compose Keycloak. The realm is one file, `kustomization/components/keycloak/realm.json`,
-imported by a `KeycloakRealmImport` that `deploy-local.sh` renders (never checked in) and mounted
-by compose; it carries no users — the deploy script and compose's init create `dev`, so a remote
-installation cannot inherit one.
+the compose Keycloak. The realm is one file, `kustomization/components/keycloak/realm-import.json`
+— the `KeycloakRealmImport` itself, in JSON so compose can take the realm out of it with `jq` and
+the test helpers with Jackson, while kustomize applies it as a resource; it carries no users — the
+deploy script and compose's init create `dev`, so a remote installation cannot inherit one.
 
 ### The control plane is an ankka application
 
@@ -765,9 +765,11 @@ factory shapes would break lambda parameter inference at every call site.
   logic would kill the test JVM.
 
 - **`KeycloakRealmImport` is one-shot.** It creates a realm that does not exist and never updates
-  or deletes one; a re-apply is a no-op and deleting the resource leaves the realm. So the realm
-  JSON is a file the deploy script renders into the resource (and compose mounts), and a change to
-  it on an existing installation is a console job. Never check the rendered resource in.
+  or deletes one; a re-apply is a no-op and deleting the resource leaves the realm. So a change to
+  the realm on an existing installation is a console job. The resource *is* the checked-in file:
+  the first shape had the deploy script render it from a bare `realm.json`, and the first cluster
+  applied by anything else came up with a Keycloak and no realm — the same defect as the schema
+  ConfigMap, found the same afternoon.
 - **Keycloak writes a lone `aud` as a string and several as an array.** A test (or a verifier)
   that reads `aud` as an array sees nothing on a service-account token. nimbus handles both;
   `KeycloakAdmin.audiences` does for tests.

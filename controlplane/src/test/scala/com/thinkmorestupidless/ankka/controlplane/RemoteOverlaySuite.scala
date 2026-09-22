@@ -135,11 +135,17 @@ final class RemoteOverlaySuite extends FunSuite:
         "the binding's subject still names the upstream namespace"
       )
       assert(!binding.contains("namespace: keycloak\n"), binding)
-      // The realm is not a resource: it is imported after the instance is Ready.
+      // The realm import is a resource of the component — the one copy of the realm — so an
+      // overlay applied by anything other than deploy-local.sh brings the realm with it. The
+      // first Flux reconcile of a real cluster found a Keycloak with no realm when it was not.
+      val realmImports = documentsOfKind(render, "KeycloakRealmImport")
+      assertEquals(realmImports.size, 1, "exactly one realm import, checked in")
+      assert(realmImports.head.contains("namespace: ankka-auth"), realmImports.head.take(300))
       assert(
-        documentsOfKind(render, "KeycloakRealmImport").isEmpty,
-        "the realm import must be rendered by the deploy script, not checked in"
+        realmImports.head.contains("keycloakCRName: ankka-keycloak"),
+        realmImports.head.take(300)
       )
+      assert(realmImports.head.contains("realm: ankka"), "the realm named in the import")
   }
 
   test(

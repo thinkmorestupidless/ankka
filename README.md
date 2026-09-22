@@ -935,10 +935,13 @@ Honest gaps, not oversights:
   the latter enforced, down to a revoked `PUBLIC CONNECT` — but not traffic. That would be
   `NetworkPolicy`, and is not built.
 - **One port, HTTP only.** No second port, no other protocol.
-- **No image registry.** `sbt-native-packager` builds the operator's, the control plane's and the
-  sample's images straight into the local Docker daemon, and `kustomization/deploy-local.sh` loads
-  them directly into a `kind` node with `kind load docker-image` — nothing is pushed
-  anywhere. Setting `DOCKER_REPOSITORY` (see `build.sbt`) and changing the deploy target is
+- **No image registry locally.** `sbt-native-packager` builds the operator's, the control plane's
+  and the sample's images straight into the local Docker daemon, and `kustomization/deploy-local.sh`
+  loads them directly into a `kind` node with `kind load docker-image` — nothing is pushed
+  anywhere. A release tag is different: the release workflow pushes all three to the shared
+  registry in the `ankka-ops` project (`europe-west2-docker.pkg.dev/ankka-ops/ankka`), through a
+  keyless identity defined in the `ankka-deployments` repository, and a cloud environment's overlay
+  names them from there. Setting `DOCKER_REPOSITORY` (see `build.sbt`) and changing the deploy target is
   the whole migration once one exists; nothing about the images or the manifests changes.
 - **The k3s test suites mostly use kind's/testcontainers' default admin credentials, not
   the shipped RBAC**, so most of what the ClusterRoles in

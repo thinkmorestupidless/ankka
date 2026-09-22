@@ -64,6 +64,48 @@ jobs:
           # sonaUpload` because that path had never completed and a first attempt whose failure
           # mode is "permanently published" is the wrong first attempt. It has completed now, so
           # the gate is gone — put the line back for a release worth rehearsing.
+  images:
+    # The three images, pushed to the shared registry in the ankka-ops project — the operator, the
+    # control plane and the shopping cart sample — tagged with the release version and `latest`.
+    #
+    # No key anywhere: the job asks GitHub for its own OIDC token and exchanges it, through the
+    # workload identity federation defined in ankka-deployments (environments/ops), for a
+    # short-lived credential of a service account whose only role is writer on this one
+    # repository. The federation's condition admits a run on a `v*` tag of exactly this repository
+    # and nothing else, so a fork or a pull request cannot push. The two values below are not
+    # secrets — they name the identity, they do not grant it — which is why they are in the file.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token the exchange starts from
+    env:
+      DOCKER_REPOSITORY: europe-west2-docker.pkg.dev/ankka-ops/ankka
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # dynver needs the tags: Docker / version is the release version
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - uses: google-github-actions/auth@v2
+        id: auth
+        with:
+          workload_identity_provider: projects/846467939619/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: ankka-release@ankka-ops.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Log docker in to the registry with the exchanged token
+        run: echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin europe-west2-docker.pkg.dev
+      # The same clean-tree rule as the publish job: an image tagged with a -SNAPSHOT version is
+      # not a release image, and the registry should never hold one under a release's name.
+      - name: The version comes from a clean tree, or not at all
+        run: |
+          git update-index -q --refresh
+          git diff-index --quiet HEAD -- || { echo "::error::working tree is dirty"; git status --porcelain; exit 1; }
+      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish
+
   template:
     # The template as its own repository, so `sbt new thinkmorestupidless/ankka.g8` works: sbt's
     # Giter8 resolver accepts only `owner/repo.g8` (or a `.g8` file path), never a subdirectory of

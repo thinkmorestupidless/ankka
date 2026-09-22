@@ -7,7 +7,7 @@ import scala.sys.process.*
 import scala.util.Try
 
 /**
- * That `overlays/remote` still renders, and still differs from `overlays/local` in exactly the ways
+ * That `overlays/arrakis` — the first production cluster, once `overlays/remote` — still renders, and still differs from `overlays/local` in exactly the ways
  * it is supposed to.
  *
  * The two overlays share all eight components, which is the point of the split — the CRD, the
@@ -47,7 +47,7 @@ final class RemoteOverlaySuite extends FunSuite:
     assert(out.nonEmpty, s"$overlay rendered nothing: $errors")
     out
 
-  private lazy val remote = render("remote")
+  private lazy val remote = render("arrakis")
   private lazy val local  = render("local")
 
   /**

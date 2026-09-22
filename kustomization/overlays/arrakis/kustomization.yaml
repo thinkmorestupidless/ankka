@@ -1,5 +1,7 @@
-# ankka's control plane and operator on a real Kubernetes cluster: one with a load balancer, a
-# domain you control, and an image registry.
+# arrakis — the first production cluster: ankka's control plane and operator on a real Kubernetes
+# cluster, with a load balancer, a domain we control, and the shared image registry. Production
+# clusters are named after planets from Dune; the next one is a copy of this overlay with its own
+# base domain under the zone (caladan.ankka.cloud) and its own pinned address.
 #
 # The same eight components as overlays/local — the CRD, the operator, the control plane and its
 # RBAC, CNPG, cert-manager, Envoy Gateway and the Gateway itself are not local-specific and are not
@@ -25,7 +27,10 @@
 #     certmanager-webhook/cert-manager-webhook-dnsimple \
 #     --namespace cert-manager --version 0.1.17 --set dnsimple.token='<DNSIMPLE_API_TOKEN>'
 #   # then:
-#   kubectl apply -k kustomization/overlays/remote --server-side --force-conflicts
+#   kubectl apply -k kustomization/overlays/arrakis --server-side --force-conflicts
+#
+# By hand only for a first look. What applies it in practice is Flux, bootstrapped from the
+# ankka-deployments repository (clusters/arrakis/), which names this path at a pinned tag.
 #
 # CNPG, cert-manager and Envoy Gateway go first for the same reason deploy-local.sh installs them
 # first: each brings CRDs that later resources are instances of, and `kubectl apply -k` gives no
@@ -36,25 +41,12 @@
 # of this installation that is not a manifest in this repository, and the `ankka-acme` ClusterIssuer
 # below will sit unusable until it exists.
 #
-# **Images.** Every Deployment here names an image without a registry
-# (`ankka-controlplane:latest`) and sets `imagePullPolicy: IfNotPresent`, which is right for a node
-# the image was copied onto and useless for a cluster that has to pull. Build and push with
-# DOCKER_REPOSITORY set, and add a matching `images:` block below:
-#
-#   DOCKER_REPOSITORY=europe-west2-docker.pkg.dev/PROJECT/ankka sbt docker:publishLocal
-#   docker push europe-west2-docker.pkg.dev/PROJECT/ankka/ankka-controlplane:<version>
-#
-#   images:
-#     - name: ankka-controlplane
-#       newName: europe-west2-docker.pkg.dev/PROJECT/ankka/ankka-controlplane
-#       newTag: "0.1.0"
-#     - name: ankka-operator
-#       newName: europe-west2-docker.pkg.dev/PROJECT/ankka/ankka-operator
-#       newTag: "0.1.0"
-#
-# Left commented rather than filled in with a placeholder registry: a wrong registry name fails at
-# pull time with `ImagePullBackOff`, minutes after a deploy that reported success, whereas an
-# absent one fails immediately and says which image it could not find.
+# **Images.** Every component names an image without a registry (`ankka-controlplane:latest`) and
+# sets `imagePullPolicy: IfNotPresent`, which is right for a node the image was copied onto and
+# useless for a cluster that has to pull. The `images:` block below renames all three to the shared
+# registry in the ankka-ops project, where the release workflow pushes them on every `v*` tag, at
+# the version this cluster runs. The tag is the release; `latest` exists in the registry too and is
+# never named here — a cluster runs a version that was built, tested and published as one.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -73,6 +65,19 @@ components:
 resources:
   - platform-configmap.yaml
   - acme-issuer.yaml
+
+# The release this cluster runs. Bumped together with clusters/arrakis/ankka-source.yaml in
+# ankka-deployments, which pins the tag whose overlay this is.
+images:
+  - name: ankka-controlplane
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-controlplane
+    newTag: "0.2.0" # SET: the first tag that carries this overlay
+  - name: ankka-operator
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-operator
+    newTag: "0.2.0" # SET
+  - name: sample-shopping-cart
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/sample-shopping-cart
+    newTag: "0.2.0" # SET
 
 patches:
   # A real load balancer rather than the local overlay's pinned node ports.

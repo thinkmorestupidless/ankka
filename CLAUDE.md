@@ -495,7 +495,7 @@ factory shapes would break lambda parameter inference at every call site.
 - **The ClusterIssuer trap runs both ways, and the remote overlay needs the other direction.**
   A cluster-scoped issuer resolves its secrets in *cert-manager's* namespace rather than the
   Certificate's, which is why a `ClusterIssuer` was wrong for the local CA (above) — its secret
-  sits beside the Certificate. `overlays/remote` is the mirror: DNSimple is not one of
+  sits beside the Certificate. `overlays/arrakis` is the mirror: DNSimple is not one of
   cert-manager's built-in DNS-01 solvers, so it needs the out-of-tree webhook, and that webhook
   reads its API token with *its own* ServiceAccount in the namespace of the challenge. The chart
   grants that with a Role in its release namespace, pinned by `resourceNames` to its own secret.
@@ -924,7 +924,9 @@ owns the database.
 
 ## Deploying anywhere else
 
-`kustomization/overlays/remote/` is the same eight components with only what must differ: a
+`kustomization/overlays/arrakis/` (the first production cluster; production clusters are named after
+planets from Dune, and `caladan` would be a copy with its own base domain) is the same components
+with only what must differ: a
 `LoadBalancer` instead of the kind node ports, an ACME issuer over **DNS-01** instead of a
 self-signed root (a wildcard certificate cannot be had from HTTP-01), a real base domain on 443,
 and Keycloak's development admin secret **deleted** rather than overridden — `admin`/`admin` is

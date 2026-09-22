@@ -428,7 +428,8 @@ pass; deliberately break one behaviour in that SDK and see the suite name it.
 - **The second language is TypeScript** (Node runtime), for reach among developers writing
   agents and for a mature protobuf and gRPC toolchain. Python is the obvious alternative and
   the conformance suite exists so that choice is not final. [NEEDS CLARIFICATION: confirm the
-  language before the SDK is designed; the protocol and sidecar work do not depend on it.]
+  language before the SDK tasks start; the plan (research R9) proceeds on TypeScript, and the
+  protocol, sidecar and operator work do not depend on the answer.]
 - **The protocol's transport is gRPC over loopback**, as Cloudstate's was: bidirectional streams
   are the natural shape for the per-instance conversation and every candidate language has a
   maintained implementation. The sidecar gains a gRPC dependency in `runtime`; the SDK-side

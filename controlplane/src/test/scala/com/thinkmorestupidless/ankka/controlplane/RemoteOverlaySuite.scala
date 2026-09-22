@@ -7,8 +7,8 @@ import scala.sys.process.*
 import scala.util.Try
 
 /**
- * That `overlays/arrakis` — the first production cluster, once `overlays/remote` — still renders, and still differs from `overlays/local` in exactly the ways
- * it is supposed to.
+ * That `overlays/arrakis` — the first production cluster, once `overlays/remote` — still renders,
+ * and still differs from `overlays/local` in exactly the ways it is supposed to.
  *
  * The two overlays share all eight components, which is the point of the split — the CRD, the
  * operator, the control plane, its RBAC, CNPG, cert-manager, Envoy Gateway and the Gateway are not

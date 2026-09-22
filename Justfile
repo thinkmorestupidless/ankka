@@ -84,6 +84,10 @@ test-all:
 fmt:
     sbt scalafmtAll scalafmtSbt
 
+# Refuse unformatted commits before CI does; once per clone. Needs `cs install scalafmt` to be fast.
+hooks:
+    git config core.hooksPath .githooks
+
 # The operator, the control plane and the sample, into the local Docker daemon.
 images:
     sbt docker:publishLocal

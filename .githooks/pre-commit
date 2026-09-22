@@ -1,0 +1,33 @@
+#!/bin/sh
+# Refuses a commit that CI's `scalafmtCheckAll scalafmtSbtCheck` would refuse.
+#
+# Enable once per clone:  git config core.hooksPath .githooks   (or `just hooks`)
+#
+# It runs the scalafmt native CLI over the staged Scala and sbt files — the same
+# `.scalafmt.conf` sbt uses, so the two cannot disagree — in well under a second. Without
+# the CLI (`cs install scalafmt`, then coursier's bin directory on PATH) it falls back to
+# sbt, which is correct and slow. `--no-verify` bypasses it, as with any hook.
+#
+# The CLI reads the working tree, not the index: a partially staged file is checked as it
+# is on disk. That errs towards refusing, never towards letting a bad commit through.
+set -eu
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.scala' '*.sbt')
+[ -z "$files" ] && exit 0
+
+PATH="$PATH:$HOME/Library/Application Support/Coursier/bin:$HOME/.local/share/coursier/bin"
+if command -v scalafmt >/dev/null 2>&1; then
+  # shellcheck disable=SC2086 — paths in this repository carry no spaces
+  if ! out=$(scalafmt --check --quiet $files 2>&1); then
+    # The coursier launcher is a JVM one, and the JDK's Unsafe deprecation notice is not ours.
+    printf '%s\n' "$out" | grep -v '^WARNING' >&2 || true
+    echo "pre-commit: unformatted Scala — run 'sbt scalafmtAll scalafmtSbt' (or 'scalafmt') and stage again" >&2
+    exit 1
+  fi
+else
+  echo "pre-commit: scalafmt CLI not found (cs install scalafmt); checking with sbt, which is slow" >&2
+  sbt -batch scalafmtCheckAll scalafmtSbtCheck >/dev/null || {
+    echo "pre-commit: unformatted Scala — run 'sbt scalafmtAll scalafmtSbt' and stage again" >&2
+    exit 1
+  }
+fi

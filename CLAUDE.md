@@ -84,7 +84,13 @@ Do not "optimise" this back.
 
 ```bash
 sbt scalafmtAll scalafmtSbt        # format; scalafmtCheckAll verifies
+git config core.hooksPath .githooks   # once per clone (`just hooks`): refuse an unformatted commit
+cs install scalafmt                   # the hook uses the scalafmt CLI when it is on PATH (~1s); without it, sbt (~15s)
 ```
+
+The hook exists because a release commit reached `main` unformatted and the `ci` workflow went red
+behind a green tag. It checks only the staged `.scala` and `.sbt` files with the same
+`.scalafmt.conf` sbt reads, so it cannot pass what CI refuses.
 
 A `Justfile` wraps the multi-step ones — `just up` (create the kind cluster and deploy
 everything), `just down`, `just deploy`, `just test`, `just console`. It is deliberately thin:

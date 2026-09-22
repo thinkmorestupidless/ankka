@@ -71,13 +71,13 @@ resources:
 images:
   - name: ankka-controlplane
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-controlplane
-    newTag: "0.2.0" # SET: the first tag that carries this overlay
+    newTag: "0.2.1" # SET: the tag this overlay is cut at
   - name: ankka-operator
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-operator
-    newTag: "0.2.0" # SET
+    newTag: "0.2.1" # SET
   - name: sample-shopping-cart
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/sample-shopping-cart
-    newTag: "0.2.0" # SET
+    newTag: "0.2.1" # SET
 
 patches:
   # A real load balancer rather than the local overlay's pinned node ports.

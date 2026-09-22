@@ -31,15 +31,18 @@ services:
   #   ankka login                       # user dev, password dev (created by keycloak-init below)
   #
   # The version is build.sbt's keycloakVersion; RemoteOverlaySuite checks the two agree.
+  # Takes the realm out of the import resource for Keycloak's import directory. Alpine plus jq
+  # from its package index, because the Keycloak image carries no JSON tool and there is no
+  # official jq image to pin; the package is a few hundred kilobytes, fetched on every `up`.
   keycloak-realm:
-    image: ghcr.io/jqlang/jq:1.7.1
+    image: alpine:3.22
     container_name: ankka-keycloak-realm
     volumes:
       - ./kustomization/components/keycloak/realm-import.json:/realm-import.json:ro
       - ankka-keycloak-import:/import
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - jq .spec.realm /realm-import.json > /import/ankka-realm.json
+      - apk add --no-cache --quiet jq && jq .spec.realm /realm-import.json > /import/ankka-realm.json
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.7.4

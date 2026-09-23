@@ -42,11 +42,12 @@ object Discovery:
   def discover(
       channel: ManagedChannel,
       settings: Settings,
-      runtimeVersion: String
+      runtimeVersion: String,
+      protocolVersion: String = ProtocolVersion
   ): Either[Vector[String], Discovered] =
     val stub = DiscoveryGrpc.stub(channel)
-    val spec = awaitSpec(stub, settings, runtimeVersion)
-    validate(spec) match
+    val spec = awaitSpec(stub, settings, runtimeVersion, protocolVersion)
+    validate(spec, protocolVersion) match
       case Left(problems) =>
         val message = problems.mkString("the sidecar refused the service:\n  - ", "\n  - ", "")
         log.error(message)
@@ -60,7 +61,8 @@ object Discovery:
   private def awaitSpec(
       stub: DiscoveryGrpc.DiscoveryStub,
       settings: Settings,
-      runtimeVersion: String
+      runtimeVersion: String,
+      protocolVersion: String
   ): Spec =
     var attempt              = 0
     var backoff              = 500.millis
@@ -70,7 +72,7 @@ object Discovery:
       try
         result = Some(
           Await.result(
-            stub.discover(SidecarInfo(ProtocolVersion, runtimeVersion)),
+            stub.discover(SidecarInfo(protocolVersion, runtimeVersion)),
             settings.discoveryTimeout
           )
         )
@@ -88,14 +90,17 @@ object Discovery:
     result.get
 
   /** Pure: what is wrong with a spec, all of it. Exposed for the protocol suite. */
-  def validate(spec: Spec): Either[Vector[String], Discovered] =
+  def validate(
+      spec: Spec,
+      protocolVersion: String = ProtocolVersion
+  ): Either[Vector[String], Discovered] =
     val problems = Vector.newBuilder[String]
 
     spec.protocolVersion.split('.').toList match
-      case major :: _ if major == ProtocolVersion.split('.').head => ()
+      case major :: _ if major == protocolVersion.split('.').head => ()
       case _ =>
         problems += s"the SDK speaks protocol '${spec.protocolVersion}' and this sidecar speaks " +
-          s"'$ProtocolVersion'; the major versions must match"
+          s"'$protocolVersion'; the major versions must match"
 
     val descriptors = Vector.newBuilder[RemoteDescriptor]
     val agents      = Vector.newBuilder[Component]

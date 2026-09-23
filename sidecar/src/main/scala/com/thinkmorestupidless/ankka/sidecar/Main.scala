@@ -76,7 +76,6 @@ object Main:
       system: ActorSystem[?],
       models: Models = Models.fromEnv()
   ): AnkkaService =
-    given ActorSystem[?]   = system
     given ExecutionContext = system.executionContext
     val conversation       = GrpcConversation(channel, settings)
     val timers             = TimerRuntime()

@@ -56,6 +56,9 @@ from ankka.workflow import Workflow
 
 log = logging.getLogger("ankka")
 
+# What a sidecar told this process through ReportError, for a service that wants to show it.
+PROBLEMS: list[str] = []
+
 
 def _failure(command_id: int, message: str, code: Any = payload_pb2.INTERNAL) -> payload_pb2.Failure:
     return payload_pb2.Failure(command_id=command_id, error=payload_pb2.Error(message=message, code=code))
@@ -71,6 +74,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
 
     async def ReportError(self, request: discovery_pb2.Problem, context: Any) -> payload_pb2.Empty:
         log.error("the sidecar refused this service:\n%s", request.message)
+        PROBLEMS.append(request.message)
         return payload_pb2.Empty()
 
 
@@ -298,7 +302,10 @@ class _WorkflowStream:
         return workflow_pb2.WorkflowOut(reply=reply)
 
     async def step(self, run: workflow_pb2.WorkflowIn.RunStep) -> workflow_pb2.WorkflowOut:
-        workflow = self.workflow
+        # A fresh instance per step, as the sidecar's engine does: the step runs while commands
+        # keep arriving on the stream's instance, and the two must not share a context slot.
+        workflow = type(self.workflow)()
+        workflow._bind(self.workflow.entity_id)
         step_spec = type(workflow).steps().get(run.step)
         if step_spec is None:
             return workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))

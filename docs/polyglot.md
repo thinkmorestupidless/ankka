@@ -266,7 +266,7 @@ The sidecar runs the projection — exactly-once over an entity's events, at-lea
 value entity or a `topic` — and stores the rows; your class only says what an event does to the
 current row (`self.row`, `None` when there is none; `self.metadata.subject` is the source's id).
 Rows are queried through the client, `client.views.get("cart-rows", cart_id, CartRow)` and
-`views.all(...)`, or from an endpoint as the sample's `/carts/{cartId}/row` does. See
+`views.all(...)`, or from an endpoint as the sample's `/carts/{cartId}/rows` does. See
 [`cart_rows.py`](../sdks/python/examples/shopping_cart/cart_rows.py).
 
 ### A consumer

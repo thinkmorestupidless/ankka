@@ -51,3 +51,6 @@ ignore_errors = true
 # `uv run <script>`: one name per developer-facing verb, as the Justfile does for the platform.
 [tool.uv]
 package = true
+
+[project.scripts]
+conformance = "ankka._conformance:main"

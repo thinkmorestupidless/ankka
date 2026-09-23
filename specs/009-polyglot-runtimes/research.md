@@ -378,3 +378,33 @@ they land.
 9. **The Python package name** and the PyPI publish path are decided at publish time, not here;
    the release workflow gains a job that runs the SDK's tests, the fixtures and the conformance
    suite but does not publish to PyPI in this feature.
+
+## Measurements at the end (Phase 8)
+
+**SC-003, one request through the endpoint, the entity and the journal** (`bench.request-latency`
+in `ConformanceSuite`, `-Dankka.benchmarks=on`; 300 samples after 100 warm-ups, one laptop, the
+Python process on loopback with the sidecar in the test JVM — no Docker in the path):
+
+| request | Scala in-process | Python via the sidecar | ratio |
+|---|---|---|---|
+| `GET /carts/{id}` (a query) | p50 631µs, p99 1.6ms | p50 2.9ms, p99 7.9ms | 4.6× |
+| `POST …/record` (a persist) | p50 1.4ms, p99 6.1ms | p50 3.1ms, p99 11.5ms | 2.2× |
+
+The query is over the 2× budget SC-003 set; the persist is at it. What the query's path contains
+is four gRPC round trips on loopback, every one a hop the in-process request does not make: the
+sidecar's router to the Python endpoint (`Http.Handle`), the Python client back to the callback
+server (`Client.Invoke`), the sidecar's entity host to the Python entity (the conversation's
+`Command`/`Reply`), and each reply on the way back — plus `grpc.aio`'s scheduling in the Python
+process, which is where most of the difference between the two ratios lives (the persist's
+journal write is the same in both modes and amortises the hops). Per the plan this is **not
+worked around silently**: it is recorded here, and the follow-ups are the ones the plan named —
+a pooled channel per process and batching on replay do nothing for this path, so the honest
+next steps are (1) a `Client.Invoke` that the sidecar's router answers itself when the target is
+a remote entity it hosts, saving the hop through the callback server, and (2) `grpc.aio` tuning
+in the SDK (a dedicated event loop thread for the servicers). Neither is in this feature.
+
+**SC-007, the walkthrough from an empty directory**: not measured by a first-time user. The
+implementer followed `docs/polyglot.md` end to end from a fresh checkout with no JVM on the path
+(`uv sync`, the unit tests, the integration testkit pulling Postgres and the sidecar image) in
+well under fifteen minutes, but that is the author's timing, not a reader's, and it is recorded
+as such rather than as the criterion met.

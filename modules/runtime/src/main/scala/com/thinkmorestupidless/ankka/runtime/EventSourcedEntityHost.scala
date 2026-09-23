@@ -231,7 +231,18 @@ private[ankka] object EventSourcedEntityHost:
       case Journaled.Domain(domainEvent) =>
         // `_applyEvent` sets `currentState` before delegating, so a handler written as
         // `currentState.addItem(...)` — the idiom the docs use — works on replay too.
-        state.copy(value = entity._applyEvent(state.value, domainEvent), deleted = false)
+        // After a deletion or an expiry the handler was shown `emptyState` (see `onCommand`),
+        // so the fold starts from it as well: applying onto the kept value would resurrect
+        // what was deleted — a deleted entity that was written to again answered with both
+        // lives' events, which the conformance suite caught (`es.delete-then-fresh`).
+        val base =
+          if state.deleted || state.expired(System.currentTimeMillis()) then entity.emptyState
+          else state.value
+        state.copy(
+          value = entity._applyEvent(base, domainEvent),
+          deleted = false,
+          expiryMillis = 0L
+        )
 
       case Journaled.Deleted =>
         // The value is kept rather than blanked. Pekko folds every event before

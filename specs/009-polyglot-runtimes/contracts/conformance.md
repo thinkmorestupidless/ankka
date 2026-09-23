@@ -16,12 +16,12 @@ Every SDK ships one, with these components, wire names and routes. The Scala one
 
 | component | kind | handlers |
 |---|---|---|
-| `shopping-cart` | event sourced | `add-item`, `remove-item`, `checkout`, `get-cart` (query); `snapshotEvery = 3` |
+| `shopping-cart` | event sourced | `add-item`, `remove-item`, `checkout`, `get-cart` (query), `total-quantity` (query); `snapshotEvery = 3` |
 | `conformance` | event sourced | `record` (persists one event per call), `record-many` (n events), `refuse` (error, no events), `no-reply`, `delete`, `expire` (1s), `count` (query), `misbehave` (throws) |
 | `profile` | key value | `set`, `get` (query), `delete` |
-| `checkout` | workflow | `start`, `status` (query); steps `reserve`, `charge`, `compensate`; `charge` fails when the input says so |
+| `checkout` | workflow | `start` (input `ok`, `fail` or `pause`), `status` (query); steps `reserve` (calls `shopping-cart/total-quantity`), `wait` (a 1.5s pause, then `charge`), `charge` (declined when the input said `fail`), `compensate` |
 | `cart-rows` | view over `shopping-cart` | query `by-id` |
-| `checkout-notifier` | consumer over `shopping-cart` | records checkouts to `conformance` via the client |
+| `checkout-recorder` | consumer over `shopping-cart` | records checkouts to `conformance` via the client |
 | `reminder` | timed action | `remind` (invokes `conformance/record`) |
 | `assistant` | agent | `ask`, `stream` (streaming); tool `lookup` (calls `conformance/count`); guardrail `no-secrets` |
 
@@ -58,7 +58,7 @@ Each is one munit case whose name is the identifier below, so a failure names th
 - `es.refusal-persists-nothing` — `refuse` answers its code; journal unchanged.
 - `es.no-reply` — `no-reply` persists and answers 204.
 - `es.recover-after-restart` — three items, restart, `GET /carts/c1` shows three.
-- `es.snapshot-on-request` — four `record`s; the snapshot table has one row at sequence 3; restart; `count` is 4.
+- `es.snapshot-on-request` — four `record`s; the snapshot table has one row at sequence 3 (or 4 for a process target, whose snapshot describes the state after event 3 and is stored by the sidecar there or at the next event); restart; `count` is 4.
 - `es.delete-then-fresh` — `delete`, then `count` is 0 and `record` works.
 - `es.expire` — `expire`, wait 1.5s, `count` is 0.
 - `es.serial-per-instance` — ten concurrent `record`s on one id yield `count` 10 and sequences 1..10.
@@ -73,11 +73,11 @@ Each is one munit case whose name is the identifier below, so a failure names th
 **Workflow**
 - `wf.runs-steps-in-order` — `start`, then `status` reaches `charged` with transitions journaled in order.
 - `wf.step-failure-compensates` — `charge` fails; `compensate` runs; `status` is `compensated`.
-- `wf.step-calls-client` — `reserve` invoked `profile/get` and its span is a child.
+- `wf.step-calls-client` — `reserve` invoked `shopping-cart/total-quantity` (a step is its own piece of work, so the call is a root span, in both hosting modes).
 - `wf.survives-restart-mid-step` — restart during `charge`'s pause; the pending step resumes.
 
 **View and consumer**
-- `view.row-updated`, `view.query-by-id`, `view.row-deleted-on-checkout`.
+- `view.row-updated`, `view.query-by-id`, `view.row-tombstoned-on-checkout` — checkout deletes the cart; the row stays, marked `checkedOut`, as an order history wants.
 - `consumer.at-least-once-in-order` — checkouts arrive in order per cart; `conformance/count` matches.
 
 **Timed action**
@@ -90,7 +90,7 @@ Each is one munit case whose name is the identifier below, so a failure names th
 - `http.query-and-headers-cross` — `GET /conformance/echo?a=1&a=2&b=x` with two headers echoes both `a` values in order and both headers.
 - `http.body-decoded-reply-encoded` — a JSON body decodes to the handler's type; the reply carries `application/json` and the encoding's shape.
 - `http.status-passthrough` — `GET /conformance/status/418` answers 418.
-- `http.handler-fault-is-500` — `GET /conformance/boom` answers 500 with the message; the span is `Failed`.
+- `http.handler-fault-is-500` — `GET /conformance/boom` answers 500; the message stays in the log.
 - `http.acl-deny-never-reaches-process` — `GET /private/` answers 401 (or 503 with no verifier) and the process saw no request.
 - `http.sse-frames-json-encoded` — `GET /conformance/stream/s1` streams frames whose `data:` is JSON, including one with a leading space and one with a newline, intact.
 - `http.request-span-parents-entity-span` — the entity span from `POST /carts/c1/items` is a child of the request span.
@@ -105,7 +105,7 @@ Each is one munit case whose name is the identifier below, so a failure names th
 - `agent.session-survives-process-restart` (process targets) — a second turn after restart sees the first.
 
 **Client**
-- `client.trace-propagates` — a nested call's span has the handler's span as parent.
+- `client.trace-propagates` — a call made from an endpoint handler (`POST /conformance/{id}/record-many`) has the request's span as parent, across the process boundary for a process target.
 - `client.error-code-crosses` — a refusal from `refuse` reaches a caller's `error` with its code.
 
 **Observability**

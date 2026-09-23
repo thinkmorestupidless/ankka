@@ -26,8 +26,7 @@ final class SidecarExtension(
     conversation: Conversation,
     timers: TimerRuntime,
     servedRoutes: Vector[ServedRoute]
-)(using system: ActorSystem[?])
-    extends RuntimeExtension:
+) extends RuntimeExtension:
 
   private val log                              = LoggerFactory.getLogger(getClass)
   @volatile private var server: Option[Server] = None
@@ -37,7 +36,9 @@ final class SidecarExtension(
   def name: String = "sidecar"
 
   def start(service: AnkkaService): Unit =
-    given scala.concurrent.ExecutionContext = system.executionContext
+    // The system is the service's: an extension is built before one exists.
+    given ActorSystem[?]                    = service.system
+    given scala.concurrent.ExecutionContext = service.system.executionContext
     val client = ClientService(service, settings, () => Some(timers.timerScheduler))
     server = Some(CallbackServer.start(client, settings.callbackBind, settings.callbackPort))
     log.info(

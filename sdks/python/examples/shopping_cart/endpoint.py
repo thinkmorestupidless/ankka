@@ -44,7 +44,12 @@ class ShoppingCartEndpoint(Endpoint):
 
     # ── The view, the workflow and the notifier's log ──────────────────────
 
-    @get("/{cartId}/row")
+    @get("/awkward")
+    def awkward(self) -> str:
+        """A literal beside a parameter: the router must prefer it over ``/{cartId}``."""
+        return "literal"
+
+    @get("/{cartId}/rows")
     async def row(self, cartId: str) -> CartRow:
         found = await self.client.views.get("cart-rows", cartId, CartRow)
         if found is None:
@@ -56,8 +61,9 @@ class ShoppingCartEndpoint(Endpoint):
         return await self.client.views.all("cart-rows", CartRow)
 
     @post("/{cartId}/checkouts")
-    async def start_checkout(self, cartId: str) -> Done:
-        return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).call("start").invoke(reply=Done)
+    async def start_checkout(self, cartId: str, mode: str) -> Done:
+        """``mode`` is the body: ``ok``, ``fail`` or ``pause``."""
+        return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).call("start").invoke(mode or "ok", reply=Done)
 
     @get("/{cartId}/checkouts")
     async def checkout_status(self, cartId: str) -> Checkout:

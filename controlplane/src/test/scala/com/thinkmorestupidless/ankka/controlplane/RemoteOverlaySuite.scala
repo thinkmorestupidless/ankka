@@ -77,6 +77,24 @@ final class RemoteOverlaySuite extends FunSuite:
     assert(remote.contains("ankka-operator"), "the operator is missing")
   }
 
+  test("the operator is told which sidecar image to inject, from the registry (feature 009)") {
+    // The sidecar is injected by the operator, so no manifest names it and the `images:`
+    // transformer cannot reach it: the remote overlay sets ANKKA_SIDECAR_IMAGE by patch, and the
+    // local one keeps the locally built tag that deploy-local.sh loads.
+    val remoteOperator =
+      documentsOfKind(remote, "Deployment").find(_.contains("name: ankka-operator")).get
+    assert(
+      remoteOperator.contains("europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:"),
+      "the remote operator does not name the registry's sidecar image"
+    )
+    val localOperator =
+      documentsOfKind(local, "Deployment").find(_.contains("name: ankka-operator")).get
+    assert(
+      localOperator.contains("ankka-sidecar:latest"),
+      "the local operator does not name the local sidecar image"
+    )
+  }
+
   test("the shared bearer token is gone from both overlays (feature 008)") {
     // Not deleted by the remote overlay any more: removed. Every caller is a Keycloak user.
     for render <- Vector(local, remote) do

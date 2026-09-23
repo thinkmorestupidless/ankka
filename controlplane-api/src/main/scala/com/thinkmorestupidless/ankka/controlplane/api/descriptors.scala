@@ -398,7 +398,11 @@ final case class ServiceStatus(
      * member's pause from an operator *reporting* `Paused`: a stale report landing just after a
      * resume otherwise leaves the listing saying Paused while the entity says Ready.
      */
-    paused: Boolean = false
+    paused: Boolean = false,
+    /** `embedded` or `process` (feature 009): where the developer's code runs. Display only. */
+    hosting: String = "embedded",
+    /** The sidecar protocol the service declared, for a process-hosted one. Display only. */
+    protocol: Option[String] = None
 )
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */

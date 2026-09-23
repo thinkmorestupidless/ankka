@@ -39,6 +39,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
             effects.updateRow(
               row.copy(
                 image = descriptor.service.image,
+                hosting = descriptor.service.hosting,
+                protocol = descriptor.service.protocol,
                 generation = generation,
                 lifecycle =
                   if row.paused then ServiceLifecycle.Paused

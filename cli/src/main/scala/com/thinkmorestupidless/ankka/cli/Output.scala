@@ -102,8 +102,10 @@ object Output:
           "instances"  -> s"${row.readyInstances}/${row.desiredInstances}",
           "generation" -> row.generation.toString,
           "image"      -> row.image,
+          "hosting"    -> row.hosting,
           "hostname"   -> hostname(row)
-        ) ++ row.database.map("database" -> _) ++ row.detail.map("detail" -> _)
+        ) ++ row.protocol.map("protocol" -> _) ++ row.database.map("database" -> _) ++
+          row.detail.map("detail" -> _)
         val width = fields.map(_._1.length).max
         fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
 

@@ -74,7 +74,7 @@ private[ankka] object EventSourcedEntityHost:
           eventHandler = (state, event) => onEvent(entity, state, event)
         )
         .eventAdapter(eventAdapter(descriptor))
-        .snapshotAdapter(snapshotAdapter(descriptor))
+        .snapshotAdapter(snapshotAdapter(descriptor, entity))
 
       descriptor.snapshotEvery match
         case Some(n) if n > 0 => base.withRetention(RetentionCriteria.snapshotEvery(n, 2))
@@ -285,7 +285,8 @@ private[ankka] object EventSourcedEntityHost:
             )
 
   private def snapshotAdapter[C <: EventSourcedEntity[S, E], S, E](
-      descriptor: EventSourcedEntityDescriptor[C, S, E]
+      descriptor: EventSourcedEntityDescriptor[C, S, E],
+      entity: C
   ): SnapshotAdapter[Stored[S]] =
     new SnapshotAdapter[Stored[S]]:
 
@@ -298,9 +299,24 @@ private[ankka] object EventSourcedEntityHost:
         )
 
       def fromJournal(from: Any): Stored[S] =
-        val record = from.asInstanceOf[StateRecord]
-        Stored(
-          descriptor.stateSerializer.fromBytes(record.payload),
-          record.deleted,
-          record.expiryMillis
-        )
+        // A `RemoteStateRecord` is what a sidecar-hosted port of this entity wrote (feature 009);
+        // its extra positions are the sidecar's concern. Reading it is what makes the journal
+        // portable in that direction.
+        from match
+          case record: StateRecord =>
+            Stored(
+              descriptor.stateSerializer.fromBytes(record.payload),
+              record.deleted,
+              record.expiryMillis
+            )
+          case record: RemoteStateRecord =>
+            Stored(
+              if record.manifest.isEmpty then entity.emptyState
+              else descriptor.stateSerializer.fromBytes(record.payload),
+              record.deleted,
+              record.expiryMillis
+            )
+          case other =>
+            throw IllegalStateException(
+              s"unexpected snapshot record ${other.getClass.getName} for '${descriptor.componentId}'"
+            )

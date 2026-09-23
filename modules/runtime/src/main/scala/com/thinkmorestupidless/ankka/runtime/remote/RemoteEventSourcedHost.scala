@@ -9,7 +9,8 @@ import com.thinkmorestupidless.ankka.runtime.{
   Observability,
   SpanOutcome,
   StateRecord,
-  Trace
+  Trace,
+  RemoteStateRecord
 }
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.actor.typed.{Behavior, PostStop}
@@ -52,17 +53,17 @@ import scala.util.{Failure, Success, Try}
 private[ankka] object RemoteEventSourcedHost:
 
   /**
-   * The behaviour's state. `sinceSnapshot` counts domain events journaled after the snapshot, which
-   * recovery reproduces by counting replayed events. `deletedAt` is the sequence of the last
-   * deletion marker, so a replay after deletion starts after it.
+   * The behaviour's state. `snapshotSeq` is where in the journal the process produced `snapshot`,
+   * `deletionSeq` where the last deletion marker sits (0 for never): absolute positions, stored in
+   * the snapshot record, so Pekko may save its snapshot whenever it likes. `sinceSnapshot` counts
+   * domain events since the process snapshot, which is what `snapshot_every` is measured in.
    */
   final case class RemoteStored(
       snapshot: Option[Payload],
-      snapshotAt: Long,
+      snapshotSeq: Long,
       sinceSnapshot: Int,
-      afterSnapshot: Int,
       deleted: Boolean,
-      deletedAt: Long,
+      deletionSeq: Long,
       expiryMillis: Long
   ):
     def expired(nowMillis: Long): Boolean = expiryMillis > 0 && nowMillis >= expiryMillis
@@ -119,12 +120,10 @@ private[ankka] object RemoteEventSourcedHost:
       /** Opens the conversation with a snapshot and a streamed replay of the events after it. */
       def open(state: RemoteStored): Unit =
         opening = true
-        val now   = System.currentTimeMillis()
-        val fresh = state.fresh(now)
-        // A snapshot recovered from storage does not carry its sequence; every event replayed
-        // after it was counted, so it is the last sequence minus that count.
-        val snapshotSeq =
-          if state.snapshotAt > 0 then state.snapshotAt else lastSequence - state.afterSnapshot
+        val now         = System.currentTimeMillis()
+        val fresh       = state.fresh(now)
+        val snapshotSeq = state.snapshotSeq
+        val deletionSeq = state.deletionSeq
         val init = Init(
           descriptor.kind,
           descriptor.componentId,
@@ -135,7 +134,7 @@ private[ankka] object RemoteEventSourcedHost:
         session = Some(s)
         val from =
           if fresh then lastSequence + 1
-          else math.max(snapshotSeq, state.deletedAt) + 1
+          else math.max(if state.snapshot.isDefined then snapshotSeq else 0L, deletionSeq) + 1
         val replay =
           if from > lastSequence then scala.concurrent.Future.successful(())
           else
@@ -215,6 +214,10 @@ private[ankka] object RemoteEventSourcedHost:
         lastSequence = EventSourcedBehavior.lastSequenceNumber(ctx)
         command match
           case invoke: EntityProtocol.Invoke =>
+            // An expired instance is fresh at command time, as in-process; the process's copy of
+            // the old state must go with it.
+            if state.expired(System.currentTimeMillis()) && session.isDefined && inFlight.isEmpty
+            then dropSession()
             if inFlight.isDefined || opening || session.isEmpty then
               queued :+= invoke
               if session.isEmpty && !opening then open(state)
@@ -296,8 +299,13 @@ private[ankka] object RemoteEventSourcedHost:
                         // The snapshot the process sent is stored on the state; `snapshotWhen`
                         // then asks Pekko to snapshot at exactly this sequence.
                         pendingSnapshot = m.snapshot
-                        // The next queued command goes out after the events are applied.
-                        val next = persist.thenRun(drain)
+                        // After the events are applied: a deletion makes the process's copy of
+                        // the state stale, so the conversation is dropped and the next command
+                        // re-opens it fresh; then the next queued command goes out.
+                        val next = persist.thenRun { after =>
+                          if m.retention.contains(Retention.DeleteNow) then dropSession()
+                          drain(after)
+                        }
                         answer match
                           case Some((payload, metadata)) =>
                             next.thenReply(invoke.replyTo)(_ =>
@@ -328,38 +336,43 @@ private[ankka] object RemoteEventSourcedHost:
       end onCommand
 
       def onEvent(state: RemoteStored, event: Journaled): RemoteStored =
+        // Inside the event handler this is the sequence of the event being applied, on the live
+        // path and on recovery alike (measured, not assumed).
         val seq = EventSourcedBehavior.lastSequenceNumber(ctx)
         event match
           case Journaled.Domain(_) =>
             pendingSnapshot match
               case Some(snapshot) =>
+                // The snapshot the process sent describes the state after the reply's events and
+                // lands on the last of them; `snapshotWhen` stores the state there.
                 pendingSnapshot = None
                 state.copy(
                   snapshot = Some(snapshot),
-                  snapshotAt = seq,
+                  snapshotSeq = seq,
                   sinceSnapshot = 0,
-                  afterSnapshot = 0,
                   deleted = false
                 )
               case None =>
-                state.copy(
-                  sinceSnapshot = state.sinceSnapshot + 1,
-                  afterSnapshot = state.afterSnapshot + 1,
-                  deleted = false
-                )
+                state.copy(sinceSnapshot = state.sinceSnapshot + 1, deleted = false)
           case Journaled.Deleted =>
             state.copy(
               deleted = true,
-              deletedAt = seq,
+              deletionSeq = seq,
               snapshot = None,
-              sinceSnapshot = 0,
-              afterSnapshot = state.afterSnapshot + 1
+              snapshotSeq = 0L,
+              sinceSnapshot = 0
             )
           case Journaled.Expiry(at) =>
-            state.copy(expiryMillis = at, afterSnapshot = state.afterSnapshot + 1)
+            state.copy(expiryMillis = at)
 
-      val empty =
-        RemoteStored(None, 0L, 0, 0, deleted = false, deletedAt = 0L, expiryMillis = 0L)
+      val empty = RemoteStored(
+        snapshot = None,
+        snapshotSeq = 0L,
+        sinceSnapshot = 0,
+        deleted = false,
+        deletionSeq = 0L,
+        expiryMillis = 0L
+      )
 
       val base = EventSourcedBehavior
         .withEnforcedReplies[EntityProtocol.Command, Journaled, RemoteStored](
@@ -370,7 +383,13 @@ private[ankka] object RemoteEventSourcedHost:
         )
         .eventAdapter(eventAdapter)
         .snapshotAdapter(snapshotAdapter)
-        .snapshotWhen((state, _, seq) => state.snapshotAt == seq && state.snapshot.isDefined)
+        // Pekko evaluates this with the state *before* the event it names (measured), so a
+        // process-produced snapshot that landed on event N is first visible here at N+1. Either
+        // position is accepted; positions in the record are absolute, so a save at any moment
+        // recovers correctly, and the retention below bounds the replay when no event follows.
+        .snapshotWhen { (state, _, seq) =>
+          state.snapshot.isDefined && (state.snapshotSeq == seq || state.snapshotSeq == seq - 1)
+        }
         .receiveSignal {
           case (_, RecoveryCompleted) =>
             lastSequence = EventSourcedBehavior.lastSequenceNumber(ctx)
@@ -382,9 +401,8 @@ private[ankka] object RemoteEventSourcedHost:
         }
 
       descriptor.snapshotEvery match
-        case Some(n) if n > 0 =>
-          base.withRetention(RetentionCriteria.snapshotEvery(Int.MaxValue, 2))
-        case _ => base
+        case Some(n) if n > 0 => base.withRetention(RetentionCriteria.snapshotEvery(n, 2))
+        case _                => base
     }
 
   private def retentionRecord(retention: Option[Retention]): Vector[Journaled] =
@@ -426,25 +444,47 @@ private[ankka] object RemoteEventSourcedHost:
   private val snapshotAdapter: SnapshotAdapter[RemoteStored] =
     new SnapshotAdapter[RemoteStored]:
       def toJournal(state: RemoteStored): Any =
-        state.snapshot match
-          case Some(p) => StateRecord(p.manifest, p.data, state.deleted, state.expiryMillis)
-          case None    => StateRecord("", Array.emptyByteArray, state.deleted, state.expiryMillis)
+        RemoteStateRecord(
+          state.snapshot.map(_.manifest).getOrElse(""),
+          state.snapshot.map(_.data).getOrElse(Array.emptyByteArray),
+          state.deleted,
+          state.expiryMillis,
+          state.snapshotSeq,
+          state.deletionSeq
+        )
 
       def fromJournal(from: Any): RemoteStored =
-        val record = from.asInstanceOf[StateRecord]
-        RemoteStored(
-          snapshot =
-            if record.manifest.isEmpty then None
-            else
-              Some(
-                Payload(Payload.contentTypeFor(record.manifest), record.manifest, record.payload)
-              )
-          ,
-          // Not known until recovery has replayed; `RecoveryCompleted` and `sinceSnapshot` fix it up.
-          snapshotAt = 0L,
-          sinceSnapshot = 0,
-          afterSnapshot = 0,
-          deleted = record.deleted,
-          deletedAt = 0L,
-          expiryMillis = record.expiryMillis
-        )
+        from match
+          case record: RemoteStateRecord =>
+            RemoteStored(
+              snapshot =
+                if record.manifest.isEmpty then None
+                else
+                  Some(
+                    Payload(
+                      Payload.contentTypeFor(record.manifest),
+                      record.manifest,
+                      record.payload
+                    )
+                  )
+              ,
+              snapshotSeq = record.snapshotSeq,
+              sinceSnapshot = 0,
+              deleted = record.deleted,
+              deletionSeq = record.deletionSeq,
+              expiryMillis = record.expiryMillis
+            )
+          case record: StateRecord =>
+            // Written by the in-process host: a journal being ported. Pekko saved it at some
+            // sequence this record does not carry, so the whole journal after it is replayed to
+            // the process; correct, merely longer, and only until the next snapshot.
+            RemoteStored(
+              snapshot = None,
+              snapshotSeq = 0L,
+              sinceSnapshot = 0,
+              deleted = record.deleted,
+              deletionSeq = 0L,
+              expiryMillis = record.expiryMillis
+            )
+          case other =>
+            throw IllegalStateException(s"unexpected snapshot record ${other.getClass.getName}")

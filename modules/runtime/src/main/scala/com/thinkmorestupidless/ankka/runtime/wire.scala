@@ -168,6 +168,24 @@ final case class StateRecord(
 ) extends AnkkaSerializable
 
 /**
+ * A remote event sourced host's snapshot (feature 009): a `StateRecord` plus where in the journal
+ * the process produced this state and where the last deletion marker sits. Positions are stored
+ * because Pekko decides *when* it saves a snapshot and a sidecar cannot fold events to find out;
+ * they are absolute sequence numbers, so the save's timing does not matter.
+ *
+ * The in-process host reads this record too (taking only what a `StateRecord` has), so a journal
+ * written by a service in another language recovers in Scala, and the reverse.
+ */
+final case class RemoteStateRecord(
+    manifest: String,
+    payload: Array[Byte],
+    deleted: Boolean,
+    expiryMillis: Long,
+    snapshotSeq: Long,
+    deletionSeq: Long
+) extends AnkkaSerializable
+
+/**
  * One record in a workflow's journal.
  *
  * Flat, like `JournalRecord`, and for the same reason: this is the durable record of a business

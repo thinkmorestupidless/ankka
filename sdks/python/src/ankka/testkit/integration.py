@@ -157,6 +157,41 @@ class AnkkaTestKit:
             shutil.rmtree(self._ddl_dir, ignore_errors=True)
             self._ddl_dir = None
 
+    # ── other processes on the same database ─────────────────────────────
+
+    def start_beside(self, image: str, http_port: int = HTTP_PORT, env: dict[str, str] | None = None) -> tuple[DockerContainer, httpx.AsyncClient]:
+        """Starts another image against this kit's Postgres — an in-process Scala service, say, to
+        prove the journal is shared. The caller stops the container."""
+        assert self._network is not None
+        container = (
+            DockerContainer(image)
+            .with_network(self._network)
+            .with_env("ANKKA_HTTP_PORT", str(http_port))
+            .with_env("ANKKA_DB_HOST", "postgres")
+            .with_env("ANKKA_DB_PORT", "5432")
+            .with_env("ANKKA_DB_NAME", "ankka")
+            .with_env("ANKKA_DB_USER", "ankka")
+            .with_env("ANKKA_DB_PASSWORD", "ankka")
+            .with_exposed_ports(http_port)
+        )
+        for k, v in (env or {}).items():
+            container = container.with_env(k, v)
+        container.start()
+        port = int(container.get_exposed_port(http_port))
+        return container, httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=30.0)
+
+    @staticmethod
+    async def wait_healthy(http: httpx.AsyncClient, timeout: float = 90.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if (await http.get("/_ankka/health")).status_code == 200:
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+        raise TimeoutError("the service was not healthy in time")
+
     # ── what a test reads ─────────────────────────────────────────────────
 
     def sidecar_logs(self) -> str:

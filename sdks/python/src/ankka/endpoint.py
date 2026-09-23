@@ -186,7 +186,7 @@ class Endpoint:
             codec = spec.reply_codec
             assert codec is not None
             if result is None or isinstance(result, Done):
-                return 200, codec.content_type, b""
+                return 204, codec.content_type, b""  # as a Scala endpoint answers Done: no content
             return 200, codec.content_type, codec.encode(result)
         finally:
             _current.reset(token)

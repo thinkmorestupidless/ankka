@@ -68,8 +68,8 @@ INK_JSON = {"productId": "p2", "name": "Ink", "quantity": 1}
 async def test_cart_through_the_sidecar_survives_a_restart() -> None:
     service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
     async with await AnkkaTestKit.start(service) as kit:
-        assert (await kit.http.post("/carts/c1/items", json=PEN_JSON)).status_code == 200
-        assert (await kit.http.post("/carts/c1/items", json=INK_JSON)).status_code == 200
+        assert (await kit.http.post("/carts/c1/items", json=PEN_JSON)).status_code == 204
+        assert (await kit.http.post("/carts/c1/items", json=INK_JSON)).status_code == 204
         cart = (await kit.http.get("/carts/c1")).json()
         assert cart == {"cartId": "c1", "items": [PEN_JSON, INK_JSON], "checkedOut": False}
         assert (await kit.http.get("/carts/c1/total")).json() == 3

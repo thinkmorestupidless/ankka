@@ -76,9 +76,9 @@ private[ankka] final class RemoteView(
   private val handlerRef   = observability.names.intern("on-change")
 
   /**
-   * Asks the process what to do with a change. A deletion of the source is not sent: there is no
-   * event to hand over, and the in-process default for `onDelete` is to drop the row, so the row
-   * goes with its source here too.
+   * Asks the process what to do with a change — or with the source's deletion (`change` absent),
+   * which the process answers as a Scala view answers `onDelete`: drop the row, or keep it as the
+   * tombstone an order history wants.
    */
   def decide(
       subject: String,
@@ -86,30 +86,27 @@ private[ankka] final class RemoteView(
       change: Option[Payload],
       row: Option[Array[Byte]]
   ): Future[ViewOutcome] =
-    change match
-      case None        => Future.successful(ViewOutcome.DeleteRow)
-      case Some(event) =>
-        // A projection has no inbound request, so this span is a trace root — as for a Scala view.
-        val span = observability.recorder.begin(
-          traceId = Trace.mint(),
-          parentSpanId = 0L,
-          componentRef = componentRef,
-          handlerRef = handlerRef
+    // A projection has no inbound request, so this span is a trace root — as for a Scala view.
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = componentRef,
+      handlerRef = handlerRef
+    )
+    conversation
+      .handleView(
+        ViewRequest(
+          descriptor.componentId,
+          change,
+          Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
+          row.map(bytes => Payload(Payload.Json, descriptor.rowManifest, bytes))
         )
-        conversation
-          .handleView(
-            ViewRequest(
-              descriptor.componentId,
-              event,
-              Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
-              row.map(bytes => Payload(Payload.Json, descriptor.rowManifest, bytes))
-            )
-          )
-          .transform { result =>
-            observability.recorder
-              .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
-            result
-          }
+      )
+      .transform { result =>
+        observability.recorder
+          .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
+        result
+      }
 
   /** Applies an outcome through the view's own connection — for the at-least-once sources. */
   def apply(database: Database, subject: String, outcome: ViewOutcome): Future[Done] =
@@ -197,54 +194,51 @@ private[ankka] final class RemoteConsumer(
   private val handlerRef   = observability.names.intern("on-message")
 
   /**
-   * Hands a change to the process and publishes whatever it produces. A source deletion is not
-   * delivered: there is no message, and the in-process default for `onDelete` ignores it.
+   * Hands a change — or the source's deletion, `change` absent — to the process and publishes
+   * whatever it produces.
    */
   def handle(subject: String, sequence: Long, change: Option[Payload]): Future[Done] =
-    change match
-      case None => Future.successful(Done)
-      case Some(message) =>
-        val span = observability.recorder.begin(
-          traceId = Trace.mint(),
-          parentSpanId = 0L,
-          componentRef = componentRef,
-          handlerRef = handlerRef
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = componentRef,
+      handlerRef = handlerRef
+    )
+    conversation
+      .handleConsumer(
+        ConsumerRequest(
+          descriptor.componentId,
+          change,
+          Trace.into(changeMetadata(subject, sequence), span.traceId, span.id)
         )
-        conversation
-          .handleConsumer(
-            ConsumerRequest(
-              descriptor.componentId,
-              message,
-              Trace.into(changeMetadata(subject, sequence), span.traceId, span.id)
-            )
-          )
-          .transform { result =>
-            observability.recorder
-              .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
-            result
-          }
-          .flatMap {
-            case ConsumerOutcome.Produce(payload, metadata) =>
-              (descriptor.producesTo, publisher) match
-                case (Some(topic), Some(target)) =>
-                  // `ce-subject` defaults to the source entity id so per-entity ordering survives
-                  // the hop onto a partition; the manifest travels so a topic-sourced remote
-                  // component can decode what it gets.
-                  val enriched =
-                    (if metadata.subject.isDefined then metadata else metadata.withSubject(subject))
-                      .set(PayloadKeys.Manifest, payload.manifest)
-                      .set(PayloadKeys.ContentType, payload.contentType)
-                  target.publish(topic, payload.data, enriched)
-                case _ =>
-                  // Startup validation rules this out; silently dropping would hide a slip.
-                  Future.failed(
-                    IllegalStateException(
-                      s"consumer '${descriptor.componentId}' produced a message but has no " +
-                        "publish target configured"
-                    )
-                  )
-            case ConsumerOutcome.Done | ConsumerOutcome.Ignore => Future.successful(Done)
-          }
+      )
+      .transform { result =>
+        observability.recorder
+          .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
+        result
+      }
+      .flatMap {
+        case ConsumerOutcome.Produce(payload, metadata) =>
+          (descriptor.producesTo, publisher) match
+            case (Some(topic), Some(target)) =>
+              // `ce-subject` defaults to the source entity id so per-entity ordering survives
+              // the hop onto a partition; the manifest travels so a topic-sourced remote
+              // component can decode what it gets.
+              val enriched =
+                (if metadata.subject.isDefined then metadata else metadata.withSubject(subject))
+                  .set(PayloadKeys.Manifest, payload.manifest)
+                  .set(PayloadKeys.ContentType, payload.contentType)
+              target.publish(topic, payload.data, enriched)
+            case _ =>
+              // Startup validation rules this out; silently dropping would hide a slip.
+              Future.failed(
+                IllegalStateException(
+                  s"consumer '${descriptor.componentId}' produced a message but has no " +
+                    "publish target configured"
+                )
+              )
+        case ConsumerOutcome.Done | ConsumerOutcome.Ignore => Future.successful(Done)
+      }
 
 private[ankka] final class RemoteConsumerEventHandler(consumer: RemoteConsumer)
     extends Handler[EventEnvelope[JournalRecord]]:

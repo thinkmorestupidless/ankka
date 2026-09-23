@@ -252,6 +252,80 @@ class KeyValueServicer(key_value_pb2_grpc.KeyValueServicer):
                 yield key_value_pb2.KeyValueOut(reply=reply)
 
 
+class _WorkflowStream:
+    """One loaded workflow instance: its state, and the step running for it, if any. A command
+    arriving while a step runs is answered from the state before the step; the step's new state
+    applies when it replies, as the sidecar's engine journals it."""
+
+    def __init__(self, workflow: Workflow[Any], state: Any, client: ComponentClient) -> None:
+        self.workflow = workflow
+        self.state = state
+        self.client = client
+        self.step_task: asyncio.Task[None] | None = None
+
+    async def command(self, cmd: workflow_pb2.WorkflowIn.Command) -> workflow_pb2.WorkflowOut:
+        workflow = self.workflow
+        spec = type(workflow).handlers().get(cmd.name)
+        if spec is None:
+            return workflow_pb2.WorkflowOut(failure=_failure(cmd.id, f"no handler {cmd.name!r}", payload_pb2.NOT_FOUND))
+        metadata = Metadata.from_pb(cmd.metadata)
+        ctx = CommandContext(workflow.entity_id, type(workflow).component_id, metadata, 0, self.client.with_metadata(metadata))
+        try:
+            effect = await workflow._run(spec, self.state, cmd.payload.data, ctx)
+        except Exception as e:
+            log.warning("%s/%s %s raised: %s", type(workflow).component_id, workflow.entity_id, cmd.name, e)
+            return workflow_pb2.WorkflowOut(failure=_failure(cmd.id, str(e) or type(e).__name__))
+        reply = workflow_pb2.WorkflowOut.Reply(command_id=cmd.id)
+        new_state = self.state if effect.new_state is None else effect.new_state
+        if isinstance(effect.outcome, Fail):
+            reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
+            return workflow_pb2.WorkflowOut(reply=reply)
+        if effect.new_state is not None:
+            reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, effect.new_state))
+        if effect.transition is not None:
+            reply.transition.CopyFrom(_step_ref(effect.transition))
+        if isinstance(effect.outcome, NoReply):
+            reply.outcome.no_reply.SetInParent()
+        else:
+            assert isinstance(effect.outcome, Reply)
+            value = effect.outcome.compute(new_state)
+            reply.outcome.reply.payload.CopyFrom(_payload_of(spec.reply_codec, value))
+            reply.outcome.reply.metadata.CopyFrom(effect.outcome.metadata.to_pb())
+        self.state = new_state
+        return workflow_pb2.WorkflowOut(reply=reply)
+
+    async def step(self, run: workflow_pb2.WorkflowIn.RunStep) -> workflow_pb2.WorkflowOut:
+        workflow = self.workflow
+        step_spec = type(workflow).steps().get(run.step)
+        if step_spec is None:
+            return workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))
+        ctx = CommandContext(workflow.entity_id, type(workflow).component_id, Metadata(), 0, self.client)
+        try:
+            step_effect = await workflow._run_step(step_spec, self.state, run.input.data if run.HasField("input") else None, ctx)
+        except Exception as e:
+            log.warning("%s/%s step %s raised: %s", type(workflow).component_id, workflow.entity_id, run.step, e)
+            return workflow_pb2.WorkflowOut(failure=_failure(run.id, str(e) or type(e).__name__))
+        step_reply = workflow_pb2.WorkflowOut.StepReply(command_id=run.id)
+        if step_effect.new_state is not None:
+            step_reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, step_effect.new_state))
+            self.state = step_effect.new_state
+        nxt = step_effect.next
+        if isinstance(nxt, TransitionTo):
+            step_reply.next.transition_to.CopyFrom(_step_ref(nxt.ref))
+        elif isinstance(nxt, Pause):
+            step_reply.next.pause.SetInParent()
+            if nxt.after is not None:
+                step_reply.next.pause.after_millis = int(nxt.after.total_seconds() * 1000)
+            if nxt.on_timeout is not None:
+                step_reply.next.pause.on_timeout.CopyFrom(_step_ref(nxt.on_timeout))
+        elif isinstance(nxt, StepFail):
+            step_reply.next.fail.CopyFrom(nxt.error.to_pb())
+        else:
+            assert isinstance(nxt, End)
+            step_reply.next.end.SetInParent()
+        return workflow_pb2.WorkflowOut(step_reply=step_reply)
+
+
 class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
     def __init__(self, registry: Registry, client: ComponentClient) -> None:
         self.registry = registry
@@ -260,87 +334,52 @@ class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
     async def Handle(
         self, request_iterator: AsyncIterator[workflow_pb2.WorkflowIn], context: Any
     ) -> AsyncIterator[workflow_pb2.WorkflowOut]:
-        workflow: Workflow[Any] | None = None
-        state: Any = None
-        entity_id = ""
-        async for message in request_iterator:
-            kind = message.WhichOneof("message")
-            if kind == "init":
-                cls = self.registry.workflows.get(message.init.component_id)
-                if cls is None:
-                    yield workflow_pb2.WorkflowOut(failure=_failure(0, f"unknown component {message.init.component_id!r}", payload_pb2.NOT_FOUND))
+        # Replies leave through one queue: commands are answered inline by the reader, steps by
+        # their own task, so a command arriving mid-step is not stuck behind it.
+        out: asyncio.Queue[workflow_pb2.WorkflowOut | None] = asyncio.Queue()
+        stream: _WorkflowStream | None = None
+
+        async def run_step(s: _WorkflowStream, run: workflow_pb2.WorkflowIn.RunStep) -> None:
+            await out.put(await s.step(run))
+            s.step_task = None
+
+        async def read() -> None:
+            nonlocal stream
+            try:
+                async for message in request_iterator:
+                    kind = message.WhichOneof("message")
+                    if kind == "init":
+                        cls = self.registry.workflows.get(message.init.component_id)
+                        if cls is None:
+                            await out.put(workflow_pb2.WorkflowOut(failure=_failure(0, f"unknown component {message.init.component_id!r}", payload_pb2.NOT_FOUND)))
+                            return
+                        workflow = cls()
+                        workflow._bind(message.init.entity_id)
+                        state = cls.state_codec.decode(message.init.state.data) if message.init.HasField("state") else workflow.empty_state()
+                        stream = _WorkflowStream(workflow, state, self.client)
+                    elif kind == "command":
+                        assert stream is not None
+                        await out.put(await stream.command(message.command))
+                    elif kind == "run_step":
+                        assert stream is not None
+                        if stream.step_task is not None and not stream.step_task.done():
+                            await out.put(workflow_pb2.WorkflowOut(failure=_failure(message.run_step.id, "a step is already running", payload_pb2.INTERNAL)))
+                            continue
+                        stream.step_task = asyncio.create_task(run_step(stream, message.run_step))
+            finally:
+                if stream is not None and stream.step_task is not None:
+                    stream.step_task.cancel()
+                await out.put(None)
+
+        reader = asyncio.create_task(read())
+        try:
+            while True:
+                message = await out.get()
+                if message is None:
                     return
-                workflow = cls()
-                entity_id = message.init.entity_id
-                workflow._bind(entity_id)
-                state = cls.state_codec.decode(message.init.state.data) if message.init.HasField("state") else workflow.empty_state()
-            elif kind == "command":
-                assert workflow is not None
-                cmd = message.command
-                spec = type(workflow).handlers().get(cmd.name)
-                if spec is None:
-                    yield workflow_pb2.WorkflowOut(failure=_failure(cmd.id, f"no handler {cmd.name!r}", payload_pb2.NOT_FOUND))
-                    continue
-                metadata = Metadata.from_pb(cmd.metadata)
-                ctx = CommandContext(entity_id, type(workflow).component_id, metadata, 0, self.client.with_metadata(metadata))
-                try:
-                    effect = await workflow._run(spec, state, cmd.payload.data, ctx)
-                except Exception as e:
-                    log.warning("%s/%s %s raised: %s", type(workflow).component_id, entity_id, cmd.name, e)
-                    yield workflow_pb2.WorkflowOut(failure=_failure(cmd.id, str(e) or type(e).__name__))
-                    continue
-                reply = workflow_pb2.WorkflowOut.Reply(command_id=cmd.id)
-                new_state = state if effect.new_state is None else effect.new_state
-                if isinstance(effect.outcome, Fail):
-                    reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
-                    yield workflow_pb2.WorkflowOut(reply=reply)
-                    continue
-                if effect.new_state is not None:
-                    reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, effect.new_state))
-                if effect.transition is not None:
-                    reply.transition.CopyFrom(_step_ref(effect.transition))
-                if isinstance(effect.outcome, NoReply):
-                    reply.outcome.no_reply.SetInParent()
-                else:
-                    assert isinstance(effect.outcome, Reply)
-                    value = effect.outcome.compute(new_state)
-                    reply.outcome.reply.payload.CopyFrom(_payload_of(spec.reply_codec, value))
-                    reply.outcome.reply.metadata.CopyFrom(effect.outcome.metadata.to_pb())
-                state = new_state
-                yield workflow_pb2.WorkflowOut(reply=reply)
-            elif kind == "run_step":
-                assert workflow is not None
-                run = message.run_step
-                step_spec = type(workflow).steps().get(run.step)
-                if step_spec is None:
-                    yield workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))
-                    continue
-                ctx = CommandContext(entity_id, type(workflow).component_id, Metadata(), 0, self.client)
-                try:
-                    step_effect = await workflow._run_step(step_spec, state, run.input.data if run.HasField("input") else None, ctx)
-                except Exception as e:
-                    log.warning("%s/%s step %s raised: %s", type(workflow).component_id, entity_id, run.step, e)
-                    yield workflow_pb2.WorkflowOut(failure=_failure(run.id, str(e) or type(e).__name__))
-                    continue
-                step_reply = workflow_pb2.WorkflowOut.StepReply(command_id=run.id)
-                if step_effect.new_state is not None:
-                    step_reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, step_effect.new_state))
-                    state = step_effect.new_state
-                nxt = step_effect.next
-                if isinstance(nxt, TransitionTo):
-                    step_reply.next.transition_to.CopyFrom(_step_ref(nxt.ref))
-                elif isinstance(nxt, Pause):
-                    step_reply.next.pause.SetInParent()
-                    if nxt.after is not None:
-                        step_reply.next.pause.after_millis = int(nxt.after.total_seconds() * 1000)
-                    if nxt.on_timeout is not None:
-                        step_reply.next.pause.on_timeout.CopyFrom(_step_ref(nxt.on_timeout))
-                elif isinstance(nxt, StepFail):
-                    step_reply.next.fail.CopyFrom(nxt.error.to_pb())
-                else:
-                    assert isinstance(nxt, End)
-                    step_reply.next.end.SetInParent()
-                yield workflow_pb2.WorkflowOut(step_reply=step_reply)
+                yield message
+        finally:
+            reader.cancel()
 
 
 class ViewServicer(view_pb2_grpc.ViewServicer):
@@ -353,7 +392,11 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown view {request.component_id!r}")
         assert cls is not None
         view = cls()
-        effect = await view._handle(request.event.data, request.row.data if request.HasField("row") else None, Metadata.from_pb(request.metadata))
+        effect = await view._handle(
+            None if request.deleted else request.event.data,
+            request.row.data if request.HasField("row") else None,
+            Metadata.from_pb(request.metadata),
+        )
         if isinstance(effect, view_effects.UpdateRow):
             return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
         if isinstance(effect, view_effects.DeleteRow):
@@ -373,7 +416,7 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         assert cls is not None
         metadata = Metadata.from_pb(request.metadata)
         consumer = cls(self.client.with_metadata(metadata))
-        effect = await consumer._handle(request.message.data, metadata)
+        effect = await consumer._handle(None if request.deleted else request.message.data, metadata)
         if isinstance(effect, consumer_effects.Produce):
             assert cls.out_codec is not None
             return consumer_pb2.ConsumerEffect(

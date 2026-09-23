@@ -78,6 +78,12 @@ object Main:
     given ExecutionContext = system.executionContext
     val conversation       = GrpcConversation(channel, settings)
     val timers             = TimerRuntime()
+    // A process has no builder to hand a broker to, so the one broker the sidecar knows how to
+    // speak is chosen by environment: a producing consumer or a topic-sourced view is refused at
+    // startup without it, naming the variable.
+    val projections = sys.env.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS") match
+      case Some(servers) => ProjectionRuntime.withKafka(servers)
+      case None          => ProjectionRuntime()
     val endpoints = discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
     val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
 
@@ -89,7 +95,7 @@ object Main:
     Ankka.service
       .registerAll(discovered.descriptors)
       .withConversation(conversation)
-      .withExtension(ProjectionRuntime())
+      .withExtension(projections)
       .withExtension(timers)
       .withExtension(AgentRuntime())
       .withExtension(http)

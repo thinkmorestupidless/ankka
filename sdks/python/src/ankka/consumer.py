@@ -49,6 +49,10 @@ class Consumer(Generic[Src, Out]):
     def on_message(self, message: Src) -> ConsumerEffect:
         raise NotImplementedError
 
+    def on_delete(self) -> ConsumerEffect:
+        """The source was deleted. Ignored unless this says otherwise."""
+        return self.effects.ignore()
+
     @classmethod
     def to_component(cls) -> discovery_pb2.Component:
         detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls))
@@ -56,9 +60,10 @@ class Consumer(Generic[Src, Out]):
             detail.produces_to = cls.produces_to
         return discovery_pb2.Component(kind=discovery_pb2.CONSUMER, id=cls.component_id, handlers=[], consumer=detail)
 
-    async def _handle(self, message_bytes: bytes, metadata: Metadata) -> ConsumerEffect:
+    async def _handle(self, message_bytes: bytes | None, metadata: Metadata) -> ConsumerEffect:
+        """``message_bytes`` is None when the source was deleted."""
         self._metadata = metadata
-        result = self.on_message(self.message_codec.decode(message_bytes))
+        result = self.on_delete() if message_bytes is None else self.on_message(self.message_codec.decode(message_bytes))
         if isinstance(result, Awaitable):
             result = await typing.cast(Awaitable[ConsumerEffect], result)
         if not isinstance(result, (Produce, Done, Ignore)):

@@ -8,9 +8,10 @@ service View { rpc Handle (ViewRequest) returns (ViewEffect); }
 
 message ViewRequest {
   string component_id = 1;
-  Payload event = 2;
-  Metadata metadata = 3;
+  Payload event = 2;                            // absent when deleted
+  Metadata metadata = 3;                        // ce-subject: the source's id; ankka.sequence
   optional Payload row = 4;                     // the current row, if any
+  bool deleted = 5;                             // the source was deleted: no event, the row is the process's to keep or drop
 }
 
 message ViewEffect { oneof effect { Payload update_row = 1; Empty delete_row = 2; Empty ignore = 3; } }

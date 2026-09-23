@@ -225,6 +225,9 @@ class RemoteWorkflowSuite extends munit.FunSuite:
 
   test("W5 a step that never answers times out per the declared settings and fails the workflow") {
     assertEquals(invoke("order", "w5", "start", "slow"), Right("started"))
+    // A query while the step is in flight is answered — from the state before the step.
+    eventually(5.seconds)(Some(stepsRun).filter(_.lastOption.contains("slow")))
+    assertEquals(status("w5"), "slow|reserved")
     val failed = eventually(15.seconds)(Some(lifecycle("w5")).filter(_.isFailed))
     assert(failed.failure.exists(_.contains("timed out")), s"failure: ${failed.failure}")
     assert(

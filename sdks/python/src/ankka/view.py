@@ -65,6 +65,11 @@ class View(Generic[Src, Row]):
     def on_change(self, event: Src) -> ViewEffect:
         raise NotImplementedError
 
+    def on_delete(self) -> ViewEffect:
+        """The source was deleted. The row goes with it unless this says otherwise — an order
+        history keeps a checked-out cart's row as a tombstone."""
+        return self.effects.delete_row()
+
     @classmethod
     def to_component(cls) -> discovery_pb2.Component:
         return discovery_pb2.Component(
@@ -74,11 +79,12 @@ class View(Generic[Src, Row]):
             view=discovery_pb2.ViewDetail(source=_source_pb(cls), row_manifest=cls.row_codec.manifest, queries=list(cls.queries)),
         )
 
-    async def _handle(self, event_bytes: bytes, row_bytes: bytes | None, metadata: Metadata) -> ViewEffect:
+    async def _handle(self, event_bytes: bytes | None, row_bytes: bytes | None, metadata: Metadata) -> ViewEffect:
+        """``event_bytes`` is None when the source was deleted."""
         self._row = self.row_codec.decode(row_bytes) if row_bytes is not None else None
         self._metadata = metadata
         try:
-            result = self.on_change(self.event_codec.decode(event_bytes))
+            result = self.on_delete() if event_bytes is None else self.on_change(self.event_codec.decode(event_bytes))
             if isinstance(result, Awaitable):
                 result = await typing.cast(Awaitable[ViewEffect], result)
             if not isinstance(result, (UpdateRow, DeleteRow, Ignore)):

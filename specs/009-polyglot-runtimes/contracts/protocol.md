@@ -232,18 +232,27 @@ message StepOutcome {
 The sidecar's `WorkflowEngine` is unchanged: it journals the transition, then sends `RunStep`; a
 step that produces no reply within the step timeout is `StepTimedOut` exactly as today; the
 process is expected to call other components *during* a step through `Client.Invoke`, on its own
-tasks, and to reply when the step is done. A step is never run twice concurrently on one stream.
+tasks, and to reply when the step is done. A step is never run twice concurrently on one stream —
+but a *command* may arrive while a step is running, since the engine keeps answering commands
+(a status query during a long step is the point of steps being asynchronous), so one command and
+one step may be in flight at once. The process answers such a command from its state as it was
+before the step; the step's `new_state` applies when the step replies, as the engine journals it.
+`WorkflowDetail.settings` in discovery carries the timeouts and recovery the engine enforces, since
+the process cannot: absent, the engine's defaults (no overall limit, 30s a step, a failed step fails
+the workflow); a `failover_to` must name a declared step, which runs with no input.
 
 ## `view.proto`, `consumer.proto`, `timed_action.proto`
 
 ```proto
 service View { rpc Handle (ViewRequest) returns (ViewEffect); }
 message ViewRequest { string component_id = 1; Payload event = 2; Metadata metadata = 3;
-                      optional Payload row = 4; }                      // the current row, if any
+                      optional Payload row = 4;                        // the current row, if any
+                      bool deleted = 5; }                              // the source was deleted; no event
 message ViewEffect { oneof effect { Payload update_row = 1; Empty delete_row = 2; Empty ignore = 3; } }
 
 service Consumer { rpc Handle (ConsumerRequest) returns (ConsumerEffect); }
-message ConsumerRequest { string component_id = 1; Payload message = 2; Metadata metadata = 3; }
+message ConsumerRequest { string component_id = 1; Payload message = 2; Metadata metadata = 3;
+                          bool deleted = 4; }
 message ConsumerEffect { oneof effect { Produce produce = 1; Empty done = 2; Empty ignore = 3; }
                          message Produce { Payload payload = 1; Metadata metadata = 2; } }
 

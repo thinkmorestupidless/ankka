@@ -57,7 +57,9 @@ class RemoteProjectionSuite extends munit.FunSuite:
     None,
     (row, event, _) =>
       if event.contains("\"silent\":true") then ViewAnswer.DeleteRow
-      else ViewAnswer.UpdateRow(s"""{"count":${countOf(row) + 1}}""")
+      else ViewAnswer.UpdateRow(s"""{"count":${countOf(row) + 1}}"""),
+    // A deleted source leaves a tombstone: the row stays, marked, as an order history wants.
+    onDelete = row => ViewAnswer.UpdateRow(s"""{"count":${countOf(row)},"deleted":true}""")
   )
   private val notifier = ConsumerOf(
     "notifier",
@@ -201,6 +203,14 @@ class RemoteProjectionSuite extends munit.FunSuite:
     // A no-reply handler answers the caller nothing, as in-process; the event is still journaled.
     val _ = ask("conformance", "v1", "no-reply", "")
     eventually()(if row("recorder-rows", "v1").isEmpty then Some(()) else None)
+  }
+
+  test("P2b the process is told of the source's deletion and may keep the row") {
+    record("v2", "one")
+    eventually()(row("recorder-rows", "v2").filter(_.contains("\"count\":1")))
+    assertEquals(invoke("conformance", "v2", "delete"), Right("done"))
+    val tombstone = eventually()(row("recorder-rows", "v2").filter(_.contains("deleted")))
+    assertEquals(tombstone, """{"count":1,"deleted":true}""")
   }
 
   test("P3 a remote consumer sees each entity's events in order and produces to a topic") {

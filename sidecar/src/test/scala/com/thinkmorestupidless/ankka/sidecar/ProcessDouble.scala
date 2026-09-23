@@ -164,6 +164,7 @@ object ProcessDouble:
       sourceComponent: Option[(Kind, String)],
       sourceTopic: Option[String],
       onChange: (Option[String], String, pb.Metadata) => ViewAnswer,
+      onDelete: Option[String] => ViewAnswer = _ => ViewAnswer.DeleteRow,
       rowManifest: String = "double-row",
       queries: Vector[String] = Vector("get", "all")
   )
@@ -178,7 +179,8 @@ object ProcessDouble:
       sourceComponent: Option[(Kind, String)],
       sourceTopic: Option[String],
       producesTo: Option[String],
-      onMessage: (String, pb.Metadata) => ConsumerAnswer
+      onMessage: (String, pb.Metadata) => ConsumerAnswer,
+      onDelete: pb.Metadata => ConsumerAnswer = _ => ConsumerAnswer.Ignore
   )
 
   /**
@@ -765,11 +767,16 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
         case None => Future.failed(notFound(s"unknown view ${request.componentId}"))
         case Some(v) =>
           Future.fromTry(Try {
-            v.onChange(
-              request.row.map(_.data.toStringUtf8),
-              request.event.map(_.data.toStringUtf8).getOrElse(""),
-              request.metadata.getOrElse(pb.Metadata())
-            ) match
+            val row = request.row.map(_.data.toStringUtf8)
+            val answer =
+              if request.deleted then v.onDelete(row)
+              else
+                v.onChange(
+                  row,
+                  request.event.map(_.data.toStringUtf8).getOrElse(""),
+                  request.metadata.getOrElse(pb.Metadata())
+                )
+            answer match
               case ViewAnswer.UpdateRow(row) =>
                 ViewEffect(ViewEffect.Effect.UpdateRow(json(v.rowManifest, row)))
               case ViewAnswer.DeleteRow => ViewEffect(ViewEffect.Effect.DeleteRow(pb.Empty()))
@@ -783,10 +790,11 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
         case None => Future.failed(notFound(s"unknown consumer ${request.componentId}"))
         case Some(c) =>
           Future.fromTry(Try {
-            c.onMessage(
-              request.message.map(_.data.toStringUtf8).getOrElse(""),
-              request.metadata.getOrElse(pb.Metadata())
-            ) match
+            val metadata = request.metadata.getOrElse(pb.Metadata())
+            val answer =
+              if request.deleted then c.onDelete(metadata)
+              else c.onMessage(request.message.map(_.data.toStringUtf8).getOrElse(""), metadata)
+            answer match
               case ConsumerAnswer.Produce(t) =>
                 ConsumerEffect(
                   ConsumerEffect.Effect.Produce(

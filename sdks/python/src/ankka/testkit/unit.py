@@ -370,7 +370,22 @@ class ViewTestKit(Generic[Row]):
         view = self.view_cls()
         ec, rc = self.view_cls.event_codec, self.view_cls.row_codec
         current = self.rows.get(key)
-        effect = _run(view._handle(ec.encode(event), rc.encode(current) if current is not None else None, Metadata()))
+        # As the sidecar sends it: the source's id under ce-subject.
+        effect = _run(view._handle(ec.encode(event), rc.encode(current) if current is not None else None, Metadata().set("ce-subject", key)))
+        from ankka.effects.view import DeleteRow, UpdateRow
+
+        if isinstance(effect, UpdateRow):
+            self.rows[key] = rc.decode(rc.encode(effect.row))
+        elif isinstance(effect, DeleteRow):
+            self.rows.pop(key, None)
+        return typing.cast(ViewEffect, effect)
+
+    def on_delete(self, key: str) -> ViewEffect:
+        """The source with this key was deleted."""
+        view = self.view_cls()
+        rc = self.view_cls.row_codec
+        current = self.rows.get(key)
+        effect = _run(view._handle(None, rc.encode(current) if current is not None else None, Metadata().set("ce-subject", key)))
         from ankka.effects.view import DeleteRow, UpdateRow
 
         if isinstance(effect, UpdateRow):
@@ -392,10 +407,16 @@ class ConsumerTestKit:
     def of(cls, consumer_cls: type[Consumer[Any, Any]]) -> ConsumerTestKit:
         return cls(consumer_cls)
 
-    def on_message(self, message: Any) -> ConsumerEffect:
-        consumer = self.consumer_cls(_NoClient())
+    def on_message(self, message: Any, subject: str = "test") -> ConsumerEffect:
         mc = self.consumer_cls.message_codec
-        effect = _run(consumer._handle(mc.encode(message), Metadata()))
+        return self._handle(mc.encode(message), subject)
+
+    def on_delete(self, subject: str = "test") -> ConsumerEffect:
+        return self._handle(None, subject)
+
+    def _handle(self, message_bytes: bytes | None, subject: str) -> ConsumerEffect:
+        consumer = self.consumer_cls(_NoClient())
+        effect = _run(consumer._handle(message_bytes, Metadata().set("ce-subject", subject)))
         from ankka.effects.consumer import Produce
 
         if isinstance(effect, Produce):

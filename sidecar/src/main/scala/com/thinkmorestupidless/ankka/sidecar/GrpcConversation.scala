@@ -113,11 +113,15 @@ final class GrpcConversation(
     )
 
   def open(init: Init): InstanceSession =
-    val pending          = new AtomicReference[Option[Pending]](None)
+    val pending = new AtomicReference[Option[Pending]](None)
+    // A workflow's stream carries commands and steps, and the engine keeps answering commands
+    // while a step runs — a query during a long step is the point of steps being asynchronous. So
+    // one command *and* one step may be in flight at once, each tracked on its own.
+    val pendingStep      = new AtomicReference[Option[Pending]](None)
     @volatile var closed = false
 
     def failPending(error: CommandError): Unit =
-      pending.getAndSet(None).foreach { p =>
+      (pending.getAndSet(None) ++ pendingStep.getAndSet(None)).foreach { p =>
         val f = ProcessFailure(p.id, error)
         complete(p.reply, Left(f))
         complete(p.step, Left(f))
@@ -298,15 +302,19 @@ final class GrpcConversation(
                 case Some(p) => complete(p.reply, Right(fromWorkflowReply(r)))
                 case None    => dropped("reply", r.commandId)
             case WorkflowOut.Message.StepReply(r) =>
-              pending.getAndSet(None) match
+              pendingStep.getAndSet(None) match
                 case Some(p) => complete(p.step, Right(fromStepReply(r)))
                 case None    => dropped("step reply", r.commandId)
             case WorkflowOut.Message.Failure(f) =>
-              pending.getAndSet(None) match
-                case Some(p) =>
+              // A failure names its command id, which says whether a command or a step failed.
+              (pending.get(), pendingStep.get()) match
+                case (Some(p), _) if p.id == f.commandId =>
+                  pending.set(None)
                   complete(p.reply, Left(fromFailure(f)))
+                case (_, Some(p)) if p.id == f.commandId =>
+                  pendingStep.set(None)
                   complete(p.step, Left(fromFailure(f)))
-                case None => dropped("failure", f.commandId)
+                case _ => dropped("failure", f.commandId)
             case WorkflowOut.Message.Empty => ()
           def onError(t: Throwable): Unit =
             closed = true
@@ -368,8 +376,10 @@ final class GrpcConversation(
               )
             else
               val p = new Pending(id, Promise(), Promise())
-              if !pending.compareAndSet(None, Some(p)) then
-                Future.failed(ProtocolViolation(s"step $step sent while a command was in flight"))
+              if !pendingStep.compareAndSet(None, Some(p)) then
+                Future.failed(
+                  ProtocolViolation(s"step $step sent while another step was in flight")
+                )
               else
                 // A step's own timeout is the engine's; this one only guards a process that vanished.
                 out.onNext(
@@ -397,10 +407,11 @@ final class GrpcConversation(
     view
       .handle(
         PbViewRequest(
-          request.componentId,
-          Some(toPayload(request.event)),
-          Some(toMetadata(request.metadata)),
-          request.row.map(toPayload)
+          componentId = request.componentId,
+          event = request.event.map(toPayload),
+          metadata = Some(toMetadata(request.metadata)),
+          row = request.row.map(toPayload),
+          deleted = request.event.isEmpty
         )
       )
       .map { effect =>
@@ -415,9 +426,10 @@ final class GrpcConversation(
     consumer
       .handle(
         PbConsumerRequest(
-          request.componentId,
-          Some(toPayload(request.message)),
-          Some(toMetadata(request.metadata))
+          componentId = request.componentId,
+          message = request.message.map(toPayload),
+          metadata = Some(toMetadata(request.metadata)),
+          deleted = request.message.isEmpty
         )
       )
       .map { effect =>

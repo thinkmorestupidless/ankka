@@ -118,9 +118,13 @@ trait InstanceSession:
   /** Passivation or a violation. The process releases the instance's state when it sees this. */
   def close(): Unit
 
+/**
+ * `event` is absent when the source was deleted: the process decides whether the row goes with it
+ * (the default) or stays as a tombstone. The subject and sequence travel in `metadata`.
+ */
 final case class ViewRequest(
     componentId: ComponentId,
-    event: Payload,
+    event: Option[Payload],
     metadata: Metadata,
     row: Option[Payload]
 )
@@ -130,7 +134,12 @@ enum ViewOutcome:
   case DeleteRow
   case Ignore
 
-final case class ConsumerRequest(componentId: ComponentId, message: Payload, metadata: Metadata)
+/** `message` is absent when the source was deleted. */
+final case class ConsumerRequest(
+    componentId: ComponentId,
+    message: Option[Payload],
+    metadata: Metadata
+)
 
 enum ConsumerOutcome:
   case Produce(payload: Payload, metadata: Metadata)

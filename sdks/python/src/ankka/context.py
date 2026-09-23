@@ -34,6 +34,17 @@ class Metadata:
     def add(self, key: str, value: str) -> Metadata:
         return Metadata(self.entries + ((key, value),))
 
+    @property
+    def subject(self) -> str | None:
+        """``ce-subject``: on a view's or consumer's change, the id of the entity that changed."""
+        return self.get("ce-subject")
+
+    @property
+    def sequence_number(self) -> int | None:
+        """``ankka.sequence``: the change's sequence number (an entity's event or revision)."""
+        value = self.get("ankka.sequence")
+        return int(value) if value is not None else None
+
     def to_pb(self) -> payload_pb2.Metadata:
         return payload_pb2.Metadata(entries=[payload_pb2.Metadata.Entry(key=k, value=v) for k, v in self.entries])
 

@@ -193,7 +193,122 @@ in `protocol/ENCODING.md` and proven by fixtures every SDK passes. So a cart wri
 sample is read by the Python one on the same database, and the reverse. Field names are the
 contract: `productId`, not `product_id`.
 
+## The other kinds
+
+Every component kind but agents is hosted the same way: the sidecar owns the durable and the
+distributed half, your class owns the decision. The sample under `sdks/python/examples/shopping_cart/`
+has one of each; the sections below point at them.
+
+### A key value entity
+
+```python
+class CheckoutLog(KeyValueEntity[CheckoutRecord]):
+    component_id = "checkout-log"
+    state_codec = json_codec(CheckoutRecord, "checkout-record")
+
+    def empty_state(self) -> CheckoutRecord: ...
+
+    @command("record")
+    def record(self, at: int) -> KeyValueEffect[CheckoutRecord, Done]:
+        return self.effects.update_state(CheckoutRecord(self.entity_id, at, True)).then_reply(lambda _: DONE)
+```
+
+The latest value only, no history: `update_state` stores it, `delete` and `expire_after` are the
+retention effects, `@query` handlers may only reply. The sidecar keeps it in the same durable
+state table as a Scala key value entity, under your `state_codec`'s manifest — see
+[`checkout_log.py`](../sdks/python/examples/shopping_cart/checkout_log.py).
+
+### A workflow
+
+```python
+class CheckoutWorkflow(Workflow[Checkout]):
+    component_id = "checkout"
+    state_codec = json_codec(Checkout, "checkout")
+    settings = WorkflowSettings(steps={"charge": StepSettings(recovery=Recovery(max_retries=1, failover_to="compensate"))})
+
+    @command("start")
+    def start(self) -> WorkflowEffect[Checkout, Done]:
+        return self.effects.update_state(...).then_transition_to("reserve").then_reply(lambda _: DONE)
+
+    @step("reserve")
+    async def reserve(self) -> WorkflowStepEffect[Checkout]:
+        total = await self.context.client.for_event_sourced_entity("shopping-cart", self.state.cartId).call("total-quantity").invoke(reply=int)
+        return self.step_effects.update_state(...).then_transition_to("charge")
+```
+
+Commands change state and start steps; steps run here, one at a time per instance, and say what
+happens next: another step, a pause, the end, or a failure. The sidecar's engine journals every
+transition and runs the steps on its schedule, so an instance survives restarts mid-flight. What
+the engine enforces — timeouts, retries, failover — you declare in `settings`, since your process
+cannot; a step that raises is retried as declared and then failed over to a step that takes no
+input, where compensation reads what the workflow accumulated. Queries are answered while a step
+runs. See [`checkout_workflow.py`](../sdks/python/examples/shopping_cart/checkout_workflow.py).
+
+### A view
+
+```python
+class CartRows(View[ShoppingCartEvent, CartRow]):
+    component_id = "cart-rows"
+    source = ShoppingCartEntity
+    event_codec = ShoppingCartEntity.event_codec
+    row_codec = json_codec(CartRow, "cart-row")
+
+    def on_change(self, event: ShoppingCartEvent) -> ViewEffect:
+        current = self.row or CartRow(self.metadata.subject or "")
+        ...
+        return self.effects.update_row(replace(current, quantities=quantities))
+
+    def on_delete(self) -> ViewEffect:               # the source was deleted; default: delete_row
+        return self.effects.update_row(replace(self.row, checkedOut=True)) if self.row else self.effects.ignore()
+```
+
+The sidecar runs the projection — exactly-once over an entity's events, at-least-once over a key
+value entity or a `topic` — and stores the rows; your class only says what an event does to the
+current row (`self.row`, `None` when there is none; `self.metadata.subject` is the source's id).
+Rows are queried through the client, `client.views.get("cart-rows", cart_id, CartRow)` and
+`views.all(...)`, or from an endpoint as the sample's `/carts/{cartId}/row` does. See
+[`cart_rows.py`](../sdks/python/examples/shopping_cart/cart_rows.py).
+
+### A consumer
+
+```python
+class CheckoutNotifier(Consumer[ShoppingCartEvent, None]):
+    component_id = "checkout-notifier"
+    source = ShoppingCartEntity
+    message_codec = ShoppingCartEntity.event_codec
+
+    async def on_message(self, event: ShoppingCartEvent) -> ConsumerEffect:
+        if not isinstance(event, CheckedOut):
+            return self.effects.ignore()
+        await self.client.for_key_value_entity("checkout-log", self.metadata.subject).call("record").invoke(now, reply=Done)
+        return self.effects.done()
+```
+
+A consumer reacts to a source's changes and either acts through the client, as here, or
+`produce`s to a topic — for that it declares `produces_to` and an `out_codec`, and the sidecar
+needs a broker, `ANKKA_KAFKA_BOOTSTRAP_SERVERS`, or refuses to start naming the consumer.
+Delivery is at-least-once, so what a consumer does must tolerate a repeat. See
+[`checkout_notifier.py`](../sdks/python/examples/shopping_cart/checkout_notifier.py).
+
+### A timed action
+
+```python
+class Reminder(TimedAction):
+    component_id = "reminder"
+
+    @action("nudge")
+    async def nudge(self, cart_id: str) -> TimedActionEffect:
+        ...
+        return self.effects.done()
+
+await client.timers.schedule("nudge-c1", timedelta(hours=1), "reminder", "nudge", "c1")
+```
+
+A call the platform makes later. The timer lives in the sidecar's database, so it outlives the
+process that set it; the sweeper delivers it here and a `failed` effect, an exception or an
+unreachable process is retried with backoff, `self.metadata` carrying the timer's name and the
+attempt count. `client.timers.cancel(id)` removes one; scheduling twice under one id replaces it.
+
 ## What is not there yet
 
-Key value entities, views, consumers, timed actions, workflows and agents follow, each a
-conversation on the same protocol.
+Agents follow, a conversation on the same protocol.

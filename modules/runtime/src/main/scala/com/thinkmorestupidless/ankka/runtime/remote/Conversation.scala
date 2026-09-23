@@ -105,10 +105,14 @@ trait InstanceSession:
   /** Exactly one in flight per session; the host enforces that, the transport relies on it. */
   def command(cmd: Command): Future[Either[ProcessFailure, Reply]]
 
+  /**
+   * `input` is what the process itself put in the transition — the serialized `Payload` message,
+   * opaque to the runtime — so the manifest and content type survive the engine's journal.
+   */
   def runStep(
       id: Long,
       step: String,
-      input: Option[Payload]
+      input: Option[Array[Byte]]
   ): Future[Either[ProcessFailure, StepReply]]
 
   /** Passivation or a violation. The process releases the instance's state when it sees this. */
@@ -133,10 +137,15 @@ enum ConsumerOutcome:
   case Done
   case Ignore
 
+/**
+ * `payload` is what the process itself scheduled — the serialized `Payload` message, opaque to the
+ * runtime, exactly as a workflow step's input — so the manifest and content type survive the timer
+ * table. Empty when the schedule carried none.
+ */
 final case class TimedActionRequest(
     componentId: ComponentId,
     name: MethodName,
-    payload: Payload,
+    payload: Array[Byte],
     metadata: Metadata
 )
 

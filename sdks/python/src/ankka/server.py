@@ -19,20 +19,37 @@ import grpc
 import grpc.aio
 
 from ankka._proto.ankka.protocol.v1 import (
+    consumer_pb2,
+    consumer_pb2_grpc,
     discovery_pb2,
     discovery_pb2_grpc,
     endpoint_pb2,
     endpoint_pb2_grpc,
     event_sourced_pb2,
     event_sourced_pb2_grpc,
+    key_value_pb2,
+    key_value_pb2_grpc,
     payload_pb2,
+    timed_action_pb2,
+    timed_action_pb2_grpc,
+    view_pb2,
+    view_pb2_grpc,
+    workflow_pb2,
+    workflow_pb2_grpc,
 )
 from ankka.client import CommandError, ComponentClient
 from ankka.context import CommandContext, Metadata, Principal, RequestContext
+from ankka.codec import default_codec_for
+from ankka.effects import consumer as consumer_effects
+from ankka.effects import timed_action as timed_effects
+from ankka.effects import view as view_effects
 from ankka.effects.common import Fail, NoReply, Reply, retention_to_pb
+from ankka.effects.workflow import End, Pause, StepFail, StepRef, TransitionTo
 from ankka.endpoint import HttpProblem
 from ankka.event_sourced_entity import EventSourcedEntity
+from ankka.key_value_entity import KeyValueEntity
 from ankka.service import Registry
+from ankka.workflow import Workflow
 
 log = logging.getLogger("ankka")
 
@@ -161,6 +178,234 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
         state = None
 
 
+def _payload_of(codec: Any, value: Any) -> payload_pb2.Payload:
+    return payload_pb2.Payload(content_type=codec.content_type, manifest=codec.manifest, data=codec.encode(value))
+
+
+def _step_ref(ref: StepRef) -> workflow_pb2.StepRef:
+    pb = workflow_pb2.StepRef(step=ref.step)
+    if ref.input is not None:
+        pb.input.CopyFrom(_payload_of(default_codec_for(type(ref.input)), ref.input))
+    return pb
+
+
+class KeyValueServicer(key_value_pb2_grpc.KeyValueServicer):
+    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+        self.registry = registry
+        self.client = client
+
+    async def Handle(
+        self, request_iterator: AsyncIterator[key_value_pb2.KeyValueIn], context: Any
+    ) -> AsyncIterator[key_value_pb2.KeyValueOut]:
+        entity: KeyValueEntity[Any] | None = None
+        state: Any = None
+        entity_id = ""
+        async for message in request_iterator:
+            kind = message.WhichOneof("message")
+            if kind == "init":
+                cls = self.registry.key_values.get(message.init.component_id)
+                if cls is None:
+                    yield key_value_pb2.KeyValueOut(failure=_failure(0, f"unknown component {message.init.component_id!r}", payload_pb2.NOT_FOUND))
+                    return
+                entity = cls()
+                entity_id = message.init.entity_id
+                entity._bind(entity_id)
+                state = cls.state_codec.decode(message.init.state.data) if message.init.HasField("state") else entity.empty_state()
+            elif kind == "command":
+                assert entity is not None
+                cmd = message.command
+                spec = type(entity).handlers().get(cmd.name)
+                if spec is None:
+                    yield key_value_pb2.KeyValueOut(failure=_failure(cmd.id, f"no handler {cmd.name!r}", payload_pb2.NOT_FOUND))
+                    continue
+                metadata = Metadata.from_pb(cmd.metadata)
+                ctx = CommandContext(entity_id, type(entity).component_id, metadata, 0, self.client.with_metadata(metadata))
+                try:
+                    effect = await entity._run(spec, state, cmd.payload.data, ctx)
+                except Exception as e:
+                    log.warning("%s/%s %s raised: %s", type(entity).component_id, entity_id, cmd.name, e)
+                    yield key_value_pb2.KeyValueOut(failure=_failure(cmd.id, str(e) or type(e).__name__))
+                    continue
+                reply = key_value_pb2.KeyValueOut.Reply(command_id=cmd.id)
+                new_state = state if effect.new_state is None else effect.new_state
+                if isinstance(effect.outcome, Fail):
+                    reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
+                    yield key_value_pb2.KeyValueOut(reply=reply)
+                    continue
+                if effect.new_state is not None:
+                    reply.new_state.CopyFrom(_payload_of(type(entity).state_codec, effect.new_state))
+                retention = retention_to_pb(effect.retention)
+                if retention is not None:
+                    reply.retention.CopyFrom(retention)
+                if isinstance(effect.outcome, NoReply):
+                    reply.outcome.no_reply.SetInParent()
+                else:
+                    assert isinstance(effect.outcome, Reply)
+                    try:
+                        value = effect.outcome.compute(new_state)
+                        reply.outcome.reply.payload.CopyFrom(_payload_of(spec.reply_codec, value))
+                        reply.outcome.reply.metadata.CopyFrom(effect.outcome.metadata.to_pb())
+                    except Exception as e:
+                        yield key_value_pb2.KeyValueOut(failure=_failure(cmd.id, f"computing the reply failed: {e}"))
+                        continue
+                state = new_state
+                yield key_value_pb2.KeyValueOut(reply=reply)
+
+
+class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
+    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+        self.registry = registry
+        self.client = client
+
+    async def Handle(
+        self, request_iterator: AsyncIterator[workflow_pb2.WorkflowIn], context: Any
+    ) -> AsyncIterator[workflow_pb2.WorkflowOut]:
+        workflow: Workflow[Any] | None = None
+        state: Any = None
+        entity_id = ""
+        async for message in request_iterator:
+            kind = message.WhichOneof("message")
+            if kind == "init":
+                cls = self.registry.workflows.get(message.init.component_id)
+                if cls is None:
+                    yield workflow_pb2.WorkflowOut(failure=_failure(0, f"unknown component {message.init.component_id!r}", payload_pb2.NOT_FOUND))
+                    return
+                workflow = cls()
+                entity_id = message.init.entity_id
+                workflow._bind(entity_id)
+                state = cls.state_codec.decode(message.init.state.data) if message.init.HasField("state") else workflow.empty_state()
+            elif kind == "command":
+                assert workflow is not None
+                cmd = message.command
+                spec = type(workflow).handlers().get(cmd.name)
+                if spec is None:
+                    yield workflow_pb2.WorkflowOut(failure=_failure(cmd.id, f"no handler {cmd.name!r}", payload_pb2.NOT_FOUND))
+                    continue
+                metadata = Metadata.from_pb(cmd.metadata)
+                ctx = CommandContext(entity_id, type(workflow).component_id, metadata, 0, self.client.with_metadata(metadata))
+                try:
+                    effect = await workflow._run(spec, state, cmd.payload.data, ctx)
+                except Exception as e:
+                    log.warning("%s/%s %s raised: %s", type(workflow).component_id, entity_id, cmd.name, e)
+                    yield workflow_pb2.WorkflowOut(failure=_failure(cmd.id, str(e) or type(e).__name__))
+                    continue
+                reply = workflow_pb2.WorkflowOut.Reply(command_id=cmd.id)
+                new_state = state if effect.new_state is None else effect.new_state
+                if isinstance(effect.outcome, Fail):
+                    reply.outcome.error.CopyFrom(effect.outcome.error.to_pb())
+                    yield workflow_pb2.WorkflowOut(reply=reply)
+                    continue
+                if effect.new_state is not None:
+                    reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, effect.new_state))
+                if effect.transition is not None:
+                    reply.transition.CopyFrom(_step_ref(effect.transition))
+                if isinstance(effect.outcome, NoReply):
+                    reply.outcome.no_reply.SetInParent()
+                else:
+                    assert isinstance(effect.outcome, Reply)
+                    value = effect.outcome.compute(new_state)
+                    reply.outcome.reply.payload.CopyFrom(_payload_of(spec.reply_codec, value))
+                    reply.outcome.reply.metadata.CopyFrom(effect.outcome.metadata.to_pb())
+                state = new_state
+                yield workflow_pb2.WorkflowOut(reply=reply)
+            elif kind == "run_step":
+                assert workflow is not None
+                run = message.run_step
+                step_spec = type(workflow).steps().get(run.step)
+                if step_spec is None:
+                    yield workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))
+                    continue
+                ctx = CommandContext(entity_id, type(workflow).component_id, Metadata(), 0, self.client)
+                try:
+                    step_effect = await workflow._run_step(step_spec, state, run.input.data if run.HasField("input") else None, ctx)
+                except Exception as e:
+                    log.warning("%s/%s step %s raised: %s", type(workflow).component_id, entity_id, run.step, e)
+                    yield workflow_pb2.WorkflowOut(failure=_failure(run.id, str(e) or type(e).__name__))
+                    continue
+                step_reply = workflow_pb2.WorkflowOut.StepReply(command_id=run.id)
+                if step_effect.new_state is not None:
+                    step_reply.new_state.CopyFrom(_payload_of(type(workflow).state_codec, step_effect.new_state))
+                    state = step_effect.new_state
+                nxt = step_effect.next
+                if isinstance(nxt, TransitionTo):
+                    step_reply.next.transition_to.CopyFrom(_step_ref(nxt.ref))
+                elif isinstance(nxt, Pause):
+                    step_reply.next.pause.SetInParent()
+                    if nxt.after is not None:
+                        step_reply.next.pause.after_millis = int(nxt.after.total_seconds() * 1000)
+                    if nxt.on_timeout is not None:
+                        step_reply.next.pause.on_timeout.CopyFrom(_step_ref(nxt.on_timeout))
+                elif isinstance(nxt, StepFail):
+                    step_reply.next.fail.CopyFrom(nxt.error.to_pb())
+                else:
+                    assert isinstance(nxt, End)
+                    step_reply.next.end.SetInParent()
+                yield workflow_pb2.WorkflowOut(step_reply=step_reply)
+
+
+class ViewServicer(view_pb2_grpc.ViewServicer):
+    def __init__(self, registry: Registry) -> None:
+        self.registry = registry
+
+    async def Handle(self, request: view_pb2.ViewRequest, context: Any) -> view_pb2.ViewEffect:
+        cls = self.registry.views.get(request.component_id)
+        if cls is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown view {request.component_id!r}")
+        assert cls is not None
+        view = cls()
+        effect = await view._handle(request.event.data, request.row.data if request.HasField("row") else None, Metadata.from_pb(request.metadata))
+        if isinstance(effect, view_effects.UpdateRow):
+            return view_pb2.ViewEffect(update_row=_payload_of(cls.row_codec, effect.row))
+        if isinstance(effect, view_effects.DeleteRow):
+            return view_pb2.ViewEffect(delete_row=payload_pb2.Empty())
+        return view_pb2.ViewEffect(ignore=payload_pb2.Empty())
+
+
+class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
+    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+        self.registry = registry
+        self.client = client
+
+    async def Handle(self, request: consumer_pb2.ConsumerRequest, context: Any) -> consumer_pb2.ConsumerEffect:
+        cls = self.registry.consumers.get(request.component_id)
+        if cls is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown consumer {request.component_id!r}")
+        assert cls is not None
+        metadata = Metadata.from_pb(request.metadata)
+        consumer = cls(self.client.with_metadata(metadata))
+        effect = await consumer._handle(request.message.data, metadata)
+        if isinstance(effect, consumer_effects.Produce):
+            assert cls.out_codec is not None
+            return consumer_pb2.ConsumerEffect(
+                produce=consumer_pb2.ConsumerEffect.Produce(payload=_payload_of(cls.out_codec, effect.payload), metadata=effect.metadata.to_pb())
+            )
+        if isinstance(effect, consumer_effects.Done):
+            return consumer_pb2.ConsumerEffect(done=payload_pb2.Empty())
+        return consumer_pb2.ConsumerEffect(ignore=payload_pb2.Empty())
+
+
+class TimedActionServicer(timed_action_pb2_grpc.TimedActionServicer):
+    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+        self.registry = registry
+        self.client = client
+
+    async def Invoke(self, request: timed_action_pb2.TimedActionRequest, context: Any) -> timed_action_pb2.TimedActionEffect:
+        cls = self.registry.timed_actions.get(request.component_id)
+        spec = cls.handlers().get(request.name) if cls else None
+        if cls is None or spec is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown timed action {request.component_id}/{request.name}")
+        assert cls is not None and spec is not None
+        metadata = Metadata.from_pb(request.metadata)
+        action = cls(self.client.with_metadata(metadata))
+        try:
+            effect = await action._run(spec, request.payload.data, metadata)
+        except Exception as e:
+            return timed_action_pb2.TimedActionEffect(fail=payload_pb2.Error(message=str(e) or type(e).__name__, code=payload_pb2.INTERNAL))
+        if isinstance(effect, timed_effects.Failed):
+            return timed_action_pb2.TimedActionEffect(fail=effect.error.to_pb())
+        return timed_action_pb2.TimedActionEffect(done=payload_pb2.Empty())
+
+
 class HttpServicer(endpoint_pb2_grpc.HttpServicer):
     def __init__(self, registry: Registry, client: ComponentClient) -> None:
         self.registry = registry
@@ -256,6 +501,11 @@ class Server:
     def add_servicers(self, server: grpc.aio.Server) -> None:
         discovery_pb2_grpc.add_DiscoveryServicer_to_server(DiscoveryServicer(self.registry), server)  # type: ignore[no-untyped-call]
         event_sourced_pb2_grpc.add_EventSourcedServicer_to_server(EventSourcedServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        key_value_pb2_grpc.add_KeyValueServicer_to_server(KeyValueServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        workflow_pb2_grpc.add_WorkflowServicer_to_server(WorkflowServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        view_pb2_grpc.add_ViewServicer_to_server(ViewServicer(self.registry), server)  # type: ignore[no-untyped-call]
+        consumer_pb2_grpc.add_ConsumerServicer_to_server(ConsumerServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         endpoint_pb2_grpc.add_HttpServicer_to_server(HttpServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
 
     async def start(self, host: str = "127.0.0.1", port: int = 0) -> int:

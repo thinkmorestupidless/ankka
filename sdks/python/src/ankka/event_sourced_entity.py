@@ -76,12 +76,14 @@ def _reply_type_of(annotation: Any) -> Any:
     return Any
 
 
-def _is_read_only_annotation(annotation: Any) -> bool:
+def _is_read_only_annotation(annotation: Any, read_only_base: type) -> bool:
     origin = get_origin(annotation) or annotation
-    return inspect.isclass(origin) and issubclass(origin, ReadOnlyEffect)
+    return inspect.isclass(origin) and issubclass(origin, read_only_base)
 
 
-def collect_handlers(cls: type, *, effect_base: type = EventSourcedEffect) -> dict[str, HandlerSpec]:
+def collect_handlers(
+    cls: type, *, effect_base: type = EventSourcedEffect, read_only_base: type = ReadOnlyEffect
+) -> dict[str, HandlerSpec]:
     """Every decorated method on ``cls``, validated: wire names unique, a query annotated as
     read-only, an input codec and a reply codec resolved from the annotations."""
     found: dict[str, HandlerSpec] = {}
@@ -102,9 +104,9 @@ def collect_handlers(cls: type, *, effect_base: type = EventSourcedEffect) -> di
         ret = hints.get("return")
         if ret is None:
             raise RegistrationError(f"{cls.__name__}.{attr}: a handler needs a return annotation")
-        if read_only and not _is_read_only_annotation(ret):
+        if read_only and not _is_read_only_annotation(ret, read_only_base):
             raise RegistrationError(
-                f"{cls.__name__}.{attr}: a @query must be annotated as returning ReadOnlyEffect, "
+                f"{cls.__name__}.{attr}: a @query must be annotated as returning {read_only_base.__name__}, "
                 f"so that it provably cannot persist"
             )
         reply_type = _reply_type_of(ret)

@@ -102,8 +102,11 @@ object Rendering:
   val ProcessPort: Int = 9010
   val SidecarPort: Int = 9011
 
-  /** Mirrors `ServiceSpec.SidecarEnvPrefixes` in controlplane-api; see `containersFor`. */
-  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_")
+  /**
+   * Mirrors `ServiceSpec.SidecarEnvPrefixes` in controlplane-api; see `containersFor`. A supplied
+   * database's variables are the sidecar's too: it is the sidecar that has a journal.
+   */
+  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_")
 
   /** The developer's container, until the descriptor can size it: small, and bounded. */
   private val AppQuantities =

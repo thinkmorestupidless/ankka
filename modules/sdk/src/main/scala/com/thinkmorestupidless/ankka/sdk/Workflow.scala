@@ -121,6 +121,16 @@ sealed trait StepHandleLike[C]:
   def name: String
   private[ankka] def invoke(workflow: C, input: Option[Array[Byte]]): Any
 
+/**
+ * A step whose input, if any, is carried as the bytes the transition persisted, undecoded — for a
+ * host that runs the step somewhere the bytes are decoded, such as a process in another language.
+ */
+private[ankka] final class RawStepHandle[C](
+    val name: String,
+    private[ankka] val run: (C, Option[Array[Byte]]) => Any
+) extends StepHandleLike[C]:
+  private[ankka] def invoke(workflow: C, input: Option[Array[Byte]]): Any = run(workflow, input)
+
 /** A step taking one argument. Transitions to it must supply that argument. */
 final class StepHandle[C, I] private[ankka] (
     val name: String,

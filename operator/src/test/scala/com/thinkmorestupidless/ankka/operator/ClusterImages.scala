@@ -32,12 +32,17 @@ object ClusterImages:
     try docker.inspectImageCmd(image).exec(): Unit
     catch
       case _: NotFoundException =>
-        val project =
-          if image.startsWith("ankka-controlplane") then "controlPlane" else "shoppingCart"
+        val hint =
+          if image.startsWith("sample-shopping-cart-python") then
+            "    docker build -f sdks/python/examples/shopping_cart/Dockerfile -t " + image + " sdks/python"
+          else
+            val project =
+              if image.startsWith("ankka-controlplane") then "controlPlane"
+              else if image.startsWith("ankka-sidecar") then "sidecar"
+              else "shoppingCart"
+            s"    sbt $project/Docker/publishLocal\n(`sbt test` does this for you; `testOnly` does not.)"
         throw new IllegalStateException(
-          s"image '$image' is not in the local Docker daemon. Build it first:\n" +
-            s"    sbt $project/Docker/publishLocal\n" +
-            "(`sbt test` does this for you; `testOnly` does not.)"
+          s"image '$image' is not in the local Docker daemon. Build it first:\n$hint"
         )
 
     val tar = Files.createTempFile("ankka-image", ".tar")

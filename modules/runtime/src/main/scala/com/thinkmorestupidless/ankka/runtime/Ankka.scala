@@ -167,6 +167,19 @@ final class ServiceBuilder private[ankka] (
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
         initWorkflow(sharding, descriptor, componentClient)
+      case descriptor: remote.RemoteKeyValueDescriptor =>
+        val _ = sharding.init(
+          Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
+            remote.RemoteKeyValueHost.behavior(descriptor, EntityId(ctx.entityId), conversation.get)
+          }
+        )
+      case descriptor: remote.RemoteWorkflowDescriptor =>
+        // The in-process engine over a proxy whose handlers and steps cross the conversation.
+        initWorkflow(
+          sharding,
+          remote.RemoteWorkflowHost.descriptor(descriptor, conversation.get, askTimeout),
+          componentClient
+        )
       case descriptor: remote.RemoteEventSourcedDescriptor =>
         // `conversation.get` is safe: `validate` refused the registry without one.
         val _ = sharding.init(
@@ -196,7 +209,8 @@ final class ServiceBuilder private[ankka] (
       componentClient,
       ViewClient(Database()(using system), askTimeout)(using system),
       ownsSystem,
-      extensions
+      extensions,
+      conversation
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -295,7 +309,12 @@ final class AnkkaService private[ankka] (
     val componentClient: ComponentClient,
     val viewClient: ViewClient,
     private val ownsSystem: Boolean,
-    private val extensions: Vector[RuntimeExtension] = Vector.empty
+    private val extensions: Vector[RuntimeExtension] = Vector.empty,
+    /**
+     * Present when remote components are registered: how the extensions hosting them reach the
+     * process.
+     */
+    val conversation: Option[remote.Conversation] = None
 ):
 
   /**

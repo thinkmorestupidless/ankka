@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.*
+import com.thinkmorestupidless.ankka.sdk.{RecoverStrategy, WorkflowSettings}
 import io.grpc.ManagedChannel
 import org.slf4j.LoggerFactory
 
@@ -127,7 +128,12 @@ object Discovery:
             case (Kind.KEY_VALUE_ENTITY, Component.Detail.KeyValue(_)) =>
               descriptors += RemoteKeyValueDescriptor(id, handlerMap)
             case (Kind.WORKFLOW, Component.Detail.Workflow(d)) =>
-              descriptors += RemoteWorkflowDescriptor(id, handlerMap, d.steps.toSet)
+              descriptors += RemoteWorkflowDescriptor(
+                id,
+                handlerMap,
+                d.steps.toSet,
+                workflowSettings(c.id, d, problems)
+              )
             case (Kind.VIEW, Component.Detail.View(d)) =>
               source(c.id, d.source, problems).foreach { s =>
                 descriptors += RemoteViewDescriptor(
@@ -201,6 +207,51 @@ object Discovery:
     val found = problems.result()
     if found.nonEmpty then Left(found)
     else Right(Discovered(spec, built, agents.result(), spec.endpoints.toVector))
+
+  /**
+   * The engine's settings, as the process declared them. A failover target must be a declared step:
+   * the engine runs it with no input, and a name that matches nothing would fail the workflow at
+   * the exact moment it was meant to recover.
+   */
+  private def workflowSettings(
+      owner: String,
+      detail: WorkflowDetail,
+      problems: scala.collection.mutable.Builder[String, Vector[String]]
+  ): WorkflowSettings =
+    detail.settings match
+      case None => WorkflowSettings.default
+      case Some(declared) =>
+        def duration(millis: Long, what: String): Option[FiniteDuration] =
+          if millis > 0 then Some(millis.millis)
+          else
+            problems += s"workflow '$owner': $what must be positive, not ${millis}ms"
+            None
+        def recovery(r: WorkflowDetail.Recovery, what: String): RecoverStrategy =
+          if r.maxRetries < 0 then
+            problems += s"workflow '$owner': $what declares ${r.maxRetries} retries"
+          r.failoverTo.foreach { target =>
+            if !detail.steps.contains(target) then
+              problems += s"workflow '$owner': $what fails over to '$target', which is not a declared step"
+          }
+          RecoverStrategy(math.max(0, r.maxRetries), r.failoverTo)
+        val base = WorkflowSettings.default
+        WorkflowSettings(
+          timeout = declared.timeoutMillis.flatMap(duration(_, "the workflow timeout")),
+          defaultStepTimeout = declared.defaultStepTimeoutMillis
+            .flatMap(duration(_, "the default step timeout"))
+            .getOrElse(base.defaultStepTimeout),
+          stepTimeouts = declared.steps.flatMap { st =>
+            if !detail.steps.contains(st.step) then
+              problems += s"workflow '$owner': settings name step '${st.step}', which is not declared"
+            st.timeoutMillis.flatMap(duration(_, s"step '${st.step}' timeout")).map(st.step -> _)
+          }.toMap,
+          defaultRecovery = declared.defaultRecovery
+            .map(recovery(_, "the default recovery"))
+            .getOrElse(base.defaultRecovery),
+          stepRecovery = declared.steps.flatMap { st =>
+            st.recovery.map(r => st.step -> recovery(r, s"step '${st.step}' recovery"))
+          }.toMap
+        )
 
   private def source(
       owner: String,

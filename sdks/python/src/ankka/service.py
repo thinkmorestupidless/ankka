@@ -13,8 +13,13 @@ from typing import Any
 
 from ankka import __version__
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
+from ankka.consumer import Consumer
 from ankka.endpoint import Endpoint
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
+from ankka.key_value_entity import KeyValueEntity
+from ankka.timed_action import TimedAction
+from ankka.view import View
+from ankka.workflow import Workflow
 
 PROTOCOL_VERSION = "1.0"
 DEFAULT_PROCESS_PORT = 9010
@@ -25,11 +30,18 @@ class Registry:
     """Everything registered, by kind. Filled by ``ServiceBuilder``, read by the server."""
 
     entities: dict[str, type[EventSourcedEntity[Any, Any]]] = field(default_factory=dict)
+    key_values: dict[str, type[KeyValueEntity[Any]]] = field(default_factory=dict)
+    workflows: dict[str, type[Workflow[Any]]] = field(default_factory=dict)
+    views: dict[str, type[View[Any, Any]]] = field(default_factory=dict)
+    consumers: dict[str, type[Consumer[Any, Any]]] = field(default_factory=dict)
+    timed_actions: dict[str, type[TimedAction]] = field(default_factory=dict)
     endpoints: dict[str, type[Endpoint]] = field(default_factory=dict)
     others: list[Any] = field(default_factory=list)
 
     def spec(self) -> discovery_pb2.Spec:
         components = [cls.to_component() for cls in self.entities.values()]
+        for registry in (self.key_values, self.workflows, self.views, self.consumers, self.timed_actions):
+            components.extend(cls.to_component() for cls in registry.values())
         for other in self.others:
             components.append(other.to_component())
         return discovery_pb2.Spec(
@@ -45,13 +57,26 @@ class ServiceBuilder:
         self._registry = Registry()
         self._problems: list[str] = []
 
+    def _add(self, registry: dict[str, Any], kind: str, component: Any) -> None:
+        cid = component.component_id
+        if cid in registry:
+            self._problems.append(f"{kind} '{cid}' is registered twice")
+        registry[cid] = component
+
     def register(self, component: type[Any]) -> ServiceBuilder:
         """Registers a component class (an entity, an endpoint, …). Returns self for chaining."""
         if isinstance(component, type) and issubclass(component, EventSourcedEntity):
-            cid = component.component_id
-            if cid in self._registry.entities:
-                self._problems.append(f"event sourced entity '{cid}' is registered twice")
-            self._registry.entities[cid] = component
+            self._add(self._registry.entities, "event sourced entity", component)
+        elif isinstance(component, type) and issubclass(component, KeyValueEntity):
+            self._add(self._registry.key_values, "key value entity", component)
+        elif isinstance(component, type) and issubclass(component, Workflow):
+            self._add(self._registry.workflows, "workflow", component)
+        elif isinstance(component, type) and issubclass(component, View):
+            self._add(self._registry.views, "view", component)
+        elif isinstance(component, type) and issubclass(component, Consumer):
+            self._add(self._registry.consumers, "consumer", component)
+        elif isinstance(component, type) and issubclass(component, TimedAction):
+            self._add(self._registry.timed_actions, "timed action", component)
         elif isinstance(component, type) and issubclass(component, Endpoint):
             eid = component.endpoint_id()
             if eid in self._registry.endpoints:

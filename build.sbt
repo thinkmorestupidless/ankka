@@ -407,7 +407,10 @@ lazy val protocol = project
  */
 lazy val sidecar = project
   .in(file("sidecar"))
-  .dependsOn(runtime, http, agent, protocol, testkit % Test)
+  // operator test->test for ClusterImages and the k3s helpers, and test->compile for the
+  // Operator itself: SidecarClusterSuite runs the real operator against k3s with a process-hosted
+  // service, the same way the control plane's cluster suites do.
+  .dependsOn(runtime, http, agent, protocol, testkit % Test, operator % "test->test;test->compile")
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)

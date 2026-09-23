@@ -66,6 +66,35 @@ final class ClientService(
         .set(PayloadKeys.ContentType, p.contentType)
     }
 
+  /**
+   * `Unavailable` is what a remote host answers a command caught in a shard hand-off — an instance
+   * stopping on a node that is leaving during a rollout. The next attempt goes through sharding to
+   * the instance's new home. Retried here, in the sidecar, so every SDK gets the same behaviour and
+   * a rollout refuses nothing (S2.3).
+   */
+  private val RetryDelays: Vector[FiniteDuration] = Vector(200.millis, 500.millis, 1.second)
+
+  private def askWithRetry(
+      componentId: ComponentId,
+      entityId: EntityId,
+      method: MethodName,
+      bytes: Array[Byte],
+      metadata: Metadata,
+      attempt: Int = 0
+  ): Future[Array[Byte]] =
+    transport.ask(componentId, entityId, method, bytes, metadata).recoverWith {
+      case e: CommandError if e.code == ErrorCode.Unavailable && attempt < RetryDelays.size =>
+        val promise = scala.concurrent.Promise[Array[Byte]]()
+        val _ = system.scheduler.scheduleOnce(
+          RetryDelays(attempt),
+          () =>
+            promise.completeWith(
+              askWithRetry(componentId, entityId, method, bytes, metadata, attempt + 1)
+            ): Unit
+        )
+        promise.future
+    }
+
   def invoke(request: InvokeRequest): Future[InvokeReply] =
     (for
       componentId <- Future.fromTry(
@@ -77,7 +106,7 @@ final class ClientService(
       method <- Future.fromTry(
         MethodName.parse(request.name).left.map(IllegalArgumentException(_)).toTry
       )
-      bytes <- transport.ask(
+      bytes <- askWithRetry(
         componentId,
         entityId,
         method,

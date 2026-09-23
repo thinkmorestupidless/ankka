@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import ankka.protocol.v1.discovery.{DiscoveryGrpc, SidecarInfo}
 import ankka.protocol.v1.consumer.{
   ConsumerEffect,
   ConsumerGrpc,
@@ -27,7 +28,7 @@ import com.thinkmorestupidless.ankka.core.effect.{Retention, StepOutcome, StepRe
 import com.thinkmorestupidless.ankka.core.{CommandError, ComponentKind, ErrorCode, Metadata}
 import com.thinkmorestupidless.ankka.runtime.remote.*
 import io.grpc.stub.StreamObserver
-import io.grpc.{ConnectivityState, ManagedChannel}
+import io.grpc.ManagedChannel
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
 import org.apache.pekko.stream.QueueOfferResult
@@ -36,7 +37,7 @@ import org.slf4j.LoggerFactory
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration.*
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
 
 /**
@@ -68,6 +69,7 @@ final class GrpcConversation(
   private val consumer     = ConsumerGrpc.stub(channel)
   private val timedAction  = TimedActionGrpc.stub(channel)
   private val http         = HttpGrpc.stub(channel)
+  private val discovery    = DiscoveryGrpc.stub(channel)
 
   import Translate.*
 
@@ -205,7 +207,7 @@ final class GrpcConversation(
                   )
                 )
                 p.reply.future
-          def runStep(id: Long, step: String, input: Option[Payload]) =
+          def runStep(id: Long, step: String, input: Option[Array[Byte]]) =
             Future.failed(ProtocolViolation("an event sourced entity has no steps"))
           def close(): Unit =
             if !closed then
@@ -279,7 +281,7 @@ final class GrpcConversation(
                   )
                 )
                 p.reply.future
-          def runStep(id: Long, step: String, input: Option[Payload]) =
+          def runStep(id: Long, step: String, input: Option[Array[Byte]]) =
             Future.failed(ProtocolViolation("a key value entity has no steps"))
           def close(): Unit =
             if !closed then
@@ -359,7 +361,7 @@ final class GrpcConversation(
                   )
                 )
                 p.reply.future
-          def runStep(id: Long, step: String, input: Option[Payload]) =
+          def runStep(id: Long, step: String, input: Option[Array[Byte]]) =
             if closed then
               Future.successful(
                 Left(ProcessFailure(id, CommandError("conversation closed", ErrorCode.Unavailable)))
@@ -372,7 +374,9 @@ final class GrpcConversation(
                 // A step's own timeout is the engine's; this one only guards a process that vanished.
                 out.onNext(
                   WorkflowIn(
-                    WorkflowIn.Message.RunStep(WorkflowIn.RunStep(id, step, input.map(toPayload)))
+                    WorkflowIn.Message.RunStep(
+                      WorkflowIn.RunStep(id, step, input.map(pb.Payload.parseFrom))
+                    )
                   )
                 )
                 p.step.future
@@ -431,7 +435,9 @@ final class GrpcConversation(
         PbTimedActionRequest(
           request.componentId,
           request.name,
-          Some(toPayload(request.payload)),
+          Some(
+            if request.payload.isEmpty then pb.Payload() else pb.Payload.parseFrom(request.payload)
+          ),
           Some(toMetadata(request.metadata))
         )
       )
@@ -486,8 +492,21 @@ final class GrpcConversation(
         NotUsed
       }
 
+  /**
+   * A real round trip with a short deadline, not the channel's state: a process that is frozen or
+   * wedged keeps its TCP connection and would read as READY forever. `Discover` is the cheapest
+   * thing every process answers.
+   */
   def reachable(): Boolean =
-    channel.getState(true) == ConnectivityState.READY
+    try
+      Await.result(
+        discovery
+          .withDeadlineAfter(1, java.util.concurrent.TimeUnit.SECONDS)
+          .discover(SidecarInfo(Discovery.ProtocolVersion, "")),
+        1500.millis
+      )
+      true
+    catch case NonFatal(_) => false
 
   // ── Translation ─────────────────────────────────────────────────────────────
 
@@ -596,12 +615,3 @@ final class GrpcConversation(
    */
   private def toPayload(p: Payload): pb.Payload = Translate.toPayload(p)
 end GrpcConversation
-
-object GrpcConversation:
-  /** A step input travels through the engine's journal as the serialized `Payload` message. */
-  def stepInputBytes(p: Payload): Array[Byte] =
-    pb.Payload(p.contentType, p.manifest, ByteString.copyFrom(p.data)).toByteArray
-
-  def stepInputPayload(bytes: Array[Byte]): Payload =
-    val p = pb.Payload.parseFrom(bytes)
-    Payload(p.contentType, p.manifest, p.data.toByteArray)

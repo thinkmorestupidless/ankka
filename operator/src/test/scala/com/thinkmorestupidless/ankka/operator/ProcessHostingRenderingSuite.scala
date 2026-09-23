@@ -32,7 +32,8 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     env = List(
       EnvEntry("GREETING", Some("hi"), None, None),
       EnvEntry("ANTHROPIC_API_KEY", None, Some("models"), Some("anthropic")),
-      EnvEntry("ANKKA_MODEL_DEFAULT", Some("claude"), None, None)
+      EnvEntry("ANKKA_MODEL_DEFAULT", Some("claude"), None, None),
+      EnvEntry("ANKKA_DB_HOST", Some("postgres"), None, None)
     )
   )
   private val process = embedded.copy(hosting = "process")
@@ -80,9 +81,10 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     val node = envOf(cs(0))
     val app  = envOf(cs(1))
     assert(node.contains("ANTHROPIC_API_KEY") && node.contains("ANKKA_MODEL_DEFAULT"))
+    assert(node.contains("ANKKA_DB_HOST"), "a supplied database is the sidecar's")
     assert(!node.contains("GREETING"))
     assert(app.contains("GREETING"))
-    assert(!app.contains("ANTHROPIC_API_KEY"))
+    assert(!app.contains("ANTHROPIC_API_KEY") && !app.contains("ANKKA_DB_HOST"))
     // How the two find each other, on loopback.
     assertEquals(node("ANKKA_PROCESS_ADDRESS"), "127.0.0.1:9010")
     assertEquals(node("ANKKA_SIDECAR_PORT"), "9011")

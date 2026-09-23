@@ -1,9 +1,20 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc, ConsumerRequest}
 import ankka.protocol.v1.discovery.*
 import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, HttpRequest, HttpResponse, StreamFrame}
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
+import ankka.protocol.v1.key_value.{KeyValueGrpc, KeyValueIn, KeyValueOut}
 import ankka.protocol.v1.payload as pb
+import ankka.protocol.v1.timed_action.{TimedActionEffect, TimedActionGrpc, TimedActionRequest}
+import ankka.protocol.v1.view.{ViewEffect, ViewGrpc, ViewRequest}
+import ankka.protocol.v1.workflow.{
+  StepOutcome as PbStepOutcome,
+  StepRef as PbStepRef,
+  WorkflowGrpc,
+  WorkflowIn,
+  WorkflowOut
+}
 import com.google.protobuf.ByteString
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import io.grpc.stub.StreamObserver
@@ -15,6 +26,7 @@ import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
+import scala.util.Try
 
 /**
  * A Scala process speaking the sidecar protocol: what an SDK in another language would be, made
@@ -68,11 +80,125 @@ object ProcessDouble:
         ankka.protocol.v1.discovery.Endpoint.Acl.ALLOW_ALL
   )
 
+  // ── The other kinds, scripted the same way ──────────────────────────────
+
+  enum KvEffect:
+    case Set(state: String, reply: Option[String])
+    case Reply(text: String)
+    case Delete(reply: Option[String])
+    case Expire(millis: Long, reply: Option[String])
+    case Refuse(message: String, code: pb.ErrorCode = pb.ErrorCode.BAD_REQUEST)
+    case Throw(message: String)
+
+  final case class KvHandler(readOnly: Boolean, run: (Option[String], String) => KvEffect)
+
+  /** A key value entity whose state is one text. */
+  final case class KeyValue(
+      id: String,
+      handlers: Map[String, KvHandler],
+      stateManifest: String = "double-kv"
+  )
+
+  /** The conformance-style key value entity: a name, set, read, deleted. */
+  def profile(id: String = "profile"): KeyValue =
+    KeyValue(
+      id,
+      Map(
+        "set" -> KvHandler(
+          readOnly = false,
+          (_, input) =>
+            if input.isEmpty then KvEffect.Refuse("a name is needed")
+            else KvEffect.Set(input, Some("done"))
+        ),
+        "get" -> KvHandler(readOnly = true, (state, _) => KvEffect.Reply(state.getOrElse("none"))),
+        "delete" -> KvHandler(readOnly = false, (_, _) => KvEffect.Delete(Some("done"))),
+        "expire" -> KvHandler(
+          readOnly = false,
+          (_, input) => KvEffect.Expire(input.trim.toLong, Some("done"))
+        ),
+        "misbehave" -> KvHandler(readOnly = false, (_, _) => KvEffect.Throw("boom"))
+      )
+    )
+
+  enum Next:
+    case TransitionTo(step: String, input: Option[String] = None)
+    case Pause(afterMillis: Option[Long] = None, onTimeout: Option[String] = None)
+    case End
+    case Fail(message: String)
+
+  /** What a step answers: a state change, if any, and what happens next. */
+  final case class StepResult(newState: Option[String], next: Next)
+
+  enum WfEffect:
+    case Update(
+        newState: Option[String],
+        transition: Option[(String, Option[String])],
+        reply: Option[String]
+    )
+    case Reply(text: String)
+    case Refuse(message: String, code: pb.ErrorCode = pb.ErrorCode.BAD_REQUEST)
+    case Throw(message: String)
+
+  final case class WfHandler(readOnly: Boolean, run: (Option[String], String) => WfEffect)
+
+  /**
+   * A workflow whose state is one text. A step takes the state and the transition's input and
+   * answers a result — or throws, which is the failure the engine's recovery is for.
+   */
+  final case class Flow(
+      id: String,
+      handlers: Map[String, WfHandler],
+      steps: Map[String, (Option[String], Option[String]) => StepResult],
+      settings: Option[WorkflowDetail.Settings] = None,
+      stateManifest: String = "double-wf"
+  )
+
+  enum ViewAnswer:
+    case UpdateRow(json: String)
+    case DeleteRow
+    case Ignore
+
+  /** A view over a declared component or a topic; `onChange` sees the current row, if any. */
+  final case class ViewOf(
+      id: String,
+      sourceComponent: Option[(Kind, String)],
+      sourceTopic: Option[String],
+      onChange: (Option[String], String, pb.Metadata) => ViewAnswer,
+      rowManifest: String = "double-row",
+      queries: Vector[String] = Vector("get", "all")
+  )
+
+  enum ConsumerAnswer:
+    case Produce(text: String)
+    case Done
+    case Ignore
+
+  final case class ConsumerOf(
+      id: String,
+      sourceComponent: Option[(Kind, String)],
+      sourceTopic: Option[String],
+      producesTo: Option[String],
+      onMessage: (String, pb.Metadata) => ConsumerAnswer
+  )
+
+  /**
+   * A timed action: each handler sees the payload text and the metadata, and fails with a message.
+   */
+  final case class Action(
+      id: String,
+      handlers: Map[String, (String, pb.Metadata) => Either[String, Unit]]
+  )
+
   final case class DoubleSpec(
       entities: Vector[Entity] = Vector.empty,
       endpoints: Vector[Endpoint] = Vector.empty,
       protocolVersion: String = "1.0",
-      extraComponents: Vector[Component] = Vector.empty
+      extraComponents: Vector[Component] = Vector.empty,
+      keyValues: Vector[KeyValue] = Vector.empty,
+      flows: Vector[Flow] = Vector.empty,
+      views: Vector[ViewOf] = Vector.empty,
+      consumers: Vector[ConsumerOf] = Vector.empty,
+      actions: Vector[Action] = Vector.empty
   )
 
   /** The misbehaviours a test can switch on. */
@@ -82,6 +208,7 @@ object ProcessDouble:
     @volatile var unrequestedSnapshot: Boolean = false
     @volatile var neverReply: Boolean          = false
     @volatile var failInsteadOfReply: Boolean  = false
+    @volatile var neverReplyStep: Boolean      = false
 
   /** The conformance-style entity every suite can start from. */
   def recorder(id: String = "conformance", snapshotEvery: Int = 0): Entity =
@@ -169,6 +296,11 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       .forAddress(new InetSocketAddress("127.0.0.1", port))
       .addService(DiscoveryGrpc.bindService(discovery, ec))
       .addService(EventSourcedGrpc.bindService(eventSourced, ec))
+      .addService(KeyValueGrpc.bindService(keyValue, ec))
+      .addService(WorkflowGrpc.bindService(workflow, ec))
+      .addService(ViewGrpc.bindService(view, ec))
+      .addService(ConsumerGrpc.bindService(consumer, ec))
+      .addService(TimedActionGrpc.bindService(timedAction, ec))
       .addService(HttpGrpc.bindService(http, ec))
       .build()
       .start()
@@ -200,6 +332,45 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           e.handlers.toVector.sortBy(_._1).map((n, h) => Handler_(n, h.readOnly)),
           Component.Detail.EventSourced(EventSourcedDetail(e.snapshotEvery))
         )
+      } ++ spec.keyValues.map { e =>
+        Component(
+          Kind.KEY_VALUE_ENTITY,
+          e.id,
+          e.handlers.toVector.sortBy(_._1).map((n, h) => Handler_(n, h.readOnly)),
+          Component.Detail.KeyValue(KeyValueDetail())
+        )
+      } ++ spec.flows.map { f =>
+        Component(
+          Kind.WORKFLOW,
+          f.id,
+          f.handlers.toVector.sortBy(_._1).map((n, h) => Handler_(n, h.readOnly)),
+          Component.Detail.Workflow(WorkflowDetail(f.steps.keys.toVector.sorted, f.settings))
+        )
+      } ++ spec.views.map { v =>
+        Component(
+          Kind.VIEW,
+          v.id,
+          Vector.empty,
+          Component.Detail.View(
+            ViewDetail(sourceOf(v.sourceComponent, v.sourceTopic), v.rowManifest, v.queries)
+          )
+        )
+      } ++ spec.consumers.map { c =>
+        Component(
+          Kind.CONSUMER,
+          c.id,
+          Vector.empty,
+          Component.Detail.Consumer(
+            ConsumerDetail(sourceOf(c.sourceComponent, c.sourceTopic), c.producesTo)
+          )
+        )
+      } ++ spec.actions.map { a =>
+        Component(
+          Kind.TIMED_ACTION,
+          a.id,
+          a.handlers.keys.toVector.sorted.map(Handler_(_, readOnly = false)),
+          Component.Detail.TimedAction(TimedActionDetail())
+        )
       } ++ spec.extraComponents,
       spec.endpoints.map { e =>
         ankka.protocol.v1.discovery.Endpoint(
@@ -215,6 +386,11 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
 
   private def Handler_(name: String, readOnly: Boolean): ankka.protocol.v1.discovery.Handler =
     ankka.protocol.v1.discovery.Handler(name, readOnly, streaming = false)
+
+  private def sourceOf(component: Option[(Kind, String)], topic: Option[String]): Option[Source] =
+    component
+      .map((kind, id) => Source(Source.Source.Component(Source.ComponentRef(kind, id))))
+      .orElse(topic.map(t => Source(Source.Source.Topic(t))))
 
   private val discovery = new DiscoveryGrpc.Discovery:
     def discover(request: SidecarInfo): Future[Spec] =
@@ -390,6 +566,255 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       }
       if cur.nonEmpty then out += cur.toString.trim
       out.result()
+
+  // ── Key value ──────────────────────────────────────────────────────────────
+
+  private def text(t: String): pb.Payload =
+    pb.Payload("text/plain", "string", ByteString.copyFromUtf8(t))
+  private def json(manifest: String, t: String): pb.Payload =
+    pb.Payload("application/json", manifest, ByteString.copyFromUtf8(t))
+  private def outcomeOf(reply: Option[String]): pb.Outcome =
+    reply.map(replyOutcome).getOrElse(pb.Outcome(pb.Outcome.Outcome.NoReply(pb.Outcome.NoReply())))
+  private def refusal(message: String, code: pb.ErrorCode): pb.Outcome =
+    pb.Outcome(pb.Outcome.Outcome.Error(pb.Error(message, code)))
+  private def failure(id: Long, message: String, code: pb.ErrorCode): pb.Failure =
+    pb.Failure(id, Some(pb.Error(Option(message).getOrElse("failed"), code)))
+
+  private val keyValue = new KeyValueGrpc.KeyValue:
+    def handle(out: StreamObserver[KeyValueOut]): StreamObserver[KeyValueIn] =
+      val streamId = streamIds.incrementAndGet()
+      liveStreams += 1
+      var entity: Option[KeyValue] = None
+      var state: Option[String]    = None
+      def reply(
+          id: Long,
+          newState: Option[pb.Payload],
+          retention: Option[pb.Retention],
+          outcome: pb.Outcome
+      ): KeyValueOut =
+        KeyValueOut(
+          KeyValueOut.Message.Reply(KeyValueOut.Reply(id, newState, retention, Some(outcome)))
+        )
+      new StreamObserver[KeyValueIn]:
+        def onNext(in: KeyValueIn): Unit =
+          received.add(Received(streamId, in))
+          in.message match
+            case KeyValueIn.Message.Init(init) =>
+              entity = spec.keyValues.find(_.id == init.componentId)
+              state = init.state.map(_.data.toStringUtf8)
+            case KeyValueIn.Message.Command(cmd) =>
+              val e = entity.getOrElse(throw IllegalStateException("command before init"))
+              if knobs.neverReply then ()
+              else
+                val answer = e.handlers.get(cmd.name) match
+                  case None =>
+                    KeyValueOut(
+                      KeyValueOut.Message
+                        .Failure(failure(cmd.id, s"no handler ${cmd.name}", pb.ErrorCode.NOT_FOUND))
+                    )
+                  case Some(h) =>
+                    val input = cmd.payload.map(_.data.toStringUtf8).getOrElse("")
+                    try
+                      h.run(state, input) match
+                        case KvEffect.Throw(message) => throw RuntimeException(message)
+                        case KvEffect.Refuse(message, code) =>
+                          reply(cmd.id, None, None, refusal(message, code))
+                        case KvEffect.Reply(t) => reply(cmd.id, None, None, replyOutcome(t))
+                        case KvEffect.Set(s, r) =>
+                          state = Some(s)
+                          reply(cmd.id, Some(json(e.stateManifest, s)), None, outcomeOf(r))
+                        case KvEffect.Delete(r) =>
+                          state = None
+                          reply(
+                            cmd.id,
+                            None,
+                            Some(
+                              pb.Retention(
+                                pb.Retention.Retention.DeleteNow(pb.Retention.DeleteNow())
+                              )
+                            ),
+                            outcomeOf(r)
+                          )
+                        case KvEffect.Expire(millis, r) =>
+                          reply(
+                            cmd.id,
+                            None,
+                            Some(
+                              pb.Retention(
+                                pb.Retention.Retention.ExpireAfter(pb.Retention.ExpireAfter(millis))
+                              )
+                            ),
+                            outcomeOf(r)
+                          )
+                    catch
+                      case NonFatal(t) =>
+                        KeyValueOut(
+                          KeyValueOut.Message
+                            .Failure(failure(cmd.id, t.getMessage, pb.ErrorCode.INTERNAL))
+                        )
+                out.onNext(answer)
+            case KeyValueIn.Message.Empty => ()
+        def onError(t: Throwable): Unit = liveStreams -= 1
+        def onCompleted(): Unit =
+          liveStreams -= 1
+          out.onCompleted()
+
+  // ── Workflow ───────────────────────────────────────────────────────────────
+
+  private def toPb(next: Next): PbStepOutcome = next match
+    case Next.TransitionTo(step, input) =>
+      PbStepOutcome(PbStepOutcome.Outcome.TransitionTo(PbStepRef(step, input.map(text))))
+    case Next.Pause(after, onTimeout) =>
+      PbStepOutcome(
+        PbStepOutcome.Outcome.Pause(PbStepOutcome.Pause(after, onTimeout.map(PbStepRef(_, None))))
+      )
+    case Next.End => PbStepOutcome(PbStepOutcome.Outcome.End(PbStepOutcome.End()))
+    case Next.Fail(message) =>
+      PbStepOutcome(PbStepOutcome.Outcome.Fail(pb.Error(message, pb.ErrorCode.INTERNAL)))
+
+  private val workflow = new WorkflowGrpc.Workflow:
+    def handle(out: StreamObserver[WorkflowOut]): StreamObserver[WorkflowIn] =
+      val streamId = streamIds.incrementAndGet()
+      liveStreams += 1
+      var flow: Option[Flow]              = None
+      @volatile var state: Option[String] = None
+      def wfFailure(id: Long, message: String, code: pb.ErrorCode): WorkflowOut =
+        WorkflowOut(WorkflowOut.Message.Failure(failure(id, message, code)))
+      new StreamObserver[WorkflowIn]:
+        def onNext(in: WorkflowIn): Unit =
+          received.add(Received(streamId, in))
+          in.message match
+            case WorkflowIn.Message.Init(init) =>
+              flow = spec.flows.find(_.id == init.componentId)
+              state = init.state.map(_.data.toStringUtf8)
+            case WorkflowIn.Message.Command(cmd) =>
+              val f = flow.getOrElse(throw IllegalStateException("command before init"))
+              if knobs.neverReply then ()
+              else
+                val answer = f.handlers.get(cmd.name) match
+                  case None => wfFailure(cmd.id, s"no handler ${cmd.name}", pb.ErrorCode.NOT_FOUND)
+                  case Some(h) =>
+                    val input = cmd.payload.map(_.data.toStringUtf8).getOrElse("")
+                    def reply(
+                        newState: Option[String],
+                        transition: Option[(String, Option[String])],
+                        outcome: pb.Outcome
+                    ) =
+                      WorkflowOut(
+                        WorkflowOut.Message.Reply(
+                          WorkflowOut.Reply(
+                            cmd.id,
+                            newState.map(json(f.stateManifest, _)),
+                            transition.map((step, i) => PbStepRef(step, i.map(text))),
+                            Some(outcome)
+                          )
+                        )
+                      )
+                    try
+                      h.run(state, input) match
+                        case WfEffect.Throw(message) => throw RuntimeException(message)
+                        case WfEffect.Refuse(message, code) =>
+                          reply(None, None, refusal(message, code))
+                        case WfEffect.Reply(t) => reply(None, None, replyOutcome(t))
+                        case WfEffect.Update(newState, transition, r) =>
+                          newState.foreach(s => state = Some(s))
+                          reply(newState, transition, outcomeOf(r))
+                    catch case NonFatal(t) => wfFailure(cmd.id, t.getMessage, pb.ErrorCode.INTERNAL)
+                out.onNext(answer)
+            case WorkflowIn.Message.RunStep(run) =>
+              val f = flow.getOrElse(throw IllegalStateException("step before init"))
+              if knobs.neverReplyStep then ()
+              else
+                // Off the stream's thread, as a process would run a step: the stream stays free.
+                val _ = Future {
+                  val answer = f.steps.get(run.step) match
+                    case None => wfFailure(run.id, s"no step ${run.step}", pb.ErrorCode.NOT_FOUND)
+                    case Some(step) =>
+                      try
+                        val result = step(state, run.input.map(_.data.toStringUtf8))
+                        result.newState.foreach(s => state = Some(s))
+                        WorkflowOut(
+                          WorkflowOut.Message.StepReply(
+                            WorkflowOut.StepReply(
+                              run.id,
+                              result.newState.map(json(f.stateManifest, _)),
+                              Some(toPb(result.next))
+                            )
+                          )
+                        )
+                      catch
+                        case NonFatal(t) => wfFailure(run.id, t.getMessage, pb.ErrorCode.INTERNAL)
+                  try out.onNext(answer)
+                  catch case NonFatal(_) => ()
+                }
+            case WorkflowIn.Message.Empty => ()
+        def onError(t: Throwable): Unit = liveStreams -= 1
+        def onCompleted(): Unit =
+          liveStreams -= 1
+          out.onCompleted()
+
+  // ── View, consumer, timed action ───────────────────────────────────────────
+
+  private def notFound(what: String): Throwable =
+    io.grpc.Status.NOT_FOUND.withDescription(what).asRuntimeException()
+
+  private val view = new ViewGrpc.View:
+    def handle(request: ViewRequest): Future[ViewEffect] =
+      received.add(Received(0, request))
+      spec.views.find(_.id == request.componentId) match
+        case None => Future.failed(notFound(s"unknown view ${request.componentId}"))
+        case Some(v) =>
+          Future.fromTry(Try {
+            v.onChange(
+              request.row.map(_.data.toStringUtf8),
+              request.event.map(_.data.toStringUtf8).getOrElse(""),
+              request.metadata.getOrElse(pb.Metadata())
+            ) match
+              case ViewAnswer.UpdateRow(row) =>
+                ViewEffect(ViewEffect.Effect.UpdateRow(json(v.rowManifest, row)))
+              case ViewAnswer.DeleteRow => ViewEffect(ViewEffect.Effect.DeleteRow(pb.Empty()))
+              case ViewAnswer.Ignore    => ViewEffect(ViewEffect.Effect.Ignore(pb.Empty()))
+          })
+
+  private val consumer = new ConsumerGrpc.Consumer:
+    def handle(request: ConsumerRequest): Future[ConsumerEffect] =
+      received.add(Received(0, request))
+      spec.consumers.find(_.id == request.componentId) match
+        case None => Future.failed(notFound(s"unknown consumer ${request.componentId}"))
+        case Some(c) =>
+          Future.fromTry(Try {
+            c.onMessage(
+              request.message.map(_.data.toStringUtf8).getOrElse(""),
+              request.metadata.getOrElse(pb.Metadata())
+            ) match
+              case ConsumerAnswer.Produce(t) =>
+                ConsumerEffect(
+                  ConsumerEffect.Effect.Produce(
+                    ConsumerEffect.Produce(Some(json("double-out", t)), Some(pb.Metadata()))
+                  )
+                )
+              case ConsumerAnswer.Done   => ConsumerEffect(ConsumerEffect.Effect.Done(pb.Empty()))
+              case ConsumerAnswer.Ignore => ConsumerEffect(ConsumerEffect.Effect.Ignore(pb.Empty()))
+          })
+
+  private val timedAction = new TimedActionGrpc.TimedAction:
+    def invoke(request: TimedActionRequest): Future[TimedActionEffect] =
+      received.add(Received(0, request))
+      spec.actions.find(_.id == request.componentId).flatMap(_.handlers.get(request.name)) match
+        case None =>
+          Future.failed(notFound(s"unknown timed action ${request.componentId}/${request.name}"))
+        case Some(h) =>
+          Future.fromTry(Try {
+            h(
+              request.payload.map(_.data.toStringUtf8).getOrElse(""),
+              request.metadata.getOrElse(pb.Metadata())
+            ) match
+              case Right(()) => TimedActionEffect(TimedActionEffect.Effect.Done(pb.Empty()))
+              case Left(message) =>
+                TimedActionEffect(
+                  TimedActionEffect.Effect.Fail(pb.Error(message, pb.ErrorCode.INTERNAL))
+                )
+          })
 
   // ── HTTP ───────────────────────────────────────────────────────────────────
 

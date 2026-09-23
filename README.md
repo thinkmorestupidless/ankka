@@ -545,10 +545,11 @@ service has no such endpoint and is never `Ready`: `registry.k8s.io/pause` is re
 when the rollout's deadline passes, and that is the intended answer, not a gap. See *Instances and
 clusters* below for why membership is the test.
 
-`deploy-local.sh` builds all three images with a single root-level `sbt docker:publishLocal` —
-it aggregates to every project with `DockerPlugin` enabled (`operator`, `controlPlane`, and the
-`shoppingCart` sample) and silently skips the rest, the same way `sbt compile` and `sbt test`
-already do; adding the third needed no change to the command. `sbt buildAll` is the same idea one
+`deploy-local.sh` builds all four images with a single root-level `sbt docker:publishLocal` —
+it aggregates to every project with `DockerPlugin` enabled (`operator`, `controlPlane`, the
+`shoppingCart` sample and `sidecar`, the runtime that hosts a service written in another language;
+see `docs/polyglot.md`) and silently skips the rest, the same way `sbt compile` and `sbt test`
+already do; adding the third and the fourth needed no change to the command. `sbt buildAll` is the same idea one
 level up: format check, compile, test and every image, one command, stopping at the first failing
 stage.
 

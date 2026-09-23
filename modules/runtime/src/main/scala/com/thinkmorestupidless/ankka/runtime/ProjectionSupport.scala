@@ -68,12 +68,12 @@ private[ankka] object ProjectionSupport:
       view._setContext(None)
 
   /** Writes the row change through the projection's transaction. */
-  def applyView(
+  def applyView[A](
       session: R2dbcSession,
       table: String,
       subject: String,
-      effect: ViewEffect[Any],
-      serializer: Serializer[Any]
+      effect: ViewEffect[A],
+      serializer: Serializer[A]
   )(using ec: ExecutionContext): Future[Done] =
     def run(fragment: SqlFragment): Future[Done] =
       session

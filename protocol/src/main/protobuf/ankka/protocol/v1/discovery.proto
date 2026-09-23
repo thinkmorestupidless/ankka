@@ -51,7 +51,18 @@ message Handler { string name = 1; bool read_only = 2; bool streaming = 3; }
 
 message EventSourcedDetail { int32 snapshot_every = 1; }          // 0: never
 message KeyValueDetail {}
-message WorkflowDetail { repeated string steps = 1; }
+message WorkflowDetail {
+  repeated string steps = 1;
+  optional Settings settings = 2;              // absent: no overall limit, 30s a step, a failed step fails the workflow
+  message Settings {
+    optional int64 timeout_millis = 1;         // a ceiling on the whole workflow
+    optional int64 default_step_timeout_millis = 2;
+    optional Recovery default_recovery = 3;
+    repeated StepSettings steps = 4;
+  }
+  message StepSettings { string step = 1; optional int64 timeout_millis = 2; optional Recovery recovery = 3; }
+  message Recovery { int32 max_retries = 1; optional string failover_to = 2; }   // failover_to: a declared step, run with no input
+}
 
 message Source {
   oneof source { ComponentRef component = 1; string topic = 2; }

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import typing
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
@@ -216,3 +217,206 @@ class EndpointTestKit:
 
     def delete(self, path: str, **kwargs: Any) -> Response:
         return self.request("DELETE", path, **kwargs)
+
+
+# ── The other kinds ──────────────────────────────────────────────────────────
+
+
+from ankka.consumer import Consumer  # noqa: E402
+from ankka.effects.consumer import ConsumerEffect  # noqa: E402
+from ankka.effects.key_value import KeyValueEffect  # noqa: E402
+from ankka.effects.timed_action import TimedActionEffect  # noqa: E402
+from ankka.effects.view import ViewEffect  # noqa: E402
+from ankka.effects.workflow import StepOutcome, StepRef, TransitionTo, WorkflowStepEffect  # noqa: E402
+from ankka.key_value_entity import KeyValueEntity  # noqa: E402
+from ankka.timed_action import TimedAction  # noqa: E402
+from ankka.view import View  # noqa: E402
+from ankka.workflow import Workflow  # noqa: E402
+
+Row = TypeVar("Row")
+
+
+@dataclass(frozen=True)
+class KeyValueMaterialised(Generic[S]):
+    new_state: S
+    retention: Retention | None
+    reply: Any
+    error: Error | None
+    changed: bool
+
+
+class KeyValueTestKit(Generic[S]):
+    def __init__(self, entity_cls: type[KeyValueEntity[S]], entity_id: str) -> None:
+        self.entity_cls = entity_cls
+        self.entity = entity_cls()
+        self.entity.__class__  # noqa: B018 - keeps mypy honest about the generic
+        self.entity._bind(entity_id)
+        self.entity_id = entity_id
+        self.state: S = self.entity.empty_state()
+
+    @classmethod
+    def of(cls, entity_cls: type[KeyValueEntity[S]], entity_id: str = "test") -> KeyValueTestKit[S]:
+        return cls(entity_cls, entity_id)
+
+    def call(self, name: str, input: Any = None) -> KeyValueMaterialised[S]:
+        spec = self.entity_cls.handlers().get(name)
+        if spec is None:
+            raise AssertionError(f"{self.entity_cls.__name__} has no handler {name!r}")
+        input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
+        ctx = CommandContext(self.entity_id, self.entity_cls.component_id, Metadata(), 0, _NoClient())
+        effect: KeyValueEffect[S, Any] = _run(self.entity._run(spec, self.state, input_bytes, ctx))
+        if isinstance(effect.outcome, Fail):
+            return KeyValueMaterialised(self.state, None, None, effect.outcome.error, False)
+        sc = self.entity_cls.state_codec
+        new_state = self.state if effect.new_state is None else sc.decode(sc.encode(effect.new_state))
+        reply: Any = None
+        if isinstance(effect.outcome, Reply):
+            reply = spec.reply_codec.decode(spec.reply_codec.encode(effect.outcome.compute(new_state)))
+        changed = effect.new_state is not None
+        self.state = new_state
+        return KeyValueMaterialised(new_state, effect.retention, reply, None, changed)
+
+
+@dataclass(frozen=True)
+class WorkflowMaterialised(Generic[S]):
+    new_state: S
+    transition: StepRef | None
+    reply: Any
+    error: Error | None
+
+
+@dataclass(frozen=True)
+class StepMaterialised(Generic[S]):
+    new_state: S
+    next: StepOutcome
+
+
+class WorkflowTestKit(Generic[S]):
+    """Drives commands and steps by hand: ``call`` runs a command, ``run_step`` a step, and
+    ``run_until_end`` follows transitions (not pauses) until the workflow ends."""
+
+    def __init__(self, workflow_cls: type[Workflow[S]], workflow_id: str) -> None:
+        self.workflow_cls = workflow_cls
+        self.workflow = workflow_cls()
+        self.workflow._bind(workflow_id)
+        self.workflow_id = workflow_id
+        self.state: S = self.workflow.empty_state()
+        self.pending: StepRef | None = None
+        self.transitions: list[str] = []
+
+    @classmethod
+    def of(cls, workflow_cls: type[Workflow[S]], workflow_id: str = "test") -> WorkflowTestKit[S]:
+        return cls(workflow_cls, workflow_id)
+
+    def call(self, name: str, input: Any = None) -> WorkflowMaterialised[S]:
+        spec = self.workflow_cls.handlers().get(name)
+        if spec is None:
+            raise AssertionError(f"{self.workflow_cls.__name__} has no handler {name!r}")
+        input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
+        ctx = CommandContext(self.workflow_id, self.workflow_cls.component_id, Metadata(), 0, _NoClient())
+        effect = _run(self.workflow._run(spec, self.state, input_bytes, ctx))
+        if isinstance(effect.outcome, Fail):
+            return WorkflowMaterialised(self.state, None, None, effect.outcome.error)
+        new_state = self.state if effect.new_state is None else effect.new_state
+        reply: Any = None
+        if isinstance(effect.outcome, Reply):
+            reply = spec.reply_codec.decode(spec.reply_codec.encode(effect.outcome.compute(new_state)))
+        self.state = new_state
+        if effect.transition is not None:
+            self.pending = effect.transition
+            self.transitions.append(effect.transition.step)
+        return WorkflowMaterialised(new_state, effect.transition, reply, None)
+
+    def run_step(self, step: str | None = None, input: Any = None) -> StepMaterialised[S]:
+        ref = StepRef(step, input) if step is not None else self.pending
+        if ref is None:
+            raise AssertionError("no step is pending; name one")
+        spec = self.workflow_cls.steps().get(ref.step)
+        if spec is None:
+            raise AssertionError(f"{self.workflow_cls.__name__} has no step {ref.step!r}")
+        input_bytes = spec.input_codec.encode(ref.input) if spec.input_type is not None else None
+        ctx = CommandContext(self.workflow_id, self.workflow_cls.component_id, Metadata(), 0, _NoClient())
+        effect: WorkflowStepEffect[S] = _run(self.workflow._run_step(spec, self.state, input_bytes, ctx))
+        if effect.new_state is not None:
+            self.state = effect.new_state
+        self.pending = effect.next.ref if isinstance(effect.next, TransitionTo) else None
+        if self.pending is not None:
+            self.transitions.append(self.pending.step)
+        return StepMaterialised(self.state, effect.next)
+
+    def run_until_end(self, limit: int = 100) -> StepOutcome:
+        last: StepOutcome | None = None
+        for _ in range(limit):
+            if self.pending is None:
+                break
+            last = self.run_step().next
+        if last is None:
+            raise AssertionError("nothing to run")
+        return last
+
+
+class ViewTestKit(Generic[Row]):
+    """Feeds events to a view, keeping one row per key as the sidecar's projection would."""
+
+    def __init__(self, view_cls: type[View[Any, Row]]) -> None:
+        self.view_cls = view_cls
+        self.rows: dict[str, Row] = {}
+
+    @classmethod
+    def of(cls, view_cls: type[View[Any, Row]]) -> ViewTestKit[Row]:
+        return cls(view_cls)
+
+    def on_change(self, key: str, event: Any) -> ViewEffect:
+        view = self.view_cls()
+        ec, rc = self.view_cls.event_codec, self.view_cls.row_codec
+        current = self.rows.get(key)
+        effect = _run(view._handle(ec.encode(event), rc.encode(current) if current is not None else None, Metadata()))
+        from ankka.effects.view import DeleteRow, UpdateRow
+
+        if isinstance(effect, UpdateRow):
+            self.rows[key] = rc.decode(rc.encode(effect.row))
+        elif isinstance(effect, DeleteRow):
+            self.rows.pop(key, None)
+        return typing.cast(ViewEffect, effect)
+
+    def get(self, key: str) -> Row | None:
+        return self.rows.get(key)
+
+
+class ConsumerTestKit:
+    def __init__(self, consumer_cls: type[Consumer[Any, Any]]) -> None:
+        self.consumer_cls = consumer_cls
+        self.produced: list[Any] = []
+
+    @classmethod
+    def of(cls, consumer_cls: type[Consumer[Any, Any]]) -> ConsumerTestKit:
+        return cls(consumer_cls)
+
+    def on_message(self, message: Any) -> ConsumerEffect:
+        consumer = self.consumer_cls(_NoClient())
+        mc = self.consumer_cls.message_codec
+        effect = _run(consumer._handle(mc.encode(message), Metadata()))
+        from ankka.effects.consumer import Produce
+
+        if isinstance(effect, Produce):
+            oc = self.consumer_cls.out_codec
+            assert oc is not None
+            self.produced.append(oc.decode(oc.encode(effect.payload)))
+        return typing.cast(ConsumerEffect, effect)
+
+
+class TimedActionTestKit:
+    def __init__(self, action_cls: type[TimedAction]) -> None:
+        self.action_cls = action_cls
+
+    @classmethod
+    def of(cls, action_cls: type[TimedAction]) -> TimedActionTestKit:
+        return cls(action_cls)
+
+    def call(self, name: str, input: Any = None) -> TimedActionEffect:
+        spec = self.action_cls.handlers().get(name)
+        if spec is None:
+            raise AssertionError(f"{self.action_cls.__name__} has no handler {name!r}")
+        input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
+        action = self.action_cls(_NoClient())
+        return typing.cast(TimedActionEffect, _run(action._run(spec, input_bytes, Metadata())))

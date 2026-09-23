@@ -234,7 +234,7 @@ object ServiceSpec:
    * configuration, because the sidecar runs the agent loop and the process never calls a model.
    * Prefixes, matched by the operator when it splits the environment.
    */
-  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_")
+  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_")
 
 /**
  * A container environment variable, either literal or drawn from a secret.

@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.core.{
   ComponentKind,
   MethodName
 }
+import com.thinkmorestupidless.ankka.sdk.WorkflowSettings
 
 /**
  * A handler the developer's process declared in discovery.
@@ -47,10 +48,15 @@ final case class RemoteKeyValueDescriptor(
 ) extends RemoteDescriptor:
   val kind: ComponentKind = ComponentKind.KeyValueEntity
 
+/**
+ * `settings` are the engine's — timeouts and recovery are enforced by the sidecar, so the process
+ * declares them in discovery rather than applying them itself.
+ */
 final case class RemoteWorkflowDescriptor(
     componentId: ComponentId,
     handlers: Map[MethodName, RemoteHandler],
-    steps: Set[String]
+    steps: Set[String],
+    settings: WorkflowSettings = WorkflowSettings.default
 ) extends RemoteDescriptor:
   val kind: ComponentKind = ComponentKind.Workflow
 

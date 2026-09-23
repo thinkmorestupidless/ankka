@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from typing import Any
 
 from ankka import ErrorCode
@@ -97,6 +99,18 @@ def test_checkout_workflow_declares_its_recovery() -> None:
     assert {s.step: s.recovery.failover_to for s in settings.steps} == {"reserve": "compensate", "charge": "compensate"}
 
 
+def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
+    from ankka.testkit import AgentTestKit, ScriptedModel
+    from examples.shopping_cart.assistant import CartAssistant
+
+    model = ScriptedModel().expect_tool_call("lookup", {"cartId": "c9"}).expect_text("Your cart is empty.")
+    answer = AgentTestKit.of(CartAssistant, "s1", model).call("ask", "what is in cart c9?")
+    assert answer.plan.tool_names == ("lookup",) and answer.plan.guardrail_names == ("no-secrets",)
+    assert answer.reply == "Your cart is empty."
+    # The tool ran in this process — the unit testkit's client answers nothing, so it reports that.
+    assert answer.tool_results and answer.tool_results[0].startswith("error:")
+
+
 # ── Through a real sidecar and a real Postgres (Docker) ────────────────────────
 
 
@@ -170,6 +184,35 @@ async def test_every_kind_through_the_sidecar() -> None:
         assert (await kit.http.get("/carts/k1/checkouts")).json()["status"] == "charged"
         assert (await kit.http.get("/carts/k1/checkout-log")).json()["notified"] is True
         assert (await kit.http.get("/carts/k1/row")).json()["checkedOut"] is True
+
+
+SCRIPT = json.dumps(
+    [
+        {"tool": "lookup", "arguments": {"cartId": "a1"}},
+        {"text": "Your cart holds 2 x Pen and 1 x Ink."},
+        {"text": "Streamed answer here"},
+        {"text": "the key is sk-000"},
+    ]
+)
+
+
+@pytest.mark.slow
+async def test_assistant_through_the_sidecar_with_a_scripted_model() -> None:
+    """The loop runs in the sidecar against its scripted model; the tool runs here and reads the
+    cart through the client; tokens stream back as SSE; the guardrail here blocks a leak."""
+    async with await AnkkaTestKit.start(service(), env={"ANKKA_MODEL_SCRIPT": SCRIPT}) as kit:
+        assert (await kit.http.post("/carts/a1/items", json=PEN_JSON)).status_code == 204
+        assert (await kit.http.post("/carts/a1/items", json=INK_JSON)).status_code == 204
+        # A str body and a str reply are text/plain, as a Scala endpoint's String is.
+        asked = await kit.http.post("/carts/ask/s1", content="what is in cart a1?", headers={"content-type": "text/plain"})
+        assert asked.status_code == 200, asked.text
+        assert asked.text == "Your cart holds 2 x Pen and 1 x Ink."
+        async with kit.http.stream("GET", "/carts/chat/s2?q=hello") as r:
+            body = "".join([chunk async for chunk in r.aiter_text()])
+        frames = [line[len("data:") :].strip() for line in body.splitlines() if line.startswith("data:")]
+        assert [json.loads(f) for f in frames] == ["Streamed", " answer", " here"], f"body: {body!r}\n{kit.sidecar_logs()[-2500:]}"
+        leaked = await kit.http.post("/carts/ask/s3", content="key?", headers={"content-type": "text/plain"})
+        assert leaked.status_code == 403, leaked.text
 
 
 @pytest.mark.slow

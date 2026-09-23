@@ -19,6 +19,8 @@ import grpc
 import grpc.aio
 
 from ankka._proto.ankka.protocol.v1 import (
+    agent_pb2,
+    agent_pb2_grpc,
     consumer_pb2,
     consumer_pb2_grpc,
     discovery_pb2,
@@ -37,6 +39,7 @@ from ankka._proto.ankka.protocol.v1 import (
     workflow_pb2,
     workflow_pb2_grpc,
 )
+from ankka.agent import Agent
 from ankka.client import CommandError, ComponentClient
 from ankka.context import CommandContext, Metadata, Principal, RequestContext
 from ankka.codec import default_codec_for
@@ -449,6 +452,57 @@ class TimedActionServicer(timed_action_pb2_grpc.TimedActionServicer):
         return timed_action_pb2.TimedActionEffect(done=payload_pb2.Empty())
 
 
+class AgentServicer(agent_pb2_grpc.AgentServicer):
+    """The three things the sidecar's loop asks a process for: a plan, a tool's result, a
+    guardrail's verdict. The loop, the model and the memory are the sidecar's."""
+
+    def __init__(self, registry: Registry, client: ComponentClient) -> None:
+        self.registry = registry
+        self.client = client
+
+    def _agent(self, component_id: str, session_id: str, metadata: Metadata | None = None) -> Agent | None:
+        cls = self.registry.agents.get(component_id)
+        if cls is None:
+            return None
+        scoped = self.client.with_metadata(metadata) if metadata is not None else self.client
+        return cls(scoped)
+
+    async def Plan(self, request: agent_pb2.PlanRequest, context: Any) -> agent_pb2.PlanReply:
+        metadata = Metadata.from_pb(request.metadata)
+        agent = self._agent(request.component_id, request.session_id, metadata)
+        spec = type(agent).handlers().get(request.name) if agent is not None else None
+        if agent is None or spec is None:
+            return agent_pb2.PlanReply(failure=_failure(0, f"unknown agent handler {request.component_id}/{request.name}", payload_pb2.NOT_FOUND))
+        try:
+            effect = await agent._plan(spec, request.payload.data, request.session_id, metadata)
+        except Exception as e:
+            log.warning("%s/%s %s raised: %s", request.component_id, request.session_id, request.name, e)
+            return agent_pb2.PlanReply(failure=_failure(0, str(e) or type(e).__name__))
+        return agent_pb2.PlanReply(plan=effect.to_pb())
+
+    async def InvokeTool(self, request: agent_pb2.ToolRequest, context: Any) -> agent_pb2.ToolResult:
+        agent = self._agent(request.component_id, request.session_id)
+        if agent is None or request.tool not in type(agent).tools:
+            return agent_pb2.ToolResult(error=f"no tool named {request.tool!r} on {request.component_id!r}")
+        try:
+            return agent_pb2.ToolResult(ok=await agent._invoke_tool(request.tool, request.arguments_json, request.session_id))
+        except Exception as e:  # a message for the model, as FunctionTool.invoke answers
+            return agent_pb2.ToolResult(error=str(e) or type(e).__name__)
+
+    async def CheckGuardrail(self, request: agent_pb2.GuardrailRequest, context: Any) -> agent_pb2.GuardrailResult:
+        agent = self._agent(request.component_id, request.session_id)
+        if agent is None or request.guardrail not in type(agent).guardrails:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown guardrail {request.component_id}/{request.guardrail}")
+        assert agent is not None
+        stage = "input" if request.stage == agent_pb2.GuardrailRequest.INPUT else "output"
+        reason = await agent._check_guardrail(request.guardrail, stage, request.text, request.session_id)
+        if reason is None:
+            passed = agent_pb2.GuardrailResult()
+            getattr(passed, "pass").SetInParent()  # `pass` is a keyword, so the field is reached by name
+            return passed
+        return agent_pb2.GuardrailResult(block=reason)
+
+
 class HttpServicer(endpoint_pb2_grpc.HttpServicer):
     def __init__(self, registry: Registry, client: ComponentClient) -> None:
         self.registry = registry
@@ -550,6 +604,7 @@ class Server:
         consumer_pb2_grpc.add_ConsumerServicer_to_server(ConsumerServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         endpoint_pb2_grpc.add_HttpServicer_to_server(HttpServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
+        agent_pb2_grpc.add_AgentServicer_to_server(AgentServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
 
     async def start(self, host: str = "127.0.0.1", port: int = 0) -> int:
         if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0"):

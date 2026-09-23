@@ -13,6 +13,7 @@ from typing import Any
 
 from ankka import __version__
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
+from ankka.agent import Agent
 from ankka.consumer import Consumer
 from ankka.endpoint import Endpoint
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
@@ -35,12 +36,13 @@ class Registry:
     views: dict[str, type[View[Any, Any]]] = field(default_factory=dict)
     consumers: dict[str, type[Consumer[Any, Any]]] = field(default_factory=dict)
     timed_actions: dict[str, type[TimedAction]] = field(default_factory=dict)
+    agents: dict[str, type[Agent]] = field(default_factory=dict)
     endpoints: dict[str, type[Endpoint]] = field(default_factory=dict)
     others: list[Any] = field(default_factory=list)
 
     def spec(self) -> discovery_pb2.Spec:
         components = [cls.to_component() for cls in self.entities.values()]
-        for registry in (self.key_values, self.workflows, self.views, self.consumers, self.timed_actions):
+        for registry in (self.key_values, self.workflows, self.views, self.consumers, self.timed_actions, self.agents):
             components.extend(cls.to_component() for cls in registry.values())
         for other in self.others:
             components.append(other.to_component())
@@ -77,6 +79,8 @@ class ServiceBuilder:
             self._add(self._registry.consumers, "consumer", component)
         elif isinstance(component, type) and issubclass(component, TimedAction):
             self._add(self._registry.timed_actions, "timed action", component)
+        elif isinstance(component, type) and issubclass(component, Agent):
+            self._add(self._registry.agents, "agent", component)
         elif isinstance(component, type) and issubclass(component, Endpoint):
             eid = component.endpoint_id()
             if eid in self._registry.endpoints:

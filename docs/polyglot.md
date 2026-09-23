@@ -309,6 +309,36 @@ process that set it; the sweeper delivers it here and a `failed` effect, an exce
 unreachable process is retried with backoff, `self.metadata` carrying the timer's name and the
 attempt count. `client.timers.cancel(id)` removes one; scheduling twice under one id replaces it.
 
+### An agent
+
+```python
+class CartAssistant(Agent):
+    component_id = "assistant"
+    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
+    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
+
+    @command("ask")
+    def ask(self, question: str) -> AgentEffect[str]:
+        return self.effects.system_message("You help shoppers with their carts.").user_message(question).tools("lookup").guardrails("no-secrets").then_reply()
+
+    @stream("chat")
+    def chat(self, question: str) -> AgentEffect[str]: ...
+```
+
+Your class declares the agent — its instructions, its tools (a description, an input dataclass
+whose fields are the schema the model sees, and a function) and its guardrails — and a handler
+returns an `AgentEffect`: a plan, as data. **The loop runs in the sidecar**: it calls the model,
+dispatches tool calls back to this process with the model's arguments, feeds a tool's exception
+back to the model as a tool error, keeps and compacts the session, and counts tokens. Your process
+is asked to plan, to run a tool and to check a guardrail, and for nothing else. Say it plainly:
+the model key lives on the sidecar (`ANTHROPIC_API_KEY`, or `ANKKA_MODEL_SCRIPT` for a scripted
+model in a test) and this process never calls a model. A session is the sidecar's entity, so it
+survives your process restarting. A `@stream` handler's tokens reach the caller as they are
+produced, through `client.for_agent(...).call("chat").stream(q)` and an `@sse` route. See
+[`assistant.py`](../sdks/python/examples/shopping_cart/assistant.py), and `AgentTestKit` with a
+`ScriptedModel` for testing the plan and the tools without a sidecar.
+
 ## What is not there yet
 
-Agents follow, a conversation on the same protocol.
+Nothing of the component model: every kind is hosted. What remains is breadth — one SDK, in
+Python; a third language arrives through the conformance suite and the encoding fixtures.

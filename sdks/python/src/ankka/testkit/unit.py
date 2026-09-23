@@ -14,8 +14,10 @@ import typing
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
+from ankka.agent import Agent
 from ankka.client import ComponentClient
 from ankka.context import CommandContext, Metadata, Principal, RequestContext
+from ankka.effects.agent import AgentEffect
 from ankka.effects.common import Error, Fail, NoReply, Reply, Retention
 from ankka.endpoint import Endpoint, HttpProblem, RouteSpec
 from ankka.event_sourced_entity import EventSourcedEntity, HandlerSpec
@@ -424,6 +426,116 @@ class ConsumerTestKit:
             assert oc is not None
             self.produced.append(oc.decode(oc.encode(effect.payload)))
         return typing.cast(ConsumerEffect, effect)
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AgentReply:
+    """One interaction as the sidecar's loop would run it: the plan the handler produced, the
+    tool calls the scripted model asked for (run in-process), and the reply or the refusal."""
+
+    plan: AgentEffect[Any]
+    tool_calls: list[ToolCall]
+    tool_results: list[str]
+    reply: Any
+    error: Error | None
+
+
+class ScriptedModel:
+    """Answers from a script, in order — and fails loudly when it runs out: a test whose model
+    quietly returned a default is no longer testing what it says."""
+
+    def __init__(self) -> None:
+        self._script: list[tuple[str, Any]] = []
+        self.requests: list[AgentEffect[Any]] = []
+
+    def expect_text(self, text: str) -> ScriptedModel:
+        self._script.append(("text", text))
+        return self
+
+    def expect_tool_call(self, name: str, arguments: dict[str, Any] | None = None) -> ScriptedModel:
+        self._script.append(("tool", ToolCall(name, arguments or {})))
+        return self
+
+    def expect_refusal(self, reason: str) -> ScriptedModel:
+        self._script.append(("refusal", reason))
+        return self
+
+    def _next(self) -> tuple[str, Any]:
+        if not self._script:
+            raise AssertionError("the scripted model ran out of script; add expect_text or expect_tool_call")
+        return self._script.pop(0)
+
+
+class AgentTestKit:
+    """Runs an agent's handler and then the loop the sidecar would run, against a scripted
+    model: tools are invoked in-process with the scripted arguments, guardrails are checked."""
+
+    def __init__(self, agent_cls: type[Agent], session_id: str, model: ScriptedModel | None = None) -> None:
+        self.agent_cls = agent_cls
+        self.session_id = session_id
+        self.model = model or ScriptedModel()
+        self.history: list[tuple[str, str]] = []
+
+    @classmethod
+    def of(cls, agent_cls: type[Agent], session_id: str = "test", model: ScriptedModel | None = None) -> AgentTestKit:
+        return cls(agent_cls, session_id, model)
+
+    def call(self, name: str, input: Any = None) -> AgentReply:
+        spec = self.agent_cls.handlers().get(name)
+        if spec is None:
+            raise AssertionError(f"{self.agent_cls.__name__} has no handler {name!r}")
+        input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
+        agent = self.agent_cls(_NoClient())
+        plan: AgentEffect[Any] = _run(agent._plan(spec, input_bytes, self.session_id, Metadata()))
+        self.model.requests.append(plan)
+        if plan.failure is not None:
+            return AgentReply(plan, [], [], None, plan.failure)
+        from ankka.effects.common import Error as _Error, ErrorCode as _Code
+
+        user = plan.user or ""
+        for g in plan.guardrail_names:
+            reason = _run(agent._check_guardrail(g, "input", user, self.session_id))
+            if reason is not None:
+                return AgentReply(plan, [], [], None, _Error(f"guardrail '{g}': {reason}", _Code.FORBIDDEN))
+        calls: list[ToolCall] = []
+        results: list[str] = []
+        steps = 0
+        while True:
+            kind, value = self.model._next()
+            if kind == "refusal":
+                return AgentReply(plan, calls, results, None, _Error(value, _Code.FORBIDDEN))
+            if kind == "tool":
+                steps += 1
+                if steps > self.agent_cls.max_tool_call_steps:
+                    return AgentReply(plan, calls, results, None, _Error(f"exceeded {self.agent_cls.max_tool_call_steps} tool-call steps", _Code.INTERNAL))
+                call = typing.cast(ToolCall, value)
+                if call.name not in plan.tool_names:
+                    results.append(f"no tool named '{call.name}' is available")
+                    calls.append(call)
+                    continue
+                import json as _json
+
+                calls.append(call)
+                try:
+                    results.append(_run(agent._invoke_tool(call.name, _json.dumps(call.arguments), self.session_id)))
+                except Exception as e:
+                    results.append(f"error: {e}")
+                continue
+            text = typing.cast(str, value)
+            for g in plan.guardrail_names:
+                reason = _run(agent._check_guardrail(g, "output", text, self.session_id))
+                if reason is not None:
+                    return AgentReply(plan, calls, results, None, _Error(f"guardrail '{g}': {reason}", _Code.FORBIDDEN))
+            if plan.session_memory:
+                self.history.append((user, text))
+            reply: Any = spec.reply_codec.decode(text.encode("utf-8")) if plan.json_reply else text
+            return AgentReply(plan, calls, results, reply, None)
 
 
 class TimedActionTestKit:

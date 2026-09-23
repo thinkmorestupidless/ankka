@@ -1,5 +1,15 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import ankka.protocol.v1.agent.{
+  AgentGrpc,
+  AgentPlan,
+  GuardrailRequest,
+  GuardrailResult,
+  PlanReply,
+  PlanRequest as PbPlanRequest,
+  ToolRequest,
+  ToolResult
+}
 import ankka.protocol.v1.discovery.{DiscoveryGrpc, SidecarInfo}
 import ankka.protocol.v1.consumer.{
   ConsumerEffect,
@@ -25,7 +35,13 @@ import ankka.protocol.v1.workflow.{
 }
 import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.core.effect.{Retention, StepOutcome, StepRef}
-import com.thinkmorestupidless.ankka.core.{CommandError, ComponentKind, ErrorCode, Metadata}
+import com.thinkmorestupidless.ankka.core.{
+  CommandError,
+  ComponentId,
+  ComponentKind,
+  ErrorCode,
+  Metadata
+}
 import com.thinkmorestupidless.ankka.runtime.remote.*
 import io.grpc.stub.StreamObserver
 import io.grpc.ManagedChannel
@@ -69,6 +85,7 @@ final class GrpcConversation(
   private val consumer     = ConsumerGrpc.stub(channel)
   private val timedAction  = TimedActionGrpc.stub(channel)
   private val http         = HttpGrpc.stub(channel)
+  private val agent        = AgentGrpc.stub(channel)
   private val discovery    = DiscoveryGrpc.stub(channel)
 
   import Translate.*
@@ -459,6 +476,81 @@ final class GrpcConversation(
           case _                                => Right(())
       }
 
+  // ── Agents ──────────────────────────────────────────────────────────────────
+
+  def plan(request: PlanRequest): Future[Either[ProcessFailure, RemotePlan]] =
+    agent
+      .plan(
+        PbPlanRequest(
+          request.componentId,
+          request.sessionId,
+          request.name,
+          Some(toPayload(request.payload)),
+          Some(toMetadata(request.metadata))
+        )
+      )
+      .map { reply =>
+        reply.message match
+          case PlanReply.Message.Plan(p)    => Right(fromPlan(p))
+          case PlanReply.Message.Failure(f) => Left(fromFailure(f))
+          case PlanReply.Message.Empty =>
+            Left(
+              ProcessFailure(0L, CommandError("the process answered no plan", ErrorCode.Internal))
+            )
+      }
+
+  private def fromPlan(p: AgentPlan): RemotePlan =
+    RemotePlan(
+      model = p.model,
+      system = p.system,
+      user = p.user,
+      context = p.context.toVector,
+      sessionMemory = p.memory == AgentPlan.Memory.SESSION,
+      tools = p.tools.toVector,
+      jsonShape = p.responseShape.flatMap(_.shape.json).map(_.schemaHint),
+      guardrails = p.guardrails.toVector,
+      failure = p.failure.map(fromError)
+    )
+
+  def invokeTool(
+      componentId: ComponentId,
+      sessionId: String,
+      tool: String,
+      argumentsJson: String
+  ): Future[Either[String, String]] =
+    agent.invokeTool(ToolRequest(componentId, sessionId, tool, argumentsJson)).map { result =>
+      result.result match
+        case ToolResult.Result.Ok(text)    => Right(text)
+        case ToolResult.Result.Error(text) => Left(text)
+        case ToolResult.Result.Empty       => Right("")
+    }
+
+  def checkGuardrail(
+      componentId: ComponentId,
+      sessionId: String,
+      guardrail: String,
+      stage: GuardrailStage,
+      text: String
+  ): Future[Either[String, Unit]] =
+    agent
+      .checkGuardrail(
+        GuardrailRequest(
+          componentId,
+          sessionId,
+          guardrail,
+          stage match
+            case GuardrailStage.Input  => GuardrailRequest.Stage.INPUT
+            case GuardrailStage.Output => GuardrailRequest.Stage.OUTPUT
+          ,
+          text
+        )
+      )
+      .map { result =>
+        result.result match
+          case GuardrailResult.Result.Block(reason) => Left(reason)
+          case _                                    => Right(())
+      }
+
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
     http.handle(toHttpRequest(request)).map { reply =>
       reply.message match
@@ -490,16 +582,27 @@ final class GrpcConversation(
         http.handleStream(
           toHttpRequest(request),
           new StreamObserver[StreamFrame]:
+            // The process says `completed` in its last frame and then ends the call, so the
+            // queue is completed twice; the second time is not an error.
+            @volatile private var done = false
+            private def finish(): Unit =
+              if !done then
+                done = true
+                queue.complete()
+            private def fail(t: Throwable): Unit =
+              if !done then
+                done = true
+                queue.fail(t)
             def onNext(frame: StreamFrame): Unit = frame.frame match
               case StreamFrame.Frame.Text(text) =>
                 queue.offer(text) match
                   case QueueOfferResult.Enqueued => ()
                   case other                     => log.warn("SSE frame dropped: {}", other)
-              case StreamFrame.Frame.Completed(_) => queue.complete()
-              case StreamFrame.Frame.Failed(e)    => queue.fail(fromError(e))
+              case StreamFrame.Frame.Completed(_) => finish()
+              case StreamFrame.Frame.Failed(e)    => fail(fromError(e))
               case StreamFrame.Frame.Empty        => ()
-            def onError(t: Throwable): Unit = queue.fail(t)
-            def onCompleted(): Unit         = queue.complete()
+            def onError(t: Throwable): Unit = fail(t)
+            def onCompleted(): Unit         = finish()
         )
         NotUsed
       }

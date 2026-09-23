@@ -177,3 +177,15 @@ final class StreamHandle[A, I] private[agent] (
     run(agent, inputSerializer.fromBytes(payload))
 
   override def toString: String = s"$componentId#$name (streaming)"
+
+object StreamHandle:
+  /**
+   * A streaming handler whose input is decoded elsewhere — the sidecar's remote agent, whose
+   * handler runs in another process and sees the bytes as they were sent.
+   */
+  private[ankka] def raw[A](
+      componentId: ComponentId,
+      name: MethodName,
+      run: (A, Array[Byte]) => AgentStreamEffect
+  ): StreamHandle[A, Array[Byte]] =
+    new StreamHandle[A, Array[Byte]](componentId, name, Serializer.bytes, run)

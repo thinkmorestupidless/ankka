@@ -1,5 +1,15 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import ankka.protocol.v1.agent.{
+  AgentGrpc,
+  AgentPlan,
+  GuardrailRequest,
+  GuardrailResult,
+  PlanReply,
+  PlanRequest,
+  ToolRequest,
+  ToolResult
+}
 import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc, ConsumerRequest}
 import ankka.protocol.v1.discovery.*
 import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, HttpRequest, HttpResponse, StreamFrame}
@@ -184,6 +194,40 @@ object ProcessDouble:
   )
 
   /**
+   * An agent: each handler answers a plan for the input text, each tool takes the model's arguments
+   * as JSON text, each guardrail sees the stage and the text and may block with a reason.
+   */
+  final case class AgentOf(
+      id: String,
+      handlers: Map[String, String => AgentPlan],
+      streams: Map[String, String => AgentPlan] = Map.empty,
+      tools: Map[String, (String, String) => Either[String, String]] = Map.empty,
+      guardrails: Map[String, (GuardrailRequest.Stage, String) => Option[String]] = Map.empty,
+      role: String = "",
+      maxToolCallSteps: Int = 0
+  )
+
+  /** A plan naming the sidecar's default model. */
+  def plan(
+      system: String,
+      user: String,
+      tools: Vector[String] = Vector.empty,
+      guardrails: Vector[String] = Vector.empty,
+      memory: Boolean = true
+  ): AgentPlan =
+    AgentPlan(
+      model = None,
+      system = Some(system),
+      user = Some(user),
+      context = Vector.empty,
+      memory = if memory then AgentPlan.Memory.SESSION else AgentPlan.Memory.NONE,
+      tools = tools,
+      responseShape = None,
+      guardrails = guardrails,
+      failure = None
+    )
+
+  /**
    * A timed action: each handler sees the payload text and the metadata, and fails with a message.
    */
   final case class Action(
@@ -200,7 +244,8 @@ object ProcessDouble:
       flows: Vector[Flow] = Vector.empty,
       views: Vector[ViewOf] = Vector.empty,
       consumers: Vector[ConsumerOf] = Vector.empty,
-      actions: Vector[Action] = Vector.empty
+      actions: Vector[Action] = Vector.empty,
+      agents: Vector[AgentOf] = Vector.empty
   )
 
   /** The misbehaviours a test can switch on. */
@@ -303,6 +348,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       .addService(ViewGrpc.bindService(view, ec))
       .addService(ConsumerGrpc.bindService(consumer, ec))
       .addService(TimedActionGrpc.bindService(timedAction, ec))
+      .addService(AgentGrpc.bindService(agent, ec))
       .addService(HttpGrpc.bindService(http, ec))
       .build()
       .start()
@@ -372,6 +418,29 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           a.id,
           a.handlers.keys.toVector.sorted.map(Handler_(_, readOnly = false)),
           Component.Detail.TimedAction(TimedActionDetail())
+        )
+      } ++ spec.agents.map { a =>
+        Component(
+          Kind.AGENT,
+          a.id,
+          a.handlers.keys.toVector.sorted.map(Handler_(_, readOnly = false)) ++
+            a.streams.keys.toVector.sorted.map(n =>
+              ankka.protocol.v1.discovery.Handler(n, readOnly = false, streaming = true)
+            ),
+          Component.Detail.Agent(
+            AgentDetail(
+              a.role,
+              a.maxToolCallSteps,
+              a.tools.keys.toVector.sorted.map(n =>
+                Tool(
+                  n,
+                  s"the $n tool",
+                  """{"type":"object","properties":{"id":{"type":"string"}}}"""
+                )
+              ),
+              a.guardrails.keys.toVector.sorted
+            )
+          )
         )
       } ++ spec.extraComponents,
       spec.endpoints.map { e =>
@@ -823,6 +892,57 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                   TimedActionEffect.Effect.Fail(pb.Error(message, pb.ErrorCode.INTERNAL))
                 )
           })
+
+  // ── Agent ──────────────────────────────────────────────────────────────────
+
+  private val agent = new AgentGrpc.Agent:
+    def plan(request: PlanRequest): Future[PlanReply] =
+      received.add(Received(0, request))
+      val input = request.payload.map(_.data.toStringUtf8).getOrElse("")
+      spec.agents.find(_.id == request.componentId) match
+        case None => Future.failed(notFound(s"unknown agent ${request.componentId}"))
+        case Some(a) =>
+          a.handlers.get(request.name).orElse(a.streams.get(request.name)) match
+            case None =>
+              Future.successful(
+                PlanReply(
+                  PlanReply.Message
+                    .Failure(failure(0L, s"no handler ${request.name}", pb.ErrorCode.NOT_FOUND))
+                )
+              )
+            case Some(h) =>
+              Future.fromTry(Try(PlanReply(PlanReply.Message.Plan(h(input))))).recover {
+                case NonFatal(t) =>
+                  PlanReply(
+                    PlanReply.Message.Failure(failure(0L, t.getMessage, pb.ErrorCode.INTERNAL))
+                  )
+              }
+
+    def invokeTool(request: ToolRequest): Future[ToolResult] =
+      received.add(Received(0, request))
+      spec.agents.find(_.id == request.componentId).flatMap(_.tools.get(request.tool)) match
+        case None => Future.failed(notFound(s"unknown tool ${request.tool}"))
+        case Some(t) =>
+          Future.successful(
+            Try(t(request.sessionId, request.argumentsJson)).toEither.left
+              .map(e => Option(e.getMessage).getOrElse("failed"))
+              .flatten match
+              case Right(ok) => ToolResult(ToolResult.Result.Ok(ok))
+              case Left(err) => ToolResult(ToolResult.Result.Error(err))
+          )
+
+    def checkGuardrail(request: GuardrailRequest): Future[GuardrailResult] =
+      received.add(Received(0, request))
+      spec.agents
+        .find(_.id == request.componentId)
+        .flatMap(_.guardrails.get(request.guardrail)) match
+        case None => Future.failed(notFound(s"unknown guardrail ${request.guardrail}"))
+        case Some(g) =>
+          Future.successful(
+            g(request.stage, request.text) match
+              case Some(reason) => GuardrailResult(GuardrailResult.Result.Block(reason))
+              case None         => GuardrailResult(GuardrailResult.Result.Pass(pb.Empty()))
+          )
 
   // ── HTTP ───────────────────────────────────────────────────────────────────
 

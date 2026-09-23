@@ -158,6 +158,34 @@ final case class TimedActionRequest(
     metadata: Metadata
 )
 
+/** One request to plan: which handler, on which session, with what. */
+final case class PlanRequest(
+    componentId: ComponentId,
+    sessionId: String,
+    name: MethodName,
+    payload: Payload,
+    metadata: Metadata
+)
+
+/**
+ * An `AgentEffect` as the process described it: names, not values. Tools and guardrails are
+ * resolved against what discovery declared; the model against what the sidecar has configured.
+ */
+final case class RemotePlan(
+    model: Option[String],
+    system: Option[String],
+    user: Option[String],
+    context: Vector[String],
+    sessionMemory: Boolean,
+    tools: Vector[String],
+    jsonShape: Option[String],
+    guardrails: Vector[String],
+    failure: Option[CommandError]
+)
+
+enum GuardrailStage:
+  case Input, Output
+
 final case class RemotePrincipal(
     subject: String,
     name: Option[String],
@@ -198,6 +226,24 @@ trait Conversation:
   def handleView(request: ViewRequest): Future[ViewOutcome]
   def handleConsumer(request: ConsumerRequest): Future[ConsumerOutcome]
   def invokeTimedAction(request: TimedActionRequest): Future[Either[CommandError, Unit]]
+
+  def plan(request: PlanRequest): Future[Either[ProcessFailure, RemotePlan]]
+
+  /** Runs a tool in the process; `Left` is a message for the model, as `FunctionTool.invoke`. */
+  def invokeTool(
+      componentId: ComponentId,
+      sessionId: String,
+      tool: String,
+      argumentsJson: String
+  ): Future[Either[String, String]]
+
+  def checkGuardrail(
+      componentId: ComponentId,
+      sessionId: String,
+      guardrail: String,
+      stage: GuardrailStage,
+      text: String
+  ): Future[Either[String, Unit]]
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]]
   def handleHttpStream(request: HttpForward): Source[String, NotUsed]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ankka import Done, Endpoint, HttpProblem, delete, get, post
+from collections.abc import AsyncIterator
+
+from ankka import Done, Endpoint, HttpProblem, delete, get, post, sse
 from ankka.client import Calls, ComponentClient
 
 from examples.shopping_cart.cart_rows import CartRow
@@ -60,6 +62,18 @@ class ShoppingCartEndpoint(Endpoint):
     @get("/{cartId}/checkouts")
     async def checkout_status(self, cartId: str) -> Checkout:
         return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).call("status").invoke(reply=Checkout)
+
+    # ── The assistant: a POST answers whole, a GET streams tokens as SSE ───
+
+    @post("/ask/{session}")
+    async def ask(self, session: str, question: str) -> str:
+        return await self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("ask").invoke(question, reply=str)
+
+    @sse("/chat/{session}")
+    async def chat(self, session: str) -> AsyncIterator[str]:
+        question = next((v for k, v in self.request.query if k == "q"), "")
+        async for token in self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("chat").stream(question):
+            yield token
 
     @get("/{cartId}/checkout-log")
     async def checkout_log(self, cartId: str) -> CheckoutRecord:

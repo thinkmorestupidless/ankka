@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.agent.AgentRuntime
+import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.{
@@ -72,12 +73,25 @@ object Main:
       discovered: Discovery.Discovered,
       settings: Settings,
       channel: io.grpc.ManagedChannel,
-      system: ActorSystem[?]
+      system: ActorSystem[?],
+      models: Models = Models.fromEnv()
   ): AnkkaService =
     given ActorSystem[?]   = system
     given ExecutionContext = system.executionContext
     val conversation       = GrpcConversation(channel, settings)
     val timers             = TimerRuntime()
+    // The agent loop is the sidecar's; the process plans, and runs tools. Session memory is an
+    // entity of this service, registered only when there is an agent to remember for.
+    val agents: Vector[ComponentDescriptor] = discovered.agents.map { c =>
+      RemoteAgent
+        .spec(c)
+        .fold(
+          problem => throw IllegalArgumentException(problem),
+          spec => RemoteAgent.descriptor(spec, conversation, models, settings.commandTimeout)
+        )
+    }
+    val agentRuntime = models.default.fold(AgentRuntime())(AgentRuntime.withDefaultModel(_))
+    val memory       = if agents.isEmpty then Vector.empty else AgentRuntime.descriptors.toVector
     // A process has no builder to hand a broker to, so the one broker the sidecar knows how to
     // speak is chosen by environment: a producing consumer or a topic-sourced view is refused at
     // startup without it, naming the variable.
@@ -93,11 +107,11 @@ object Main:
         case None       => HttpServer.of(endpoints.map(e => _ => e)*)
 
     Ankka.service
-      .registerAll(discovered.descriptors)
+      .registerAll(discovered.descriptors ++ agents ++ memory)
       .withConversation(conversation)
       .withExtension(projections)
       .withExtension(timers)
-      .withExtension(AgentRuntime())
+      .withExtension(agentRuntime)
       .withExtension(http)
       .withExtension(SidecarExtension(settings, conversation, timers, served))
       .startWith(system)

@@ -48,9 +48,10 @@ def _copy_ddl(image: str, into: Path) -> None:
 
 
 class AnkkaTestKit:
-    def __init__(self, service: ServiceBuilder, image: str) -> None:
+    def __init__(self, service: ServiceBuilder, image: str, env: dict[str, str] | None = None) -> None:
         self.service = service
         self.image = image
+        self.env = env or {}
         self._network: Network | None = None
         self._postgres: PostgresContainer | None = None
         self._sidecar: DockerContainer | None = None
@@ -61,8 +62,11 @@ class AnkkaTestKit:
         self.process_port = 0
 
     @classmethod
-    async def start(cls, service: ServiceBuilder, image: str | None = None, ready_timeout: float = 90.0) -> AnkkaTestKit:
-        kit = cls(service, image or _sidecar_image())
+    async def start(
+        cls, service: ServiceBuilder, image: str | None = None, ready_timeout: float = 90.0, env: dict[str, str] | None = None
+    ) -> AnkkaTestKit:
+        """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model."""
+        kit = cls(service, image or _sidecar_image(), env)
         await kit._start(ready_timeout)
         return kit
 
@@ -107,6 +111,8 @@ class AnkkaTestKit:
             .with_exposed_ports(HTTP_PORT, CALLBACK_PORT)
             .with_kwargs(extra_hosts={"host.docker.internal": "host-gateway"})
         )
+        for key, value in self.env.items():
+            sidecar = sidecar.with_env(key, value)
         sidecar.start()
         self._sidecar = sidecar
         http_port = int(sidecar.get_exposed_port(HTTP_PORT))

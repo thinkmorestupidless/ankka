@@ -149,7 +149,28 @@ object Discovery:
               }
             case (Kind.TIMED_ACTION, Component.Detail.TimedAction(_)) =>
               descriptors += RemoteTimedActionDescriptor(id, handlerMap)
-            case (Kind.AGENT, Component.Detail.Agent(_)) =>
+            case (Kind.AGENT, Component.Detail.Agent(d)) =>
+              d.tools.groupBy(_.name).collect { case (n, dup) if dup.sizeIs > 1 => n }.foreach { n =>
+                problems += s"agent '${c.id}': tool '$n' is declared ${d.tools.count(_.name == n)} times"
+              }
+              d.tools.foreach { t =>
+                if t.name.isEmpty then problems += s"agent '${c.id}': a tool has no name"
+                if t.description.isEmpty then
+                  problems += s"agent '${c.id}': tool '${t.name}' has no description; the model decides by it"
+                if t.inputSchemaJson.nonEmpty && com.thinkmorestupidless.ankka.agent.Json
+                    .parse(t.inputSchemaJson)
+                    .isLeft
+                then
+                  problems += s"agent '${c.id}': tool '${t.name}' has an input schema that is not JSON"
+              }
+              d.guardrails
+                .groupBy(identity)
+                .collect { case (n, dup) if dup.sizeIs > 1 => n }
+                .foreach { n =>
+                  problems += s"agent '${c.id}': guardrail '$n' is declared twice"
+                }
+              if d.maxToolCallSteps < 0 then
+                problems += s"agent '${c.id}': max_tool_call_steps must not be negative"
               agents += c
             case (kind, detail) =>
               problems += s"component '${c.id}': kind $kind does not match its detail " +

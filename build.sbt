@@ -75,6 +75,11 @@ lazy val sampleImageForClusterTests =
     "Builds the sample image SampleDeploymentClusterSuite deploys, unless cluster tests are off"
   )
 
+lazy val sidecarImageForClusterTests =
+  taskKey[Unit](
+    "Builds the sidecar image SidecarClusterSuite deploys, unless cluster tests are off"
+  )
+
 lazy val dockerSettings = Seq(
   dockerBaseImage    := "eclipse-temurin:21-jre",
   dockerUpdateLatest := true,
@@ -426,7 +431,17 @@ lazy val sidecar = project
       val ddl = (runtime / Compile / resourceDirectory).value / "ankka" / "ddl"
       (ddl * "*.sql").get.map(f => f -> s"ddl/${f.getName}")
     },
-    libraryDependencies ++= Seq(logback, testcontainersK3s % Test)
+    libraryDependencies ++= Seq(logback, testcontainersK3s % Test),
+    // SidecarClusterSuite deploys this project's own image by the build's version tag, so the
+    // image has to come from this sbt session — as sampleImageForClusterTests for the operator's
+    // suites. On both test and testOnly, for the same reason as there. A full `buildAll` found it
+    // missing: the sidecar tests ran before any image had been built.
+    sidecarImageForClusterTests := Def.taskDyn {
+      if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
+      else Def.task { val _ = (Docker / publishLocal).value }
+    }.value,
+    Test / test     := (Test / test).dependsOn(sidecarImageForClusterTests).value,
+    Test / testOnly := (Test / testOnly).dependsOn(sidecarImageForClusterTests).evaluated
   )
 
 /** The `ankka` command-line client. */

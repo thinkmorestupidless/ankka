@@ -260,7 +260,7 @@ the conformance suite are what "compatible" means.
 - [X] T090 [P] Update `README.md`: the component model table gains "Hosted in Python via the sidecar" per row; a "Polyglot services" section linking `docs/polyglot.md`; "Not implemented" gains "one non-Scala SDK; a third arrives through the conformance suite and the encoding fixtures"; the layout section gains `protocol/`, `sidecar/`, `sdks/python/`.
 - [X] T091 [P] Update `CLAUDE.md`: the module graph (`protocol` → nothing; `sidecar` ← runtime, http, agent, protocol), the commands (`sbt sidecar/test`, `uv run conformance`), and every trap found during Phases 1–7 (at minimum: forked `-D` forwarding for the new switches, `-Wunused` off for generated code, the primitive encodings that are not JSON, `host.docker.internal` on Linux, and whatever T004 and T006 taught).
 - [X] T092 [P] Update `kustomization/overlays/arrakis/kustomization.yaml`'s commented `images:` block and `RemoteOverlaySuite` for the sidecar image name.
-- [ ] T093 Run `sbt scalafmtCheckAll scalafmtSbt`, `uv run typecheck`, then `caffeinate -i sbt buildAll` and `uv run conformance`; fix anything red; confirm `git diff --stat main -- '*Suite.scala'` lists only new files (FR-026).
+- [X] T093 Run `sbt scalafmtCheckAll scalafmtSbt`, `uv run typecheck`, then `caffeinate -i sbt buildAll` and `uv run conformance`; fix anything red; confirm `git diff --stat main -- '*Suite.scala'` lists only new files (FR-026).
 
 ---
 

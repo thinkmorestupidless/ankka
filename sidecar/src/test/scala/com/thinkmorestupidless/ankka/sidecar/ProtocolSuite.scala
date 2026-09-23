@@ -37,7 +37,7 @@ class ProtocolSuite extends munit.FunSuite:
     org.apache.pekko.stream.Materializer.matFromSystem(using kit.system)
 
   private def settings(commandTimeout: FiniteDuration = 2.seconds): Settings =
-    Settings("127.0.0.1:0", 0, 5.seconds, 1.second, commandTimeout, 2.seconds)
+    Settings("127.0.0.1:0", 0, "127.0.0.1", 5.seconds, 1.second, commandTimeout, 2.seconds)
 
   private def withDouble[A](
       spec: ProcessDouble.DoubleSpec,

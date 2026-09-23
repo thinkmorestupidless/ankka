@@ -53,7 +53,12 @@ object Main:
         1
       case Right(discovered) =>
         try
-          val _ = build(discovered, settings, channel, system)
+          val service = build(discovered, settings, channel, system)
+          // The process is the node: it lives until the service terminates. Returning here would
+          // exit the JVM, and coordinated shutdown would have the node leave the cluster it just
+          // joined, while still answering HTTP for a moment — which is exactly what happened.
+          scala.concurrent.Await
+            .ready(service.whenTerminated, scala.concurrent.duration.Duration.Inf)
           0
         catch
           case e: Throwable =>

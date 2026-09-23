@@ -100,7 +100,8 @@ class RemoteEndpointSuite extends munit.FunSuite:
     )
     val port = double.start()
     channel = ManagedChannelBuilder.forAddress("127.0.0.1", port).usePlaintext().build()
-    val settings     = Settings(s"127.0.0.1:$port", 0, 5.seconds, 1.second, 2.seconds, 2.seconds)
+    val settings =
+      Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 2.seconds, 2.seconds)
     val conversation = GrpcConversation(channel, settings)
     val discovered   = Discovery.validate(double.toSpec).toOption.get
     val endpoints    = discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))

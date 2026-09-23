@@ -16,6 +16,14 @@ import scala.jdk.DurationConverters.*
 final case class Settings(
     processAddress: String,
     callbackPort: Int,
+    /**
+     * Where the callback server binds. Loopback, always, in a pod — the operator never sets this.
+     * The one exception is a sidecar running in a container whose process is on the host (compose,
+     * the Python integration testkit): Docker publishes a port to the container's own address, not
+     * its loopback, so the container binds all interfaces and the *host* side publishes it on
+     * loopback only (`127.0.0.1:9011:9011`).
+     */
+    callbackBind: String,
     discoveryTimeout: FiniteDuration,
     discoveryBackoffMax: FiniteDuration,
     commandTimeout: FiniteDuration,
@@ -34,6 +42,7 @@ object Settings:
     Settings(
       processAddress = env.getOrElse("ANKKA_PROCESS_ADDRESS", DefaultProcessAddress),
       callbackPort = env.get("ANKKA_SIDECAR_PORT").map(_.toInt).getOrElse(DefaultCallbackPort),
+      callbackBind = env.getOrElse("ANKKA_SIDECAR_BIND", CallbackBindAddress),
       discoveryTimeout =
         env.get("ANKKA_SIDECAR_DISCOVERY_TIMEOUT").map(parse).getOrElse(60.seconds),
       discoveryBackoffMax = 10.seconds,

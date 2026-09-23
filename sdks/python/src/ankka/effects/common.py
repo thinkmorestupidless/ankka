@@ -34,6 +34,20 @@ class ErrorCode(Enum):
                 return code
         return ErrorCode.INTERNAL
 
+    @property
+    def http_status(self) -> int:
+        """The status an endpoint answers with for a refusal of this code — `HttpProblem.from`'s table."""
+        return {
+            ErrorCode.BAD_REQUEST: 400,
+            ErrorCode.UNAUTHORIZED: 401,
+            ErrorCode.FORBIDDEN: 403,
+            ErrorCode.NOT_FOUND: 404,
+            ErrorCode.CONFLICT: 409,
+            ErrorCode.TIMEOUT: 504,
+            ErrorCode.UNAVAILABLE: 503,
+            ErrorCode.INTERNAL: 500,
+        }[self]
+
 
 @dataclass(frozen=True)
 class Error:

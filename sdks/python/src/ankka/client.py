@@ -11,7 +11,7 @@ import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 import grpc
 import grpc.aio
@@ -53,6 +53,14 @@ class Invocation:
 
     def with_metadata(self, metadata: Metadata) -> Invocation:
         return Invocation(self._stub, self.kind, self.component_id, self.entity_id, self.name, metadata)
+
+    @overload
+    async def invoke(self, input: Any = None, *, codec: Codec[Any] | None = None) -> Done: ...
+
+    @overload
+    async def invoke(
+        self, input: Any = None, *, reply: type[R], codec: Codec[Any] | None = None, reply_codec: Codec[Any] | None = None
+    ) -> R: ...
 
     async def invoke(
         self,
@@ -177,22 +185,36 @@ class ComponentClient:
 
     def __init__(self, address: str | None = None, metadata: Metadata | None = None) -> None:
         self.address = address or os.environ.get("ANKKA_SIDECAR_ADDRESS", DEFAULT_SIDECAR_ADDRESS)
-        self._channel: grpc.aio.Channel = grpc.aio.insecure_channel(self.address)
-        self._stub = client_pb2_grpc.ClientStub(self._channel)  # type: ignore[no-untyped-call]
+        # The channel is opened on first use, so the address may still change until then — the
+        # integration testkit learns the sidecar's published port only after starting it.
+        self._channel: grpc.aio.Channel | None = None
+        self._stub_cache: client_pb2_grpc.ClientStub | None = None
         self._metadata = metadata or Metadata()
-        self.views = Views(self._stub)
-        self.timers = Timers(self._stub)
+
+    @property
+    def _stub(self) -> client_pb2_grpc.ClientStub:
+        if self._stub_cache is None:
+            self._channel = grpc.aio.insecure_channel(self.address)
+            self._stub_cache = client_pb2_grpc.ClientStub(self._channel)  # type: ignore[no-untyped-call]
+        return self._stub_cache
+
+    @property
+    def views(self) -> Views:
+        return Views(self._stub)
+
+    @property
+    def timers(self) -> Timers:
+        return Timers(self._stub)
+
+    def reconnect(self, address: str) -> None:
+        """Points the client at a new sidecar address; the next call opens a fresh channel."""
+        self.address = address
+        self._channel = None
+        self._stub_cache = None
 
     def with_metadata(self, metadata: Metadata) -> ComponentClient:
         """The same client, with this metadata on every call: what a context hands its handler."""
-        clone = ComponentClient.__new__(ComponentClient)
-        clone.address = self.address
-        clone._channel = self._channel
-        clone._stub = self._stub
-        clone._metadata = metadata
-        clone.views = self.views
-        clone.timers = self.timers
-        return clone
+        return _Scoped(self, metadata)
 
     def for_event_sourced_entity(self, component_id: str, entity_id: str) -> Calls:
         return Calls(self._stub, discovery_pb2.EVENT_SOURCED_ENTITY, component_id, entity_id, self._metadata)
@@ -207,4 +229,29 @@ class ComponentClient:
         return Calls(self._stub, discovery_pb2.AGENT, component_id, session_id, self._metadata)
 
     async def close(self) -> None:
-        await self._channel.close()
+        if self._channel is not None:
+            await self._channel.close()
+            self._channel = None
+            self._stub_cache = None
+
+
+class _Scoped(ComponentClient):
+    """A view of a client with fixed metadata; shares the parent's channel."""
+
+    def __init__(self, parent: ComponentClient, metadata: Metadata) -> None:  # noqa: D401
+        self._parent = parent
+        self._metadata = metadata
+
+    @property
+    def address(self) -> str:  # type: ignore[override]
+        return self._parent.address
+
+    @property
+    def _stub(self) -> client_pb2_grpc.ClientStub:
+        return self._parent._stub
+
+    def with_metadata(self, metadata: Metadata) -> ComponentClient:
+        return _Scoped(self._parent, metadata)
+
+    async def close(self) -> None:
+        return None

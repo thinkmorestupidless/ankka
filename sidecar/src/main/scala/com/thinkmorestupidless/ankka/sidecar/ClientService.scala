@@ -228,13 +228,13 @@ final class ClientService(
 object CallbackServer:
   private val log = LoggerFactory.getLogger(getClass)
 
-  def start(service: ClientService, port: Int)(using ec: ExecutionContext): Server =
+  def start(service: ClientService, bind: String, port: Int)(using ec: ExecutionContext): Server =
     val server = NettyServerBuilder
-      .forAddress(new InetSocketAddress(Settings.CallbackBindAddress, port))
+      .forAddress(new InetSocketAddress(bind, port))
       .addService(ClientGrpc.bindService(service, ec))
       .build()
       .start()
-    log.info("callback server listening on {}:{}", Settings.CallbackBindAddress, server.getPort)
+    log.info("callback server listening on {}:{}", bind, server.getPort)
     server
 
 private[sidecar] object Translate:

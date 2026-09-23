@@ -27,7 +27,7 @@ from ankka._proto.ankka.protocol.v1 import (
     event_sourced_pb2_grpc,
     payload_pb2,
 )
-from ankka.client import ComponentClient
+from ankka.client import CommandError, ComponentClient
 from ankka.context import CommandContext, Metadata, Principal, RequestContext
 from ankka.effects.common import Fail, NoReply, Reply, retention_to_pb
 from ankka.endpoint import HttpProblem
@@ -77,6 +77,7 @@ class EventSourcedServicer(event_sourced_pb2_grpc.EventSourcedServicer):
                     return
                 entity = cls()
                 entity_id = message.init.entity_id
+                entity._bind(entity_id)
                 if message.init.HasField("snapshot"):
                     state = cls.state_codec.decode(message.init.snapshot.payload.data)
                     sequence = message.init.snapshot.sequence
@@ -202,6 +203,14 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
         except HttpProblem as p:
             return endpoint_pb2.HttpReply(
                 response=endpoint_pb2.HttpResponse(status=p.status, content_type="text/plain", body=p.message.encode("utf-8"))
+            )
+        except CommandError as refused:
+            # A refusal from a component the handler called: the caller's problem, with the code's
+            # status, exactly as a Scala endpoint answers a CommandError.
+            return endpoint_pb2.HttpReply(
+                response=endpoint_pb2.HttpResponse(
+                    status=refused.error.code.http_status, content_type="text/plain", body=refused.error.message.encode("utf-8")
+                )
             )
         except Exception as e:
             log.warning("%s/%s raised: %s", request.endpoint_id, request.route_id, e)

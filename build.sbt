@@ -416,6 +416,13 @@ lazy val sidecar = project
     publish / skip      := true,
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.sidecar.Main"),
     dockerExposedPorts  := Seq(9000),
+    // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own
+    // Postgres and copies the DDL out of this image, so a test can never pass against a schema
+    // the platform does not have — the same rule as AnkkaTestKit, from the other side.
+    Universal / mappings ++= {
+      val ddl = (runtime / Compile / resourceDirectory).value / "ankka" / "ddl"
+      (ddl * "*.sql").get.map(f => f -> s"ddl/${f.getName}")
+    },
     libraryDependencies ++= Seq(logback, testcontainersK3s % Test)
   )
 

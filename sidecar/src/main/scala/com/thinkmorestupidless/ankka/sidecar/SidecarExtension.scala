@@ -39,7 +39,7 @@ final class SidecarExtension(
   def start(service: AnkkaService): Unit =
     given scala.concurrent.ExecutionContext = system.executionContext
     val client = ClientService(service, settings, () => Some(timers.timerScheduler))
-    server = Some(CallbackServer.start(client, settings.callbackPort))
+    server = Some(CallbackServer.start(client, settings.callbackBind, settings.callbackPort))
     log.info(
       "sidecar hosting {} against the process at {}",
       service.registry,

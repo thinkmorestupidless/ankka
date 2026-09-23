@@ -87,6 +87,7 @@ class EventSourcedTestKit(Generic[S, E]):
         self.entity_cls = entity_cls
         self.entity_id = entity_id
         self.entity = entity_cls()
+        self.entity._bind(entity_id)
         self.state: S = self.entity.empty_state()
         self.sequence = 0
         self.deleted = False

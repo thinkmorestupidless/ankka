@@ -147,6 +147,15 @@ class EventSourcedEntity(Generic[S, E]):
         self.effects: EventSourcedEffects[S, E] = EventSourcedEffects()
         self._state: S | None = None
         self._context: CommandContext | None = None
+        self._entity_id: str = ""
+
+    @property
+    def entity_id(self) -> str:
+        """This instance's id: known from construction, so ``empty_state`` may use it."""
+        return self._entity_id
+
+    def _bind(self, entity_id: str) -> None:
+        self._entity_id = entity_id
 
     # ── What a subclass implements ─────────────────────────────────────────
 

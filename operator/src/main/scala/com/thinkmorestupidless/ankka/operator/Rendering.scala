@@ -93,6 +93,22 @@ object Rendering:
   /** How long a stopping pod keeps serving while endpoints catch up; see the preStop hook. */
   val PreStopSeconds: Long = 5L
 
+  /**
+   * `AnkkaServiceSpec.hosting`'s value for a developer's process beside the sidecar (feature 009).
+   */
+  val ProcessHosting: String = "process"
+
+  /** Where the two containers of a process-hosted pod find each other, on the pod's loopback. */
+  val ProcessPort: Int = 9010
+  val SidecarPort: Int = 9011
+
+  /** Mirrors `ServiceSpec.SidecarEnvPrefixes` in controlplane-api; see `containersFor`. */
+  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_")
+
+  /** The developer's container, until the descriptor can size it: small, and bounded. */
+  private val AppQuantities =
+    Map("cpu" -> new Quantity("100m"), "memory" -> new Quantity("128Mi")).asJava
+
   val ManagementPort: Int = 7626
   val RemotingPort: Int   = 17355
 
@@ -126,7 +142,10 @@ object Rendering:
     val problems =
       Names.namespaceProblems(settings.namespacePrefix, spec.projectId) ++
         Names.serviceNameProblems(spec.serviceName) ++
-        (if spec.image.isEmpty then Vector("image must not be empty") else Vector.empty)
+        (if spec.image.isEmpty then Vector("image must not be empty") else Vector.empty) ++
+        (if spec.hosting == ProcessHosting && settings.sidecarImage.isEmpty then
+           Vector("operator has no sidecar image")
+         else Vector.empty)
 
     if problems.nonEmpty then Left(problems)
     else
@@ -134,7 +153,9 @@ object Rendering:
         (Action.EnsureNamespace(namespace) +:
           databaseActions(spec, namespace, settings, databasePlan, newPassword)) ++
           identityActions(resource, spec, namespace) :+
-          Action.ApplyDeployment(deployment(resource, spec, namespace, databasePlan)) :+
+          Action.ApplyDeployment(
+            deployment(resource, spec, namespace, databasePlan, settings.sidecarImage)
+          ) :+
           addressAction(resource, spec, namespace) :+
           routeAction(resource, spec, namespace, settings.baseDomain)
       )
@@ -395,7 +416,8 @@ object Rendering:
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      databasePlan: ProvisioningPlan = ProvisioningPlan.Supplied
+      databasePlan: ProvisioningPlan = ProvisioningPlan.Supplied,
+      sidecarImage: String = Settings.default.sidecarImage
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -405,18 +427,20 @@ object Rendering:
     // its own connection details, so there is no schema to establish and no credential to mount.
     val provisioned = databasePlan != ProvisioningPlan.Supplied
 
+    val containers = containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage)
+
     val podSpec =
       if provisioned then
         new PodSpecBuilder()
           .withServiceAccountName(Names.serviceAccount(spec.serviceName))
           .withInitContainers(SchemaInit.container(spec.serviceName))
-          .withContainers(container(spec, identity, withDatabaseEnv = true))
+          .withContainers(containers*)
           .withVolumes(SchemaInit.volume())
           .build()
       else
         new PodSpecBuilder()
           .withServiceAccountName(Names.serviceAccount(spec.serviceName))
-          .withContainers(container(spec, identity, withDatabaseEnv = false))
+          .withContainers(containers*)
           .build()
 
     val podTemplate = new PodTemplateSpecBuilder()
@@ -477,10 +501,68 @@ object Rendering:
       .withSpec(deploymentSpec)
       .build()
 
+  /**
+   * `embedded`: one container, the image is the node. `process` (feature 009): the sidecar image is
+   * the node — every port, probe, cluster variable and credential the single container carries
+   * today — and the developer's image is a second container beside it, carrying its own variables
+   * and how to find the sidecar, with no ports and no probe: its liveness is the sidecar's opinion.
+   */
+  private def containersFor(
+      spec: AnkkaServiceSpec,
+      identity: Map[String, String],
+      withDatabaseEnv: Boolean,
+      sidecarImage: String
+  ): Vector[Container] =
+    if spec.hosting != ProcessHosting then Vector(container(spec, identity, withDatabaseEnv))
+    else
+      // A descriptor's variables are split: a model's key and configuration belong to the sidecar,
+      // which runs the agent loop; everything else is the process's. By prefix, as
+      // `ServiceSpec.SidecarEnvPrefixes` in controlplane-api says — duplicated here because the
+      // operator must not depend on that module, and pinned by RenderingSuite.
+      val (forSidecar, forProcess) =
+        spec.env.partition(e => SidecarEnvPrefixes.exists(e.name.startsWith))
+      val node = container(
+        spec.copy(image = sidecarImage, env = forSidecar),
+        identity,
+        withDatabaseEnv,
+        extraEnv = Vector(
+          literal("ANKKA_PROCESS_ADDRESS", s"127.0.0.1:$ProcessPort"),
+          literal("ANKKA_SIDECAR_PORT", SidecarPort.toString)
+        )
+      )
+      val app = new ContainerBuilder()
+        .withName(Names.container(spec.serviceName) + "-app")
+        .withImage(spec.image)
+        .withImagePullPolicy("IfNotPresent")
+        .withEnv(
+          (forProcess.map(environment) ++ Vector(
+            literal("ANKKA_PROCESS_PORT", ProcessPort.toString),
+            literal("ANKKA_SIDECAR_ADDRESS", s"127.0.0.1:$SidecarPort")
+          ))*
+        )
+        .withResources(
+          new ResourceRequirementsBuilder()
+            .withRequests(AppQuantities)
+            .withLimits(AppQuantities)
+            .build()
+        )
+        .withLifecycle(
+          new LifecycleBuilder()
+            .withPreStop(
+              new LifecycleHandlerBuilder()
+                .withSleep(new SleepActionBuilder().withSeconds(PreStopSeconds).build())
+                .build()
+            )
+            .build()
+        )
+        .build()
+      Vector(node, app)
+
   private def container(
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
-      withDatabaseEnv: Boolean
+      withDatabaseEnv: Boolean,
+      extraEnv: Vector[EnvVar] = Vector.empty
   ): Container =
     // Requests equal limits. The descriptor models one size, and inventing a ratio between
     // request and limit would be a scheduling policy nobody asked for.
@@ -567,7 +649,7 @@ object Rendering:
       // test deployed registry.k8s.io/pause:3.9: pullable, and not :latest. Becomes a descriptor
       // field the day there is a registry and a re-pushed mutable tag has to be picked up.
       .withImagePullPolicy("IfNotPresent")
-      .withEnv((spec.env.map(environment) ++ portEnv ++ clusterEnv)*)
+      .withEnv((spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv)*)
       .withEnvFrom(envFrom*)
       .withPorts((containerPorts.toVector ++ clusterPorts)*)
       .withResources(

@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   Compatibility,
   InstanceType,
   ProjectId,
+  Protocol,
   ServiceDescriptor,
   Version
 }
@@ -40,6 +41,16 @@ object ServiceProjection:
           case _ => Vector.empty
       case _ => Vector.empty // absent, or malformed (already a descriptor problem)
 
+  /** The same refusal for a declared protocol (feature 009), before any resource is written. */
+  private def protocolProblems(descriptor: ServiceDescriptor): Vector[String] =
+    descriptor.service.declaredProtocol match
+      case Some(Right(declared)) if !Compatibility.supportsProtocol(Protocol.version, declared) =>
+        Vector(
+          s"protocol $declared is outside the platform's supported range: " +
+            Compatibility.describeProtocol(Protocol.version)
+        )
+      case _ => Vector.empty
+
   def project(service: Service, config: DeployConfig): Either[Vector[String], AnkkaServiceSpec] =
     service.descriptor match
       case None =>
@@ -57,7 +68,8 @@ object ServiceProjection:
               )
               .toVector ++
             descriptor.problems ++
-            runtimeProblems(descriptor, config)
+            runtimeProblems(descriptor, config) ++
+            protocolProblems(descriptor)
 
         if problems.nonEmpty then Left(problems)
         else
@@ -105,6 +117,7 @@ object ServiceProjection:
               // only the answer — the same split `instanceType` → cpu/memory already uses.
               port = descriptor.service.resolvedPort,
               restarts = service.restarts,
-              exposed = service.exposed
+              exposed = service.exposed,
+              hosting = descriptor.service.hosting
             )
           )

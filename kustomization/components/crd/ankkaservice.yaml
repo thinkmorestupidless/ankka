@@ -150,6 +150,15 @@ spec:
                   description: >-
                     How many restarts an operator has asked for. Carried on the pod template so
                     a restart rolls the pods; the generation is not, so a scale does not.
+                hosting:
+                  type: string
+                  enum: [embedded, process]
+                  default: embedded
+                  description: >-
+                    embedded: the image is an ankka service and its JVM is the node. process: the
+                    image is a developer's process in another language, and the operator runs the
+                    sidecar — ankka's own runtime — beside it in the same pod. The sidecar's image
+                    is the operator's, never this resource's.
                 exposed:
                   type: boolean
                   description: >-

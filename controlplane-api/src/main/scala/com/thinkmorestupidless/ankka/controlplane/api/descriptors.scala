@@ -111,11 +111,30 @@ final case class ServiceSpec(
      * match. A declaration, not a measurement: the runtime also logs and serves its version, but
      * the platform must be able to refuse before anything starts (feature 006, research R3).
      */
-    runtime: Option[String] = None
+    runtime: Option[String] = None,
+    /**
+     * Where the developer's code runs (feature 009). `embedded`: the image is an ankka service and
+     * the JVM in it is the node. `process`: the image is a process in another language, and the
+     * platform runs the sidecar — ankka's own runtime — beside it; the descriptor cannot name the
+     * sidecar's image or set its variables, by the same rule that refuses the cluster's variables.
+     */
+    hosting: String = ServiceSpec.Embedded,
+    /**
+     * The sidecar protocol version the image's SDK speaks — `"1.0"`. Required with `process`
+     * hosting, meaningless with `embedded`. Checked against the platform's own when the service is
+     * projected (`Compatibility.supportsProtocol`): same major, minor not above.
+     */
+    protocol: Option[String] = None
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
   def declaredRuntime: Option[Either[String, Version]] = runtime.map(Version.parse)
+
+  def isProcessHosted: Boolean = hosting == ServiceSpec.Process
+
+  /** The declared protocol, parsed; `None` when undeclared; the problem text when malformed. */
+  def declaredProtocol: Option[Either[String, ProtocolVersion]] =
+    protocol.map(ProtocolVersion.parse)
 
   /**
    * The one value everything downstream sees.
@@ -153,10 +172,24 @@ final case class ServiceSpec(
     // for one fact — refused, not resolved in favour of one of them.
     val platformEnvProblems =
       env
-        .filter(e => ServiceSpec.PlatformEnvVars.contains(e.name))
+        .filter(e =>
+          ServiceSpec.PlatformEnvVars.contains(e.name) || ServiceSpec.SidecarEnvVars
+            .contains(e.name)
+        )
         .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
+    val hostingProblems =
+      if hosting != ServiceSpec.Embedded && hosting != ServiceSpec.Process then
+        Vector(
+          s"hosting must be \"${ServiceSpec.Embedded}\" or \"${ServiceSpec.Process}\", not \"$hosting\""
+        )
+      else if isProcessHosted && protocol.isEmpty then
+        Vector("protocol must be declared for process hosting")
+      else if !isProcessHosted && protocol.nonEmpty then
+        Vector("protocol is meaningful only for process hosting")
+      else Vector.empty
+    val protocolProblems = declaredProtocol.flatMap(_.left.toOption).map("protocol " + _).toVector
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
-      resources.problems
+      hostingProblems ++ protocolProblems ++ resources.problems
 
 object ServiceSpec:
   /**
@@ -180,6 +213,28 @@ object ServiceSpec:
     "ANKKA_CLUSTER_POD_SELECTOR",
     "ANKKA_CLUSTER_CONTACT_POINTS"
   )
+
+  val Embedded: String = "embedded"
+  val Process: String  = "process"
+
+  /**
+   * How the sidecar and the process find each other (feature 009). The operator sets them on the
+   * two containers; a descriptor may not.
+   */
+  val SidecarEnvVars: Set[String] = Set(
+    "ANKKA_PROCESS_PORT",
+    "ANKKA_PROCESS_ADDRESS",
+    "ANKKA_SIDECAR_PORT",
+    "ANKKA_SIDECAR_ADDRESS",
+    "ANKKA_SIDECAR_BIND"
+  )
+
+  /**
+   * A descriptor's variables that belong on the sidecar rather than the process: a model's key and
+   * configuration, because the sidecar runs the agent loop and the process never calls a model.
+   * Prefixes, matched by the operator when it splits the environment.
+   */
+  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_")
 
 /**
  * A container environment variable, either literal or drawn from a secret.

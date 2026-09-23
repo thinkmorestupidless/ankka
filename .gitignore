@@ -19,3 +19,12 @@ kubeconfig*
 *.secret.yaml
 *.key
 *.crt
+
+# Python (the SDK under sdks/python)
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+sdks/python/src/ankka/_proto/
+.pytest_cache/
+.mypy_cache/

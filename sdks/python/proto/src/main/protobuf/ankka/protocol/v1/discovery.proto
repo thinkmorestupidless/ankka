@@ -1,0 +1,90 @@
+// Discovery: the first conversation. The developer's process describes its components and
+// endpoints; the sidecar validates them and hosts exactly what it was told about.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Discovery {
+  rpc Discover (SidecarInfo) returns (Spec);
+  rpc ReportError (Problem) returns (Empty);   // why the sidecar refused; lands in the process's log
+}
+
+message SidecarInfo { string protocol_version = 1; string runtime_version = 2; }
+
+message Spec {
+  string protocol_version = 1;             // "1.0"
+  SdkInfo sdk = 2;
+  repeated Component components = 3;
+  repeated Endpoint endpoints = 4;
+}
+
+message SdkInfo { string name = 1; string version = 2; }
+
+enum Kind {
+  EVENT_SOURCED_ENTITY = 0;
+  KEY_VALUE_ENTITY = 1;
+  WORKFLOW = 2;
+  VIEW = 3;
+  CONSUMER = 4;
+  TIMED_ACTION = 5;
+  AGENT = 6;
+}
+
+message Component {
+  Kind   kind = 1;
+  string id = 2;
+  repeated Handler handlers = 3;
+  oneof detail {
+    EventSourcedDetail event_sourced = 10;
+    KeyValueDetail     key_value     = 11;
+    WorkflowDetail     workflow      = 12;
+    ViewDetail         view          = 13;
+    ConsumerDetail     consumer      = 14;
+    TimedActionDetail  timed_action  = 15;
+    AgentDetail        agent         = 16;
+  }
+}
+
+message Handler { string name = 1; bool read_only = 2; bool streaming = 3; }
+
+message EventSourcedDetail { int32 snapshot_every = 1; }          // 0: never
+message KeyValueDetail {}
+message WorkflowDetail { repeated string steps = 1; }
+
+message Source {
+  oneof source { ComponentRef component = 1; string topic = 2; }
+  message ComponentRef { Kind kind = 1; string id = 2; }
+}
+
+message ViewDetail { Source source = 1; string row_manifest = 2; repeated string queries = 3; }
+message ConsumerDetail { Source source = 1; optional string produces_to = 2; }
+message TimedActionDetail {}
+
+message AgentDetail {
+  string role = 1;
+  int32 max_tool_call_steps = 2;
+  repeated Tool tools = 3;
+  repeated string guardrails = 4;
+}
+
+message Tool { string name = 1; string description = 2; string input_schema_json = 3; }
+
+message Endpoint {
+  string id = 1;                 // for log lines and the console; unique within the Spec
+  string prefix = 2;             // as HttpEndpoint's prefix: "/carts"
+  Acl    acl = 3;
+  repeated Route routes = 4;
+  enum Acl { ALLOW_ALL = 0; DENY_ALL = 1; AUTHENTICATED = 2; }
+}
+
+message Route {
+  string id = 1;                 // unique within the endpoint; the sidecar sends it back on each request
+  string method = 2;             // GET, POST, PUT, DELETE, PATCH
+  string template = 3;           // HttpEndpoint's syntax: "/{cartId}/items"; relative to prefix
+  bool   has_body = 4;
+  bool   streaming = 5;          // served as SSE via Endpoint.HandleStream
+}
+
+message Problem { string message = 1; }

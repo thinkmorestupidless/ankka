@@ -338,31 +338,43 @@ platform's "one journal" promise a per-language one.
 
 ## Verify at implementation
 
-Assumptions above that a named task settles, in the order they are needed:
+Assumptions above that a named task settles, in the order they are needed. Answers recorded as
+they land.
 
-1. **ScalaPB 0.11.11 generated code under Scala 3.9.0** compiles with this build's flags once
-   `-Wunused` is off in `protocol`; and `grpc-netty-shaded` coexists with Pekko's Artery
-   (Artery TCP does not use Netty; confirm no classpath conflict in the sidecar image).
-2. **Loopback gRPC round trip cost** on the k3s node and on a laptop, measured before the remote
-   host is optimised, so SC-003 is a measurement and not a hope. The HTTP path now adds a second
-   hop (sidecar → process for the endpoint, process → sidecar for the client call, sidecar → the
-   entity), so the measurement is of the full path.
-3. **Pekko persistence stash semantics under `withEnforcedReplies`**: `Effect.none` while a
-   command is in flight, `Effect.stash()` for the rest, `unstashAll()` on the reply — confirm a
-   stashed command survives a passivation that arrives mid-flight, or defer passivation while busy.
-4. **A closed stream as the passivation signal**: confirm `grpc.aio` surfaces the end of a
-   server-side bidirectional stream promptly, and that the process can distinguish a passivation
-   (clean close) from a sidecar crash (error), since both mean "release the state".
-5. **`host.docker.internal` from the sidecar container** on macOS Docker Desktop and on Linux with
-   `host-gateway`, for compose and the Python integration testkit.
+1. **ScalaPB 0.11.11 generated code under Scala 3.9.0** — **answered (T002)**: compiles
+   warning-free only with `-source:3.3` in `protocol` (3.9's default source level warns on every
+   `_` wildcard and `this.` qualifier ScalaPB emits; `-Wunused` off as expected).
+   `grpc-netty-shaded` serves a bidirectional stream beside a Pekko `ActorSystem` in one JVM
+   (`GrpcBesidePekkoSpike`).
+2. **Loopback gRPC round trip cost** — **answered (T003)**, on an Apple Silicon laptop, both ends
+   in one JVM: one message each way on a long-lived bidirectional stream is p50 49µs, p99 157µs
+   (`LoopbackLatencySpike`, `-Dankka.benchmarks`). Against 640µs in-process per request, three
+   hops are within SC-003's 2× budget before any Python cost; the Python side is measured at T087.
+3. **Pekko persistence stash semantics under `withEnforcedReplies`** — **answered (T004)**, and
+   the design changed: `Effect.stash()` is *not* used, because a stopped actor drops its stash and
+   every caller waiting on a stashed command would time out. The remote host keeps an explicit
+   queue of arrived `Invoke`s in the actor's own state, sends the next only after the reply, and
+   from `PostStop` answers every queued and in-flight caller `Unavailable` (`StashSpike`, kept as
+   the proof of the pattern). The in-process hosts never passivate, so neither does the remote
+   one; a sharding hand-off is the stop that pattern answers.
+4. **A closed stream as the passivation signal** — **answered (T006)**, with a finding: in
+   `grpc.aio` a client cancel ends the server's request iterator exactly as a clean half-close
+   does, and `context.cancelled()` is still false at that moment, so the process *cannot* tell
+   passivation from an abort when the iterator ends. Both mean "release the state", which is all
+   the SDK does; the distinction is not needed (`test_stream_close_spike.py`).
+5. **`host.docker.internal` from the sidecar container** — **answered for macOS (T007)**: with
+   `--add-host=host.docker.internal:host-gateway` a container dials a listener on the host.
+   Linux not available on this machine; compose and the testkit set the mapping unconditionally,
+   which is harmless where Docker Desktop already provides it.
 6. **The k3s test image** (v1.35.1) with a two-container pod and a readiness probe on only one of
    them behaves as assumed under a rolling update (surge pod joins, old pod stops), the same
-   measurement feature 004 made for one container.
+   measurement feature 004 made for one container. *Open until T061.*
 7. **`grpc.aio` with one handler at a time per stream**: confirm that a per-stream `asyncio`
-   task with an inbound queue gives strict ordering with no reply reordering under load.
+   task with an inbound queue gives strict ordering with no reply reordering under load. *Open
+   until T045.*
 8. **The JSON fixtures cover what the samples actually persist**: generate from the shopping
-   cart's, the planner's and the control plane's domain types, not from invented ones, so a
-   mapping rule nobody uses is not specified and one somebody uses is not missed.
+   cart's, the planner's and the control plane's domain types, not from invented ones. *Settled
+   by T015's shapes.*
 9. **The Python package name** and the PyPI publish path are decided at publish time, not here;
    the release workflow gains a job that runs the SDK's tests, the fixtures and the conformance
    suite but does not publish to PyPI in this feature.

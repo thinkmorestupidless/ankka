@@ -1,0 +1,53 @@
+[project]
+name = "ankka"
+version = "0.0.0"
+description = "The ankka SDK for Python: components in Python, hosted by the ankka sidecar"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+  "grpcio>=1.84,<2",
+  "protobuf>=6,<8",
+]
+
+[project.optional-dependencies]
+testkit = ["testcontainers>=4.15,<5", "httpx>=0.27"]
+
+[dependency-groups]
+dev = [
+  "grpcio-tools>=1.84,<2",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "mypy>=1.13",
+  "testcontainers>=4.15,<5",
+  "httpx>=0.27",
+  "types-protobuf",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ankka"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "examples"]
+markers = ["slow: needs Docker and the sidecar image"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+packages = ["ankka"]
+mypy_path = "src"
+exclude = ["_proto"]
+
+[[tool.mypy.overrides]]
+module = ["ankka._proto.*", "grpc.*", "grpc_tools.*", "testcontainers.*"]
+ignore_missing_imports = true
+ignore_errors = true
+
+# `uv run <script>`: one name per developer-facing verb, as the Justfile does for the platform.
+[tool.uv]
+package = true

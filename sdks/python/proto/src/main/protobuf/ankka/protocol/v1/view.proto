@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service View { rpc Handle (ViewRequest) returns (ViewEffect); }
+
+message ViewRequest {
+  string component_id = 1;
+  Payload event = 2;
+  Metadata metadata = 3;
+  optional Payload row = 4;                     // the current row, if any
+}
+
+message ViewEffect { oneof effect { Payload update_row = 1; Empty delete_row = 2; Empty ignore = 3; } }

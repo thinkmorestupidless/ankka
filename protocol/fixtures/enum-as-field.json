@@ -1,0 +1,6 @@
+{
+  "manifest": "status",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiRmFpbGVkIn0=",
+  "value": {"type":"Failed"}
+}

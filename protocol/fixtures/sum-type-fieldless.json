@@ -1,0 +1,6 @@
+{
+  "manifest": "shopping-cart-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiQ2hlY2tlZE91dCJ9",
+  "value": {"type":"CheckedOut"}
+}

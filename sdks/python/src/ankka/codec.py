@@ -35,8 +35,11 @@ DISCRIMINATOR = "type"
 class Codec(Protocol[A]):
     """Encodes and decodes one type under one manifest."""
 
-    manifest: str
-    content_type: str
+    @property
+    def manifest(self) -> str: ...
+
+    @property
+    def content_type(self) -> str: ...
 
     def encode(self, value: A) -> bytes: ...
 
@@ -264,7 +267,7 @@ def _decode_dataclass(obj: dict[str, Any], cls: type) -> Any:
     for f in dataclasses.fields(cls):
         if f.name in obj:
             kwargs[f.name] = from_json_value(obj[f.name], hints[f.name])
-        elif f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+        elif f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:
             continue
         elif _strip_optional(hints[f.name])[1]:
             kwargs[f.name] = None  # an absent optional reads as none (ENCODING.md: lenient reads)

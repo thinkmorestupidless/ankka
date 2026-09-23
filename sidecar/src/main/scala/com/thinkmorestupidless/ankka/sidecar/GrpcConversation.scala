@@ -29,11 +29,11 @@ import com.thinkmorestupidless.ankka.runtime.remote.*
 import io.grpc.stub.StreamObserver
 import io.grpc.{ConnectivityState, ManagedChannel}
 import org.apache.pekko.NotUsed
-import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.scaladsl.Source
-import org.apache.pekko.stream.OverflowStrategy
+import org.apache.pekko.stream.QueueOfferResult
 import org.slf4j.LoggerFactory
 
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future, Promise}
@@ -51,18 +51,23 @@ import scala.util.control.NonFatal
 final class GrpcConversation(
     channel: ManagedChannel,
     settings: Settings
-)(using system: ActorSystem[?])
+)(using ec: ExecutionContext)
     extends Conversation:
 
-  private val log                    = LoggerFactory.getLogger(getClass)
-  private given ec: ExecutionContext = system.executionContext
-  private val eventSourced           = EventSourcedGrpc.stub(channel)
-  private val keyValue               = KeyValueGrpc.stub(channel)
-  private val workflow               = WorkflowGrpc.stub(channel)
-  private val view                   = ViewGrpc.stub(channel)
-  private val consumer               = ConsumerGrpc.stub(channel)
-  private val timedAction            = TimedActionGrpc.stub(channel)
-  private val http                   = HttpGrpc.stub(channel)
+  private val log = LoggerFactory.getLogger(getClass)
+  // Timeouts on a scheduler of its own: the conversation exists before any ActorSystem does.
+  private val scheduler = Executors.newSingleThreadScheduledExecutor { r =>
+    val t = new Thread(r, "ankka-conversation-timeouts")
+    t.setDaemon(true)
+    t
+  }
+  private val eventSourced = EventSourcedGrpc.stub(channel)
+  private val keyValue     = KeyValueGrpc.stub(channel)
+  private val workflow     = WorkflowGrpc.stub(channel)
+  private val view         = ViewGrpc.stub(channel)
+  private val consumer     = ConsumerGrpc.stub(channel)
+  private val timedAction  = TimedActionGrpc.stub(channel)
+  private val http         = HttpGrpc.stub(channel)
 
   import Translate.*
 
@@ -84,22 +89,25 @@ final class GrpcConversation(
       what: String,
       onTimeout: () => Unit
   ): Unit =
-    val _ = system.scheduler.scheduleOnce(
-      settings.commandTimeout,
-      () =>
-        pending.get() match
-          case Some(p) if p.id == id =>
-            val failure = ProcessFailure(
-              id,
-              CommandError(
-                s"$what $id: no reply from the process within ${settings.commandTimeout}",
-                ErrorCode.Timeout
-              )
-            )
-            if p.reply.trySuccess(Left(failure)) || p.step.trySuccess(Left(failure)) then
-              pending.set(None)
-              onTimeout()
-          case _ => ()
+    val _ = scheduler.schedule(
+      (
+          () =>
+            pending.get() match
+              case Some(p) if p.id == id =>
+                val failure = ProcessFailure(
+                  id,
+                  CommandError(
+                    s"$what $id: no reply from the process within ${settings.commandTimeout}",
+                    ErrorCode.Timeout
+                  )
+                )
+                if p.reply.trySuccess(Left(failure)) || p.step.trySuccess(Left(failure)) then
+                  pending.set(None)
+                  onTimeout()
+              case _ => ()
+      ): Runnable,
+      settings.commandTimeout.toMillis,
+      java.util.concurrent.TimeUnit.MILLISECONDS
     )
 
   def open(init: Init): InstanceSession =
@@ -456,20 +464,27 @@ final class GrpcConversation(
     }
 
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
-    val (queue, source) =
-      Source.queue[String](256, OverflowStrategy.backpressure).preMaterialize()
-    http.handleStream(
-      toHttpRequest(request),
-      new StreamObserver[StreamFrame]:
-        def onNext(frame: StreamFrame): Unit = frame.frame match
-          case StreamFrame.Frame.Text(text)   => val _ = queue.offer(text)
-          case StreamFrame.Frame.Completed(_) => queue.complete()
-          case StreamFrame.Frame.Failed(e)    => queue.fail(fromError(e))
-          case StreamFrame.Frame.Empty        => ()
-        def onError(t: Throwable): Unit = queue.fail(t)
-        def onCompleted(): Unit         = queue.complete()
-    )
-    source
+    // The gRPC call starts when the stream is materialized, so no materializer is needed here and
+    // nothing is sent to the process for a response nobody consumes.
+    Source
+      .queue[String](256)
+      .mapMaterializedValue { queue =>
+        http.handleStream(
+          toHttpRequest(request),
+          new StreamObserver[StreamFrame]:
+            def onNext(frame: StreamFrame): Unit = frame.frame match
+              case StreamFrame.Frame.Text(text) =>
+                queue.offer(text) match
+                  case QueueOfferResult.Enqueued => ()
+                  case other                     => log.warn("SSE frame dropped: {}", other)
+              case StreamFrame.Frame.Completed(_) => queue.complete()
+              case StreamFrame.Frame.Failed(e)    => queue.fail(fromError(e))
+              case StreamFrame.Frame.Empty        => ()
+            def onError(t: Throwable): Unit = queue.fail(t)
+            def onCompleted(): Unit         = queue.complete()
+        )
+        NotUsed
+      }
 
   def reachable(): Boolean =
     channel.getState(true) == ConnectivityState.READY

@@ -16,6 +16,8 @@ import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.slf4j.LoggerFactory
 
+import scala.concurrent.ExecutionContext
+
 /**
  * The sidecar: ankka's runtime booted from a discovery handshake instead of a Scala builder.
  *
@@ -67,9 +69,10 @@ object Main:
       channel: io.grpc.ManagedChannel,
       system: ActorSystem[?]
   ): AnkkaService =
-    given ActorSystem[?] = system
-    val conversation     = GrpcConversation(channel, settings)
-    val timers           = TimerRuntime()
+    given ActorSystem[?]   = system
+    given ExecutionContext = system.executionContext
+    val conversation       = GrpcConversation(channel, settings)
+    val timers             = TimerRuntime()
     val endpoints = discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
     val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
 

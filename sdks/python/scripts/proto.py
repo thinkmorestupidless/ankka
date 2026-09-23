@@ -57,6 +57,14 @@ def main() -> int:
     for d in OUT.rglob("*"):
         if d.is_dir() and not (d / "__init__.py").exists():
             (d / "__init__.py").write_text("")
+    # protoc writes imports by the proto package path (`from ankka.protocol.v1 import ...`), which
+    # would only resolve if the generated code were the top-level `ankka` package. It lives under
+    # `ankka._proto`, so the imports are rewritten to say so.
+    for f in list(OUT.rglob("*.py")) + list(OUT.rglob("*.pyi")):
+        text = f.read_text()
+        rewritten = text.replace("from ankka.protocol.v1 import", "from ankka._proto.ankka.protocol.v1 import")
+        if rewritten != text:
+            f.write_text(rewritten)
     print(f"generated {len(protos)} proto files into {OUT.relative_to(SDK)}")
     return 0
 

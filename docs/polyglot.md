@@ -168,6 +168,12 @@ async with await AnkkaTestKit.start(Ankka.service().register(ShoppingCartEntity)
 This one starts Postgres and the real sidecar image (Docker) and drives your routes through it;
 `restart` is how a test proves durability rather than caching.
 
+The platform's own definition of a compatible SDK is its conformance suite: `uv run conformance`
+serves the reference service in `examples/shopping_cart/conformance.py` and runs every behaviour
+in `specs/009-polyglot-runtimes/contracts/conformance.md` against it through the sidecar, by name.
+A third SDK passes the same suite with its own reference service, and the encoding fixtures in
+`proto/fixtures/` with its own test runner.
+
 ## Deploy it
 
 Build your process into an image containing only your code — the sidecar is the platform's — and

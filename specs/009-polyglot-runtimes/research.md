@@ -3,8 +3,9 @@
 **Feature**: [spec.md](./spec.md) | **Plan**: [plan.md](./plan.md)
 
 Each finding says whether it was verified — against this repository, or against upstream sources
-fetched on 2026-09-22 — or is an assumption a named task settles at implementation. The list at
-the end collects the latter.
+fetched on 2026-09-22 and 2026-09-23 — or is an assumption a named task settles at
+implementation. The list at the end collects the latter. R7, R9 and R13 were rewritten after the
+2026-09-23 clarification session (endpoints over the protocol, Python, one JSON mapping).
 
 ## R1 — Transport: gRPC over loopback, with grpc-java and ScalaPB, not pekko-grpc
 
@@ -39,13 +40,12 @@ the `EventSourced` service with one rpc, `handle`, a bidirectional stream of
 The proxy is the client for every conversation.
 
 **Decision**: the same direction. The developer's process listens on loopback at
-`ANKKA_PROCESS_PORT` (default `9010`) and the sidecar dials it for discovery and every
-conversation. The sidecar *also* listens on loopback at `ANKKA_SIDECAR_PORT` (default `9011`) for
-`client.proto`: the component client, view queries and timer scheduling that the process calls
-*back* for. Two servers, both bound to `127.0.0.1`, each refusing any other bind address in
-configuration (FR-009). The process starts first in the container ordering sense but nothing
-depends on it: the sidecar retries discovery with backoff and is not ready until it succeeds
-(FR-013).
+`ANKKA_PROCESS_PORT` (default `9010`) and the sidecar dials it for discovery, every conversation,
+and every HTTP request it forwards (R7). The sidecar *also* listens on loopback at
+`ANKKA_SIDECAR_PORT` (default `9011`) for `client.proto`: the component client, view queries and
+timer scheduling that the process calls *back* for. Two servers, both bound to `127.0.0.1`, each
+refusing any other bind address in configuration (FR-009). Nothing depends on start order: the
+sidecar retries discovery with backoff and is not ready until it succeeds (FR-013).
 
 **Alternatives considered**: one connection with a multiplexed "session" stream carrying callbacks
 in the other direction — avoids a second server but makes every SDK implement a multiplexer, and
@@ -81,7 +81,8 @@ events), which is what the in-process host shows a handler too.
 Two rules the sidecar enforces rather than trusts: a `Reply` whose `command_id` is not the command
 in flight is a protocol violation — the command fails, the stream is closed, the instance
 restarts; and a `Reply` carrying events for a handler discovered as `read_only` is refused the
-same way, so `query` cannot persist over the protocol either.
+same way, so `query` cannot persist over the protocol either — which matters more now that the
+SDK language cannot make it a static guarantee (R9).
 
 **Alternatives considered**: request/response per command with the sidecar folding — the sidecar
 cannot fold without the developer's code; asking the process to fold event by event — one round
@@ -98,33 +99,33 @@ manifest.
 
 **Decision**: the protocol's `Payload` is `{content_type, manifest, data}`. The sidecar writes
 `JournalRecord(manifest, data)` exactly as the in-process host does, and hands recovered records
-back as `Payload`s. The sidecar never parses `data`. A process-hosted cart and the Scala cart
-therefore share a journal if their JSON agrees, which is the developer's contract (SC-002 is
-proven with the shopping cart's documented JSON), and no existing journal changes shape (FR-027).
-`content_type` is `application/json` for every SDK this feature ships; it exists so a later SDK
-may choose otherwise without a protocol change.
+back as `Payload`s. The sidecar never parses `data`. Portability across languages is therefore a
+property of the *codecs*, not the protocol — and the clarification session made it a rule of the
+platform's default codecs (R13) rather than a contract between two developers. `content_type` is
+`application/json` for JSON payloads and `application/octet-stream` for the primitive encodings
+(R13); it exists so a later SDK may choose otherwise without a protocol change.
 
 **Alternatives considered**: `google.protobuf.Any` for payloads, as Cloudstate — forces protobuf
-on the developer's domain and makes every existing JSON journal unreadable from a process; a
-sidecar-side JSON schema — nothing would consume it.
+on the developer's domain and makes every existing JSON journal unreadable from a process.
 
 ## R5 — Discovery hands over descriptors; the sidecar validates them the way the builder does
 
 **Verified in this repository**: `ComponentRegistry.from` reports *every* problem at once;
 `ServiceBuilder.validate` is the in-process gate; `HandlerBinding` carries a wire name and the
 `query`/`command` distinction; `EventSourcedEntityDescriptor` carries `snapshotEvery`;
-`WorkflowDescriptor` carries step names; `AgentDescriptor` carries role and `maxToolCallSteps`.
+`WorkflowDescriptor` carries step names; `AgentDescriptor` carries role and `maxToolCallSteps`;
+`HttpEndpoint` collects `Route(method, template, needsBody)` and `StreamRoute` and `HttpServer.
+validate` refuses conflicting templates at startup.
 
 **Decision**: `Discovery.Discover(SidecarInfo{protocol_version, runtime_version}) → Spec` where
-`Spec` is `{protocol_version, sdk{name, version}, components[]}` and each component entry mirrors
-the descriptor of its kind: kind, id, handlers `{name, read_only, streaming}`, and per kind:
-`snapshot_every`, the view's or consumer's source (component id or topic) and the view's row
-serializer manifest, the workflow's step names, the timed action's handler names, the agent's role,
-max steps, tools `{name, description, input_schema_json}` and guardrails `{name}`. The sidecar
-turns the entries into remote descriptors, runs them through `ComponentRegistry.from`, and refuses
-to start with every problem named — plus one it can only know itself: a kind it cannot host. A
-second rpc, `ReportError`, lets the sidecar tell the process *why* it refused, so the failure
-appears in the developer's own log and not only the sidecar's.
+`Spec` is `{protocol_version, sdk{name, version}, components[], endpoints[]}`. Each component
+entry mirrors the descriptor of its kind (contract `protocol.md`); each endpoint entry mirrors an
+`HttpEndpoint`: prefix, ACL, and routes `{method, template, has_body, streaming}`. The sidecar
+turns the entries into remote descriptors and remote endpoints, runs them through
+`ComponentRegistry.from` and `HttpServer.validate`, and refuses to start with every problem named
+— plus one it can only know itself: a kind it cannot host. A second rpc, `ReportError`, lets the
+sidecar tell the process *why* it refused, so the failure appears in the developer's own log and
+not only the sidecar's.
 
 **Alternatives considered**: the process pushing its spec on connect (the sidecar as server) —
 reverses the direction R2 settled, and a sidecar that restarts would then wait for a process that
@@ -140,17 +141,18 @@ synchronous command handler, and Pekko persistence offers `Effect.stash()` / `un
 **Decision**: a `remote` package in `runtime` with one descriptor type per hostable kind, all
 plain data from discovery, and a `Conversation` trait — `open(component, entity, init) →
 InstanceSession` with `command(...)`: `Future[Reply]` and `close()`, plus stateless `handle(...)`
-calls for views, consumers and timed actions — that `runtime` declares and `sidecar` implements
-over grpc-java. `Ankka.host` starts a `RemoteEventSourcedHost` for a remote descriptor exactly as
-it starts `EventSourcedEntityHost` for a Scala one. That host is an `EventSourcedBehavior` whose
-state is `RemoteStored(snapshot: Option[Bytes], sinceSnapshot: Int, deleted, expiryMillis)` and
-whose events are `Journaled.Domain(bytes) | Deleted | Expiry`. On `Invoke` it sends the command on
-the session, marks the instance busy and returns `Effect.none`; further commands are stashed; the
-session's `Future` is `pipeToSelf`'d as `RemoteReplied` (or `RemoteFailed`), on which the host
-persists the events, replies and unstashes. A late reply for a command that already timed out is
-dropped by id. The reduction from `Reply` to what is persisted and answered is one function,
-`RemoteEffect.materialise`, applying the same `Outcome` rules as `EventSourcedEffect.materialise`
-(a `Fail` persists nothing; `NoReply` persists and answers nothing; `Reply` persists and answers).
+calls for views, consumers, timed actions and HTTP requests — that `runtime` declares and
+`sidecar` implements over grpc-java. `Ankka.host` starts a `RemoteEventSourcedHost` for a remote
+descriptor exactly as it starts `EventSourcedEntityHost` for a Scala one. That host is an
+`EventSourcedBehavior` whose state is `RemoteStored(snapshot: Option[Bytes], sinceSnapshot: Int,
+deleted, expiryMillis)` and whose events are `Journaled.Domain(bytes) | Deleted | Expiry`. On
+`Invoke` it sends the command on the session, marks the instance busy and returns `Effect.none`;
+further commands are stashed; the session's `Future` is `pipeToSelf`'d as `RemoteReplied` (or
+`RemoteFailed`), on which the host persists the events, replies and unstashes. A late reply for a
+command that already timed out is dropped by id. The reduction from `Reply` to what is persisted
+and answered is one function, `RemoteEffect.materialise`, applying the same `Outcome` rules as
+`EventSourcedEffect.materialise` (a `Fail` persists nothing; `NoReply` persists and answers
+nothing; `Reply` persists and answers).
 
 **Alternatives considered**: generalising the existing hosts with a strategy for "how to obtain an
 effect" — the in-process host folds synchronously inside Pekko's event handler and the remote one
@@ -159,28 +161,34 @@ the in-process path (FR-026) is safest untouched; putting the remote hosts in `s
 `EntityProtocol`, `Observability`, `Trace`, `ProjectionSupport` and `TimerRuntime` internals that
 are `private[ankka]` for good reason.
 
-## R7 — There is no generic component-invoke HTTP surface today; the sidecar gets one
+## R7 — HTTP endpoints are declared in discovery and served by the sidecar (clarified)
 
 **Verified in this repository**: `HttpServer` serves user-declared `HttpEndpoint` route trees and
-`/_ankka/health`; there is no route that invokes a component by name. A process-hosted service with
-no HTTP layer of its own would be unreachable, and the local console's invoke panel would have
-nothing to show.
+`/_ankka/health`; a `Route` is `(method, PathTemplate, needsBody, run: (pathArgs, body) =>
+EncodedResponse)` and a `StreamRoute` runs to a `Source[String, ?]`; `Router` resolves literal
+segments before parameters, applies the ACL, sets the `RequestContext` (query parameters, headers,
+principal) on the handler's virtual thread, and maps `HttpProblem`s. There is no generic
+component-invoke route.
 
-**Decision**: `sidecar` registers one `HttpEndpoint`, prefix `/_ankka/components`, with
-`POST /{kind}/{componentId}/{entityId}/{method}` (body: the payload; reply: the payload; errors
-mapped by `HttpProblem.from`) and `GET .../{method}` for `read_only` handlers, plus the SSE form
-for streaming agent handlers, on the sidecar's HTTP port. It is `Acl.AllowAll` inside the pod
-network exactly as a Scala service's endpoints are today; exposure through the gateway is the
-descriptor's `exposed`, unchanged. A developer's process may serve its own HTTP on its own port;
-the descriptor's `http`/`port` then describe *that* container and the Kubernetes Service targets
-it (contract `descriptor-and-crd.md`). The endpoint kind is not carried over the protocol.
+**Decision** (the clarification session's): the process declares its endpoints in discovery and
+the sidecar serves them. Each declared route becomes a `Route` (or `StreamRoute`) in a
+`RemoteEndpoint` registered with the sidecar's `HttpServer`, whose `run` forwards
+`HttpRequest{route_id, path_args, query, headers, body, metadata}` over `Endpoint.Handle` and
+turns the `HttpResponse{status, content_type, body, headers}` into an `EncodedResponse`; a
+streaming route opens `Endpoint.HandleStream` and maps its frames to the SSE source. The ACL is
+declared per endpoint in discovery as `allow_all | deny_all | authenticated`, applied by the
+sidecar's `Router` exactly as for a Scala endpoint; a principal, when there is one, crosses as
+metadata. Routing, specificity ordering, the health route, exposure and tracing are therefore the
+platform's, unchanged, and a polyglot service has one HTTP port: the sidecar's. The process
+serves no HTTP the platform routes to.
 
-**Alternatives considered**: routing HTTP through the protocol so the process's endpoints are
-served by the sidecar — Cloudstate did this through gRPC transcoding of the user function's own
-API, which ankka's HTTP model does not have; it would put path templates, query parameters and SSE
-into the protocol for every SDK to implement. Adding the generic route to `http` for every
-service — useful, but it changes a published module's surface in a feature that must not, and can
-be lifted later once it has earned it.
+The route's `run` executes on a virtual thread like any Scala handler, so the forwarded call is a
+blocking `await` on the conversation, and the `RequestContext` is sound for the duration.
+
+**Alternatives considered** (both rejected in the session): a generic component-invoke route on
+the sidecar with the process free to serve its own HTTP on its own port — two ports with two
+sets of readiness and tracing rules; the process always serving HTTP with no sidecar HTTP at
+all — nothing to invoke without code, and the local console's invoke panel empty.
 
 ## R8 — The operator renders two containers, injects the sidecar, and gates readiness on it
 
@@ -193,44 +201,51 @@ already knows one image the resource does not name — `SchemaInit`'s.
 **Decision**: `AnkkaServiceSpec.hosting: String = "embedded"`; for `"process"` the pod template
 has two containers: `runtime` (the sidecar image from `operator/Settings`, `ANKKA_SIDECAR_IMAGE`
 on the operator's Deployment, defaulting to `ankka-sidecar:<operator version>`) carrying
-everything the single container carries today plus `ANKKA_PROCESS_ADDRESS=127.0.0.1:9010`, and
-`app` (`spec.image`) carrying the descriptor's own env plus `ANKKA_PROCESS_PORT=9010` and
+everything the single container carries today — including the HTTP port, since the sidecar is
+the service's HTTP (R7) — plus `ANKKA_PROCESS_ADDRESS=127.0.0.1:9010`, and `app` (`spec.image`)
+carrying the descriptor's own env plus `ANKKA_PROCESS_PORT=9010` and
 `ANKKA_SIDECAR_ADDRESS=127.0.0.1:9011`. The credential `envFrom` is on `runtime` only (FR-018).
 The `management` port and its readiness probe stay on `runtime`, and `SidecarExtension.readiness`
 is false until discovery has completed and while the process is unreachable, so the pod is
 un-ready with the sidecar still a cluster member when the app container is down (FR-013). The `app`
-container gets a readiness probe only if it serves HTTP (a TCP probe on `port`). `ANKKA_PROCESS_*`
-and `ANKKA_SIDECAR_*` join the refused variables in `ServiceSpec.problems`. The Deployment's
-immutable `spec.selector`, the `restarts` counter, the strategy and the `preStop` sleep are
-unchanged.
+container has no ports and no probe: its liveness is the sidecar's opinion. `ANKKA_PROCESS_*` and
+`ANKKA_SIDECAR_*` join the refused variables in `ServiceSpec.problems`. The Deployment's immutable
+`spec.selector`, the `restarts` counter, the strategy and the `preStop` sleep are unchanged.
 
 **Alternatives considered**: a Kubernetes native sidecar (`initContainers` with
-`restartPolicy: Always`) — attractive for ordering, but the *sidecar* here is the one that must
-outlive the app for cluster membership, and native sidecars are torn down last, which is the
-right way round; adopt it once the k3s image is known to support the feature gate cleanly and
-mark as a follow-up; the sidecar image named in the descriptor — refused by FR-016.
+`restartPolicy: Always`) — the container that must outlive the other here is the *sidecar*, for
+cluster membership, and native sidecars are torn down last, which is the right way round; adopt
+it once the k3s image is known to support the feature gate cleanly, as a follow-up; the sidecar
+image named in the descriptor — refused by FR-016.
 
-## R9 — The second language is TypeScript on Node 22, and the SDK lives in this repository
+## R9 — The second language is Python 3.12, and the SDK lives in this repository (clarified)
 
-**Verified upstream**: `@grpc/grpc-js` 1.14.5 ("gRPC Library for Node - pure JS implementation");
-`@bufbuild/protobuf` 2.15.0 ("Fully compliant with the Protobuf conformance tests");
-`testcontainers` 12.1.0 requires Node `>= 22.22`. **Assumption, to confirm with the user
-(spec)**: TypeScript over Python, for reach among developers writing agents and the maturity of the
-gRPC and protobuf toolchain; the conformance suite makes the choice reversible.
+**Verified upstream** (2026-09-23): `grpcio` 1.84.0 and `grpcio-tools` 1.84.0 ("Protobuf code
+generator for gRPC"), both `>=3.10`; `testcontainers` 4.15.0 for Python, `>=3.10`.
+**Decided in the session**: Python over TypeScript, for the audience writing agents; in this
+repository under `sdks/python`, so the protocol, the conformance suite and the SDK move together
+and a tag proves them consistent.
 
-**Decision**: `sdks/typescript`, an npm workspace in this repository, `@bufbuild/protobuf` for
-messages with `protoc-gen-es`, `@grpc/grpc-js` for the transport, `vitest` for tests and
-`testcontainers` for the integration testkit. The API mirrors the Scala SDK's shape without
-mirroring its syntax: a companion object declares `command("add-item", handler)` and
-`query("get-cart", handler)`, handlers return effect values built from an `effects` object, an
-event fold and an empty state are declared alongside, and `Ankka.service().register(...)
-.listen()` starts the gRPC server and answers discovery. The unit testkit runs a handler against
-an in-memory state with no sidecar; the integration testkit starts Postgres and the
-`ankka-sidecar` image with `ANKKA_PROCESS_ADDRESS` pointing at the test's own process.
+**Decision**: `sdks/python`, a `uv`-managed project (`pyproject.toml`, package `ankka`),
+`grpcio` with the `grpc.aio` server so a handler may be `async def` and the component client may
+be awaited, `grpcio-tools` to generate from the copied `.proto` files, `pytest` with
+`pytest-asyncio`, `testcontainers` for the integration testkit. The API mirrors the Scala SDK's
+shape without mirroring its syntax: a class per component with decorated handlers carrying the
+wire name — `@command("add-item")`, `@query("get-cart")` — handlers returning effect values built
+from `effects`, `empty_state` and `apply_event` declared on the class, endpoints as a class with
+`@get("/carts/{cart_id}")`-style decorators, and `Ankka.service().register(...).listen()` to
+start the gRPC server and answer discovery. Type hints throughout, checked with `mypy --strict`
+in CI; `query` returning a persisting effect is refused at registration (the effect type is
+inspected) and by the sidecar at runtime (R3), since the language cannot refuse it at compile
+time.
 
-**Alternatives considered**: Python — the stronger agent audience, weaker typing for the effect
-builders, and `grpcio`'s async story is less settled; a separate repository — the proto, the
-conformance suite and the SDK would drift, which is the reason `ankka.g8` is in-tree.
+The unit testkit runs a handler against an in-memory state with no sidecar; the integration
+testkit starts Postgres and the `ankka-sidecar` image with `ANKKA_PROCESS_ADDRESS` pointing at
+the test's own listener (R11).
+
+**Alternatives considered**: TypeScript — the stronger typing for the effect builders, the weaker
+agent audience; the session chose the audience. A separate repository — drift between the proto,
+the conformance suite and the SDK between tags.
 
 ## R10 — Agents over the protocol: the plan crosses, the loop stays
 
@@ -252,8 +267,7 @@ configuration (`ANTHROPIC_API_KEY` reaches the sidecar only). Streaming handlers
 `InvokeStream` path and never through the process.
 
 **Alternatives considered**: the process running the loop with the sidecar as a model proxy —
-reimplements the loop per language, which is the cost this feature exists to avoid; tools as
-closures serialised somehow — not a thing.
+reimplements the loop per language, which is the cost this feature exists to avoid.
 
 ## R11 — Local development and the integration testkit run the sidecar as a container
 
@@ -262,7 +276,7 @@ starts Postgres with testcontainers and copies the DDL in.
 
 **Decision**: `docker-compose.yml` gains a `sidecar` service under a `polyglot` profile
 (`docker compose --profile polyglot up`), configured with `ANKKA_PROCESS_ADDRESS=host.docker.
-internal:9010` and the compose Postgres; the TypeScript integration testkit starts the same image
+internal:9010` and the compose Postgres; the Python integration testkit starts the same image
 with testcontainers and the same address. On Linux without Docker Desktop, `host.docker.internal`
 needs `--add-host=host.docker.internal:host-gateway`, which both compose and the testkit set.
 **Assumption**: the sidecar dialling *out* of a container to the developer's process on the host
@@ -279,43 +293,76 @@ with a `componentClient` and `restartService()`; every integration suite drives 
 that or through HTTP.
 
 **Decision**: `ConformanceSuite` in `sidecar/src/test` lists behaviours by name (contract
-`conformance.md`) and drives them through the sidecar's generic HTTP invoke route and the journal
-(via `jdbcUrl`), never through Scala types. Its target is a `ConformanceTarget`: `InProcess`
-(starts the Scala reference service — the shopping cart's components plus a small conformance
-entity — with `AnkkaTestKit`) or `Sidecar(processAddress)` (starts the sidecar's `Main` against a
-running process, in-JVM, with `AnkkaTestKit`'s Postgres). The `sbt` invocation for an SDK is
-`sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:9010` with the
-SDK's reference service listening there; the TypeScript SDK's `npm run conformance` starts its
-reference service and invokes exactly that. A behaviour that fails is reported by name, as munit
-already does.
+`conformance.md`) and drives them through the reference service's *declared HTTP endpoints* (R7)
+and the journal (via `jdbcUrl`), never through Scala types. Its target is a `ConformanceTarget`:
+`InProcess` (starts the Scala reference service with `AnkkaTestKit`) or `Sidecar(processAddress)`
+(starts the sidecar's `Main` against a running process, in-JVM, with `AnkkaTestKit`'s Postgres).
+The `sbt` invocation for an SDK is `sbt 'sidecar/testOnly *ConformanceSuite'
+-Dankka.conformance.target=127.0.0.1:9010` with the SDK's reference service listening there; the
+Python SDK's `uv run conformance` starts its reference service and invokes exactly that. The JSON
+fixture suite (R13) is a second, cheaper suite the SDK runs on its own.
 
 **Alternatives considered**: a TCK in the SDK's language — one per language, which is the thing
 a conformance suite exists to avoid; a suite in `testkit` — it would need the sidecar, and
 `testkit` is published.
+
+## R13 — One JSON mapping across SDKs, defined by what the Scala codecs produce today (clarified)
+
+**Verified in this repository**: `Codecs.make` is jsoniter with `discriminatorFieldName =
+"type"`, `requireDiscriminatorFirst = false`, `transientEmpty = false` (empty collections are
+written), `transientNone = false` (`None` is written as `null`), recursive types allowed. So the
+cart's `ShoppingCartEvent.ItemAdded(item)` is `{"type":"ItemAdded","item":{...}}` and the
+fieldless `CheckedOut` is `{"type":"CheckedOut"}`. **And not everything is JSON**: `Serializers`
+encodes `Int`, `Long`, `Boolean`, `Double`, `String` as their decimal or UTF-8 text, `Done` and
+`Unit` as zero bytes, `FiniteDuration` as decimal milliseconds, and `Option[A]` as a one-byte
+`1` prefix before `A`'s bytes or zero bytes for `None` — each under its own manifest (`int`,
+`done`, `option[int]`, …). These are what cross the wire for `invoke(item)` replies of `Done`
+and for primitive command inputs, and they land in the journal only when a domain type is one
+of them.
+
+**Decision**: the platform writes the mapping down as `protocol/ENCODING.md` — the jsoniter
+rules above for records, sum types (discriminator `type`, the case's simple name), `Option`
+(`null`), collections (JSON arrays, empty written), maps (JSON objects with string keys),
+`Instant` and the other `java.time` types (ISO-8601 strings, as jsoniter's defaults), numbers
+(JSON numbers; `Long` beyond 2⁵³ still a JSON number, which every SDK must parse without loss),
+and the primitive and `Option` byte encodings with their manifests — and ships
+`protocol/fixtures/*.json` pairs of *bytes* and *expected decoded value* (plus the manifest and
+content type) generated from the Scala codecs by a test in `core` that fails when the codecs
+drift from the fixtures. Every SDK's default codec is built to the document and proven by the
+fixtures. The Python SDK's default codec is a `dataclass`-driven encoder honouring the rules,
+with sum types as a union of dataclasses discriminated by class name.
+
+**Alternatives considered** (rejected in the session): portability for the shopping cart only,
+by a hand-written codec — proves nothing general; no cross-language portability — makes the
+platform's "one journal" promise a per-language one.
 
 ## Verify at implementation
 
 Assumptions above that a named task settles, in the order they are needed:
 
 1. **ScalaPB 0.11.11 generated code under Scala 3.9.0** compiles with this build's flags once
-   `-Wunused` is off in `protocol`; and `grpc-netty-shaded` coexists with Pekko's Netty-free
-   Artery (Artery TCP does not use Netty; confirm no classpath conflict in the sidecar image).
+   `-Wunused` is off in `protocol`; and `grpc-netty-shaded` coexists with Pekko's Artery
+   (Artery TCP does not use Netty; confirm no classpath conflict in the sidecar image).
 2. **Loopback gRPC round trip cost** on the k3s node and on a laptop, measured before the remote
-   host is optimised, so SC-003 is a measurement and not a hope.
+   host is optimised, so SC-003 is a measurement and not a hope. The HTTP path now adds a second
+   hop (sidecar → process for the endpoint, process → sidecar for the client call, sidecar → the
+   entity), so the measurement is of the full path.
 3. **Pekko persistence stash semantics under `withEnforcedReplies`**: `Effect.none` while a
    command is in flight, `Effect.stash()` for the rest, `unstashAll()` on the reply — confirm a
    stashed command survives a passivation that arrives mid-flight, or defer passivation while busy.
-4. **A closed stream as the passivation signal**: confirm grpc-js surfaces `end` on a
-   server-side bidirectional stream promptly and that the process can distinguish a passivation
+4. **A closed stream as the passivation signal**: confirm `grpc.aio` surfaces the end of a
+   server-side bidirectional stream promptly, and that the process can distinguish a passivation
    (clean close) from a sidecar crash (error), since both mean "release the state".
 5. **`host.docker.internal` from the sidecar container** on macOS Docker Desktop and on Linux with
-   `host-gateway`, for compose and the TypeScript integration testkit.
+   `host-gateway`, for compose and the Python integration testkit.
 6. **The k3s test image** (v1.35.1) with a two-container pod and a readiness probe on only one of
    them behaves as assumed under a rolling update (surge pod joins, old pod stops), the same
    measurement feature 004 made for one container.
-7. **`@bufbuild/protobuf` 2.x with `@grpc/grpc-js`**: grpc-js expects serializers per method;
-   confirm the `protoc-gen-es` output plugs in without a `protobufjs` fallback, or choose
-   `protobufjs` and record why.
-8. **The TypeScript package name** and the npm publish path are decided at publish time, not here;
-   the release workflow gains a job that runs the SDK's tests and the conformance suite but does
-   not publish to npm in this feature.
+7. **`grpc.aio` with one handler at a time per stream**: confirm that a per-stream `asyncio`
+   task with an inbound queue gives strict ordering with no reply reordering under load.
+8. **The JSON fixtures cover what the samples actually persist**: generate from the shopping
+   cart's, the planner's and the control plane's domain types, not from invented ones, so a
+   mapping rule nobody uses is not specified and one somebody uses is not missed.
+9. **The Python package name** and the PyPI publish path are decided at publish time, not here;
+   the release workflow gains a job that runs the SDK's tests, the fixtures and the conformance
+   suite but does not publish to PyPI in this feature.

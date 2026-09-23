@@ -92,10 +92,10 @@ path exactly as it is.
    runs discovery, builds its registry from the answer and starts the existing runtime. It is
    published as an image beside the operator and control plane. Cluster formation is the
    existing overlay per mode.
-4. **The sidecar serves the HTTP surface.** The developer's process does not implement the
-   platform's HTTP; the sidecar invokes components over HTTP as an in-process service's
-   endpoints do. A developer who wants their own HTTP layer serves it on their own port and
-   declares it, and the platform routes there. HTTP routing stays out of the protocol.
+4. **The sidecar serves the HTTP surface, for endpoints the process declares.** The process
+   declares its routes in discovery; the sidecar's router matches, applies the ACL, opens the
+   span and forwards each request over the protocol. One HTTP port, the platform's readiness,
+   exposure and tracing. (Chosen in the clarification session over a generic invoke route.)
 5. **The agent loop moves into the sidecar.** `ModelProvider`, session memory, compaction,
    guardrails and token accounting are platform code already; in the sidecar they are hosted
    once for every language, and the developer's process is asked only to run a tool. This is
@@ -105,10 +105,12 @@ path exactly as it is.
    itself, delivers the database credential to the sidecar only, and gates readiness on the
    sidecar's discovery having completed. The descriptor cannot name the sidecar image or set
    its variables, by the same rule that refuses the cluster's variables today.
-7. **One SDK and a conformance suite.** TypeScript is the working assumption, for reach among
-   developers writing agents; Python is the alternative. The conformance suite drives a
-   reference service through every conversation from the sidecar's side, and runs against the
-   Scala SDK in-process too, so a divergence between hosting modes is a failing test.
+7. **One SDK, one encoding, and a conformance suite.** Python, for the audience writing agents
+   (decided in the clarification session). The platform writes down the JSON mapping its Scala
+   codecs already produce and ships fixtures every SDK's default codec must pass, so a journal
+   is portable between languages. The conformance suite drives a reference service through every
+   conversation from the sidecar's side, and runs against the Scala SDK in-process too, so a
+   divergence between hosting modes is a failing test.
 
 ## Order of work
 
@@ -122,8 +124,8 @@ The runtime side is additive and each step is testable alone:
 4. The remaining component kinds, one conversation each, in the order views, consumers,
    timed actions, workflows.
 5. The agent conversation.
-6. The TypeScript SDK, its testkits, the shopping cart port, and the conformance suite run
-   against both SDKs.
+6. The Python SDK, its testkits, the encoding fixtures, the shopping cart port, and the
+   conformance suite run against both SDKs.
 
 The SDK is where the cost lives and does not stop. Everything before it is a few features of
 the size this repository has been shipping.

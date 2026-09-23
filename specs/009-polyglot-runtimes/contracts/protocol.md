@@ -1,17 +1,18 @@
 # Contract: the sidecar protocol, `ankka.protocol.v1`
 
-**Feature**: [spec.md](../spec.md) | **Data model**: [data-model.md](../data-model.md) | **Research**: R2–R6, R10
+**Feature**: [spec.md](../spec.md) | **Data model**: [data-model.md](../data-model.md) | **Research**: R2–R7, R10, R13
 
 The protocol is the platform's promise to every SDK. It is versioned on its own (`1.0` here),
 carried in discovery, and the sidecar refuses a major it does not speak. Within a major, fields
-are only ever added, with defaults that mean "as before". The `.proto` files are the artifact:
-`protocol/src/main/protobuf/ankka/protocol/v1/*.proto`, copied verbatim into every SDK.
+are only ever added, with defaults that mean "as before". The artifact is the `protocol/`
+directory: `src/main/protobuf/ankka/protocol/v1/*.proto`, `ENCODING.md` and `fixtures/`, copied
+verbatim into every SDK.
 
 ## Directions and addresses
 
 | service | implemented by | dialled by | address |
 |---|---|---|---|
-| `Discovery`, `EventSourced`, `KeyValue`, `Workflow`, `View`, `Consumer`, `TimedAction`, `Agent` | the developer's process | the sidecar | `127.0.0.1:${ANKKA_PROCESS_PORT}` (default 9010) |
+| `Discovery`, `EventSourced`, `KeyValue`, `Workflow`, `View`, `Consumer`, `TimedAction`, `Endpoint`, `Agent` | the developer's process | the sidecar | `127.0.0.1:${ANKKA_PROCESS_PORT}` (default 9010) |
 | `Client` | the sidecar | the developer's process | `127.0.0.1:${ANKKA_SIDECAR_PORT}` (default 9011) |
 
 Both servers bind loopback only. A connection from any other address is refused at bind time,
@@ -24,7 +25,7 @@ syntax = "proto3";
 package ankka.protocol.v1;
 
 message Payload {
-  string content_type = 1;   // "application/json" for every SDK this feature ships
+  string content_type = 1;   // application/json, text/plain, application/octet-stream (ENCODING.md)
   string manifest = 2;       // the serializer's manifest; what JournalRecord stores
   bytes  data = 3;           // never inspected by the sidecar
 }
@@ -57,6 +58,8 @@ message Retention {
   message DeleteNow {}
   message ExpireAfter { int64 millis = 1; }
 }
+
+message Empty {}
 ```
 
 ## `discovery.proto`
@@ -73,6 +76,7 @@ message Spec {
   string protocol_version = 1;             // "1.0"
   SdkInfo sdk = 2;
   repeated Component components = 3;
+  repeated Endpoint endpoints = 4;
 }
 message SdkInfo { string name = 1; string version = 2; }
 
@@ -100,7 +104,7 @@ message KeyValueDetail {}
 message WorkflowDetail { repeated string steps = 1; }
 message Source { oneof source { ComponentRef component = 1; string topic = 2; }
                  message ComponentRef { Kind kind = 1; string id = 2; } }
-message ViewDetail { Source source = 1; string row_manifest = 2; }
+message ViewDetail { Source source = 1; string row_manifest = 2; repeated string queries = 3; }
 message ConsumerDetail { Source source = 1; optional string produces_to = 2; }
 message TimedActionDetail {}
 message AgentDetail {
@@ -108,13 +112,28 @@ message AgentDetail {
   repeated Tool tools = 3; repeated string guardrails = 4;
 }
 message Tool { string name = 1; string description = 2; string input_schema_json = 3; }
+
+message Endpoint {
+  string id = 1;                 // for log lines and the console; unique within the Spec
+  string prefix = 2;             // as HttpEndpoint's prefix: "/carts"
+  Acl    acl = 3;
+  repeated Route routes = 4;
+  enum Acl { ALLOW_ALL = 0; DENY_ALL = 1; AUTHENTICATED = 2; }
+}
+message Route {
+  string id = 1;                 // unique within the endpoint; the sidecar sends it back on each request
+  string method = 2;             // GET, POST, PUT, DELETE, PATCH
+  string template = 3;           // HttpEndpoint's syntax: "/{cartId}/items"; relative to prefix
+  bool   has_body = 4;
+  bool   streaming = 5;          // served as SSE via Endpoint.HandleStream
+}
 message Problem { string message = 1; }
-message Empty {}
 ```
 
 Discovery is retried by the sidecar with backoff until it succeeds; the sidecar is not ready until
 it has (FR-013). A `Spec` the sidecar refuses ends the sidecar process after `ReportError`, with
-every problem in the message (S1.7).
+every problem in the message (S1.7). Route templates are validated with the same parser and the
+same conflict rules `HttpServer.validate` applies to a Scala endpoint.
 
 ## `event_sourced.proto`
 
@@ -213,7 +232,7 @@ message StepOutcome {
 The sidecar's `WorkflowEngine` is unchanged: it journals the transition, then sends `RunStep`; a
 step that produces no reply within the step timeout is `StepTimedOut` exactly as today; the
 process is expected to call other components *during* a step through `Client.Invoke`, on its own
-threads, and to reply when the step is done. A step is never run twice concurrently on one stream.
+tasks, and to reply when the step is done. A step is never run twice concurrently on one stream.
 
 ## `view.proto`, `consumer.proto`, `timed_action.proto`
 
@@ -236,6 +255,42 @@ message TimedActionEffect { oneof effect { Empty done = 1; Error fail = 2; } }
 A gRPC error (as opposed to an `Error` in the effect) from any of these is a fault: the projection
 retries with the backoff it uses for a thrown handler today; the timed action is retried on the
 sweeper's schedule with the attempt counter incremented.
+
+## `endpoint.proto`
+
+```proto
+service Endpoint {
+  rpc Handle       (HttpRequest) returns (HttpReply);
+  rpc HandleStream (HttpRequest) returns (stream StreamFrame);
+}
+
+message HttpRequest {
+  string endpoint_id = 1; string route_id = 2;       // from discovery
+  repeated string path_args = 3;                     // in template order
+  repeated Pair query = 4;                           // repeatable, in request order
+  repeated Pair headers = 5;
+  string content_type = 6; bytes body = 7;           // empty when the route has no body
+  optional Principal principal = 8;                  // when the ACL is AUTHENTICATED
+  Metadata metadata = 9;                             // trace and span ids for this request's span
+  message Pair { string name = 1; string value = 2; }
+}
+message Principal { string subject = 1; optional string name = 2; optional string email = 3;
+                    bool email_verified = 4; repeated string roles = 5; }
+message HttpReply {
+  oneof message { HttpResponse response = 1; Failure failure = 2; }
+}
+message HttpResponse { int32 status = 1; string content_type = 2; bytes body = 3; repeated HttpRequest.Pair headers = 4; }
+message StreamFrame { oneof frame { string text = 1; Empty completed = 2; Error failed = 3; } }
+```
+
+The sidecar's `Router` does everything it does for a Scala endpoint before forwarding: matches the
+route by specificity, applies the ACL (401/403/503 never reach the process), opens the request
+span, and only then calls `Handle` on a virtual thread with the request's arguments. An
+`HttpResponse` is returned as-is, whatever its status; a `Failure` is a 500 carrying the message;
+a gRPC error or a timeout is a 503 and the span is `Failed`. A streaming route's `text` frames are
+JSON-encoded into SSE by the existing path, so a process never has to know the SSE rules. The
+process is expected to call components during a handler through `Client.Invoke` with the
+request's `metadata`, so the entity's span is the request span's child.
 
 ## `agent.proto`
 
@@ -298,12 +353,19 @@ message ScheduleRequest { string timer_id = 1; int64 delay_millis = 2; Kind kind
 message CancelRequest { string timer_id = 1; }
 ```
 
-`metadata` carries the trace and span ids the SDK received with the command it is handling, so the
-sidecar records the nested call as a child span. An SDK that drops them produces an orphan span,
-which the console shows as such and never re-parents (feature 007's rule).
+`metadata` carries the trace and span ids the SDK received with the command or request it is
+handling, so the sidecar records the nested call as a child span. An SDK that drops them produces
+an orphan span, which the console shows as such and never re-parents (feature 007's rule).
+
+## `ENCODING.md` and `fixtures/`
+
+Part of the protocol artifact, versioned with it. `ENCODING.md` is the table in
+[data-model.md](../data-model.md#encoding-protocolencodingmd-r13). Every SDK's default codec
+passes every fixture; a new fixture within a major is a minor.
 
 ## Versioning
 
 `protocol_version` is `MAJOR.MINOR`. The sidecar supports one major; a `Spec` with another is
-refused with both versions named (FR-008, S5.2). A new optional field, message or rpc is a minor.
-Renaming, removing or changing the meaning of anything is a major, which this feature never does.
+refused with both versions named (FR-008, S5.2). A new optional field, message, rpc or fixture is
+a minor. Renaming, removing or changing the meaning of anything, or changing the encoding of a
+shape the fixtures already cover, is a major, which this feature never does.

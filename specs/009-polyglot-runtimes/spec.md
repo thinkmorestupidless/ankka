@@ -59,6 +59,16 @@ to *one* additional language, a conformance suite that any later SDK must pass, 
 the in-process Scala path, which remains the platform's fast path and the way its own control
 plane is built.
 
+## Clarifications
+
+### Session 2026-09-23
+
+- Q: Is all of this one feature, or is 009 the first slice with the rest as follow-on features? → A: One feature, five stories, tasks ordered P1 to P5; nothing ships until an SDK, the sidecar and the conformance suite agree.
+- Q: Which language is the second SDK? → A: Python 3.12.
+- Q: FR-011 names an HTTP surface that does not exist today; which shape should the sidecar's HTTP take? → A: Endpoints declared over the protocol: the process declares its routes in discovery and the sidecar serves them, forwarding each request over the protocol.
+- Q: Keep SC-002's cross-language journal portability as a hard requirement? → A: Keep it as a general rule: every SDK's default JSON codec must match the Scala SDK's output for the same domain shape, under a specified mapping proven by a shared fixture suite.
+- Q: Where does the Python SDK live? → A: In this repository, under `sdks/python`, so the protocol, the conformance suite and the SDK move together and a tag proves them consistent.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - An entity in another language (Priority: P1)
@@ -314,10 +324,12 @@ pass; deliberately break one behaviour in that SDK and see the suite name it.
 - **FR-010**: The sidecar MUST be the platform's own runtime, packaged as an image of its own,
   started with no components of its own and obtaining its registry from discovery. It MUST NOT
   be a second runtime; every host, projection, timer and cluster behaviour is the existing one.
-- **FR-011**: The sidecar MUST serve the same HTTP surface for invoking components that an
-  in-process service serves for its endpoints today, so that a polyglot service is callable
-  without the developer writing an HTTP layer. A developer's process MAY additionally serve its
-  own HTTP on its own port, and the platform MUST route to it when the descriptor says so.
+- **FR-011**: The developer's process MUST be able to declare HTTP endpoints (method, path
+  template, whether the reply streams) in discovery, and the sidecar MUST serve them on the
+  service's HTTP port, forwarding each request (path parameters, query parameters, headers, body)
+  over the protocol and returning the reply, so that a polyglot service's HTTP surface is the
+  platform's HTTP surface: the same port, readiness, exposure, ACL and tracing as an in-process
+  endpoint. The process serves no HTTP of its own that the platform routes to.
 - **FR-012**: The sidecar MUST host the agent loop, session memory, compaction, guardrails and
   token accounting for agents declared by the developer's process, asking that process only to
   run tools.
@@ -377,6 +389,12 @@ pass; deliberately break one behaviour in that SDK and see the suite name it.
   dependency, no new process, no change in latency, and every existing test green.
 - **FR-027**: No journal, snapshot, view row, offset or timer written before this feature MUST
   change shape, and the sidecar MUST read every one of them.
+- **FR-028**: The platform MUST specify one JSON mapping for domain values — records, sum types
+  with a discriminator, optional values, collections, numbers, times — that is exactly what the
+  Scala SDK's default codecs produce today, and every SDK's default codec MUST produce and accept
+  it, so that a journal, snapshot, view row or state written by a service in one language is read
+  by the same service in another. A shared fixture suite (documents and their expected decoded
+  values) MUST be published with the protocol and MUST pass in every SDK.
 
 ### Key Entities
 
@@ -404,7 +422,8 @@ pass; deliberately break one behaviour in that SDK and see the suite name it.
 - **SC-001**: The shopping cart sample, ported to the second language, passes the sample's own
   integration tests through the sidecar with 0 changes to those tests' assertions.
 - **SC-002**: A journal written by the Scala shopping cart is recovered by the ported cart with
-  0 differences in state, and the reverse.
+  0 differences in state, and the reverse; and the shared JSON fixture suite passes in every SDK
+  with 0 fixtures skipped.
 - **SC-003**: One command against a polyglot entity, measured end to end the way the tracing
   overhead was measured, costs no more than twice what the same command costs in-process, and
   the difference is visible in the console as time waiting on the developer's process.
@@ -425,26 +444,31 @@ pass; deliberately break one behaviour in that SDK and see the suite name it.
 
 ## Assumptions
 
-- **The second language is TypeScript** (Node runtime), for reach among developers writing
-  agents and for a mature protobuf and gRPC toolchain. Python is the obvious alternative and
-  the conformance suite exists so that choice is not final. [NEEDS CLARIFICATION: confirm the
-  language before the SDK tasks start; the plan (research R9) proceeds on TypeScript, and the
-  protocol, sidecar and operator work do not depend on the answer.]
+- **The second language is Python 3.12**, for the audience writing agents. Its effect builders
+  cannot make "a query cannot persist" a static guarantee the way a typed language can, so the
+  SDK enforces it at registration and the conformance suite proves it; the platform's own rule
+  (the sidecar refuses events from a read-only handler) holds regardless. The conformance suite
+  exists so that a later SDK in another language is a project, not a platform change.
 - **The protocol's transport is gRPC over loopback**, as Cloudstate's was: bidirectional streams
   are the natural shape for the per-instance conversation and every candidate language has a
   maintained implementation. The sidecar gains a gRPC dependency in `runtime`; the SDK-side
   jars gain nothing.
-- **The developer's process does not serve the platform's HTTP surface.** The sidecar does,
-  and the existing endpoint component stays a Scala-only convenience. A developer who wants
-  their own HTTP layer serves it on their own port, declared in the descriptor, and the
-  platform routes to it. This keeps HTTP routing out of the protocol.
+- **HTTP endpoints cross the protocol.** The process declares routes; the sidecar serves them
+  and forwards each request. This puts path templates, query parameters, headers and streaming
+  replies into the protocol for every SDK to implement, chosen so that a polyglot service has one
+  HTTP surface with the platform's readiness, exposure and tracing rather than two ports with
+  different rules.
 - **A service is one hosting mode.** A descriptor is in-process or polyglot; nothing mixes
   Scala components and another language's components in one cluster.
-- **Payloads stay in the developer's own encoding.** The Scala SDK's serializers produce JSON;
-  a TypeScript SDK will produce JSON too, and cross-language recovery in SC-002 depends on both
-  agreeing on the domain's JSON, which is the developer's contract, not the platform's.
+- **Payloads are JSON under one specified mapping.** The Scala SDK's default codecs define the
+  mapping; the platform writes it down and ships fixtures; every SDK's default codec matches it.
+  A developer may still supply a custom codec, and then portability is their contract.
 - **The sidecar is the runtime image, not a new build.** It is `ankka-runtime` plus a `main`
   that boots from discovery, published as an image alongside the operator and control plane.
+- **The Python SDK lives in this repository**, under `sdks/python`, for the reason the Giter8
+  template does: the protocol, the conformance suite and the SDK must move together, and a tag of
+  this repository must be able to prove them consistent. Publishing it to a package index is a
+  release-workflow job for a later feature.
 - **Local development uses Docker for the sidecar**, the same way it already uses Docker for
   Postgres and Kafka. A native sidecar binary is out of scope.
 - **The observability console needs no new concept.** A handler invocation over the protocol

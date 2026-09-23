@@ -13,7 +13,7 @@
 
 ## Requirement Completeness
 
-- [ ] No [NEEDS CLARIFICATION] markers remain — one remains, deliberately: the second language. Research R9 chooses TypeScript and the plan is built on it; the protocol, sidecar and operator work do not depend on the answer, and the conformance suite is what makes the choice reversible. Confirm before the SDK tasks start.
+- [x] No [NEEDS CLARIFICATION] markers remain — the second language was resolved in the 2026-09-23 clarification session (Python 3.12)
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
 - [x] Success criteria are technology-agnostic (no implementation details)
@@ -31,9 +31,8 @@
 
 ## Notes
 
-- FR-011's "the sidecar MUST serve the same HTTP surface … that an in-process service serves for
-  its endpoints" was found during planning to name a surface that does not exist: there is no
-  generic component-invoke route today. The plan adds one on the sidecar (research R7) and reads
-  FR-011 as requiring that route. The spec's wording stands; the plan records the reading.
-- The one open item above is a confirmation, not a gap: everything before the SDK tasks proceeds
-  on either answer.
+- FR-011 originally named an HTTP surface that does not exist (there is no generic component-invoke
+  route today). The clarification session replaced it: endpoints are declared over the protocol
+  and served by the sidecar (research R7).
+- The 2026-09-23 session also changed FR-011 (endpoints declared over the protocol) and added
+  FR-028 (one JSON mapping across SDKs); the plan was reworked to match.

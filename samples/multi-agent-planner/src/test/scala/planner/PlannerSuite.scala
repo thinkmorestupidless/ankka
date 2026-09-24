@@ -22,6 +22,7 @@ class PlannerSuite extends munit.FunSuite:
   private var testKit: AnkkaTestKit = null
   private val model                 = TestModelProvider()
 
+  // docs:start start
   override def beforeAll(): Unit =
     testKit = AnkkaTestKit.start(
       Seq(
@@ -39,6 +40,7 @@ class PlannerSuite extends munit.FunSuite:
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
   override def beforeEach(context: BeforeEach): Unit = model.reset()
+  // docs:end start
 
   private def planner(id: String) = testKit.componentClient.forWorkflow(EntityId(id))
   private def preferences(userId: String) =
@@ -66,6 +68,7 @@ class PlannerSuite extends munit.FunSuite:
         .filter(_.status == PlanState.Completed)
     )
 
+  // docs:start script
   /** Scripts the selector's structured reply plus one answer per specialist. */
   private def scriptPlan(specialists: List[String], summary: String): Unit =
     val json = specialists.map(s => s"\"$s\"").mkString("[", ",", "]")
@@ -81,7 +84,9 @@ class PlannerSuite extends munit.FunSuite:
       case other               => fail(s"unscripted specialist '$other'")
     }
     model.expectText(summary): Unit
+  // docs:end script
 
+  // docs:start assert
   test("the selector decides which specialists run, and only those run") {
     scriptPlan(List(Specialist.Weather, Specialist.Budget), "A mild, affordable trip.")
 
@@ -104,6 +109,7 @@ class PlannerSuite extends munit.FunSuite:
     assertEquals(plan.contributionFrom(Specialist.Activity), None)
     assertEquals(plan.summary, Some("A mild, affordable trip."))
   }
+  // docs:end assert
 
   test("a different selection changes which agents run, with no orchestration change") {
     scriptPlan(List(Specialist.Activity), "Plenty to do.")
@@ -245,9 +251,11 @@ class PlannerSuite extends munit.FunSuite:
     }
     assertEquals(failure.code, ErrorCode.Conflict)
 
+    // docs:start drain
     // Let the first plan finish before the test ends. A workflow left mid-flight keeps
     // consuming the shared scripted model, which would starve the next test.
     val _ = completedPlan("p-twice")
+    // docs:end drain
   }
 
   test("a completed plan reports Completed through the engine's own lifecycle") {

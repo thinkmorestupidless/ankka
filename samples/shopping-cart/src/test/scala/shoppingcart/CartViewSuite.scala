@@ -24,17 +24,21 @@ class CartViewSuite extends munit.FunSuite:
   private val publisher             = InMemoryPublisher()
 
   override def beforeAll(): Unit =
+    // docs:start start
     testKit = AnkkaTestKit.start(
       Seq(ShoppingCartEntity.descriptor, CartRows.descriptor, CheckoutNotifier.descriptor),
       Seq(ProjectionRuntime.withPublisher(publisher))
     )
+    // docs:end start
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
   private def cart(id: String) =
     testKit.componentClient.forEventSourcedEntity(EntityId(id))
 
+  // docs:start for-view
   private def rows = testKit.service.viewClient.forView(CartRows)
+  // docs:end for-view
 
   /** Polls until `check` returns a value or the deadline passes. */
   private def eventually[A](
@@ -94,8 +98,10 @@ class CartViewSuite extends munit.FunSuite:
       Option.when(rows.get("view-q-1").isDefined && rows.get("view-q-2").isDefined)(())
     }
 
+    // docs:start where
     // Query by an attribute rather than by key — the reason views exist.
     val found = rows.where(jsonText("cartId") ++ sql" = ${"view-q-1"}")
+    // docs:end where
     assertEquals(found.map(_.cartId), Vector("view-q-1"))
   }
 
@@ -118,9 +124,11 @@ class CartViewSuite extends munit.FunSuite:
     val _ = eventually("at least the rows written by earlier tests exist") {
       Option.when(rows.count() > 0L)(())
     }
+    // docs:start count
     assert(rows.count() >= 1L)
     assert(rows.all().nonEmpty)
     assert(rows.count(jsonText("cartId") ++ sql" = ${"nope-does-not-exist"}") == 0L)
+    // docs:end count
   }
 
   test("a consumer publishes only the events it selected") {

@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.sdk.*
  * Note what it does *not* do: fail when the order has already been confirmed. A timed action that
  * errors gets rescheduled, so "there was nothing to do" has to be reported as success.
  */
+// docs:start action
 final class OrderTimers(context: TimedActionContext) extends TimedAction:
 
   private val client = context.componentClient
@@ -18,6 +19,7 @@ final class OrderTimers(context: TimedActionContext) extends TimedAction:
     val outcome = client.forKeyValueEntity(EntityId(orderId)).call(OrderEntity.cancel).invoke()
     OrderTimers.observed.add(s"$orderId:$outcome"): Unit
     effects.done()
+  // docs:end action
 
   /** Always fails, to exercise the backoff path. */
   def alwaysFails(orderId: String): Effect =
@@ -30,7 +32,9 @@ object OrderTimers extends TimedAction.Companion[OrderTimers](ComponentId("order
   val observed: java.util.concurrent.ConcurrentLinkedQueue[String] =
     java.util.concurrent.ConcurrentLinkedQueue[String]()
 
+  // docs:start companion
   def create(context: TimedActionContext) = new OrderTimers(context)
 
   val expireOrder = handler("expire-order")(_.expireOrder)
+  // docs:end companion
   val alwaysFails = handler("always-fails")(_.alwaysFails)

@@ -553,6 +553,30 @@ object Main:
       }
     }
 
+  /**
+   * `ankka mcp` — a Model Context Protocol server over stdio, for an agent to drive ankka.
+   *
+   * The CLI's verbs as tools, the local console's view of this machine as tools, and this version's
+   * documentation as resources and a search. Settings and the login are resolved on every call, not
+   * once at start, so a client that launched the server keeps working after `ankka login` or
+   * `ankka config set project` in another terminal.
+   */
+  private val mcpCommand =
+    Opts.subcommand("mcp", "Serve ankka's tools and documentation to an agent over MCP (stdio).") {
+      (urlOpt, tokenOpt, projectOpt).mapN { (url, token, project) => () =>
+        val tools = mcp.AnkkaTools(() => Settings.resolve(url, token, project))
+        val server = mcp.McpServer(
+          "ankka",
+          com.thinkmorestupidless.ankka.core.BuildInfo.version,
+          mcp.AnkkaTools.Instructions,
+          tools.all,
+          () => tools.resources()
+        )
+        server.serve(java.io.BufferedReader(Console.in), Console.out, Console.err)
+        ""
+      }
+    }
+
   private def openBrowser(address: String): Unit =
     val opener =
       if sys.props.getOrElse("os.name", "").toLowerCase.contains("mac") then Some("open")
@@ -563,7 +587,7 @@ object Main:
       catch case _: Throwable => () // a console you must click on is still a console
     }
 
-  private val command = Command(
+  private[cli] val command = Command(
     name = "ankka",
     header = "Operate an ankka control plane."
   )(
@@ -577,6 +601,7 @@ object Main:
       .orElse(versionCommand)
       .orElse(initCommand)
       .orElse(localCommand)
+      .orElse(mcpCommand)
   )
 
   /**
@@ -600,7 +625,9 @@ object Main:
         // expects, without every action having to be handed two streams.
         try
           val result = Console.withOut(out)(Console.withErr(err)(action()))
-          out.println(result)
+          // A command that has already said everything on the stream (`mcp`, whose stdout is the
+          // protocol and nothing else) returns nothing, and gets no trailing line either.
+          if result.nonEmpty then out.println(result)
           0
         catch
           case error: ApiError =>

@@ -47,8 +47,10 @@ final class PlannerEndpoint(client: ComponentClient) extends HttpEndpoint("/plan
     client.forWorkflow(EntityId(planId)).call(PlannerWorkflow.plan).invoke()
   }
 
+  // docs:start lifecycle
   /** The engine's own view: running, paused, completed or failed, and why. */
   get("/{planId}/lifecycle") { (planId: String) =>
     val lifecycle = client.forWorkflow(EntityId(planId)).lifecycle(PlannerWorkflow).invoke()
     s"${lifecycle.status}${lifecycle.failure.map(reason => s": $reason").getOrElse("")}"
   }
+  // docs:end lifecycle

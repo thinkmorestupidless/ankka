@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.sdk.*
 import shoppingcart.domain.*
 import shoppingcart.domain.ShoppingCartEvent.*
 
+// docs:start class
 /**
  * The application layer: connects the cart domain to the ankka runtime.
  *
@@ -37,6 +38,7 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
       effects.error(s"cart does not contain '$productId'", ErrorCode.NotFound)
     else effects.persist(ItemRemoved(productId)).thenReply(_ => Done)
 
+  // docs:start checkout
   /**
    * Records the checkout and then deletes the cart.
    *
@@ -47,11 +49,14 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else if currentState.isEmpty then effects.error("cannot check out an empty cart")
     else effects.persist(CheckedOut).deleteEntity().thenReplyState
+  // docs:end checkout
 
   def getCart: ReadOnlyEffect[ShoppingCart] = effects.reply(currentState)
 
   def totalQuantity: ReadOnlyEffect[Int] = effects.reply(currentState.totalQuantity)
+// docs:end class
 
+// docs:start companion
 object ShoppingCartEntity
     extends EventSourcedEntity.Companion[ShoppingCartEntity, ShoppingCart, ShoppingCartEvent](
       componentId = ComponentId("shopping-cart"),
@@ -72,3 +77,4 @@ object ShoppingCartEntity
   val checkout      = command("checkout")(_.checkout)
   val getCart       = query("get-cart")(_.getCart)
   val totalQuantity = query("total-quantity")(_.totalQuantity)
+// docs:end companion

@@ -30,6 +30,7 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
 
   def emptyState: PlanState = PlanState.empty
 
+  // docs:start settings
   override def settings: WorkflowSettings =
     WorkflowSettings.builder
       .timeout(5.minutes)
@@ -37,6 +38,7 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
       .defaultStepTimeout(90.seconds)
       .defaultRecovery(RecoverStrategy.maxRetries(1))
       .build
+  // docs:end settings
 
   def start(request: PlannerWorkflow.Start): Effect[Done] =
     if request.destination.isBlank then effects.error("a destination is required")
@@ -50,6 +52,7 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
         .transitionTo(PlannerWorkflow.selectSpecialists.withInput(request.destination))
         .thenReply(Done)
 
+  // docs:start select
   /** Asks the selector which specialists this request needs. */
   def selectSpecialistsStep(destination: String): StepEffect =
     val selection = client
@@ -72,7 +75,9 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
         )
       )
       .thenTransitionTo(PlannerWorkflow.consultSpecialists)
+  // docs:end select
 
+  // docs:start parallel
   /**
    * Consults every chosen specialist at once.
    *
@@ -109,7 +114,9 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
     stepEffects
       .updateState(currentState.copy(contributions = contributions))
       .thenTransitionTo(PlannerWorkflow.summarise)
+  // docs:end parallel
 
+  // docs:start summarise
   /** Combines the contributions, reading them back from the shared session. */
   def summariseStep: StepEffect =
     val brief = client
@@ -120,6 +127,7 @@ final class PlannerWorkflow(context: WorkflowContext) extends Workflow[PlanState
     stepEffects
       .updateState(currentState.copy(status = PlanState.Completed, summary = Some(brief)))
       .thenEnd
+  // docs:end summarise
 
   def plan: ReadOnlyEffect[PlanState] = effects.reply(currentState)
 
@@ -136,9 +144,11 @@ object PlannerWorkflow
 
   def create(context: WorkflowContext) = new PlannerWorkflow(context)
 
+  // docs:start handles
   val selectSpecialists  = step("select-specialists")(_.selectSpecialistsStep)
   val consultSpecialists = step("consult-specialists")(_.consultSpecialistsStep)
   val summarise          = step("summarise")(_.summariseStep)
 
   val start = command("start")(_.start)
   val plan  = query("plan")(_.plan)
+  // docs:end handles

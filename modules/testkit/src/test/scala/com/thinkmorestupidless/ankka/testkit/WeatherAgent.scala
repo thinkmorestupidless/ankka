@@ -39,13 +39,16 @@ final class WeatherAgent(context: AgentContext) extends Agent:
         .tools(WeatherAgent.getWeather, WeatherAgent.currentDate)
         .thenReply()
 
+  // docs:start structured
   /** Same interaction, but the reply is parsed into a `Forecast`. */
   def askStructured(question: String): Effect[Forecast] =
     effects
       .systemMessage(WeatherAgent.SystemMessage + " Reply with JSON.")
       .userMessage(question)
       .thenReplyAs[Forecast]
+  // docs:end structured
 
+  // docs:start chat
   /** Streams the reply token by token, tools and all. */
   def chat(question: String): StreamEffect =
     effects
@@ -53,6 +56,7 @@ final class WeatherAgent(context: AgentContext) extends Agent:
       .userMessage(question)
       .tools(WeatherAgent.getWeather)
       .thenStream()
+  // docs:end chat
 
   /** Streams, but rejected up front — so the caller sees a failed stream, not a hang. */
   def chatGuarded(question: String): StreamEffect =
@@ -70,6 +74,7 @@ final class WeatherAgent(context: AgentContext) extends Agent:
       .memory(MemoryProvider.none)
       .thenReply()
 
+  // docs:start guarded
   /** Guarded, to exercise rejection before a model is called. */
   def guarded(question: String): Effect[String] =
     effects
@@ -77,7 +82,9 @@ final class WeatherAgent(context: AgentContext) extends Agent:
       .userMessage(question)
       .guardrails(Guardrail.maxInputLength(40))
       .thenReply()
+  // docs:end guarded
 
+  // docs:start short-memory
   /** Reads only the last two messages, to exercise the memory window. */
   def askWithShortMemory(question: String): Effect[String] =
     effects
@@ -85,6 +92,7 @@ final class WeatherAgent(context: AgentContext) extends Agent:
       .userMessage(question)
       .memory(MemoryProvider.limitedWindow.readLast(2))
       .thenReply()
+  // docs:end short-memory
 
 object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-agent")):
 
@@ -94,6 +102,7 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
   val toolCalls: java.util.concurrent.ConcurrentLinkedQueue[String] =
     java.util.concurrent.ConcurrentLinkedQueue[String]()
 
+  // docs:start tools
   val getWeather = FunctionTool
     .named("get_weather")
     .describedAs("Returns the weather forecast for a given city.")
@@ -112,6 +121,7 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
       toolCalls.add("current_date()"): Unit
       "2026-09-06"
     }
+  // docs:end tools
 
   def create(context: AgentContext) = new WeatherAgent(context)
 

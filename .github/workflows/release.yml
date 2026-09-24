@@ -144,3 +144,29 @@ jobs:
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka.g8.git" ankka-g8:main
           git tag -f "${GITHUB_REF_NAME}" ankka-g8
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka.g8.git" "${GITHUB_REF_NAME}"
+
+  docs:
+    # The documentation site — pages, llms.txt, llms-full.txt, raw Markdown per page and
+    # docs-index.json — for the release just tagged, to GitHub Pages. Needs Pages enabled on the
+    # repository with "GitHub Actions" as its source, a one-time setting. It waits for the publish
+    # job because a release that never reached Maven Central should not be documented as released.
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv run --project tools/docs docs build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/docs-site
+      - id: deploy
+        uses: actions/deploy-pages@v4

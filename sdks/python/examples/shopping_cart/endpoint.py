@@ -11,6 +11,7 @@ from examples.shopping_cart.checkout_workflow import Checkout
 from examples.shopping_cart.domain import LineItem, ShoppingCart
 
 
+# docs:start endpoint
 class ShoppingCartEndpoint(Endpoint):
     """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
 
@@ -41,6 +42,7 @@ class ShoppingCartEndpoint(Endpoint):
     @post("/{cartId}/checkout")
     async def checkout(self, cartId: str) -> ShoppingCart:
         return await self._cart(cartId).call("checkout").invoke(reply=ShoppingCart)
+    # docs:end endpoint
 
     # ── The view, the workflow and the notifier's log ──────────────────────
 
@@ -49,21 +51,25 @@ class ShoppingCartEndpoint(Endpoint):
         """A literal beside a parameter: the router must prefer it over ``/{cartId}``."""
         return "literal"
 
+    # docs:start problem
     @get("/{cartId}/rows")
     async def row(self, cartId: str) -> CartRow:
         found = await self.client.views.get("cart-rows", cartId, CartRow)
         if found is None:
             raise HttpProblem(404, f"no row for cart '{cartId}'")
         return found  # type: ignore[no-any-return]
+    # docs:end problem
 
     @get("/rows")
     async def rows(self) -> list[CartRow]:
         return await self.client.views.all("cart-rows", CartRow)
 
+    # docs:start start-workflow
     @post("/{cartId}/checkouts")
     async def start_checkout(self, cartId: str, mode: str) -> Done:
         """``mode`` is the body: ``ok``, ``fail`` or ``pause``."""
         return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).call("start").invoke(mode or "ok", reply=Done)
+    # docs:end start-workflow
 
     @get("/{cartId}/checkouts")
     async def checkout_status(self, cartId: str) -> Checkout:
@@ -71,6 +77,7 @@ class ShoppingCartEndpoint(Endpoint):
 
     # ── The assistant: a POST answers whole, a GET streams tokens as SSE ───
 
+    # docs:start agent-routes
     @post("/ask/{session}")
     async def ask(self, session: str, question: str) -> str:
         return await self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("ask").invoke(question, reply=str)
@@ -80,6 +87,7 @@ class ShoppingCartEndpoint(Endpoint):
         question = next((v for k, v in self.request.query if k == "q"), "")
         async for token in self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("chat").stream(question):
             yield token
+    # docs:end agent-routes
 
     @get("/{cartId}/checkout-log")
     async def checkout_log(self, cartId: str) -> CheckoutRecord:

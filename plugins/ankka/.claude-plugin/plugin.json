@@ -1,0 +1,12 @@
+{
+  "name": "ankka",
+  "description": "The ankka documentation as a skill: components in Scala and Python, testing, service descriptors, the CLI, deploying and operating.",
+  "author": {
+    "name": "thinkmorestupidless",
+    "url": "https://github.com/thinkmorestupidless/ankka"
+  },
+  "homepage": "https://docs.ankka.cloud/",
+  "repository": "https://github.com/thinkmorestupidless/ankka",
+  "license": "Apache-2.0",
+  "keywords": ["ankka", "akka", "pekko", "scala", "python", "agents", "event-sourcing"]
+}

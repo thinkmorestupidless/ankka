@@ -23,6 +23,7 @@ final class TransferWorkflow(context: WorkflowContext) extends Workflow[Transfer
 
   def emptyState: TransferState = TransferState(Transfer("", "", 0), "not-started")
 
+  // docs:start settings
   override def settings: WorkflowSettings =
     WorkflowSettings.builder
       .timeout(60.seconds)
@@ -34,7 +35,9 @@ final class TransferWorkflow(context: WorkflowContext) extends Workflow[Transfer
         RecoverStrategy.maxRetries(1).failoverTo(TransferWorkflow.compensate)
       )
       .build
+  // docs:end settings
 
+  // docs:start start
   def start(transfer: Transfer): Effect[Done] =
     if transfer.amount <= 0 then effects.error("transfer amount must be greater than zero")
     else if currentState.status != "not-started" then
@@ -44,7 +47,9 @@ final class TransferWorkflow(context: WorkflowContext) extends Workflow[Transfer
         .updateState(TransferState(transfer, "started"))
         .transitionTo(TransferWorkflow.withdraw.withInput(transfer))
         .thenReply(Done)
+  // docs:end start
 
+  // docs:start steps
   def withdrawStep(transfer: Transfer): StepEffect =
     wallet(transfer.from).call(WalletEntity.withdraw).invoke(transfer.amount)
     stepEffects
@@ -66,11 +71,13 @@ final class TransferWorkflow(context: WorkflowContext) extends Workflow[Transfer
     val transfer = currentState.transfer
     wallet(transfer.from).call(WalletEntity.deposit).invoke(transfer.amount)
     stepEffects.updateState(currentState.copy(status = "compensated")).thenEnd
+  // docs:end steps
 
   def status: ReadOnlyEffect[TransferState] = effects.reply(currentState)
 
   private def wallet(id: String) = client.forKeyValueEntity(EntityId(id))
 
+// docs:start companion
 object TransferWorkflow
     extends Workflow.Companion[TransferWorkflow, TransferState](
       componentId = ComponentId("transfer"),
@@ -87,3 +94,4 @@ object TransferWorkflow
 
   val start  = command("start")(_.start)
   val status = query("status")(_.status)
+// docs:end companion

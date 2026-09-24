@@ -16,10 +16,12 @@ class TimerSuite extends munit.FunSuite:
 
   override def beforeAll(): Unit =
     OrderTimers.observed.clear()
+    // docs:start register
     testKit = AnkkaTestKit.start(
       Seq(OrderEntity.descriptor, OrderTimers.descriptor),
       Seq(timers)
     )
+    // docs:end register
 
   override def afterAll(): Unit = if testKit != null then testKit.stop()
 
@@ -40,8 +42,10 @@ class TimerSuite extends munit.FunSuite:
 
   test("a scheduled call fires and then is forgotten") {
     assertEquals(order("o-1").call(OrderEntity.place).invoke("book"), Done)
+    // docs:start schedule
     scheduler.createSingleTimer("expire-o-1", 300.millis, OrderTimers.expireOrder.deferred("o-1"))
     assert(scheduler.exists("expire-o-1"))
+    // docs:end schedule
 
     val _ = eventually("the order is cancelled")(
       Option(order("o-1").call(OrderEntity.status).invoke()).filter(_ == "cancelled")

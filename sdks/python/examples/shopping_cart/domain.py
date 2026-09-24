@@ -48,6 +48,7 @@ class ShoppingCart:
         return not self.items
 
 
+# docs:start events
 @dataclass(frozen=True)
 class ItemAdded:
     item: LineItem
@@ -64,3 +65,4 @@ class CheckedOut:
 
 
 ShoppingCartEvent = ItemAdded | ItemRemoved | CheckedOut
+# docs:end events

@@ -1,0 +1,140 @@
+# The documentation site. The source is docs/, plain Markdown with YAML frontmatter; this file only
+# says how MkDocs renders it for people. Everything machine-facing — llms.txt, llms-full.txt, raw
+# Markdown per page, docs-index.json and the agent skill — is rendered from the same tree by
+# tools/docs (`uv run --project tools/docs docs build`). See docs/contributing/documentation.md.
+site_name: ankka
+site_description: A serverless application platform for agentic AI on the actor model — Akka's component model in Scala 3 on Apache Pekko, with services in Scala or Python.
+site_url: https://docs.ankka.cloud/
+repo_url: https://github.com/thinkmorestupidless/ankka
+repo_name: thinkmorestupidless/ankka
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: target/docs-site
+
+# Internal design treatments that feed feature specifications. Not for the people using ankka.
+exclude_docs: |
+  design/
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  logo: assets/ankka-mark.svg
+  favicon: assets/ankka-mark.svg
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+# Deliberately plain. No admonitions, tabs or snippet syntax: a page must read correctly with no
+# renderer at all, because that is how a model most often receives it.
+markdown_extensions:
+  - toc:
+      permalink: true
+  - tables
+  - pymdownx.highlight:
+      anchor_linenums: false
+  - pymdownx.superfences
+
+extra:
+  generator: false
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Install the tools: get-started/install.md
+      - Your first service in Scala: get-started/first-service-scala.md
+      - Your first service in Python: get-started/first-service-python.md
+      - Deploy to a local platform: get-started/deploy-locally.md
+      - Work with a coding agent: get-started/coding-agents.md
+  - Concepts:
+      - How ankka works: concepts/architecture.md
+      - Effects are data: concepts/effects.md
+      - Components: concepts/components.md
+      - Designing a service: concepts/designing-services.md
+      - Handlers and wire names: concepts/wire-names.md
+      - Consistency and delivery: concepts/consistency.md
+      - Agents and sessions: concepts/agents.md
+      - Clusters and instances: concepts/clustering.md
+      - Services in other languages: concepts/polyglot.md
+      - Desired and observed state: concepts/control-plane.md
+      - Tenancy and access: concepts/tenancy-and-access.md
+      - Observability: concepts/observability.md
+  - Build:
+      - Event sourced entities: build/event-sourced-entities.md
+      - Key value entities: build/key-value-entities.md
+      - Views: build/views.md
+      - Consumers: build/consumers.md
+      - Workflows: build/workflows.md
+      - Timers: build/timers.md
+      - Agents: build/agents.md
+      - Streaming responses: build/streaming.md
+      - Multi-agent orchestration: build/multi-agent-orchestration.md
+      - HTTP endpoints: build/http-endpoints.md
+      - Calling components: build/component-client.md
+      - Broker topics: build/topics.md
+      - Serialization and evolution: build/serialization.md
+      - Testing: build/testing.md
+  - Run and deploy:
+      - Run a service locally: deploy/run-locally.md
+      - Build an image: deploy/images.md
+      - Deploy a service: deploy/deploy-a-service.md
+      - Expose a service: deploy/expose.md
+      - Scale and roll out: deploy/scaling-and-rollouts.md
+      - Deploy from CI: deploy/ci.md
+      - Upgrade ankka: deploy/upgrading.md
+  - Observe and operate:
+      - The local console: operate/local-console.md
+      - Status and history: operate/status-and-history.md
+      - Logs: operate/logs.md
+      - Pause, resume, restart and delete: operate/service-lifecycle.md
+      - Troubleshooting: operate/troubleshooting.md
+  - Run the platform:
+      - Install a local platform: platform/install-local.md
+      - Install on a cloud cluster: platform/install-cloud.md
+      - Organizations, projects and members: platform/organizations.md
+      - Identity and machine accounts: platform/identity.md
+      - Databases: platform/databases.md
+      - Networking and TLS: platform/networking.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Service descriptor: reference/service-descriptor.md
+      - Service lifecycle states: reference/lifecycle-states.md
+      - Control plane HTTP API: reference/control-plane-api.md
+      - Runtime configuration: reference/configuration.md
+      - Runtime endpoints: reference/runtime-endpoints.md
+      - Error codes: reference/error-codes.md
+      - Scala SDK: reference/scala-sdk.md
+      - Python SDK: reference/python-sdk.md
+      - Sidecar protocol: reference/sidecar-protocol.md
+      - Divergences from Akka: reference/akka-divergences.md
+      - Limitations: reference/limitations.md
+      - Glossary: reference/glossary.md
+  - Contributing:
+      - Writing documentation: contributing/documentation.md
+      - Adding a language SDK: contributing/language-sdks.md

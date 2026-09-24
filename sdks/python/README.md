@@ -1,15 +1,18 @@
 # ankka for Python
 
-Components in Python, hosted by the ankka sidecar over the sidecar protocol. See
-`docs/polyglot.md` at the repository root for the walkthrough, and `protocol/` for the protocol,
-the encoding and the fixtures this SDK is built to.
+Components in Python — event sourced and key value entities, views, consumers, workflows, timed actions,
+agents and HTTP endpoints — hosted by the ankka sidecar, the same runtime that hosts a Scala service.
+Your process decides what should happen; the sidecar owns sharding, the journal, projections, timers,
+HTTP, the agent loop and the model key.
 
-```
-uv sync                                          # install
-uv run python scripts/proto.py                   # copy protocol/ in and regenerate the stubs
-uv run pytest                                    # unit testkits, the encoding fixtures, the servicer
-uv run pytest -m slow                            # through a real sidecar and Postgres (Docker)
-uv run mypy && uv run mypy examples              # strict
-uv run python scripts/conformance.py             # start the reference service, run the platform's conformance suite
-uv run python -m examples.shopping_cart.main     # the shopping cart, beside `docker compose --profile polyglot up`
+- [Your first service in Python](https://docs.ankka.cloud/get-started/first-service-python/)
+- [Services in other languages](https://docs.ankka.cloud/concepts/polyglot/) — how the sidecar model works
+- [Python SDK reference](https://docs.ankka.cloud/reference/python-sdk/) — the API, and developing this SDK
+- [Sidecar protocol](https://docs.ankka.cloud/reference/sidecar-protocol/)
+
+The same pages are in this repository under
+[`docs/`](https://github.com/thinkmorestupidless/ankka/tree/main/docs).
+
+```bash
+uv sync && uv run pytest -q && uv run mypy && uv run conformance
 ```

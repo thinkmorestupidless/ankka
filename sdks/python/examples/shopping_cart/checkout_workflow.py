@@ -28,6 +28,7 @@ class PaymentDeclined(Exception):
     pass
 
 
+# docs:start workflow
 class CheckoutWorkflow(Workflow[Checkout]):
     component_id = "checkout"
     state_codec = json_codec(Checkout, "checkout")
@@ -77,3 +78,4 @@ class CheckoutWorkflow(Workflow[Checkout]):
 
     def _cart(self) -> Calls:
         return self.context.client.for_event_sourced_entity("shopping-cart", self.state.cartId)
+# docs:end workflow

@@ -91,3 +91,21 @@ hooks:
 # The operator, the control plane and the sample, into the local Docker daemon.
 images:
     sbt docker:publishLocal
+
+# ── Documentation ───────────────────────────────────────────────────────────
+
+# Check every page, then build the site, llms.txt, llms-full.txt and docs-index.json.
+docs:
+    uv run --project tools/docs docs build
+
+# Refresh included samples, generated tables and the rendered skill from their sources.
+docs-sync:
+    uv run --project tools/docs docs sync
+
+# The site with live reload, while writing.
+docs-serve:
+    uv run --project tools/docs docs serve
+
+# Rewrite the reference pages the JVM generates: the CLI's commands and the control plane's routes.
+docs-reference:
+    sbt -Dankka.docs.update=true -Dankka.template.tests=off 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite'

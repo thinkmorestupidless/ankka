@@ -38,8 +38,10 @@ final case class ShoppingCart(
 object ShoppingCart:
   def empty(cartId: String): ShoppingCart = ShoppingCart(cartId, Nil, checkedOut = false)
 
+// docs:start events
 /** Everything that can happen to a cart. */
 enum ShoppingCartEvent:
   case ItemAdded(item: LineItem)
   case ItemRemoved(productId: String)
   case CheckedOut
+// docs:end events

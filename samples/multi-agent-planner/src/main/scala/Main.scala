@@ -13,6 +13,7 @@ import planner.application.*
  * Needs Postgres (`docker compose up -d`) and `ANTHROPIC_API_KEY`.
  */
 @main def runPlanner(): Unit =
+  // docs:start registration
   val model = AnthropicProvider.fromEnv()
 
   val service = Ankka.service
@@ -27,6 +28,7 @@ import planner.application.*
     .withExtension(AgentRuntime.withDefaultModel(model))
     .withExtension(HttpServer.of(clients => PlannerEndpoint(clients.componentClient)))
     .start()
+  // docs:end registration
 
   sys.addShutdownHook(service.terminate())
   scala.concurrent.Await

@@ -17,11 +17,13 @@ final class ChatEndpoint(client: ComponentClient) extends HttpEndpoint("/chat"):
    * The handler only *builds* the source; pekko-http pulls tokens as the client reads, so nothing
    * buffers the whole answer.
    */
+  // docs:start sse
   sse("/{session}") { (session: String) =>
     client
       .forAgent(SessionId(session))
       .stream(WeatherAgent.chat)("What is the weather?")
   }
+  // docs:end sse
 
   /**
    * Tokens that would be corrupted by naive SSE framing.

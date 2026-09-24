@@ -15,6 +15,7 @@ final class QueryEndpoint extends HttpEndpoint("/search"):
 
   val acl: Acl = Acl.AllowAll
 
+  // docs:start query
   /** Required, optional-with-default, repeated, and flag parameters. */
   get("/") { () =>
     SearchResult(
@@ -24,16 +25,19 @@ final class QueryEndpoint extends HttpEndpoint("/search"):
       verbose = query.flag("verbose")
     )
   }
+  // docs:end query
 
   /** Query parameters alongside a path parameter. */
   get("/in/{category}") { (category: String) =>
     s"$category:${query.required[String]("q")}:${query.optional[Int]("limit").getOrElse(0)}"
   }
 
+  // docs:start header
   /** Headers. */
   get("/trace") { () =>
     request.header("X-Trace-Id").getOrElse("none")
   }
+  // docs:end header
 
   /** The rest of the request context. */
   get("/describe") { () =>
@@ -46,17 +50,20 @@ final class QueryEndpoint extends HttpEndpoint("/search"):
    * The values are read while *building* the source, which is the only point the request context is
    * available — elements are pulled later, by pekko-http, on another thread.
    */
+  // docs:start sse-query
   sse("/stream") { () =>
     val term  = query.required[String]("q")
     val count = query.optional[Int]("count").getOrElse(2)
     org.apache.pekko.stream.scaladsl.Source((1 to count).map(n => s"$term-$n").toVector)
   }
+  // docs:end sse-query
 
   /** Query parameters with a body. */
   postBody("/submit/{category}") { (category: String, payload: SearchResult) =>
     s"$category:${payload.term}:${query.optional[String]("mode").getOrElse("default")}"
   }
 
+// docs:start gated
 /** An endpoint whose ACL inspects the request — the same context the handler sees. */
 final class GatedEndpoint extends HttpEndpoint("/gated"):
 
@@ -65,3 +72,4 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
   )
 
   get("/")(() => "allowed")
+// docs:end gated

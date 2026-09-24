@@ -87,6 +87,7 @@ def test_notifier_only_cares_about_checkouts() -> None:
     assert log.call("get").reply == CheckoutRecord("c1", 1700000000000, True)
 
 
+# docs:start workflow-test
 def test_checkout_workflow_declares_its_recovery() -> None:
     kit = WorkflowTestKit.of(CheckoutWorkflow, "c1")
     started = kit.call("start", "fail")
@@ -97,8 +98,10 @@ def test_checkout_workflow_declares_its_recovery() -> None:
     assert kit.state.status == "compensated"
     settings = CheckoutWorkflow.to_component().workflow.settings
     assert {s.step: s.recovery.failover_to for s in settings.steps} == {"charge": "compensate"}
+# docs:end workflow-test
 
 
+# docs:start agent-test
 def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
     from ankka.testkit import AgentTestKit, ScriptedModel
     from examples.shopping_cart.assistant import CartAssistant
@@ -109,6 +112,7 @@ def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
     assert answer.reply == "Your cart is empty."
     # The tool ran in this process — the unit testkit's client answers nothing, so it reports that.
     assert answer.tool_results and answer.tool_results[0].startswith("error:")
+# docs:end agent-test
 
 
 # ── Through a real sidecar and a real Postgres (Docker) ────────────────────────
@@ -186,6 +190,7 @@ async def test_every_kind_through_the_sidecar() -> None:
         assert (await kit.http.get("/carts/k1/rows")).json()["checkedOut"] is True
 
 
+# docs:start scripted-sidecar
 SCRIPT = json.dumps(
     [
         {"tool": "lookup", "arguments": {"cartId": "a1"}},
@@ -213,8 +218,10 @@ async def test_assistant_through_the_sidecar_with_a_scripted_model() -> None:
         assert [json.loads(f) for f in frames] == ["Streamed", " answer", " here"], f"body: {body!r}\n{kit.sidecar_logs()[-2500:]}"
         leaked = await kit.http.post("/carts/ask/s3", content="key?", headers={"content-type": "text/plain"})
         assert leaked.status_code == 403, leaked.text
+# docs:end scripted-sidecar
 
 
+# docs:start integration
 @pytest.mark.slow
 async def test_cart_through_the_sidecar_survives_a_restart() -> None:
     service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
@@ -235,3 +242,4 @@ async def test_cart_through_the_sidecar_survives_a_restart() -> None:
         assert checked["checkedOut"] is True
         # Deleted after the checkout, as the Scala cart: the id is fresh again.
         assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [], "checkedOut": False}
+# docs:end integration

@@ -26,6 +26,7 @@ given Serializer[AgentSelection]     = Codecs.serializer[AgentSelection]("agent-
  * consult, it asks. A question about rain consults the weather specialist; a question about cost
  * consults the budget one; the workflow is unchanged either way.
  */
+// docs:start selector
 final class SelectorAgent extends Agent:
 
   def select(request: String): Effect[AgentSelection] =
@@ -47,6 +48,7 @@ final class SelectorAgent extends Agent:
 object SelectorAgent extends Agent.Companion[SelectorAgent](ComponentId("selector-agent")):
   def create(context: AgentContext) = new SelectorAgent
   val select                        = command("select")(_.select)
+// docs:end selector
 
 /**
  * Answers weather questions, with a tool.
@@ -54,6 +56,7 @@ object SelectorAgent extends Agent.Companion[SelectorAgent](ComponentId("selecto
  * The tool stands in for a forecast API. What matters for the sample is that the model decides to
  * call it and ankka runs it.
  */
+// docs:start weather
 final class WeatherAgent extends Agent:
 
   def consult(destination: String): Effect[String] =
@@ -85,6 +88,7 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
   def create(context: AgentContext) = new WeatherAgent
 
   val consult = command("consult")(_.consult)
+// docs:end weather
 
 /**
  * Suggests activities, informed by the user's stored preferences.
@@ -92,6 +96,7 @@ object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-a
  * Reads the preferences entity through `componentClient` rather than being handed them, which is
  * the documented way an agent enriches its own context.
  */
+// docs:start activity
 final class ActivityAgent extends Agent:
 
   def consult(request: ActivityAgent.Request): Effect[String] =
@@ -110,6 +115,7 @@ final class ActivityAgent extends Agent:
       // question, not the whole assembled prompt.
       .withContext(s"Traveller preferences: ${preferences.summary}")
       .thenReply()
+// docs:end activity
 
 object ActivityAgent extends Agent.Companion[ActivityAgent](ComponentId("activity-agent")):
 
@@ -144,6 +150,7 @@ object BudgetAgent extends Agent.Companion[BudgetAgent](ComponentId("budget-agen
  * selector's routing chatter. This is why session memory is keyed by conversation rather than by
  * agent: collaboration is the default, and filtering is how an agent narrows it.
  */
+// docs:start summary
 final class SummaryAgent extends Agent:
 
   def summarise(destination: String): Effect[String] =
@@ -158,6 +165,7 @@ final class SummaryAgent extends Agent:
         )
       )
       .thenReply()
+// docs:end summary
 
 object SummaryAgent extends Agent.Companion[SummaryAgent](ComponentId("summary-agent")):
   override val role: String         = "summary"

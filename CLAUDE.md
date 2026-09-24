@@ -14,10 +14,12 @@ namespace, label domain, config key, environment variable, CRD (`AnkkaService`, 
 and file path followed — so git history before that commit reads `nakka` throughout, and a
 `~/.nakka/` or a kind cluster named `nakka` on a machine is a leftover, not something the code reads.
 
-`README.md` is the user-facing reference (component model, agents, streaming, topics,
-the control plane and CLI, divergences from Akka, and an honest "Not implemented" list).
-`docs/orchestration.md` covers multi-agent patterns. Read both before making design
-decisions.
+`docs/` is the user-facing documentation — public, for developers building, deploying and operating
+services on ankka — and `README.md` is a landing page into it. Start with
+`docs/concepts/architecture.md`, `docs/concepts/designing-services.md` and
+`docs/reference/limitations.md` (the honest "not implemented" list) before making design decisions.
+`docs/design/` holds internal design treatments that feed feature specifications; it is never
+published. See *Documentation* below for how the tree is built and the rules a page follows.
 
 ## Commands
 
@@ -50,6 +52,9 @@ cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conforman
 sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
+just docs                         # uv run --project tools/docs docs build: check every page, build the site
+just docs-sync                    # refresh included samples, generated tables and the rendered skill
+just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
 ```
 
 Running the samples needs the bundled Postgres:
@@ -867,6 +872,35 @@ factory shapes would break lambda parameter inference at every call site.
   Desktop provides it; the Python integration testkit and compose set it unconditionally.
 - **ghcr.io denies anonymous pulls on some networks.** The Python sample's Dockerfile installs with
   pip from the official `python` image rather than `ghcr.io/astral-sh/uv`.
+
+## Documentation
+
+One tree, `docs/`, of plain Markdown with YAML frontmatter; every way of reading it is a rendering
+built by `tools/docs` (a `uv` project): the MkDocs Material site, `llms.txt`, `llms-full.txt`, a raw
+Markdown copy of each page, `docs-index.json`, the Agent Skill (committed into `plugins/ankka/skills/`
+and into the template at `ankka.g8/src/main/g8/.claude/skills/`), and the pages on the CLI's classpath
+that `ankka mcp` serves. `docs/contributing/documentation.md` is the full set of rules; the ones that
+bite:
+
+- **A page stands alone.** Its most common reader is a model that retrieved it alone. No positional
+  references ("see above"), no internal history (feature numbers, specs, "a test found") — `docs check`
+  refuses both. Explain behaviour as a property of the system.
+- **Samples come from tested code.** Mark a region with `// docs:start name` / `// docs:end name` in a
+  sample or test, name it in `<!-- include: path#name -->` before the page's code block, and run
+  `just docs-sync`. The copy lives in the page on purpose — the raw Markdown must be complete — and
+  `docs check` fails when it drifts, so a renamed method breaks the docs build, not the reader.
+- **Reference facts are generated.** Between `<!-- generated:start name -->` comments: configuration
+  and the protocol by `docs sync`; the CLI's commands (`CliReferenceSuite`) and the control plane's
+  routes (`ControlPlaneRoutesReferenceSuite`) by Scala suites that fail on a stale page and rewrite it
+  under `-Dankka.docs.update=true`. A coverage check makes the prose beside each table mention every
+  fact, so a new variable or route is a failing build until someone says what it does.
+- **Every `service.json` block in `docs/` is a valid descriptor.** `DocumentationDescriptorsSuite` in
+  `controlplane-api` decodes and validates each with the platform's own rules.
+- **Giter8 reads `$` as template syntax**, so the skill's copy in the template is written with every
+  `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
+- **A new page goes in `mkdocs.yml`'s `nav`**, or `docs check` fails. A new CLI command or control
+  plane route fails the JVM suites until `just docs-reference` has run and the route has a
+  hand-written section.
 
 ## Publishing
 

@@ -1,0 +1,17 @@
+{
+  "name": "ankka",
+  "owner": {
+    "name": "thinkmorestupidless",
+    "url": "https://github.com/thinkmorestupidless/ankka"
+  },
+  "metadata": {
+    "description": "Plugins for building, deploying and operating services on ankka."
+  },
+  "plugins": [
+    {
+      "name": "ankka",
+      "source": "./plugins/ankka",
+      "description": "The ankka documentation as a skill: components in Scala and Python, testing, service descriptors, the CLI, deploying and operating."
+    }
+  ]
+}

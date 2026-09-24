@@ -2,3 +2,30 @@ apiVersion: kustomize.config.k8s.io/v1alpha1
 kind: Component
 resources:
   - cluster.yaml
+
+# The control plane's schema, from the single-copy DDL — which is canonical *here*, in ddl/, with
+# modules/runtime/src/main/resources/ankka/ddl and operator/src/main/resources/ankka/ddl as
+# directory symlinks into it: the same direction as the CRD and the install manifests, and for the
+# same reason. Kustomize's load restrictor refuses a file outside the component's own directory,
+# symlinks included, while sbt, the JVM and a bind mount follow a symlink without noticing. Until
+# this generator existed the ConfigMap came from deploy-local.sh, and an overlay applied by
+# anything else — Flux, on the first real cluster — left the database's initdb pod waiting on a
+# mount forever.
+#
+# No name-suffix hash: CNPG's configMapRefs is not a field kustomize rewrites, and initdb runs
+# once at bootstrap, so a hash would only ever point the Cluster at a name that does not exist.
+#
+# 99-grants.sql is not part of the DDL: CNPG runs postInitApplicationSQLRefs as the "postgres"
+# superuser, not as the owner role, so without it every table belongs to "postgres" and the role
+# the control plane connects as cannot read its own journal (see cluster.yaml).
+configMapGenerator:
+  - name: ankka-controlplane-schema
+    namespace: ankka-controlplane
+    files:
+      - ddl/10-journal-postgres.sql
+      - ddl/20-projection-postgres.sql
+      - ddl/30-timers-postgres.sql
+    literals:
+      - 99-grants.sql=GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ankka; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ankka;
+    options:
+      disableNameSuffixHash: true

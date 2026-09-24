@@ -133,9 +133,6 @@ kubectl apply -k kustomization/components/envoy-gateway --server-side --force-co
 # wait for the three controllers to be ready; install a DNS-01 webhook solver here if yours needs one
 kubectl apply -k kustomization/components/keycloak-operator --server-side --force-conflicts
 kubectl create namespace ankka-controlplane
-kubectl create configmap ankka-controlplane-schema -n ankka-controlplane \
-  --from-file=modules/runtime/src/main/resources/ankka/ddl \
-  --from-literal=99-grants.sql="GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ankka; GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ankka;"
 kubectl create namespace ankka-auth
 kubectl -n ankka-auth create secret generic ankka-keycloak-admin ...   # see above
 kubectl apply -k kustomization/overlays/<your-overlay> --server-side --force-conflicts
@@ -146,18 +143,18 @@ are instances of, and a single `kubectl apply -k` gives no ordering guarantee be
 resource of that kind. Apply with `--server-side`: CloudNativePG's definitions are too large for
 client-side apply's annotation.
 
-The control plane's schema ConfigMap must exist before its Postgres cluster is first created, because
-CloudNativePG runs the schema once, when it bootstraps the cluster. It is built from the runtime's schema
-files rather than kept in the overlay, so the schema has one copy. The grants key gives the control
-plane's own database role the tables the bootstrap creates as the superuser.
+The overlay carries everything else the platform needs, so the same apply works by hand and from a
+GitOps tool such as Flux. The control plane's database schema is a ConfigMap the overlay generates from
+the schema's single copy, created in the same apply as the Postgres cluster that runs it once at bootstrap.
+The realm is a `KeycloakRealmImport` in the overlay, which the Keycloak operator imports once Keycloak is
+ready.
 
 `kubectl apply` of many documents applies everything it can and exits non-zero if anything failed.
 Check the exit code, not the count of lines that say `applied`.
 
-Once Keycloak is ready, import the `ankka` realm from `kustomization/components/keycloak/realm.json`
-as a `KeycloakRealmImport` resource. `kustomization/deploy-local.sh` shows the exact command, and the
-order of its steps after the image build holds for any cluster. The realm import is one-shot, so run it
-once.
+The realm import is one-shot: it creates the `ankka` realm if it does not exist and never updates it,
+so a later change to `kustomization/components/keycloak/realm-import.json` is made in Keycloak's console
+on an installation that already has the realm. Create the first users there too; the realm holds none.
 
 ## After installing
 

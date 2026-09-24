@@ -95,8 +95,10 @@ changes are recorded under its own identity. See [Deploy from CI](../deploy/ci.m
 
 ## The realm
 
-The `ankka` realm is defined in one file, `kustomization/components/keycloak/realm.json` in the ankka
-repository. It contains:
+The `ankka` realm is defined in one file, `kustomization/components/keycloak/realm-import.json` in the
+ankka repository. The file is a `KeycloakRealmImport` resource, so installing the platform's manifests
+creates the import, and the Keycloak operator imports the realm once Keycloak is ready. The repository's
+`docker-compose.yml` reads the realm out of the same file for a local Keycloak. It contains:
 
 - the public `ankka-cli` client, with the device authorization grant, used by `ankka login`;
 - the `ankka-controlplane` client scope, which puts the control plane's audience and the claims it reads

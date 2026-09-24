@@ -6,8 +6,8 @@
 # overlay replaces its base domain from the ankka-platform ConfigMap like every other hostname.
 # The bootstrap admin secret is named explicitly (see admin-secret.yaml for why).
 #
-# The realm is not here: KeycloakRealmImport is one-shot (it neither updates nor deletes a realm),
-# so deploy-local.sh renders it from realm.json, the single copy docker-compose also imports.
+# The realm is realm-import.json beside this file: one-shot (it neither updates nor deletes a
+# realm), and the single copy docker-compose also imports.
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: Keycloak
 metadata:

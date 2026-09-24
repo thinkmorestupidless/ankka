@@ -58,17 +58,20 @@ The script takes several minutes on its first run. In order, it:
 3. **Builds the platform's images** with `sbt docker:publishLocal`: the operator, the control plane, the
    sidecar that hosts services in other languages, and the shopping cart sample.
 4. **Loads them into the cluster's node** with `kind load docker-image`. No registry is involved.
-5. **Applies the `AnkkaService` custom resource definition**, then the control plane's namespace and its
-   database schema.
-6. **Applies everything else**: the operator, the control plane with its own Postgres cluster, the
-   installation's gateway with a local certificate authority and a wildcard certificate, and Keycloak with
-   its database.
+5. **Applies the `AnkkaService` custom resource definition**, then the control plane's namespace.
+6. **Applies everything else** with one `kubectl apply -k` of the local overlay: the operator, the control
+   plane with its own Postgres cluster and the schema that cluster is created with, the installation's
+   gateway with a local certificate authority and a wildcard certificate, and Keycloak with its database
+   and the `ankka` realm's import. The overlay is the whole platform, so applying it any other way — by
+   hand, or from a GitOps tool — installs the same thing.
 7. **Restarts the operator and the control plane** so they run the images just loaded, even when nothing
    in their manifests changed.
 8. **Waits** for the control plane's database, the operator, the control plane's three instances, the
    gateway and its certificate, and Keycloak.
-9. **Imports the `ankka` realm** into Keycloak, and creates a development user `dev` with password `dev`
-   and the `platform-admin` role, and a client `ankka-local-smoke` for scripts on this machine.
+9. **Waits for the `ankka` realm to be imported** into Keycloak, then creates a development user `dev`
+   with password `dev` and the `platform-admin` role, and a client `ankka-local-smoke` for scripts on this
+   machine. The user and the client are the only things the script adds beyond the overlay, and they
+   exist only on a local cluster.
 10. **Exports the local certificate authority's root** to `~/.ankka/local-ca.crt`.
 11. **Checks the platform end to end**: it obtains a token from the identity provider and lists
     organizations through the gateway, which exercises DNS, TLS, both routes, token verification and the

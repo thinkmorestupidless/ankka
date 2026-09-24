@@ -13,8 +13,8 @@ import scala.jdk.CollectionConverters.*
  * The identity provider a suite needs to prove authentication end to end (feature 008): the
  * Keycloak operator from the same pinned manifests `kustomization/components/keycloak-operator`
  * references, then the platform's `keycloak` component with the base domain filled in, then the
- * realm imported the way `deploy-local.sh` imports it — rendered from the one `realm.json`. A
- * manifest this passes with is the manifest that ships.
+ * realm imported from the one `realm-import.json`, with the suite's namespace in place of the
+ * component's. A manifest this passes with is the manifest that ships.
  *
  * Shared by the control plane's suites through `test->test`, like `GatewayStack`.
  */
@@ -28,7 +28,20 @@ object KeycloakStack:
 
   /** The Keycloak resource's Service, created by the operator as `<name>-service`. */
   val ServiceName = "ankka-keycloak-service"
-  val Namespace   = "ankka-auth"
+
+  /**
+   * The realm itself, as JSON, out of the shipped `KeycloakRealmImport` — `.spec.realm` of
+   * `kustomization/components/keycloak/realm-import.json`, which is the one copy and is JSON for
+   * exactly this reason. What docker-compose does with jq, for a suite that starts Keycloak on its
+   * own or renders the import into a namespace of its choosing.
+   */
+  def realm(repoRoot: Path): String =
+    val file  = repoRoot.resolve("kustomization/components/keycloak/realm-import.json")
+    val tree  = new com.fasterxml.jackson.databind.ObjectMapper().readTree(file.toFile)
+    val realm = tree.path("spec").path("realm")
+    require(realm.isObject, s"$file carries no spec.realm")
+    realm.toPrettyString
+  val Namespace = "ankka-auth"
 
   /**
    * The operator's image, which the operator manifests name; the instance runs
@@ -124,7 +137,7 @@ object KeycloakStack:
       ) == "True"
     }
 
-    val realm = Files.readString(repoRoot.resolve("kustomization/components/keycloak/realm.json"))
+    val realm = KeycloakStack.realm(repoRoot)
     val realmImport =
       s"""apiVersion: k8s.keycloak.org/v2alpha1
          |kind: KeycloakRealmImport

@@ -4,7 +4,7 @@ description: How an ankka agent works — sharded by session, one request at a t
 kind: concept
 languages: [scala, python]
 components: [agent]
-related: [build/agents.md, build/streaming.md, build/multi-agent-orchestration.md, concepts/effects.md]
+related: [concepts/designing-agents.md, build/agents.md, build/streaming.md, build/multi-agent-orchestration.md, concepts/effects.md]
 ---
 
 # Agents and sessions

@@ -47,8 +47,8 @@ pages as Markdown in [`docs/`](docs/index.md):
 - **[Reference](docs/reference/cli.md)** — the CLI, the service descriptor, the control plane API,
   configuration, the SDKs, the sidecar protocol, and an honest list of [limitations](docs/reference/limitations.md).
 
-For coding agents: the documentation ships as an Agent Skill in every project made from the template and
-in the Claude Code plugin in [`plugins/ankka`](plugins/ankka), `ankka mcp` serves the platform's tools
+For coding agents: the documentation ships as Agent Skills in every project made from the template and
+in the Claude Code plugin published to [`ankka-marketplace`](https://github.com/thinkmorestupidless/ankka-marketplace), `ankka mcp` serves the platform's tools
 over MCP, and the site publishes `llms.txt` and `llms-full.txt`. See
 [Work with a coding agent](docs/get-started/coding-agents.md).
 
@@ -94,7 +94,7 @@ sdks/python       the Python SDK, its testkits, and the sample cart ported to it
 samples/          the shopping cart and the multi-agent planner
 ankka.g8          the service template
 docs              the documentation; tools/docs builds it
-plugins/ankka     the Claude Code plugin: the documentation as a skill, and `ankka mcp`
+marketplace       the Claude Code plugin: the documentation as skills, and `ankka mcp`; pushed to ankka-marketplace on release
 kustomization     the platform's manifests and the local deploy script
 ```
 

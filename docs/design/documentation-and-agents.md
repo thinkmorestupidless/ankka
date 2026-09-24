@@ -87,8 +87,10 @@ exactly as a command would, and the control plane authorizes the token as it alw
   through `search_docs` and `read_doc`. A model therefore reads the documentation matching the CLI it
   drives, offline.
 
-The Claude Code plugin in `plugins/ankka` registers `ankka mcp` beside the skill, so installing the
-plugin gives an agent both the knowledge and the hands.
+The Claude Code plugin in `marketplace/plugins/ankka` registers `ankka mcp` beside the skills, so installing
+the plugin gives an agent both the knowledge and the hands. The marketplace is a separate repository,
+`ankka-marketplace`, filled by the release workflow from `marketplace/` the way the template is, so a
+plugin version is the documentation of that platform version rather than whatever is on `main`.
 
 **Later: a remote endpoint on the control plane.** A hosted agent with no CLI needs the same tools over
 Streamable HTTP. That is the control plane serving `/mcp` behind `Acl.Authenticate`, and it waits on

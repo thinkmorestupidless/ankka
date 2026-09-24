@@ -145,6 +145,39 @@ jobs:
           git tag -f "${GITHUB_REF_NAME}" ankka-g8
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka.g8.git" "${GITHUB_REF_NAME}"
 
+  marketplace:
+    # The Claude Code marketplace as its own repository, so `/plugin marketplace add
+    # thinkmorestupidless/ankka-marketplace` installs the plugin whose skills hold the documentation of
+    # a released version rather than whatever is on main. Pushed from marketplace/ on every tag, the same
+    # way the template is: a subtree split of committed history, after the version has been written in.
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # See the template job: with credentials persisted, the push below authenticates as
+          # github-actions[bot] and is refused.
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          git config user.name "ankka release"
+          git config user.email "release@ankka.invalid"
+          # The plugin's version is the platform version whose documentation it carries. It is 0.0.0 in
+          # the tree and written here, by the same rule as the template's ankka_version: a tracked file
+          # rewritten by the build would dirty the tree and turn the release into a snapshot.
+          sed -i "s/\"version\": \"0.0.0\"/\"version\": \"$version\"/" \
+            marketplace/.claude-plugin/marketplace.json marketplace/plugins/ankka/.claude-plugin/plugin.json
+          grep -n "\"version\": \"$version\"" marketplace/.claude-plugin/marketplace.json marketplace/plugins/ankka/.claude-plugin/plugin.json
+          git add marketplace
+          git commit -m "ankka $version"
+          git subtree split --prefix marketplace -b ankka-marketplace
+          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka-marketplace.git" ankka-marketplace:main
+          git tag -f "${GITHUB_REF_NAME}" ankka-marketplace
+          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka-marketplace.git" "${GITHUB_REF_NAME}"
+
   docs:
     # The documentation site — pages, llms.txt, llms-full.txt, raw Markdown per page and
     # docs-index.json — for the release just tagged, to GitHub Pages. Needs Pages enabled on the

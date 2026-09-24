@@ -12,28 +12,46 @@ version you are using, and a way to act on the platform and on the services runn
 ankka ships both. The documentation comes as an Agent Skill, and the actions come as a Model Context
 Protocol (MCP) server built into the CLI, `ankka mcp`.
 
-## The skill
+## The skills
 
-An Agent Skill is a directory an agent loads when a task needs it: a `SKILL.md` saying what it is for,
-and reference files it opens on demand. ankka's skill holds a short set of rules that hold for every
-ankka service, and every page of this documentation as a reference file. The samples in those pages are
-copied from code the ankka build compiles and tests, so an agent that reads them writes current
-signatures and imports.
+An Agent Skill is a directory an agent loads when a task needs it: a `SKILL.md` saying what it is for and
+the rules to hold, and reference files it opens on demand. ankka's documentation is rendered into ten
+skills, one per kind of task, so an agent writing an entity loads the entity rules and not the deployment
+guide:
 
-**In a project made from the template**, the skill is already there. `ankka init` and
-`sbt new thinkmorestupidless/ankka.g8` create `.claude/skills/ankka/` in the new project, holding the
+| Skill | For |
+|---|---|
+| `ankka` | orientation: what ankka is, installing it, the first service, the SDK maps, limitations, differences from Akka |
+| `ankka-design` | decomposing a domain into components, where each rule lives, what may lag, service boundaries |
+| `ankka-entities` | event sourced and key value entities, serialization and evolution |
+| `ankka-views-consumers` | views, consumers and broker topics |
+| `ankka-workflows` | workflows, timers and timed actions |
+| `ankka-agents` | agents, tools, sessions, guardrails, models, streaming, multi-agent orchestration |
+| `ankka-endpoints` | HTTP endpoints, ACLs, errors, server-sent events |
+| `ankka-python` | a service in Python beside the sidecar |
+| `ankka-deploy` | the descriptor, the CLI, images, deploying, exposing, observing and troubleshooting |
+| `ankka-platform` | installing and administering the platform itself |
+
+Each skill's `SKILL.md` holds the rules an agent must hold for that task, and its `references/` directory
+holds the pages of this documentation the task needs. The samples in those pages are copied from code the
+ankka build compiles and tests, so an agent that reads them writes current signatures and imports.
+
+**In a project made from the template**, the skills are already there. `ankka init` and
+`sbt new thinkmorestupidless/ankka.g8` create `.claude/skills/` in the new project, holding the
 documentation of the ankka version the project was created with. Claude Code loads skills from that
 directory with no configuration. Other agents that read Agent Skills can be pointed at it.
 
-**In any other project**, install the Claude Code plugin from this repository's marketplace:
+**In any other project**, install the Claude Code plugin from the ankka marketplace:
 
 ```text
-/plugin marketplace add thinkmorestupidless/ankka
+/plugin marketplace add thinkmorestupidless/ankka-marketplace
 /plugin install ankka@ankka
 ```
 
-The plugin carries the same skill, and it registers `ankka mcp` as an MCP server, so the CLI must be on
-your `PATH` for the tools to start. [Install the tools](install.md) covers building the CLI.
+The plugin carries the same skills, and it registers `ankka mcp` as an MCP server, so the CLI must be on
+your `PATH` for the tools to start. [Install the tools](install.md) covers building the CLI. The
+marketplace is published from the ankka repository on every release, so the plugin's version is the
+platform version whose documentation it holds.
 
 ## The MCP server
 

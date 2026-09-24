@@ -80,6 +80,7 @@ nav:
       - Handlers and wire names: concepts/wire-names.md
       - Consistency and delivery: concepts/consistency.md
       - Agents and sessions: concepts/agents.md
+      - Designing with agents: concepts/designing-agents.md
       - Clusters and instances: concepts/clustering.md
       - Services in other languages: concepts/polyglot.md
       - Desired and observed state: concepts/control-plane.md

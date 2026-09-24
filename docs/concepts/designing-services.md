@@ -4,7 +4,7 @@ description: The concepts that shape an ankka system — consistency boundaries,
 kind: concept
 languages: [scala, python]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
-related: [concepts/components.md, concepts/consistency.md, concepts/effects.md, concepts/wire-names.md, build/serialization.md]
+related: [concepts/components.md, concepts/consistency.md, concepts/designing-agents.md, concepts/effects.md, concepts/wire-names.md, build/serialization.md]
 ---
 
 # Designing a service
@@ -77,6 +77,10 @@ A view is updated after the change it reflects, usually within a fraction of a s
   or a workflow's job.
 - **Shape each view for its query.** A view is cheap. Several views over the same events, each shaped for
   one screen or one API, are better than one general view queried in complicated ways.
+- **A view reads one source.** It cannot join two entities' changes into one row. A screen that needs both
+  reads two views, or the entity that owns the rule copies what it needs into its own events.
+- **A handful of known ids is not a view.** When the caller already holds the ids, fan the entity queries
+  out with `invokeAsync` and collect them; a view is for questions whose answer is *which* ids.
 
 [Consistency and delivery](consistency.md) states the guarantees precisely.
 
@@ -86,6 +90,10 @@ When something should happen because something else changed — send an email wh
 another component, tell another service — write a **consumer** over the source. The entity stays unaware
 of what reacts to it, which keeps its handlers free of side effects and lets reactions be added without
 touching it.
+
+A reaction that is itself several steps, or that must be undone if a later step fails, is a consumer that
+starts a workflow: the consumer's only job is then to start it under an id derived from the source, so a
+redelivered change addresses the workflow already running.
 
 Consumers are delivered each change **at least once**. After a crash, a change may be delivered again.
 Make every reaction safe to repeat: check state before acting, derive ids deterministically from the source
@@ -141,7 +149,9 @@ what it may see and do:
 - **Put multi-agent coordination in a workflow** when it takes minutes or costs money. A workflow journals
   each agent's answer, so a crash does not pay for the same model calls twice.
 
-[Agents and sessions](agents.md) explains the model in full.
+[Agents and sessions](agents.md) explains the model in full, and [Designing with agents](designing-agents.md)
+covers when an agent is the right component, how to design its tools and sessions, and how to plan for
+its failures and cost.
 
 ## The edge is an endpoint with an ACL
 

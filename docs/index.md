@@ -79,8 +79,8 @@ running. [Effects are data](concepts/effects.md) explains the idea in full.
 
 This documentation is published in forms a model can read directly. `llms.txt` at the site root lists
 every page with a one-sentence description, `llms-full.txt` holds every page in one file, and each
-page is also served as Markdown at its own path with a `.md` suffix. The same pages ship as an agent
-skill: in the Claude Code plugin this repository publishes, and inside every project created from the
-service template. `ankka mcp` serves the platform to an agent as MCP tools: the CLI's service commands,
+page is also served as Markdown at its own path with a `.md` suffix. The same pages ship as agent
+skills, one per kind of task: in the Claude Code plugin published to the ankka marketplace, and inside
+every project created from the service template. `ankka mcp` serves the platform to an agent as MCP tools: the CLI's service commands,
 the services running on your machine, and this documentation.
 [Work with a coding agent](get-started/coding-agents.md) sets both up.

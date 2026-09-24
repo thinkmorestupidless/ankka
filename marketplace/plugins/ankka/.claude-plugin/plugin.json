@@ -1,0 +1,21 @@
+{
+  "name": "ankka",
+  "version": "0.0.0",
+  "description": "The ankka documentation as skills — design, entities, views and consumers, workflows, agents, endpoints, Python, deploying, the platform — and the ankka mcp server.",
+  "author": {
+    "name": "thinkmorestupidless",
+    "url": "https://github.com/thinkmorestupidless/ankka"
+  },
+  "homepage": "https://docs.ankka.cloud/",
+  "repository": "https://github.com/thinkmorestupidless/ankka-marketplace",
+  "license": "Apache-2.0",
+  "keywords": [
+    "ankka",
+    "akka",
+    "pekko",
+    "scala",
+    "python",
+    "agents",
+    "event-sourcing"
+  ]
+}

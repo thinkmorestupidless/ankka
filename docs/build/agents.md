@@ -4,7 +4,7 @@ description: Write an agent in Scala or Python — instructions, tools, guardrai
 kind: guide
 languages: [scala, python]
 components: [agent]
-related: [concepts/agents.md, build/streaming.md, build/multi-agent-orchestration.md, build/testing.md]
+related: [concepts/agents.md, concepts/designing-agents.md, build/streaming.md, build/multi-agent-orchestration.md, build/testing.md]
 ---
 
 # Agents

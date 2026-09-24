@@ -1,0 +1,18 @@
+{
+  "name": "ankka",
+  "owner": {
+    "name": "thinkmorestupidless",
+    "url": "https://github.com/thinkmorestupidless/ankka-marketplace"
+  },
+  "metadata": {
+    "description": "Plugins for building, deploying and operating services on ankka."
+  },
+  "plugins": [
+    {
+      "name": "ankka",
+      "source": "./plugins/ankka",
+      "description": "The ankka documentation as skills — design, entities, views and consumers, workflows, agents, endpoints, Python, deploying, the platform — and the ankka mcp server.",
+      "version": "0.0.0"
+    }
+  ]
+}

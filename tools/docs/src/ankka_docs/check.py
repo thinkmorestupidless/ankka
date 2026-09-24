@@ -192,9 +192,10 @@ LINKS_TO_SITE = [
     "README.md",
     "sdks/python/README.md",
     "sdks/python/pyproject.toml",
-    "plugins/ankka/.claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    "tools/docs/skill/SKILL.md",
+    "marketplace/plugins/ankka/.claude-plugin/plugin.json",
+    "marketplace/.claude-plugin/marketplace.json",
+    "marketplace/README.md",
+    *[f"tools/docs/skill/{d.name}/SKILL.md" for d in sorted((ROOT / "tools/docs/skill").iterdir()) if d.is_dir()],
 ]
 
 

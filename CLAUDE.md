@@ -886,8 +886,9 @@ factory shapes would break lambda parameter inference at every call site.
 
 One tree, `docs/`, of plain Markdown with YAML frontmatter; every way of reading it is a rendering
 built by `tools/docs` (a `uv` project): the MkDocs Material site, `llms.txt`, `llms-full.txt`, a raw
-Markdown copy of each page, `docs-index.json`, the Agent Skill (committed into `plugins/ankka/skills/`
-and into the template at `ankka.g8/src/main/g8/.claude/skills/`), and the pages on the CLI's classpath
+Markdown copy of each page, `docs-index.json`, the Agent Skills (one per kind of task, curated in
+`tools/docs/skill/<name>/SKILL.md` whose `pages:` list names the pages it carries; committed into
+`marketplace/plugins/ankka/skills/` and into the template at `ankka.g8/src/main/g8/.claude/skills/`), and the pages on the CLI's classpath
 that `ankka mcp` serves. `docs/contributing/documentation.md` is the full set of rules; the ones that
 bite:
 
@@ -907,7 +908,10 @@ bite:
   `controlplane-api` decodes and validates each with the platform's own rules.
 - **Giter8 reads `$` as template syntax**, so the skill's copy in the template is written with every
   `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
-- **A new page goes in `mkdocs.yml`'s `nav`**, or `docs check` fails. A new CLI command or control
+- **A new page goes in `mkdocs.yml`'s `nav` and in at least one skill's `pages:` list**, or `docs check`
+  fails. `marketplace/` is the Claude Code marketplace, pushed whole to `thinkmorestupidless/ankka-marketplace`
+  by the release workflow's `marketplace` job (a `git subtree split`, exactly as `ankka.g8/` is pushed);
+  the plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control
   plane route fails the JVM suites until `just docs-reference` has run and the route has a
   hand-written section.
 

@@ -14,5 +14,11 @@ The same pages are in this repository under
 [`docs/`](https://github.com/thinkmorestupidless/ankka/tree/main/docs).
 
 ```bash
-uv sync && uv run pytest -q && uv run mypy && uv run conformance
+uv add "ankka==<the version of the platform you deploy to>"   # from PyPI, published with every release
+```
+
+Developing the SDK itself, from this directory:
+
+```bash
+uv sync && uv run python scripts/proto.py && uv run pytest -q && uv run mypy && uv run conformance
 ```

@@ -7,8 +7,9 @@ ankka is used through three things: libraries your service depends on, the `ankk
 and a platform to deploy to. This page installs the first two. The third has its own page,
 [Install a local platform](../platform/install-local.md), and you need it only once you want to deploy.
 
-The CLI is installed with Homebrew, or unpacked from a release. Some of ankka is not yet packaged: the
-Python SDK is installed from the repository rather than from PyPI, and this page says where that applies.
+The CLI is installed with Homebrew, or unpacked from a release; the Python SDK comes from PyPI. One
+piece is not yet packaged: the sidecar image that hosts a Python service is built from the repository,
+and this page says where that applies.
 
 ## Prerequisites
 
@@ -89,24 +90,22 @@ Run it again whenever you pull a newer version of the repository and want your p
 
 ## Install the Python SDK
 
-The Python SDK lives in the repository under `sdks/python` and is not on PyPI. Its protocol stubs are
-generated from the repository's protocol definitions, so generate them once before installing:
+The Python SDK is the package [`ankka`](https://pypi.org/project/ankka/) on PyPI, published at every
+release with the platform's version. Add it to your own project, pinned to the version of the platform
+you deploy to:
 
 ```bash
-cd sdks/python
-uv sync                                              # the SDK and its development tools
-uv run python scripts/proto.py                       # generate src/ankka/_proto from protocol/
-cd ../..
+uv add "ankka==0.3.1"
 ```
 
-Then add it to your own project as an editable path dependency:
-
-```bash
-uv add --editable /path/to/ankka/sdks/python
-```
+The `testkit` extra (`uv add "ankka[testkit]==0.3.1"`) brings the dependencies of the integration
+testkit, which starts Postgres and the sidecar in containers. To use an SDK that is not released yet,
+install it from a checkout of the repository instead: generate its protocol stubs with `uv run python
+scripts/proto.py` in `sdks/python`, then `uv add --editable /path/to/ankka/sdks/python`.
 
 A Python service also needs the ankka sidecar image, which runs beside your process and hosts
-everything stateful. Build it into your local Docker daemon from the repository:
+everything stateful. It is not on a public registry yet, so build it into your local Docker daemon from
+the repository:
 
 ```bash
 sbt sidecar/docker:publishLocal                      # ankka-sidecar:latest

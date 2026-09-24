@@ -48,7 +48,11 @@ object Attribution:
   def from(actor: Option[Actor], at: Option[Instant]): Option[Attribution] =
     for a <- actor; t <- at yield Attribution(a, t)
 
-  /** The platform acting for itself — the sweep converging a disabled organization, say. */
+  /**
+   * The platform acting for itself — the sweep converging a disabled organization whose listing row
+   * predates the disabling administrator being recorded on it, say. Where the row names them, the
+   * sweep attributes to them instead, so the history reads the same whichever path suspended it.
+   */
   val platform: Actor =
     Actor("ankka-controlplane", Some("the control plane"), administrative = true)
 

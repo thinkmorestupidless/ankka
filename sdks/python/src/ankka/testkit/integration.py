@@ -47,6 +47,24 @@ def _copy_ddl(image: str, into: Path) -> None:
         subprocess.call(["docker", "rm", "-f", container_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _start_or_explain(container: DockerContainer, what: str) -> None:
+    """Start a container, and if it does not come up, fail with its own logs.
+
+    A readiness wait that times out reports only the last probe's failure: a container that exited
+    during its own startup reads as "not running", and why is in a log nothing prints. The reason
+    belongs in the error.
+    """
+    try:
+        container.start()
+    except Exception as failure:
+        try:
+            out, err = container.get_logs()
+            logs = (out + err).decode(errors="replace").strip()
+        except Exception:  # noqa: BLE001 - the container may be gone; the original error still stands
+            logs = "(no logs could be read)"
+        raise RuntimeError(f"{what} did not start: {failure}\n--- container logs ---\n{logs}") from failure
+
+
 class AnkkaTestKit:
     def __init__(self, service: ServiceBuilder, image: str, env: dict[str, str] | None = None) -> None:
         self.service = service
@@ -67,7 +85,15 @@ class AnkkaTestKit:
     ) -> AnkkaTestKit:
         """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model."""
         kit = cls(service, image or _sidecar_image(), env)
-        await kit._start(ready_timeout)
+        try:
+            await kit._start(ready_timeout)
+        except BaseException:
+            # A start that fails half-way has already begun this process's gRPC server and started
+            # containers; nothing else will stop them, since the caller never gets a kit to exit.
+            # Left running, the server keeps the interpreter alive after pytest has finished and
+            # the containers stay up until it dies.
+            await kit.stop()
+            raise
         return kit
 
     async def __aenter__(self) -> AnkkaTestKit:
@@ -80,6 +106,13 @@ class AnkkaTestKit:
 
     async def _start(self, ready_timeout: float) -> None:
         self._ddl_dir = Path(tempfile.mkdtemp(prefix="ankka-ddl-"))
+        # mkdtemp creates the directory with mode 0700, and the container reads it as its own
+        # `postgres` user (uid 70), not as the user who created it. On Linux a bind mount keeps the
+        # host's permissions, so the entrypoint's `ls /docker-entrypoint-initdb.d/` (which it runs
+        # under `set -e` before initdb, as a permissions check) fails and the container exits before
+        # it ever listens. Docker Desktop on macOS maps ownership through its file sharing, which is
+        # why this passes on a laptop and failed on every CI run.
+        self._ddl_dir.chmod(0o755)
         _copy_ddl(self.image, self._ddl_dir)
         self._network = Network()
         self._network.create()
@@ -89,7 +122,7 @@ class AnkkaTestKit:
             .with_network_aliases("postgres")
             .with_volume_mapping(str(self._ddl_dir), "/docker-entrypoint-initdb.d", "ro")
         )
-        self._postgres.start()
+        _start_or_explain(self._postgres, "postgres")
         # This process's server, on all interfaces: the sidecar is in a container and dials in.
         self._server = Server(self.service.validate(), client=self.client)
         self.process_port = await self._server.start("0.0.0.0", 0)
@@ -113,7 +146,7 @@ class AnkkaTestKit:
         )
         for key, value in self.env.items():
             sidecar = sidecar.with_env(key, value)
-        sidecar.start()
+        _start_or_explain(sidecar, "the sidecar")
         self._sidecar = sidecar
         http_port = int(sidecar.get_exposed_port(HTTP_PORT))
         callback_port = int(sidecar.get_exposed_port(CALLBACK_PORT))
@@ -134,7 +167,14 @@ class AnkkaTestKit:
                 last = str(e)
             await asyncio.sleep(0.5)
         logs = self._sidecar.get_logs() if self._sidecar is not None else (b"", b"")
-        raise TimeoutError(f"the sidecar was not ready within {timeout}s ({last}); its log:\n" + logs[0].decode(errors="replace")[-4000:])
+        # A non-200 *answer* here is almost never the sidecar's: its health route answers 200 from
+        # the moment HTTP is bound. On a laptop it is another process that already held the host
+        # port Docker mapped the container to, bound on 127.0.0.1 and so answering before Docker's
+        # own listener does.
+        raise TimeoutError(
+            f"the sidecar was not ready within {timeout}s ({last} from {self.http.base_url}); its log:\n"
+            + logs[0].decode(errors="replace")[-4000:]
+        )
 
     async def restart(self, ready_timeout: float = 90.0) -> None:
         """Replaces the sidecar container against the same database: every instance is gone from

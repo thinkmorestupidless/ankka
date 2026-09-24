@@ -10,12 +10,18 @@ and your classes decide what each command does. This page lists what each compon
 
 ## Installing
 
-The SDK is not yet published to PyPI. Install it from a checkout of the ankka repository, by path:
+The SDK is on PyPI as [`ankka`](https://pypi.org/project/ankka/). Every ankka release publishes the SDK
+at the same version, so pin the version of the platform you deploy to:
 
 ```bash
-uv add /path/to/ankka/sdks/python                  # the SDK
-uv add --extra testkit /path/to/ankka/sdks/python  # with the integration testkit's dependencies
+uv add "ankka==0.3.1"                   # the SDK
+uv add "ankka[testkit]==0.3.1"          # with the integration testkit's dependencies
 ```
+
+`pip install ankka==0.3.1` does the same for a project that does not use uv. To work against an unreleased
+SDK, install it from a checkout of the ankka repository instead, by path (`uv add --editable
+/path/to/ankka/sdks/python`), after generating its protocol stubs as described under
+[Developing the SDK](#developing-the-sdk).
 
 It depends on `grpcio` and `protobuf`. The `testkit` extra adds `testcontainers` and `httpx`, which the
 integration testkit needs to start Postgres and the sidecar image. Docker is needed for integration tests

@@ -877,6 +877,14 @@ factory shapes would break lambda parameter inference at every call site.
   wire as their text under manifests `string`, `int`, `long`; only records and sum types are JSON.
   An endpoint returning `str` answers `text/plain`, so a test that calls `.json()` on it fails with
   "Expecting value", and a `str` body is posted raw, not as a JSON string.
+- **A directory from `mkdtemp` is mode 0700, and a container reads a bind mount as its own user.**
+  The Python testkit mounts the DDL it copied out of the sidecar image into Postgres's
+  `docker-entrypoint-initdb.d`, and the image's entrypoint runs `ls` on that directory as `postgres`
+  (uid 70) under `set -e` before initdb — so on Linux the container exited before it listened, the
+  readiness wait reported only "container is not running", and every CI run of the SDK failed while
+  every laptop run passed: Docker Desktop on macOS maps ownership through its file sharing and hides
+  the permission. The directory is `chmod 0o755` before it is mounted, and a container that fails to
+  start now raises with its own logs attached.
 - **`host.docker.internal` needs `--add-host=host.docker.internal:host-gateway` on Linux.** Docker
   Desktop provides it; the Python integration testkit and compose set it unconditionally.
 - **ghcr.io denies anonymous pulls on some networks.** The Python sample's Dockerfile installs with
@@ -991,6 +999,19 @@ formula and subtree-pushes `homebrew/` to the tap, exactly as the template and t
 someone's `PATH` cannot break it; `brew audit --strict` passes, and the proof of the whole thing is a
 throwaway local tap (`brew tap-new`) pointed at a locally built zip by `file://` URL. The release
 asset is also the install route for a machine without Homebrew.
+
+**The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
+job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the
+formula and the plugin, and read by hatchling as the package version (`dynamic = ["version"]`) so there
+is one placeholder for the job's `sed` to rewrite and one value the SDK reports to the sidecar in
+discovery. The job generates the stubs from the tag's `protocol/`, builds with `uv build`, imports the
+wheel from an isolated interpreter (`uv run --isolated --no-project --with dist/*.whl`) and uploads with
+`pypa/gh-action-pypi-publish` under **trusted publishing** — no token, the same OIDC shape as the images
+job. The one action outside the repository is registering the publisher on PyPI (project `ankka`,
+workflow `release.yml`, environment `pypi`). The `ci` workflow builds and smoke-imports the wheel on every
+commit, because the stubs under `src/ankka/_proto/` are gitignored and hatchling honours a project's
+`.gitignore`: the wheel carries them only because `[tool.hatch.build] artifacts` names them. A version
+on PyPI can never be re-uploaded, only superseded, same as Central.
 
 **Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,

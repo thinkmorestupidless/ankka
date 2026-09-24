@@ -1,14 +1,35 @@
 [project]
 name = "ankka"
-version = "0.0.0"
+# The version is `__version__` in src/ankka/__init__.py, which is 0.0.0 in the tree and written by the
+# release workflow from the tag — the same rule as the template's ankka_version, the plugin's version
+# and the Homebrew formula: no tracked file is ever rewritten by a build. One placeholder, so the
+# version the SDK reports to the sidecar in discovery is the version on PyPI.
+dynamic = ["version"]
 description = "The ankka SDK for Python: components in Python, hosted by the ankka sidecar"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
+authors = [{ name = "Trevor Burton-McCreadie" }]
+keywords = ["ankka", "pekko", "event-sourcing", "agents", "workflows", "serverless"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+  "Typing :: Typed",
+]
 dependencies = [
   "grpcio>=1.84,<2",
   "protobuf>=6,<8",
 ]
+
+[project.urls]
+Homepage = "https://docs.ankka.cloud/"
+Documentation = "https://docs.ankka.cloud/reference/python-sdk/"
+Repository = "https://github.com/thinkmorestupidless/ankka"
+Changelog = "https://github.com/thinkmorestupidless/ankka/releases"
 
 [project.optional-dependencies]
 testkit = ["testcontainers>=4.15,<5", "httpx>=0.27"]
@@ -27,6 +48,17 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/ankka/__init__.py"
+
+[tool.hatch.build]
+# The generated gRPC stubs are ignored by git (scripts/proto.py regenerates them) and hatchling
+# excludes what the project's own .gitignore ignores. Today the ignore rule lives in the repository
+# root's .gitignore, which hatchling does not read, so the stubs happen to be included; naming them
+# here makes the wheel carry them whether or not that ever changes. A wheel without them imports
+# `ankka` and fails on `ankka.service`, which the release workflow's smoke test would catch.
+artifacts = ["src/ankka/_proto/**"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ankka"]

@@ -60,10 +60,19 @@ jobs:
       # the copy and `protocol/` is a bug in whichever side forgot to run `scripts/proto.py`.
       - run: diff -r protocol/src/main/protobuf sdks/python/proto/src/main/protobuf
       - run: diff -r protocol/fixtures sdks/python/proto/fixtures
-      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off sidecar/docker:publishLocal
+      # `tests/test_journal_portable.py` runs the Scala cart on the journal the Python cart wrote,
+      # and the reverse, so it needs the sample's image as well as the sidecar's.
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off sidecar/docker:publishLocal shoppingCart/docker:publishLocal
       - run: uv sync
         working-directory: sdks/python
       - run: uv run python scripts/proto.py
+        working-directory: sdks/python
+      # The package as PyPI would receive it: built, then imported from an isolated interpreter with
+      # nothing but the wheel and its declared dependencies, so a stub the wheel does not carry or an
+      # undeclared dependency fails on the commit that introduced it, not on the tag that ships it.
+      - run: |
+          uv build
+          uv run --isolated --no-project --with dist/ankka-0.0.0-py3-none-any.whl python -c "import ankka, ankka.service, ankka.testkit; print(ankka.__file__)"
         working-directory: sdks/python
       - run: uv run mypy
         working-directory: sdks/python

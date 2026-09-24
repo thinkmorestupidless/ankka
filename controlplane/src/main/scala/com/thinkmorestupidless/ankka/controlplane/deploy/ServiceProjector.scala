@@ -8,7 +8,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.Attribution
 import com.thinkmorestupidless.ankka.controlplane.domain.ServiceKey
-import com.thinkmorestupidless.ankka.core.EntityId
+import com.thinkmorestupidless.ankka.core.{EntityId, Metadata}
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 import com.thinkmorestupidless.ankka.runtime.{
   AnkkaService as RunningService,
@@ -227,6 +227,11 @@ private[deploy] final class Projection(
    * disabled is suspended, and any suspended one whose organization is enabled is reinstated —
    * whatever the trigger managed to see at the time. Runs before the projection sweep so the
    * resources rendered below already reflect it.
+   *
+   * Attributed to the administrator who disabled or enabled the organization, as the trigger's
+   * events are: whether the trigger or this sweep reaches a service first is a race (a lagging
+   * listing view decides it), and a service's history must read the same either way. The platform
+   * is the actor only for an organization row that predates the attribution being recorded.
    */
   private def reconcileSuspensions(): Unit =
     try
@@ -234,17 +239,24 @@ private[deploy] final class Projection(
         viewClient.forView(OrganizationRows).ordered(SqlFragment.empty, order = jsonText("name"))
       val disabled = organizations.filter(_.disabled).map(_.id).toSet
       val enabled  = organizations.filterNot(_.disabled).map(_.id).toSet
+      val attribution: Map[String, Metadata] =
+        organizations.map { o =>
+          o.id -> Attribution
+            .from(o.disabledBy, o.disabledAt)
+            .getOrElse(Attribution(Attribution.platform, java.time.Instant.now()))
+            .metadata
+        }.toMap
       val projectToOrganization =
         viewClient
           .forView(ProjectRows)
           .ordered(SqlFragment.empty, order = jsonText("name"))
           .map(p => p.id -> p.organizationId)
           .toMap
-      val stamp = Attribution(Attribution.platform, java.time.Instant.now()).metadata
       viewClient.forView(ServiceRows).ordered(SqlFragment.empty, order = jsonText("name")).foreach {
         row =>
           projectToOrganization.get(row.projectId).foreach { organizationId =>
-            val key = ServiceKey(row.projectId, row.name)
+            val key   = ServiceKey(row.projectId, row.name)
+            val stamp = attribution(organizationId)
             if disabled.contains(organizationId) && !row.suspended then
               val _ = entity(key).call(ServiceEntity.suspend).withMetadata(stamp).invoke()
             else if enabled.contains(organizationId) && row.suspended then

@@ -114,9 +114,12 @@ class SuspensionSuite extends munit.FunSuite:
     eventually("the late service is suspended by the sweep", 45.seconds) {
       status("late").suspended
     }
+    // The sweep did it, and it still reads as carol: the trigger and the sweep race for every
+    // service (test 1 saw the sweep win on a slow machine), so the attribution is the organization's
+    // disabling administrator whichever path got there.
     assertEquals(
       service("late").call(ServiceEntity.history).invoke().head.actor.map(_.subject),
-      Some("ankka-controlplane")
+      Some("carol")
     )
   }
 

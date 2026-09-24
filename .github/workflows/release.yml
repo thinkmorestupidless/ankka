@@ -243,6 +243,68 @@ jobs:
           git tag -f "${GITHUB_REF_NAME}" homebrew-tap
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git" "${GITHUB_REF_NAME}"
 
+  sdk-python:
+    # The Python SDK to PyPI, as the package `ankka`: https://pypi.org/project/ankka/. The version is
+    # `__version__` in sdks/python/src/ankka/__init__.py — 0.0.0 in the tree, written here from the
+    # tag by the same rule as the template, the plugin and the formula, and read by hatchling as the
+    # package version — so the version the SDK reports to the sidecar in discovery is the one on PyPI.
+    # The gRPC stubs are generated from this commit's `protocol/`, so the wheel speaks the protocol
+    # of the release it is named after, which is what the ci workflow's sdk-python job tests.
+    #
+    # No token anywhere: PyPI trusts this workflow directly (trusted publishing, OIDC), the same
+    # shape as the images job. It needs one thing outside this repository, once: on
+    # https://pypi.org/manage/account/publishing/ a publisher for project `ankka`, owner
+    # `thinkmorestupidless`, repository `ankka`, workflow `release.yml`, environment `pypi` — a
+    # "pending" publisher until the first upload creates the project. The `pypi` environment on the
+    # repository is where a required reviewer would go, if a release ever wants a Publish button.
+    #
+    # It waits for the publish job for the reason the docs job does: a release that never reached
+    # Maven Central should not exist on PyPI either. A version can never be re-uploaded to PyPI, only
+    # superseded, so a failed smoke test below is the last point at which a release can be withdrawn.
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ankka/
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token PyPI verifies
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Write the version, generate the stubs, build the wheel
+        working-directory: sdks/python
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sed -i "s/^__version__ = \"0.0.0\"/__version__ = \"$version\"/" src/ankka/__init__.py
+          grep -n "^__version__ = \"$version\"" src/ankka/__init__.py
+          uv sync
+          uv run python scripts/proto.py
+          uv build
+          ls -l dist
+          test -f "dist/ankka-$version-py3-none-any.whl" || { echo "::error::the wheel is not versioned as the tag"; exit 1; }
+      - name: The wheel installs on its own and is the release it claims to be
+        working-directory: sdks/python
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # An isolated interpreter with only the wheel and its declared dependencies: no checkout on
+          # the path, so a stub the wheel does not carry or a dependency pyproject does not declare
+          # fails here rather than on a user's first `uv add ankka`.
+          uv run --isolated --no-project --with "dist/ankka-$version-py3-none-any.whl" python - "$version" <<'PY'
+          import sys
+          import ankka, ankka.service, ankka.testkit
+          assert ankka.__version__ == sys.argv[1], (ankka.__version__, sys.argv[1])
+          print("ankka", ankka.__version__, "from", ankka.__file__)
+          PY
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/python/dist
+
   docs:
     # The documentation site — pages, llms.txt, llms-full.txt, raw Markdown per page and
     # docs-index.json — for the release just tagged, to GitHub Pages. Needs Pages enabled on the

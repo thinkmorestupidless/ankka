@@ -1,10 +1,12 @@
 package com.thinkmorestupidless.ankka.controlplane.application
 
 import com.thinkmorestupidless.ankka.controlplane.api.{OrganizationDetail, Role}
-import com.thinkmorestupidless.ankka.controlplane.domain.OrganizationEvent
+import com.thinkmorestupidless.ankka.controlplane.domain.{Actor, OrganizationEvent}
 import com.thinkmorestupidless.ankka.controlplane.domain.OrganizationEvent.*
 import com.thinkmorestupidless.ankka.core.{Codecs, ComponentId}
 import com.thinkmorestupidless.ankka.sdk.*
+
+import java.time.Instant
 
 /**
  * One row per organization, for listings — and, since feature 008, for *scoping* them: the row
@@ -15,6 +17,12 @@ import com.thinkmorestupidless.ankka.sdk.*
  * A view lags; that is fine for a listing and never for enforcement, which reads the entity
  * (FR-021). The row holds subject ids only, never a role's worth of trust: whether the caller *may*
  * do something is always the entity's answer.
+ *
+ * `disabledBy` and `disabledAt` are the actor and time of the most recent disable or enable. The
+ * projector's sweep reads them so that a suspension it performs is attributed to the administrator
+ * who disabled the organization, exactly as the trigger attributes one — which path got there first
+ * is a race, and the history must not depend on it. A row written before these fields existed
+ * decodes with `None`, and the sweep then attributes to the platform.
  */
 final case class OrganizationRow(
     id: String,
@@ -22,7 +30,9 @@ final case class OrganizationRow(
     disabled: Boolean = false,
     members: Vector[String] = Vector.empty,
     owners: Vector[String] = Vector.empty,
-    invitations: Vector[String] = Vector.empty
+    invitations: Vector[String] = Vector.empty,
+    disabledBy: Option[Actor] = None,
+    disabledAt: Option[Instant] = None
 ):
   def detail: OrganizationDetail = OrganizationDetail(id, name, disabled)
   def roleOf(subject: String): Option[Role] =
@@ -75,8 +85,10 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
         )
       )
     case MemberRoleChanged(subject, role, _, _) => effects.updateRow(withMember(subject, role))
-    case _: OrganizationDisabled                => effects.updateRow(row.copy(disabled = true))
-    case _: OrganizationEnabled                 => effects.updateRow(row.copy(disabled = false))
+    case OrganizationDisabled(actor, at) =>
+      effects.updateRow(row.copy(disabled = true, disabledBy = actor, disabledAt = at))
+    case OrganizationEnabled(actor, at) =>
+      effects.updateRow(row.copy(disabled = false, disabledBy = actor, disabledAt = at))
 
 object OrganizationRows
     extends View.Companion[OrganizationRowsView, OrganizationEvent, OrganizationRow](

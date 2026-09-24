@@ -100,10 +100,10 @@ release with the platform's version. Add it to your own project, pinned to the v
 you deploy to:
 
 ```bash
-uv add "ankka==0.3.1"
+uv add "ankka==0.4.0"
 ```
 
-The `testkit` extra (`uv add "ankka[testkit]==0.3.1"`) brings the dependencies of the integration
+The `testkit` extra (`uv add "ankka[testkit]==0.4.0"`) brings the dependencies of the integration
 testkit, which starts Postgres and the sidecar in containers. To use an SDK that is not released yet,
 install it from a checkout of the repository instead: generate its protocol stubs with `uv run python
 scripts/proto.py` in `sdks/python`, then `uv add --editable /path/to/ankka/sdks/python`.

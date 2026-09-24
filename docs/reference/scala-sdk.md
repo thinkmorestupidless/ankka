@@ -24,7 +24,7 @@ JDK 21. This page lists what each component kind is made of. The guides under Bu
 | `ankka-testkit` | `com.thinkmorestupidless.ankka.testkit` | Unit testkits, `AnkkaTestKit`, `TestTransport`. `TestModelProvider` is in `ankka-agent`. |
 
 ```scala
-val ankkaVersion = "0.2.0"
+val ankkaVersion = "0.4.0"
 
 libraryDependencies ++= Seq(
   "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,

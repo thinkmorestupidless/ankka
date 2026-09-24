@@ -20,11 +20,11 @@ The SDK is on PyPI as [`ankka`](https://pypi.org/project/ankka/). Every ankka re
 at the same version, so pin the version of the platform you deploy to:
 
 ```bash
-uv add "ankka==0.3.1"                   # the SDK
-uv add "ankka[testkit]==0.3.1"          # with the integration testkit's dependencies
+uv add "ankka==0.4.0"                   # the SDK
+uv add "ankka[testkit]==0.4.0"          # with the integration testkit's dependencies
 ```
 
-`pip install ankka==0.3.1` does the same for a project that does not use uv. To work against an unreleased
+`pip install ankka==0.4.0` does the same for a project that does not use uv. To work against an unreleased
 SDK, install it from a checkout of the ankka repository instead, by path (`uv add --editable
 /path/to/ankka/sdks/python`), after generating its protocol stubs as described under
 [Developing the SDK](#developing-the-sdk).

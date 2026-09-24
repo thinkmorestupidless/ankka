@@ -93,6 +93,39 @@ services:
           echo "created user dev (password dev, platform-admin)"
         fi
 
+  # The sidecar for a service written in another language (feature 009), under a profile so
+  # `docker compose up` alone is unchanged:
+  #
+  #   docker compose --profile polyglot up -d
+  #   uv run --directory sdks/python python -m examples.shopping_cart.main   # or any process on 9010
+  #   curl localhost:9000/carts/c1
+  #
+  # It dials the developer's process on the host at 9010 through host.docker.internal (the
+  # extra_hosts line is what Linux needs; Docker Desktop provides the name anyway). The callback
+  # port is published on the host's loopback only, which is the same guarantee the sidecar gives
+  # in a pod by binding loopback itself.
+  sidecar:
+    profiles: ["polyglot"]
+    image: ankka-sidecar:latest
+    container_name: ankka-sidecar
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ANKKA_PROCESS_ADDRESS: host.docker.internal:9010
+      ANKKA_SIDECAR_BIND: 0.0.0.0
+      ANKKA_HTTP_PORT: "9000"
+      ANKKA_DB_HOST: postgres
+      ANKKA_DB_PORT: "5432"
+      ANKKA_DB_NAME: ankka
+      ANKKA_DB_USER: ankka
+      ANKKA_DB_PASSWORD: ankka
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9000:9000"
+      - "127.0.0.1:9011:9011"
+
 volumes:
   ankka-pgdata:
   # The realm as keycloak-realm rendered it; rewritten on every `up`, kept nowhere else.

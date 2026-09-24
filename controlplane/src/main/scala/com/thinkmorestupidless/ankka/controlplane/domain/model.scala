@@ -432,7 +432,9 @@ final case class Service(
       database = database.map(Service.databasePhrase),
       exposed = exposed,
       suspended = suspended,
-      paused = paused
+      paused = paused,
+      hosting = descriptor.map(_.service.hosting).getOrElse("embedded"),
+      protocol = descriptor.flatMap(_.service.protocol)
     )
 
 object Service:

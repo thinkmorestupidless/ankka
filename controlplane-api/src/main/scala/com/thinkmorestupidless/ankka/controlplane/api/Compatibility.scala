@@ -28,7 +28,32 @@ object Version:
  * Checked when the control plane projects a service (`ServiceProjection`), so an unsupported
  * declaration never reaches the operator and no pod starts.
  */
+/** `MAJOR.MINOR`: the sidecar protocol's version (feature 009). */
+final case class ProtocolVersion(major: Int, minor: Int):
+  override def toString: String = s"$major.$minor"
+
+object ProtocolVersion:
+  private val Shape = """^(\d+)\.(\d+)$""".r
+
+  def parse(text: String): Either[String, ProtocolVersion] = text match
+    case Shape(major, minor) => Right(ProtocolVersion(major.toInt, minor.toInt))
+    case other               => Left(s"version '$other' is not MAJOR.MINOR")
+
+/**
+ * The sidecar protocol this platform speaks. Written once here and once in `protocol/README.md`;
+ * the sidecar's `Discovery.ProtocolVersion` is the same string.
+ */
+object Protocol:
+  val version: ProtocolVersion = ProtocolVersion(1, 0)
+
 object Compatibility:
+
+  /** Same major, and the SDK's minor no later than the platform's: a minor only ever adds. */
+  def supportsProtocol(platform: ProtocolVersion, declared: ProtocolVersion): Boolean =
+    declared.major == platform.major && declared.minor <= platform.minor
+
+  def describeProtocol(platform: ProtocolVersion): String =
+    s"protocols ${platform.major}.0–${platform.major}.${platform.minor} (platform $platform)"
 
   def supports(platform: Version, runtime: Version): Boolean =
     runtime.major == platform.major &&

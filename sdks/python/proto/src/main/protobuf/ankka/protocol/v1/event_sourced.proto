@@ -1,0 +1,38 @@
+// One bidirectional stream per loaded event sourced entity instance. The sidecar sends Init, the
+// events after the snapshot, then commands one at a time; the process answers each command.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service EventSourced { rpc Handle (stream EventSourcedIn) returns (stream EventSourcedOut); }
+
+message EventSourcedIn {
+  oneof message { Init init = 1; Event event = 2; Command command = 3; }
+  message Init {
+    string component_id = 1;
+    string entity_id = 2;
+    optional Snapshot snapshot = 3;             // absent: fresh, or deleted, or expired
+  }
+  message Snapshot { int64 sequence = 1; Payload payload = 2; }
+  message Event    { int64 sequence = 1; Payload payload = 2; }
+  message Command  {
+    int64 id = 1;                               // per stream, from 1, monotonic
+    string name = 2;                            // the handler's wire name
+    Payload payload = 3;
+    Metadata metadata = 4;
+    bool snapshot_requested = 5;                // include `snapshot` in the reply
+  }
+}
+
+message EventSourcedOut {
+  oneof message { Reply reply = 1; Failure failure = 2; }
+  message Reply {
+    int64 command_id = 1;
+    repeated Payload events = 2;
+    optional Retention retention = 3;
+    Outcome outcome = 4;
+    optional Payload snapshot = 5;              // the state after `events`, when requested
+  }
+}

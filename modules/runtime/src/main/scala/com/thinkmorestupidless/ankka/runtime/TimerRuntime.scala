@@ -33,7 +33,10 @@ final class TimerRuntime private (pollInterval: FiniteDuration) extends RuntimeE
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
 
-    val actions  = service.registry.components.collect { case a: TimedActionDescriptor[?] => a }
+    val actions = service.registry.components.collect {
+      case a: TimedActionDescriptor[?]           => a
+      case r: remote.RemoteTimedActionDescriptor => r
+    }
     val database = Database()
 
     scheduler = Some(new DatabaseTimerScheduler(database))
@@ -44,7 +47,13 @@ final class TimerRuntime private (pollInterval: FiniteDuration) extends RuntimeE
       val byId = actions.map(a => a.componentId -> a).toMap
       val _ = ClusterSingleton(system).init(
         SingletonActor(
-          TimerSweeper(database, byId, service.componentClient, pollInterval),
+          TimerSweeper(
+            database,
+            byId,
+            service.componentClient,
+            service.conversation,
+            pollInterval
+          ),
           "ankka-timer-sweeper"
         )
       )

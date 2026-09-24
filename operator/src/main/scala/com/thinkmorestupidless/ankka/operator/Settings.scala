@@ -29,7 +29,14 @@ final case class Settings(
      * operator cannot render a route, and says so in the resource's status rather than silently
      * leaving an exposed service unrouted. Must match the control plane's.
      */
-    baseDomain: Option[String] = None
+    baseDomain: Option[String] = None,
+    /**
+     * The image the operator runs beside a `hosting: process` service (feature 009). Not in the
+     * resource, by design: a descriptor cannot name it. `ANKKA_SIDECAR_IMAGE` on the operator's own
+     * Deployment, set by the manifests to the tag the same build produced; the operator has no
+     * version of its own to derive one from.
+     */
+    sidecarImage: String = "ankka-sidecar:latest"
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -52,7 +59,8 @@ object Settings:
     retryMinBackoff = 2.seconds,
     retryMaxBackoff = 5.minutes,
     maxConcurrentReconciles = 16,
-    databaseStorageSize = "1Gi"
+    databaseStorageSize = "1Gi",
+    sidecarImage = "ankka-sidecar:latest"
   )
 
   /**
@@ -94,7 +102,12 @@ object Settings:
         "ANKKA_OPERATOR_DATABASE_STORAGE_SIZE",
         default.databaseStorageSize
       ),
-      baseDomain = raw("ankka.operator.base-domain", "ANKKA_BASE_DOMAIN")
+      baseDomain = raw("ankka.operator.base-domain", "ANKKA_BASE_DOMAIN"),
+      sidecarImage = string(
+        "ankka.operator.sidecar-image",
+        "ANKKA_SIDECAR_IMAGE",
+        default.sidecarImage
+      )
     )
 
   private def raw(property: String, variable: String): Option[String] =

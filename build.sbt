@@ -37,8 +37,9 @@ ThisBuild / publishTo := sys.props
 Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
 
 /**
- * Docker image settings for the two processes that actually run in a cluster: the operator and the
- * control plane. Nothing else gets an image — samples run under `sbt run`, and the CLI is a local
+ * Docker image settings for the processes that actually run in a cluster: the operator, the control
+ * plane and, since feature 009, the sidecar. Nothing else gets an image — samples run under
+ * `sbt run` (the shopping cart also has one, for the cluster suites), and the CLI is a local
  * binary.
  *
  * `dockerRepository` is unset until a registry exists — sbt-native-packager then tags the image
@@ -72,6 +73,11 @@ lazy val templateArtifacts =
 lazy val sampleImageForClusterTests =
   taskKey[Unit](
     "Builds the sample image SampleDeploymentClusterSuite deploys, unless cluster tests are off"
+  )
+
+lazy val sidecarImageForClusterTests =
+  taskKey[Unit](
+    "Builds the sidecar image SidecarClusterSuite deploys, unless cluster tests are off"
   )
 
 lazy val dockerSettings = Seq(
@@ -116,7 +122,13 @@ lazy val commonSettings = Seq(
   // the "skipped" suites taking seven minutes.
   // Every test switch needs the same forwarding; TemplateSuite ran under `template.tests=off` until
   // its switch was added here too.
-  Test / javaOptions ++= Seq("ankka.cluster.tests", "ankka.template.tests", "ankka.benchmarks")
+  Test / javaOptions ++= Seq(
+    "ankka.cluster.tests",
+    "ankka.template.tests",
+    "ankka.benchmarks",
+    // The conformance suite's target (feature 009): a process speaking the sidecar protocol.
+    "ankka.conformance.target"
+  )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")
     },
@@ -136,7 +148,12 @@ lazy val core = project
     name := "ankka-core",
     libraryDependencies ++= Seq(jsoniterCore, jsoniterMacros),
     // com.thinkmorestupidless.ankka.core.BuildInfo.version — the one version everything published from a tag shares.
-    buildInfoKeys    := Seq[BuildInfoKey](version),
+    // `imageTag` is what `Docker / version` produces (`+` → `-`), so a suite that deploys the
+    // sidecar or the sample names the image this sbt session built, never a literal tag.
+    buildInfoKeys := Seq[BuildInfoKey](
+      version,
+      BuildInfoKey("imageTag", version.value.replace('+', '-'))
+    ),
     buildInfoPackage := "com.thinkmorestupidless.ankka.core",
     buildInfoObject  := "BuildInfo"
   )
@@ -357,6 +374,76 @@ lazy val controlPlane = project
     Test / testOnly := (Test / testOnly).dependsOn(sampleImageForClusterTests).evaluated
   )
 
+/**
+ * The sidecar protocol (feature 009): protobuf messages and gRPC service stubs.
+ *
+ * Depends on nothing of ankka's and nothing published depends on it — the `.proto` files, the
+ * encoding document and the fixtures under `protocol/` are the artifact an SDK consumes, not this
+ * jar. Generated code is not warning-free under `-Wunused`, so this project has its own flags.
+ */
+lazy val protocol = project
+  .in(file("protocol"))
+  .settings(commonSettings)
+  .settings(
+    name           := "ankka-protocol",
+    publish / skip := true,
+    // Generated code only: no `-source:3.7` (it warns on every `_` wildcard ScalaPB emits) and no
+    // `-Wunused`. The one promise kept is that `sbt compile` stays warning-free.
+    scalacOptions := Seq("-encoding", "UTF-8", "-source:3.3"),
+    Compile / PB.targets := Seq(
+      scalapb.gen(grpc = true) -> (Compile / sourceManaged).value / "scalapb"
+    ),
+    libraryDependencies ++= Seq(
+      scalapbRuntime % "protobuf",
+      scalapbRuntime,
+      scalapbRuntimeGrpc,
+      grpcStub,
+      grpcNettyShaded
+    )
+  )
+
+/**
+ * The sidecar (feature 009): ankka's runtime with a `main` that boots from a discovery handshake
+ * with a developer's process in another language, instead of from a Scala builder.
+ *
+ * An application, beside the operator and control plane, because it needs `http` and `agent` and
+ * `runtime` must not. It is the thing that gets an image; the remote descriptors and the
+ * conversation seam it implements live in `runtime`.
+ */
+lazy val sidecar = project
+  .in(file("sidecar"))
+  // operator test->test for ClusterImages and the k3s helpers, and test->compile for the
+  // Operator itself: SidecarClusterSuite runs the real operator against k3s with a process-hosted
+  // service, the same way the control plane's cluster suites do.
+  .dependsOn(runtime, http, agent, protocol, testkit % Test, operator % "test->test;test->compile")
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                := "ankka-sidecar",
+    publish / skip      := true,
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.sidecar.Main"),
+    dockerExposedPorts  := Seq(9000),
+    // The schema, as files, at /opt/docker/ddl: the Python integration testkit starts its own
+    // Postgres and copies the DDL out of this image, so a test can never pass against a schema
+    // the platform does not have — the same rule as AnkkaTestKit, from the other side.
+    Universal / mappings ++= {
+      val ddl = (runtime / Compile / resourceDirectory).value / "ankka" / "ddl"
+      (ddl * "*.sql").get.map(f => f -> s"ddl/${f.getName}")
+    },
+    libraryDependencies ++= Seq(logback, testcontainersK3s % Test),
+    // SidecarClusterSuite deploys this project's own image by the build's version tag, so the
+    // image has to come from this sbt session — as sampleImageForClusterTests for the operator's
+    // suites. On both test and testOnly, for the same reason as there. A full `buildAll` found it
+    // missing: the sidecar tests ran before any image had been built.
+    sidecarImageForClusterTests := Def.taskDyn {
+      if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
+      else Def.task { val _ = (Docker / publishLocal).value }
+    }.value,
+    Test / test     := (Test / test).dependsOn(sidecarImageForClusterTests).value,
+    Test / testOnly := (Test / testOnly).dependsOn(sidecarImageForClusterTests).evaluated
+  )
+
 /** The `ankka` command-line client. */
 lazy val cli = project
   .in(file("cli"))
@@ -453,6 +540,8 @@ lazy val root = project
     operator,
     controlPlane,
     cli,
+    protocol,
+    sidecar,
     shoppingCart,
     multiAgentPlanner
   )

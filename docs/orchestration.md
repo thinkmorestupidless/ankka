@@ -120,6 +120,22 @@ final class ActivityAgent extends Agent:
 actually asked, not the whole assembled prompt. Otherwise the next turn's history is
 polluted with retrieved documents the user never saw.
 
+## Agents in another language
+
+Everything above holds for a service written in Python, because none of it lives in the
+agent's own code: the loop, the session memory, compaction and the model are the sidecar's.
+A Python workflow step calls `client.for_agent("selector", session).call("select").invoke(...)`
+with the workflow's id as the session, and the agents accumulate one conversation exactly as
+the Scala ones do; the process is asked only to plan, to run a tool and to check a guardrail
+(`docs/polyglot.md`, *An agent*).
+
+Two things it changes about deploying such a service. The model key is supplied through the
+descriptor's `env` as before, but it lands on the **sidecar** container (`ANTHROPIC_*` and
+`ANKKA_MODEL_*` are routed there), so the Python process never holds it; and the platform must
+carry the `ankka-sidecar` image and tell the operator its name — see the README's *Deploying a
+service written in Python*. For tests, `ANKKA_MODEL_SCRIPT` on the sidecar scripts its model the
+way `TestModelProvider` does here, and the Python `AgentTestKit` scripts one without a sidecar.
+
 ## Observing a run
 
 The workflow's own state answers "what did we decide"; the engine's lifecycle answers

@@ -1,0 +1,16 @@
+# The operator injects the sidecar beside every process-hosted service, so no manifest names the
+# image and kustomize's `images:` transformer cannot rename it; the operator reads it from here.
+# Keep the tag equal to the `images:` block's: the sidecar is released with the operator.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: operator
+          env:
+            - name: ANKKA_SIDECAR_IMAGE
+              value: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:0.2.1 # SET

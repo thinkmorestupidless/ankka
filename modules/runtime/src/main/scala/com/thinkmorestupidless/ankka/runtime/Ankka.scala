@@ -85,22 +85,41 @@ object Ankka:
  */
 final class ServiceBuilder private[ankka] (
     private val descriptors: Vector[ComponentDescriptor],
-    private val extensions: Vector[RuntimeExtension] = Vector.empty
+    private val extensions: Vector[RuntimeExtension] = Vector.empty,
+    private val conversation: Option[remote.Conversation] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
-    ServiceBuilder(descriptors :+ descriptor, extensions)
+    ServiceBuilder(descriptors :+ descriptor, extensions, conversation)
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
-    ServiceBuilder(descriptors ++ more, extensions)
+    ServiceBuilder(descriptors ++ more, extensions, conversation)
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
   def withExtension(extension: RuntimeExtension): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions :+ extension)
+    ServiceBuilder(descriptors, extensions :+ extension, conversation)
+
+  /**
+   * How remote descriptors (feature 009) reach the developer's process. Supplied by the sidecar; an
+   * in-process service never needs one. A remote descriptor registered without a conversation is a
+   * validation error, not a hang at first command.
+   */
+  def withConversation(conversation: remote.Conversation): ServiceBuilder =
+    ServiceBuilder(descriptors, extensions, Some(conversation))
 
   /** Validates the definition without starting anything. */
   def validate: Either[Vector[String], ComponentRegistry] =
-    ComponentRegistry.from(descriptors)
+    val remoteWithoutConversation =
+      if conversation.isEmpty then
+        descriptors.collect { case d: remote.RemoteDescriptor =>
+          s"remote ${d.kind} '${d.componentId}' is registered but no conversation was supplied"
+        }
+      else Vector.empty
+    ComponentRegistry.from(descriptors) match
+      case Left(problems) => Left(problems ++ remoteWithoutConversation)
+      case Right(registry) =>
+        if remoteWithoutConversation.isEmpty then Right(registry)
+        else Left(remoteWithoutConversation)
 
   /** Creates an actor system and hosts every registered component on it. */
   def start(
@@ -117,7 +136,13 @@ final class ServiceBuilder private[ankka] (
     host(system, ownsSystem = false)
 
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =
-    val registry = ComponentRegistry.fromOrThrow(descriptors)
+    val registry = validate.fold(
+      problems =>
+        throw IllegalArgumentException(
+          problems.mkString("invalid ankka service:\n  - ", "\n  - ", "")
+        ),
+      identity
+    )
     val sharding = ClusterSharding(system)
 
     // Before formation: in Kubernetes the readiness check is served by the management endpoint
@@ -142,6 +167,30 @@ final class ServiceBuilder private[ankka] (
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
         initWorkflow(sharding, descriptor, componentClient)
+      case descriptor: remote.RemoteKeyValueDescriptor =>
+        val _ = sharding.init(
+          Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
+            remote.RemoteKeyValueHost.behavior(descriptor, EntityId(ctx.entityId), conversation.get)
+          }
+        )
+      case descriptor: remote.RemoteWorkflowDescriptor =>
+        // The in-process engine over a proxy whose handlers and steps cross the conversation.
+        initWorkflow(
+          sharding,
+          remote.RemoteWorkflowHost.descriptor(descriptor, conversation.get, askTimeout),
+          componentClient
+        )
+      case descriptor: remote.RemoteEventSourcedDescriptor =>
+        // `conversation.get` is safe: `validate` refused the registry without one.
+        val _ = sharding.init(
+          Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
+            remote.RemoteEventSourcedHost.behavior(
+              descriptor,
+              EntityId(ctx.entityId),
+              conversation.get
+            )
+          }
+        )
       case _ =>
         // Views, consumers, workflows, timers, endpoints and agents are hosted by their
         // own phases; an unrecognised descriptor is simply not sharded.
@@ -160,7 +209,8 @@ final class ServiceBuilder private[ankka] (
       componentClient,
       ViewClient(Database()(using system), askTimeout)(using system),
       ownsSystem,
-      extensions
+      extensions,
+      conversation
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -259,7 +309,12 @@ final class AnkkaService private[ankka] (
     val componentClient: ComponentClient,
     val viewClient: ViewClient,
     private val ownsSystem: Boolean,
-    private val extensions: Vector[RuntimeExtension] = Vector.empty
+    private val extensions: Vector[RuntimeExtension] = Vector.empty,
+    /**
+     * Present when remote components are registered: how the extensions hosting them reach the
+     * process.
+     */
+    val conversation: Option[remote.Conversation] = None
 ):
 
   /**

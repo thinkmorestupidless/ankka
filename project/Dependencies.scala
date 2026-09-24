@@ -114,6 +114,19 @@ object Dependencies {
   val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8
   val decline = "com.monovore" %% "decline"           % V.decline
 
+  // ── The sidecar protocol (feature 009) ───────────────────────────────────
+  // grpc-java with ScalaPB, not pekko-grpc: pekko-grpc runs on pekko-http and every artifact it
+  // pulled would need adding to the family pin above. Versions come from the ScalaPB compiler
+  // plugin so the generated code and the runtime can never disagree. `grpc-netty-shaded` so the
+  // sidecar image carries no second Netty beside Pekko's.
+  val scalapbRuntime: ModuleID =
+    "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
+  val scalapbRuntimeGrpc: ModuleID =
+    "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
+  val grpcNettyShaded: ModuleID =
+    "io.grpc" % "grpc-netty-shaded" % scalapb.compiler.Version.grpcJavaVersion
+  val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % scalapb.compiler.Version.grpcJavaVersion
+
   /** JOSE/JWT verification for the control plane. Deliberately not in any published module. */
   val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt
 

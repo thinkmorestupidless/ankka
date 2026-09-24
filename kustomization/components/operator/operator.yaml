@@ -163,6 +163,11 @@ spec:
             # the same hostname for display and refusals.
             - name: ANKKA_BASE_DOMAIN
               value: "BASE_DOMAIN"
+            # The image the operator runs beside a `hosting: process` service (feature 009). The same
+            # tag the other images use locally: built by `sbt docker:publishLocal`, loaded by
+            # deploy-local.sh, never pulled. A registry deployment sets it with the others.
+            - name: ANKKA_SIDECAR_IMAGE
+              value: ankka-sidecar:latest
           resources:
             requests:
               cpu: "100m"

@@ -106,7 +106,13 @@ final case class AnkkaServiceSpec(
      * project and its own base domain, so no writer of this resource can point a route at a name
      * the service does not own.
      */
-    exposed: Boolean = false
+    exposed: Boolean = false,
+    /**
+     * `embedded` (one container, the image is the node) or `process` (feature 009: the image is a
+     * developer's process in another language and the operator runs the sidecar beside it). The
+     * sidecar's image is the operator's, never the resource's.
+     */
+    hosting: String = "embedded"
 )
 
 /**

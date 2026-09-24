@@ -65,7 +65,7 @@ jobs:
           # mode is "permanently published" is the wrong first attempt. It has completed now, so
           # the gate is gone — put the line back for a release worth rehearsing.
   images:
-    # The three images, pushed to the shared registry in the ankka-ops project — the operator, the
+    # The four images, pushed to the shared registry in the ankka-ops project — the operator, the
     # control plane and the shopping cart sample — tagged with the release version and `latest`.
     #
     # No key anywhere: the job asks GitHub for its own OIDC token and exchanges it, through the
@@ -104,7 +104,7 @@ jobs:
         run: |
           git update-index -q --refresh
           git diff-index --quiet HEAD -- || { echo "::error::working tree is dirty"; git status --porcelain; exit 1; }
-      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish
+      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish
 
   template:
     # The template as its own repository, so `sbt new thinkmorestupidless/ankka.g8` works: sbt's

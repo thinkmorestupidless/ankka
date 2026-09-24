@@ -90,6 +90,8 @@ kind load docker-image ankka-controlplane:latest --name "$CLUSTER_NAME"
 # every workload, which is what lets an image loaded this way be used at all: Kubernetes' default
 # for a :latest tag is Always, which ignores it and fails with ErrImagePull.
 kind load docker-image sample-shopping-cart:latest --name "$CLUSTER_NAME"
+# The sidecar for services in another language (feature 009), the operator's to inject.
+kind load docker-image ankka-sidecar:latest --name "$CLUSTER_NAME"
 
 echo "==> applying the CRD (must exist before anything references it)"
 kubectl apply -f kustomization/components/crd/ankkaservice.yaml

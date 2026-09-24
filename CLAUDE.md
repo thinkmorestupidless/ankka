@@ -42,6 +42,11 @@ sbt docker:publishLocal           # build all three images — aggregates to ope
 sbt buildAll                      # everything: format check, compile, test, every image —
                                    # one command, stops at the first failing stage
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
+sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts on a real journal
+                                   # against a scriptable process double, and one k3s suite
+sbt 'sidecar/testOnly *ConformanceSuite'                                       # the Scala reference, in-process
+sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:9010   # a process speaking the protocol
+cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
 sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
@@ -131,7 +136,13 @@ core → controlplane-api → cli
 crd → operator                                           (no ankka dependencies at all)
 controlplane-api + crd + sdk + runtime + http → controlplane
                                   (cli, operator, testkit are Test-only deps)
+protocol → nothing                                       (generated ScalaPB; -Wunused off, -source:3.3)
+runtime + http + agent + protocol → sidecar              (testkit and operator are Test-only deps)
 ```
+
+`runtime/remote` holds the remote hosts and the `Conversation` trait they speak through, in plain
+Scala values, so `runtime` never sees the generated protocol; `sidecar` translates over grpc-java.
+That is the same inversion as `ComponentClient` living in `sdk` over a `CallTransport`.
 
 `controlplane-api` depends on `core` only — not on Pekko — so the CLI carries no actor
 system, no database driver and no Kubernetes client. It holds the wire types *and* the
@@ -816,6 +827,55 @@ factory shapes would break lambda parameter inference at every call site.
 - **A CLI test that deletes the credentials file after removing the config override deletes the
   developer's own.** `Credentials.path` follows `Settings.path`; clean up *before* the property
   goes, in a directory the test owns.
+
+- **A workflow's stream carries a command and a step at once, and a query mid-step must not close
+  the conversation.** The engine keeps answering commands while a step runs (that is the point of
+  steps being asynchronous), so the sidecar tracks one pending command *and* one pending step per
+  workflow session; with one slot a `status` query during `reserve` was a protocol violation that
+  dropped the session and failed the step over to compensation. The Python server runs steps as
+  tasks on a fresh instance for the same reason — a command and a step sharing one instance's
+  context slot had the query's `finally` clear the step's context mid-await.
+- **A process fault in a remote step is *thrown*, never a `Fail` outcome.** The engine applies the
+  declared recovery (retries, failover) only to a step that threw; a `StepOutcome.Fail` ends the
+  workflow. `RemoteWorkflowHost` throws on a `Failure`, a timeout and a wrong id, and reserves the
+  `Fail` outcome for what the process answered on purpose. Settings the engine enforces (timeouts,
+  recovery) are declared in discovery (`WorkflowDetail.Settings`), since the process cannot.
+- **The agent loop runs tools and guardrails after the handler has returned and its session context
+  is gone.** A `FunctionTool` invoker that reads `sessionId` when called throws "sessionContext is
+  only available inside a command handler"; `RemoteAgent` captures the session at plan time. And in
+  an anonymous `Guardrail`, `val name: String = name` is the val naming itself — null, and a
+  `GuardrailRequest` that cannot be serialized; grpc-java reports that as `CANCELLED: Failed to
+  stream message`, which reads like a network fault and is a NullPointerException in a field.
+- **The in-process event sourced host resurrected deleted state**, found by the conformance suite's
+  `es.delete-then-fresh`: the fold applied the first event after a deletion marker onto the kept
+  old value while the handler had been shown `emptyState`, so a deleted entity written to again
+  answered with both lives' events. The fold now starts from `emptyState` after a deletion or an
+  expiry. The remote host never had the bug: it drops the session and re-opens with no snapshot.
+- **A Pekko stash is dropped when the actor stops**, and a remote entity waiting on its process is
+  exactly the actor that stops mid-command in a hand-off: every stashed caller would time out with
+  no answer. The remote hosts keep an explicit queue in the actor's state and answer it
+  `Unavailable` from `PostStop`; the client service retries `Unavailable` briefly, so a rolling
+  replacement refuses nothing.
+- **`snapshotWhen` sees the state *before* the event it is asked about**, and Pekko may snapshot at
+  a sequence the host did not expect. `RemoteStateRecord` carries absolute positions and the
+  predicate accepts the process's snapshot at its own sequence or the next one — which is why a
+  process target's snapshot row sits at 3 *or* 4 where the in-process one sits at 3.
+- **A sidecar's `Main.run` must block on `whenTerminated`.** Returning after start exits the JVM,
+  and coordinated shutdown has the node leave the cluster it just joined while it is still answering
+  HTTP.
+- **PID 1 in a container ignores signals from its own namespace**, so `kill 1` inside the app
+  container proves nothing; the k3s suite signals the host pid found through `crictl inspect` on
+  the node. And a readiness probe at 3×5s cannot observe a container that restarts in two seconds,
+  so a test that kills the process asserts on a request retried until it answers, not on `Ready`
+  flapping.
+- **The encoding's primitives are `text/plain`, not JSON.** A `String`, an `Int`, a `Long` cross the
+  wire as their text under manifests `string`, `int`, `long`; only records and sum types are JSON.
+  An endpoint returning `str` answers `text/plain`, so a test that calls `.json()` on it fails with
+  "Expecting value", and a `str` body is posted raw, not as a JSON string.
+- **`host.docker.internal` needs `--add-host=host.docker.internal:host-gateway` on Linux.** Docker
+  Desktop provides it; the Python integration testkit and compose set it unconditionally.
+- **ghcr.io denies anonymous pulls on some networks.** The Python sample's Dockerfile installs with
+  pip from the official `python` image rather than `ghcr.io/astral-sh/uv`.
 
 ## Publishing
 

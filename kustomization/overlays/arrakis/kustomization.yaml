@@ -78,8 +78,19 @@ images:
   - name: sample-shopping-cart
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/sample-shopping-cart
     newTag: "0.2.1" # SET
+  # The sidecar is not a container in any manifest here — the operator injects it beside every
+  # process-hosted service — so the `images:` transformer never sees it. The operator learns the
+  # name from ANKKA_SIDECAR_IMAGE, set by the patch below to the same registry and tag.
+  - name: ankka-sidecar
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar
+    newTag: "0.2.1" # SET
 
 patches:
+  # The sidecar image the operator injects, from the registry at this release's tag.
+  - path: sidecar-image.yaml
+    target:
+      kind: Deployment
+      name: ankka-operator
   # A real load balancer rather than the local overlay's pinned node ports.
   - path: loadbalancer.yaml
     target:

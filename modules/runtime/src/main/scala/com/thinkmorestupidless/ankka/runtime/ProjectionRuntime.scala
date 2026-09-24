@@ -1,7 +1,22 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
-import com.thinkmorestupidless.ankka.core.ComponentId
+import com.thinkmorestupidless.ankka.core.{ComponentId, ComponentKind}
+import com.thinkmorestupidless.ankka.runtime.remote.{
+  Conversation,
+  RemoteConsumer,
+  RemoteConsumerDescriptor,
+  RemoteConsumerEventHandler,
+  RemoteConsumerStateHandler,
+  RemoteConsumerTopicHandler,
+  RemoteProjection,
+  RemoteSource,
+  RemoteView,
+  RemoteViewDescriptor,
+  RemoteViewEventHandler,
+  RemoteViewStateHandler,
+  RemoteViewTopicHandler
+}
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.apache.pekko.Done
@@ -55,27 +70,50 @@ final class ProjectionRuntime private (
 
     val views     = service.registry.components.collect { case v: ViewDescriptor[?, ?, ?] => v }
     val consumers = service.registry.components.collect { case c: ConsumerDescriptor[?, ?, ?] => c }
+    val remoteViews = service.registry.components.collect { case v: RemoteViewDescriptor => v }
+    val remoteConsumers = service.registry.components.collect { case c: RemoteConsumerDescriptor =>
+      c
+    }
 
-    if views.isEmpty && consumers.isEmpty then system.log.debug("no views or consumers registered")
+    if views.isEmpty && consumers.isEmpty && remoteViews.isEmpty && remoteConsumers.isEmpty then
+      system.log.debug("no views or consumers registered")
     else
       rejectUnsupported(views, consumers)
+      rejectUnsupportedRemote(remoteViews, remoteConsumers)
 
       val database = Database()
 
       // Tables must exist before any projection writes to them.
-      if views.nonEmpty then
+      val tables = views.map(_.tableName) ++
+        remoteViews.map(v => ViewDescriptor.tableFor(v.componentId))
+      if tables.nonEmpty then
         // Under an advisory lock, in one transaction: several nodes of one service cold-start at
         // once and CREATE TABLE IF NOT EXISTS races (ViewStore.schemaLock explains).
         Await.result(
           database.executeAllInTransaction(
-            ViewStore.schemaLock +: views.map(v => ViewStore.createTable(v.tableName))
+            ViewStore.schemaLock +: tables.map(ViewStore.createTable)
           ),
           30.seconds
         )
         views.foreach(v => system.log.info("view '{}' -> table {}", v.componentId, v.tableName))
+        remoteViews.foreach(v =>
+          system.log.info(
+            "remote view '{}' -> table {}",
+            v.componentId,
+            ViewDescriptor.tableFor(v.componentId)
+          )
+        )
 
       views.foreach(startView(_, client))
       consumers.foreach(startConsumer(_, client))
+
+      if remoteViews.nonEmpty || remoteConsumers.nonEmpty then
+        // `validate` refused a registry holding remote descriptors without a conversation.
+        val conversation = service.conversation.getOrElse(
+          throw IllegalStateException("remote views or consumers registered without a conversation")
+        )
+        remoteViews.foreach(startRemoteView(_, conversation))
+        remoteConsumers.foreach(startRemoteConsumer(_, conversation))
 
   /**
    * Fails fast on sources and sinks this runtime cannot serve.
@@ -102,6 +140,41 @@ final class ProjectionRuntime private (
       if consumer.produceTo.isDefined && publisher.isEmpty then
         problems += s"consumer '${consumer.componentId}' publishes to " +
           s"'${consumer.produceTo.get}' but no MessagePublisher was configured; " +
+          "pass one to ProjectionRuntime.withPublisher"
+    }
+
+    val found = problems.result()
+    if found.nonEmpty then
+      throw IllegalArgumentException(
+        found.mkString("cannot start ankka projections:\n  - ", "\n  - ", "")
+      )
+
+  /**
+   * The same checks for remote components, plus one of their own: discovery lets a source name any
+   * component kind, and only entities have a change stream to project.
+   */
+  private def rejectUnsupportedRemote(
+      views: Vector[RemoteViewDescriptor],
+      consumers: Vector[RemoteConsumerDescriptor]
+  ): Unit =
+    val problems = Vector.newBuilder[String]
+
+    (views.map(v => v.componentId -> v.source) ++ consumers.map(c => c.componentId -> c.source))
+      .foreach {
+        case (id, RemoteSource.Topic(topic)) if subscriber.isEmpty =>
+          problems += s"'$id' consumes topic '$topic' but no MessageSubscriber " +
+            "was configured; pass one to ProjectionRuntime.withBroker"
+        case (id, RemoteSource.Component(kind, sourceId))
+            if kind != ComponentKind.EventSourcedEntity && kind != ComponentKind.KeyValueEntity =>
+          problems += s"'$id' subscribes to $kind '$sourceId', which has no change stream; " +
+            "a view or consumer follows an event sourced entity, a key value entity or a topic"
+        case _ => ()
+      }
+
+    consumers.foreach { consumer =>
+      if consumer.producesTo.isDefined && publisher.isEmpty then
+        problems += s"consumer '${consumer.componentId}' publishes to " +
+          s"'${consumer.producesTo.get}' but no MessagePublisher was configured; " +
           "pass one to ProjectionRuntime.withPublisher"
     }
 
@@ -190,6 +263,91 @@ final class ProjectionRuntime private (
           broker.subscribe(topic, processName, handler.process)
           system.log.info("consumer '{}' consuming topic '{}'", typed.componentId, topic)
         }
+
+  // ── Remote views and consumers ────────────────────────────────────────────
+
+  private def startRemoteView(
+      descriptor: RemoteViewDescriptor,
+      conversation: Conversation
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val processName        = s"ankka-view-${descriptor.componentId}"
+    val parallelism        = RemoteProjection.Parallelism
+    def view()             = RemoteView(descriptor, conversation, Observability(system))
+
+    descriptor.source match
+      case RemoteSource.Component(ComponentKind.EventSourcedEntity, sourceId) =>
+        daemon(processName, parallelism) { index =>
+          val range = eventSliceRanges(parallelism)(index)
+          exactlyOnceEventProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () => RemoteViewEventHandler(view())
+          )
+        }
+
+      case RemoteSource.Component(ComponentKind.KeyValueEntity, sourceId) =>
+        daemon(processName, parallelism) { index =>
+          val range = DurableStateSourceProvider.sliceRanges(parallelism)(index)
+          atLeastOnceStateProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () => RemoteViewStateHandler(view(), Database())
+          )
+        }
+
+      case RemoteSource.Topic(topic) =>
+        subscriber.foreach { broker =>
+          val handler = RemoteViewTopicHandler(view(), Database())
+          broker.subscribe(topic, processName, handler.process)
+          system.log.info("remote view '{}' consuming topic '{}'", descriptor.componentId, topic)
+        }
+
+      case RemoteSource.Component(_, _) => () // refused by rejectUnsupportedRemote
+
+  private def startRemoteConsumer(
+      descriptor: RemoteConsumerDescriptor,
+      conversation: Conversation
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val processName        = s"ankka-consumer-${descriptor.componentId}"
+    val parallelism        = RemoteProjection.Parallelism
+    def consumer() = RemoteConsumer(descriptor, conversation, publisher, Observability(system))
+
+    descriptor.source match
+      case RemoteSource.Component(ComponentKind.EventSourcedEntity, sourceId) =>
+        daemon(processName, parallelism) { index =>
+          val range = eventSliceRanges(parallelism)(index)
+          atLeastOnceEventProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () => RemoteConsumerEventHandler(consumer())
+          )
+        }
+
+      case RemoteSource.Component(ComponentKind.KeyValueEntity, sourceId) =>
+        daemon(processName, parallelism) { index =>
+          val range = DurableStateSourceProvider.sliceRanges(parallelism)(index)
+          atLeastOnceStateProjection(
+            ProjectionId(processName, s"${range.min}-${range.max}"),
+            sourceId,
+            range,
+            () => RemoteConsumerStateHandler(consumer())
+          )
+        }
+
+      case RemoteSource.Topic(topic) =>
+        subscriber.foreach { broker =>
+          val handler = RemoteConsumerTopicHandler(consumer())
+          broker.subscribe(topic, processName, handler.process)
+          system.log
+            .info("remote consumer '{}' consuming topic '{}'", descriptor.componentId, topic)
+        }
+
+      case RemoteSource.Component(_, _) => () // refused by rejectUnsupportedRemote
 
   // ── Plumbing ──────────────────────────────────────────────────────────────
 

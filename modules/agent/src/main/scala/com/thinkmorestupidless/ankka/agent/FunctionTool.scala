@@ -34,6 +34,14 @@ final class FunctionTool private[agent] (
 
 object FunctionTool:
 
+  /**
+   * A tool whose schema and implementation are someone else's: the sidecar's remote agent, whose
+   * tools run in another process and arrive with the schema that process declared. `invoke` gets
+   * the model's arguments as they came and answers as `FunctionTool.invoke` does.
+   */
+  private[ankka] def raw(spec: ToolSpec)(invoke: Json => Either[String, String]): FunctionTool =
+    new FunctionTool(spec, invoke)
+
   /** Starts declaring a tool. */
   def named(name: String): NamedBuilder =
     if name.isEmpty then throw IllegalArgumentException("a tool needs a name")

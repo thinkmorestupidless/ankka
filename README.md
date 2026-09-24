@@ -160,16 +160,20 @@ port, which is what to compare against if the two might differ.
 
 ## The component model
 
-| Component | What it is | Hosted as |
-|---|---|---|
-| **Event Sourced Entity** | State derived by replaying persisted events | `EventSourcedBehavior` in cluster sharding |
-| **Key Value Entity** | Latest value only, no history | `DurableStateBehavior` in cluster sharding |
-| **View** | Queryable projection of a source's changes | Pekko Projection → Postgres row table |
-| **Consumer** | Reacts to changes, optionally publishes onward | Pekko Projection, or a Kafka consumer group |
-| **Workflow** | Durable multi-step process | `EventSourcedBehavior` whose events *are* step transitions |
-| **Timer** | A call the runtime makes later | Postgres table + cluster-singleton sweeper |
-| **Agent** | Carries out a task by talking to a model | Sharded per **session id**, serialized per conversation |
-| **HTTP Endpoint** | The outside world | pekko-http route tree |
+| Component | What it is | Hosted as | In Python |
+|---|---|---|---|
+| **Event Sourced Entity** | State derived by replaying persisted events | `EventSourcedBehavior` in cluster sharding | yes, via the sidecar |
+| **Key Value Entity** | Latest value only, no history | `DurableStateBehavior` in cluster sharding | yes, via the sidecar |
+| **View** | Queryable projection of a source's changes | Pekko Projection → Postgres row table | yes, via the sidecar |
+| **Consumer** | Reacts to changes, optionally publishes onward | Pekko Projection, or a Kafka consumer group | yes, via the sidecar |
+| **Workflow** | Durable multi-step process | `EventSourcedBehavior` whose events *are* step transitions | yes, via the sidecar |
+| **Timer** | A call the runtime makes later | Postgres table + cluster-singleton sweeper | yes, via the sidecar (timed actions) |
+| **Agent** | Carries out a task by talking to a model | Sharded per **session id**, serialized per conversation | yes, via the sidecar — the loop stays in the sidecar |
+| **HTTP Endpoint** | The outside world | pekko-http route tree | yes, declared over the protocol and served by the sidecar |
+
+The last column is one feature: a service written in another language runs as its own process
+with ankka's runtime beside it as a sidecar, speaking a protobuf protocol over gRPC on loopback.
+See *Polyglot services* below.
 
 ### Effects are data
 
@@ -379,6 +383,27 @@ Each event carries a JSON-encoded string. Raw text in an SSE `data:` field loses
 leading space to the protocol's own rules and a newline inside a token splits the frame
 — both silent corruptions that only appear on text a model happened to generate.
 
+## Polyglot services
+
+A service in Python is the same component model, deployed the same way, hosted by the same
+runtime — running as a **sidecar** beside your process instead of in the same JVM. The sidecar
+owns everything stateful and everything distributed (sharding, the journal, snapshots, projections,
+timers, HTTP, cluster formation, observability, the agent loop and the model key); your process
+owns the decision: given this command and this state, what should happen. The two speak the
+protocol in `protocol/` over gRPC on loopback, and your code never sees it — the SDK does.
+
+```json
+{ "name": "cart", "service": { "image": "my-cart:1.0.0", "hosting": "process", "protocol": "1.0" } }
+```
+
+`docs/polyglot.md` is the walkthrough: an entity, an endpoint, and one of every other kind, in
+Python, with the unit testkits and an integration testkit that starts the real sidecar image. What
+makes a second SDK *compatible* is `ConformanceSuite` in `sidecar/src/test`, one case per behaviour,
+run in-process against the Scala reference and through the sidecar against any process
+(`uv run conformance` in `sdks/python`), plus the encoding fixtures in `protocol/fixtures` every
+SDK's default codec must pass — that is what lets a cart written in Scala be read by one written in
+Python on the same journal, and the reverse.
+
 ## Broker topics
 
 Views and consumers can read from a topic as well as from an entity, and a consumer can
@@ -519,6 +544,41 @@ curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:844
 ankka services unexpose cart                                         # the hostname stops; nothing else changes
 ```
 
+### Deploying a service written in Python
+
+The same platform hosts a service in another language, and the descriptor says so in two fields:
+
+```json
+{ "name": "cart", "service": { "image": "my-cart:1.0.0", "hosting": "process", "protocol": "1.0" } }
+```
+
+What that changes about deploying the platform itself:
+
+- **A fourth image, `ankka-sidecar`.** `deploy-local.sh` builds and `kind load`s it with the operator,
+  the control plane and the sample; the release workflow pushes it to the registry on a tag. A
+  cluster that pulls needs it at the operator's tag, because the operator is what injects it.
+- **The operator is told where it is.** `ANKKA_SIDECAR_IMAGE` on the operator's Deployment names
+  the image: the local tag in the operator manifest, the registry image by patch in a remote
+  overlay (`kustomization/overlays/arrakis/sidecar-image.yaml`). Unset, a process-hosted service
+  fails with `operator has no sidecar image` rather than starting the wrong one.
+- **The CRD and the operator are re-applied.** `AnkkaService` gained `hosting` (default
+  `embedded`), and only the operator and the control plane changed behaviour. The schema is
+  unchanged: no database migration.
+
+What it changes about the service's pod:
+
+- **Two containers.** The sidecar carries the ports, the readiness probe and the database
+  credential; the app container has no ports, no probe and small fixed resources. Scale, restart,
+  expose and pause behave exactly as for a Scala service.
+- **The descriptor's `env` is split.** `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` go to the
+  sidecar, everything else to the app — so a model key is supplied as before, and the app never
+  sees the database.
+- **Loopback only.** The two talk on 9010 and 9011 inside the pod; no Service or NetworkPolicy
+  changes. `ANKKA_KAFKA_BOOTSTRAP_SERVERS` on the sidecar is needed only for a topic-sourced view
+  or a producing consumer, and the sidecar names the variable when it refuses to start without it.
+
+A cluster that runs only Scala services notices none of this beyond the extra image.
+
 ### Ports and addresses
 
 A descriptor's `service` block takes two optional fields:
@@ -545,10 +605,11 @@ service has no such endpoint and is never `Ready`: `registry.k8s.io/pause` is re
 when the rollout's deadline passes, and that is the intended answer, not a gap. See *Instances and
 clusters* below for why membership is the test.
 
-`deploy-local.sh` builds all three images with a single root-level `sbt docker:publishLocal` —
-it aggregates to every project with `DockerPlugin` enabled (`operator`, `controlPlane`, and the
-`shoppingCart` sample) and silently skips the rest, the same way `sbt compile` and `sbt test`
-already do; adding the third needed no change to the command. `sbt buildAll` is the same idea one
+`deploy-local.sh` builds all four images with a single root-level `sbt docker:publishLocal` —
+it aggregates to every project with `DockerPlugin` enabled (`operator`, `controlPlane`, the
+`shoppingCart` sample and `sidecar`, the runtime that hosts a service written in another language;
+see `docs/polyglot.md`) and silently skips the rest, the same way `sbt compile` and `sbt test`
+already do; adding the third and the fourth needed no change to the command. `sbt buildAll` is the same idea one
 level up: format check, compile, test and every image, one command, stopping at the first failing
 stage.
 
@@ -855,6 +916,9 @@ controlplane      the control plane, built as an ankka application
 crd               the AnkkaService custom resource — the contract, no ankka dependencies
 operator          the Kubernetes operator: watches resources, owns the workloads
 cli               the `ankka` command, over HTTP
+protocol          the sidecar protocol: .proto files, ENCODING.md, the encoding fixtures
+sidecar           the runtime booted from a discovery handshake, for a service in another language
+sdks/python       the Python SDK, its testkits, and the sample cart ported to it
 samples/shopping-cart          entities, views, consumers, HTTP
 samples/multi-agent-planner    dynamic + parallel multi-agent orchestration
 ```
@@ -868,6 +932,9 @@ control plane and the operator, so it inherits neither one's world.
 
 Honest gaps, not oversights:
 
+- **One non-Scala SDK.** Python is the only one; a third language arrives through the conformance
+  suite and the encoding fixtures, which define what "compatible" means without the platform
+  knowing the language exists. The Python SDK is in this repository and not yet on PyPI.
 - **Multi-region.** Single-region only. No replication filters, no `origin` routing.
 - **Cluster traffic is neither isolated nor encrypted.** Remoting on 17355 and management on
   7626 are plain TCP on the pod network, reachable from any namespace, the same as the HTTP port.

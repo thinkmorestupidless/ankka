@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.typesafe.config.{Config, ConfigFactory}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
-import com.thinkmorestupidless.ankka.runtime.{Ankka, AnkkaService, RuntimeExtension}
+import com.thinkmorestupidless.ankka.runtime.{ServiceBuilder, Ankka, AnkkaService, RuntimeExtension}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.{DockerImageName, MountableFile}
@@ -30,6 +30,7 @@ private final class AnkkaPostgres(image: DockerImageName)
 final class AnkkaTestKit private (
     descriptors: Seq[ComponentDescriptor],
     extensions: Seq[RuntimeExtension],
+    configure: ServiceBuilder => ServiceBuilder,
     config: Config,
     container: AnkkaPostgres,
     readyTimeout: FiniteDuration,
@@ -52,7 +53,7 @@ final class AnkkaTestKit private (
   def restartService(): Unit =
     current.terminate()
     scala.concurrent.Await.ready(current.whenTerminated, readyTimeout): Unit
-    current = AnkkaTestKit.hostService(descriptors, extensions, config, readyTimeout)
+    current = AnkkaTestKit.hostService(descriptors, extensions, configure, config, readyTimeout)
 
   def stop(): Unit =
     current.terminate()
@@ -75,10 +76,16 @@ object AnkkaTestKit:
    * Returns only once the node is a cluster member, so the first call in a test cannot race
    * startup.
    */
+  /**
+   * `configure` is applied to the builder before it starts, on every restart too. It exists for
+   * what the builder takes beyond descriptors and extensions — a sidecar suite's conversation to a
+   * process in another language (feature 009) — and defaults to nothing.
+   */
   def start(
       descriptors: Seq[ComponentDescriptor],
       extensions: Seq[RuntimeExtension] = Nil,
-      readyTimeout: FiniteDuration = 60.seconds
+      readyTimeout: FiniteDuration = 60.seconds,
+      configure: ServiceBuilder => ServiceBuilder = identity
   ): AnkkaTestKit =
     val container = AnkkaPostgres(DockerImageName.parse(PostgresImage))
       .withDatabaseName("ankka")
@@ -105,13 +112,13 @@ object AnkkaTestKit:
     val config = configFor(container)
 
     val service =
-      try hostService(descriptors, extensions, config, readyTimeout)
+      try hostService(descriptors, extensions, configure, config, readyTimeout)
       catch
         case failure: Throwable =>
           container.stop()
           throw failure
 
-    new AnkkaTestKit(descriptors, extensions, config, container, readyTimeout, service)
+    new AnkkaTestKit(descriptors, extensions, configure, config, container, readyTimeout, service)
 
   def start(first: ComponentDescriptor, rest: ComponentDescriptor*): AnkkaTestKit =
     start(first +: rest)
@@ -165,10 +172,12 @@ object AnkkaTestKit:
   private def hostService(
       descriptors: Seq[ComponentDescriptor],
       extensions: Seq[RuntimeExtension],
+      configure: ServiceBuilder => ServiceBuilder,
       config: Config,
       readyTimeout: FiniteDuration
   ): AnkkaService =
-    val builder = extensions.foldLeft(Ankka.service.registerAll(descriptors))(_.withExtension(_))
+    val builder =
+      configure(extensions.foldLeft(Ankka.service.registerAll(descriptors))(_.withExtension(_)))
     val service = builder.start("ankka-test", config)
     try
       service.awaitReady(readyTimeout)

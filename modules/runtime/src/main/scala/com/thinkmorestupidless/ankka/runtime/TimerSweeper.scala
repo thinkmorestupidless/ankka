@@ -2,6 +2,11 @@ package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.effect.TimedActionEffect
+import com.thinkmorestupidless.ankka.runtime.remote.{
+  Conversation,
+  RemoteTimedActionDescriptor,
+  TimedActionRequest
+}
 import com.thinkmorestupidless.ankka.sdk.*
 import org.apache.pekko.actor.typed.Behavior
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -27,10 +32,15 @@ private[ankka] object TimerSweeper:
   private final case class BatchFinished(fired: Int)       extends Command
   private final case class BatchFailed(failure: Throwable) extends Command
 
+  /** Metadata a remote timed action receives in place of a `TimedActionContext`. */
+  val TimerNameKey: String = "ankka.timer"
+  val AttemptsKey: String  = "ankka.attempts"
+
   def apply(
       database: Database,
-      actions: Map[ComponentId, TimedActionDescriptor[?]],
+      actions: Map[ComponentId, ComponentDescriptor],
       componentClient: ComponentClient,
+      conversation: Option[Conversation],
       pollInterval: FiniteDuration
   ): Behavior[Nothing] =
     Behaviors
@@ -44,6 +54,7 @@ private[ankka] object TimerSweeper:
           database,
           actions,
           componentClient,
+          conversation,
           ctx.system.executionContext,
           Observability(ctx.system)
         )
@@ -83,8 +94,9 @@ private[ankka] object TimerSweeper:
 /** The off-actor half of the sweeper: pure async work, no `ActorContext` in sight. */
 private[ankka] final class Sweep(
     database: Database,
-    actions: Map[ComponentId, TimedActionDescriptor[?]],
+    actions: Map[ComponentId, ComponentDescriptor],
     componentClient: ComponentClient,
+    conversation: Option[Conversation],
     ec: ExecutionContext,
     observability: Observability
 ):
@@ -120,19 +132,95 @@ private[ankka] final class Sweep(
         )
         drop(timer)
 
-      case Some(descriptor) =>
+      case Some(descriptor: TimedActionDescriptor[?]) =>
         val typed = descriptor.asInstanceOf[TimedActionDescriptor[TimedAction]]
         typed.handler(timer.method) match
-          case None =>
-            log.error(
-              "timer '{}' targets '{}#{}', which no longer exists; dropping it",
-              timer.name,
-              timer.componentId,
-              timer.method
-            )
-            drop(timer)
-
+          case None          => unknownHandler(timer)
           case Some(handler) => run(typed, handler, timer)
+
+      case Some(descriptor: RemoteTimedActionDescriptor) =>
+        (descriptor.handler(timer.method), conversation) match
+          case (None, _)       => unknownHandler(timer)
+          case (Some(_), None) =>
+            // `validate` refused a remote descriptor without a conversation; this is unreachable
+            // by construction, and retrying is still right if it ever is reached.
+            log.error("timer '{}' targets a remote action but no conversation exists", timer.name)
+            reschedule(timer)
+          case (Some(_), Some(conversation)) => runRemote(descriptor, conversation, timer)
+
+      case Some(other) =>
+        log.error(
+          "timer '{}' targets '{}', which is a {}, not a timed action; dropping it",
+          timer.name,
+          timer.componentId,
+          other.kind
+        )
+        drop(timer)
+
+  private def unknownHandler(timer: DueTimer): Future[Boolean] =
+    log.error(
+      "timer '{}' targets '{}#{}', which no longer exists; dropping it",
+      timer.name,
+      timer.componentId,
+      timer.method
+    )
+    drop(timer)
+
+  /**
+   * A remote action runs in the process: the same span, the same retry and attempt counting as a
+   * Scala one. The payload is what the process scheduled, opaque to the runtime; the timer's name
+   * and attempt count travel as metadata since there is no context object to hand over. A failed
+   * call — the process down, the RPC refused — counts as a handler that threw.
+   */
+  private def runRemote(
+      descriptor: RemoteTimedActionDescriptor,
+      conversation: Conversation,
+      timer: DueTimer
+  ): Future[Boolean] =
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = observability.names.intern(descriptor.componentId.toString),
+      handlerRef = observability.names.intern(timer.method.toString)
+    )
+    val metadata = Trace.into(
+      Metadata.empty
+        .set(TimerSweeper.TimerNameKey, timer.name)
+        .set(TimerSweeper.AttemptsKey, timer.attempts.toString),
+      span.traceId,
+      span.id
+    )
+    conversation
+      .invokeTimedAction(
+        TimedActionRequest(descriptor.componentId, timer.method, timer.payload, metadata)
+      )
+      .transform { result =>
+        observability.recorder
+          .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
+        result
+      }
+      .transformWith {
+        case Success(Right(())) =>
+          database.execute(TimerStore.delete(timer.name)).map(_ => true)
+
+        case Success(Left(error)) =>
+          log.warn(
+            "timer '{}' reported failure ({}); rescheduling with backoff after {} attempt(s)",
+            timer.name,
+            error.message,
+            timer.attempts
+          )
+          reschedule(timer)
+
+        case Failure(NonFatal(failure)) =>
+          log.warn(
+            s"timer '${timer.name}' could not reach the process; rescheduling with backoff",
+            failure
+          )
+          reschedule(timer)
+
+        case Failure(fatal) => Future.failed(fatal)
+      }
 
   private def run(
       descriptor: TimedActionDescriptor[TimedAction],

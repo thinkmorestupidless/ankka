@@ -194,7 +194,12 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       method = request.method.value,
       path = request.uri.path.toString,
       query = QueryParams(request.uri.query().toVector),
-      headers = request.headers.map(header => header.name -> header.value).toVector,
+      // Pekko models Content-Type on the entity, not among the headers; a handler asking
+      // `request.header("Content-Type")` should still get an answer.
+      headers = request.headers.map(header => header.name -> header.value).toVector ++
+        Option
+          .when(!request.entity.isKnownEmpty)("Content-Type" -> request.entity.contentType.value)
+          .toVector,
       remoteAddress = None
     )
 

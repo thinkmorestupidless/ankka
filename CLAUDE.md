@@ -963,6 +963,15 @@ workflow to rehearse a release again. Both are sbt commands, not a plugin's: sbt
 depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's `sonatypeCentral*` names do not exist
 here, whatever a stale copy of that plugin in the coursier cache suggests.
 
+**`sonaRelease` polls the portal until it says PUBLISHED, with no bound of its own.** The upload
+takes seconds; the wait is Sonatype's sync to repo1, normally minutes. `v0.4.0` sat in `PUBLISHING`
+for over fifty minutes and the run was cancelled by hand to stop it eating Actions minutes. The
+`publish` job now has `timeout-minutes: 20`, and a step before `ci-release` asks repo1 whether the
+version is already there and skips the upload when it is — so a cancelled or timed-out release is
+finished by re-running the tag once Central has caught up, without a second upload the portal would
+refuse. The cancel never undoes the upload: a deployment in `PUBLISHING` completes on Sonatype's own
+schedule, visible at central.sonatype.com/publishing/deployments.
+
 **`0.1.0` is the first release**, and what it cost is in the git history: a tag published a
 snapshot three times before reaching the portal. The snapshot repository 403s for this namespace
 (claimed through legacy OSSRH in 2023; snapshot publishing there is a separate entitlement), which

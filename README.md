@@ -544,6 +544,41 @@ curl --cacert ~/.ankka/local-ca.crt https://cart-checkout.127.0.0.1.sslip.io:844
 ankka services unexpose cart                                         # the hostname stops; nothing else changes
 ```
 
+### Deploying a service written in Python
+
+The same platform hosts a service in another language, and the descriptor says so in two fields:
+
+```json
+{ "name": "cart", "service": { "image": "my-cart:1.0.0", "hosting": "process", "protocol": "1.0" } }
+```
+
+What that changes about deploying the platform itself:
+
+- **A fourth image, `ankka-sidecar`.** `deploy-local.sh` builds and `kind load`s it with the operator,
+  the control plane and the sample; the release workflow pushes it to the registry on a tag. A
+  cluster that pulls needs it at the operator's tag, because the operator is what injects it.
+- **The operator is told where it is.** `ANKKA_SIDECAR_IMAGE` on the operator's Deployment names
+  the image: the local tag in the operator manifest, the registry image by patch in a remote
+  overlay (`kustomization/overlays/arrakis/sidecar-image.yaml`). Unset, a process-hosted service
+  fails with `operator has no sidecar image` rather than starting the wrong one.
+- **The CRD and the operator are re-applied.** `AnkkaService` gained `hosting` (default
+  `embedded`), and only the operator and the control plane changed behaviour. The schema is
+  unchanged: no database migration.
+
+What it changes about the service's pod:
+
+- **Two containers.** The sidecar carries the ports, the readiness probe and the database
+  credential; the app container has no ports, no probe and small fixed resources. Scale, restart,
+  expose and pause behave exactly as for a Scala service.
+- **The descriptor's `env` is split.** `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` go to the
+  sidecar, everything else to the app — so a model key is supplied as before, and the app never
+  sees the database.
+- **Loopback only.** The two talk on 9010 and 9011 inside the pod; no Service or NetworkPolicy
+  changes. `ANKKA_KAFKA_BOOTSTRAP_SERVERS` on the sidecar is needed only for a topic-sourced view
+  or a producing consumer, and the sidecar names the variable when it refuses to start without it.
+
+A cluster that runs only Scala services notices none of this beyond the extra image.
+
 ### Ports and addresses
 
 A descriptor's `service` block takes two optional fields:

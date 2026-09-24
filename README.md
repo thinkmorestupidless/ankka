@@ -37,7 +37,8 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
 **[docs.ankka.cloud](https://docs.ankka.cloud/)**, and the same
 pages as Markdown in [`docs/`](docs/index.md):
 
-- **[Get started](docs/get-started/install.md)** — install the tools, write a first service in
+- **[Get started](docs/get-started/install.md)** — install the tools
+  (`brew install thinkmorestupidless/tap/ankka` for the CLI), write a first service in
   [Scala](docs/get-started/first-service-scala.md) or [Python](docs/get-started/first-service-python.md),
   and [deploy it to a local platform](docs/get-started/deploy-locally.md).
 - **[Concepts](docs/concepts/architecture.md)** — how ankka works, the component model, and

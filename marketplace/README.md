@@ -12,7 +12,8 @@ The `ankka` plugin carries the platform's documentation as a set of Agent Skills
 (`ankka`, `ankka-design`, `ankka-entities`, `ankka-views-consumers`, `ankka-workflows`, `ankka-agents`,
 `ankka-endpoints`, `ankka-python`, `ankka-deploy`, `ankka-platform`), and registers the `ankka mcp`
 server, which gives an agent the CLI's verbs, the services running on your machine and this version's
-documentation as tools. The `ankka` CLI must be on your `PATH` for the server to start.
+documentation as tools. The `ankka` CLI must be on your `PATH` for the server to start:
+`brew install thinkmorestupidless/tap/ankka`.
 
 This repository is generated. Its content is rendered from the documentation in
 [thinkmorestupidless/ankka](https://github.com/thinkmorestupidless/ankka) (`marketplace/` there) and

@@ -83,9 +83,9 @@ ankka services get orders -o json | jq -r .lifecycle
 
 ## An example job
 
-This GitHub Actions job is an example to adapt, not a supplied workflow. It assumes an `ankka` CLI is
-available on the runner; the CLI has no binary release yet, and is built from a checkout of the ankka
-repository with `sbt cli/stage`.
+This GitHub Actions job is an example to adapt, not a supplied workflow. It installs the `ankka` CLI
+from the zip attached to a release, which needs a JDK 21 on the runner; a macOS runner can
+`brew install thinkmorestupidless/tap/ankka` instead. Pin the CLI's version as you would any tool.
 
 ```yaml
 deploy:
@@ -93,6 +93,17 @@ deploy:
   needs: build
   steps:
     - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "21"
+    - name: Install the ankka CLI
+      env:
+        ANKKA_VERSION: "0.3.1"
+      run: |
+        curl -sSLO "https://github.com/thinkmorestupidless/ankka/releases/download/v$ANKKA_VERSION/ankka-cli-$ANKKA_VERSION.zip"
+        unzip -q "ankka-cli-$ANKKA_VERSION.zip"
+        echo "$PWD/ankka-cli-$ANKKA_VERSION/bin" >> "$GITHUB_PATH"
     - name: Obtain a token
       run: |
         TOKEN=$(curl -s -d grant_type=client_credentials -d client_id=ci-deployer \

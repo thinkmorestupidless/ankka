@@ -89,8 +89,9 @@ feature also says what that feature does not do.
 - **Two languages.** Services are written in Scala or Python. Another language needs an SDK that passes the
   conformance suite; see [Adding a language SDK](../contributing/language-sdks.md).
 - **The Python SDK is not on PyPI.** Install it from the repository by path.
-- **The CLI has no binary release.** Build it with `sbt cli/stage` and put
-  `cli/target/universal/stage/bin` on your `PATH`. `ankka init` needs `sbt` on `PATH` too.
+- **The CLI is a JVM program.** It is installed with Homebrew (`brew install
+  thinkmorestupidless/tap/ankka`, which brings its own JDK) or unpacked from a release's zip onto a
+  JDK 21; there is no native binary and no Linux package. `ankka init` needs `sbt` on `PATH` too.
 - **The template waits on a release.** `sbt new thinkmorestupidless/ankka.g8` works once a release has
   published the template; until then use `sbt new file:///path/to/ankka/ankka.g8` from a checkout.
 - **No local image registry.** A local platform loads images straight into its cluster with

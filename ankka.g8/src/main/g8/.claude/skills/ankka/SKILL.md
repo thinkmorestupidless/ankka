@@ -72,7 +72,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Get started
 
-- `references/get-started/install.md` — Install what ankka needs on your machine, build the ankka CLI from the repository, and make the Scala libraries and Python SDK available to your own projects.
+- `references/get-started/install.md` — Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and Python SDK available to your own projects.
 - `references/get-started/first-service-scala.md` — Create a Scala service from the ankka template, test it, run it against a local Postgres, watch it in the local console, and change its domain.
 - `references/get-started/first-service-python.md` — Write a Python service with an event sourced entity and an HTTP endpoint, run it beside the ankka sidecar, test it with and without the sidecar, and watch it in the local console.
 - `references/get-started/deploy-locally.md` — Run the whole build, deploy and observe cycle on your own machine — a kind cluster with the ankka platform, your service deployed and exposed over HTTPS, its logs, a restart and its history.

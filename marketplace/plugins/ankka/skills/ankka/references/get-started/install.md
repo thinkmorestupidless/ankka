@@ -1,21 +1,21 @@
 # Install the tools
 
-> Install what ankka needs on your machine, build the ankka CLI from the repository, and make the Scala libraries and Python SDK available to your own projects.
+> Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and Python SDK available to your own projects.
 
 Source: https://docs.ankka.cloud/get-started/install/
 ankka is used through three things: libraries your service depends on, the `ankka` command-line tool,
 and a platform to deploy to. This page installs the first two. The third has its own page,
 [Install a local platform](../platform/install-local.md), and you need it only once you want to deploy.
 
-Some of ankka is not yet packaged. The CLI is built from the repository rather than installed, and the
-Python SDK is installed from the repository rather than from PyPI. This page says where that applies.
+The CLI is installed with Homebrew, or unpacked from a release. Some of ankka is not yet packaged: the
+Python SDK is installed from the repository rather than from PyPI, and this page says where that applies.
 
 ## Prerequisites
 
 | Tool | Needed for | Version |
 |---|---|---|
-| JDK | Scala services, the CLI, building the platform's images | 21 |
-| [sbt](https://www.scala-sbt.org/) | Scala services, the CLI, `ankka init` | any recent 1.x |
+| JDK | Scala services, the CLI (Homebrew installs its own), building the platform's images | 21 |
+| [sbt](https://www.scala-sbt.org/) | Scala services, `ankka init` | any recent 1.x |
 | Docker | running Postgres locally, integration tests, building images | any recent |
 | [uv](https://docs.astral.sh/uv/) and Python | Python services | Python 3.12 |
 | [kind](https://kind.sigs.k8s.io/) and `kubectl` | a local platform to deploy to | recent |
@@ -24,27 +24,44 @@ Python SDK is installed from the repository rather than from PyPI. This page say
 Docker is required even for a service you never deploy, because the integration test kits start a
 throwaway Postgres in a container. No model API key is needed for anything on this page.
 
+## Install the CLI
+
+On macOS, and on Linux with [Homebrew](https://brew.sh/), the CLI comes from ankka's tap. The formula
+installs the JDK it runs on, so nothing else is needed:
+
+```bash
+brew install thinkmorestupidless/tap/ankka
+ankka version
+```
+
+`brew upgrade ankka` moves to a newer release. `ankka init` also needs `sbt` on the `PATH`, because it
+runs `sbt new` to expand the service template; every other command works without it.
+
+Anywhere else, every release carries the same CLI as a zip on its
+[GitHub release](https://github.com/thinkmorestupidless/ankka/releases): unpack it and put its `bin`
+directory on your `PATH`. It needs a JDK 21 on the `PATH` or in `JAVA_HOME`.
+
+```bash
+version=0.3.1                                        # a release from the releases page
+curl -LO "https://github.com/thinkmorestupidless/ankka/releases/download/v$version/ankka-cli-$version.zip"
+unzip "ankka-cli-$version.zip"
+export PATH="$PWD/ankka-cli-$version/bin:$PATH"
+ankka version
+```
+
 ## Get the repository
 
-The CLI, the Python SDK and the local platform are built from the ankka repository:
+The Python SDK and the local platform are built from the ankka repository, and so is a CLI newer than
+the last release:
 
 ```bash
 git clone https://github.com/thinkmorestupidless/ankka.git
 cd ankka
 ```
 
-## Build the CLI
-
-The CLI is a JVM program built with sbt. There is no binary release or package yet:
-
-```bash
-sbt cli/stage                                        # builds cli/target/universal/stage/bin/ankka
-export PATH="$PWD/cli/target/universal/stage/bin:$PATH"
-ankka version
-```
-
-Add the `export` line to your shell profile, with the absolute path, to keep `ankka` on your `PATH`.
-`ankka init` also needs `sbt` on the `PATH`, because it runs `sbt new` to expand the service template.
+To run the CLI from a checkout rather than a release, `sbt cli/stage` builds it into
+`cli/target/universal/stage/bin/ankka`; that CLI reports a snapshot version, and `ankka init` writes
+that version into the projects it creates, which is what the `sbt publishLocal` below is for.
 
 ## Make the Scala libraries available
 
@@ -60,9 +77,9 @@ A Scala service depends on six libraries, published under the organization `com.
 | `ankka-testkit` | unit and integration test support |
 
 Released versions are on Maven Central, and a project created from the template resolves them from
-there. A CLI built from the repository reports its own version, which is a snapshot unless you built
-it from a release tag, and `ankka init` writes that version into the new project. Publish the libraries
-from the same checkout so the project can resolve them:
+there; with a released CLI there is nothing to do. A CLI built from the repository reports a snapshot
+version, and `ankka init` writes that version into the new project, so publish the libraries from the
+same checkout for the project to resolve them:
 
 ```bash
 sbt publishLocal                                     # the six libraries, into ~/.ivy2/local

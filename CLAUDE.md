@@ -980,6 +980,18 @@ named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
 new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
 
+**The CLI ships through Homebrew**, from `thinkmorestupidless/homebrew-tap` (`brew install
+thinkmorestupidless/tap/ankka`). The formula is canonical in `homebrew/Formula/ankka.rb` with version
+`0.0.0` and a checksum of zeros — deliberate, like the plugin's `0.0.0` — and the release workflow's
+`cli` job builds `cli/Universal/packageBin` (a zip of `bin/ankka` and `lib/*.jar`, a JDK 21 its only
+need), attaches it to a GitHub release for the tag, writes the version and the zip's SHA-256 into the
+formula and subtree-pushes `homebrew/` to the tap, exactly as the template and the marketplace go.
+`HomebrewFormulaSuite` pins the two placeholders the job's `sed` rewrites. The formula depends on
+`openjdk@21` and wraps the launcher with that `JAVA_HOME` rather than the user's, so a JDK 17 on
+someone's `PATH` cannot break it; `brew audit --strict` passes, and the proof of the whole thing is a
+throwaway local tap (`brew tap-new`) pointed at a locally built zip by `file://` URL. The release
+asset is also the install route for a machine without Homebrew.
+
 **Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,
 minor equal or one below — and an unsupported one takes the existing "cannot project" path as

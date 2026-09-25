@@ -113,6 +113,24 @@ What a handler returns decides the response:
 | `String` | `200`, `text/plain` |
 | `Int`, `Long`, `Double`, `Boolean` | `200`, `text/plain`, the value as text |
 | any type with a `JsonValueCodec` | `200`, `application/json` |
+| `Html(markup)` | `200`, `text/html; charset=UTF-8` |
+| `Bytes(contentType, body)` | `200`, the content type given: a stylesheet, an image, a download |
+| `Respond(body, status, headers)` | any of the above under a status and headers of the handler's choosing |
+
+### Pages, redirects and cookies
+
+An endpoint that serves a website rather than an API returns HTML, sends the browser elsewhere, and
+keeps a session. `Respond` wraps any body the endpoint can already answer with a status and headers:
+
+```scala
+get("/account")(() => Respond(Html(page), headers = Vector("Set-Cookie" -> cookie)))
+post("/logout")(() => Respond.redirect("/"))            // 303 See Other, Location: /
+get("/style.css")(() => Bytes("text/css", stylesheet))
+```
+
+`Respond.redirect` answers `303 See Other`, the status that is safe after a form post; pass another
+status to change it. `Content-Type` is never a header here: it comes from the body, and a `Bytes`
+value names its own.
 
 ## Errors
 

@@ -97,7 +97,8 @@ enum Acl:
 private[ankka] final case class EncodedResponse(
     status: Int,
     contentType: String,
-    body: Array[Byte]
+    body: Array[Byte],
+    headers: Vector[(String, String)] = Vector.empty
 )
 
 private[ankka] final case class Route(
@@ -206,7 +207,17 @@ abstract class HttpEndpoint(val prefix: String):
       needsBody,
       (args, body) =>
         val value = run(args, body)
-        EncodedResponse(response.status(value), response.contentType, response.write(value))
+        // `Bytes` names its own content type per value; every other body type has one per type.
+        val contentType = value match
+          case Bytes(kind, _)                => kind
+          case Respond(Bytes(kind, _), _, _) => kind
+          case _                             => response.contentType
+        EncodedResponse(
+          response.status(value),
+          contentType,
+          response.write(value),
+          response.headers(value)
+        )
     )
 
   /**

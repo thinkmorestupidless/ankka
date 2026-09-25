@@ -288,6 +288,10 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
           .map { encoded =>
             HttpResponse(
               status = StatusCode.int2StatusCode(encoded.status),
+              // What the handler asked for beside the body: a `Location`, a `Set-Cookie`. Raw
+              // headers, so `Content-Type` and `Content-Length` — Pekko models those on the
+              // entity — are not the handler's to set here.
+              headers = encoded.headers.map((name, value) => headers.RawHeader(name, value)),
               entity =
                 if encoded.body.isEmpty then HttpEntity.Empty
                 else

@@ -382,6 +382,13 @@ placeholder binds to the *inner* application, so that parses as passing a functi
 a `ComponentClient` is expected. A bundle was chosen over an overload because two
 factory shapes would break lambda parameter inference at every call site.
 
+A handler's return value decides the response through `ToResponse`, which since feature 011
+also carries headers: `Respond(body, status, headers)` wraps any body with a status and
+headers of the handler's choosing, `Respond.redirect` is a 303 with a `Location`, `Html` is a
+page and `Bytes` names its own content type. That is the whole of what a website (`ankka-cloud`)
+needs from the module beyond a JSON API — `Set-Cookie` and `Location` — and it is deliberately
+not a template engine, a session store or a cookie API: those belong to the application.
+
 ## Traps that have already cost debugging time
 
 - **`Sink.last`, not `Sink.head`, on r2dbc connection publishers.** `head` cancels

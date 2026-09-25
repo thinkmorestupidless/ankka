@@ -53,6 +53,13 @@ trait ToResponse[A]:
   def contentType: String
   def write(value: A): Array[Byte]
 
+  /**
+   * Headers beside the content type — a redirect's `Location`, a session's `Set-Cookie`. None by
+   * default; `Respond` is how a handler supplies them. `Content-Type` never goes here: it is
+   * `contentType`, and the server sets it from the entity.
+   */
+  def headers(value: A): Vector[(String, String)] = Vector.empty
+
 object ToResponse:
 
   /** Any type with a jsoniter codec in scope can be a response body. */

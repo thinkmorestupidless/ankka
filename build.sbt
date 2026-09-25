@@ -67,7 +67,7 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
 
 lazy val templateArtifacts =
   taskKey[Unit](
-    "Publishes the six library artifacts locally for TemplateSuite, unless template tests are off"
+    "Publishes the six service libraries locally for TemplateSuite, unless template tests are off"
   )
 
 lazy val sampleImageForClusterTests =
@@ -255,12 +255,17 @@ lazy val testkit = project
  * Deliberately depends on nothing but a JSON codec: the CLI needs to know what a service descriptor
  * looks like, and should not drag Pekko, a Postgres driver and a Kubernetes client onto its
  * classpath to find out.
+ *
+ * Published — the seventh library, and the only one that is not for a *service* (feature 011). It
+ * is for a client of the control plane outside this repository: the hosted product's provisioner is
+ * the first. A client that redefined the wire types by hand would drift from them, which is exactly
+ * the disagreement `CliEndToEndSuite` exists to catch for the CLI.
  */
 lazy val controlPlaneApi = project
   .in(file("controlplane-api"))
   .dependsOn(core)
   .settings(commonSettings)
-  .settings(name := "ankka-controlplane-api", publish / skip := true)
+  .settings(name := "ankka-controlplane-api")
 
 /**
  * The `AnkkaService` custom resource: the contract between the control plane and the operator.
@@ -492,8 +497,9 @@ lazy val cli = project
     templateArtifacts := Def.taskDyn {
       if (sys.props.get("ankka.template.tests").contains("off")) Def.task(())
       else
-        // The six by name: a task dependency on the root's publishLocal runs only the root's own
-        // (skipped) publish — aggregation is how the command line fans out, not the task graph.
+        // Six of the seven by name: a task dependency on the root's publishLocal runs only the
+        // root's own (skipped) publish — aggregation is how the command line fans out, not the task
+        // graph. The seventh, controlPlaneApi, is a client's library; the template is a service.
         Def.task {
           (core / publishLocal).value
           (sdk / publishLocal).value

@@ -29,13 +29,36 @@ class EventCompatibilitySuite extends munit.FunSuite:
     val decoded = samples("organization-event").map(OrganizationEntity.eventSerializer.fromBytes)
     assertEquals(decoded.size, 3)
     decoded.foreach {
-      case OrganizationEvent.OrganizationCreated(name, actor, at) =>
+      case OrganizationEvent.OrganizationCreated(name, actor, at, owner) =>
         assertEquals(name, "Acme Corp"); assertEquals(actor, None); assertEquals(at, None)
+        assertEquals(owner, None)
       case OrganizationEvent.OrganizationRenamed(_, actor, at) =>
         assertEquals((actor, at), (None, None))
       case OrganizationEvent.OrganizationDeleted(actor, at) =>
         assertEquals((actor, at), (None, None))
     }
+  }
+
+  test("an organization created for an owner has a pinned shape (feature 011)") {
+    val json =
+      """{"type":"OrganizationCreated","name":"Acme Corp",""" +
+        """"actor":{"subject":"carol","administrative":true},""" +
+        """"owner":{"subject":"alice","email":"alice@example.test","display":"Alice"}}"""
+    val decoded = OrganizationEntity.eventSerializer.fromBytes(json.getBytes("UTF-8"))
+    assertEquals(
+      decoded,
+      OrganizationEvent.OrganizationCreated(
+        "Acme Corp",
+        Some(Actor("carol", None, administrative = true)),
+        None,
+        Some(
+          com.thinkmorestupidless.ankka.controlplane.api
+            .Owner("alice", Some("alice@example.test"), Some("Alice"))
+        )
+      )
+    )
+    val written = String(OrganizationEntity.eventSerializer.toBytes(decoded), "UTF-8")
+    assert(written.contains(""""owner":{"subject":"alice""""), written)
   }
 
   test("project events from before the feature decode as unattributed") {

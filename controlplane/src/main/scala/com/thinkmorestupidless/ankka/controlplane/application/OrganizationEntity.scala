@@ -26,11 +26,12 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
   def emptyState: Organization = Organization.empty(context.entityId)
 
   def applyEvent(event: OrganizationEvent): Organization = event match
-    case OrganizationCreated(name, creator, at) => currentState.onCreated(name, creator, at)
-    case OrganizationRenamed(name, _, _)        => currentState.onRenamed(name)
-    case _: OrganizationDeleted                 => currentState.onDeleted
-    case MemberInvited(email, role, actor, at)  => currentState.onInvited(email, role, actor, at)
-    case InvitationRevoked(email, _, _)         => currentState.onInvitationRevoked(email)
+    case OrganizationCreated(name, creator, at, owner) =>
+      currentState.onCreated(name, creator, at, owner)
+    case OrganizationRenamed(name, _, _)       => currentState.onRenamed(name)
+    case _: OrganizationDeleted                => currentState.onDeleted
+    case MemberInvited(email, role, actor, at) => currentState.onInvited(email, role, actor, at)
+    case InvitationRevoked(email, _, _)        => currentState.onInvitationRevoked(email)
     case InvitationClaimed(email, subject, display, _, at) =>
       currentState.onClaimed(email, subject, display, at)
     case MemberAdded(subject, role, email, display, actor, at) =>
@@ -52,6 +53,28 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
       effects.error(s"organization '${context.entityId}' already exists", ErrorCode.Conflict)
     else if name.isEmpty then effects.error("organization name must not be empty")
     else effects.persist(OrganizationCreated(name, actor, at)).thenReply(_ => Done)
+
+  /**
+   * A platform administrator creating the organization for `request.owner` (feature 011): the same
+   * rules as `create`, and one event whose actor is the administrator and whose first owner is the
+   * named subject. Whether the caller may do this is the endpoint's question; the entity is told
+   * who asked and records it.
+   */
+  def createForOwner(request: CreateForOwner): Effect[Done] =
+    if currentState.deleted then
+      effects.error(
+        s"organization '${context.entityId}' was deleted; its id is not reused",
+        ErrorCode.Conflict
+      )
+    else if currentState.known then
+      effects.error(s"organization '${context.entityId}' already exists", ErrorCode.Conflict)
+    else if request.name.isEmpty then effects.error("organization name must not be empty")
+    else if request.owner.subject.trim.isEmpty then
+      effects.error("an owner must be named by subject")
+    else
+      effects
+        .persist(OrganizationCreated(request.name, actor, at, Some(request.owner)))
+        .thenReply(_ => Done)
 
   def rename(name: String): Effect[Done] =
     if !currentState.exists then notFound
@@ -228,6 +251,7 @@ object OrganizationEntity
   given Serializer[OrganizationDetail] =
     Codecs.serializer[OrganizationDetail]("organization-detail")
   given Serializer[Invite]           = Codecs.serializer[Invite]("invite")
+  given Serializer[CreateForOwner]   = Codecs.serializer[CreateForOwner]("create-for-owner")
   given Serializer[ClaimInvitation]  = Codecs.serializer[ClaimInvitation]("claim-invitation")
   given Serializer[AddMember]        = Codecs.serializer[AddMember]("add-member")
   given Serializer[ChangeRole]       = Codecs.serializer[ChangeRole]("change-role")
@@ -238,6 +262,7 @@ object OrganizationEntity
   def create(context: EventSourcedEntityContext) = new OrganizationEntity(context)
 
   val createOrganization = command("create")(_.create)
+  val createForOwner     = command("create-for-owner")(_.createForOwner)
   val rename             = command("rename")(_.rename)
   val delete             = command("delete")(_.delete)
   val invite             = command("invite")(_.invite)

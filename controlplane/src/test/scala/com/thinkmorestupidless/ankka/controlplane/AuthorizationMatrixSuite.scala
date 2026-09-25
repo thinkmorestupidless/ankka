@@ -367,3 +367,54 @@ class AuthorizationMatrixSuite extends munit.FunSuite:
     val members = send("GET", "/organizations/acme/members", alice)._2
     assert(members.contains("\"invitedBy\":\"bob@example.test\""), members)
   }
+
+  test("8. an administrator creates an organization for its owner in one request (feature 011)") {
+    val body =
+      """{"name":"Wonderland","owner":""" +
+        """{"subject":"alice","email":"alice@example.test","display":"Alice"}}"""
+    assertEquals(send("POST", "/organizations/wonderland", carol, Some(body))._1, 204)
+
+    val members = send("GET", "/organizations/wonderland/members", alice)._2
+    assert(members.contains("\"subject\":\"alice\""), members)
+    assert(members.contains("\"role\":\"owner\""), members)
+    assert(members.contains("\"display\":\"Alice\""), members)
+    assert(members.contains("\"addedBy\":\"carol\""), members)
+    assert(!members.contains("\"subject\":\"carol\""), "the administrator is not a member")
+
+    val asAdmin = send("GET", "/organizations/wonderland", carol)._2
+    assert(!asAdmin.contains("\"role\""), s"carol has no role there: $asAdmin")
+
+    val listed = eventually("alice's listing shows wonderland as its owner") {
+      val (_, body) = send("GET", "/organizations", alice)
+      Option.when(body.contains("\"id\":\"wonderland\""))(body)
+    }
+    assert(listed.contains("\"role\":\"owner\""), listed)
+    assertEquals(
+      send(
+        "PUT",
+        "/organizations/wonderland/name",
+        alice,
+        Some("""{"name":"Wonderland Ltd"}""")
+      )._1,
+      204
+    )
+  }
+
+  test("9. naming an owner takes the administrator role; naming none makes the admin owner") {
+    val (status, refusal) = send(
+      "POST",
+      "/organizations/bobs-for-alice",
+      bob,
+      Some("""{"name":"X","owner":{"subject":"alice"}}""")
+    )
+    assertEquals(status, 403, refusal)
+    assert(refusal.contains("platform administrator role required to name an owner"), refusal)
+    assertEquals(send("GET", "/organizations/bobs-for-alice", carol)._1, 404, "nothing created")
+
+    assertEquals(
+      send("POST", "/organizations/carols", carol, Some("""{"name":"Carol's"}"""))._1,
+      204
+    )
+    val members = send("GET", "/organizations/carols/members", carol)._2
+    assert(members.contains("\"subject\":\"carol\""), members)
+  }

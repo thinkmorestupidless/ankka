@@ -169,3 +169,32 @@ A publicly trusted certificate needs no `config set ca`. Grant the first adminis
 
 Upgrading the installation is the same apply with new image tags. The operator, control plane, sidecar
 and CLI are released together as one version.
+
+## A spoke installation
+
+Several installations can share one set of users. One of them, the hub, runs Keycloak as described on
+this page. The others, the spokes, run the control plane and the operator with no identity provider of
+their own, and trust the hub's realm. A person registered once at the hub logs in to every spoke with the
+same account.
+
+A spoke's overlay is a copy of the production overlay with three differences:
+
+- It leaves out the `keycloak-operator` and `keycloak` components, and the patch that deletes the Keycloak
+  administrator Secret, since there is no Keycloak to administer.
+- It sets two variables on the control plane Deployment, both naming the hub's realm by its public
+  address:
+
+  ```yaml
+  - name: ANKKA_AUTH_ISSUER
+    value: https://auth.example.com/realms/ankka
+  - name: ANKKA_AUTH_JWKS_URL
+    value: https://auth.example.com/realms/ankka/protocol/openid-connect/certs
+  ```
+
+- It keeps its own base domain, for example `caladan.example.com`, so its control plane answers at
+  `api.caladan.example.com` and its exposed services have hostnames under that domain.
+
+The spoke accepts only tokens whose issuer is the hub's; a token issued anywhere else is refused with
+`401`. Its login discovery advertises the hub's issuer, so `ankka login` against the spoke's address opens
+the hub's sign-in page. A `platform-admin` in the hub's realm is a platform administrator on every
+installation that trusts it. See [Identity and machine accounts](identity.md#the-issuer-the-control-plane-expects).

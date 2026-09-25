@@ -23,6 +23,11 @@ JDK 21. This page lists what each component kind is made of. The guides under Bu
 | `ankka-agent` | `com.thinkmorestupidless.ankka.agent` | `Agent`, `FunctionTool`, guardrails, session memory, `AgentRuntime` and model providers. |
 | `ankka-testkit` | `com.thinkmorestupidless.ankka.testkit` | Unit testkits, `AnkkaTestKit`, `TestTransport`. `TestModelProvider` is in `ankka-agent`. |
 
+A seventh library, `ankka-controlplane-api`, is published beside these for programs that call the
+control plane rather than run as a service. It holds the control plane's request and response types and
+the service descriptor's validation, and depends on `ankka-core` alone. See
+[Control plane HTTP API](control-plane-api.md#from-scala).
+
 ```scala
 val ankkaVersion = "0.4.0"
 

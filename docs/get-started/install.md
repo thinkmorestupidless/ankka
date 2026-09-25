@@ -88,7 +88,7 @@ version, and `ankka init` writes that version into the new project, so publish t
 same checkout for the project to resolve them:
 
 ```bash
-sbt publishLocal                                     # the six libraries, into ~/.ivy2/local
+sbt publishLocal                                     # the six, and the control plane's wire library, into ~/.ivy2/local
 ```
 
 Run it again whenever you pull a newer version of the repository and want your projects to use it.

@@ -30,6 +30,16 @@ final class Authorization(clients: EndpointClients, clock: Clock):
   /** Anyone logged in. What an organization's creator or a listing needs. */
   def anyone(principal: Principal): Metadata = attribution(principal, administrative = false)
 
+  /**
+   * A platform administrator acting on nothing in particular yet — creating an organization for
+   * someone else (feature 011). The attribution says it was the role that let them, so the event
+   * records an administrative actor rather than a member.
+   */
+  def administrator(principal: Principal): Metadata =
+    if !isAdmin(principal) then
+      throw CommandError("platform administrator role required", ErrorCode.Forbidden)
+    attribution(principal, administrative = true)
+
   def requireMember(principal: Principal, organizationId: String, write: Boolean): Authorized =
     require(principal, organizationId, Role.Member, write)
 

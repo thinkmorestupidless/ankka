@@ -336,6 +336,13 @@ the compose Keycloak. The realm is one file, `kustomization/components/keycloak/
 the test helpers with Jackson, while kustomize applies it as a resource; it carries no users — the
 deploy script and compose's init create `dev`, so a remote installation cannot inherit one.
 
+Who may *create* an organization is an installation setting, `OrganizationPolicy`
+(`ANKKA_ORGANIZATION_CREATION` = `open` | `platform-admin`, `ANKKA_SIGNUP_URL`), read at startup and
+enforced in `OrganizationEndpoint` only — feature 011, so a hosted installation's product can sell
+access without the platform learning what a subscription is. A platform administrator may name the
+first owner (`create-for-owner`, a separate wire name from `create` so an in-flight create survives a
+rolling update); `OrganizationCreated.owner` defaults to `None` and both folds fall back to the actor.
+
 ### The control plane is an ankka application
 
 `ControlPlane.components` and `ControlPlane.endpoints` are the whole inventory: three
@@ -489,7 +496,7 @@ factory shapes would break lambda parameter inference at every call site.
 - **A task dependency on `root / publishLocal` publishes nothing.** Aggregation is how the
   *command line* fans a task out to the aggregated projects; in the task graph, `(root /
   publishLocal).value` runs the root's own — skipped — publish and returns in 0s. `templateArtifacts`
-  names the six modules. The same is true of `root / test` and `root / compile`.
+  names the six service modules. The same is true of `root / test` and `root / compile`.
 - **`testOnly` does not go through `test`.** A dependency hung on `Test / test` is bypassed by
   `sbt module/testOnly X`, which is exactly how one suite is run; hook both.
 - **A test must never name an image by a literal tag.** `EndToEndClusterSuite` said
@@ -925,14 +932,18 @@ bite:
 
 ## Publishing
 
-Six modules are libraries an application depends on — `core`, `sdk`, `runtime`, `http`, `agent`,
-`testkit` — and are published as `com.thinkmorestupidless:ankka-<module>_3`. Everything else
-(`controlplane-api`, `crd`, `operator`, `controlplane`, `cli`, the samples, root) carries
-`publish / skip := true`: a platform-side jar cannot reach a repository by accident, and "these
-are not libraries" is a build fact rather than a note.
+Seven modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Six are libraries a
+*service* depends on — `core`, `sdk`, `runtime`, `http`, `agent`, `testkit`. The seventh,
+`controlplane-api`, is for a *client of the control plane*: the hosted product in `ankka-cloud`
+provisions organizations through it (feature 011), and a client that redefined the wire types by
+hand would drift from them. It still depends on `core` alone, and its POM's compile scope says so.
+`templateArtifacts` names only the six, because the template is a service. Everything else (`crd`,
+`operator`, `controlplane`, `cli`, the samples, root) carries `publish / skip := true`: a
+platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
+fact rather than a note.
 
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly six artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly seven artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval

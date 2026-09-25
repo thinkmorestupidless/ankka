@@ -3,7 +3,8 @@ package com.thinkmorestupidless.ankka.controlplane.api
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{OrganizationEntity, ProjectRows}
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
-import com.thinkmorestupidless.ankka.controlplane.domain.{AddMember, ChangeRole}
+import com.thinkmorestupidless.ankka.controlplane.domain.{AddMember, ChangeRole, CreateForOwner}
+import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationCreation, OrganizationPolicy}
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
@@ -23,6 +24,7 @@ import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 final class OrganizationEndpoint(
     clients: EndpointClients,
     val acl: Acl,
+    policy: OrganizationPolicy = OrganizationPolicy.default,
     protected val clock: java.time.Clock = java.time.Clock.systemUTC()
 ) extends HttpEndpoint("/organizations")
     with Attributing:
@@ -48,12 +50,34 @@ final class OrganizationEndpoint(
     )
   }
 
-  /** Anyone logged in may create one; they become its first owner (FR-013). */
+  /**
+   * Anyone logged in may create one and becomes its first owner (feature 008) — unless the
+   * installation's policy says organizations are the platform administrator's to create, in which
+   * case everyone else is refused with the reason and, when the installation names one, where to
+   * sign up (feature 011). A platform administrator may name the first owner, so a tenant is
+   * provisioned in one request and is never, even briefly, the administrator's; that option from
+   * anyone else is refused first, before the policy, so the answer does not depend on it.
+   */
   postBody("/{organizationId}") { (organizationId: String, request: CreateOrganization) =>
-    entity(organizationId)
-      .call(OrganizationEntity.createOrganization)
-      .withMetadata(authz.anyone(principal))
-      .invoke(request.name)
+    val admin = authz.isAdmin(principal)
+    request.owner match
+      case Some(_) if !admin =>
+        throw CommandError(
+          "platform administrator role required to name an owner",
+          ErrorCode.Forbidden
+        )
+      case _ if policy.creation == OrganizationCreation.PlatformAdmin && !admin =>
+        throw CommandError(policy.refusal, ErrorCode.Forbidden)
+      case Some(owner) =>
+        entity(organizationId)
+          .call(OrganizationEntity.createForOwner)
+          .withMetadata(authz.administrator(principal))
+          .invoke(CreateForOwner(request.name, owner))
+      case None =>
+        entity(organizationId)
+          .call(OrganizationEntity.createOrganization)
+          .withMetadata(authz.anyone(principal))
+          .invoke(request.name)
   }
 
   putBody("/{organizationId}/name") { (organizationId: String, request: Rename) =>

@@ -472,7 +472,20 @@ final case class Whoami(
  * Separate from the corresponding summary type so that a create cannot carry counts: an operator
  * does not get to declare how many projects an organization has.
  */
-final case class CreateOrganization(name: String)
+final case class CreateOrganization(name: String, owner: Option[Owner] = None)
+
+/**
+ * The first owner of an organization created *for* someone: a platform administrator provisioning a
+ * tenant names the subject that will own it, so the organization is never, even briefly, the
+ * administrator's. `email` and `display` are what the members listing shows until the owner logs
+ * in; only `subject` is a key. Given by anyone without the administrator role, the create is
+ * refused.
+ */
+final case class Owner(
+    subject: String,
+    email: Option[String] = None,
+    display: Option[String] = None
+)
 
 final case class CreateProject(name: String, organizationId: String)
 

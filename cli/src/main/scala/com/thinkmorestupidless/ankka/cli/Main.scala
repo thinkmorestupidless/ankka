@@ -88,10 +88,30 @@ object Main:
       }
     }
 
+    // Naming the first owner is a platform administrator's option: the control plane refuses it from
+    // anyone else. The display details mean nothing without a subject, so the parser refuses them
+    // alone rather than sending a body the server would silently ignore half of.
+    val ownerOpt: Opts[Option[Owner]] =
+      (
+        Opts
+          .option[String]("owner", "First owner's subject (platform administrators only).")
+          .orNone,
+        Opts.option[String]("owner-email", "First owner's email, for display.").orNone,
+        Opts.option[String]("owner-name", "First owner's display name.").orNone
+      ).tupled.mapValidated {
+        case (Some(subject), email, display) =>
+          Validated.valid(Some(Owner(subject, email, display)))
+        case (None, None, None) => Validated.valid(None)
+        case _ => Validated.invalidNel("--owner-email and --owner-name need --owner")
+      }
+
     val create = Opts.subcommand("create", "Create an organization.") {
-      (Opts.argument[String]("id"), nameOpt, contextOpt).mapN { (id, name, ctx) => () =>
-        ctx.client.createOrganization(id, name)
-        s"organization '$id' created"
+      (Opts.argument[String]("id"), nameOpt, ownerOpt, contextOpt).mapN {
+        (id, name, owner, ctx) => () =>
+          ctx.client.createOrganization(id, name, owner)
+          owner.fold(s"organization '$id' created")(o =>
+            s"organization '$id' created for ${o.subject}"
+          )
       }
     }
 

@@ -54,12 +54,16 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
     )
 
   def onChange(event: OrganizationEvent): Effect = event match
-    case OrganizationCreated(name, creator, _) =>
+    case OrganizationCreated(name, creator, _, owner) =>
       val created = row.copy(name = name)
+      // The same rule as the entity's fold: a named owner is the first member, else the creator.
       effects.updateRow(
-        creator.fold(created)(a =>
-          created.copy(members = Vector(a.subject), owners = Vector(a.subject))
-        )
+        owner
+          .map(_.subject)
+          .orElse(creator.map(_.subject))
+          .fold(created)(subject =>
+            created.copy(members = Vector(subject), owners = Vector(subject))
+          )
       )
     case OrganizationRenamed(name, _, _) => effects.updateRow(row.copy(name = name))
     case _: OrganizationDeleted          => effects.deleteRow()

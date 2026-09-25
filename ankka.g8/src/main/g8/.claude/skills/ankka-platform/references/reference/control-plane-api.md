@@ -50,6 +50,20 @@ current state, `503` and `504` when the control plane could not complete the cal
 Every change is recorded with who made it and when, and a service's record is readable through
 `GET /services/{projectId}/{name}/history`.
 
+## From Scala
+
+The request and response types on this page, the `Role` and service lifecycle vocabularies, and the
+service descriptor with its validation are published as one library, `ankka-controlplane-api`, in the
+package `com.thinkmorestupidless.ankka.controlplane.api`. It depends on `ankka-core` alone, so a client
+of the control plane carries no actor system, database driver or Kubernetes client:
+
+```scala
+libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.4.0"
+```
+
+The CLI is built on the same library, so a client using it reads every answer the CLI can read and
+refuses an invalid descriptor with the platform's own message before sending it.
+
 ## Roles
 
 A caller's permissions come from their role in an organization, which the control plane records itself:
@@ -152,6 +166,25 @@ One organization, as a summary. Members only.
 Creates an organization. Body: `{ "name": "Acme Corp" }`. Any authenticated caller; the caller becomes
 its first owner. An id that was ever used, including by a deleted organization, is refused with `409`.
 Answers `204`.
+
+A platform administrator may name the first owner instead:
+
+```json
+{
+  "name": "Acme Corp",
+  "owner": { "subject": "3f2a9c1e-…", "email": "alice@example.com", "display": "Alice Example" }
+}
+```
+
+`owner.subject` is required and `email` and `display` are optional. The organization's only member is
+then that subject, as owner, and the administrator is recorded as the one who created it. From a caller
+without the `platform-admin` role, a body with `owner` is refused with `403`, `platform administrator role
+required to name an owner`.
+
+When the installation's creation policy is `platform-admin`, set by `ANKKA_ORGANIZATION_CREATION`, a
+caller without the role is refused with `403`: `organizations in this installation are created by the
+platform administrator`, followed by `; sign up at <url>` when `ANKKA_SIGNUP_URL` is set. Neither refusal
+creates anything.
 
 ### `PUT /organizations/{organizationId}/name`
 

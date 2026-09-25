@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.*
 import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, TokenVerifier}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceProjector}
+import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationPolicy
 import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime, ServiceBuilder}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
@@ -44,19 +45,22 @@ object ControlPlane:
   /**
    * The endpoints, all but one sharing the ACL. The service endpoint also needs the deployment
    * configuration — the base domain under which exposed services answer. With an `auth`
-   * configuration, `GET /auth` advertises the issuer to the CLI, unauthenticated by design.
+   * configuration, `GET /auth` advertises the issuer to the CLI, unauthenticated by design. The
+   * organization endpoint takes the installation's creation `policy` (feature 011); the default is
+   * open, which is every installation before that feature.
    */
   def endpoints(
       acl: Acl,
       deploy: DeployConfig = DeployConfig.default,
-      auth: Option[AuthConfig] = None
+      auth: Option[AuthConfig] = None,
+      policy: OrganizationPolicy = OrganizationPolicy.default
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
     Seq[
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
-      clients => OrganizationEndpoint(clients, acl),
+      clients => OrganizationEndpoint(clients, acl, policy),
       clients => ProjectEndpoint(clients, acl),
       clients => ServiceEndpoint(clients, acl, deploy),
       clients => WhoamiEndpoint(clients, acl)
@@ -78,10 +82,11 @@ object ControlPlane:
       auth: Option[AuthConfig] = None
   ): ServiceBuilder =
     val deploy = DeployConfig.from(config)
+    val policy = OrganizationPolicy.from(config)
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) =>
-        HttpServer.at(host, bindPort)(endpoints(acl, deploy, auth)*)
-      case _ => HttpServer.of(endpoints(acl, deploy, auth)*)
+        HttpServer.at(host, bindPort)(endpoints(acl, deploy, auth, policy)*)
+      case _ => HttpServer.of(endpoints(acl, deploy, auth, policy)*)
     val projector = ServiceProjector(deploy)
     Ankka.service
       .registerAll(componentsWith(projector))

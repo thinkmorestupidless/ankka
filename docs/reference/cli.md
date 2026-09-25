@@ -282,7 +282,7 @@ Options and flags:
 ### `ankka organizations create`
 
 ```text
-Usage: ankka organizations create --name <string> [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+Usage: ankka organizations create --name <string> [--owner <string>] [--owner-email <string>] [--owner-name <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
 
 Create an organization.
 
@@ -291,6 +291,12 @@ Options and flags:
         Display this help text.
     --name <string>
         Display name.
+    --owner <string>
+        First owner's subject (platform administrators only).
+    --owner-email <string>
+        First owner's email, for display.
+    --owner-name <string>
+        First owner's display name.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

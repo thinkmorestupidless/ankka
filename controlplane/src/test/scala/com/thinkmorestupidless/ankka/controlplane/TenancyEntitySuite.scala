@@ -1,12 +1,14 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.thinkmorestupidless.ankka.controlplane.api.{CreateProject, Invite, Role}
+import com.thinkmorestupidless.ankka.controlplane.api.{CreateProject, Invite, Owner, Role}
 import com.thinkmorestupidless.ankka.controlplane.application.{OrganizationEntity, ProjectEntity}
 import com.thinkmorestupidless.ankka.controlplane.domain.{
   Actor,
   Attribution,
   ChangeRole,
-  ClaimInvitation
+  ClaimInvitation,
+  CreateForOwner,
+  Organization
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.OrganizationEvent.*
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.*
@@ -313,4 +315,94 @@ class TenancyEntitySuite extends munit.FunSuite:
       Vector(ProjectCreated("Checkout", "acme"), ProjectRenamed("Checkout v2"), ProjectDeleted())
     )
     assertEquals(kit.call(ProjectEntity.exists).replyValue, false)
+  }
+
+  // ── creating for an owner (feature 011) ───────────────────────────────────
+
+  private val aliceAsOwner =
+    Owner("alice", Some("Alice@Example.test"), Some("Alice Example"))
+
+  test("an administrator creates an organization whose only owner is the one named") {
+    val kit = organization
+    val result = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+      CreateForOwner("Acme Corp", aliceAsOwner)
+    )
+    assertEquals(result.replyValue, Done)
+    assertEquals(
+      result.events,
+      Vector(OrganizationCreated("Acme Corp", Some(carol.actor), Some(now), Some(aliceAsOwner)))
+    )
+    val members = kit.call(OrganizationEntity.members).replyValue.members
+    assertEquals(members.map(_.subject), Vector("alice"))
+    val alone = members.head
+    assertEquals(alone.role, Role.Owner)
+    assertEquals(alone.email, Some("alice@example.test"), "keyed like every other email")
+    assertEquals(alone.display, Some("Alice Example"))
+    assertEquals(alone.addedBy, Some("carol"))
+    assertEquals(kit.call(OrganizationEntity.roleOf)("carol").replyValue.role, None)
+  }
+
+  test("the owner named is who the fold seats, replayed from the events alone") {
+    val kit = organization
+    val _ = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+      CreateForOwner("Acme Corp", aliceAsOwner)
+    )
+    val replayed = kit.allEvents.foldLeft(Organization.empty("acme")) {
+      case (state, OrganizationCreated(name, actor, at, owner)) =>
+        state.onCreated(name, actor, at, owner)
+      case (state, _) => state
+    }
+    assertEquals(replayed, kit.currentState)
+  }
+
+  test("an owner named by subject alone is enough, and the member is shown by subject") {
+    val kit = organization
+    val _ = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+      CreateForOwner("Acme Corp", Owner("alice"))
+    )
+    val only = kit.call(OrganizationEntity.members).replyValue.members.head
+    assertEquals((only.subject, only.email, only.display), ("alice", None, None))
+  }
+
+  test("creating for an owner keeps create's refusals, and refuses an empty subject") {
+    val known = acme
+    assertEquals(
+      known
+        .call(OrganizationEntity.createForOwner, carol.metadata)(
+          CreateForOwner("Again", aliceAsOwner)
+        )
+        .error
+        .code,
+      ErrorCode.Conflict
+    )
+    val deleted = acme
+    val _       = deleted.call(OrganizationEntity.delete, alice.metadata)
+    assertEquals(
+      deleted
+        .call(OrganizationEntity.createForOwner, carol.metadata)(
+          CreateForOwner("Again", aliceAsOwner)
+        )
+        .error
+        .code,
+      ErrorCode.Conflict
+    )
+    assert(
+      organization
+        .call(OrganizationEntity.createForOwner, carol.metadata)(CreateForOwner("Acme", Owner(" ")))
+        .isError
+    )
+    assert(
+      organization
+        .call(OrganizationEntity.createForOwner, carol.metadata)(CreateForOwner("", aliceAsOwner))
+        .isError
+    )
+  }
+
+  test("an administrator who names themselves is the sole owner, as if they named nobody") {
+    val kit = organization
+    val _ = kit.call(OrganizationEntity.createForOwner, carol.metadata)(
+      CreateForOwner("Ops", Owner("carol", Some("carol@example.test")))
+    )
+    assertEquals(kit.call(OrganizationEntity.roleOf)("carol").replyValue.role, Some(Role.Owner))
+    assertEquals(kit.call(OrganizationEntity.members).replyValue.members.size, 1)
   }

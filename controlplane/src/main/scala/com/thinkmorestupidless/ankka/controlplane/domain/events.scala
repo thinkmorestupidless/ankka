@@ -31,8 +31,18 @@ object ServiceKey:
  * which is the truth about it (FR-024). Observations from the operator carry neither.
  */
 enum OrganizationEvent:
-  /** `actor`, when present, is the creator — and the first owner (feature 008, FR-013). */
-  case OrganizationCreated(name: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+  /**
+   * `actor`, when present, is the creator — and the first owner (feature 008, FR-013), unless
+   * `owner` names someone else: a platform administrator creating the organization *for* a subject
+   * (feature 011). Then the actor is the administrator and the owner is the one member seated.
+   * Absent on every event written before feature 011, which folds exactly as it did.
+   */
+  case OrganizationCreated(
+      name: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None,
+      owner: Option[Owner] = None
+  )
   case OrganizationRenamed(name: String, actor: Option[Actor] = None, at: Option[Instant] = None)
   case OrganizationDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
 
@@ -82,6 +92,14 @@ enum OrganizationEvent:
  * `OrganizationEntity.claimInvitation`: who is claiming, with the verified email they presented.
  */
 final case class ClaimInvitation(subject: String, email: String, display: Option[String] = None)
+
+/**
+ * `OrganizationEntity.createForOwner`: a platform administrator creating an organization whose
+ * first owner is `owner`, not themselves. A command of its own rather than a changed payload on
+ * `create`, because a wire name is a versioning boundary: during a rolling update an in-flight
+ * `create` must decode on either version.
+ */
+final case class CreateForOwner(name: String, owner: Owner)
 
 /** `OrganizationEntity.addMember`: the administrative repair path. */
 final case class AddMember(

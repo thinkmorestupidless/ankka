@@ -115,19 +115,40 @@ final case class Organization(
   def isLastOwner(subject: String): Boolean = roleOf(subject).contains(Role.Owner) && owners == 1
   def pendingFor(email: String): Option[Invitation] = invitations.get(Organization.key(email))
 
-  /** The creator becomes the first owner. An event with no actor (pre-feature) creates no owner. */
-  def onCreated(name: String, creator: Option[Actor], at: Option[Instant]): Organization =
-    // An actor carries a display label, which is the email when the token had one — the only
-    // thing this has to go on to refuse a later invitation of the owner's own address.
-    val first = creator.map(a =>
-      a.subject -> Member(
-        Role.Owner,
-        a.display.filter(_.contains('@')).map(Organization.key),
-        a.display,
-        at,
-        a.display
-      )
-    )
+  /**
+   * The creator becomes the first owner — or, when the event names an `owner`, that subject does,
+   * seated by the creator (feature 011). An event with no actor and no owner (pre-feature) creates
+   * no owner.
+   */
+  def onCreated(
+      name: String,
+      creator: Option[Actor],
+      at: Option[Instant],
+      owner: Option[Owner] = None
+  ): Organization =
+    val first = owner match
+      case Some(o) =>
+        Some(
+          o.subject -> Member(
+            Role.Owner,
+            o.email.map(Organization.key),
+            o.display,
+            at,
+            creator.map(_.subject)
+          )
+        )
+      case None =>
+        // An actor carries a display label, which is the email when the token had one — the only
+        // thing this has to go on to refuse a later invitation of the owner's own address.
+        creator.map(a =>
+          a.subject -> Member(
+            Role.Owner,
+            a.display.filter(_.contains('@')).map(Organization.key),
+            a.display,
+            at,
+            a.display
+          )
+        )
     copy(name = name, members = members ++ first)
 
   def onRenamed(name: String): Organization = copy(name = name)

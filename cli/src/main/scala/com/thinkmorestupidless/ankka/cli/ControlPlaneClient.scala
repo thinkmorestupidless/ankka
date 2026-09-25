@@ -51,11 +51,11 @@ final class ControlPlaneClient(settings: Settings):
   def getOrganization(id: String): OrganizationSummary =
     get[OrganizationSummary](s"/organizations/${segment(id)}")
 
-  def createOrganization(id: String, name: String): Unit =
+  def createOrganization(id: String, name: String, owner: Option[Owner] = None): Unit =
     send(
       "POST",
       s"/organizations/${segment(id)}",
-      Some(writeToString(CreateOrganization(name)))
+      Some(writeToString(CreateOrganization(name, owner)))
     ): Unit
 
   def renameOrganization(id: String, name: String): Unit =

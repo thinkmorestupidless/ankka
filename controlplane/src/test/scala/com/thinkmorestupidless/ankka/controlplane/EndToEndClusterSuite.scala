@@ -96,6 +96,14 @@ class EndToEndClusterSuite extends munit.FunSuite:
   private var url: String           = ""
   private var config: Path          = null
 
+  // Feature 011: a spoke — a second control plane with no identity provider of its own and its own
+  // base domain, trusting the hub's realm by explicit configuration. Its own journal (its own
+  // Postgres), because two installations never share one.
+  private val SpokeDomain                = s"spoke.$BaseDomain"
+  private var hubAuth: AuthConfig        = null
+  private var spokeTestKit: AnkkaTestKit = null
+  private var spokeUrl: String           = ""
+
   // Captures every log event in this JVM for the life of the suite, so T053 can assert a
   // generated database password never appears in the operator's own logs — the only way to
   // check that with the operator running in-process rather than as a separate container whose
@@ -167,6 +175,7 @@ class EndToEndClusterSuite extends munit.FunSuite:
         realmHint = "ankka",
         clockSkew = 60.seconds
       )
+      hubAuth = auth
 
       val operatorSettings = OperatorSettings.default.copy(resyncInterval = 2.seconds)
       operator = new Operator(k8s, operatorSettings, ServiceReconciler(k8s, operatorSettings))
@@ -188,6 +197,20 @@ class EndToEndClusterSuite extends munit.FunSuite:
       )
       url = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
+      // The spoke's issuer and key source are the hub's, named explicitly — exactly what a spoke's
+      // overlay sets through ANKKA_AUTH_ISSUER and ANKKA_AUTH_JWKS_URL — while its base domain is
+      // its own, so the issuer it would otherwise derive is a different string.
+      val spokeAuth = hubAuth
+      val spokeDeploy =
+        DeployConfig.default.copy(namespacePrefix = "spoke", baseDomain = Some(SpokeDomain))
+      val spokeServer = HttpServer.at("127.0.0.1", 0)(
+        ControlPlane.endpoints(ControlPlane.aclFor(spokeAuth), spokeDeploy, Some(spokeAuth))*
+      )
+      spokeTestKit =
+        AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), spokeServer))
+      spokeUrl =
+        s"http://127.0.0.1:${spokeServer.boundPort.getOrElse(fail("spoke server did not bind"))}"
+
       config = Files.createTempFile("ankka-e2e", ".json")
       Files.delete(config)
       sys.props("ankka.config") = config.toString
@@ -197,6 +220,7 @@ class EndToEndClusterSuite extends munit.FunSuite:
     if ca != null then Files.deleteIfExists(ca): Unit
     sys.props.remove("ankka.config"): Unit
     if config != null then Files.deleteIfExists(config): Unit
+    if spokeTestKit != null then spokeTestKit.stop()
     if testKit != null then testKit.stop()
     if operator != null then operator.close()
     if k8s != null then k8s.close()
@@ -300,6 +324,54 @@ class EndToEndClusterSuite extends munit.FunSuite:
       s"a real token from Keycloak should verify; challenge: ${verified.headers.firstValue("WWW-Authenticate").orElse("")}; " +
         s"claims: ${com.thinkmorestupidless.ankka.operator.KeycloakAdmin.claims(Token)}"
     )
+  }
+
+  test("0b. a spoke trusts the hub's realm and no other issuer (feature 011, SC-005)") {
+    val http = java.net.http.HttpClient.newHttpClient()
+    def get(base: String, path: String, token: Option[String]) =
+      val builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(base + path))
+      token.foreach(t => builder.header("Authorization", s"Bearer $t"): Unit)
+      http.send(builder.GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString())
+
+    // Discovery sends `ankka login` to the hub's realm, not to one the spoke's domain would derive.
+    val discovery = get(spokeUrl, "/auth", None)
+    assertEquals(discovery.statusCode, 200)
+    val advertised = "\"issuer\":\"([^\"]+)\"".r.findFirstMatchIn(discovery.body).map(_.group(1))
+    assertEquals(advertised, Some(hubAuth.issuer), discovery.body)
+    assertNotEquals(advertised, Some(AuthConfig.derivedIssuer(SpokeDomain, httpsPort)))
+
+    // One user, registered once at the hub, is the same caller on both installations.
+    val onHub   = get(url, "/auth/whoami", Some(Token))
+    val onSpoke = get(spokeUrl, "/auth/whoami", Some(Token))
+    assertEquals(onHub.statusCode, 200, onHub.body)
+    assertEquals(onSpoke.statusCode, 200, onSpoke.body)
+    val subject = "\"subject\":\"([^\"]+)\"".r
+    assertEquals(
+      subject.findFirstMatchIn(onSpoke.body).map(_.group(1)),
+      subject.findFirstMatchIn(onHub.body).map(_.group(1))
+    )
+
+    // Anything else is refused: another realm, and a token claiming the spoke's own derived issuer.
+    // Both are signed under the key id the hub's realm really uses, so the verifier finds a key and
+    // refuses on the signature without refetching. A key id it has never seen would trigger a
+    // refetch instead, and a second one inside the refetch window answers 503 from the rate limit —
+    // a property of the verifier, not of the trust decision this case is about.
+    // Keycloak writes its header with spaces around the colons (`"kid" : "…"`).
+    val header =
+      String(Base64.getUrlDecoder.decode(Token.takeWhile(_ != '.')), StandardCharsets.UTF_8)
+    val hubKid = "\"kid\"\\s*:\\s*\"([^\"]+)\"".r.findFirstMatchIn(header).map(_.group(1))
+    assert(hubKid.isDefined, s"no key id in the hub token's header: $header")
+    val elsewhere = TestIdentity("https://auth.other.test/realms/ankka")
+    val ownDomain = TestIdentity(AuthConfig.derivedIssuer(SpokeDomain, httpsPort))
+    try
+      for (who, token) <- Vector(
+          "another realm"              -> elsewhere.token("mallory", kid = hubKid),
+          "the spoke's derived issuer" -> ownDomain.token("mallory", kid = hubKid)
+        )
+      do assertEquals(get(spokeUrl, "/auth/whoami", Some(token)).statusCode, 401, who)
+    finally
+      elsewhere.stop()
+      ownDomain.stop()
   }
 
   test("1. an organization and a project are created through the CLI") {
@@ -445,8 +517,11 @@ class EndToEndClusterSuite extends munit.FunSuite:
       "no credential secret may be generated for a service bringing its own database"
     )
 
-    val (_, single) = ankka("services", "get", SuppliedService, "-p", Project)
-    assert(single.contains("supplied"), single)
+    // What the operator reports, not what the Deployment's existence implies: the status is folded
+    // back on the next reconcile, so wait on the value that changes.
+    waitFor(60.seconds)(
+      ankka("services", "get", SuppliedService, "-p", Project)._2.contains("supplied")
+    )
   }
 
   test(

@@ -65,6 +65,37 @@ Self-registration is off: an administrator adds each person in Keycloak's consol
 A new user belongs to no organization. They can create their own, or an owner invites their email
 address; see [Organizations, projects and members](organizations.md).
 
+## Who may create organizations
+
+By default anyone who can log in may create an organization, and becomes its first owner. An
+installation that sells access, where being registered and being entitled are different things, can
+reserve creation for platform administrators instead. Two settings on the control plane decide it:
+
+- `ANKKA_ORGANIZATION_CREATION` is `open`, the default, or `platform-admin`. With `platform-admin`, a
+  request to create an organization from anyone without the `platform-admin` role is refused with `403`,
+  and nothing is created.
+- `ANKKA_SIGNUP_URL` is an address to send a refused caller to. When it is set, the refusal ends with
+  `; sign up at <url>`, and the CLI prints it. It has no effect while creation is open.
+
+Any other value of `ANKKA_ORGANIZATION_CREATION` stops the control plane from starting, so a mistyped
+value can never quietly leave creation open.
+
+The setting changes organization creation and nothing else. Members of an existing organization read,
+rename, invite, create projects and deploy exactly as they would in an open installation, and invitations
+are claimed the same way.
+
+In such an installation an administrator, usually a product's own machine account, creates each
+organization for its customer and names the customer as its first owner, in one request:
+
+```bash
+ankka organizations create acme --name "Acme" \
+  --owner 3f2a9c1e-… --owner-email alice@example.com --owner-name "Alice Example"
+```
+
+The owner is the customer's subject, their stable id in Keycloak. The organization's only member is that
+owner, and its history records the administrator as the one who created it. Only a platform administrator
+may name an owner; the option is refused from anyone else in every installation.
+
 ## Platform administrators
 
 `platform-admin` is a realm role in Keycloak. Its holders see every organization, act as an owner in any
@@ -121,6 +152,13 @@ the two parts, and an installation's overlay writes both once. `ANKKA_AUTH_ISSUE
 explicitly and takes precedence over the derivation. The control plane reads Keycloak's keys over the
 cluster's internal address, `ANKKA_AUTH_JWKS_URL`, and caches them, so verifying a token needs no call to
 Keycloak on the request path.
+
+An explicit issuer is also how one installation trusts another installation's realm. Set
+`ANKKA_AUTH_ISSUER` to the other realm's issuer and `ANKKA_AUTH_JWKS_URL` to its public key address, and
+the control plane accepts that realm's tokens and refuses every other issuer's, including the one its own
+base domain would derive. Its login discovery then sends `ankka login` to that realm, so a person
+registered once can log in to both installations. See
+[Install on a cloud cluster](install-cloud.md#a-spoke-installation).
 
 When the control plane rejects every token with `401`, compare the issuer it expects with the one
 Keycloak advertises:

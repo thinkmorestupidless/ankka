@@ -240,7 +240,43 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
 
 ankka does not ship a check for a specific identity provider for your services, and deliberately has no
 "same service" principal: establishing who a caller is needs a verified token or a client certificate,
-and a check against a header the client sets is not security. Plug a real check into `Authenticate`.
+and a check against a header the client sets is not security. Plug a real check into `Authenticate`. The
+platform establishes no caller identity of its own — see [Limitations](../reference/limitations.md).
+
+### A route with its own ACL
+
+`withAcl` gives the routes declared inside it a different ACL from the endpoint's. It *replaces* the
+endpoint's for those routes rather than adding to it, so an open endpoint can hold one protected route,
+and a closed one can open a single route, without either being split in two at a second prefix:
+
+<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/QueryEndpoint.scala#route-acl -->
+```scala
+/**
+ * One endpoint, two audiences: reading a cart is public, purging one is not.
+ *
+ * `withAcl` replaces the endpoint's ACL for the routes declared inside it, so neither audience
+ * needs an endpoint of its own at a second prefix.
+ */
+final class MixedAclEndpoint extends HttpEndpoint("/mixed"):
+
+  val acl: Acl = Acl.AllowAll
+
+  get("/{cartId}")((cartId: String) => s"cart:$cartId")
+
+  withAcl(
+    Acl.Authenticate(context =>
+      context.header("X-Support-Id") match
+        case Some(id) => AuthDecision.Allow(Principal(id))
+        case None     => AuthDecision.Unauthenticated("""realm="support"""")
+    )
+  ) {
+    delete("/{cartId}")((cartId: String) => s"purged:$cartId by ${principal.subject}")
+  }
+```
+
+Scopes nest, and the innermost one wins. A request whose path matches no route of the endpoint is judged
+by the endpoint's own ACL, so an endpoint that refuses answers the same way for a path that exists and one
+that does not, rather than disclosing which is which.
 
 ## Registering endpoints
 
@@ -278,6 +314,7 @@ class ShoppingCartEndpoint(Endpoint):
     """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
 
     prefix = "/carts"
+    acl = Acl.ALLOW_ALL
 
     def __init__(self, client: ComponentClient) -> None:
         self.client = client
@@ -331,7 +368,23 @@ async def row(self, cartId: str) -> CartRow:
 A `CommandError` from a component call propagates as its code's status, as in Scala. Routes are matched
 by the same rules, so a literal segment outranks a parameter.
 
-The Python ACL is a class attribute and defaults to `Acl.ALLOW_ALL`. `Acl.DENY_ALL` refuses everything.
-`Acl.AUTHENTICATED` answers `503` for now, because the sidecar has no token verifier configured for a
-service's own routes. A `str` return value is answered as `text/plain`, and a `str` body is read as raw
-text, not as a JSON string — the same encoding the Scala SDK uses.
+The Python ACL is a required class attribute: an endpoint that declares no `acl` raises `RegistrationError`
+when the class is defined, naming it. `Acl.ALLOW_ALL` admits any caller, `Acl.DENY_ALL` refuses everything,
+and `Acl.AUTHENTICATED` answers `503` for now, because the sidecar has no token verifier configured for a
+service's own routes. A route decorator takes an `acl` of its own, which replaces the endpoint's for that
+route exactly as `withAcl` does in Scala:
+
+```python
+class CartsEndpoint(Endpoint):
+    prefix = "/carts"
+    acl = Acl.ALLOW_ALL
+
+    @get("/{cart_id}")
+    async def get_cart(self, cart_id: str) -> Cart: ...
+
+    @delete("/{cart_id}", acl=Acl.DENY_ALL)
+    async def purge(self, cart_id: str) -> None: ...
+```
+
+A `str` return value is answered as `text/plain`, and a `str` body is read as raw text, not as a JSON
+string — the same encoding the Scala SDK uses.

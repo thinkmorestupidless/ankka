@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from ankka import (
+    Acl,
     Done,
     DONE,
     Endpoint,
@@ -97,6 +98,7 @@ class CounterEntity(EventSourcedEntity[Counter, CounterEvent]):
 
 class CounterEndpoint(Endpoint):
     prefix = "/counters"
+    acl = Acl.ALLOW_ALL
 
     def __init__(self, greeting: str = "hi") -> None:
         self.greeting = greeting

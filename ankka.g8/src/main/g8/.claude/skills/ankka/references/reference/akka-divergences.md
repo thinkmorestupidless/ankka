@@ -17,6 +17,7 @@ will recognise every component. The differences below are deliberate, and each h
 | A bespoke SQL-like view query language | real SQL over a JSON row column | Nothing to learn or parse, strictly more expressive, and indexes are explicit. |
 | Route order decides dispatch | literal segments outrank parameters | `/users/me` works whether it is declared before or after `/users/{id}`. |
 | An ACL by absent annotation | an abstract `acl` every endpoint must define | An unstated ACL is a decision nobody made. |
+| Principals naming the caller — the internet, a named service, self | a predicate over the request, or a credential the service verifies | Without mutual TLS there is nothing to name a caller with, and a header the caller sets is not evidence. |
 | `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
@@ -75,8 +76,28 @@ In ankka a literal segment always outranks a parameter, so `/carts/summary` reac
 
 Akka denies access when an endpoint has no ACL annotation, which is safe but silent. An ankka endpoint must
 define `acl`; `Acl.DenyAll`, `Acl.AllowAll`, a predicate or an authenticator. Nobody ships an endpoint without
-having decided who can reach it. The Python SDK's endpoints default to allowing everyone, so set the ACL there
-deliberately.
+having decided who can reach it. The Python SDK requires the same attribute, and an endpoint that omits it
+fails when its class is defined.
+
+A route can state an ACL of its own — `withAcl` in Scala, an `acl` argument to the route decorator in
+Python — which replaces the endpoint's for that route exactly as Akka's method-level annotation replaces
+its class's.
+
+## ACLs name what the request carries, not who is calling
+
+Most of Akka's ACL vocabulary names the caller: the internet, a specific deployed service, any service, the
+service itself, a backoffice proxy. Those principals are trustworthy on Akka because the platform terminates
+mutual TLS and guarantees the identity cannot be forged. ankka has none of them, because it has none of that
+machinery: there is no mesh, no workload identity and no service-to-service invocation, and a service's
+in-cluster address is reachable from every namespace. Inventing the vocabulary anyway would mean deciding who
+a caller is from a header the caller sets, which is not a security control.
+
+So ankka's ACLs are the two honest kinds. `Acl.AllowIf` is a predicate over the request as it arrived, and
+`Acl.Authenticate` verifies a credential — a signed token, a client certificate — that a service can check
+for itself. What Akka expresses as `@Acl(allow = @Acl.Matcher(service = "shopping-cart"))` has no ankka
+spelling, and will not until the platform can establish identity; it is recorded in
+[Limitations](limitations.md). In one respect ankka's is the richer model: `AuthDecision` distinguishes "log
+in" from "you may not" from "the check could not be made", where Akka's ACL has a single refusal.
 
 ## Model settings follow current models
 

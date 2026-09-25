@@ -192,6 +192,7 @@ class Echo:
 
 class ConformanceEndpoint(Endpoint):
     prefix = "/conformance"
+    acl = Acl.ALLOW_ALL
 
     def __init__(self, client: ComponentClient) -> None:
         self.client = client
@@ -221,6 +222,12 @@ class ConformanceEndpoint(Endpoint):
     @get("/boom")
     def boom(self) -> str:
         raise RuntimeError("boom from the handler")
+
+    # A route whose acl differs from its endpoint's: /conformance admits everyone, this one
+    # admits nobody, and the routes declared around it are unaffected.
+    @get("/closed", acl=Acl.DENY_ALL)
+    def closed(self) -> str:
+        return "never reached"
 
     @sse("/stream/{session}")
     async def stream_frames(self, session: str) -> AsyncIterator[str]:

@@ -347,6 +347,12 @@ object ConformanceReference:
       throw HttpProblem(code, s"status $code as asked")
     )
     get[String]("/boom")(() => throw RuntimeException("boom from the handler"))
+
+    // A route whose acl differs from its endpoint's: `/conformance` admits everyone, this one
+    // admits nobody, and the routes declared around it are unaffected.
+    withAcl(Acl.DenyAll) {
+      get[String]("/closed")(() => "never reached")
+    }
     sse("/stream/{session}") { (session: String) =>
       val _ = session
       Source(List(" leading space", "two\nlines", "plain"))

@@ -43,10 +43,12 @@ _MARK = "_ankka_route"
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-def _route(method: str, streaming: bool = False) -> Callable[[str], Callable[[Callable[..., Any]], Callable[..., Any]]]:
-    def with_template(template: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+def _route(method: str, streaming: bool = False) -> Callable[..., Callable[[Callable[..., Any]], Callable[..., Any]]]:
+    def with_template(template: str, *, acl: Acl | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """``acl`` replaces the endpoint's for this route alone; omitted, the endpoint's applies."""
+
         def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
-            setattr(fn, _MARK, (method, template, streaming))
+            setattr(fn, _MARK, (method, template, streaming, acl))
             return fn
 
         return decorate
@@ -85,15 +87,21 @@ class RouteSpec:
     body_param: str | None
     body_codec: Codec[Any] | None
     reply_codec: Codec[Any] | None  # None for streaming routes
+    acl: Acl | None = None  # None: the endpoint's
 
     @property
     def has_body(self) -> bool:
         return self.body_param is not None
 
     def to_pb(self) -> discovery_pb2.Route:
-        return discovery_pb2.Route(
+        route = discovery_pb2.Route(
             id=self.id, method=self.method, template=self.template, has_body=self.has_body, streaming=self.streaming
         )
+        # Left unset when the route declares nothing, so the sidecar reads "the endpoint's"
+        # rather than ALLOW_ALL — the field is `optional` in the protocol for exactly this.
+        if self.acl is not None:
+            route.acl = self.acl.value
+        return route
 
 
 def collect_routes(cls: type) -> dict[str, RouteSpec]:
@@ -102,7 +110,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
         mark = getattr(member, _MARK, None)
         if mark is None:
             continue
-        method, template, streaming = mark
+        method, template, streaming, route_acl = mark
         if not template.startswith("/"):
             raise RegistrationError(f"{cls.__name__}.{attr}: template '{template}' must start with '/'")
         names = _PLACEHOLDER.findall(template)
@@ -129,6 +137,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
             body_param=body_param,
             body_codec=default_codec_for(hints[body_param]) if body_param else None,
             reply_codec=None if streaming else default_codec_for(ret if ret is not None else Done),
+            acl=route_acl,
         )
     return found
 
@@ -140,7 +149,7 @@ class Endpoint:
     """Subclass this. Class attributes: ``prefix`` and ``acl``. Routes are decorated methods."""
 
     prefix: ClassVar[str]
-    acl: ClassVar[Acl] = Acl.ALLOW_ALL
+    acl: ClassVar[Acl]
     _routes: ClassVar[dict[str, RouteSpec]]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -149,6 +158,15 @@ class Endpoint:
             raise RegistrationError(f"{cls.__name__} must declare a prefix")
         if not cls.prefix.startswith("/"):
             raise RegistrationError(f"{cls.__name__}: prefix '{cls.prefix}' must start with '/'")
+        # Required, not defaulted, and checked here so it fails when the class is defined rather
+        # than on the first request: the Scala SDK makes `acl` abstract for the same reason, that
+        # an unstated acl is a decision nobody made. A default of ALLOW_ALL would open an endpoint
+        # to the internet because its author did not think about it.
+        if not hasattr(cls, "acl"):
+            raise RegistrationError(
+                f"{cls.__name__} must declare an acl — say 'acl = Acl.ALLOW_ALL' for a public "
+                "endpoint, or Acl.AUTHENTICATED or Acl.DENY_ALL"
+            )
         cls._routes = collect_routes(cls)
 
     @property

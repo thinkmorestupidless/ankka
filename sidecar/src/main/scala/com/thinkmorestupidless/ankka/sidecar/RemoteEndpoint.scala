@@ -34,15 +34,7 @@ final class RemoteEndpoint private (
     settings: Settings
 ) extends HttpEndpoint(spec.prefix):
 
-  def acl: Acl = spec.acl match
-    case EndpointSpec.Acl.DENY_ALL      => Acl.DenyAll
-    case EndpointSpec.Acl.AUTHENTICATED =>
-      // The sidecar configures no verifier in this feature; an authenticated route answers 503,
-      // exactly as a Scala endpoint with `Authenticate` and no verifier would.
-      Acl.Authenticate(_ =>
-        AuthDecision.Unavailable("no authenticator is configured on this sidecar")
-      )
-    case _ => Acl.AllowAll
+  def acl: Acl = RemoteEndpoint.aclOf(spec.acl)
 
   private val (plain, streaming) = spec.routes.toVector.partition(!_.streaming)
 
@@ -52,7 +44,8 @@ final class RemoteEndpoint private (
         r.method.toUpperCase,
         PathTemplate.parse(r.template),
         r.hasBody,
-        (args, body) => forward(r, args, body)
+        (args, body) => forward(r, args, body),
+        r.acl.map(RemoteEndpoint.aclOf)
       )
     }
 
@@ -62,7 +55,8 @@ final class RemoteEndpoint private (
         r.method.toUpperCase,
         PathTemplate.parse(r.template),
         r.hasBody,
-        (args, body) => conversation.handleHttpStream(forwardOf(r, args, body))
+        (args, body) => conversation.handleHttpStream(forwardOf(r, args, body)),
+        r.acl.map(RemoteEndpoint.aclOf)
       )
     }
 
@@ -109,3 +103,20 @@ final class RemoteEndpoint private (
 object RemoteEndpoint:
   def from(spec: EndpointSpec, conversation: Conversation, settings: Settings): RemoteEndpoint =
     new RemoteEndpoint(spec, conversation, settings)
+
+  /**
+   * One mapping, used for an endpoint's ACL and for a route's own.
+   *
+   * A route that declares nothing is `None` in the protocol, which `HttpEndpoint` already reads as
+   * "the endpoint's" — so a process built against a protocol without the field keeps exactly the
+   * endpoint-wide behaviour it was written for.
+   */
+  private[sidecar] def aclOf(acl: EndpointSpec.Acl): Acl = acl match
+    case EndpointSpec.Acl.DENY_ALL      => Acl.DenyAll
+    case EndpointSpec.Acl.AUTHENTICATED =>
+      // The sidecar configures no verifier; an authenticated route answers 503, exactly as a
+      // Scala endpoint with `Authenticate` and no verifier would.
+      Acl.Authenticate(_ =>
+        AuthDecision.Unavailable("no authenticator is configured on this sidecar")
+      )
+    case _ => Acl.AllowAll

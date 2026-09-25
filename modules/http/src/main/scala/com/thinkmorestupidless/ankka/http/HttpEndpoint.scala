@@ -105,7 +105,9 @@ private[ankka] final case class Route(
     method: String,
     template: PathTemplate,
     needsBody: Boolean,
-    run: (Vector[String], Array[Byte]) => EncodedResponse
+    run: (Vector[String], Array[Byte]) => EncodedResponse,
+    /** Declared by `withAcl`; `None` means the endpoint's. */
+    acl: Option[Acl] = None
 ):
   def describe: String = s"$method ${template.render}"
 
@@ -119,7 +121,9 @@ private[ankka] final case class StreamRoute(
     method: String,
     template: PathTemplate,
     needsBody: Boolean,
-    run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?]
+    run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?],
+    /** Declared by `withAcl`; `None` means the endpoint's. */
+    acl: Option[Acl] = None
 ):
   def describe: String = s"$method ${template.render} (SSE)"
 
@@ -141,8 +145,37 @@ abstract class HttpEndpoint(val prefix: String):
    * Abstract on purpose. Akka denies by default via a missing annotation, which is safe but silent;
    * requiring the decision means nobody ships an endpoint without having thought about who can
    * reach it.
+   *
+   * Individual routes can say something different with `withAcl`.
    */
   def acl: Acl
+
+  /**
+   * Declares routes that answer to `acl` rather than to the endpoint's.
+   *
+   * A route's ACL *replaces* the endpoint's for that route; it does not add to it. So an endpoint
+   * that is `AllowAll` can hold one authenticated route, and one that is `DenyAll` can open a
+   * single route, without being split into two endpoints at two prefixes:
+   *
+   * {{{
+   * val acl: Acl = Acl.AllowAll
+   *
+   * get("/{cartId}") { (cartId: String) => ... }
+   *
+   * withAcl(Acl.Authenticate(support)) {
+   *   delete("/{cartId}") { (cartId: String) => ... }
+   * }
+   * }}}
+   *
+   * Scopes nest, and the innermost wins. A path that matches no route of this endpoint is still
+   * judged by the endpoint's own ACL, so a closed endpoint does not disclose which of its paths
+   * exist by answering 404 for some of them and 403 for the rest.
+   */
+  protected def withAcl(acl: Acl)(declare: => Unit): Unit =
+    val enclosing = scopedAcl
+    scopedAcl = Some(acl)
+    try declare
+    finally scopedAcl = enclosing
 
   /**
    * The request currently being handled.
@@ -161,21 +194,30 @@ abstract class HttpEndpoint(val prefix: String):
   protected def query: QueryParams = request.query
 
   /**
-   * Who is calling, as this endpoint's `Acl.Authenticate` established it.
+   * Who is calling, as the `Acl.Authenticate` that admitted the request established it.
    *
-   * Throws when there is none: an endpoint whose ACL does not authenticate has no business asking,
-   * and the mistake should fail on the first request in a test rather than hand `None` into a
+   * Throws when there is none: a route whose ACL does not authenticate has no business asking, and
+   * the mistake should fail on the first request in a test rather than hand `None` into a
    * permission check.
    */
   protected def principal: Principal =
-    request.principal.getOrElse(
+    val current = request
+    current.principal.getOrElse(
+      // Named by route, not by endpoint: under `withAcl` the ACL that admitted this request is
+      // not necessarily the endpoint's, and blaming the wrong one sends the reader to edit a
+      // line that was never involved.
       throw IllegalStateException(
-        s"endpoint '$prefix' asked for a principal, but its acl does not authenticate callers"
+        s"'${current.method} ${current.path}' asked for a principal, but the acl that admitted it " +
+          "does not authenticate callers"
       )
     )
 
   private val collected        = mutable.ListBuffer.empty[Route]
   private val collectedStreams = mutable.ListBuffer.empty[StreamRoute]
+
+  // Routes are declared in the constructor body, which is single-threaded, so a var scoped
+  // around the declarations is all `withAcl` needs.
+  private var scopedAcl: Option[Acl] = None
 
   private[ankka] def routes: Vector[Route]             = collected.toVector
   private[ankka] def streamRoutes: Vector[StreamRoute] = collectedStreams.toVector
@@ -218,6 +260,8 @@ abstract class HttpEndpoint(val prefix: String):
           response.write(value),
           response.headers(value)
         )
+      ,
+      scopedAcl
     )
 
   /**
@@ -235,7 +279,7 @@ abstract class HttpEndpoint(val prefix: String):
         s"$method $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
           s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
       )
-    collectedStreams += StreamRoute(method, template, needsBody, run)
+    collectedStreams += StreamRoute(method, template, needsBody, run, scopedAcl)
 
   /** `GET $prefix$template`, answered as server-sent events. */
   protected def sse[A: FromPath](template: String)(

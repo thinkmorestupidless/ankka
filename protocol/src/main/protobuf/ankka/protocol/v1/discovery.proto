@@ -96,6 +96,10 @@ message Route {
   string template = 3;           // HttpEndpoint's syntax: "/{cartId}/items"; relative to prefix
   bool   has_body = 4;
   bool   streaming = 5;          // served as SSE via Endpoint.HandleStream
+  // This route's own acl, replacing the endpoint's for this route alone. `optional` so that
+  // absent means "the endpoint's" rather than ALLOW_ALL, which is what lets a process built
+  // against an earlier protocol keep the endpoint-wide behaviour it expects.
+  optional Endpoint.Acl acl = 6;
 }
 
 message Problem { string message = 1; }

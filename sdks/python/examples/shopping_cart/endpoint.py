@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from ankka import Done, Endpoint, HttpProblem, delete, get, post, sse
+from ankka import Acl, Done, Endpoint, HttpProblem, delete, get, post, sse
 from ankka.client import Calls, ComponentClient
 
 from examples.shopping_cart.cart_rows import CartRow
@@ -16,6 +16,7 @@ class ShoppingCartEndpoint(Endpoint):
     """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
 
     prefix = "/carts"
+    acl = Acl.ALLOW_ALL
 
     def __init__(self, client: ComponentClient) -> None:
         self.client = client

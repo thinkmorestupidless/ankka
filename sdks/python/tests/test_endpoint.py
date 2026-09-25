@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from ankka import Acl, Endpoint, RegistrationError, get
 from ankka.testkit import EndpointTestKit
 from tests.counter import CounterEndpoint, Counter, Incremented
 
@@ -41,3 +44,44 @@ def test_discovery_entry() -> None:
     assert routes["add"].method == "POST" and routes["add"].has_body and routes["add"].template == "/{counter_id}/increments"
     assert routes["events"].streaming
     assert Counter  # the module's shapes are the ones the routes encode
+
+
+def test_a_route_acl_is_carried_in_discovery_and_absence_means_the_endpoints() -> None:
+    """The sidecar applies the acl; the SDK's job is to say which one, or to say nothing.
+
+    Absence has to stay distinguishable from ALLOW_ALL, or a route that declares nothing would
+    silently open an endpoint that denies.
+    """
+
+    class Mixed(Endpoint):
+        prefix = "/mixed"
+        acl = Acl.DENY_ALL
+
+        @get("/open", acl=Acl.ALLOW_ALL)
+        def open_route(self) -> str:
+            return "ok"
+
+        @get("/inherited")
+        def inherited(self) -> str:
+            return "ok"
+
+    routes = {r.id: r for r in Mixed.to_endpoint().routes}
+    assert routes["open_route"].HasField("acl")
+    assert routes["open_route"].acl == Acl.ALLOW_ALL.value
+    assert not routes["inherited"].HasField("acl")
+
+
+def test_an_endpoint_must_declare_an_acl() -> None:
+    """An unstated acl is a decision nobody made, so it fails when the class is defined.
+
+    The Scala SDK gets this from `acl` being abstract; Python has to check for it. A default of
+    ALLOW_ALL would open an endpoint to the internet because its author did not think about it.
+    """
+    with pytest.raises(RegistrationError, match="must declare an acl"):
+
+        class NoAcl(Endpoint):
+            prefix = "/no-acl"
+
+            @get("/")
+            def anything(self) -> str:
+                return "reachable"

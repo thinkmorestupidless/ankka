@@ -19,7 +19,11 @@ class QueryParamSuite extends munit.FunSuite:
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
   override def beforeAll(): Unit =
-    server = HttpServer.at("127.0.0.1", 0)(_ => QueryEndpoint(), _ => GatedEndpoint())
+    server = HttpServer.at("127.0.0.1", 0)(
+      _ => QueryEndpoint(),
+      _ => GatedEndpoint(),
+      _ => MixedAclEndpoint()
+    )
     testKit = AnkkaTestKit.start(Seq(OrderEntity.descriptor), Seq(server))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
@@ -129,4 +133,18 @@ class QueryParamSuite extends munit.FunSuite:
     assertEquals(get("/gated/", Vector("X-Api-Key" -> "wrong"))._1, 403)
     // The predicate can inspect query parameters too.
     assertEquals(get("/gated/?public")._1, 200)
+  }
+
+  test("a route's own ACL applies to that route and not to its siblings, over real HTTP") {
+    assertEquals(get("/mixed/abc"), (200, "cart:abc"))
+
+    val purge = JdkRequest
+      .newBuilder(URI.create(baseUrl + "/mixed/abc"))
+      .timeout(Duration.ofSeconds(30))
+      .DELETE()
+    assertEquals(http.send(purge.build(), JdkResponse.BodyHandlers.ofString()).statusCode, 401)
+
+    val authorised =
+      http.send(purge.header("X-Support-Id", "sam").build(), JdkResponse.BodyHandlers.ofString())
+    assertEquals((authorised.statusCode, authorised.body), (200, "purged:abc by sam"))
   }

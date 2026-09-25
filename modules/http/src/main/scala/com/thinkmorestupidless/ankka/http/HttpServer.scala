@@ -64,9 +64,15 @@ final class HttpServer private (
       endpoint.streamRoutes.foreach { route =>
         system.log.info("route {} {}{} (SSE)", route.method, endpoint.prefix, route.template.render)
       }
-      if endpoint.acl == Acl.DenyAll then
+      // Judged per route, not on the endpoint's own acl: a DenyAll endpoint that opens one route
+      // with `withAcl` is a deliberate shape, and warning about it would teach the reader to
+      // ignore the warning that matters — an endpoint nothing can reach.
+      val effective = endpoint.routes.map(_.acl.getOrElse(endpoint.acl)) ++
+        endpoint.streamRoutes.map(_.acl.getOrElse(endpoint.acl))
+      if effective.forall(_ == Acl.DenyAll) && (effective.nonEmpty || endpoint.acl == Acl.DenyAll)
+      then
         system.log.warn(
-          "endpoint '{}' has acl = DenyAll; every request to it will be rejected",
+          "nothing on endpoint '{}' is reachable; every route is denied by its acl",
           endpoint.prefix
         )
     }
@@ -146,6 +152,21 @@ object HttpServer:
   ): HttpServer =
     new HttpServer(factories, Some(interface), Some(port))
 
+/**
+ * The route a request selected, with the path arguments it matched.
+ *
+ * Carried from matching to admission to dispatch so the route is found once. It has to be found
+ * before the ACL is applied, because a route may state an ACL of its own.
+ */
+private enum Matched:
+  case Plain(route: Route, args: Vector[String])
+  case Streaming(route: StreamRoute, args: Vector[String])
+
+  /** The route's own ACL, if it declared one; `None` defers to the endpoint's. */
+  def acl: Option[Acl] = this match
+    case Plain(route, _)     => route.acl
+    case Streaming(route, _) => route.acl
+
 /** Matches requests to routes and turns handler outcomes into responses. */
 private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteDuration):
 
@@ -178,10 +199,64 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
             problem(HttpProblem.notFound(s"no endpoint for /${path.mkString("/")}"))
           )
         case Some(endpoint) =>
-          admit(endpoint, contextFor(request)) match
+          val remaining = path.drop(endpoint.prefixPath.size)
+          val found     = matched(endpoint, request.method.value, remaining)
+
+          // The route is matched before admission because a route's ACL replaces the endpoint's.
+          // Where nothing matched there is no route to ask, so the endpoint's ACL decides — which
+          // is also what keeps a closed endpoint from disclosing which of its paths exist by
+          // answering 404 for some and 403 for the rest.
+          val effective = found.flatMap(_.acl).getOrElse(endpoint.acl)
+
+          admit(effective, contextFor(request)) match
             case Left(refused) => Future.successful(refused)
             case Right(context) =>
-              dispatch(endpoint, request, context, path.drop(endpoint.prefixPath.size))
+              found match
+                case Some(Matched.Plain(route, args)) => dispatch(route, request, context, args)
+                case Some(Matched.Streaming(route, args)) =>
+                  dispatchStream(route, request, context, args)
+                case None => unmatched(endpoint, request, remaining)
+
+  /**
+   * The route this request selects, if any.
+   *
+   * Streaming routes are consulted first, as they always have been, so a prefix serving both kinds
+   * resolves the same way it did before route ACLs existed.
+   */
+  private def matched(
+      endpoint: HttpEndpoint,
+      method: String,
+      remaining: Vector[String]
+  ): Option[Matched] =
+    val streaming = streamRoutesByEndpoint(endpoint.prefix).iterator
+      .map(route => route -> route.template.matches(remaining))
+      .collectFirst {
+        case (route, Some(args)) if route.method == method => Matched.Streaming(route, args)
+      }
+
+    streaming.orElse(
+      routesByEndpoint(endpoint.prefix).iterator
+        .map(route => route -> route.template.matches(remaining))
+        .collectFirst {
+          case (route, Some(args)) if route.method == method => Matched.Plain(route, args)
+        }
+    )
+
+  /** No route of this endpoint answers for the path, or none answers for the method. */
+  private def unmatched(
+      endpoint: HttpEndpoint,
+      request: HttpRequest,
+      remaining: Vector[String]
+  )(using system: ActorSystem[?]): Future[HttpResponse] =
+    // Distinguish "wrong verb" from "no such path" — a 404 for a POST to a GET-only
+    // route sends the caller looking for a routing bug that is not there.
+    val pathExists = endpoint.routes.exists(_.template.matches(remaining).isDefined) ||
+      endpoint.streamRoutes.exists(_.template.matches(remaining).isDefined)
+    val failure =
+      if pathExists then HttpProblem(405, s"${request.method.value} not allowed on this path")
+      else HttpProblem.notFound(s"no route for ${request.method.value} ${request.uri.path}")
+    request.discardEntityBytes()
+    Future.successful(problem(failure))
 
   /**
    * The request as a handler and an ACL both see it.
@@ -204,15 +279,15 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
     )
 
   /**
-   * Applies the endpoint's ACL: the context to dispatch with (carrying the principal, if the ACL
+   * Applies the effective ACL: the context to dispatch with (carrying the principal, if the ACL
    * established one), or the response that refuses the request.
    */
   private def admit(
-      endpoint: HttpEndpoint,
+      acl: Acl,
       context: SimpleRequestContext
   ): Either[HttpResponse, RequestContext] =
     def forbidden(reason: String) = Left(problem(HttpProblem.forbidden(reason)))
-    endpoint.acl match
+    acl match
       case Acl.DenyAll  => forbidden("not permitted by this endpoint's acl")
       case Acl.AllowAll => Right(context)
       case Acl.AllowIf(predicate) =>
@@ -231,85 +306,58 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
             Left(problem(HttpProblem(503, reason)).addHeader(headers.RawHeader("Retry-After", "5")))
 
   private def dispatch(
-      endpoint: HttpEndpoint,
+      route: Route,
       request: HttpRequest,
       context: RequestContext,
-      remaining: Vector[String]
+      args: Vector[String]
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
-    val method = request.method.value
-
-    val streamMatched = streamRoutesByEndpoint(endpoint.prefix).iterator
-      .map(route => route -> route.template.matches(remaining))
-      .collectFirst { case (route, Some(args)) if route.method == method => route -> args }
-
-    streamMatched match
-      case Some((route, args)) => return dispatchStream(route, request, context, args)
-      case None                => ()
-
-    val matched = routesByEndpoint(endpoint.prefix).iterator
-      .map(route => route -> route.template.matches(remaining))
-      .collectFirst { case (route, Some(args)) if route.method == method => route -> args }
-
-    matched match
-      case None =>
-        // Distinguish "wrong verb" from "no such path" — a 404 for a POST to a GET-only
-        // route sends the caller looking for a routing bug that is not there.
-        val pathExists = endpoint.routes.exists(_.template.matches(remaining).isDefined) ||
-          endpoint.streamRoutes.exists(_.template.matches(remaining).isDefined)
-        val failure =
-          if pathExists then HttpProblem(405, s"$method not allowed on this path")
-          else HttpProblem.notFound(s"no route for $method ${request.uri.path}")
+    val bodyBytes =
+      if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
+      else
         request.discardEntityBytes()
-        Future.successful(problem(failure))
+        Future.successful(Array.emptyByteArray)
 
-      case Some((route, args)) =>
-        val bodyBytes =
-          if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
-          else
-            request.discardEntityBytes()
-            Future.successful(Array.emptyByteArray)
-
-        bodyBytes
-          .flatMap { bytes =>
-            // Handlers run on a virtual thread, which is what makes the blocking
-            // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
-            // and what makes the request context safe to hold in a ThreadLocal.
-            Future(
-              RequestScope.withContext(context)(
-                // Traced here, on the handler's own virtual thread, and not around this
-                // Future's creation: a trace set on the caller's thread is invisible to
-                // this one. It is the same reason RequestScope sets its context here. This
-                // is what makes the entity's span a child of the request instead of a root
-                // of its own — the difference between a trace and a list.
-                Tracing.request(route.describe)(route.run(args, bytes))
-              )
-            )(using AnkkaExecutors.virtual)
-          }
-          .map { encoded =>
-            HttpResponse(
-              status = StatusCode.int2StatusCode(encoded.status),
-              // What the handler asked for beside the body: a `Location`, a `Set-Cookie`. Raw
-              // headers, so `Content-Type` and `Content-Length` — Pekko models those on the
-              // entity — are not the handler's to set here.
-              headers = encoded.headers.map((name, value) => headers.RawHeader(name, value)),
-              entity =
-                if encoded.body.isEmpty then HttpEntity.Empty
-                else
-                  ContentType.parse(encoded.contentType) match
-                    case Right(contentType) => HttpEntity(contentType, encoded.body)
-                    case Left(_) =>
-                      HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
-            )
-          }
-          .recover {
-            case failure: HttpProblem  => problem(failure)
-            case failure: CommandError => problem(HttpProblem.from(failure))
-            case failure: IllegalArgumentException =>
-              problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
-            case NonFatal(failure) =>
-              system.log.error(s"unhandled failure in ${route.describe}", failure)
-              problem(HttpProblem(500, "internal error"))
-          }
+    bodyBytes
+      .flatMap { bytes =>
+        // Handlers run on a virtual thread, which is what makes the blocking
+        // `ComponentClient.invoke` inside them free rather than a dispatcher hazard —
+        // and what makes the request context safe to hold in a ThreadLocal.
+        Future(
+          RequestScope.withContext(context)(
+            // Traced here, on the handler's own virtual thread, and not around this
+            // Future's creation: a trace set on the caller's thread is invisible to
+            // this one. It is the same reason RequestScope sets its context here. This
+            // is what makes the entity's span a child of the request instead of a root
+            // of its own — the difference between a trace and a list.
+            Tracing.request(route.describe)(route.run(args, bytes))
+          )
+        )(using AnkkaExecutors.virtual)
+      }
+      .map { encoded =>
+        HttpResponse(
+          status = StatusCode.int2StatusCode(encoded.status),
+          // What the handler asked for beside the body: a `Location`, a `Set-Cookie`. Raw
+          // headers, so `Content-Type` and `Content-Length` — Pekko models those on the
+          // entity — are not the handler's to set here.
+          headers = encoded.headers.map((name, value) => headers.RawHeader(name, value)),
+          entity =
+            if encoded.body.isEmpty then HttpEntity.Empty
+            else
+              ContentType.parse(encoded.contentType) match
+                case Right(contentType) => HttpEntity(contentType, encoded.body)
+                case Left(_) =>
+                  HttpEntity(ContentTypes.`application/octet-stream`, encoded.body)
+        )
+      }
+      .recover {
+        case failure: HttpProblem  => problem(failure)
+        case failure: CommandError => problem(HttpProblem.from(failure))
+        case failure: IllegalArgumentException =>
+          problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
+        case NonFatal(failure) =>
+          system.log.error(s"unhandled failure in ${route.describe}", failure)
+          problem(HttpProblem(500, "internal error"))
+      }
 
   /**
    * Serves a route's `Source` as server-sent events.

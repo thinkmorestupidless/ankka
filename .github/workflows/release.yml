@@ -24,6 +24,13 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # `sonaRelease` uploads the bundle in seconds and then polls the portal every 30s until Sonatype
+    # reports it PUBLISHED — the sync to repo1, which is normally minutes and was once an hour of
+    # polling with no end in sight (v0.4.0: uploaded at 10:44, still PUBLISHING at 11:36, cancelled).
+    # The bound is here rather than on the poll because sbt has no setting for one. If it trips, the
+    # upload has still happened and the portal finishes on its own; the step below then lets a re-run
+    # of the tag carry on without uploading a second time.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,7 +59,25 @@ jobs:
             exit 1
           fi
           echo "clean: $(git describe --long --tags --abbrev=8 --match 'v[0-9]*' --always --dirty=+DIRTY)"
+      # A release that reached Central and was cut off while sbt waited for the portal (above) needs
+      # the jobs behind this one to run without uploading again: the portal refuses a version it
+      # already holds, and nothing on Central can be replaced. A re-run of the tag — or the tag moved
+      # to a commit that changes nothing the jars are built from — therefore asks repo1 first.
+      - name: Is this version already on Maven Central?
+        id: central
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          url="https://repo1.maven.org/maven2/com/thinkmorestupidless/ankka-core_3/$version/ankka-core_3-$version.pom"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)
+          echo "$url -> $code"
+          if [ "$code" = "200" ]; then
+            echo "::notice::$version is already on Maven Central; not uploading it again"
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
       - run: sbt ci-release
+        if: steps.central.outputs.published != 'true'
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}

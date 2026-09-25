@@ -28,3 +28,6 @@ __pycache__/
 sdks/python/src/ankka/_proto/
 .pytest_cache/
 .mypy_cache/
+
+# Claude Code worktrees: other sessions' checkouts, never part of this one
+.claude/worktrees/

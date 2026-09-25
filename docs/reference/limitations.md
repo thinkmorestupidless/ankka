@@ -43,6 +43,13 @@ feature also says what that feature does not do.
 - **The platform authenticates its operators, not your service's callers.** The control plane verifies
   identity-provider tokens; a deployed service's endpoints are protected only by the ACL their author wrote.
   The platform provisions no identity realm, client or token check for services.
+- **The platform establishes no caller identity, so an ACL sees only what the request carries.** There is no
+  mutual TLS between services and no workload identity, so nothing distinguishes a request that arrived from
+  the internet from one sent by a pod in the next namespace, and there is no principal naming the service
+  that called. An `Acl.AllowIf` predicate is given the request's own headers and query parameters and
+  nothing more; a header naming a calling service is set by the client and is evidence of nothing. Where a
+  service must know who is calling, that has to be a credential it can verify itself — a signed token, or a
+  certificate — checked in `Acl.Authenticate`.
 - **Roles are per organization.** A member is an owner or a member of an organization. There are no
   per-project roles and no read-only role.
 - **Nothing at the gateway but routing.** There is no authentication, rate limiting or header policy at the

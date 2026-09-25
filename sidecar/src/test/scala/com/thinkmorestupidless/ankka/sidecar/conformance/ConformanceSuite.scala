@@ -429,6 +429,13 @@ class ConformanceSuite extends munit.FunSuite:
     assert(r.status == 401 || r.status == 503, r.toString)
   }
 
+  test("http.route-acl-overrides-the-endpoint") {
+    // `/conformance` admits everyone; this one route does not, and says so without reaching
+    // the process. Its siblings under the same prefix are unaffected.
+    assertEquals(get("/conformance/closed").status, 403)
+    assertEquals(get("/conformance/status/418").status, 418)
+  }
+
   test("http.sse-frames-json-encoded") {
     val r = get("/conformance/stream/s1")
     assertEquals(r.status, 200)

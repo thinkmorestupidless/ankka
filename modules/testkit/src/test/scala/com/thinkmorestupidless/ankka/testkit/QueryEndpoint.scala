@@ -73,3 +73,27 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
 
   get("/")(() => "allowed")
 // docs:end gated
+
+// docs:start route-acl
+/**
+ * One endpoint, two audiences: reading a cart is public, purging one is not.
+ *
+ * `withAcl` replaces the endpoint's ACL for the routes declared inside it, so neither audience
+ * needs an endpoint of its own at a second prefix.
+ */
+final class MixedAclEndpoint extends HttpEndpoint("/mixed"):
+
+  val acl: Acl = Acl.AllowAll
+
+  get("/{cartId}")((cartId: String) => s"cart:$cartId")
+
+  withAcl(
+    Acl.Authenticate(context =>
+      context.header("X-Support-Id") match
+        case Some(id) => AuthDecision.Allow(Principal(id))
+        case None     => AuthDecision.Unauthenticated("""realm="support"""")
+    )
+  ) {
+    delete("/{cartId}")((cartId: String) => s"purged:$cartId by ${principal.subject}")
+  }
+// docs:end route-acl

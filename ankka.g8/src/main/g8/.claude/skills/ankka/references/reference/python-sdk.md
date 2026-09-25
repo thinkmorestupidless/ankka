@@ -157,16 +157,17 @@ and returns `None` to pass or a reason to block. See [Agents](../build/agents.md
 | Part | API |
 |---|---|
 | Base class | `Endpoint` |
-| Class attributes | `prefix`, `acl` (`Acl.ALLOW_ALL` by default, `Acl.DENY_ALL`, `Acl.AUTHENTICATED`) |
-| Decorators | `@get`, `@post`, `@put`, `@patch`, `@delete`, `@sse`, each with a path template |
+| Class attributes | `prefix`, `acl` (required: `Acl.ALLOW_ALL`, `Acl.DENY_ALL` or `Acl.AUTHENTICATED`) |
+| Decorators | `@get`, `@post`, `@put`, `@patch`, `@delete`, `@sse`, each with a path template and an optional `acl=` for that route alone |
 | Handlers | `async` methods; path parameters bind by name, one further typed parameter is the body, the return value is encoded by its type |
 | In a handler | `self.request`: `query_param`, `query_params`, `header`, `principal`, `metadata` |
 | Errors | raise `HttpProblem(status, message)`; a `CommandError` from a call answers with its code's status |
 
 The constructor receives the component client when it takes one. The process never binds an HTTP port: the
-sidecar serves the routes and forwards each request. Unlike the Scala SDK, an endpoint's ACL defaults to
-allowing everyone, so set it deliberately before exposing the service. See
-[HTTP endpoints](../build/http-endpoints.md).
+sidecar serves the routes and forwards each request. `acl` is required, as it is in the Scala SDK: a class
+that omits it raises `RegistrationError` when it is defined, naming the class, rather than serving requests
+under a posture nobody chose. A route decorator's `acl=` replaces the endpoint's for that route; a decorator
+that omits it leaves the endpoint's in force. See [HTTP endpoints](../build/http-endpoints.md).
 
 ## Calling components
 

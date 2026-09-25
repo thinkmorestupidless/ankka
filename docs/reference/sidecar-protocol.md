@@ -45,7 +45,8 @@ runtime version, retrying with backoff until the process answers or `ANKKA_SIDEC
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
   and settings for a workflow; the source, row manifest and queries for a view; the source and topic for a
   consumer; the tools, with descriptions and JSON Schemas, and guardrails for an agent;
-- every HTTP endpoint: its prefix, ACL and routes.
+- every HTTP endpoint: its prefix, ACL and routes, where a route may carry an ACL of its own that replaces
+  the endpoint's for that route alone — a route that carries none is served under the endpoint's.
 
 The sidecar validates the whole `Spec` and hosts exactly what it describes. If anything is wrong it calls
 `Discovery.ReportError` once, with every problem, and refuses to start. A process should log what it is told;

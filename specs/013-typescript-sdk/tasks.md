@@ -207,7 +207,7 @@ speaks of TypeScript.
 - [X] T055 [P] Add to `CLAUDE.md`'s traps every lesson this feature paid for (candidates already known: `import_extension=ts` with `rewriteRelativeImportExtensions` so sources run and `dist/` resolves; `files` overrides `.gitignore` for packing; type stripping refuses enums, decorators and parameter properties, so a component gets `this.client` from its base class; the source-access reviver for longs; `withCopyDirectoriesToContainer` versus the 0700 bind mount; Connect needs `http2.createServer` for bidi; npm cannot create a package by OIDC) — one bullet each, only those that actually bit.
 - [X] T056 Close the "verify at implementation" table in `specs/013-typescript-sdk/research.md`: every row V1–V8 answered with what settled it; move any that changed a decision into the relevant R-section.
 - [X] T057 Run the reviewer's checklist in [quickstart.md](./quickstart.md) top to bottom, including the `grep` for forbidden syntax and the empty `git diff --stat` on platform directories; `sbt -Dankka.cluster.tests=off test` still green (SC-009); `sbt 'sidecar/testOnly *ConformanceSuite'` (in-process Scala) still green.
-- [ ] T058 Format and commit: `npm run typecheck` clean, `sbt scalafmtCheckAll` (for `AnkkaTools.scala`), the branch rebased on `main`, ready for the release tag that carries the SDK and the one-time manual publish.
+- [X] T058 Format and commit: `npm run typecheck` clean, `sbt scalafmtCheckAll` (for `AnkkaTools.scala`), the branch rebased on `main`, ready for the release tag that carries the SDK and the one-time manual publish.
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "ankka",
-  "version": "0.0.0",
+  "version": "0.6.0",
   "description": "Build services on ankka in TypeScript: entities, views, workflows, agents and endpoints hosted by the ankka sidecar.",
   "license": "Apache-2.0",
   "type": "module",

@@ -972,23 +972,24 @@ entitlement. Three tagged attempts failed that way. The write was useless beside
 job checks the repository out afresh, so the publish job's workspace never reached the template
 that is pushed. The version is now written by that job, immediately before `git subtree split`.
 
-**A tag publishes.** `ci-release` runs sbt's own `sonaRelease`, which uploads the bundle to the
-Central Portal and publishes it; nothing on Central can ever be unpublished, only superseded.
-`sonaUpload` is the same upload that stops short and waits for the Publish button — `0.1.0` went
-out that way, because that path had never completed and a first attempt whose failure mode is
-"permanently published" is the wrong first attempt. Set `CI_SONATYPE_RELEASE: sonaUpload` in the
-workflow to rehearse a release again. Both are sbt commands, not a plugin's: sbt-ci-release 1.12.1
-depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's `sonatypeCentral*` names do not exist
-here, whatever a stale copy of that plugin in the coursier cache suggests.
+**A tag publishes, and the workflow does not wait for Central.** `ci-release` stops at sbt's own
+`sonaBundle` (`CI_SONATYPE_RELEASE: sonaBundle`), which zips the signed staging directory, and the
+next step uploads that zip through the Central Portal's API with `publishingType=AUTOMATIC`: the
+portal validates and publishes on its own, and repo1 follows in minutes to an hour. `sonaRelease`
+did the same upload and then polled every 30s until PUBLISHED — v0.4.0 sat in `PUBLISHING` for
+fifty minutes and v0.5.0 was cancelled by hand — and that wait is a runner doing nothing on the
+account's minutes. Nothing on Central can ever be unpublished, only superseded. `sonaUpload` is the
+upload that stops short and waits for the Publish button. All three are sbt's own, not a plugin's:
+sbt-ci-release 1.12.1 depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's
+`sonatypeCentral*` names do not exist here, whatever a stale copy of that plugin in the coursier
+cache suggests.
 
-**`sonaRelease` polls the portal until it says PUBLISHED, with no bound of its own.** The upload
-takes seconds; the wait is Sonatype's sync to repo1, normally minutes. `v0.4.0` sat in `PUBLISHING`
-for over fifty minutes and the run was cancelled by hand to stop it eating Actions minutes. The
-`publish` job now has `timeout-minutes: 20`, and a step before `ci-release` asks repo1 whether the
-version is already there and skips the upload when it is — so a cancelled or timed-out release is
-finished by re-running the tag once Central has caught up, without a second upload the portal would
-refuse. The cancel never undoes the upload: a deployment in `PUBLISHING` completes on Sonatype's own
-schedule, visible at central.sonatype.com/publishing/deployments.
+**The jobs behind `publish` need the version on repo1**, and it may not be there when they start:
+a step before `ci-release` asks repo1 whether the version is already published and skips the
+upload when it is, so a re-run of the tag once Central has caught up finishes the release without
+a second upload the portal would refuse. That is the recovery for a cut-off or cancelled run too,
+because a deployment the portal has accepted completes on Sonatype's own schedule, visible at
+central.sonatype.com/publishing/deployments.
 
 **`0.1.0` is the first release**, and what it cost is in the git history: a tag published a
 snapshot three times before reaching the portal. The snapshot repository 403s for this namespace

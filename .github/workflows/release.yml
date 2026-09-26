@@ -24,13 +24,14 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # `sonaRelease` uploads the bundle in seconds and then polls the portal every 30s until Sonatype
-    # reports it PUBLISHED — the sync to repo1, which is normally minutes and was once an hour of
-    # polling with no end in sight (v0.4.0: uploaded at 10:44, still PUBLISHING at 11:36, cancelled).
-    # The bound is here rather than on the poll because sbt has no setting for one. If it trips, the
-    # upload has still happened and the portal finishes on its own; the step below then lets a re-run
-    # of the tag carry on without uploading a second time.
-    timeout-minutes: 20
+    # Upload, and stop. sbt's `sonaRelease` uploads the bundle in seconds and then polls the portal
+    # every 30s until Sonatype reports it PUBLISHED — the sync to repo1, which is minutes on a good
+    # day and was an hour of a runner doing nothing on a bad one (v0.4.0, v0.5.0). The portal
+    # publishes an AUTOMATIC deployment on its own once it validates; nothing here needs to watch
+    # it. So ci-release stops at `sonaBundle` and the step after it uploads the zip through the
+    # portal's own API with publishingType=AUTOMATIC, which answers with the deployment id at once.
+    # The bound below is for a stuck upload, not a wait.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,12 +84,36 @@ jobs:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-          # A tag publishes. ci-release runs sbt's own `sonaRelease`, which uploads the bundle to
-          # the Central Portal and publishes it; `sonaUpload` is the same upload that stops short
-          # and waits for the Publish button. v0.1.0 went out under `CI_SONATYPE_RELEASE:
-          # sonaUpload` because that path had never completed and a first attempt whose failure
-          # mode is "permanently published" is the wrong first attempt. It has completed now, so
-          # the gate is gone — put the line back for a release worth rehearsing.
+          # ci-release imports the key, runs publishSigned into the local staging directory, and
+          # then the command named here. `sonaBundle` zips that directory and stops; `sonaUpload`
+          # would upload it and leave it waiting for the Publish button, `sonaRelease` would upload
+          # and poll until published. The upload is the next step.
+          CI_SONATYPE_RELEASE: sonaBundle
+      - name: Upload the bundle to the Central Portal, to be published automatically
+        if: steps.central.outputs.published != 'true'
+        env:
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+        run: |
+          bundle=$(find . -path '*/sona-bundle/bundle.zip' -type f | head -1)
+          if [ -z "$bundle" ]; then echo "::error::sonaBundle wrote no bundle.zip"; find . -name '*.zip' -path '*target*' | head; exit 1; fi
+          echo "bundle: $bundle ($(du -h "$bundle" | cut -f1))"
+          version="${GITHUB_REF_NAME#v}"
+          token=$(printf '%s:%s' "$SONATYPE_USERNAME" "$SONATYPE_PASSWORD" | base64 | tr -d '\n')
+          # AUTOMATIC: validated, then published, by the portal — no one has to watch. The answer is
+          # the deployment id; anything but a 201 is the failure, with the portal's own message.
+          code=$(curl -sS -o upload.out -w '%{http_code}' \
+            -H "Authorization: Bearer $token" \
+            -F "bundle=@$bundle" \
+            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC&name=ankka-$version" || true)
+          echo "portal answered $code: $(cat upload.out)"
+          [ "$code" = "201" ] || exit 1
+          deployment=$(cat upload.out)
+          echo "::notice::$version uploaded as deployment $deployment; the portal publishes it and repo1 follows in minutes to an hour"
+          # One look, not a wait: the state right now, for the log.
+          curl -sS -o status.out -w '%{http_code}\n' -H "Authorization: Bearer $token" -X POST \
+            "https://central.sonatype.com/api/v1/publisher/status?id=$deployment" || true
+          cat status.out; echo
   images:
     # The four images, pushed to the shared registry in the ankka-ops project — the operator, the
     # control plane and the shopping cart sample — tagged with the release version and `latest`.

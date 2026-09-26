@@ -842,6 +842,21 @@ not a template engine, a session store or a cookie API: those belong to the appl
   defaults to random. CI passes either way, so this only ever fails on the machine of the person
   doing the thing the README recommends.
 
+- **A strategic merge patch that names a container the target lacks adds a container.** Containers
+  merge by `name`, so arrakis's sidecar patch, written for `operator` when the container is
+  `ankka-operator`, rendered a second container holding only `ANKKA_SIDECAR_IMAGE` and no image.
+  kustomize accepted it and `RemoteOverlaySuite` passed, because it asked whether the registry's
+  sidecar appeared *somewhere* in the document. The API server refused the Deployment
+  (`containers[0].image: Required value`) on arrakis's first reconcile after v0.2.2, three minor
+  versions after the patch was written. Assert the shape a patch must produce (the variable set
+  once, the default gone), not the presence of a string.
+- **Changing a cert-manager issuer's `server` does not replace the certificate it issued.**
+  cert-manager reissues on a spec change or when the secret's issuer annotations disagree with
+  `issuerRef`; a new server under the same issuer name is neither, so the old CA's certificate
+  stays until renewal. Moving arrakis from Let's Encrypt staging to production renamed the
+  ClusterIssuer (`letsencrypt-production`) for exactly this, and `RemoteOverlaySuite` checks that
+  the Certificate names an issuer that exists.
+
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.

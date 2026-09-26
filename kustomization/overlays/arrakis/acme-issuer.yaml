@@ -52,24 +52,30 @@
 # **Issue against staging first.** Let's Encrypt rate-limits failed production issuance hard (5 per
 # account per hostname per week), and a DNS-01 misconfiguration is discovered by failing. Staging
 # issues an untrusted certificate, which proves the whole path — webhook reachable, token valid,
-# TXT record written and observed — without spending the budget. Swap the server line back once a
-# staging certificate reaches Ready.
+# TXT record written and observed — without spending the budget. arrakis did exactly that; this is
+# the production issuer that followed.
+#
+# **The issuer's name says which CA it is, and changing CA means changing the name.** cert-manager
+# reissues a certificate when its spec changes or its secret was signed by a different issuer than
+# the one it now names. Changing only `server` changes neither: the staging certificate would keep
+# being served until it came up for renewal, two months later. A new name makes the secret's
+# `cert-manager.io/issuer-name` disagree with `issuerRef`, and the certificate is reissued on the
+# next reconcile. The account key is named to match, so each CA has its own account.
+#
+# **Production is also rate-limited when it works**: five certificates for the same names a week.
+# A cluster torn down and brought back up (ankka-deployments' down.sh / up.sh) issues a new one each
+# time; sleeping and waking it keeps the certificate.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
-  name: ankka-acme
+  name: letsencrypt-production
 spec:
   acme:
-    # Staging for the first issuance, deliberately: it proves the whole DNS-01 path — webhook
-    # reachable, token valid, account id right, TXT record written and observed — against a CA
-    # that does not rate-limit failure. The certificate it issues is not trusted by anything, so
-    # once `certificate/ankka-wildcard` reaches Ready, swap the two server lines and tag again.
-    server: https://acme-staging-v02.api.letsencrypt.org/directory
-    # server: https://acme-v02.api.letsencrypt.org/directory
+    server: https://acme-v02.api.letsencrypt.org/directory
     email: trevor@thinkmorestupidless.com
     privateKeySecretRef:
       # cert-manager creates this; it is the ACME account key, not something you supply.
-      name: ankka-acme-account
+      name: letsencrypt-production-account
     solvers:
       - dns01:
           webhook:
@@ -104,5 +110,5 @@ spec:
     # the first dot, so the `*.` prefix survives.
     - "*.BASE_DOMAIN"
   issuerRef:
-    name: ankka-acme
+    name: letsencrypt-production
     kind: ClusterIssuer

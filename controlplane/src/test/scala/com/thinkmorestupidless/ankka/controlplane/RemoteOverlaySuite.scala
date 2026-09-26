@@ -295,6 +295,17 @@ final class RemoteOverlaySuite extends FunSuite:
       .find(_.contains("name: ankka-wildcard"))
       .getOrElse(fail("the wildcard certificate is missing from the remote overlay"))
     assert(cert.contains("kind: ClusterIssuer"), s"must reference a ClusterIssuer: $cert")
+    // And one that exists. The issuer is renamed whenever the CA changes (that is what makes
+    // cert-manager reissue), so a rename made in one place leaves a certificate naming nothing,
+    // which cert-manager reports only as a certificate that never becomes Ready.
+    val issuerRef = "(?s)issuerRef:.*?name: (\\S+)".r
+      .findFirstMatchIn(cert)
+      .map(_.group(1))
+      .getOrElse(fail(s"no issuerRef name: $cert"))
+    assert(
+      documentsOfKind(remote, "ClusterIssuer").exists(_.contains(s"\n  name: $issuerRef\n")),
+      s"the wildcard names ClusterIssuer $issuerRef, which the remote overlay does not define"
+    )
 
     // The local overlay is the mirror image, and for the mirror-image reason: its CA secret sits
     // beside the Certificate, so a ClusterIssuer would look in the wrong namespace (CLAUDE.md).

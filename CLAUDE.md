@@ -1115,7 +1115,7 @@ job is green:
 git checkout vX.Y.Z && cd sdks/typescript
 npm version X.Y.Z --no-git-tag-version && npm ci && npm run proto && npm run build
 mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
-git checkout -- package.json package-lock.json
+git checkout -- package.json package-lock.json src/version.ts   # all three are 0.0.0 in the tree; CI packs ankka-0.0.0.tgz
 ```
 
 Then on npmjs.com, package settings → Trusted Publisher → GitHub Actions: owner `thinkmorestupidless`,

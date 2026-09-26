@@ -718,7 +718,12 @@ object Main:
           tools.all,
           () => tools.resources()
         )
-        server.serve(java.io.BufferedReader(Console.in), Console.out, Console.err)
+        server.serve(
+          java.io.BufferedReader(Console.in),
+          Console.out,
+          Console.err,
+          interactive = mcp.McpServer.startedAtTerminal()
+        )
         ""
       }
     }

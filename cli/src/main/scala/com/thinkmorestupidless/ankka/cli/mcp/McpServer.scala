@@ -76,8 +76,22 @@ private[cli] final class McpServer(
 
   private val byName = tools.map(t => t.name -> t).toMap
 
-  /** Serves until the input ends, which is how a client says it is done. */
-  def serve(in: BufferedReader, out: PrintStream, log: PrintStream): Unit =
+  /**
+   * Serves until the input ends, which is how a client says it is done.
+   *
+   * `interactive` is true when a person started the server at a terminal rather than a client over
+   * pipes. The server then says, on the log, what it is waiting for: otherwise a JVM blocked on
+   * reading a line, with stdout reserved for the protocol, is indistinguishable from a hang.
+   */
+  def serve(
+      in: BufferedReader,
+      out: PrintStream,
+      log: PrintStream,
+      interactive: Boolean = false
+  ): Unit =
+    if interactive then
+      log.println(McpServer.InteractiveNotice)
+      log.flush()
     var line = in.readLine()
     while line != null do
       if line.trim.nonEmpty then
@@ -204,6 +218,25 @@ private[cli] object McpServer:
   /** Newest first: an unknown request is answered with the newest, as the protocol asks. */
   val SupportedVersions: Vector[String] =
     Vector("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+
+  /** What a person who ran `ankka mcp` at a terminal is told, on stderr, before it waits. */
+  val InteractiveNotice: String =
+    "ankka mcp: serving the Model Context Protocol on stdin and stdout, and waiting for a client.\n" +
+      "It is meant to be started by an MCP client, for example: claude mcp add ankka -- ankka mcp\n" +
+      "Press Ctrl-D to stop."
+
+  /**
+   * Whether this process was started at a terminal.
+   *
+   * Up to JDK 21 `System.console()` is null unless stdin and stdout are both a terminal. From JDK
+   * 22 it is never null, and `Console.isTerminal` (which JDK 21 does not have) answers instead, so
+   * it is looked up by name: the CLI ships on 21 and runs on whatever is newer.
+   */
+  def startedAtTerminal(): Boolean =
+    Option(System.console()).exists { console =>
+      try classOf[java.io.Console].getMethod("isTerminal").invoke(console).asInstanceOf[Boolean]
+      catch case _: NoSuchMethodException => true
+    }
 
   val ParseError       = -32700
   val InvalidRequest   = -32600

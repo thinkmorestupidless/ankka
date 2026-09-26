@@ -77,6 +77,10 @@ and its argument:
 }
 ```
 
+Started by hand at a terminal, `ankka mcp` prints a line on standard error saying it is waiting for a
+client, and then waits: its standard output carries protocol messages and nothing else. Press Ctrl-D to
+stop it. An MCP client starts it over pipes, and then it prints nothing but the protocol.
+
 `ankka mcp` takes the same `--url`, `--token` and `--project` options as every other command, and reads
 the same environment variables and saved settings. It resolves them on every tool call rather than once
 at start, so an `ankka login` or `ankka config set project` in another terminal takes effect on the next

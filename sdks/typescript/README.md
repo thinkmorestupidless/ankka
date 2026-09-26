@@ -1,5 +1,7 @@
 # ankka for TypeScript
 
+[![npm](https://img.shields.io/npm/v/ankka?label=npm)](https://www.npmjs.com/package/ankka)
+
 The ankka SDK for services written in TypeScript on Node.js. A service is a process that the ankka
 runtime hosts as a sidecar: the sidecar owns everything durable and distributed, and the process owns
 the decisions. This package speaks the sidecar protocol so your code never does.

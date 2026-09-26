@@ -127,6 +127,31 @@ final class McpServerSuite extends FunSuite:
     assertEquals(replies(1)("result"), Some(Json.obj()))
   }
 
+  test(
+    "started at a terminal, the server says on stderr what it is waiting for, and stdout stays protocol"
+  ) {
+    def run(interactive: Boolean): (String, String) =
+      val out = ByteArrayOutputStream()
+      val err = ByteArrayOutputStream()
+      server.serve(
+        BufferedReader(StringReader("""{"jsonrpc":"2.0","id":1,"method":"ping"}""")),
+        PrintStream(out, true, StandardCharsets.UTF_8),
+        PrintStream(err, true, StandardCharsets.UTF_8),
+        interactive
+      )
+      (
+        String(out.toByteArray, StandardCharsets.UTF_8),
+        String(err.toByteArray, StandardCharsets.UTF_8)
+      )
+
+    val (out, err) = run(interactive = true)
+    assert(err.contains("claude mcp add ankka -- ankka mcp"), err)
+    assertEquals(out.linesIterator.toVector, Vector("""{"jsonrpc":"2.0","id":1,"result":{}}"""))
+
+    val (_, quiet) = run(interactive = false)
+    assertEquals(quiet, "")
+  }
+
   test("every tool has an object input schema and says how far it reaches") {
     val tools = exchange("""{"jsonrpc":"2.0","id":4,"method":"tools/list"}""")
       .head("result")

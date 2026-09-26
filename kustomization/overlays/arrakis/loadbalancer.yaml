@@ -21,4 +21,4 @@
 # Service was recreated and take every record with it.
 - op: add
   path: /spec/provider/kubernetes/envoyService/loadBalancerIP
-  value: 34.153.188.198 # ankka-deployments: environments/arrakis `terraform output -raw gateway_address`
+  value: 34.147.235.52 # ankka-deployments: environments/arrakis/edge `terraform output -raw gateway_address`

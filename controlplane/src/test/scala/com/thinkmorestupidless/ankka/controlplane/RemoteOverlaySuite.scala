@@ -87,6 +87,19 @@ final class RemoteOverlaySuite extends FunSuite:
       remoteOperator.contains("europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:"),
       "the remote operator does not name the registry's sidecar image"
     )
+    // Naming the image somewhere in the document is not enough. A patch that names a container the
+    // operator does not have adds a second container, with this variable and no image, and leaves
+    // the real one on the local default. That rendered cleanly and passed the check above; the API
+    // server refused the Deployment. So: the variable is set once, and the local default is gone.
+    assertEquals(
+      "ANKKA_SIDECAR_IMAGE".r.findAllIn(remoteOperator).size,
+      1,
+      "ANKKA_SIDECAR_IMAGE is set more than once: the patch names a container the operator does not have"
+    )
+    assert(
+      !remoteOperator.contains("ankka-sidecar:latest"),
+      "the remote operator's container still carries the local sidecar image"
+    )
     val localOperator =
       documentsOfKind(local, "Deployment").find(_.contains("name: ankka-operator")).get
     assert(

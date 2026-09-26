@@ -4,6 +4,7 @@
 </picture>
 
 [![maven central](https://img.shields.io/maven-central/v/com.thinkmorestupidless/ankka-core_3?label=maven%20central)](https://central.sonatype.com/artifact/com.thinkmorestupidless/ankka-core_3)
+[![pypi](https://img.shields.io/pypi/v/ankka?label=pypi)](https://pypi.org/project/ankka/)
 [![ci](https://github.com/thinkmorestupidless/ankka/actions/workflows/ci.yml/badge.svg)](https://github.com/thinkmorestupidless/ankka/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](https://www.apache.org/licenses/LICENSE-2.0)
 

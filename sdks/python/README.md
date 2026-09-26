@@ -1,5 +1,8 @@
 # ankka for Python
 
+[![pypi](https://img.shields.io/pypi/v/ankka?label=pypi)](https://pypi.org/project/ankka/)
+[![python](https://img.shields.io/pypi/pyversions/ankka)](https://pypi.org/project/ankka/)
+
 Components in Python — event sourced and key value entities, views, consumers, workflows, timed actions,
 agents and HTTP endpoints — hosted by the ankka sidecar, the same runtime that hosts a Scala service.
 Your process decides what should happen; the sidecar owns sharding, the journal, projections, timers,

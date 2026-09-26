@@ -9,6 +9,9 @@ related: [concepts/polyglot.md, get-started/first-service-python.md, reference/s
 
 # Python SDK
 
+[![pypi](https://img.shields.io/pypi/v/ankka?label=pypi)](https://pypi.org/project/ankka/)
+[![python](https://img.shields.io/pypi/pyversions/ankka)](https://pypi.org/project/ankka/)
+
 The Python SDK is the package `ankka`, for Python 3.12 and later. A Python service is a process that the
 ankka sidecar hosts: the sidecar owns the journal, sharding, projections, timers, HTTP and the agent loop,
 and your classes decide what each command does. This page lists what each component kind is made of.

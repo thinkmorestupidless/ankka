@@ -1,6 +1,6 @@
 ---
 name: ankka-entities
-description: Write, change or test an ankka entity in Scala or Python — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
+description: Write, change or test an ankka entity in Scala, Python or TypeScript — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
 pages:
   - build/event-sourced-entities.md
   - build/key-value-entities.md
@@ -21,7 +21,7 @@ keeps its history as events and folds them into state; a key value entity keeps 
 
 ## Rules
 
-1. **A command handler decides; it does not act.** It reads `currentState` (`self.state` in Python) and
+1. **A command handler decides; it does not act.** It reads `currentState` (`self.state` in Python, `this.state` in TypeScript) and
    the argument, and returns an effect: `effects.persist(event).thenReply(...)` or
    `effects.error(message, code)`. It never calls another component, reads a clock it needs to store, or
    touches anything outside the entity. Cross-entity work belongs in a workflow, consumer or endpoint.
@@ -34,23 +34,24 @@ keeps its history as events and folds them into state; a key value entity keeps 
    the default `BadRequest` for a bad argument. An endpoint turns the code into the HTTP status with no
    mapping of its own.
 4. **`query` for read-only handlers, `command` for the rest.** A query must return a `ReadOnlyEffect`
-   (`effects.reply`), so it cannot persist; the compiler enforces it in Scala and registration in Python.
+   (`effects.reply`), so it cannot persist; the compiler enforces it in Scala and TypeScript, registration in Python.
 5. **Name events in the past tense after what happened** (`ItemAdded`, `PaymentAuthorised`), not after
-   the command. They are a closed set: a Scala `enum` or a union of frozen Python dataclasses.
+   the command. They are a closed set: a Scala `enum`, a union of frozen Python dataclasses, or a TypeScript `s.sumType`.
 6. **Every stored or transmitted type has a serializer with a manifest you choose.** In Scala,
-   `Codecs.serializer[A]("manifest")`; in Python, `json_codec(A, "manifest")`. Handler arguments and
+   `Codecs.serializer[A]("manifest")`; in Python, `json_codec(A, "manifest")`; in TypeScript, `jsonCodec(A,
+   "manifest")` over a shape declared with `s`. Handler arguments and
    replies need one too: primitives and `Done` come from `Serializers.given`; any other type needs a
    `given` declared in the companion *before* the handlers that use it (object initialisation runs in
    order). A manifest is a name you keep forever.
 7. **Change stored types by adding, never by altering.** Safe: a new optional field, a field with a
    default, a new event case. Breaking: renaming or removing a field or case, changing a type, changing
    a manifest. When a breaking change seems necessary, add a new event case and keep the old one forever.
-8. **Field names are the JSON.** A Scala field `productId` and a Python field `productId` read one
+8. **Field names are the JSON.** A Scala field `productId`, a Python field `productId` and a TypeScript field `productId` read one
    journal; `product_id` does not. Keep names identical across languages.
 9. **Wire names are protocol.** `val addItem = command("add-item")(_.addItem)`: rename the method freely,
    never the string of a deployed service.
 10. **Register the entity** on the service builder (`.register(ShoppingCartEntity.descriptor)` in Scala,
-    `.register(ShoppingCartEntity)` in Python). Unregistered means nonexistent.
+    `.register(ShoppingCartEntity)` in Python and TypeScript). Unregistered means nonexistent.
 
 ## Before writing an entity
 
@@ -74,7 +75,7 @@ keeps its history as events and folds them into state; a key value entity keeps 
   consumer downstream sees what happened rather than a vanished entity. Prefer that to a bare delete.
 - `.expireAfter(duration)` is the same deletion, deferred until the entity has been idle that long.
 - Snapshots change performance, never behaviour: every 100 events by default in Scala
-  (`override def snapshotEvery`), never by default in Python (`snapshot_every`).
+  (`override def snapshotEvery`), never by default in Python (`snapshot_every`) or TypeScript (`static snapshotEvery`).
 
 ## Calling an entity
 
@@ -87,7 +88,7 @@ has never been written exists with its empty state, so a read is never "not foun
 
 ## Testing
 
-`EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")` and `KeyValueEntityTestKit` (Python:
+`EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")` and `KeyValueEntityTestKit` (Python and TypeScript:
 `EventSourcedTestKit`, `KeyValueTestKit`) run one handler with no runtime: assert on `result.events`,
 `result.replyValue` and the new state. Arguments and replies still round-trip through the entity's own
 serializers, so a missing codec fails here rather than on first deployment. Prove durability with the

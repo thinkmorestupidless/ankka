@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Consumer { rpc Handle (ConsumerRequest) returns (ConsumerEffect); }
+
+message ConsumerRequest {
+  string component_id = 1;
+  Payload message = 2;                          // absent when deleted
+  Metadata metadata = 3;                        // ce-subject: the source's id; ankka.sequence
+  bool deleted = 4;                             // the source was deleted
+}
+
+message ConsumerEffect {
+  oneof effect { Produce produce = 1; Empty done = 2; Empty ignore = 3; }
+  message Produce { Payload payload = 1; Metadata metadata = 2; }
+}

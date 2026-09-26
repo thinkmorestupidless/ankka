@@ -1,14 +1,15 @@
 # Install the tools
 
-> Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and Python SDK available to your own projects.
+> Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Python and TypeScript SDKs available to your own projects.
 
 Source: https://docs.ankka.cloud/get-started/install/
 ankka is used through three things: libraries your service depends on, the `ankka` command-line tool,
 and a platform to deploy to. This page installs the first two. The third has its own page,
 [Install a local platform](../platform/install-local.md), and you need it only once you want to deploy.
 
-The CLI is installed with Homebrew, or unpacked from a release; the Python SDK comes from PyPI. One
-piece is not yet packaged: the sidecar image that hosts a Python service is built from the repository,
+The CLI is installed with Homebrew, or unpacked from a release; the Python SDK comes from PyPI and the
+TypeScript SDK from npm. One piece is not yet packaged: the sidecar image that hosts a Python or TypeScript
+service is built from the repository,
 and this page says where that applies.
 
 ## Prerequisites
@@ -19,6 +20,7 @@ and this page says where that applies.
 | [sbt](https://www.scala-sbt.org/) | Scala services, `ankka init` | any recent 1.x |
 | Docker | running Postgres locally, integration tests, building images | any recent |
 | [uv](https://docs.astral.sh/uv/) and Python | Python services | Python 3.12 |
+| [Node.js](https://nodejs.org/) | TypeScript services | 22.22 or later; 24 recommended |
 | [kind](https://kind.sigs.k8s.io/) and `kubectl` | a local platform to deploy to | recent |
 | [just](https://github.com/casey/just) | optional shortcuts in the repository | any |
 
@@ -52,7 +54,7 @@ ankka version
 
 ## Get the repository
 
-The Python SDK and the local platform are built from the ankka repository, and so is a CLI newer than
+The Python and TypeScript SDKs and the local platform are built from the ankka repository, and so is a CLI newer than
 the last release:
 
 ```bash
@@ -111,11 +113,28 @@ the repository:
 sbt sidecar/docker:publishLocal                      # ankka-sidecar:latest
 ```
 
+## Install the TypeScript SDK
+
+The TypeScript SDK is the package [`ankka`](https://www.npmjs.com/package/ankka) on npm, published at every
+release with the platform's version. Add it to your own project, pinned to the version of the platform you
+deploy to:
+
+```bash
+npm install ankka@0.5.0
+npm install -D testcontainers @testcontainers/postgresql      # only for the integration testkit
+```
+
+Node.js 22.22 or later runs a TypeScript service from source, with no build step. To use an SDK that is not
+released yet, build it from a checkout of the repository instead: `npm ci && npm run proto && npm run build`
+in `sdks/typescript`, then `npm install /path/to/ankka/sdks/typescript`. A TypeScript service needs the same
+`ankka-sidecar` image as a Python one, built into your local Docker daemon with `sbt sidecar/docker:publishLocal`.
+
 ## What you have now
 
 - `ankka` on your `PATH`, for creating services, running the local console and operating a platform.
-- The Scala libraries resolvable by sbt, or the Python SDK installed in your project.
-- For Python, the `ankka-sidecar` image in your local Docker daemon.
+- The Scala libraries resolvable by sbt, or the Python or TypeScript SDK installed in your project.
+- For Python or TypeScript, the `ankka-sidecar` image in your local Docker daemon.
 
-Continue with [your first service in Scala](first-service-scala.md) or
-[your first service in Python](first-service-python.md).
+Continue with [your first service in Scala](first-service-scala.md),
+[your first service in Python](first-service-python.md) or
+[your first service in TypeScript](first-service-typescript.md).

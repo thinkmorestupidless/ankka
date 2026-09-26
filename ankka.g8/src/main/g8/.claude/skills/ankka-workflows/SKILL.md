@@ -1,6 +1,6 @@
 ---
 name: ankka-workflows
-description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala or Python. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, TimerScheduler, a timed action, or a deadline such as "cancel after thirty minutes".
+description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Python or TypeScript. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, TimerScheduler, a timed action, or a deadline such as "cancel after thirty minutes".
 ---
 
 # ankka workflows and timers
@@ -78,7 +78,7 @@ consuming the scripted model and starves the next test.
 
 Scala workflows and timers are tested through `AnkkaTestKit`, because transitions, recovery, timeouts and
 firing are the runtime's behaviour; register `TimerRuntime` with a short poll interval to keep timer
-tests fast. Python has `WorkflowTestKit` and `TimedActionTestKit`, which run commands, steps and handlers
+tests fast. Python and TypeScript have `WorkflowTestKit` and `TimedActionTestKit`, which run commands, steps and handlers
 by hand with no sidecar. Assert on the lifecycle and the state, not on timing.
 
 ## Mistakes to check for

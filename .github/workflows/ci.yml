@@ -80,3 +80,63 @@ jobs:
         working-directory: sdks/python
       - run: uv run conformance
         working-directory: sdks/python
+
+  # The TypeScript SDK: the same proof as the Python job, on the two Node lines the package supports —
+  # the floor (22) and the line the docs show (24) — so `engines.node` is a fact and not a claim. The
+  # fast tests, the fixtures, the typecheck and the packaging smoke run on both; the Docker-backed tests
+  # and the conformance suite, which need the sidecar image built from this commit, run on 24 only.
+  sdk-typescript:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        if: matrix.node == 24
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+        if: matrix.node == 24
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+      # The SDK carries a copy of the protocol artifact so it can be built alone; a drift between the copy
+      # and `protocol/` is a bug in whichever side forgot to run `npm run proto`.
+      - run: diff -r protocol/src/main/protobuf sdks/typescript/proto/src/main/protobuf
+      - run: diff -r protocol/fixtures sdks/typescript/proto/fixtures
+      - run: npm ci
+        working-directory: sdks/typescript
+      - run: npm run proto
+        working-directory: sdks/typescript
+      - run: npm run typecheck
+        working-directory: sdks/typescript
+      - run: npm test
+        working-directory: sdks/typescript
+      # The package as npm would receive it: built, packed, installed into an empty directory with nothing
+      # but the tarball and its declared dependencies, imported from both entry points.
+      - run: |
+          set -euo pipefail
+          npm run build
+          npm pack --pack-destination "$RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke" && npm init -y >/dev/null
+          npm install "$RUNNER_TEMP/ankka-0.0.0.tgz" --no-save --ignore-scripts
+          node --input-type=module -e "import { Ankka, VERSION } from 'ankka'; import { EventSourcedTestKit } from 'ankka/testkit'; console.log('ankka', VERSION, typeof Ankka.service, typeof EventSourcedTestKit.of)"
+        working-directory: sdks/typescript
+      # Docker-backed: the sidecar and the Scala cart of this commit, the slow tests, the conformance suite.
+      # `sidecar/docker:publishLocal` tags the images `:latest`, which is what the testkit's defaults name.
+      - if: matrix.node == 24
+        run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off sidecar/docker:publishLocal shoppingCart/docker:publishLocal
+      - if: matrix.node == 24
+        run: npm run test:slow
+        working-directory: sdks/typescript
+      - if: matrix.node == 24
+        run: npm run conformance
+        working-directory: sdks/typescript

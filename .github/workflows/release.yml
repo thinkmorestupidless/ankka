@@ -355,6 +355,75 @@ jobs:
         with:
           packages-dir: sdks/python/dist
 
+  sdk-typescript:
+    # The TypeScript SDK to npm, as the package `ankka`: https://www.npmjs.com/package/ankka. The version
+    # is `version` in sdks/typescript/package.json — 0.0.0 in the tree, written here from the tag by the
+    # same rule as the template, the plugin, the formula and the Python SDK — and `src/version.ts` is
+    # generated from it by `npm run proto`, so the version the SDK reports to the sidecar in discovery
+    # is the one on npm. The stubs are generated from this commit's `protocol/`, as the ci job tests.
+    #
+    # No token: npm trusts this workflow directly (trusted publishing, OIDC), the same shape as the PyPI
+    # job. Unlike PyPI, npm cannot create a package this way: the FIRST publish of `ankka` was made by
+    # hand, at the tag's version, after that tag's `publish` job succeeded (CLAUDE.md, Publishing), and
+    # the trusted publisher was attached afterwards — owner `thinkmorestupidless`, repository `ankka`,
+    # workflow `release.yml`, environment `npm`, with `npm publish` allowed (a new configuration defaults
+    # to stage-only). Node 24 because trusted publishing needs npm 11.5.1 or later, and Node 22 bundles 10.
+    #
+    # It waits for the publish job for the reason the Python job does: a release that never reached Maven
+    # Central should not exist on npm either. A version can never be re-uploaded to npm, only superseded,
+    # so the smoke test below is the last point at which a release can be withdrawn; the `npm view` guard
+    # lets a re-run of the tag finish what a cancelled run left without a second upload.
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/ankka
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token npm verifies
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Write the version, generate the stubs, build, pack
+        working-directory: sdks/typescript
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          npm version "$version" --no-git-tag-version
+          grep -q "\"version\": \"$version\"" package.json
+          npm ci
+          npm run proto
+          grep -q "VERSION = \"$version\"" src/version.ts
+          npm run build
+          mkdir -p dist-pack && npm pack --pack-destination dist-pack
+          ls -l dist-pack
+          test -f "dist-pack/ankka-$version.tgz" || { echo "::error::the tarball is not versioned as the tag"; exit 1; }
+      - name: The tarball installs on its own and is the release it claims to be
+        working-directory: sdks/typescript
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          # An empty project with only the tarball and its declared dependencies: no checkout on the path,
+          # so a file the tarball does not carry or a dependency package.json does not declare fails here
+          # rather than on a user's first `npm install ankka`.
+          mkdir "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke" && npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/sdks/typescript/dist-pack/ankka-$version.tgz" --no-save --ignore-scripts
+          node --input-type=module -e "import { VERSION } from 'ankka'; import 'ankka/testkit'; if (VERSION !== '$version') { console.error('VERSION is', VERSION); process.exit(1) } console.log('ankka', VERSION)"
+      - name: Publish, unless this version is already on npm
+        working-directory: sdks/typescript
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if npm view "ankka@$version" version >/dev/null 2>&1; then
+            echo "ankka@$version is already on npm; nothing to publish"
+            exit 0
+          fi
+          npm publish "dist-pack/ankka-$version.tgz" --access public
+
   docs:
     # The documentation site — pages, llms.txt, llms-full.txt, raw Markdown per page and
     # docs-index.json — for the release just tagged, to GitHub Pages. Needs Pages enabled on the

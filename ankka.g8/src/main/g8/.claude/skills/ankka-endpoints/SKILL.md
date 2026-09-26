@@ -1,6 +1,6 @@
 ---
 name: ankka-endpoints
-description: Write, change or test an ankka HTTP endpoint in Scala or Python — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, and calling entities, workflows, agents and views from a handler. Use when the task names an endpoint, a route, a REST API, an ACL, authentication of callers, a 4xx status, SSE, HttpServer, or EndpointClients.
+description: Write, change or test an ankka HTTP endpoint in Scala, Python or TypeScript — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, and calling entities, workflows, agents and views from a handler. Use when the task names an endpoint, a route, a REST API, an ACL, authentication of callers, a 4xx status, SSE, HttpServer, or EndpointClients.
 ---
 
 # ankka HTTP endpoints
@@ -21,7 +21,7 @@ an ACL. Exposing a service changes who can *reach* an endpoint, never who is *al
    AuthDecision)` returning `Allow(principal)`, `Unauthenticated(challenge)` (401), `Forbidden(reason)`
    (403) or `Unavailable(reason)` (503). ankka ships no identity-provider check for your services and no
    "same service" principal: a header the client sets is not security. In Python `acl` defaults to
-   `ALLOW_ALL`, so set it on every endpoint. Different audiences get different endpoints, because each
+   `ALLOW_ALL`, so set it on every endpoint; in TypeScript it is required and does not compile without. Different audiences get different endpoints, because each
    endpoint has one ACL.
 3. **Annotate every handler parameter's type.** `get("/{cartId}") { (cartId: String) => ... }`; the
    annotation selects the overload and the parser. Path parameters: `String`, `Int`, `Long`, `Boolean`,
@@ -50,9 +50,9 @@ an ACL. Exposing a service changes who can *reach* an endpoint, never who is *al
 9. **SSE frames are JSON strings.** `sse(template)` answers `GET` and `sseBody` answers `POST` as
    `text/event-stream`; each `data` field is one chunk JSON-encoded, because raw text loses a leading
    space and splits on a newline. Only agents stream.
-10. **In Python the process never binds a port.** The sidecar serves the declared routes, applies the ACL
-    and forwards. Pass `self.request.metadata` with `with_metadata` so the handler's calls appear under the
-    request's trace. `Acl.AUTHENTICATED` answers 503 for now.
+10. **In Python and TypeScript the process never binds a port.** The sidecar serves the declared routes, applies
+    the ACL and forwards. In Python pass `self.request.metadata` with `with_metadata` so the handler's calls
+    appear under the request's trace; in TypeScript `this.client` is already scoped to the request. `Acl.AUTHENTICATED` answers 503 for now.
 
 ## Before writing an endpoint
 

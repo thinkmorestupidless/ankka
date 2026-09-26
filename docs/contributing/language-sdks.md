@@ -2,7 +2,7 @@
 title: Adding a language SDK
 description: What an SDK for a new language must do to host services on ankka, and how the encoding fixtures and the conformance suite prove it compatible without the platform knowing the language exists.
 kind: contributing
-related: [reference/sidecar-protocol.md, reference/python-sdk.md, concepts/polyglot.md]
+related: [reference/sidecar-protocol.md, reference/python-sdk.md, reference/typescript-sdk.md, concepts/polyglot.md]
 ---
 
 # Adding a language SDK
@@ -11,7 +11,9 @@ ankka hosts services in a language other than Scala through the sidecar: the ank
 service's process and speaks a gRPC protocol to it. The platform never learns which language is on the other
 end. A new language therefore needs no change to the platform, only an SDK, and an SDK is compatible when it
 passes two things: the encoding fixtures and the conformance suite. The Python SDK in
-[`sdks/python`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/python) is the working example.
+[`sdks/python`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/python) and the TypeScript SDK in
+[`sdks/typescript`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript) are the working
+examples.
 
 ## What an SDK does
 
@@ -36,7 +38,8 @@ passes two things: the encoding fixtures and the conformance suite. The Python S
 
 [`protocol/`](https://github.com/thinkmorestupidless/ankka/blob/main/protocol) is what an SDK consumes: the
 `.proto` files under `src/main/protobuf`, `ENCODING.md`, and `fixtures/`. Copy the whole directory into the
-SDK so it builds on its own, and generate stubs from the copy; the Python SDK's `scripts/proto.py` does both.
+SDK so it builds on its own, and generate stubs from the copy; the Python SDK's `scripts/proto.py` and the
+TypeScript SDK's `npm run proto` do both.
 Continuous integration checks that the copy is identical to the original, so a protocol change reaches every
 SDK deliberately.
 
@@ -49,7 +52,8 @@ would change a committed file, so they always describe what the Scala SDK actual
 
 The SDK's own test runner reads every fixture, decodes the bytes with the codec the manifest and content type
 select, compares the result with the value, re-encodes it and compares the bytes. A fixture with no matching
-codec is a failure, never a skip. The Python SDK's `tests/test_encoding_fixtures.py` is the model.
+codec is a failure, never a skip. The Python SDK's `tests/test_encoding_fixtures.py` and the TypeScript SDK's
+`test/encoding-fixtures.test.ts` are the models.
 
 ## The conformance suite
 
@@ -84,7 +88,10 @@ written down, one per case, in the
 The Python reference service is the SDK's shopping cart example plus a conformance entity and endpoint, in
 [`examples/shopping_cart`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/python/examples/shopping_cart).
 `uv run conformance` in `sdks/python` serves it and runs the suite against it, and exits with the suite's
-status. `ANKKA_CONFORMANCE_ONLY` narrows the run to matching behaviours.
+status. The TypeScript reference is the same shape, in
+[`examples/shopping-cart`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript/examples/shopping-cart),
+served by `npm run conformance` in `sdks/typescript`. `ANKKA_CONFORMANCE_ONLY` narrows either run to matching
+behaviours, as a glob over the full case name (`'*es.*'`).
 
 ## Declaring a service
 

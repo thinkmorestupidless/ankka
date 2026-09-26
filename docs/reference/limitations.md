@@ -93,10 +93,11 @@ feature also says what that feature does not do.
 
 ## SDKs and releases
 
-- **Two languages.** Services are written in Scala or Python. Another language needs an SDK that passes the
+- **Three languages.** Services are written in Scala, Python or TypeScript. Another language needs an SDK that passes the
   conformance suite; see [Adding a language SDK](../contributing/language-sdks.md).
-- **The sidecar image is not on a public registry.** A Python service runs beside `ankka-sidecar`, which
-  is built from the repository with `sbt sidecar/docker:publishLocal`; the SDK itself is on PyPI.
+- **The sidecar image is not on a public registry.** A Python or TypeScript service runs beside `ankka-sidecar`,
+  which is built from the repository with `sbt sidecar/docker:publishLocal`; the SDKs themselves are on PyPI
+  and npm.
 - **The CLI is a JVM program.** It is installed with Homebrew (`brew install
   thinkmorestupidless/tap/ankka`, which brings its own JDK) or unpacked from a release's zip onto a
   JDK 21; there is no native binary and no Linux package. `ankka init` needs `sbt` on `PATH` too.

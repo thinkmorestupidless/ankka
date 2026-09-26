@@ -1,6 +1,6 @@
 ---
 name: ankka-views-consumers
-description: Build the read side and the reactions of an ankka service in Scala or Python — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a consumer that reacts to each change by calling components or publishing to a Kafka topic, and the CloudEvents framing, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, or "find all X where".
+description: Build the read side and the reactions of an ankka service in Scala, Python or TypeScript — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a consumer that reacts to each change by calling components or publishing to a Kafka topic, and the CloudEvents framing, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, or "find all X where".
 pages:
   - build/views.md
   - build/consumers.md
@@ -42,11 +42,11 @@ run only in a service with the projection runtime registered.
    the message carries. Never deduplicate on the CloudEvents `ce-id`: it is regenerated on every publish.
 7. **Publish a stable message type, not the entity's events.** A consumer that produces to a topic
    declares its own output type and serializer (`produceTo` + `outputSerializer` in Scala,
-   `produces_to` + `out_codec` in Python; one without the other is refused) so the domain's events can
+   `produces_to` + `out_codec` in Python, `producesTo` + `out` in TypeScript; one without the other is refused) so the domain's events can
    change without breaking listeners.
 8. **Register `ProjectionRuntime()`** (Scala) or every command succeeds and every view stays empty
    forever. A topic source or output also needs a broker: `ProjectionRuntime.withKafka(servers)`, or
-   `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Python service's descriptor `env`. A component that needs a broker
+   `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Python or TypeScript service's descriptor `env`. A component that needs a broker
    in a service with none is refused at startup.
 
 ## Before writing a view
@@ -63,7 +63,7 @@ run only in a service with the projection runtime registered.
   `sql"…"` and `jsonText("field")`, `jsonNumber("total")`, `jsonContains("members", "x")`; values are
   bound parameters, never spliced. `jsonText` compares as text, so a boolean compares against `"true"`
   and a number needs `jsonNumber`. A hot query needs a Postgres expression index on the same term. In
-  Python a view answers only `get(key)` and `all()`.
+  Python and TypeScript a view answers only `get(key)` and `all()`.
 
 ## Before writing a consumer
 
@@ -73,7 +73,7 @@ run only in a service with the projection runtime registered.
 - **Does the target have its own rules?** A consumer that changes something should call an entity
   command, so the entity decides whether the change is allowed.
 - **Where does the client come from?** In Scala the context passed to the companion's `create`; in
-  Python `self.client`. Consumers run on virtual threads, so a blocking `invoke` in `onMessage` is fine.
+  Python `self.client`, in TypeScript `this.client`. Consumers run on virtual threads, so a blocking `invoke` in `onMessage` is fine.
 
 ## Topics
 
@@ -88,8 +88,8 @@ partitions with no ankka configuration.
 
 Scala views and consumers that call components run under the integration testkit against a real
 projection and database; `InMemoryBroker` exercises the whole topic path with no Kafka, and
-`InMemoryPublisher` captures what a consumer published. Python has `ViewTestKit` and `ConsumerTestKit`
-that need no sidecar. Poll for rows; never read once.
+`InMemoryPublisher` captures what a consumer published. Python and TypeScript have `ViewTestKit` and
+`ConsumerTestKit` that need no sidecar. Poll for rows; never read once.
 
 ## Mistakes to check for
 

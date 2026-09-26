@@ -1,0 +1,16 @@
+# Generates the protocol's TypeScript into src/_proto (gitignored, shipped in dist/).
+# One plugin: protoc-gen-es v2 emits messages and service descriptors together.
+# `import_extension=ts` because the SDK runs its sources under Node's type stripping, which needs the
+# extension (`tsc` rewrites it to `.js` when it emits dist/); `erasable_syntax=true` because a proto
+# `enum` would otherwise become a TypeScript `enum`, which type stripping cannot run.
+version: v2
+inputs:
+  - directory: proto/src/main/protobuf
+plugins:
+  - local: protoc-gen-es
+    out: src/_proto
+    include_imports: true
+    opt:
+      - target=ts
+      - import_extension=ts
+      - erasable_syntax=true

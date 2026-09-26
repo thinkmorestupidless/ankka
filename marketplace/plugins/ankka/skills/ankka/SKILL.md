@@ -1,13 +1,13 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python via a sidecar). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala and Python SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python and TypeScript via a sidecar). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Python and TypeScript SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-typescript, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
 ---
 
 # ankka
 
 ankka hosts services built from a fixed set of components. The developer writes the components; the
 runtime supplies sharding, persistence, replay, projections, durable orchestration, timers, HTTP and the
-agent loop. A service is written in Scala (compiled into one JVM with the runtime) or in Python (a
+agent loop. A service is written in Scala (compiled into one JVM with the runtime) or in Python or TypeScript (a
 process beside a runtime sidecar), and is deployed to a Kubernetes-based platform with the `ankka` CLI.
 
 ## Rules that hold everywhere
@@ -16,8 +16,8 @@ process beside a runtime sidecar), and is deployed to a Kubernetes-based platfor
    these events then reply, update this state, transition to this step — and returns it. Never do I/O,
    read a database or call a model inside an entity handler. Calls to other components go through the
    component client, from endpoints, workflow steps, consumers, timed actions and agent tools.
-2. **Wire names are protocol.** `command("add-item")(_.addItem)` in Scala and `@command("add-item")` in
-   Python declare the name the platform stores and routes by. Rename the method freely; never change a
+2. **Wire names are protocol.** `command("add-item")(_.addItem)` in Scala, `@command("add-item")` in Python and
+   `command("add-item", ...)` in TypeScript declare the name the platform stores and routes by. Rename the method freely; never change a
    wire name of a deployed service without treating it as a breaking change, because persisted timers
    and in-flight calls address it.
 3. **A query cannot persist.** Declare read-only handlers with `query`/`@query`; they must return a
@@ -49,6 +49,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | An agent, its tools, guardrails, session memory, model, streaming, or several agents together | `ankka-agents` |
 | An HTTP endpoint, its routes, ACL, errors and server-sent events | `ankka-endpoints` |
 | A service in Python beside the sidecar | `ankka-python` |
+| A service in TypeScript on Node.js beside the sidecar | `ankka-typescript` |
 | A service descriptor, the `ankka` CLI, images, deploying, exposing, logs, troubleshooting | `ankka-deploy` |
 | Installing or operating the platform itself, organizations, identity, databases, networking | `ankka-platform` |
 
@@ -58,7 +59,8 @@ Read the reference file for the task before writing code — the samples in them
 ankka build compiles and tests, so their imports and signatures are current. For a new project, start
 from the template with `ankka init` (`references/get-started/first-service-scala.md`), never from an
 empty build. For the shape of every component's base class, companion and effect builders in one place,
-`references/reference/scala-sdk.md` or `references/reference/python-sdk.md`. When a capability seems
+`references/reference/scala-sdk.md`, `references/reference/python-sdk.md` or
+`references/reference/typescript-sdk.md`. When a capability seems
 missing, check `references/reference/limitations.md` before building around it, and when a habit from
 Akka does not fit, `references/reference/akka-divergences.md` says what ankka does instead.
 
@@ -72,9 +74,10 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Get started
 
-- `references/get-started/install.md` — Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and Python SDK available to your own projects.
+- `references/get-started/install.md` — Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Python and TypeScript SDKs available to your own projects.
 - `references/get-started/first-service-scala.md` — Create a Scala service from the ankka template, test it, run it against a local Postgres, watch it in the local console, and change its domain.
 - `references/get-started/first-service-python.md` — Write a Python service with an event sourced entity and an HTTP endpoint, run it beside the ankka sidecar, test it with and without the sidecar, and watch it in the local console.
+- `references/get-started/first-service-typescript.md` — Write a TypeScript service on Node.js with an event sourced entity and an HTTP endpoint, run it from source beside the ankka sidecar, test it with and without the sidecar, and watch it in the local console.
 - `references/get-started/deploy-locally.md` — Run the whole build, deploy and observe cycle on your own machine — a kind cluster with the ankka platform, your service deployed and exposed over HTTPS, its logs, a restart and its history.
 - `references/get-started/coding-agents.md` — Give a coding agent ankka's documentation as a skill, and its hands through `ankka mcp` — the CLI's verbs, the local services on your machine, and this version's docs as MCP tools.
 
@@ -88,6 +91,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/reference/scala-sdk.md` — A compact map of the Scala SDK — the artifacts, and for every component kind its base class, companion, handler declarations, effect builders and in-handler accessors.
 - `references/reference/python-sdk.md` — A compact map of the Python SDK — installing it, and for every component kind its base class, class attributes, decorators, effect builders and testkit — plus the SDK's own development commands.
+- `references/reference/typescript-sdk.md` — A compact map of the TypeScript SDK — installing it, the shapes and codecs, and for every component kind its base class, statics, declaration functions, effect builders and testkit — plus the SDK's own development commands.
 - `references/reference/akka-divergences.md` — Where ankka deliberately differs from Akka's SDK and platform — registration, handler identity, tools, views, routing, ACLs, model settings, descriptors, defaults and lifecycle states — and why.
 - `references/reference/limitations.md` — What ankka does not do yet, stated plainly and grouped — the platform, networking and security, observability, components, and SDKs and releases — so you can plan around a gap before you reach it.
 - `references/reference/glossary.md` — One or two sentences on every term ankka's documentation uses, from ACL to workflow, each with its own anchor so any page can link to the definition.

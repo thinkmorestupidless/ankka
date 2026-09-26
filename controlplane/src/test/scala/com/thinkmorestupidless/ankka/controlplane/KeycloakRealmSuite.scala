@@ -77,7 +77,7 @@ class KeycloakRealmSuite extends munit.FunSuite:
       assert(response.body.contains(s"\"$field\""), s"no $field in ${response.body}")
   }
 
-  test("a user's token carries the audience, email, verification and realm roles (R5)") {
+  test("a user's token carries the audience, email, verification, name and realm roles (R5)") {
     admin.createUser(
       "alice",
       "alice@example.test",
@@ -100,6 +100,10 @@ class KeycloakRealmSuite extends munit.FunSuite:
     assertEquals(text("typ"), Some("Bearer"), claims.toString)
     assert(text("iss").exists(_.endsWith("/realms/ankka")), claims.toString)
     assert(text("sub").exists(_.nonEmpty), claims.toString)
+    // The realm declares its own client scopes, so Keycloak's built-in `profile` does not exist and
+    // cannot put these on a token: `ankka-controlplane` maps them itself, as it does `sub`.
+    assertEquals(text("name"), Some("alice Test"), claims.toString)
+    assertEquals(text("preferred_username"), Some("alice"), claims.toString)
     val roles = Option(claims.get("realm_access"))
       .flatMap(node => Option(node.get("roles")))
       .map(_.elements().asScala.map(_.asText()).toSet)

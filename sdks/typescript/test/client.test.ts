@@ -2,7 +2,7 @@
 // it was asked and answers from a script.
 import { test, describe, before, after } from "node:test"
 import assert from "node:assert/strict"
-import { createServer, type Http2Server } from "node:http2"
+import { createServer, type Http2Server, type ServerHttp2Session } from "node:http2"
 import type { AddressInfo } from "node:net"
 import { create } from "@bufbuild/protobuf"
 import { connectNodeAdapter } from "@connectrpc/connect-node"
@@ -21,6 +21,9 @@ const text = (b: Uint8Array | undefined) => new TextDecoder().decode(b ?? new Ui
 describe("the component client", () => {
   let server: Http2Server
   let client: ComponentClient
+  // http2's close() waits for every session, and the client keeps an idle one open for minutes (Node 22
+  // never times it out), so the sessions are closed by hand.
+  const sessions = new Set<ServerHttp2Session>()
   const invokes: InvokeRequest[] = []
   const schedules: ScheduleRequest[] = []
   const cancels: string[] = []
@@ -61,10 +64,17 @@ describe("the component client", () => {
           }),
       }),
     )
+    server.on("session", (session) => {
+      sessions.add(session)
+      session.once("close", () => sessions.delete(session))
+    })
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()))
     client = new ComponentClient(`127.0.0.1:${(server.address() as AddressInfo).port}`)
   })
-  after(() => new Promise<void>((r) => server.close(() => r())))
+  after(async () => {
+    for (const session of sessions) session.destroy()
+    await new Promise<void>((r) => server.close(() => r()))
+  })
 
   test("invoke encodes the input with its shape and decodes the reply with its shape", async () => {
     const n = await client.forEventSourcedEntity("counter", "c1").call("increment", s.int, s.int).invoke(5)

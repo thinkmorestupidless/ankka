@@ -929,7 +929,11 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **`http2.Server.close()` waits for every session to end, and a client keeps an idle one open for
   minutes.** `Server.stop()` closes the sessions it has seen (tracked from the `session` event) and destroys
   the stragglers after a grace period, or the test process never exits and `after` hooks hang. It looked
-  like a hanging test; it was a hanging listener.
+  like a hanging test; it was a hanging listener. Node 24 eventually times the idle session out; Node 22
+  never does, so a test that stopped a raw `http2.createServer` with a bare `close()` passed on 24 and hung
+  the `sdk-typescript (22)` CI job at `npm test` until it was cancelled. Every server a test starts, the
+  SDK's or a fake sidecar's, destroys its sessions before `close()` — and that difference is why the
+  matrix runs both lines.
 - **Connect speaks gRPC to grpc-java over plain HTTP/2 on loopback**, verified against the sidecar image on
   2026-09-26: discovery, the entity stream with init, replay and snapshot requests, a graceful stop ending
   the stream cleanly and a kill surfacing as `Premature close`. The gRPC protocol needs `http2.createServer`;

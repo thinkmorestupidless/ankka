@@ -658,5 +658,42 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
           403,
           s"expected the API server to refuse to $what: ${ex.getMessage}"
         )
+
+      // Feature 013, both directions on one resource. A registry credential is a Secret the control
+      // plane must be able to write and must never be able to read — so the interesting assertion
+      // is not that `create` works, it is that `get` on the object it just created is refused by the
+      // API server. An admin-credentialled test cannot see either half.
+      val credential = new io.fabric8.kubernetes.api.model.SecretBuilder()
+        .withMetadata(
+          new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
+            .withName("ankka-registry")
+            .withNamespace(Namespace)
+            .build()
+        )
+        .withType("kubernetes.io/dockerconfigjson")
+        .withStringData(java.util.Map.of(".dockerconfigjson", """{"auths":{}}"""))
+        .build()
+      restricted
+        .resource(credential)
+        .fieldManager("ankka-controlplane")
+        .forceConflicts()
+        .serverSideApply(): Unit
+
+      for (what, attempt) <- Vector[(String, () => Unit)](
+          "read the credential back" -> (() =>
+            restricted.secrets().inNamespace(Namespace).withName("ankka-registry").get(): Unit
+          ),
+          "list credentials" -> (() => restricted.secrets().inNamespace(Namespace).list(): Unit),
+          "delete the credential" -> (() =>
+            restricted.secrets().inNamespace(Namespace).withName("ankka-registry").delete(): Unit
+          )
+        )
+      do
+        val ex = intercept[io.fabric8.kubernetes.client.KubernetesClientException](attempt())
+        assertEquals(
+          ex.getCode,
+          403,
+          s"expected the API server to refuse to $what: ${ex.getMessage}"
+        )
     finally restricted.close()
   }

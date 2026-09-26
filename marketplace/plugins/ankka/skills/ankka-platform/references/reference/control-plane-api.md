@@ -94,6 +94,9 @@ The table is generated from the control plane's own route declarations.
 | `PUT` | `/organizations/{organizationId}/members/{subject}/role` | |
 | `DELETE` | `/organizations/{organizationId}/invitations/{email}` | |
 | `POST` | `/organizations/{organizationId}/members/{subject}/repair` | |
+| `GET` | `/organizations/{organizationId}/tokens` | |
+| `POST` | `/organizations/{organizationId}/tokens` | |
+| `DELETE` | `/organizations/{organizationId}/tokens/{tokenId}` | |
 | `POST` | `/organizations/{organizationId}/disable` | |
 | `POST` | `/organizations/{organizationId}/enable` | |
 | `GET` | `/projects` | |
@@ -101,6 +104,8 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/projects/{projectId}` | |
 | `PUT` | `/projects/{projectId}/name` | |
 | `DELETE` | `/projects/{projectId}` | |
+| `PUT` | `/projects/{projectId}/registry` | |
+| `DELETE` | `/projects/{projectId}/registry` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
@@ -230,6 +235,39 @@ Withdraws an invitation that has not been claimed. Owners only. Answers `204`.
 Adds a member directly by subject, for an organization whose owners have all left. Body:
 `{ "role": "owner" }`, where `role` defaults to `owner`. Platform administrators only. Answers `204`.
 
+### `GET /organizations/{organizationId}/tokens`
+
+Lists the organization's deploy tokens, newest first. Owners only. Each entry carries `id`, `label`,
+`subject`, `createdBy`, `createdAt`, `expiresAt` (absent when the token never expires) and `lastUsed`
+(a date, absent when it has never been used). No entry carries the secret, which exists only in the
+response that created it.
+
+### `POST /organizations/{organizationId}/tokens`
+
+Creates a deploy token: a credential a machine can hold, which authenticates as a `member` of this
+organization. Body: `{ "label": "github-deploy", "expiresIn": 7776000 }`, where `label` is for people
+and `expiresIn` is seconds — absent means 90 days, and `0` means a token that never expires. The
+maximum is 365 days. Owners only.
+
+Answers `200` with `{ "id", "label", "secret", "subject", "expiresAt" }`. **`secret` is shown here and
+nowhere else**: it is stored only as a one-way digest, so a lost token is replaced rather than
+recovered. Present it as `Authorization: Bearer <secret>`, or give it to the CLI through `ANKKA_TOKEN`.
+
+The token's subject is `token:<id>`, an ordinary member of the organization — so it is authorized,
+attributed and made invisible outside its organization by exactly the rules that apply to a person. It
+can do everything a member can, and nothing an owner can: it cannot invite members, rename or delete
+the organization, or manage deploy tokens, including its own.
+
+### `DELETE /organizations/{organizationId}/tokens/{tokenId}`
+
+Revokes a deploy token and removes its membership. Owners only. Answers `204`, and `404` for a token
+that does not exist, was already revoked, or belongs to another organization — the three are one
+answer so that a guessed id discloses nothing.
+
+The control plane node that handles the revocation refuses the token on the very next request. Other
+nodes refuse it within the platform's read-refresh interval, since each one learns from the token's
+journal; the id is never reused.
+
 ### `POST /organizations/{organizationId}/disable`
 
 Disables an organization: every service in its projects is suspended, and its members can read but
@@ -245,8 +283,21 @@ paused stays paused. Platform administrators only. Answers `204`.
 A project summary is:
 
 ```json
-{ "id": "checkout", "name": "Checkout", "organizationId": "acme", "services": 3 }
+{
+  "id": "checkout",
+  "name": "Checkout",
+  "organizationId": "acme",
+  "services": 3,
+  "registry": {
+    "server": "ghcr.io",
+    "username": "octocat",
+    "setAt": "2026-09-25T10:00:00Z",
+    "setBy": "sam@example.com"
+  }
+}
 ```
+
+`registry` is absent unless the project has a registry credential, and never carries the password.
 
 ### `GET /projects`
 
@@ -271,6 +322,24 @@ Renames a project. Body: `{ "name": "Checkout team" }`. Members of its organizat
 
 Deletes a project. Refused with `409` while it still has services. The id is never reusable. Answers
 `204`.
+
+### `PUT /projects/{projectId}/registry`
+
+Registers the credential the cluster pulls this project's private images with. Body:
+`{ "server": "ghcr.io", "username": "octocat", "password": "…" }`. Members of its organization,
+including deploy tokens. Answers `204`.
+
+The credential is written to the cluster before anything is recorded, and a cluster that could not be
+written answers `503` with the reason and records nothing — so the platform never claims a credential
+the cluster does not hold. The password appears in no reply, no listing and no history; a `server`
+given as a URL rather than a host is refused with `400`.
+
+### `DELETE /projects/{projectId}/registry`
+
+Stops claiming the project's registry credential. Answers `204`, or `404` if none is set.
+
+The Secret itself is left in the cluster — the control plane holds no permission to delete one — and
+the next deploy of each service in the project stops naming it.
 
 ## Services
 

@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
@@ -40,12 +42,19 @@ class AuthorizationMatrixSuite extends munit.FunSuite:
     expiresIn = 2.hours
   )
 
+  /**
+   * A deploy token is a fifth actor in the matrix (feature 013), and must obey every rule above.
+   */
+  private lazy val tokens = new DeployTokenIndex(identity.clock)
+
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
-        identity.acl(),
+        ControlPlaneAcl.composite(tokens, identity.acl(), identity.config()),
         DeployConfig.default.copy(baseDomain = Some("example.test")),
-        auth = Some(identity.config())
+        auth = Some(identity.config()),
+        clock = identity.clock,
+        tokens = Some(tokens)
       )*
     )
     // The whole assembly, projector included: disabling an organization fans out to its services
@@ -54,7 +63,7 @@ class AuthorizationMatrixSuite extends munit.FunSuite:
       .withClient(DeployConfig.default.copy(sweepInterval = 1.second), new FakeAnkkaServiceClient)
     testKit = AnkkaTestKit.start(
       ControlPlane.componentsWith(projector),
-      Seq(ProjectionRuntime(), projector, server)
+      Seq(ProjectionRuntime(), projector, server, tokens)
     )
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
@@ -417,4 +426,60 @@ class AuthorizationMatrixSuite extends munit.FunSuite:
     )
     val members = send("GET", "/organizations/carols/members", carol)._2
     assert(members.contains("\"subject\":\"carol\""), members)
+  }
+
+  test("10. a deploy token is a member and obeys every rule a member does (feature 013)") {
+    // `acme` is alice's, from case 1; `globex` is bob's. A token of acme must be exactly as
+    // powerful as a member of acme and exactly as blind to globex as a stranger.
+    val created = send("POST", "/organizations/acme/tokens", alice, Some("""{"label":"ci"}"""))
+    assertEquals(created._1, 200, created._2)
+    val marker = "\"secret\":\""
+    val from   = created._2.indexOf(marker) + marker.length
+    val secret = created._2.substring(from, created._2.indexOf('"', from))
+    val idFrom = created._2.indexOf("\"id\":\"") + 6
+    val id     = created._2.substring(idFrom, created._2.indexOf('"', idFrom))
+
+    // Member-level: reads and project work.
+    assertEquals(send("GET", "/organizations/acme", secret)._1, 200)
+    assertEquals(
+      send(
+        "POST",
+        "/projects/acme-ci",
+        secret,
+        Some("""{"name":"CI","organizationId":"acme"}""")
+      )._1,
+      204
+    )
+
+    // Owner-level: refused, including managing tokens — a leaked CI credential cannot mint a
+    // replacement for itself or revoke the one that would stop it.
+    assertEquals(send("PUT", "/organizations/acme/name", secret, Some("""{"name":"X"}"""))._1, 403)
+    assertEquals(
+      send(
+        "POST",
+        "/organizations/acme/members",
+        secret,
+        Some("""{"email":"x@example.test"}""")
+      )._1,
+      403
+    )
+    assertEquals(send("GET", "/organizations/acme/tokens", secret)._1, 403)
+    assertEquals(send("DELETE", s"/organizations/acme/tokens/$id", secret)._1, 403)
+
+    // Another organization is 404, exactly as it is for a stranger — never 403.
+    assertEquals(send("GET", "/organizations/globex", secret)._1, 404)
+    assertEquals(send("GET", "/organizations/globex", dave)._1, 404)
+
+    // Administrative routes are not a token's either, whatever its organization.
+    assertEquals(send("POST", "/organizations/acme/disable", secret)._1, 403)
+
+    // It shows up as a member, labelled, so an owner can see what has access.
+    val listed = send("GET", "/organizations/acme/members", alice)._2
+    assert(listed.contains(s"token:$id"), listed)
+    assert(listed.contains("\"display\":\"ci\""), listed)
+
+    // Removing the *membership* by hand is enough to stop it, without touching the token: the
+    // authorization path is the members list, exactly as it is for a person.
+    assertEquals(send("DELETE", s"/organizations/acme/members/token:$id", alice)._1, 204)
+    assertEquals(send("GET", "/organizations/acme", secret)._1, 404)
   }

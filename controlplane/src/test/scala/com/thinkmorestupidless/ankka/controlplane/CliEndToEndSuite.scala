@@ -1,6 +1,8 @@
 package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.cli.{Main, Settings}
+import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
@@ -33,14 +35,18 @@ class CliEndToEndSuite extends munit.FunSuite:
   private var url: String           = ""
   private var config: Path          = null
 
+  private lazy val tokens = new DeployTokenIndex(identity.clock)
+
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
-        identity.acl(),
-        DeployConfig.default.copy(baseDomain = Some("example.test"))
+        ControlPlaneAcl.composite(tokens, identity.acl(), identity.config()),
+        DeployConfig.default.copy(baseDomain = Some("example.test")),
+        clock = identity.clock,
+        tokens = Some(tokens)
       )*
     )
-    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server))
+    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server, tokens))
     url = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
     // A scratch config file, so `ankka config set` in a test cannot touch the developer's
@@ -442,4 +448,136 @@ class CliEndToEndSuite extends munit.FunSuite:
     val (code, _, err) = cli("services", "list")
     assertEquals(code, 1)
     assert(err.contains("no project selected"), err)
+  }
+
+  // ── deploy tokens (feature 013) ───────────────────────────────────────────
+
+  /** The `ankka_…` line out of `tokens create`'s output. */
+  private def secretIn(out: String): String =
+    out.linesIterator
+      .map(_.trim)
+      .find(_.startsWith("ankka_"))
+      .getOrElse(fail(s"no secret in the create output:\n$out"))
+
+  test("the whole token lifecycle through the CLI a person actually types") {
+    val _ = cli(connected("organizations", "create", "cli-tokens", "--name", "CLI Tokens")*)
+
+    val (code, created, err) =
+      cli(connected("organizations", "tokens", "create", "cli-tokens", "--label", "github")*)
+    assertEquals(code, 0, err)
+    val secret = secretIn(created)
+    assert(created.contains("only time the secret is shown"), created)
+    assert(created.contains("ANKKA_TOKEN"), created)
+    assert(created.contains("Expires"), created)
+
+    // The secret works as a credential, through the same `--token` path a CI job uses. The label
+    // is the token's own and is there at once; the organization comes from a view, so it is waited
+    // for — `whoami` lists organizations from the same projection `organizations list` reads.
+    val (whoCode, who, _) = cli(connectedAs(secret, "whoami")*)
+    assertEquals(whoCode, 0, who)
+    assert(who.contains("github"), who)
+    eventually("whoami as the token shows its organization") {
+      val (_, out, _) = cli(connectedAs(secret, "whoami")*)
+      Option.when(out.contains("cli-tokens"))(out)
+    }
+
+    // The listing shows it, without the secret, in both formats.
+    val listed = eventually("the token appears in the listing") {
+      val (_, out, _) = cli(connected("organizations", "tokens", "list", "cli-tokens")*)
+      Option.when(out.contains("github"))(out)
+    }
+    assert(!listed.contains("ankka_"), listed)
+    val (_, asJson, _) =
+      cli(connected("organizations", "tokens", "list", "cli-tokens", "-o", "json")*)
+    assert(!asJson.contains("ankka_"), asJson)
+
+    // Revoke, and the very next command with that credential is refused as a token — not as a
+    // login that expired, which is the distinction the CLI is careful about.
+    val id = listed.linesIterator
+      .find(_.contains("github"))
+      .map(_.trim.takeWhile(!_.isWhitespace))
+      .getOrElse(fail(s"no id in:\n$listed"))
+    assertEquals(cli(connected("organizations", "tokens", "revoke", "cli-tokens", id)*)._1, 0)
+
+    val (refused, _, refusedErr) = cli(connectedAs(secret, "whoami")*)
+    assertEquals(refused, 1)
+    assert(refusedErr.contains("the token was rejected"), refusedErr)
+  }
+
+  test("a token's own validation happens before the request") {
+    val _ = cli(connected("organizations", "create", "cli-tokens-2", "--name", "Two")*)
+
+    val (tooLong, _, longErr) = cli(
+      connected(
+        "organizations",
+        "tokens",
+        "create",
+        "cli-tokens-2",
+        "--label",
+        "x",
+        "--expires-in",
+        "400d"
+      )*
+    )
+    assertEquals(tooLong, 1)
+    assert(longErr.contains("at most 365 days"), longErr)
+
+    val (bothFlags, _, bothErr) = cli(
+      connected(
+        "organizations",
+        "tokens",
+        "create",
+        "cli-tokens-2",
+        "--label",
+        "x",
+        "--expires-in",
+        "30d",
+        "--never-expires"
+      )*
+    )
+    assertEquals(bothFlags, 1)
+    assert(bothErr.contains("cannot both be given"), bothErr)
+
+    val (nonsense, _, nonsenseErr) = cli(
+      connected(
+        "organizations",
+        "tokens",
+        "create",
+        "cli-tokens-2",
+        "--label",
+        "x",
+        "--expires-in",
+        "soon"
+      )*
+    )
+    assertEquals(nonsense, 1)
+    assert(nonsenseErr.contains("is not a duration"), nonsenseErr)
+
+    // And one that never expires says so rather than printing an empty expiry.
+    val (ok, out, _) = cli(
+      connected(
+        "organizations",
+        "tokens",
+        "create",
+        "cli-tokens-2",
+        "--label",
+        "forever",
+        "--never-expires"
+      )*
+    )
+    assertEquals(ok, 0)
+    assert(out.contains("never expires"), out)
+  }
+
+  test("a deploy token cannot manage deploy tokens, and says so as forbidden") {
+    val _ = cli(connected("organizations", "create", "cli-tokens-3", "--name", "Three")*)
+    val (_, created, _) =
+      cli(connected("organizations", "tokens", "create", "cli-tokens-3", "--label", "ci")*)
+    val secret = secretIn(created)
+
+    val (code, _, err) =
+      cli(connectedAs(secret, "organizations", "tokens", "list", "cli-tokens-3")*)
+    assertEquals(code, 1)
+    // "not permitted", not "log in": the credential was accepted and the action is not its own.
+    assert(err.contains("not permitted"), err)
   }

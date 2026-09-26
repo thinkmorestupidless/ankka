@@ -50,8 +50,8 @@ is for display.
 
 `ankka login` signs you in with the OAuth 2.0 device authorization grant: the CLI prints an address and a
 code, and you sign in in any browser, on any device. The login is saved per control plane URL, readable
-only by you, and renewed without a browser. A machine such as a CI job uses a token it obtained itself
-from a Keycloak client; see [Deploy from CI](../deploy/ci.md).
+only by you, and renewed without a browser. A machine such as a CI job holds a deploy token
+instead, which an owner creates; see [Deploy from GitHub Actions](../deploy/ci.md).
 
 ## Roles
 
@@ -63,6 +63,7 @@ Each member of an organization is an **owner** or a **member**.
 | Create, rename and delete projects | yes | yes |
 | Apply, pause, resume, restart, expose, unexpose and delete services; read their logs and history | yes | yes |
 | Invite, remove and change the role of members | no | yes |
+| Create, list and revoke deploy tokens | no | yes |
 | Rename or delete the organization | no | yes |
 
 Anyone signed in may create an organization and becomes its first owner. Owners invite people by email.
@@ -76,6 +77,25 @@ so removing someone takes effect on their very next request.
 **What you cannot see does not exist.** For an organization, project or service you are not a member of,
 the control plane answers exactly as it would for one that was never created: `404`. An outsider learns
 nothing about which ids are in use. A member who lacks the owner role for an action gets `403`.
+
+## A deploy token is a member
+
+A machine holds a **deploy token**, and a deploy token's subject is an ordinary member of the
+organization it belongs to. Nothing above needs a second reading for machines: its role is `member`,
+its membership is checked against the same entity on every request, it sees a `404` for an organization
+it does not belong to, and every change it makes carries it as the actor.
+
+That is a design decision rather than an implementation detail. A separate authorization path for
+machines would be a second set of rules to keep in step with the first, and the place where the two
+disagreed would be a way in. Instead there is one set, and a token is a subject like any other — one
+that happens to be named `token:<id>` so a person reading a members list or an audit trail can tell.
+
+Two consequences follow from the role being fixed at `member`. A token can never be the owner an
+organization is required to retain, so a secret in a CI system can never become the only way to
+administer it. And a token cannot manage deploy tokens, so a leaked credential cannot mint a
+replacement for itself or revoke the one that would stop it.
+
+See [Identity and machine accounts](../platform/identity.md#machine-accounts).
 
 ## Platform administrators
 

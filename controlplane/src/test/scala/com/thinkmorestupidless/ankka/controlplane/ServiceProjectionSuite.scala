@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceProjection}
-import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
+import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, Service, ServiceKey}
 
 /** Desired state becomes a resource spec. Pure: no cluster, no database. */
 class ServiceProjectionSuite extends munit.FunSuite:
@@ -203,4 +203,17 @@ class ServiceProjectionSuite extends munit.FunSuite:
 
   test("an undeclared runtime is not checked") {
     assert(ServiceProjection.project(service(), platform).isRight)
+  }
+
+  test("the pull secret follows the project's registry, and is absent without one") {
+    val Right(without) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(without.imagePullSecret, None)
+
+    val credential = RegistryRef("ghcr.io", "octocat", "ankka-registry")
+    val Right(with_) =
+      ServiceProjection.project(service(), config, Some(credential)): @unchecked
+    // The *name*, not the credential: nothing about the registry itself crosses into the resource,
+    // which is why a resource is safe to read and a Secret is not.
+    assertEquals(with_.imagePullSecret, Some("ankka-registry"))
+    assert(!with_.toString.contains("ghcr.io"), with_.toString)
   }

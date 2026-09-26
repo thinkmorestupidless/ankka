@@ -108,7 +108,7 @@ nav:
       - Deploy a service: deploy/deploy-a-service.md
       - Expose a service: deploy/expose.md
       - Scale and roll out: deploy/scaling-and-rollouts.md
-      - Deploy from CI: deploy/ci.md
+      - Deploy from GitHub Actions: deploy/ci.md
       - Upgrade ankka: deploy/upgrading.md
   - Observe and operate:
       - The local console: operate/local-console.md

@@ -2,12 +2,13 @@ package com.thinkmorestupidless.ankka.controlplane.deploy
 
 import com.thinkmorestupidless.ankka.controlplane.application.{
   OrganizationRows,
+  ProjectEntity,
   ProjectRows,
   ServiceEntity,
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.Attribution
-import com.thinkmorestupidless.ankka.controlplane.domain.ServiceKey
+import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, ServiceKey}
 import com.thinkmorestupidless.ankka.core.{EntityId, Metadata}
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 import com.thinkmorestupidless.ankka.runtime.{
@@ -40,7 +41,8 @@ import scala.util.control.NonFatal
 final class ServiceProjector private (
     config: DeployConfig,
     clientFactory: DeployConfig => AnkkaServiceClient
-) extends RuntimeExtension:
+) extends RuntimeExtension
+    with RegistryWriter:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.projector")
 
@@ -66,6 +68,24 @@ final class ServiceProjector private (
 
   def organizationEnabled(organizationId: String, by: Option[Attribution]): Unit =
     projection.foreach(_.setSuspended(organizationId, suspended = false, by))
+
+  /**
+   * Puts a project's registry credential in the cluster.
+   *
+   * The projector rather than the endpoint, because the client is built here and a project's
+   * namespace is named from this configuration. Refuses before startup rather than silently
+   * succeeding: a credential nobody wrote must not be recorded as written.
+   */
+  def writePullSecret(
+      projectId: String,
+      server: String,
+      username: String,
+      password: String
+  ): Unit =
+    client match
+      case Some(resources) =>
+        resources.ensurePullSecret(config.namespaceFor(projectId), server, username, password)
+      case None => throw new IllegalStateException("the cluster client is not started")
 
   def start(service: RunningService): Unit =
     given system: ActorSystem[?] = service.system
@@ -133,6 +153,26 @@ private[deploy] final class Projection(
     componentClient.forEventSourcedEntity(EntityId(key.id))
 
   /**
+   * The project's registry credential, or nothing.
+   *
+   * Read on every projection rather than cached: a credential set or cleared while a service is
+   * running must reach the next projection, and there is no event on the *service* to notice it. A
+   * project that has gone missing answers nothing — a service being projected for a deleted project
+   * is a state the delete path handles, and failing the projection over it would be a worse answer
+   * than leaving the reference off.
+   */
+  private def registryOf(projectId: String): Option[RegistryRef] =
+    try
+      componentClient
+        .forEventSourcedEntity(EntityId(projectId))
+        .call(ProjectEntity.registry)
+        .invoke()
+    catch
+      case NonFatal(failure) =>
+        log.debug("no registry for project {}: {}", projectId, failure.getMessage)
+        None
+
+  /**
    * One service: make the cluster match the record, then say what happened.
    *
    * Level-triggered — it reads desired state and makes the resource match, rather than acting on
@@ -148,7 +188,7 @@ private[deploy] final class Projection(
           client.delete(namespace, key.name)
 
         case Some(service) =>
-          ServiceProjection.project(service, config) match
+          ServiceProjection.project(service, config, registryOf(key.projectId)) match
             case Left(problems) =>
               log.warn("cannot project {}: {}", key.id, problems.mkString("; "))
               observe(key, ClusterView.Refused(problems.mkString("; ")))

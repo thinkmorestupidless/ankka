@@ -1,0 +1,81 @@
+# Build the image, push it, and deploy the service — on a version tag, or by hand.
+#
+# It declines to run rather than failing when the secrets are absent, so a project pushed to GitHub
+# before anything has been configured shows a green `ci` and a skipped `deploy`, not a red cross for
+# a step its author has not reached yet. See README.md, "Deploy from GitHub".
+name: deploy
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  # A secret cannot be tested in a job-level `if`, so one job decides and the next obeys.
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: \${{ steps.secrets.outputs.deploy }}
+    steps:
+      - id: secrets
+        env:
+          TOKEN: \${{ secrets.ANKKA_TOKEN }}
+        run: |
+          if [ -n "\$TOKEN" ]; then
+            echo "deploy=true" >> "\$GITHUB_OUTPUT"
+          else
+            echo "deploy=false" >> "\$GITHUB_OUTPUT"
+            echo "::notice::No ANKKA_TOKEN secret is configured, so nothing is deployed. See README.md, 'Deploy from GitHub'."
+          fi
+
+  deploy:
+    needs: check
+    if: needs.check.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push the image to this repository's GitHub Container Registry
+    env:
+      # The tag being released, or the commit for a manual run. build.sbt reads this as the version,
+      # so the image is tagged with it — a new tag every build, which is what a cluster running
+      # imagePullPolicy: IfNotPresent needs to pick anything up.
+      SERVICE_VERSION: \${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+      DOCKER_REPOSITORY: ghcr.io/\${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: \${{ github.actor }}
+          password: \${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the image
+        run: |
+          set -euo pipefail
+          # A tag is `v1.2.3`; the image's is `1.2.3`.
+          export SERVICE_VERSION="\${SERVICE_VERSION#v}"
+          sbt Docker/publish
+          echo "IMAGE=\$DOCKER_REPOSITORY/$name;format="norm"$:\$SERVICE_VERSION" >> "\$GITHUB_ENV"
+
+      # Installs the CLI, verifies it against its published checksum, and authenticates it for the
+      # rest of this job. It needs the Java above; it installs none of its own.
+      - uses: thinkmorestupidless/ankka-action@v1
+        with:
+          url: \${{ secrets.ANKKA_URL }}
+          token: \${{ secrets.ANKKA_TOKEN }}
+          project: \${{ secrets.ANKKA_PROJECT }}
+          ca: \${{ secrets.ANKKA_CA }}
+
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          # The descriptor's settings with the image just pushed. service.json is not rewritten, and
+          # the command refuses if it names a different service.
+          ankka services deploy $name;format="norm"$ "\$IMAGE"
+          ankka services get $name;format="norm"$

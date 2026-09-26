@@ -1,15 +1,22 @@
 package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.controlplane.api.{CreateProject, Invite, Owner, Role}
-import com.thinkmorestupidless.ankka.controlplane.application.{OrganizationEntity, ProjectEntity}
+import com.thinkmorestupidless.ankka.controlplane.application.{
+  DeployTokenEntity,
+  OrganizationEntity,
+  ProjectEntity
+}
 import com.thinkmorestupidless.ankka.controlplane.domain.{
   Actor,
   Attribution,
   ChangeRole,
   ClaimInvitation,
+  ConfigureRegistry,
   CreateForOwner,
-  Organization
+  Organization,
+  RecordDeployToken
 }
+import com.thinkmorestupidless.ankka.controlplane.domain.DeployTokenEvent.*
 import com.thinkmorestupidless.ankka.controlplane.domain.OrganizationEvent.*
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.*
 import com.thinkmorestupidless.ankka.core.{Done, ErrorCode}
@@ -405,4 +412,199 @@ class TenancyEntitySuite extends munit.FunSuite:
     )
     assertEquals(kit.call(OrganizationEntity.roleOf)("carol").replyValue.role, Some(Role.Owner))
     assertEquals(kit.call(OrganizationEntity.members).replyValue.members.size, 1)
+  }
+
+  // ── a project's registry (feature 013) ─────────────────────────────────────────────────────────
+
+  private val credential = ConfigureRegistry("ghcr.io", "octocat", "ankka-registry")
+
+  test("configuring a registry records the server, the user and the secret's name") {
+    val kit = project
+    val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
+    val by  = Attribution(Actor("alice", Some("alice@example.test")), now)
+
+    val result = kit.call(ProjectEntity.configureRegistry, by.metadata)(credential)
+    assertEquals(
+      result.events,
+      Vector(
+        RegistryConfigured("ghcr.io", "octocat", "ankka-registry", Some(by.actor), Some(now))
+      )
+    )
+
+    // And no password anywhere: not in the event, and not in what a reader is told.
+    val summary = kit.call(ProjectEntity.get).replyValue.registry
+    assertEquals(summary.map(_.server), Some("ghcr.io"))
+    assertEquals(summary.map(_.username), Some("octocat"))
+    assertEquals(summary.flatMap(_.setBy), Some("alice@example.test"))
+    assertEquals(
+      kit.call(ProjectEntity.registry).replyValue.map(_.secretName),
+      Some("ankka-registry")
+    )
+  }
+
+  test("a second credential replaces the first rather than accumulating") {
+    val kit = project
+    val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
+    val _   = kit.call(ProjectEntity.configureRegistry)(credential)
+    val _ = kit.call(ProjectEntity.configureRegistry)(
+      ConfigureRegistry("registry.example.test", "robot", "ankka-registry")
+    )
+    assertEquals(
+      kit.call(ProjectEntity.get).replyValue.registry.map(_.server),
+      Some("registry.example.test")
+    )
+  }
+
+  test("clearing a registry drops the reference; clearing none is a not-found") {
+    val kit = project
+    val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
+    assertEquals(kit.call(ProjectEntity.clearRegistry).error.code, ErrorCode.NotFound)
+
+    val _ = kit.call(ProjectEntity.configureRegistry)(credential)
+    assertEquals(kit.call(ProjectEntity.clearRegistry).replyValue, Done)
+    assertEquals(kit.call(ProjectEntity.get).replyValue.registry, None)
+    assertEquals(kit.call(ProjectEntity.registry).replyValue, None)
+  }
+
+  test("a registry cannot be configured on a project that does not exist") {
+    assertEquals(
+      project.call(ProjectEntity.configureRegistry)(credential).error.code,
+      ErrorCode.NotFound
+    )
+  }
+
+  test("the registry is rebuilt purely by folding events, set and cleared") {
+    val kit = project
+    val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
+    val _   = kit.call(ProjectEntity.configureRegistry)(credential)
+    val _   = kit.call(ProjectEntity.clearRegistry)
+    val _   = kit.call(ProjectEntity.configureRegistry)(credential)
+
+    assertEquals(
+      kit.allEvents,
+      Vector(
+        ProjectCreated("Checkout", "acme"),
+        RegistryConfigured("ghcr.io", "octocat", "ankka-registry"),
+        RegistryCleared(),
+        RegistryConfigured("ghcr.io", "octocat", "ankka-registry")
+      )
+    )
+    assertEquals(kit.call(ProjectEntity.registry).replyValue.map(_.server), Some("ghcr.io"))
+  }
+
+  // ── deploy tokens (feature 013) ───────────────────────────────────────────
+
+  private def token = EventSourcedTestKit.of(DeployTokenEntity, "3f9a1c2e7b4d8f01")
+
+  private val expiry  = java.time.Instant.parse("2026-12-24T10:00:00Z")
+  private val request = RecordDeployToken("acme", "github-deploy", "a" * 64, Some(expiry))
+
+  test("creating a deploy token records everything but the secret") {
+    val kit    = token
+    val by     = Attribution(Actor("alice", Some("alice@example.test")), now)
+    val result = kit.call(DeployTokenEntity.createToken, by.metadata)(request)
+
+    assertEquals(result.replyValue, Done)
+    assertEquals(
+      result.events,
+      Vector(
+        DeployTokenCreated(
+          "acme",
+          "github-deploy",
+          "a" * 64,
+          Some(expiry),
+          Some(by.actor),
+          Some(now)
+        )
+      )
+    )
+
+    val detail = kit.call(DeployTokenEntity.get).replyValue
+    assertEquals(detail.id, "3f9a1c2e7b4d8f01")
+    assertEquals(detail.subject, "token:3f9a1c2e7b4d8f01")
+    assertEquals(detail.organizationId, "acme")
+    assertEquals(detail.label, "github-deploy")
+    assertEquals(detail.createdBy, Some("alice@example.test"))
+    assertEquals(detail.expiresAt, Some(expiry))
+    assertEquals(detail.lastUsed, None)
+  }
+
+  test("a deploy token needs an organization, a label and a digest") {
+    assertEquals(
+      token.call(DeployTokenEntity.createToken)(request.copy(organizationId = "")).error.code,
+      ErrorCode.BadRequest
+    )
+    assertEquals(
+      token.call(DeployTokenEntity.createToken)(request.copy(label = "")).error.code,
+      ErrorCode.BadRequest
+    )
+    assertEquals(
+      token.call(DeployTokenEntity.createToken)(request.copy(digest = "")).error.code,
+      ErrorCode.BadRequest
+    )
+  }
+
+  test("creating the same deploy token twice conflicts") {
+    val kit = token
+    val _   = kit.call(DeployTokenEntity.createToken)(request)
+    assertEquals(
+      kit.call(DeployTokenEntity.createToken)(request).error.code,
+      ErrorCode.Conflict
+    )
+  }
+
+  test("a revoked deploy token's id is never reused") {
+    val kit = token
+    val _   = kit.call(DeployTokenEntity.createToken)(request)
+    assertEquals(kit.call(DeployTokenEntity.revoke).replyValue, Done)
+    // Revoked, so it no longer exists — and a create must not resurrect it under the same id,
+    // or an audit trail could not say which credential made a change.
+    val again = kit.call(DeployTokenEntity.createToken)(request)
+    assertEquals(again.error.code, ErrorCode.Conflict)
+    assert(again.error.message.contains("revoked"), again.error.message)
+    assertEquals(kit.call(DeployTokenEntity.get).error.code, ErrorCode.NotFound)
+  }
+
+  test("revoking twice is a not-found, as removing a member twice is") {
+    val kit = token
+    val _   = kit.call(DeployTokenEntity.createToken)(request)
+    val _   = kit.call(DeployTokenEntity.revoke)
+    assertEquals(kit.call(DeployTokenEntity.revoke).error.code, ErrorCode.NotFound)
+  }
+
+  test("a use is recorded once per day, however many nodes report it") {
+    val kit   = token
+    val day   = java.time.LocalDate.parse("2026-09-25")
+    val later = java.time.LocalDate.parse("2026-09-26")
+    val _     = kit.call(DeployTokenEntity.createToken)(request)
+
+    assertEquals(kit.call(DeployTokenEntity.recordUse)(day).events, Vector(DeployTokenUsed(day)))
+
+    // A second node reporting the same day, and a late report of an earlier day, both persist
+    // nothing: without this a busy token would write to its own journal on every sweep.
+    assertEquals(kit.call(DeployTokenEntity.recordUse)(day).events, Vector.empty)
+    assertEquals(kit.call(DeployTokenEntity.recordUse)(day.minusDays(1)).events, Vector.empty)
+    assertEquals(kit.call(DeployTokenEntity.recordUse)(day).replyValue, Done)
+
+    assertEquals(
+      kit.call(DeployTokenEntity.recordUse)(later).events,
+      Vector(DeployTokenUsed(later))
+    )
+    assertEquals(kit.call(DeployTokenEntity.get).replyValue.lastUsed, Some(later))
+  }
+
+  test("a use of an unknown or revoked token is a not-found") {
+    val day = java.time.LocalDate.parse("2026-09-25")
+    assertEquals(token.call(DeployTokenEntity.recordUse)(day).error.code, ErrorCode.NotFound)
+
+    val kit = token
+    val _   = kit.call(DeployTokenEntity.createToken)(request)
+    val _   = kit.call(DeployTokenEntity.revoke)
+    assertEquals(kit.call(DeployTokenEntity.recordUse)(day).error.code, ErrorCode.NotFound)
+  }
+
+  test("a token that never expires is distinguishable from one that does") {
+    val kit = token
+    val _   = kit.call(DeployTokenEntity.createToken)(request.copy(expiresAt = None))
+    assertEquals(kit.call(DeployTokenEntity.get).replyValue.expiresAt, None)
   }

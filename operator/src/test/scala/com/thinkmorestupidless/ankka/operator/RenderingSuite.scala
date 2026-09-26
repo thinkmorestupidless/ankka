@@ -463,3 +463,42 @@ class RenderingSuite extends munit.FunSuite:
     assertEquals(before, after)
     assertEquals(routeActionFor(spec, settings), routeActionFor(spec, exposing))
   }
+
+  test("a pull secret is named on the pod when the spec has one, and absent by default") {
+    // The name only — the operator points at a Secret the control plane wrote and never reads it.
+    // With no registry the list is empty, which is exactly what this renderer produced for the
+    // field before the field existed: an existing service's Deployment is unchanged by the feature.
+    assert(
+      deploymentFor(spec).getSpec.getTemplate.getSpec.getImagePullSecrets.isEmpty,
+      "a service with no registry must name no pull secret"
+    )
+
+    val named = deploymentFor(spec.copy(imagePullSecret = Some("ankka-registry")))
+    assertEquals(
+      named.getSpec.getTemplate.getSpec.getImagePullSecrets.asScala.map(_.getName).toVector,
+      Vector("ankka-registry")
+    )
+  }
+
+  test("a provisioned service keeps its init container and volume while naming a pull secret") {
+    // There are two PodSpecBuilder shapes and the pull secret has to reach both. The provisioned
+    // one carries the schema init container and its volume, which an edit touching only the other
+    // branch would silently drop.
+    val provisioned =
+      Rendering.render(
+        resource(spec.copy(imagePullSecret = Some("ankka-registry"), provisionDatabase = true)),
+        settings,
+        ProvisioningPlan.Ready(recovered = false),
+        "pw"
+      ) match
+        case Right(actions) =>
+          actions
+            .collectFirst { case Action.ApplyDeployment(d) => d }
+            .getOrElse(fail("no deployment was rendered"))
+        case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
+
+    val pod = provisioned.getSpec.getTemplate.getSpec
+    assertEquals(pod.getImagePullSecrets.asScala.map(_.getName).toVector, Vector("ankka-registry"))
+    assertEquals(pod.getInitContainers.size, 1)
+    assert(!pod.getVolumes.isEmpty, "the schema init volume was dropped")
+  }

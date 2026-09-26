@@ -1,0 +1,147 @@
+# The ankka CLI, installed and authenticated for the rest of a job.
+#
+# Held in the ankka repository under action/ and pushed to thinkmorestupidless/ankka-action by the
+# release workflow — the same arrangement as ankka.g8, marketplace/ and homebrew/, and for the same
+# reason: a workflow can only reference an action as owner/repo@ref.
+#
+# It installs no Java. GitHub-hosted runners ship several JDKs and actions/setup-java is the standard,
+# cached way to pick one; fetching a second runtime here would be slower, larger, and would re-solve a
+# problem the ecosystem has already solved. It checks for one and says so when there is none.
+name: ankka
+description: Install the ankka CLI, point it at a control plane, and authenticate it for the rest of the job.
+author: thinkmorestupidless
+branding:
+  icon: upload-cloud
+  color: blue
+
+inputs:
+  version:
+    description: >-
+      The ankka CLI version to install. Defaults to the version this action was released with, which
+      is the version of the platform it was released beside.
+    required: false
+    default: "0.0.0"
+  url:
+    description: The control plane's address, for example https://api.example.com.
+    required: true
+  token:
+    description: >-
+      A deploy token from `ankka organizations tokens create`, or any token the control plane
+      accepts. Pass a secret, never a literal.
+    required: true
+  project:
+    description: The project later commands act on. Sets ANKKA_PROJECT.
+    required: false
+    default: ""
+  ca:
+    description: >-
+      PEM text of a certificate authority to trust, for an installation whose certificate is not
+      publicly trusted. Written to a file for the job and named in ANKKA_CA.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # First, and before anything is downloaded: a runner with no suitable Java cannot run the CLI,
+    # and finding that out from a stack trace three steps later is no use to anyone.
+    - name: Check for Java 21 or later
+      shell: bash
+      run: |
+        set -uo pipefail
+        major=""
+        if command -v java >/dev/null 2>&1; then
+          # `java -version` writes to stderr, and quotes the version on the first line in one of two
+          # shapes: `openjdk version "21.0.2"` since JDK 9, and `java version "1.8.0_392"` before it,
+          # where the major is the number after `1.`.
+          line=$(java -version 2>&1 | head -1)
+          quoted=${line#*\"}
+          quoted=${quoted%%\"*}
+          if [ "$quoted" != "$line" ]; then
+            case "$quoted" in
+              1.*) rest=${quoted#1.}; major=${rest%%[.._-]*} ;;
+              *)   major=${quoted%%[.._-]*} ;;
+            esac
+          fi
+        fi
+        if [ -z "$major" ] || [ "$major" -lt 21 ] 2>/dev/null; then
+          found=${major:-none}
+          echo "::error::the ankka CLI needs Java 21 or later on PATH and found $found. Add before this step:%0A  - uses: actions/setup-java@v4%0A    with: { distribution: temurin, java-version: \"21\" }"
+          exit 1
+        fi
+        echo "java $major"
+
+    - name: Install the ankka CLI
+      shell: bash
+      env:
+        ANKKA_VERSION: ${{ inputs.version }}
+        # Overridable so a test can install from a local directory; not an input, because a workflow
+        # has no business fetching the CLI from anywhere else.
+        ANKKA_CLI_BASE_URL: ${{ env.ANKKA_CLI_BASE_URL }}
+      run: |
+        set -euo pipefail
+        base="${ANKKA_CLI_BASE_URL:-https://github.com/thinkmorestupidless/ankka/releases/download/v$ANKKA_VERSION}"
+        zip="ankka-cli-$ANKKA_VERSION.zip"
+        work="$RUNNER_TEMP/ankka-cli"
+        mkdir -p "$work"
+        cd "$work"
+
+        if ! curl --fail --location --silent --show-error -O "$base/$zip"; then
+          echo "::error::ankka CLI $ANKKA_VERSION could not be fetched from $base/$zip"
+          exit 1
+        fi
+        if ! curl --fail --location --silent --show-error -O "$base/$zip.sha256"; then
+          echo "::error::no published checksum for $zip at $base — refusing to run an unverified download"
+          exit 1
+        fi
+        if ! sha256sum --check --status "$zip.sha256"; then
+          echo "::error::the downloaded $zip does not match its published checksum"
+          exit 1
+        fi
+
+        unzip -q "$zip"
+        bin="$work/ankka-cli-$ANKKA_VERSION/bin"
+        test -x "$bin/ankka" || { echo "::error::$zip did not contain bin/ankka"; exit 1; }
+        echo "$bin" >> "$GITHUB_PATH"
+
+    - name: Configure the CLI for this job
+      shell: bash
+      env:
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_CA: ${{ inputs.ca }}
+      run: |
+        set -euo pipefail
+        if [ -z "$INPUT_URL" ]; then
+          echo "::error::input 'url' is required: the control plane's address"
+          exit 1
+        fi
+        if [ -z "$INPUT_TOKEN" ]; then
+          echo "::error::input 'token' is required: a deploy token from \`ankka organizations tokens create\`"
+          exit 1
+        fi
+
+        # Masked before it is written anywhere, so no later step can echo it into the log by
+        # accident. GITHUB_ENV lives for this job only and goes with the runner's workspace, which
+        # is what keeps the token out of anything that outlives the job.
+        echo "::add-mask::$INPUT_TOKEN"
+        echo "ANKKA_URL=$INPUT_URL" >> "$GITHUB_ENV"
+        echo "ANKKA_TOKEN=$INPUT_TOKEN" >> "$GITHUB_ENV"
+        if [ -n "$INPUT_PROJECT" ]; then
+          echo "ANKKA_PROJECT=$INPUT_PROJECT" >> "$GITHUB_ENV"
+        fi
+        if [ -n "$INPUT_CA" ]; then
+          ca="$RUNNER_TEMP/ankka-ca.crt"
+          printf '%s\n' "$INPUT_CA" > "$ca"
+          echo "ANKKA_CA=$ca" >> "$GITHUB_ENV"
+        fi
+
+    # The smoke test, so a missing or rejected credential fails here with the CLI's own message
+    # rather than in whatever step happens to run first.
+    - name: Verify the credential
+      shell: bash
+      run: |
+        set -euo pipefail
+        ankka version
+        ankka whoami -o json > /dev/null

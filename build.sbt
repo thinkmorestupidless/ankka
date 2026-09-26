@@ -126,6 +126,9 @@ lazy val commonSettings = Seq(
     "ankka.cluster.tests",
     "ankka.template.tests",
     "ankka.benchmarks",
+    // Throwaway spikes that answer a design question against a real database (feature 013's
+    // research "verify at implementation" list). Off by default: they measure, they do not assert.
+    "ankka.spikes",
     // The conformance suite's target (feature 009): a process speaking the sidecar protocol.
     "ankka.conformance.target",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with

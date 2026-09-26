@@ -1,9 +1,24 @@
 package com.thinkmorestupidless.ankka.controlplane.api
 
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
-import com.thinkmorestupidless.ankka.controlplane.application.{OrganizationEntity, ProjectRows}
-import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
-import com.thinkmorestupidless.ankka.controlplane.domain.{AddMember, ChangeRole, CreateForOwner}
+import com.thinkmorestupidless.ankka.controlplane.application.{
+  DeployTokenEntity,
+  DeployTokenRows,
+  OrganizationEntity,
+  ProjectRows
+}
+import com.thinkmorestupidless.ankka.controlplane.auth.{
+  Authorization,
+  DeployTokenIndex,
+  DeployTokens
+}
+import com.thinkmorestupidless.ankka.controlplane.domain.{
+  AddMember,
+  ChangeRole,
+  CreateForOwner,
+  DeployToken,
+  RecordDeployToken
+}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationCreation, OrganizationPolicy}
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.http.*
@@ -25,11 +40,20 @@ final class OrganizationEndpoint(
     clients: EndpointClients,
     val acl: Acl,
     policy: OrganizationPolicy = OrganizationPolicy.default,
-    protected val clock: java.time.Clock = java.time.Clock.systemUTC()
+    protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
+    /**
+     * This node's deploy token index, so a revoke can evict write-through (feature 013).
+     *
+     * Optional because a control plane can be assembled without deploy tokens at all — several
+     * suites do — and because the *only* thing lost without it is immediacy on this node: the
+     * revocation still reaches every index through the journal.
+     */
+    tokenIndex: Option[DeployTokenIndex] = None
 ) extends HttpEndpoint("/organizations")
     with Attributing:
 
   private val projects = clients.viewClient.forView(ProjectRows)
+  private val tokens   = clients.viewClient.forView(DeployTokenRows)
   private val authz    = Authorization(clients, clock)
 
   get("/") { () =>
@@ -160,6 +184,121 @@ final class OrganizationEndpoint(
         .invoke(AddMember(subject, request.role)): Done
   }
 
+  // ── deploy tokens (feature 013) ───────────────────────────────────────────
+  //
+  // On this endpoint rather than one of their own because two endpoints cannot share a prefix —
+  // `HttpServer.validate` refuses it, so that dispatch can never depend on registration order.
+  //
+  // Owner-only, every one of them. A deploy token is always a *member*, so a leaked CI credential
+  // cannot mint itself a second token, list its siblings, or revoke the one that would stop it.
+
+  get("/{organizationId}/tokens") { (organizationId: String) =>
+    authz.requireOwner(principal, organizationId, write = false)
+    tokens
+      .where(jsonText("organizationId") ++ sql" = $organizationId")
+      .sortBy(row => row.createdAt.map(_.toEpochMilli).getOrElse(0L))
+      .reverse
+      .map(row =>
+        DeployTokenSummary(
+          id = row.id,
+          label = row.label,
+          subject = row.subject,
+          createdBy = row.createdBy,
+          createdAt = row.createdAt,
+          expiresAt = row.expiresAt,
+          lastUsed = row.lastUsed
+        )
+      )
+  }
+
+  /**
+   * Mints a token and makes it a member, in that order.
+   *
+   * Two commands, and the order is the safe one: a token that exists but is not yet a member
+   * authorizes nothing anywhere, so a failure between them leaves something harmless that the owner
+   * can see in the listing and revoke. The reverse order would briefly grant membership to a
+   * subject no credential could yet be checked against.
+   */
+  postBody("/{organizationId}/tokens") { (organizationId: String, request: CreateDeployToken) =>
+    val access   = authz.requireOwner(principal, organizationId, write = true)
+    val problems = DeployTokenRules.problems(request.label, request.expiresIn)
+    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+
+    val minted = DeployTokens.mint()
+    // The server's clock decides when a lifetime ends; a client sending an instant would be
+    // asserting its own. `0` is the deliberate "never".
+    val expiresAt = request.expiresIn.getOrElse(DeployTokenRules.DefaultLifetime) match
+      case 0       => None
+      case seconds => Some(clock.instant().plusSeconds(seconds))
+
+    val by = authz.metadata(access)
+    token(minted.id)
+      .call(DeployTokenEntity.createToken)
+      .withMetadata(by)
+      .invoke(
+        RecordDeployToken(organizationId, request.label.trim, minted.digest, expiresAt)
+      ): Done
+
+    entity(organizationId)
+      .call(OrganizationEntity.addMember)
+      .withMetadata(by)
+      .invoke(
+        AddMember(
+          DeployToken.subjectOf(minted.id),
+          Role.Member,
+          display = Some(request.label.trim)
+        )
+      ): Done
+
+    // Usable on this node at once, rather than at the next read-refresh. Without it the obvious
+    // script — create a token, then use it — fails against the very node that minted it.
+    tokenIndex.foreach(
+      _.admit(minted.id, minted.digest, organizationId, request.label.trim, expiresAt)
+    )
+
+    DeployTokenCreated(
+      id = minted.id,
+      label = request.label.trim,
+      secret = minted.presented,
+      subject = DeployToken.subjectOf(minted.id),
+      expiresAt = expiresAt
+    )
+  }
+
+  /**
+   * Revokes, evicts, then unmembers.
+   *
+   * `evict` is why "revoke, then the next call fails" is true on the node a CLI is talking to: the
+   * revocation reaches other nodes through the journal a refresh interval later, but this node
+   * forgets it now. Each step refuses independently, so a partial failure still denies.
+   */
+  delete("/{organizationId}/tokens/{tokenId}") { (organizationId: String, tokenId: String) =>
+    val access = authz.requireOwner(principal, organizationId, write = true)
+    val detail = token(tokenId).call(DeployTokenEntity.get).invoke()
+    // A token of another organization is not this organization's to revoke, and saying so would
+    // disclose that the id exists at all.
+    if detail.organizationId != organizationId then
+      throw CommandError(s"no such deploy token '$tokenId'", ErrorCode.NotFound)
+
+    token(tokenId)
+      .call(DeployTokenEntity.revoke)
+      .withMetadata(authz.metadata(access))
+      .invoke(): Done
+    tokenIndex.foreach(_.evict(tokenId))
+
+    val unmembered: Done =
+      try
+        entity(organizationId)
+          .call(OrganizationEntity.removeMember)
+          .withMetadata(authz.metadata(access))
+          .invoke(detail.subject)
+      catch
+        // It was never added — the create failed between its two commands. The token is revoked,
+        // which is what was asked for.
+        case failure: CommandError if failure.code == ErrorCode.NotFound => Done
+    unmembered
+  }
+
   // ── disabling ─────────────────────────────────────────────────────────────
 
   post("/{organizationId}/disable") { (organizationId: String) =>
@@ -183,3 +322,6 @@ final class OrganizationEndpoint(
 
   private def entity(organizationId: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(organizationId))
+
+  private def token(tokenId: String) =
+    clients.componentClient.forEventSourcedEntity(EntityId(tokenId))

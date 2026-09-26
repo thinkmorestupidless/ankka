@@ -41,6 +41,39 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
 
   def namespaceExists(namespace: String): Boolean = namespaces.contains(namespace)
 
+  /**
+   * What the control plane tried to put in the cluster, password included.
+   *
+   * Recorded here precisely so a test can prove the password reached the *cluster* and appears in
+   * no reply, no journal and no view. There is no read-back method, because the real client has
+   * none.
+   */
+  private val pullSecrets = TrieMap.empty[String, FakeAnkkaServiceClient.Pull]
+
+  @volatile private var refusingSecrets = false
+
+  def ensurePullSecret(
+      namespace: String,
+      server: String,
+      username: String,
+      password: String
+  ): Unit =
+    guard()
+    if refusingSecrets then throw new RuntimeException("secrets are forbidden")
+    ensureNamespace(namespace)
+    pullSecrets.put(namespace, FakeAnkkaServiceClient.Pull(server, username, password)): Unit
+
+  def pullSecret(namespace: String): Option[FakeAnkkaServiceClient.Pull] =
+    pullSecrets.get(namespace)
+
+  def pullSecretCount: Int = pullSecrets.size
+
+  /**
+   * Every write of a credential is refused, as a cluster missing the RBAC grant would refuse it.
+   */
+  def refuseSecrets(): Unit = refusingSecrets = true
+  def allowSecrets(): Unit  = refusingSecrets = false
+
   def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit =
     guard()
     val key      = (namespace, name)
@@ -131,3 +164,7 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
 
   private def notifyWatchers(resource: AnkkaServiceResource): Unit =
     watchers.values.foreach(_(resource))
+
+object FakeAnkkaServiceClient:
+  /** A credential as the cluster received it. */
+  final case class Pull(server: String, username: String, password: String)

@@ -133,6 +133,24 @@ enum ProjectEvent:
   case ProjectRenamed(name: String, actor: Option[Actor] = None, at: Option[Instant] = None)
   case ProjectDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
 
+  /**
+   * A registry credential was put in the cluster for this project.
+   *
+   * The password is deliberately absent: it was written to a Kubernetes Secret before this event
+   * was persisted, and the journal's job is to remember that the credential exists, not to hold a
+   * second copy of it. `secretName` is what the operator will name on every pod in the project.
+   */
+  case RegistryConfigured(
+      server: String,
+      username: String,
+      secretName: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** The project no longer claims a registry. The Secret itself is left in the cluster. */
+  case RegistryCleared(actor: Option[Actor] = None, at: Option[Instant] = None)
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -207,4 +225,55 @@ final case class ServiceObservation(
     detail: Option[String] = None,
     confirmed: Boolean = true,
     database: Option[String] = None
+)
+
+/**
+ * A deploy token's life: created, used (at most once a day), revoked.
+ *
+ * `DeployTokenUsed` carries no actor, unlike every other command-produced event here, because no
+ * caller asks for it — a control plane node records it from its own background task after the token
+ * authenticated a request. The digest is on the created event and nowhere else; the secret is on
+ * nothing.
+ */
+enum DeployTokenEvent:
+  case DeployTokenCreated(
+      organizationId: String,
+      label: String,
+      digest: String,
+      expiresAt: Option[Instant] = None,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** The date, not the instant: see `DeployToken.lastUsed`. */
+  case DeployTokenUsed(date: java.time.LocalDate)
+
+  case DeployTokenRevoked(actor: Option[Actor] = None, at: Option[Instant] = None)
+
+/** `DeployTokenEntity.create`. The secret never appears; only what was derived from it. */
+final case class RecordDeployToken(
+    organizationId: String,
+    label: String,
+    digest: String,
+    expiresAt: Option[Instant] = None
+)
+
+/**
+ * `ProjectEntity.configureRegistry` — what the entity records once the Secret is in the cluster.
+ *
+ * No password: the endpoint writes the credential first and this says only that it did, so nothing
+ * reaching the journal is worth stealing.
+ */
+final case class ConfigureRegistry(server: String, username: String, secretName: String)
+
+/** `DeployTokenEntity.get` — everything the entity knows except the digest. */
+final case class DeployTokenDetail(
+    id: String,
+    organizationId: String,
+    label: String,
+    subject: String,
+    createdBy: Option[String] = None,
+    createdAt: Option[Instant] = None,
+    expiresAt: Option[Instant] = None,
+    lastUsed: Option[java.time.LocalDate] = None
 )

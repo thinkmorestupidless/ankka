@@ -48,6 +48,7 @@ import io.fabric8.kubernetes.api.model.{
   SecretEnvSourceBuilder,
   SecretKeySelectorBuilder,
   LabelSelectorBuilder,
+  LocalObjectReference,
   ObjectMetaBuilder,
   PodSpecBuilder,
   PodTemplateSpecBuilder,
@@ -432,19 +433,35 @@ object Rendering:
 
     val containers = containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage)
 
+    // The pull secret is *named*, never read. The Secret itself is the control plane's to write in
+    // the project's namespace from the credential a member supplied, and the operator holds no
+    // permission to read one — so the worst a resource naming the wrong Secret can do is fail to
+    // pull, which the pod reports and `services get` surfaces.
+    //
+    // A service with no registry names nothing. It is an *empty list* rather than an absent field,
+    // because that is what `PodSpecBuilder` produces for every list it was never given, and it is
+    // what this renderer produced for this field before the field existed — so nothing about an
+    // existing service's Deployment changes.
+    def withPullSecret(builder: PodSpecBuilder): PodSpecBuilder =
+      spec.imagePullSecret.fold(builder)(name =>
+        builder.withImagePullSecrets(new LocalObjectReference(name))
+      )
+
     val podSpec =
       if provisioned then
-        new PodSpecBuilder()
-          .withServiceAccountName(Names.serviceAccount(spec.serviceName))
-          .withInitContainers(SchemaInit.container(spec.serviceName))
-          .withContainers(containers*)
-          .withVolumes(SchemaInit.volume())
-          .build()
+        withPullSecret(
+          new PodSpecBuilder()
+            .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+            .withInitContainers(SchemaInit.container(spec.serviceName))
+            .withContainers(containers*)
+            .withVolumes(SchemaInit.volume())
+        ).build()
       else
-        new PodSpecBuilder()
-          .withServiceAccountName(Names.serviceAccount(spec.serviceName))
-          .withContainers(containers*)
-          .build()
+        withPullSecret(
+          new PodSpecBuilder()
+            .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+            .withContainers(containers*)
+        ).build()
 
     val podTemplate = new PodTemplateSpecBuilder()
       .withMetadata(

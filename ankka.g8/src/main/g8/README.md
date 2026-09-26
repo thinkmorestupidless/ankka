@@ -76,6 +76,43 @@ other platform, use the URL `ankka services expose` prints and that platform's r
 the endpoint, not who is *allowed* to — an exposed `AllowAll` endpoint on a real platform is on the
 internet.
 
+## Deploy from GitHub
+
+This project carries two workflows. `.github/workflows/ci.yml` builds and tests on every push and
+pull request, and needs nothing configured. `.github/workflows/deploy.yml` builds the image, pushes
+it to this repository's GitHub Container Registry, and deploys — on a version tag, or when you run it
+by hand. Until its secrets exist it declines to run rather than failing, so the first push is green.
+
+Four repository secrets, under **Settings → Secrets and variables → Actions**:
+
+| Secret | Value | Where it comes from |
+|---|---|---|
+| `ANKKA_URL` | the control plane's address | `ankka config get url` |
+| `ANKKA_TOKEN` | a deploy token | `ankka organizations tokens create <org> --label github` |
+| `ANKKA_PROJECT` | the project to deploy into | `ankka projects list` |
+| `ANKKA_CA` | optional: the platform's certificate authority, as PEM | `cat ~/.ankka/local-ca.crt`, for a platform whose certificate is not publicly trusted |
+
+A deploy token is a credential a machine can hold. It is shown once, it acts as a **member** of that
+organization — it can deploy, pause and restart services, and it cannot manage members or other
+tokens — and `ankka organizations tokens revoke` stops it.
+
+The cluster has to be able to *pull* the image. A GHCR package is private by default, so either make
+the package public, or register the registry for the project once:
+
+```bash
+ankka projects registry set <project> --server ghcr.io --username <github user> --password <a read:packages token>
+```
+
+Then tag a release:
+
+```bash
+git tag v0.1.0 && git push --tags
+```
+
+The workflow deploys to `Ready`. It does not expose the service: making it publicly reachable is your
+decision, taken once with `ankka services expose $name;format="norm"$`, and it survives every later
+deploy.
+
 ## Upgrading ankka
 
 The ankka version lives in two places that must move together: `ankkaVersion` in `build.sbt` (the

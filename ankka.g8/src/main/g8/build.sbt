@@ -40,10 +40,18 @@ lazy val root = project
     // sbt's own process.
     Test / fork := true,
 
+    // The version the image is tagged with. Locally sbt's own default; in CI the tag being
+    // released, or the commit for a manual run — see .github/workflows/deploy.yml.
+    version := sys.env.getOrElse("SERVICE_VERSION", "0.1.0-SNAPSHOT"),
+
     // The image the descriptor names: <name>:<version> and <name>:latest, built into the local
     // Docker daemon by `sbt Docker/publishLocal`. No registry is assumed; `kind load docker-image`
     // puts it where a local cluster can see it.
     Docker / packageName := serviceName,
+    // Unset, the image is tagged unqualified, which is what `kind load docker-image` wants. Set,
+    // the image is tagged for that registry and `sbt Docker/publish` pushes there — which is how
+    // the deploy workflow gets the image somewhere the cluster can pull from.
+    Docker / dockerRepository := sys.env.get("DOCKER_REPOSITORY"),
     dockerBaseImage      := "eclipse-temurin:21-jre",
     dockerUpdateLatest   := true,
     dockerExposedPorts   := Seq(9000),

@@ -1,6 +1,8 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
+import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
+import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, RegistryWriter}
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
@@ -35,15 +37,42 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
 
   private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()
 
+  /**
+   * This node's deploy token index (feature 013).
+   *
+   * Driven by the suite's mutable clock, so a case can advance past a token's expiry; registered as
+   * an extension below, so it replays the token journal exactly as a deployed node does.
+   */
+  private lazy val tokens = new DeployTokenIndex(identity.clock)
+
+  private val deployConfig = DeployConfig.default.copy(baseDomain = Some("example.test"))
+
+  /**
+   * An in-memory cluster, so a registry credential can be followed all the way to where it lands
+   * (feature 013).
+   *
+   * The fake stands in for the projector's client and records the password, which is the only way
+   * to assert the thing that matters: that it reached the *cluster* and appears in no reply, no
+   * journal and no listing.
+   */
+  private lazy val cluster = new FakeAnkkaServiceClient
+
+  private lazy val registryWriter: RegistryWriter =
+    (projectId, server, username, password) =>
+      cluster.ensurePullSecret(deployConfig.namespaceFor(projectId), server, username, password)
+
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
-        identity.acl(),
-        DeployConfig.default.copy(baseDomain = Some("example.test")),
-        auth = Some(identity.config())
+        ControlPlaneAcl.composite(tokens, identity.acl(), identity.config()),
+        deployConfig,
+        auth = Some(identity.config()),
+        clock = identity.clock,
+        tokens = Some(tokens),
+        registry = Some(registryWriter)
       )*
     )
-    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server))
+    testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server, tokens))
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
   override def afterAll(): Unit =
@@ -423,4 +452,322 @@ class ControlPlaneHttpSuite extends munit.FunSuite:
     assertEquals(send("GET", "/services/a/b/c/d")._1, 404)
     // /organizations/{id} exists for GET, POST, DELETE — but not PATCH.
     assertEquals(send("PATCH", "/organizations/acme", Some("{}"))._1, 405)
+  }
+
+  // ── deploy tokens (feature 013) ───────────────────────────────────────────
+
+  /** Pulls `"secret":"ankka_…"` out of a create response. */
+  private def secretOf(body: String): String =
+    val marker = "\"secret\":\""
+    val from   = body.indexOf(marker) + marker.length
+    body.substring(from, body.indexOf('"', from))
+
+  private def tokenIdOf(body: String): String =
+    val marker = "\"id\":\""
+    val from   = body.indexOf(marker) + marker.length
+    body.substring(from, body.indexOf('"', from))
+
+  private def createOrganizationFor(id: String): Unit =
+    assertEquals(send("POST", s"/organizations/$id", Some(s"""{"name":"$id"}"""))._1, 204)
+
+  test("an owner creates a deploy token and is shown the secret exactly once (S1.1)") {
+    createOrganizationFor("tokens-a")
+
+    val (status, body) = send("POST", "/organizations/tokens-a/tokens", Some("""{"label":"ci"}"""))
+    assertEquals(status, 200, body)
+    val secret = secretOf(body)
+    assert(secret.startsWith("ankka_"), body)
+    assert(body.contains("\"subject\":\"token:"), body)
+    assert(body.contains("\"expiresAt\""), "a default token expires")
+
+    // The listing is a view, so it lags. Retry on the thing that changes — the row appearing —
+    // and assert the identity that does not: no secret in it, ever.
+    val listing = eventually("the token's row appears in the listing") {
+      val (status, body) = send("GET", "/organizations/tokens-a/tokens")
+      Option.when(status == 200 && body.contains("\"label\":\"ci\""))(body)
+    }
+    assert(!listing.contains("ankka_"), listing)
+    assert(!listing.contains("secret"), listing)
+    assert(!listing.contains("digest"), listing)
+  }
+
+  test("a deploy token is authorized as a member and attributed as itself (S1.2)") {
+    createOrganizationFor("tokens-b")
+    val created =
+      send("POST", "/organizations/tokens-b/tokens", Some("""{"label":"deployer"}"""))._2
+    val secret = secretOf(created)
+
+    // `whoami` as the token: its own subject, its label, no email.
+    val (whoStatus, who) = send("GET", "/auth/whoami", token = Some(secret))
+    assertEquals(whoStatus, 200, who)
+    assert(who.contains("\"subject\":\"token:"), who)
+    assert(who.contains("\"name\":\"deployer\""), who)
+    assert(!who.contains("\"email\""), who)
+
+    // A member-level write succeeds.
+    assertEquals(
+      send(
+        "POST",
+        "/projects/tokens-b-checkout",
+        Some("""{"name":"Checkout","organizationId":"tokens-b"}"""),
+        token = Some(secret)
+      )._1,
+      204
+    )
+    val (_, project) = send("GET", "/projects/tokens-b-checkout")
+    assert(project.contains("tokens-b"), project)
+  }
+
+  test("a deploy token is refused everything reserved to owners, including tokens (S1.3)") {
+    createOrganizationFor("tokens-c")
+    val secret =
+      secretOf(send("POST", "/organizations/tokens-c/tokens", Some("""{"label":"ci"}"""))._2)
+
+    def asToken(method: String, path: String, body: Option[String] = None) =
+      send(method, path, body, token = Some(secret))._1
+
+    assertEquals(asToken("POST", "/organizations/tokens-c/tokens", Some("""{"label":"x"}""")), 403)
+    assertEquals(asToken("GET", "/organizations/tokens-c/tokens"), 403)
+    assertEquals(
+      asToken("POST", "/organizations/tokens-c/members", Some("""{"email":"x@example.test"}""")),
+      403
+    )
+    assertEquals(asToken("PUT", "/organizations/tokens-c/name", Some("""{"name":"Nope"}""")), 403)
+    assertEquals(asToken("DELETE", "/organizations/tokens-c"), 403)
+    // And it can still do member things, so the refusals above are about the role, not the token.
+    assertEquals(asToken("GET", "/organizations/tokens-c"), 200)
+  }
+
+  test("revoking refuses the token on the very next request to this node (S1.4)") {
+    createOrganizationFor("tokens-d")
+    val created = send("POST", "/organizations/tokens-d/tokens", Some("""{"label":"ci"}"""))._2
+    val secret  = secretOf(created)
+    val id      = tokenIdOf(created)
+
+    assertEquals(send("GET", "/organizations/tokens-d", token = Some(secret))._1, 200)
+    assertEquals(send("DELETE", s"/organizations/tokens-d/tokens/$id")._1, 204)
+
+    // No polling: this node evicted write-through, so the next request is already refused.
+    assertEquals(send("GET", "/organizations/tokens-d", token = Some(secret))._1, 401)
+    assertEquals(send("GET", "/auth/whoami", token = Some(secret))._1, 401)
+
+    // Revoking twice, and revoking something that never existed, are the same 404.
+    assertEquals(send("DELETE", s"/organizations/tokens-d/tokens/$id")._1, 404)
+    assertEquals(send("DELETE", "/organizations/tokens-d/tokens/0000000000000000")._1, 404)
+
+    // The membership went with it.
+    val (_, members) = send("GET", "/organizations/tokens-d/members")
+    assert(!members.contains(s"token:$id"), members)
+  }
+
+  test("a deploy token sees nothing of another organization (S1.5)") {
+    createOrganizationFor("tokens-e")
+    createOrganizationFor("tokens-f")
+    val secret =
+      secretOf(send("POST", "/organizations/tokens-e/tokens", Some("""{"label":"ci"}"""))._2)
+
+    // Not 403: an outsider must not learn that the organization exists at all.
+    assertEquals(send("GET", "/organizations/tokens-f", token = Some(secret))._1, 404)
+    assertEquals(
+      send(
+        "POST",
+        "/projects/tokens-f-nope",
+        Some("""{"name":"Nope","organizationId":"tokens-f"}"""),
+        token = Some(secret)
+      )._1,
+      404
+    )
+  }
+
+  test("a token expires on its own, and one created to never expire does not (S1.7)") {
+    createOrganizationFor("tokens-g")
+    val expiring =
+      secretOf(send("POST", "/organizations/tokens-g/tokens", Some("""{"label":"ci"}"""))._2)
+    val forever = secretOf(
+      send("POST", "/organizations/tokens-g/tokens", Some("""{"label":"f","expiresIn":0}"""))._2
+    )
+
+    assertEquals(send("GET", "/organizations/tokens-g", token = Some(expiring))._1, 200)
+    assertEquals(send("GET", "/organizations/tokens-g", token = Some(forever))._1, 200)
+
+    // Ninety-one days later. Only the control plane's clock moves; the OIDC tokens the suite
+    // mints are checked against the real one, so the owner's credential is untouched.
+    identity.clock.advanceDays(91)
+
+    assertEquals(send("GET", "/organizations/tokens-g", token = Some(expiring))._1, 401)
+    assertEquals(send("GET", "/organizations/tokens-g", token = Some(forever))._1, 200)
+
+    identity.clock.advanceDays(-91)
+  }
+
+  test("a malformed deploy token is refused as one, not handed to the OIDC verifier") {
+    def challenge(token: String): (Int, String) =
+      val response = sendRaw("/organizations", Some(token))
+      (response.statusCode, response.headers.firstValue("WWW-Authenticate").orElse(""))
+
+    val (status, why) = challenge("ankka_not-a-real-token")
+    assertEquals(status, 401)
+    assert(why.contains("not a deploy token"), why)
+
+    val (unknownStatus, unknownWhy) = challenge(s"ankka_${"0" * 16}_${"0" * 64}")
+    assertEquals(unknownStatus, 401)
+    assert(unknownWhy.contains("not recognised"), unknownWhy)
+  }
+
+  test("a disabled organization refuses a new token") {
+    createOrganizationFor("tokens-h")
+    val admin = identity.token("root", roles = Set("platform-admin"))
+    assertEquals(send("POST", "/organizations/tokens-h/disable", token = Some(admin))._1, 204)
+    assertEquals(send("POST", "/organizations/tokens-h/tokens", Some("""{"label":"ci"}"""))._1, 409)
+    assertEquals(send("POST", "/organizations/tokens-h/enable", token = Some(admin))._1, 204)
+  }
+
+  test("a label is required, and a lifetime cannot exceed a year") {
+    createOrganizationFor("tokens-i")
+    assertEquals(send("POST", "/organizations/tokens-i/tokens", Some("""{"label":""}"""))._1, 400)
+    assertEquals(
+      send(
+        "POST",
+        "/organizations/tokens-i/tokens",
+        Some("""{"label":"x","expiresIn":99999999}""")
+      )._1,
+      400
+    )
+  }
+
+  // ── a project's registry (feature 013) ─────────────────────────────────
+
+  private val Password = "gho_a-very-secret-token"
+
+  test("a member registers a registry credential, and the password goes only to the cluster") {
+    createOrganizationFor("reg-a")
+    assertEquals(
+      send("POST", "/projects/reg-a-app", Some("""{"name":"App","organizationId":"reg-a"}"""))._1,
+      204
+    )
+
+    val (status, body) = send(
+      "PUT",
+      "/projects/reg-a-app/registry",
+      Some(s"""{"server":"ghcr.io","username":"octocat","password":"$Password"}""")
+    )
+    assertEquals(status, 204, body)
+
+    // It reached the cluster, exactly once, with the password.
+    val written = cluster
+      .pullSecret("ankka-reg-a-app")
+      .getOrElse(fail("no credential reached the cluster"))
+    assertEquals(written.server, "ghcr.io")
+    assertEquals(written.username, "octocat")
+    assertEquals(written.password, Password)
+
+    // And nowhere else. The detail and the listing name the server and the user, never the secret.
+    val (_, detail) = send("GET", "/projects/reg-a-app")
+    assert(detail.contains("\"server\":\"ghcr.io\""), detail)
+    assert(detail.contains("\"username\":\"octocat\""), detail)
+    assert(!detail.contains(Password), s"the password came back: $detail")
+    assert(!detail.contains("password"), detail)
+
+    val listing = eventually("the project's row carries the registry") {
+      val (status, body) = send("GET", "/projects?organization=reg-a")
+      Option.when(status == 200 && body.contains("\"server\":\"ghcr.io\""))(body)
+    }
+    assert(!listing.contains(Password), s"the password reached a view: $listing")
+  }
+
+  test("clearing the registry leaves the Secret and stops claiming it; clearing twice is 404") {
+    val before = cluster.pullSecretCount
+    assertEquals(send("DELETE", "/projects/reg-a-app/registry")._1, 204)
+
+    val (_, detail) = send("GET", "/projects/reg-a-app")
+    assert(!detail.contains("ghcr.io"), detail)
+    // The Secret itself is untouched: the control plane holds no delete on secrets, and one nothing
+    // names is inert.
+    assertEquals(cluster.pullSecretCount, before)
+
+    assertEquals(send("DELETE", "/projects/reg-a-app/registry")._1, 404)
+  }
+
+  test("a cluster that refuses the write is 503, and nothing is recorded") {
+    createOrganizationFor("reg-b")
+    assertEquals(
+      send("POST", "/projects/reg-b-app", Some("""{"name":"App","organizationId":"reg-b"}"""))._1,
+      204
+    )
+    cluster.refuseSecrets()
+    try
+      val (status, body) = send(
+        "PUT",
+        "/projects/reg-b-app/registry",
+        Some(s"""{"server":"ghcr.io","username":"octocat","password":"$Password"}""")
+      )
+      assertEquals(status, 503, body)
+      assert(body.contains("forbidden"), body)
+    finally cluster.allowSecrets()
+
+    // The journal never claims a credential the cluster does not hold.
+    val (_, detail) = send("GET", "/projects/reg-b-app")
+    assert(!detail.contains("ghcr.io"), detail)
+  }
+
+  test(
+    "a deploy token may register a registry, because pushing images is a member's job (FR-026)"
+  ) {
+    createOrganizationFor("reg-c")
+    val secret =
+      secretOf(send("POST", "/organizations/reg-c/tokens", Some("""{"label":"ci"}"""))._2)
+    assertEquals(
+      send(
+        "POST",
+        "/projects/reg-c-app",
+        Some("""{"name":"App","organizationId":"reg-c"}"""),
+        token = Some(secret)
+      )._1,
+      204
+    )
+    assertEquals(
+      send(
+        "PUT",
+        "/projects/reg-c-app/registry",
+        Some(s"""{"server":"ghcr.io","username":"ci","password":"$Password"}"""),
+        token = Some(secret)
+      )._1,
+      204
+    )
+    // Attributed to the token, by its label, like every other change it makes.
+    val (_, detail) = send("GET", "/projects/reg-c-app")
+    assert(detail.contains("\"setBy\":\"ci\""), detail)
+  }
+
+  test("a URL for a server, or an empty field, is refused before the cluster is touched") {
+    val before = cluster.pullSecretCount
+    def attempt(body: String): (Int, String) =
+      send("PUT", "/projects/reg-a-app/registry", Some(body))
+
+    val (schemeStatus, scheme) =
+      attempt(s"""{"server":"https://ghcr.io","username":"octocat","password":"$Password"}""")
+    assertEquals(schemeStatus, 400, scheme)
+    assert(scheme.contains("not a URL"), scheme)
+
+    assertEquals(attempt(s"""{"server":"ghcr.io","username":"","password":"$Password"}""")._1, 400)
+    assertEquals(attempt("""{"server":"ghcr.io","username":"octocat","password":""}""")._1, 400)
+    assertEquals(cluster.pullSecretCount, before, "a refused request must write nothing")
+  }
+
+  test("a project in an organization the caller cannot see answers 404, not 403") {
+    createOrganizationFor("reg-d")
+    assertEquals(
+      send("POST", "/projects/reg-d-app", Some("""{"name":"App","organizationId":"reg-d"}"""))._1,
+      204
+    )
+    val stranger = identity.token("stranger", Some("stranger@example.test"))
+    assertEquals(
+      send(
+        "PUT",
+        "/projects/reg-d-app/registry",
+        Some(s"""{"server":"ghcr.io","username":"x","password":"$Password"}"""),
+        token = Some(stranger)
+      )._1,
+      404
+    )
   }

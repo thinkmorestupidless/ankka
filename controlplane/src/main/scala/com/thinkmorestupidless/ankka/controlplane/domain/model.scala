@@ -223,12 +223,30 @@ object Organization:
   /** Emails compare case-insensitively and without surrounding space. */
   def key(email: String): String = email.trim.toLowerCase
 
+/**
+ * A registry the cluster must authenticate to in order to pull a project's images.
+ *
+ * **No password.** The credential goes straight to the cluster as a Secret and the journal records
+ * only that one exists, where, and as whom — so a journal, a snapshot, a backup of either and every
+ * view built from them hold nothing worth stealing. `secretName` is the name the control plane gave
+ * that Secret and the operator names on the pod; it is stored rather than derived so a later
+ * platform can hold more than one without rewriting history.
+ */
+final case class RegistryRef(
+    server: String,
+    username: String,
+    secretName: String,
+    setBy: Option[Actor] = None,
+    setAt: Option[Instant] = None
+)
+
 /** A project. Services live in one. */
 final case class Project(
     id: String,
     name: String,
     organizationId: String,
-    deleted: Boolean = false
+    deleted: Boolean = false,
+    registry: Option[RegistryRef] = None
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -240,6 +258,17 @@ final case class Project(
 
   def onRenamed(name: String): Project = copy(name = name)
   def onDeleted: Project               = copy(deleted = true)
+
+  def onRegistryConfigured(
+      server: String,
+      username: String,
+      secretName: String,
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    copy(registry = Some(RegistryRef(server, username, secretName, actor, at)))
+
+  def onRegistryCleared: Project = copy(registry = None)
 
 /**
  * A service: desired state and observed state side by side.
@@ -519,3 +548,79 @@ object Service:
       confirmed = true,
       deleted = false
     )
+
+/**
+ * A deploy token: a credential the control plane issues itself, for a machine.
+ *
+ * Its whole design is one decision — *the token's subject is an ordinary member of the
+ * organization*. `token:<id>` goes into `Organization.members` with the `member` role when the
+ * token is created, and from that moment every membership check, every attribution and every "what
+ * you cannot see does not exist" 404 applies to it unchanged, because none of them has ever cared
+ * how a subject was authenticated. There is no second authorization path for machines.
+ *
+ * Only `digest` is stored of the secret, and the secret itself exists for the length of one
+ * response. `lastUsed` is a date rather than an instant deliberately: recording the instant would
+ * mean a write per request, and "was this token used today" is the question an operator asks.
+ */
+final case class DeployToken(
+    id: String,
+    organizationId: String = "",
+    label: String = "",
+    digest: String = "",
+    createdBy: Option[Actor] = None,
+    createdAt: Option[Instant] = None,
+    /** Absent only when the creator deliberately asked for a token that never expires. */
+    expiresAt: Option[Instant] = None,
+    lastUsed: Option[java.time.LocalDate] = None,
+    revoked: Boolean = false
+):
+  /** A revoked token is a tombstone: its id is never reused, so this is not `known`. */
+  def exists: Boolean = organizationId.nonEmpty && !revoked
+
+  def expired(now: Instant): Boolean = expiresAt.exists(!_.isAfter(now))
+
+  /** Whether this id has ever been used, revoked or not — what refuses a recreate. */
+  def known: Boolean = organizationId.nonEmpty
+
+  def subject: String = DeployToken.subjectOf(id)
+
+  def onCreated(
+      organizationId: String,
+      label: String,
+      digest: String,
+      expiresAt: Option[Instant],
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): DeployToken =
+    copy(
+      organizationId = organizationId,
+      label = label,
+      digest = digest,
+      createdBy = actor,
+      createdAt = at,
+      expiresAt = expiresAt
+    )
+
+  def onUsed(date: java.time.LocalDate): DeployToken = copy(lastUsed = Some(date))
+
+  /** The digest is kept: it is part of the audit trail, and is useless without the secret. */
+  def onRevoked: DeployToken = copy(revoked = true)
+
+object DeployToken:
+
+  /**
+   * The subject a deploy token authenticates as.
+   *
+   * The `token:` prefix is not parsed by anything that authorizes — it is a label, so a members
+   * listing can show what a subject is without a second field, and so a person reading an audit
+   * trail can see that a machine made the change.
+   */
+  def subjectOf(id: String): String = s"token:$id"
+
+  def empty(id: String): DeployToken = DeployToken(id)
+
+  /** The lifetime a token gets when its creator does not choose one. */
+  val DefaultLifetime: java.time.Duration = java.time.Duration.ofDays(90)
+
+  /** The longest lifetime that may be chosen. */
+  val MaximumLifetime: java.time.Duration = java.time.Duration.ofDays(365)

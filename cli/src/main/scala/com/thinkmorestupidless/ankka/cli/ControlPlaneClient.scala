@@ -96,6 +96,24 @@ final class ControlPlaneClient(settings: Settings):
       Some(writeToString(Repair(role)))
     ): Unit
 
+  // ── Deploy tokens (feature 013) ───────────────────────────────────────────
+
+  def listDeployTokens(id: String): Vector[DeployTokenSummary] =
+    get[Vector[DeployTokenSummary]](s"/organizations/${segment(id)}/tokens")
+
+  /** The reply carries the secret. It is returned, printed once, and never stored. */
+  def createDeployToken(id: String, label: String, expiresIn: Option[Long]): DeployTokenCreated =
+    decode[DeployTokenCreated](
+      send(
+        "POST",
+        s"/organizations/${segment(id)}/tokens",
+        Some(writeToString(CreateDeployToken(label, expiresIn)))
+      )
+    )
+
+  def revokeDeployToken(id: String, tokenId: String): Unit =
+    send("DELETE", s"/organizations/${segment(id)}/tokens/${segment(tokenId)}", None): Unit
+
   def disableOrganization(id: String): Unit =
     send("POST", s"/organizations/${segment(id)}/disable", None): Unit
 
@@ -121,6 +139,22 @@ final class ControlPlaneClient(settings: Settings):
     send("PUT", s"/projects/${segment(id)}/name", Some(writeToString(Rename(name)))): Unit
 
   def deleteProject(id: String): Unit = send("DELETE", s"/projects/${segment(id)}", None): Unit
+
+  /**
+   * Registers a registry credential for a project.
+   *
+   * The password is in the body, never the path or a query parameter: a URL reaches proxy logs and
+   * shell history, and a body under TLS does not.
+   */
+  def setRegistry(id: String, server: String, username: String, password: String): Unit =
+    send(
+      "PUT",
+      s"/projects/${segment(id)}/registry",
+      Some(writeToString(SetRegistry(server, username, password)))
+    ): Unit
+
+  def clearRegistry(id: String): Unit =
+    send("DELETE", s"/projects/${segment(id)}/registry", None): Unit
 
   // ── Services ──────────────────────────────────────────────────────────────
 

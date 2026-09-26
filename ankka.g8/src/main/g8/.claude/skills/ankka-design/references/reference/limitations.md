@@ -100,4 +100,6 @@ feature also says what that feature does not do.
 - **The template waits on a release.** `sbt new thinkmorestupidless/ankka.g8` works once a release has
   published the template; until then use `sbt new file:///path/to/ankka/ankka.g8` from a checkout.
 - **No local image registry.** A local platform loads images straight into its cluster with
-  `kind load docker-image`. A cluster that pulls images needs a registry configured.
+  `kind load docker-image`; it runs no registry of its own. A cluster that pulls images needs one
+  elsewhere. A private one works: `ankka projects registry set` puts its credential in the cluster
+  for a whole project, and the platform never reads the credential back.

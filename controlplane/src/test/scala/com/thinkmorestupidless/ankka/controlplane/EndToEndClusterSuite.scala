@@ -5,7 +5,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
-import com.thinkmorestupidless.ankka.controlplane.auth.AuthConfig
+import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokenIndex}
 import com.thinkmorestupidless.ankka.operator.{GatewayStack, KeycloakStack}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
@@ -49,7 +50,7 @@ import scala.jdk.CollectionConverters.*
  */
 class EndToEndClusterSuite extends munit.FunSuite:
 
-  override val munitTimeout: FiniteDuration = 8.minutes
+  override val munitTimeout: FiniteDuration = 14.minutes
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
@@ -89,12 +90,13 @@ class EndToEndClusterSuite extends munit.FunSuite:
   private val SecondImage =
     s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')}"
 
-  private var k3s: K3sContainer     = null
-  private var k8s: KubernetesClient = null
-  private var operator: Operator    = null
-  private var testKit: AnkkaTestKit = null
-  private var url: String           = ""
-  private var config: Path          = null
+  private var k3s: K3sContainer        = null
+  private var k8s: KubernetesClient    = null
+  private var operator: Operator       = null
+  private var testKit: AnkkaTestKit    = null
+  private var tokens: DeployTokenIndex = null
+  private var url: String              = ""
+  private var config: Path             = null
 
   // Feature 011: a spoke — a second control plane with no identity provider of its own and its own
   // base domain, trusting the hub's realm by explicit configuration. Its own journal (its own
@@ -188,12 +190,23 @@ class EndToEndClusterSuite extends munit.FunSuite:
         new Fabric8AnkkaServiceClient(k8s, Prefix, resyncMillis = 2000L)
       )
 
+      // Deploy tokens (feature 013): the acl answers from this index, and the index only fills
+      // because it is registered as an extension — the pair `aclWithTokens` returns for a deployed
+      // control plane, assembled by hand here because this suite supplies its own AuthConfig.
+      tokens = new DeployTokenIndex()
       val server = HttpServer.at("127.0.0.1", 0)(
-        ControlPlane.endpoints(ControlPlane.aclFor(auth), deployConfig, Some(auth))*
+        ControlPlane.endpoints(
+          ControlPlaneAcl.composite(tokens, ControlPlane.aclFor(auth), auth),
+          deployConfig,
+          Some(auth),
+          tokens = Some(tokens),
+          // The projector is the `RegistryWriter`, exactly as `ControlPlane.builder` wires it.
+          registry = Some(projector)
+        )*
       )
       testKit = AnkkaTestKit.start(
         ControlPlane.componentsWith(projector),
-        Seq(ProjectionRuntime(), projector, server)
+        Seq(ProjectionRuntime(), projector, server, tokens)
       )
       url = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
@@ -566,4 +579,349 @@ class EndToEndClusterSuite extends munit.FunSuite:
       ).isDefined,
       "the deleted service's own Database must survive — nothing in this platform destroys one"
     )
+  }
+
+  test("12. a deploy token deploys against a real cluster, and revoking it stops the next call") {
+    // **One control plane instance.** This suite runs it in this JVM against real k3s, so what is
+    // proved here is the end-to-end path — a token minted through the CLI deploying a real service
+    // into a real cluster — and the write-through eviction on the node that handled the revoke.
+    //
+    // It is *not* the multi-node proof. Revocation reaching a node that did not handle it travels
+    // through the token journal, and the only suite that runs several control plane instances is
+    // `ControlPlaneClusterSuite`, which deploys the image. The delay was measured directly instead
+    // (feature 013, research V2: p50 3,021ms at the 3s default, which is why the control plane sets
+    // `refresh-interval` to 500ms), and `DeployTokenIndexSuite` pins the fold that consumes it.
+    val (createCode, created) =
+      ankka("organizations", "tokens", "create", "acme", "--label", "e2e")
+    assertEquals(createCode, 0, created)
+    val secret = created.linesIterator
+      .map(_.trim)
+      .find(_.startsWith("ankka_"))
+      .getOrElse(fail(s"no secret in:\n$created"))
+
+    def asToken(args: String*): (Int, String) =
+      cli((args ++ Seq("--url", url, "--token", secret))*)
+
+    // Usable at once, which is the write-through admit: without it the token would not work on the
+    // very node that minted it until the next read-refresh.
+    assertEquals(asToken("organizations", "get", "acme")._1, 0)
+    assertEquals(asToken("services", "list", "-p", Project)._1, 0)
+
+    // And it can deploy — a member's job, done with the credential a CI job would hold. The
+    // descriptor names one image and the command line another, which is the whole point of
+    // `services deploy`: the applied service must report the one from the command line.
+    val file = descriptorJson(FirstImage)
+    val (deployCode, deployed) =
+      asToken("services", "deploy", Service, SecondImage, "-f", file.toString, "-p", Project)
+    assertEquals(deployCode, 0, deployed)
+    assert(deployed.contains(SecondImage), deployed)
+    // The file on disk is untouched, so a checked-in descriptor stays as its author wrote it.
+    assert(Files.readString(file).contains(FirstImage), Files.readString(file))
+
+    // The listing is a projection, and everything above it took under a tenth of a second, so the
+    // row is not there yet on a machine where the projector lags. Retry on the thing that changes —
+    // the row appearing — and assert on the identity that does not.
+    var found = Option.empty[String]
+    waitFor(30.seconds) {
+      found = ankka("organizations", "tokens", "list", "acme")._2.linesIterator
+        .find(_.contains("e2e"))
+        .map(_.trim.takeWhile(!_.isWhitespace))
+      found.isDefined
+    }
+    val id = found.get
+    assertEquals(ankka("organizations", "tokens", "revoke", "acme", id)._1, 0)
+
+    // The very next call, with no polling: this node evicted when it handled the revoke.
+    val (refused, refusedOut) = asToken("organizations", "get", "acme")
+    assertEquals(refused, 1, refusedOut)
+    assert(refusedOut.contains("token was rejected"), refusedOut)
+
+    // And it stays refused rather than reappearing when the journal is replayed.
+    Thread.sleep(2000)
+    assertEquals(asToken("organizations", "get", "acme")._1, 1)
+  }
+
+  /**
+   * A private registry in the cluster, and a service that can only start because a credential was
+   * registered for it.
+   *
+   * The registry runs inside the cluster and is reached through a NodePort at `127.0.0.1`, which is
+   * the one address containerd treats as insecure by default — so no TLS and no per-node containerd
+   * configuration is needed to make the pull work. It requires a password, which is the whole
+   * point: without the credential the pull is `unauthorized`, so "the pod is Ready" means the
+   * credential was used and not merely present.
+   *
+   * The negative half needs a tag the node has never seen. Every workload renders
+   * `imagePullPolicy: IfNotPresent`, so once an image is on the node a restart succeeds with no
+   * credential at all — a "clear the registry and restart" test would pass whether or not clearing
+   * did anything. Two tags, and the second is deployed only after the credential is gone.
+   */
+  private val RegistryPort     = 30500
+  private val RegistryHost     = s"127.0.0.1:$RegistryPort"
+  private val RegistryUser     = "testuser"
+  private val RegistryPassword = "testpass"
+
+  /**
+   * `testuser:testpass`, bcrypt, as `registry:2` requires.
+   *
+   * Deliberately public, like the `admin`/`admin` in this repository's Keycloak development secret:
+   * it authenticates a registry that exists for the length of one test run inside a throwaway
+   * container, reachable only from that container's loopback address.
+   */
+  private val Htpasswd =
+    "testuser:$2y$05$m/vqALkk099g370Ua1osBOnKO728UAM4x3Tn0oZ0z2fylr54oLhHG"
+
+  private val PrivateService = "private-cart"
+  private val PrivateFirst   = s"$RegistryHost/cart:first"
+  private val PrivateSecond  = s"$RegistryHost/cart:second"
+
+  private def onNode(command: String*): (Int, String) =
+    val result = k3s.execInContainer(command*)
+    (result.getExitCode, result.getStdout + result.getStderr)
+
+  /**
+   * Waits for `services get` to say something, and fails with what it last said.
+   *
+   * `waitFor` reports only "condition did not hold", which for a pull failure is the least useful
+   * sentence available: every interesting outcome — still provisioning, pulled when it should not
+   * have, a control plane that stopped answering — looks identical from outside.
+   */
+  private def waitForService(what: String, timeout: FiniteDuration)(
+      check: String => Boolean
+  ): Unit =
+    val deadline = System.nanoTime() + timeout.toNanos
+    var last     = ""
+    var passed   = false
+    while !passed && System.nanoTime() < deadline do
+      last = ankka("services", "get", PrivateService, "-o", "json", "-p", Project)._2
+      passed = check(last)
+      if !passed then Thread.sleep(2000)
+    if !passed then fail(s"$what did not happen within $timeout. Last status:\n$last")
+
+  /** The kubelet's own words for a pull it could not authenticate. */
+  private def pullFailed(status: String): Boolean =
+    Vector("ImagePull", "unauthorized", "authentication required", "401").exists(status.contains)
+
+  private def installRegistry(): Unit =
+    val manifest =
+      s"""apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-auth
+  namespace: default
+data:
+  htpasswd: "$Htpasswd"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: registry }
+  template:
+    metadata:
+      labels: { app: registry }
+    spec:
+      containers:
+        - name: registry
+          image: registry:2
+          ports: [{ containerPort: 5000 }]
+          env:
+            - { name: REGISTRY_AUTH, value: htpasswd }
+            - { name: REGISTRY_AUTH_HTPASSWD_REALM, value: Registry }
+            - { name: REGISTRY_AUTH_HTPASSWD_PATH, value: /auth/htpasswd }
+          volumeMounts:
+            - { name: auth, mountPath: /auth }
+      volumes:
+        - name: auth
+          configMap:
+            name: registry-auth
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: registry
+  namespace: default
+spec:
+  type: NodePort
+  selector: { app: registry }
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: $RegistryPort
+"""
+    val path = "/tmp/registry.yaml"
+    val write = k3s.execInContainer(
+      "sh",
+      "-c",
+      s"cat > $path <<'MANIFEST'\n$manifest\nMANIFEST"
+    )
+    assertEquals(write.getExitCode, 0, write.getStderr)
+    // The exit code, not a grep of the output: `kubectl apply` of a multi-document manifest applies
+    // everything else and exits 1 when one document fails.
+    val applied = k3s.execInContainer("kubectl", "apply", "-f", path)
+    assertEquals(applied.getExitCode, 0, applied.getStdout + applied.getStderr)
+
+    waitFor(120.seconds) {
+      val d = k8s.apps().deployments().inNamespace("default").withName("registry").get()
+      d != null && Option(d.getStatus).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
+    }
+
+  private val ctr = Vector("ctr", "-a", "/run/k3s/containerd/containerd.sock", "-n", "k8s.io")
+
+  /**
+   * The reference containerd actually holds for a locally built image.
+   *
+   * An image imported from a `docker save` tar is stored under its *fully qualified* name,
+   * `docker.io/library/sample-shopping-cart:latest`. The kubelet expands a short name to that form
+   * before looking it up, so a pod naming `sample-shopping-cart:latest` finds it — and `ctr` does
+   * no such expansion, answering `image "sample-shopping-cart:latest": not found` for an image
+   * sitting right there. Asking containerd what it has, rather than assuming the prefix, also fails
+   * with the listing attached instead of a bare exit code.
+   */
+  private def containerdRef(image: String): String =
+    val (code, out) = onNode((ctr ++ Vector("images", "ls", "-q"))*)
+    assertEquals(code, 0, out)
+    val refs = out.linesIterator.map(_.trim).filter(_.nonEmpty).toVector
+    refs
+      .find(ref => ref == image || ref.endsWith(s"/$image"))
+      .getOrElse(
+        fail(s"containerd holds no image matching '$image'. It holds:\n${refs.mkString("\n")}")
+      )
+
+  /** The node's own platform, so an index can be filtered down to the one manifest it can run. */
+  private lazy val nodePlatform: String =
+    val (code, out) = onNode("uname", "-m")
+    assertEquals(code, 0, out)
+    out.trim match
+      case "aarch64" | "arm64" => "linux/arm64"
+      case "x86_64" | "amd64"  => "linux/amd64"
+      case other               => fail(s"unrecognised node architecture '$other'")
+
+  /**
+   * Puts a locally built image in the in-cluster registry, pushed from the node.
+   *
+   * **Converted, not tagged.** A locally built image is an OCI *index* carrying an attestation
+   * manifest for the pseudo-platform `unknown/unknown` beside the real one, and a `docker save`
+   * round trip into containerd does not bring that manifest's content with it. Pushing the index
+   * then fails with `content digest sha256:…: not found` for a blob that was never on this node —
+   * which reads like a broken registry and is a complete image with an incomplete index above it.
+   * Filtering to the node's own platform drops the attestation, and what reaches the registry is
+   * exactly the manifest the kubelet would have pulled.
+   */
+  private def pushToRegistry(source: String, target: String): Unit =
+    val (convertCode, convertOut) = onNode(
+      (ctr ++ Vector(
+        "images",
+        "convert",
+        "--platform",
+        nodePlatform,
+        "--oci",
+        containerdRef(source),
+        target
+      ))*
+    )
+    assertEquals(convertCode, 0, convertOut)
+    val (pushCode, pushOut) = onNode(
+      (ctr ++ Vector(
+        "images",
+        "push",
+        "--plain-http",
+        "--user",
+        s"$RegistryUser:$RegistryPassword",
+        target
+      ))*
+    )
+    assertEquals(pushCode, 0, pushOut)
+    // And the image is gone from the node, so a later pull is a real pull rather than a cache hit.
+    val (rmCode, rmOut) = onNode((ctr ++ Vector("images", "rm", target))*)
+    assertEquals(rmCode, 0, rmOut)
+
+  test(
+    "13. a private registry: the credential is what makes the pull work, and clearing it shows"
+  ) {
+    // One real sample JVM on this node at a time. Two of them, plus CNPG, plus the identity
+    // provider, plus a registry holding the image, starves a k3s container: every entity command
+    // began timing out at ten seconds and the token index stopped following its own journal, which
+    // looks exactly like the feature being broken. `cart` has finished its work by now (case 12 was
+    // the last case to need it), so it goes before this case brings up its own.
+    assertEquals(ankka("services", "delete", Service, "-p", Project)._1, 0)
+    waitFor(120.seconds)(!ankka("services", "list", "-p", Project)._2.contains(Service))
+
+    installRegistry()
+    pushToRegistry(FirstImage, PrivateFirst)
+    pushToRegistry(FirstImage, PrivateSecond)
+
+    val descriptor = Files.createTempFile("private", ".json")
+    Files.writeString(
+      descriptor,
+      s"""{"name":"$PrivateService","service":{"image":"$PrivateFirst"}}"""
+    )
+
+    // Without a credential the image cannot be pulled. Proving that first is what makes the rest
+    // mean anything: a registry that turned out to allow anonymous pulls would make every later
+    // assertion pass for the wrong reason.
+    assertEquals(ankka("services", "apply", "-f", descriptor.toString, "-p", Project)._1, 0)
+    // Generous, because the pod does not exist until this service's own database is provisioned, and
+    // the pull cannot fail before there is something to pull.
+    waitForService("the pull failed for want of a credential", 300.seconds)(pullFailed)
+
+    // Register the credential and the same image starts. Nothing about the service changed, so this
+    // is the sweep reading the project and re-projecting, not an apply carrying it.
+    val (setCode, setOut) = ankka(
+      "projects",
+      "registry",
+      "set",
+      Project,
+      "--server",
+      RegistryHost,
+      "--username",
+      RegistryUser,
+      "--password",
+      RegistryPassword
+    )
+    assertEquals(setCode, 0, setOut)
+
+    // The Secret is in the project's namespace, of the right type. Read as an admin: the control
+    // plane itself cannot, which is the point of the grant.
+    waitFor(60.seconds) {
+      val secret = k8s.secrets().inNamespace(Namespace).withName("ankka-registry").get()
+      secret != null && secret.getType == "kubernetes.io/dockerconfigjson"
+    }
+    // And the resource names it, so the operator puts it on the pod.
+    waitFor(60.seconds) {
+      Option(
+        k8s.resources(classOf[AnkkaService]).inNamespace(Namespace).withName(PrivateService).get()
+      )
+        .flatMap(r => Option(r.getSpec))
+        .flatMap(_.imagePullSecret)
+        .contains("ankka-registry")
+    }
+
+    assertEquals(ankka("services", "restart", PrivateService, "-p", Project)._1, 0)
+    waitForService("the service became Ready from the private image", 300.seconds)(
+      _.contains("\"lifecycle\":\"Ready\"")
+    )
+
+    // Clear it, then deploy the *other* tag — one this node has never held, so the pull is real.
+    assertEquals(ankka("projects", "registry", "clear", Project)._1, 0)
+    val (deployCode, deployed) =
+      ankka(
+        "services",
+        "deploy",
+        PrivateService,
+        PrivateSecond,
+        "-f",
+        descriptor.toString,
+        "-p",
+        Project
+      )
+    assertEquals(deployCode, 0, deployed)
+
+    waitForService("the pull failed once the credential was cleared", 240.seconds)(pullFailed)
+
+    Files.deleteIfExists(descriptor): Unit
   }

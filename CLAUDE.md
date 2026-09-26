@@ -51,6 +51,7 @@ sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:90
 cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
 cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end
 sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
+sbt 'cli/testOnly *ActionSuite'   # the GitHub Action's install and configure steps, run as bash
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
@@ -325,6 +326,32 @@ should depend on as little as possible.
 
 `Action` values are inert descriptions of cluster mutations and `Fabric8Executor` is the
 only thing that performs them, which is the same organising idea as the component effects.
+
+### A credential a machine can hold, and one the cluster holds
+
+A **deploy token** (`organizations tokens create`) is `ankka_<id>_<secret>`, shown once and stored
+only as a digest. Its subject is an *ordinary organization member* (`token:<id>`, role `member`), so
+every membership check, attribution rule and 404-not-403 answer applies to it unchanged and there is
+no second authorization path for machines. It cannot manage members or tokens — including itself — so
+a leaked one cannot mint a replacement or revoke what would stop it.
+
+`Acl.Authenticate` runs **synchronously on the server's dispatcher**, so verifying a token may not do
+I/O, and a `Consumer` runs on one node (`ShardedDaemonProcess`) while the ACL runs on whichever node
+took the request. `DeployTokenIndex` is therefore a per-node `RuntimeExtension` that replays the token
+journal itself: cold replay, then live follow. Creation and revocation write through to the local
+index (`admit`, `evict`) so "create a token then use it" and "revoke then the next call fails" hold on
+the node the CLI is talking to; other nodes learn through the journal, which is why
+`controlplane/reference.conf` sets `pekko.persistence.r2dbc.refresh-interval = 500ms`.
+
+A **project's registry credential** is the other direction: the control plane writes a
+dockerconfigjson Secret into the project's namespace and records only that it did. The grant is
+`secrets: create, patch` — no `get`, no `list`, no `delete` — so it can put a credential where the
+kubelet reads it, can never read one back including its own, and cannot remove one; clearing a
+registry stops *naming* the Secret rather than deleting it, the same rule that protects database
+credentials. No password reaches the journal, and `EventCompatibilitySuite` asserts the event's wire
+form has no `password` field at all. `ProjectEndpoint` takes a one-method `RegistryWriter` (the
+projector) rather than the whole `AnkkaServiceClient`, so an endpoint cannot write desired state
+behind the projector's back.
 
 ### Identity: Keycloak authenticates, the control plane authorizes
 
@@ -643,6 +670,14 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **Server-side apply rejects an object carrying `metadata.managedFields`.** Always build
   a fresh object to apply; never re-apply one read back from the server. This only shows
   up against a real API server, which is what the k3s suites are for.
+- **A field on `AnkkaServiceSpec` is not a field on the resource until `ankkaservice.yaml` declares
+  it.** A structural schema is *closed*: server-side apply of an object carrying an undeclared field
+  is refused with `failed to create typed patch object … .spec.x: field not declared in schema` — a
+  500, on every projection of every service that sets it, forever. Every offline test passes, because
+  nothing but a real API server validates against the schema; `imagePullSecret` was added to the case
+  class, the projection, the rendering, the codec suite and three test suites before a k3s run found
+  it. `CrdSchemaSuite` now compares the case class's fields against the declared properties in both
+  directions, so the same mistake fails in milliseconds and names the field.
 - **A project's namespace is the control plane's to create, not the operator's.** Owner
   references are namespace-scoped, so the resource must live beside the workload it owns —
   which makes the namespace a precondition of writing the resource, and the operator only
@@ -698,6 +733,12 @@ not a template engine, a session store or a cookie API: those belong to the appl
   ls` shows it, and kubelet still cannot see it. In a k3s container it is
   `ctr -a /run/k3s/containerd/containerd.sock -n k8s.io images import` — and `ctr`, not `k3s ctr`,
   which that image answers with "No help topic".
+- **`ctr` does not expand a short image name; the kubelet does.** An image imported from a `docker
+  save` tar is stored as `docker.io/library/sample-shopping-cart:latest`, and a pod naming
+  `sample-shopping-cart:latest` finds it because the kubelet qualifies the name first. `ctr images
+  tag sample-shopping-cart:latest …` answers `image "…": not found` for an image sitting right
+  there. Ask containerd what it holds (`ctr images ls -q`) and match, rather than assuming the
+  prefix — and fail with the listing attached, since the bare exit code reads like a missing image.
 - **jsoniter reads a JSON `null` on an `Option` field as *absent*, and applies the default.** So an
   `Option` whose default is not `None` cannot express "none": `port: Option[Int] = Some(9000)`
   decoded `{"port": null}` as 9000, silently, on a descriptor that crosses the codec twice. Say
@@ -963,6 +1004,45 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **`await using` is Node 24; Node 22 refuses it with a syntax error.** The integration testkit offers
   `Symbol.asyncDispose` and `stop()`, and the docs show `try`/`finally`, because the package's floor is 22.22.
 
+- **A `Consumer` runs on one node, so it can never back a per-request check.** `ShardedDaemonProcess`
+  places a consumer on one member of the cluster; an ACL runs on whichever node took the request.
+  Anything every node must know — a deploy token's digest, say — is a `RuntimeExtension` with its own
+  local projection of the journal, replayed on start and followed live, not a consumer writing a view.
+  And because `Acl.Authenticate` is synchronous on the server's dispatcher, that projection must
+  already be in memory when the request arrives: a verification that queries anything is a verification
+  that blocks the dispatcher.
+- **A write-through is what makes "create, then use" work on the node that created it.** An index fed
+  only by the journal is a refresh interval behind, so the obvious script — mint a token, use it —
+  answers 401 against the very node that minted it. `admit` on create and `evict` on revoke are not
+  optimisations; without them the feature is wrong on one node and right on the others, which is the
+  worst shape a bug can have.
+- **No secret value in the control plane's journal.** A credential goes to the cluster and the journal
+  records that it exists, where, and as whom. A journal, a snapshot, a backup of either and every view
+  built from them are all readable by anything that can read Postgres, and a password in an event is
+  permanent — there is no migration that unwrites it. Both places this applies (a deploy token's
+  secret, a project's registry password) keep only a digest or nothing at all, and
+  `EventCompatibilitySuite` asserts the absence rather than trusting it.
+- **Write the cluster first, then the journal.** `PUT /projects/{id}/registry` applies the Secret and
+  only then persists `RegistryConfigured`; a cluster that refused is a 503 and records nothing. The
+  reverse order leaves services naming a Secret that does not exist, with the journal insisting it
+  does — and nothing in the sweep can tell that from a Secret someone deleted by hand.
+- **`${{` in a Giter8 template is `\${{` or it is gone.** Giter8 reads `$` as its own syntax, so an
+  unescaped GitHub expression is *deleted*: the workflow still parses, the YAML is still valid, and the
+  secret simply arrives empty. There is no syntax check that can see this, which is why `TemplateSuite`
+  expands the template and asserts on the expanded files — no surviving `\$`, balanced `${{`/`}}`, and
+  the expressions that must be there by name.
+- **A pull secret cannot be proved by restarting.** Every workload renders
+  `imagePullPolicy: IfNotPresent`, so once an image is on a node a restart succeeds with no credential
+  at all — "clear the registry and restart" passes whether or not clearing did anything. The negative
+  half needs a tag the node has never held: `EndToEndClusterSuite` pushes two tags to an in-cluster
+  `registry:2`, removes both from the node, and deploys the second only after the credential is gone.
+  The registry is reached at `127.0.0.1:<nodePort>`, the one address containerd treats as insecure by
+  default, so no TLS and no per-node containerd configuration is needed.
+- **`PodSpecBuilder` materialises every list it was never given.** `getImagePullSecrets` on a spec
+  that never set one is an empty list, not `null`, so a test asserting "absent" on a fabric8-built
+  object is asserting something the builder does not do. That is also why adding the field changed
+  nothing for an existing service: the rendered Deployment already carried the empty list.
+
 ## Documentation
 
 One tree, `docs/`, of plain Markdown with YAML frontmatter; every way of reading it is a rendering
@@ -1074,6 +1154,15 @@ template of its own; it passes its `BuildInfo.version` as `--ankka_version`. The
 named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
 new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
+
+**The GitHub Action ships as its own repository.** `action/` is a composite action, subtree-pushed to
+`thinkmorestupidless/ankka-action` by the release workflow's `action` job exactly as `ankka.g8/`,
+`marketplace/` and `homebrew/` are pushed, and the job then moves the `v<version>` and `v<major>` tags
+so `uses: thinkmorestupidless/ankka-action@v1` resolves. It installs the CLI from the release's zip and
+**refuses to install without a published checksum** — an action that silently skipped verification when
+the `.sha256` was missing would verify nothing on exactly the release where something went wrong. It
+installs no Java: `actions/setup-java` is the standard, cached way to get one, and the action checks and
+fails naming it.
 
 **The CLI ships through Homebrew**, from `thinkmorestupidless/homebrew-tap` (`brew install
 thinkmorestupidless/tap/ankka`). The formula is canonical in `homebrew/Formula/ankka.rb` with version

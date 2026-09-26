@@ -49,7 +49,7 @@ for that registry, and `sbt Docker/publish` to push it there.
 
 A Python service's image contains your code and the ankka SDK, and nothing else. It needs no JVM and no
 runtime: those are the sidecar's, and the platform injects the sidecar at deploy time at the version the
-platform runs. For a project that depends on the SDK from PyPI (`ankka==0.4.0` in its `pyproject.toml`),
+platform runs. For a project that depends on the SDK from PyPI (`ankka==0.5.0` in its `pyproject.toml`),
 the image is `python:3.12-slim`, `pip install .` of the project, and a `CMD` that starts its process.
 The sample in the ankka repository installs the SDK from its own source tree instead, so its Dockerfile
 is the same recipe with the SDK's sources copied in:

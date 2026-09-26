@@ -58,7 +58,7 @@ package `com.thinkmorestupidless.ankka.controlplane.api`. It depends on `ankka-c
 of the control plane carries no actor system, database driver or Kubernetes client:
 
 ```scala
-libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.4.0"
+libraryDependencies += "com.thinkmorestupidless" %% "ankka-controlplane-api" % "0.5.0"
 ```
 
 The CLI is built on the same library, so a client using it reads every answer the CLI can read and

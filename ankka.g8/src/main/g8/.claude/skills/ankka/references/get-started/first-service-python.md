@@ -17,7 +17,7 @@ The two talk over gRPC on loopback, and the SDK hides that entirely.
 
 ```bash
 uv init cart && cd cart
-uv add "ankka[testkit]==0.4.0"          # the version of the platform you will deploy to
+uv add "ankka[testkit]==0.5.0"          # the version of the platform you will deploy to
 uv add --dev pytest pytest-asyncio
 ```
 

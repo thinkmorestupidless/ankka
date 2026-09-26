@@ -80,7 +80,7 @@ The descriptor then says the image is a process, and which protocol version its 
 
 A TypeScript service's image is the same idea on Node: your code and the SDK, no JVM, no runtime. Node runs
 the service from source, so there is no build step in the image either. For a project that depends on the
-SDK from npm (`ankka@0.5.0` in its `package.json`):
+SDK from npm (`ankka@0.6.0` in its `package.json`):
 
 ```text
 FROM node:24-slim

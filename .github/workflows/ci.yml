@@ -1,13 +1,90 @@
 # The subset of the build that runs without Docker-in-Docker. The k3s suites (three modules'
 # worth, each starting a Kubernetes node in a container) and the template suite (which publishes
 # locally and runs an external sbt build) stay local for now: see CLAUDE.md, "Commands".
+#
+# Only what a change can break is built. The `changes` job maps the files a pull request touched
+# onto the jobs below, and a job whose inputs are untouched is skipped — which GitHub counts as a
+# pass for a required status check, so a Python-only change merges on the Python job alone. The map
+# is the whole of that argument, and it errs towards running: a job's inputs are everything the job
+# reads or builds, not only the directory named after it. The Scala job reads `docs/` (the
+# descriptors shown in the docs and the generated reference pages are asserted by suites),
+# `homebrew/` (the formula's placeholders) and `kustomization/` (the DDL and the CRD are symlinked
+# into the modules; the overlays are rendered by a suite); both SDK jobs build the sidecar and the
+# sample images from the Scala tree. A change to this file runs everything.
+#
+# Pushes to `main` are not built. The branch is protected: a pull request merges only when these
+# checks have passed on a head that is up to date with `main`, so the merge commit's tree is the
+# tree that was tested, and a second run of it would be the same minutes spent on the same answer.
+# `workflow_dispatch` runs every job regardless of what changed, for a full build on demand.
 name: ci
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      scala: ${{ steps.filter.outputs.scala == 'true' || github.event_name == 'workflow_dispatch' }}
+      docs: ${{ steps.filter.outputs.docs == 'true' || github.event_name == 'workflow_dispatch' }}
+      sdk-python: ${{ steps.filter.outputs.sdk-python == 'true' || github.event_name == 'workflow_dispatch' }}
+      sdk-typescript: ${{ steps.filter.outputs.sdk-typescript == 'true' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      # On a pull request the action lists the changed files through the API against the base
+      # branch, so it needs no checkout; on a manual run there is no diff and every output is true.
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            workflow: &workflow
+              - '.github/workflows/ci.yml'
+            # Everything that goes into `sbt compile test`, and everything a suite reads back out of
+            # the tree. The sidecar image the SDK jobs build is a subset of the same inputs.
+            scala-build: &scala-build
+              - 'build.sbt'
+              - 'project/**'
+              - '.scalafmt.conf'
+              - 'modules/**'
+              - 'protocol/**'
+              - 'sidecar/**'
+              - 'samples/**'
+              - 'kustomization/components/postgres/ddl/**'
+            scala:
+              - *workflow
+              - *scala-build
+              - 'controlplane/**'
+              - 'controlplane-api/**'
+              - 'cli/**'
+              - 'crd/**'
+              - 'operator/**'
+              - 'kustomization/**'
+              - 'docs/**'
+              - 'homebrew/**'
+            # Pages, the tool, the included samples and the files the generated tables are read from.
+            docs:
+              - *workflow
+              - 'docs/**'
+              - 'tools/docs/**'
+              - 'mkdocs.yml'
+              - 'modules/**'
+              - 'samples/**'
+              - 'sdks/**'
+              - 'protocol/**'
+              - 'cli/**'
+              - 'marketplace/**'
+              - 'ankka.g8/**'
+            sdk-python:
+              - *workflow
+              - *scala-build
+              - 'sdks/python/**'
+            sdk-typescript:
+              - *workflow
+              - *scala-build
+              - 'sdks/typescript/**'
+
   build:
+    needs: changes
+    if: needs.changes.outputs.scala == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +102,8 @@ jobs:
   # table against the code, the rendered skill, and a strict site build. The JVM-generated reference
   # pages and the descriptors shown in the docs are checked by the `build` job's suites.
   docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,6 +121,8 @@ jobs:
   # — the one definition of a compatible SDK. Docker is on the runner; the sidecar image is built
   # here so the SDK is tested against the sidecar of the same commit.
   sdk-python:
+    needs: changes
+    if: needs.changes.outputs.sdk-python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,6 +167,8 @@ jobs:
   # fast tests, the fixtures, the typecheck and the packaging smoke run on both; the Docker-backed tests
   # and the conformance suite, which need the sidecar image built from this commit, run on 24 only.
   sdk-typescript:
+    needs: changes
+    if: needs.changes.outputs.sdk-typescript == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

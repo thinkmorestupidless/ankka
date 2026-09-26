@@ -109,6 +109,16 @@ every recipe is one command or a call to `deploy-local.sh`, which owns the logic
 Keep it that way — a recipe that reimplements a step becomes a second copy to keep in step with
 this file, and everything here still works without `just` installed.
 
+**CI builds pull requests, and only the parts a pull request touched.** `.github/workflows/ci.yml`
+opens with a `changes` job that maps changed paths onto the jobs (`build`, `docs`, `sdk-python`,
+`sdk-typescript`); an untouched job is skipped, which GitHub counts as a pass for a required check.
+The map errs towards running and is the whole argument, so a job that starts reading a new part of
+the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/` and `kustomization/`,
+and both SDK jobs build the sidecar image from the Scala tree. `main` is branch-protected: a pull
+request merges only when every job has passed on a head up to date with `main`, so pushes to `main`
+are not built at all, and the README badge reads the latest pull request run. A full run on demand
+is `workflow_dispatch` (`gh workflow run ci`).
+
 `SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites
 `private[ankka] final` to `final private[ankka]`, which is scalafmt's canonical order but
 reads worse, and it churned 99 declarations for no benefit.

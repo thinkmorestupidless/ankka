@@ -870,10 +870,14 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **Keycloak writes a lone `aud` as a string and several as an array.** A test (or a verifier)
   that reads `aud` as an array sees nothing on a service-account token. nimbus handles both;
   `KeycloakAdmin.audiences` does for tests.
-- **A token has no `sub` unless a scope maps it.** The built-in `basic` scope was not attached to
-  a client created through the admin API with an explicit scope list, and the token verified but
-  carried no subject. The `ankka-controlplane` scope carries its own subject mapper so a client
-  needs nothing else.
+- **A token has no `sub` unless a scope maps it — and no name, email or roles either.** The realm
+  file declares `clientScopes`, and a realm imported with its own list gets none of Keycloak's
+  built-ins: `basic`, `profile`, `email` and `roles` do not exist in it, and a client that names them
+  as defaults is silently given only the scopes that do. The token verified but carried no subject,
+  and later no `name` (`ankka whoami` printed `(none)` for a user with both names set). Every claim
+  the control plane reads is therefore mapped by the `ankka-controlplane` scope itself — subject,
+  audience, email, verification, realm roles, full name and username — and `KeycloakRealmSuite`
+  asserts each on a real token. A new claim needs a mapper there, not a built-in scope.
 - **A Keycloak user with no first and last name cannot log in with a password grant** — "Account
   is not fully set up", a pending profile action. The deploy script, compose and the test helper
   all set both on the users they create.

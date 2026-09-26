@@ -13,4 +13,4 @@ spec:
         - name: operator
           env:
             - name: ANKKA_SIDECAR_IMAGE
-              value: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:0.2.1 # SET
+              value: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:0.6.2 # SET

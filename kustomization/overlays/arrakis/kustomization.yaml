@@ -71,19 +71,19 @@ resources:
 images:
   - name: ankka-controlplane
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-controlplane
-    newTag: "0.2.1" # SET: the tag this overlay is cut at
+    newTag: "0.6.2" # SET: the tag this overlay is cut at
   - name: ankka-operator
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-operator
-    newTag: "0.2.1" # SET
+    newTag: "0.6.2" # SET
   - name: sample-shopping-cart
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/sample-shopping-cart
-    newTag: "0.2.1" # SET
+    newTag: "0.6.2" # SET
   # The sidecar is not a container in any manifest here — the operator injects it beside every
   # process-hosted service — so the `images:` transformer never sees it. The operator learns the
   # name from ANKKA_SIDECAR_IMAGE, set by the patch below to the same registry and tag.
   - name: ankka-sidecar
     newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar
-    newTag: "0.2.1" # SET
+    newTag: "0.6.2" # SET
 
 patches:
   # The sidecar image the operator injects, from the registry at this release's tag.

@@ -422,7 +422,8 @@ jobs:
             echo "ankka@$version is already on npm; nothing to publish"
             exit 0
           fi
-          npm publish "dist-pack/ankka-$version.tgz" --access public
+          # The leading ./ matters: without it npm reads `dist-pack/ankka-x.y.z.tgz` as a GitHub owner/repo.
+          npm publish "./dist-pack/ankka-$version.tgz" --access public
 
   docs:
     # The documentation site — pages, llms.txt, llms-full.txt, raw Markdown per page and

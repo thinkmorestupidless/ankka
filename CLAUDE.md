@@ -933,6 +933,10 @@ not a template engine, a session store or a cookie API: those belong to the appl
   `dist/_proto/` ships, because `files: ["dist"]` is the whole rule. The Python wheel needed hatchling's
   `artifacts` for the same thing; npm needs nothing.
 - **`npm pack --pack-destination` does not create the directory.** `enoent` with no path in the message.
+- **A local tarball given to `npm publish` or `npm install` must start with `./`, `../` or `/`.**
+  `npm publish dist-pack/ankka-0.6.0.tgz` is read as the GitHub shorthand `owner/repo` and fails with
+  `git ls-remote ssh://git@github.com/dist-pack/ankka-0.6.0.tgz.git … Repository not found`, which reads
+  like a permissions problem and is a path. The first manual publish of the TypeScript SDK hit it.
 - **A Connect bidi client needs the request iterable to implement `throw`.** An `AsyncIterable` built by
   hand as a queue failed every conversation test with `[internal] AsyncIterable does not implement throw`;
   the queue's iterator has `return` and `throw` for this reason.
@@ -1108,7 +1112,7 @@ job is green:
 ```bash
 git checkout vX.Y.Z && cd sdks/typescript
 npm version X.Y.Z --no-git-tag-version && npm ci && npm run proto && npm run build
-mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
+mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
 git checkout -- package.json package-lock.json
 ```
 

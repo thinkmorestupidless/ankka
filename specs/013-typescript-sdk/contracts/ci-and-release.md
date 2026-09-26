@@ -153,7 +153,7 @@ say so).
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           if npm view "ankka@$version" version >/dev/null 2>&1; then echo "ankka@$version is already published"; exit 0; fi
-          npm publish "dist-pack/ankka-$version.tgz" --access public
+          npm publish "./dist-pack/ankka-$version.tgz" --access public
 ```
 
 Provenance is attached automatically under trusted publishing (R8). The "already published" guard

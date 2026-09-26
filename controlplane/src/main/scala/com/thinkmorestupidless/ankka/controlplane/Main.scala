@@ -13,8 +13,14 @@ import com.typesafe.config.ConfigFactory
 @main def runControlPlane(): Unit =
   val config = ConfigFactory.load()
   val auth   = AuthConfig.from(config)
+  // Both halves together: the acl answers deploy tokens from the index, and the index only fills
+  // because it is registered as an extension here. Taking one without the other is the bug this
+  // pair exists to make impossible.
+  val (acl, tokens) = ControlPlane.aclWithTokens(auth)
   val service =
-    ControlPlane.builder(ControlPlane.aclFor(auth), config = config, auth = Some(auth)).start()
+    ControlPlane
+      .builder(acl, config = config, auth = Some(auth), tokens = Some(tokens))
+      .start()
 
   sys.addShutdownHook(service.terminate())
   scala.concurrent.Await

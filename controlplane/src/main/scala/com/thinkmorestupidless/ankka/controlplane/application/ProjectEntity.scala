@@ -1,6 +1,10 @@
 package com.thinkmorestupidless.ankka.controlplane.application
 
-import com.thinkmorestupidless.ankka.controlplane.api.{CreateProject, ProjectDetail}
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  CreateProject,
+  ProjectDetail,
+  RegistrySummary
+}
 import com.thinkmorestupidless.ankka.controlplane.domain.*
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.*
 import com.thinkmorestupidless.ankka.core.*
@@ -23,6 +27,9 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     case ProjectCreated(name, organizationId, _, _) => currentState.onCreated(name, organizationId)
     case ProjectRenamed(name, _, _)                 => currentState.onRenamed(name)
     case _: ProjectDeleted                          => currentState.onDeleted
+    case RegistryConfigured(server, username, secretName, actor, at) =>
+      currentState.onRegistryConfigured(server, username, secretName, actor, at)
+    case _: RegistryCleared => currentState.onRegistryCleared
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -48,12 +55,51 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     if !currentState.exists then notFound
     else effects.persist(ProjectDeleted(actor, at)).thenReply(_ => Done)
 
+  /**
+   * Record a registry credential the cluster already holds.
+   *
+   * The Secret is written before this is called, and a failure there stops the sequence — so this
+   * never records a credential the cluster does not have. It is idempotent by construction: a
+   * second call for the same server simply replaces the reference.
+   */
+  def configureRegistry(request: ConfigureRegistry): Effect[Done] =
+    if !currentState.exists then notFound
+    else if request.server.isEmpty then effects.error("registry server must not be empty")
+    else if request.username.isEmpty then effects.error("registry username must not be empty")
+    else if request.secretName.isEmpty then effects.error("a registry needs a secret to name")
+    else
+      effects
+        .persist(
+          RegistryConfigured(request.server, request.username, request.secretName, actor, at)
+        )
+        .thenReply(_ => Done)
+
+  /**
+   * Stop claiming a registry. The Secret stays in the cluster: the control plane holds no `delete`
+   * on secrets, and one nothing references is inert.
+   */
+  def clearRegistry: Effect[Done] =
+    if !currentState.exists then notFound
+    else if currentState.registry.isEmpty then
+      effects.error(s"project '${context.entityId}' has no registry", ErrorCode.NotFound)
+    else effects.persist(RegistryCleared(actor, at)).thenReply(_ => Done)
+
   def get: ReadOnlyEffect[ProjectDetail] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
     else
       effects.reply(
-        ProjectDetail(currentState.id, currentState.name, currentState.organizationId)
+        ProjectDetail(
+          currentState.id,
+          currentState.name,
+          currentState.organizationId,
+          currentState.registry.map(r =>
+            RegistrySummary(r.server, r.username, r.setAt, r.setBy.flatMap(_.display))
+          )
+        )
       )
+
+  /** What a projection needs: the reference itself, secret name included, or nothing. */
+  def registry: ReadOnlyEffect[Option[RegistryRef]] = effects.reply(currentState.registry)
 
   def exists: ReadOnlyEffect[Boolean] = effects.reply(currentState.exists)
 
@@ -71,8 +117,10 @@ object ProjectEntity
       eventSerializer = Codecs.serializer[ProjectEvent]("project-event")
     ):
 
-  given Serializer[CreateProject] = Codecs.serializer[CreateProject]("create-project")
-  given Serializer[ProjectDetail] = Codecs.serializer[ProjectDetail]("project-detail")
+  given Serializer[CreateProject]       = Codecs.serializer[CreateProject]("create-project")
+  given Serializer[ProjectDetail]       = Codecs.serializer[ProjectDetail]("project-detail")
+  given Serializer[ConfigureRegistry]   = Codecs.serializer[ConfigureRegistry]("configure-registry")
+  given Serializer[Option[RegistryRef]] = Codecs.serializer[Option[RegistryRef]]("registry-ref")
 
   def create(context: EventSourcedEntityContext) = new ProjectEntity(context)
 
@@ -81,3 +129,7 @@ object ProjectEntity
   val delete        = command("delete")(_.delete)
   val get           = query("get")(_.get)
   val exists        = query("exists")(_.exists)
+  val registry      = query("registry")(_.registry)
+
+  val configureRegistry = command("configure-registry")(_.configureRegistry)
+  val clearRegistry     = command("clear-registry")(_.clearRegistry)

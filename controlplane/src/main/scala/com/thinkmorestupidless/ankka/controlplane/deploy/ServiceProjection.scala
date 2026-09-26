@@ -8,7 +8,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   ServiceDescriptor,
   Version
 }
-import com.thinkmorestupidless.ankka.controlplane.domain.Service
+import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, Service}
 import com.thinkmorestupidless.ankka.crd.{AutoscalingSpec, EnvEntry, AnkkaServiceSpec}
 
 /**
@@ -51,7 +51,17 @@ object ServiceProjection:
         )
       case _ => Vector.empty
 
-  def project(service: Service, config: DeployConfig): Either[Vector[String], AnkkaServiceSpec] =
+  /**
+   * @param registry
+   *   the project's registry credential, if it has one. A parameter rather than something read from
+   *   the service, because it belongs to the *project* — one credential serves every service in it,
+   *   and a service cannot see its project's state any more than any other entity can.
+   */
+  def project(
+      service: Service,
+      config: DeployConfig,
+      registry: Option[RegistryRef] = None
+  ): Either[Vector[String], AnkkaServiceSpec] =
     service.descriptor match
       case None =>
         Left(Vector(s"service '${service.name}' has no descriptor to project"))
@@ -118,6 +128,10 @@ object ServiceProjection:
               port = descriptor.service.resolvedPort,
               restarts = service.restarts,
               exposed = service.exposed,
-              hosting = descriptor.service.hosting
+              hosting = descriptor.service.hosting,
+              // The name of the Secret the project's credential was written to, so the operator can
+              // name it on the pod. Absent when the project has no registry, which is the default and
+              // renders no field at all.
+              imagePullSecret = registry.map(_.secretName)
             )
           )

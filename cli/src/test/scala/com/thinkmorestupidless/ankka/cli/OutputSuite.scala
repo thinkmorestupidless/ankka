@@ -156,3 +156,63 @@ class OutputSuite extends munit.FunSuite:
     val rendered = Output.settings(Settings(), Format.Table)
     assert(rendered.contains("(unset)"), rendered)
   }
+
+  // ── deploy tokens (feature 013) ───────────────────────────────────────────
+
+  private val minted = DeployTokenCreated(
+    id = "3f9a1c2e7b4d8f01",
+    label = "github-deploy",
+    secret = "ankka_3f9a1c2e7b4d8f01_" + ("9" * 64),
+    subject = "token:3f9a1c2e7b4d8f01",
+    expiresAt = Some(java.time.Instant.parse("2026-12-24T10:00:00Z"))
+  )
+
+  test("a created token prints its secret once, and says so") {
+    val rendered = Output.deployTokenCreated(minted, Format.Table)
+    assert(rendered.contains(minted.secret), rendered)
+    assert(rendered.contains("only time the secret is shown"), rendered)
+    assert(rendered.contains("ANKKA_TOKEN"), rendered)
+    assert(rendered.contains("2026-12-24"), rendered)
+    // Once: a reader who scrolls back must not find a second copy to rely on.
+    assertEquals(rendered.sliding(minted.secret.length).count(_ == minted.secret), 1)
+  }
+
+  test("a token with no expiry says it never expires rather than printing nothing") {
+    val rendered = Output.deployTokenCreated(minted.copy(expiresAt = None), Format.Table)
+    assert(rendered.contains("never expires"), rendered)
+  }
+
+  test("a listing shows the label and the dates, and never the secret") {
+    val rows = Vector(
+      DeployTokenSummary(
+        id = "3f9a1c2e7b4d8f01",
+        label = "github-deploy",
+        subject = "token:3f9a1c2e7b4d8f01",
+        createdBy = Some("alice@example.test"),
+        createdAt = Some(java.time.Instant.parse("2026-09-25T10:00:00Z")),
+        expiresAt = Some(java.time.Instant.parse("2026-12-24T10:00:00Z")),
+        lastUsed = Some(java.time.LocalDate.parse("2026-09-26"))
+      ),
+      DeployTokenSummary(
+        id = "aaaabbbbccccdddd",
+        label = "forever",
+        subject = "token:aaaabbbbccccdddd"
+      )
+    )
+
+    val rendered = Output.deployTokens(rows, Format.Table)
+    assert(rendered.contains("github-deploy"), rendered)
+    assert(rendered.contains("alice@example.test"), rendered)
+    assert(rendered.contains("2026-09-26"), rendered)
+    // "never" is a fact about the token; "-" is a value nobody has recorded yet.
+    assert(rendered.contains("never"), rendered)
+    assert(!rendered.contains("ankka_"), rendered)
+
+    val json = Output.deployTokens(rows, Format.Json)
+    assert(!json.contains("ankka_"), json)
+    assert(!json.contains("secret"), json)
+  }
+
+  test("an empty listing says so") {
+    assertEquals(Output.deployTokens(Vector.empty, Format.Table), "no deploy tokens")
+  }

@@ -29,7 +29,8 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     memoryMiB = 1024,
     autoscaling = AutoscalingSpec(2, 8, 70),
     progressDeadlineSeconds = 300,
-    exposed = true
+    exposed = true,
+    imagePullSecret = Some("ankka-registry")
   )
 
   test("a fully populated spec round-trips unchanged") {

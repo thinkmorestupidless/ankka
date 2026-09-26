@@ -37,13 +37,25 @@ ankka projects list -O acme
 
 Listings show only the organizations you belong to, each with your role and whether it is active.
 
+A project also holds the credential its services' images are pulled with, when they come from a
+registry that requires one:
+
+```bash
+ankka projects registry set checkout --server ghcr.io --username octocat --password-stdin
+```
+
+One credential serves every service in the project. It is written into the project's Kubernetes
+namespace and never read back, so `ankka projects get` shows the server, the user and who set it, and
+nothing can show the password. See
+[a private registry](../deploy/images.md#a-private-registry).
+
 ## Roles
 
 A member of an organization has one of two roles:
 
 | Role | May |
 |---|---|
-| `member` | read the organization; create projects; apply, pause, resume, restart, expose, unexpose and delete services in its projects |
+| `member` | read the organization; create projects; register a project's registry credential; apply, pause, resume, restart, expose, unexpose and delete services in its projects |
 | `owner` | everything a member may, and also invite, remove and change the role of members, rename the organization and delete it |
 
 An organization always has at least one owner: the last owner cannot be removed or made a member.

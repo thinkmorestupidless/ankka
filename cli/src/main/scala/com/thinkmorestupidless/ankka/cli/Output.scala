@@ -45,14 +45,44 @@ object Output:
       case Format.Json => writeToString(rows)
       case Format.Table =>
         table(
-          Vector("ID", "NAME", "ORGANIZATION", "SERVICES"),
-          rows.map(row => Vector(row.id, row.name, row.organizationId, row.services.toString))
+          Vector("ID", "NAME", "ORGANIZATION", "SERVICES", "REGISTRY"),
+          rows.map(row =>
+            Vector(
+              row.id,
+              row.name,
+              row.organizationId,
+              row.services.toString,
+              // Who the credential belongs to, not when it was set: a listing is scanned, and the
+              // one thing worth seeing at a glance is whether a project pulls from somewhere that
+              // needs one.
+              row.registry.fold("-")(r => s"${r.server} as ${r.username}")
+            )
+          )
         )
 
   def project(row: ProjectSummary, format: Format): String =
     format match
       case Format.Json  => writeToString(row)
-      case Format.Table => projects(Vector(row), format)
+      case Format.Table =>
+        // Fields rather than a one-row table, for the reason a single service is shown that way:
+        // a registry line carries who set it and when, and that does not fit in a column.
+        val fields = Vector(
+          "id"           -> row.id,
+          "name"         -> row.name,
+          "organization" -> row.organizationId,
+          "services"     -> row.services.toString,
+          "registry"     -> registry(row)
+        )
+        val width = fields.map(_._1.length).max
+        fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
+
+  /** `ghcr.io as octocat, set 2026-09-25 by sam@example.com`, or `none`. */
+  private def registry(row: ProjectSummary): String =
+    row.registry.fold("none") { r =>
+      val set = r.setAt.map(at => s", set ${at.atZone(java.time.ZoneOffset.UTC).toLocalDate}")
+      val by  = r.setBy.map(who => s" by $who")
+      s"${r.server} as ${r.username}${set.getOrElse("")}${by.getOrElse("")}"
+    }
 
   def services(rows: Vector[ServiceStatus], format: Format): String =
     format match
@@ -177,6 +207,44 @@ object Output:
               )
             )
         s"$members\n\n$invitations"
+
+  /**
+   * The one time a secret is ever printed.
+   *
+   * Deliberately loud and deliberately final: there is no route that returns it again, so a reader
+   * who skims past this has lost it. The JSON form is the document the control plane sent, for a
+   * script that is going to store it somewhere.
+   */
+  def deployTokenCreated(token: DeployTokenCreated, format: Format): String =
+    format match
+      case Format.Json => writeToString(token)
+      case Format.Table =>
+        val expiry = token.expiresAt.fold("It never expires.")(at => s"Expires $at.")
+        s"""Deploy token '${token.label}' created. This is the only time the secret is shown.
+           |
+           |  ${token.secret}
+           |
+           |$expiry Store it as a secret named ANKKA_TOKEN.""".stripMargin
+
+  def deployTokens(tokens: Vector[DeployTokenSummary], format: Format): String =
+    format match
+      case Format.Json                    => writeToString(tokens)
+      case Format.Table if tokens.isEmpty => "no deploy tokens"
+      case Format.Table =>
+        table(
+          Vector("ID", "LABEL", "CREATED", "BY", "EXPIRES", "LAST USED"),
+          tokens.map(t =>
+            Vector(
+              t.id,
+              t.label,
+              t.createdAt.fold("-")(_.toString),
+              t.createdBy.getOrElse("-"),
+              // "never" is a fact about the token, not a missing value, so it is not "-".
+              t.expiresAt.fold("never")(_.toString),
+              t.lastUsed.fold("-")(_.toString)
+            )
+          )
+        )
 
   def whoami(who: Whoami, format: Format): String =
     format match

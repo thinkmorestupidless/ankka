@@ -203,6 +203,7 @@ Usage:
     ankka organizations rename
     ankka organizations delete
     ankka organizations members
+    ankka organizations tokens
     ankka organizations invitations
     ankka organizations disable
     ankka organizations enable
@@ -226,6 +227,8 @@ Subcommands:
         Delete an organization. It must have no projects.
     members
         Who belongs to an organization.
+    tokens
+        Deploy tokens: credentials a machine can hold.
     invitations
         Pending invitations.
     disable
@@ -483,6 +486,95 @@ Options and flags:
         Output format: table or json.
 ```
 
+### `ankka organizations tokens`
+
+```text
+Usage:
+    ankka organizations tokens list
+    ankka organizations tokens create
+    ankka organizations tokens revoke
+
+Deploy tokens: credentials a machine can hold.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    list
+        List an organization's deploy tokens.
+    create
+        Create a deploy token. The secret is shown once and cannot be recovered.
+    revoke
+        Revoke a deploy token. It stops working at once.
+```
+
+### `ankka organizations tokens list`
+
+```text
+Usage: ankka organizations tokens list [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization>
+
+List an organization's deploy tokens.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations tokens create`
+
+```text
+Usage: ankka organizations tokens create --label <string> [--expires-in <string>] [--never-expires] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization>
+
+Create a deploy token. The secret is shown once and cannot be recovered.
+
+Options and flags:
+    --help
+        Display this help text.
+    --label <string>
+        What this token is for, for people reading the listing.
+    --expires-in <string>
+        How long it lives: 30d, 12h. Defaults to 90d; at most 365d.
+    --never-expires
+        Create a token with no expiry. Prefer a lifetime.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations tokens revoke`
+
+```text
+Usage: ankka organizations tokens revoke [--url <string>] [--token <string>] [--project <string>] [--output <string>] <organization> <token-id>
+
+Revoke a deploy token. It stops working at once.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka organizations invitations`
 
 ```text
@@ -568,6 +660,7 @@ Usage:
     ankka projects create
     ankka projects rename
     ankka projects delete
+    ankka projects registry
 
 Manage projects.
 
@@ -586,6 +679,8 @@ Subcommands:
         Change a project's display name.
     delete
         Delete a project. It must have no services.
+    registry
+        Credentials the cluster pulls this project's private images with.
 ```
 
 ### `ankka projects list`
@@ -696,6 +791,74 @@ Options and flags:
         Output format: table or json.
 ```
 
+### `ankka projects registry`
+
+```text
+Usage:
+    ankka projects registry set
+    ankka projects registry clear
+
+Credentials the cluster pulls this project's private images with.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    set
+        Register a registry credential for a project.
+    clear
+        Stop using a registry credential for a project.
+```
+
+### `ankka projects registry set`
+
+```text
+Usage: ankka projects registry set --server <string> --username <string> [--password <string>] [--password-stdin] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Register a registry credential for a project.
+
+Options and flags:
+    --help
+        Display this help text.
+    --server <string>
+        The registry host, such as ghcr.io.
+    --username <string>
+        The user or robot account to authenticate as.
+    --password <string>
+        The password or access token. Prefer --password-stdin.
+    --password-stdin
+        Read the password from standard input, so it is in no process listing.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects registry clear`
+
+```text
+Usage: ankka projects registry clear [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Stop using a registry credential for a project.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
 ### `ankka services`
 
 ```text
@@ -703,6 +866,7 @@ Usage:
     ankka services list
     ankka services get
     ankka services apply
+    ankka services deploy
     ankka services pause
     ankka services resume
     ankka services restart
@@ -725,6 +889,8 @@ Subcommands:
         Show one service.
     apply
         Apply a service descriptor.
+    deploy
+        Deploy a service: the descriptor's settings with this image, which must already be pushed.
     pause
         Stop a service's instances, keeping its descriptor.
     resume
@@ -789,6 +955,28 @@ Options and flags:
 Usage: ankka services apply --file <string> [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 Apply a service descriptor.
+
+Options and flags:
+    --help
+        Display this help text.
+    --file <string>, -f <string>
+        Descriptor file, or '-' for stdin.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services deploy`
+
+```text
+Usage: ankka services deploy [--file <string>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <service> <image>
+
+Deploy a service: the descriptor's settings with this image, which must already be pushed.
 
 Options and flags:
     --help

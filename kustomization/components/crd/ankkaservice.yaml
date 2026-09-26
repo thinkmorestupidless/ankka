@@ -164,6 +164,14 @@ spec:
                   description: >-
                     Whether the service answers at its platform-derived hostname. The hostname
                     itself is never in the resource: the operator derives it.
+                imagePullSecret:
+                  type: string
+                  description: >-
+                    The name of a dockerconfigjson Secret in this namespace that the kubelet
+                    authenticates to the image's registry with. The name only: the Secret is the
+                    control plane's to write from a credential a project member supplied, and the
+                    operator names it on the pod without ever reading it. Absent when the project
+                    has no registry credential, and then no pull secret is named at all.
             status:
               type: object
               properties:

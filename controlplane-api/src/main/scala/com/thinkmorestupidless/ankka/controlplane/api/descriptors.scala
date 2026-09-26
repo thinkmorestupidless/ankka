@@ -502,7 +502,12 @@ final case class Rename(name: String)
  */
 final case class OrganizationDetail(id: String, name: String, disabled: Boolean = false)
 
-final case class ProjectDetail(id: String, name: String, organizationId: String)
+final case class ProjectDetail(
+    id: String,
+    name: String,
+    organizationId: String,
+    registry: Option[RegistrySummary] = None
+)
 
 /**
  * A detail plus the counts a listing needs, composed where both are available — and, since feature
@@ -517,7 +522,13 @@ final case class OrganizationSummary(
     role: Option[Role] = None
 )
 
-final case class ProjectSummary(id: String, name: String, organizationId: String, services: Int)
+final case class ProjectSummary(
+    id: String,
+    name: String,
+    organizationId: String,
+    services: Int,
+    registry: Option[RegistrySummary] = None
+)
 
 object OrganizationSummary:
   def of(
@@ -567,7 +578,7 @@ final case class MembersResponse(
 
 object ProjectSummary:
   def of(detail: ProjectDetail, services: Int): ProjectSummary =
-    ProjectSummary(detail.id, detail.name, detail.organizationId, services)
+    ProjectSummary(detail.id, detail.name, detail.organizationId, services, detail.registry)
 
 /**
  * Codecs live beside the types, so the CLI and the control plane cannot disagree about the wire
@@ -597,6 +608,101 @@ final case class InstanceLogs(instance: String, output: String, error: Option[St
  * exactly what a reader needs when a service runs several and only one is misbehaving.
  */
 final case class LogsResponse(instances: Vector[InstanceLogs])
+
+// ── Deploy tokens (feature 013) ────────────────────────────────────────────
+
+/**
+ * `POST /organizations/{id}/tokens`.
+ *
+ * `expiresIn` is seconds: absent means the default lifetime, `0` means a token that never expires.
+ * A number rather than an `Option[Instant]` because the *server's* clock decides when "ninety days
+ * from now" is; a client that sent an instant would be asserting its own.
+ */
+final case class CreateDeployToken(label: String, expiresIn: Option[Long] = None)
+
+/** The one response that ever carries a secret. There is no route that returns it again. */
+final case class DeployTokenCreated(
+    id: String,
+    label: String,
+    /** `ankka_<id>_<secret>`. Shown here and nowhere else, ever. */
+    secret: String,
+    subject: String,
+    expiresAt: Option[java.time.Instant] = None
+)
+
+/** A token in a listing: everything but the secret and the digest derived from it. */
+final case class DeployTokenSummary(
+    id: String,
+    label: String,
+    subject: String,
+    createdBy: Option[String] = None,
+    createdAt: Option[java.time.Instant] = None,
+    /** `None` means it never expires, which the listing says in so many words. */
+    expiresAt: Option[java.time.Instant] = None,
+    /** The date, not the instant — see the feature's clarification on last use. */
+    lastUsed: Option[java.time.LocalDate] = None
+)
+
+// ── Registry credentials (feature 013) ───────────────────────────────────────
+
+/**
+ * `PUT /projects/{id}/registry`: a credential the cluster will pull a private image with.
+ *
+ * The password crosses the wire once, under TLS, and appears in no reply and no journal — it is
+ * written to a Kubernetes Secret and the control plane keeps only the fact that it did so.
+ */
+final case class SetRegistry(server: String, username: String, password: String)
+
+/** What a reader is told about a project's registry: never the password. */
+final case class RegistrySummary(
+    server: String,
+    username: String,
+    setAt: Option[java.time.Instant] = None,
+    /** A display label, as everywhere else in this API — never a subject key. */
+    setBy: Option[String] = None
+)
+
+/** What is wrong with a registry credential, checked identically by the CLI and the server. */
+object Registries:
+
+  /** The name of the Secret the control plane writes into a project's namespace. */
+  val SecretName: String = "ankka-registry"
+
+  def problems(server: String, username: String, password: String): Vector[String] =
+    val serverProblems =
+      if server.trim.isEmpty then Vector("registry server must not be empty")
+      else if server.contains("://") || server.contains('/') then
+        Vector("registry server must be a host, such as ghcr.io, not a URL")
+      else Vector.empty
+    val usernameProblems =
+      if username.trim.isEmpty then Vector("registry username must not be empty") else Vector.empty
+    val passwordProblems =
+      if password.isEmpty then Vector("registry password must not be empty") else Vector.empty
+    serverProblems ++ usernameProblems ++ passwordProblems
+
+/**
+ * What is wrong with a create request, all at once, checked identically by the CLI and the server.
+ */
+object DeployTokenRules:
+
+  val MaxLabelLength: Int   = 100
+  val DefaultLifetime: Long = 90L * 24 * 60 * 60
+  val MaximumLifetime: Long = 365L * 24 * 60 * 60
+
+  def problems(label: String, expiresIn: Option[Long]): Vector[String] =
+    val labelProblems =
+      if label.trim.isEmpty then Vector("a deploy token needs a label")
+      else if label.length > MaxLabelLength then
+        Vector(s"a deploy token's label is at most $MaxLabelLength characters")
+      else if label.exists(c => c == '\n' || c == '\r') then
+        Vector("a deploy token's label is one line")
+      else Vector.empty
+    val lifetimeProblems = expiresIn match
+      case Some(seconds) if seconds < 0 => Vector("a lifetime cannot be negative")
+      case Some(seconds) if seconds > MaximumLifetime =>
+        Vector(s"a deploy token may live at most ${MaximumLifetime / 86400} days")
+      case _ => Vector.empty
+    labelProblems ++ lifetimeProblems
 
 object Wire:
   given descriptorCodec: JsonValueCodec[ServiceDescriptor] = Codecs.make[ServiceDescriptor]
@@ -632,3 +738,10 @@ object Wire:
   given repairCodec: JsonValueCodec[Repair]                = Codecs.make[Repair]
   given membersCodec: JsonValueCodec[MembersResponse]      = Codecs.make[MembersResponse]
   given historyCodec: JsonValueCodec[Vector[HistoryEntry]] = Codecs.make[Vector[HistoryEntry]]
+
+  given createTokenCodec: JsonValueCodec[CreateDeployToken]   = Codecs.make[CreateDeployToken]
+  given tokenCreatedCodec: JsonValueCodec[DeployTokenCreated] = Codecs.make[DeployTokenCreated]
+  given tokenSummaryCodec: JsonValueCodec[DeployTokenSummary] = Codecs.make[DeployTokenSummary]
+  given tokensCodec: JsonValueCodec[Vector[DeployTokenSummary]] =
+    Codecs.make[Vector[DeployTokenSummary]]
+  given setRegistryCodec: JsonValueCodec[SetRegistry] = Codecs.make[SetRegistry]

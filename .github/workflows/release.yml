@@ -267,11 +267,16 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           zip="cli/target/universal/ankka-cli-$version.zip"
           test -f "$zip" || { echo "::error::no $zip — the build's version is not the tag's"; ls cli/target/universal; exit 1; }
+          # The checksum beside the zip, for the GitHub Action (feature 013) to verify what it just
+          # downloaded. Written from *inside* the directory so the line names the bare file — a
+          # `sha256sum --check` elsewhere reads the name in the file and looks for it relative to
+          # the working directory, and a path from this repository's tree would never resolve there.
+          ( cd cli/target/universal && sha256sum "ankka-cli-$version.zip" > "ankka-cli-$version.zip.sha256" )
           # A re-run of this job finds the release it made last time; the asset is replaced, not duplicated.
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+            gh release upload "$GITHUB_REF_NAME" "$zip" "$zip.sha256" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" --verify-tag --title "ankka $version" --generate-notes "$zip"
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "ankka $version" --generate-notes "$zip" "$zip.sha256"
           fi
           echo "SHA256=$(sha256sum "$zip" | cut -d' ' -f1)" >> "$GITHUB_ENV"
       - name: Write the formula and push the tap
@@ -292,6 +297,48 @@ jobs:
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git" homebrew-tap:main
           git tag -f "${GITHUB_REF_NAME}" homebrew-tap
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git" "${GITHUB_REF_NAME}"
+
+  action:
+    # The GitHub Action as its own repository, so a workflow can say
+    # `uses: thinkmorestupidless/ankka-action@v1` — an action can only be referenced as
+    # owner/repo@ref, which is why this is a subtree push like the template, the marketplace and the
+    # tap rather than a directory people reference in place.
+    #
+    # It needs the `cli` job, not just `publish`: the action downloads the CLI zip and the checksum
+    # that job attaches to the release, so publishing an action whose default version points at a
+    # release with no assets would ship something that cannot install anything.
+    #
+    # Two tags move: v<version> pins, and v<major> is what a workflow normally follows.
+    needs: [publish, cli]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # See the template job: with credentials persisted, the push below authenticates as
+          # github-actions[bot] and is refused.
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          major="${version%%.*}"
+          git config user.name "ankka release"
+          git config user.email "release@ankka.invalid"
+          # The action installs the CLI of the release it was published beside, so its default
+          # version is written here — 0.0.0 in the tree, by the same rule as the template's
+          # ankka_version, the plugin's version and the formula's: a tracked file rewritten by the
+          # build would dirty the tree and turn the release into a snapshot. ActionSuite pins the
+          # placeholder, so an action this cannot rewrite fails `cli/test`.
+          sed -i "s/default: \"0\.0\.0\"/default: \"$version\"/" action/action.yml
+          grep -n "default: \"$version\"" action/action.yml
+          git add action/action.yml
+          git commit -m "ankka $version"
+          git subtree split --prefix action -b ankka-action
+          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka-action.git" ankka-action:main
+          git tag -f "${GITHUB_REF_NAME}" ankka-action
+          git tag -f "v$major" ankka-action
+          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/ankka-action.git" "${GITHUB_REF_NAME}" "v$major"
 
   sdk-python:
     # The Python SDK to PyPI, as the package `ankka`: https://pypi.org/project/ankka/. The version is

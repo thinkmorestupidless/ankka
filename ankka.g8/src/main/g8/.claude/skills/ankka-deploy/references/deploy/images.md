@@ -120,6 +120,69 @@ already present and pulls only when it is not. That is what makes a loaded image
 Kubernetes' own default for an image tagged `latest` is `Always`, which would ignore the loaded copy, try
 to pull, and fail with `ErrImagePull`.
 
+## A private registry
+
+A registry that requires authentication needs the cluster to hold a credential, because it is the
+cluster that pulls, not you. Register one per project:
+
+```bash
+ankka projects registry set checkout --server ghcr.io --username octocat --password-stdin
+```
+
+`--password-stdin` reads the secret from standard input, so it is in no process listing and no shell
+history. `--password <secret>` is there for interactive use.
+
+The credential is written straight into the project's Kubernetes namespace as a Secret, and the
+platform records only that it exists, who set it and when. There is no route, command or output
+format that returns it: a lost credential is replaced rather than recovered.
+
+```bash
+ankka projects get checkout
+```
+
+```text
+id            checkout
+name          Checkout
+organization  acme
+services      3
+registry      ghcr.io as octocat, set 2026-09-25 by sam@example.com
+```
+
+One credential serves every service in the project, and applies to the next deploy of each — a
+service already running keeps the credential it started with until `ankka services restart` replaces
+its pods.
+
+Any organization member may register a registry, including a
+[deploy token](../platform/identity.md#machine-accounts), because the job that pushes an image is
+the natural thing to register where it pushed it.
+
+### Clearing one
+
+```bash
+ankka projects registry clear checkout
+```
+
+The project stops claiming the credential and the next deploy of each of its services stops naming
+it. The Secret itself stays in the cluster: the platform can write a credential and can never read
+or delete one, and a Secret nothing references does nothing. Delete it with cluster access if it
+must be gone.
+
+A service running an image that is already on its node keeps working after this, because a node does
+not re-pull an image it holds. The next *new* image is what fails, with `ImagePullBackOff` in
+`ankka services get`.
+
+### GitHub Container Registry
+
+A package published to `ghcr.io` is private by default. Either make the package public, or register a
+credential whose password is a personal access token with the `read:packages` scope:
+
+```bash
+ankka projects registry set checkout --server ghcr.io --username octocat --password-stdin
+```
+
+The token that a GitHub Actions job uses to *push* is not the one to register here: it lives only for
+the length of that job. See [Deploy from GitHub Actions](ci.md).
+
 ## Tag by version for anything real
 
 `IfNotPresent` has a consequence. A node that already holds `orders:latest` keeps running that copy after

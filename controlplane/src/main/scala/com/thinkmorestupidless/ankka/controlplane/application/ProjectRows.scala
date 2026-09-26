@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane.application
 
-import com.thinkmorestupidless.ankka.controlplane.api.ProjectDetail
+import com.thinkmorestupidless.ankka.controlplane.api.{ProjectDetail, RegistrySummary}
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent
 import com.thinkmorestupidless.ankka.controlplane.domain.ProjectEvent.*
 import com.thinkmorestupidless.ankka.core.{Codecs, ComponentId}
@@ -19,6 +19,24 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
         case None      => effects.ignore()
 
     case _: ProjectDeleted => effects.deleteRow()
+
+    // A listing says which registry a project pulls from, so `projects list` answers the question
+    // without a call per project. Never the password — the row is built from the event, and the
+    // event does not have one.
+    case RegistryConfigured(server, username, _, actor, at) =>
+      rowState match
+        case Some(row) =>
+          effects.updateRow(
+            row.copy(registry =
+              Some(RegistrySummary(server, username, at, actor.flatMap(_.display)))
+            )
+          )
+        case None => effects.ignore()
+
+    case _: RegistryCleared =>
+      rowState match
+        case Some(row) => effects.updateRow(row.copy(registry = None))
+        case None      => effects.ignore()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

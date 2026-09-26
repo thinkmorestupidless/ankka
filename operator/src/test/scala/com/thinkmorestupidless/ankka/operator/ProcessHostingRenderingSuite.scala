@@ -132,3 +132,14 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     )
     assert(refused.left.exists(_.exists(_.contains("no sidecar image"))), refused)
   }
+
+  test("a pull secret is on the pod, so both containers are pulled with it") {
+    // The credential belongs to the pod, not a container: the sidecar image comes from the
+    // platform's registry and the developer's from theirs, and a private registry for either is the
+    // same one field. There is nowhere to name it per container even if that were wanted.
+    val pod =
+      deployment(process.copy(imagePullSecret = Some("ankka-registry"))).getSpec.getTemplate.getSpec
+    assertEquals(pod.getImagePullSecrets.asScala.map(_.getName).toVector, Vector("ankka-registry"))
+    assertEquals(pod.getContainers.size, 2)
+    assert(deployment(process).getSpec.getTemplate.getSpec.getImagePullSecrets.isEmpty)
+  }

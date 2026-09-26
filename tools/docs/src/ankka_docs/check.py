@@ -119,6 +119,33 @@ def prose(tree: Tree) -> list[Problem]:
     return problems
 
 
+def escapes(tree: Tree) -> list[Problem]:
+    """No page may contain a literal backslash-dollar.
+
+    Every page is copied into the template's skills with each `$` escaped for Giter8, which reads an
+    unescaped one as its own syntax. A page that already contains the escape is escaped a second time,
+    and Giter8 then sees an escaped backslash followed by a live expression and refuses the whole
+    template: `sbt new` exits with an error naming this file, every generated project is empty, and the
+    only thing that notices is a slow, gated suite.
+
+    A page explaining the escape is exactly the page that wants to print it, so this says what to do
+    instead rather than only refusing.
+    """
+    problems: list[Problem] = []
+    for page in tree.pages.values():
+        for number, line in enumerate(page.body.splitlines(), start=1):
+            if "\\$" in line:
+                problems.append(
+                    Problem(
+                        page.path,
+                        number,
+                        "a literal '\\$' is escaped again for the template and breaks project "
+                        "generation; describe the escape in words rather than printing it",
+                    )
+                )
+    return problems
+
+
 def links(tree: Tree) -> list[Problem]:
     problems: list[Problem] = []
     page_anchors = {path: anchors(page.body) for path, page in tree.pages.items()}
@@ -221,6 +248,7 @@ def run(tree: Tree) -> list[Problem]:
         *frontmatter(tree),
         *structure(tree),
         *prose(tree),
+        *escapes(tree),
         *links(tree),
         *navigation(tree),
         *examples(tree),

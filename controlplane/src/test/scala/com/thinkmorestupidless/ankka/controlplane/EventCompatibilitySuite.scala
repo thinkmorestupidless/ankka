@@ -101,3 +101,41 @@ class EventCompatibilitySuite extends munit.FunSuite:
     assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
     assert(new String(bytes, "UTF-8").contains("\"administrative\":true"))
   }
+
+  test("a project's registry events round-trip, and the wire form is pinned") {
+    // The wire form is asserted on literally because the journal is the one thing a later release
+    // cannot change its mind about: a renamed field is a project that silently loses its registry
+    // on the next replay, and a *password* field appearing here at all would be the defect this
+    // design exists to prevent.
+    val at = java.time.Instant.parse("2026-09-25T10:00:00Z")
+    val configured = ProjectEvent.RegistryConfigured(
+      "ghcr.io",
+      "octocat",
+      "ankka-registry",
+      Some(Actor("alice", Some("alice@example.test"))),
+      Some(at)
+    )
+    val bytes = ProjectEntity.eventSerializer.toBytes(configured)
+    val json  = new String(bytes, "UTF-8")
+    assertEquals(ProjectEntity.eventSerializer.fromBytes(bytes), configured)
+    assert(json.contains("\"type\":\"RegistryConfigured\""), json)
+    assert(json.contains("\"server\":\"ghcr.io\""), json)
+    assert(json.contains("\"username\":\"octocat\""), json)
+    assert(json.contains("\"secretName\":\"ankka-registry\""), json)
+    assert(!json.contains("password"), s"a password reached the journal: $json")
+
+    val cleared = ProjectEvent.RegistryCleared(None, None)
+    assertEquals(
+      ProjectEntity.eventSerializer.fromBytes(ProjectEntity.eventSerializer.toBytes(cleared)),
+      cleared
+    )
+  }
+
+  test("a project's state from before the registry decodes with none") {
+    // The snapshot, not the events: a `Project` written by an earlier release has no `registry`
+    // field at all, and must read as a project with no registry rather than failing to decode.
+    val old   = """{"id":"checkout","name":"Checkout","organizationId":"acme","deleted":false}"""
+    val state = ProjectEntity.stateSerializer.fromBytes(old.getBytes("UTF-8"))
+    assertEquals(state.registry, None)
+    assertEquals(state.name, "Checkout")
+  }

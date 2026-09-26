@@ -7,10 +7,14 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
+import com.thinkmorestupidless.ankka.controlplane.deploy.RegistryWriter
+import com.thinkmorestupidless.ankka.controlplane.domain.ConfigureRegistry
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlFragment
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
+
+import scala.util.control.NonFatal
 
 /**
  * Projects, optionally filtered by organization — the caller's organizations, that is: a project is
@@ -19,7 +23,12 @@ import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 final class ProjectEndpoint(
     clients: EndpointClients,
     val acl: Acl,
-    protected val clock: java.time.Clock = java.time.Clock.systemUTC()
+    protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
+    /**
+     * Where a registry credential goes. `None` in a control plane with no cluster behind it, and
+     * the registry routes then answer unavailable rather than recording a credential nothing holds.
+     */
+    registryWriter: Option[RegistryWriter] = None
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
@@ -87,6 +96,53 @@ final class ProjectEndpoint(
         ErrorCode.Conflict
       )
     entity(projectId).call(ProjectEntity.delete).withMetadata(authz.metadata(access)).invoke(): Done
+  }
+
+  /**
+   * Registers a credential the cluster will pull this project's private images with.
+   *
+   * The cluster is written **first**, and a failure there is the end of it: the journal never
+   * claims a credential the cluster does not hold, which is the one ordering that cannot leave a
+   * service pointing at a Secret that does not exist. The password goes no further than the Secret
+   * — not into the event, not into the reply, not into the listing.
+   *
+   * `write = true` membership, not ownership: a pipeline that pushes images to a registry is the
+   * natural thing to register it, and a deploy token is a member.
+   */
+  putBody("/{projectId}/registry") { (projectId: String, request: SetRegistry) =>
+    val access   = authz.project(principal, projectId, write = true)
+    val problems = Registries.problems(request.server, request.username, request.password)
+    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+
+    val writer = registryWriter.getOrElse(
+      throw CommandError("this control plane cannot reach a cluster", ErrorCode.Unavailable)
+    )
+    try writer.writePullSecret(projectId, request.server, request.username, request.password)
+    catch
+      case error: CommandError => throw error
+      case NonFatal(error) =>
+        throw CommandError(
+          s"could not write the registry credential: ${error.getMessage}",
+          ErrorCode.Unavailable
+        )
+
+    entity(projectId)
+      .call(ProjectEntity.configureRegistry)
+      .withMetadata(authz.metadata(access))
+      .invoke(ConfigureRegistry(request.server, request.username, Registries.SecretName)): Done
+  }
+
+  /**
+   * Stops claiming a registry. The Secret stays where it is — the control plane holds no `delete`
+   * on secrets, and one nothing names is inert. The next projection of each service in the project
+   * drops the reference; `services restart` is what makes a running service notice.
+   */
+  delete("/{projectId}/registry") { (projectId: String) =>
+    val access = authz.project(principal, projectId, write = true)
+    entity(projectId)
+      .call(ProjectEntity.clearRegistry)
+      .withMetadata(authz.metadata(access))
+      .invoke(): Done
   }
 
   private def serviceCount(projectId: String): Int =

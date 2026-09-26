@@ -7,7 +7,11 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ServiceEntity
 }
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceProjector}
-import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
+import com.thinkmorestupidless.ankka.controlplane.domain.{
+  ApplyService,
+  ConfigureRegistry,
+  ServiceKey
+}
 import com.thinkmorestupidless.ankka.core.EntityId
 import com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
@@ -255,5 +259,27 @@ class ProjectorSuite extends munit.FunSuite:
       )
     eventually() {
       fake.current(Namespace, Service).exists(_.spec.image == "cart:6.0")
+    }
+  }
+
+  test("the resource names the project's pull secret, and stops when the registry is cleared") {
+    // The credential belongs to the project and the resource belongs to the service, so this is the
+    // one path where a projection has to read another entity. It reads it on *every* pass, which is
+    // what makes setting or clearing a registry reach a service that is already running without any
+    // event on the service itself.
+    val project = client.forEventSourcedEntity(EntityId(Project))
+
+    val _ = project
+      .call(ProjectEntity.configureRegistry)
+      .invoke(ConfigureRegistry("ghcr.io", "octocat", "ankka-registry"))
+
+    // No apply: the sweep alone must carry it, because nothing about the service changed.
+    eventually() {
+      fake.current(Namespace, Service).flatMap(_.spec.imagePullSecret).contains("ankka-registry")
+    }
+
+    val _ = project.call(ProjectEntity.clearRegistry).invoke()
+    eventually() {
+      fake.current(Namespace, Service).exists(_.spec.imagePullSecret.isEmpty)
     }
   }

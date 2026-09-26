@@ -101,7 +101,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/deploy/deploy-a-service.md` — Write a service descriptor, apply it with the ankka CLI, and follow the service from UpdateInProgress to Ready, including environment variables, secrets, version declarations and Python services.
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
 - `references/deploy/scaling-and-rollouts.md` — Choose how many instances a service runs and how large each is, and understand how deploys, restarts and scaling change the running pods without refusing requests.
-- `references/deploy/ci.md` — Give a CI job its own identity as a Keycloak client, obtain a token with the client-credentials grant, and run the ankka CLI non-interactively with environment variables and meaningful exit codes.
+- `references/deploy/ci.md` — Deploy a service from a GitHub workflow — create a deploy token, add three secrets, and use the ankka action to install and authenticate the CLI — plus the environment variables, exit codes and output formats any CI system needs.
 - `references/deploy/upgrading.md` — Move a service to a new ankka version by changing the library version and the descriptor's runtime declaration together, refreshing the local schema, and checking what a deployed instance actually runs.
 
 ### Observe and operate

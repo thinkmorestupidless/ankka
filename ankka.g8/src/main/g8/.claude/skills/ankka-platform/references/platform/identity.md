@@ -106,19 +106,64 @@ one organization.
 
 ## Machine accounts
 
-A machine, such as a CI job, is a Keycloak client:
+A machine — a CI job, a script, anything that is not a person at a browser — holds a **deploy token**.
+An owner of an organization creates one, and nobody else needs to be involved:
+
+```bash
+ankka organizations tokens create acme --label github-deploy
+```
+
+```text
+Deploy token 'github-deploy' created. This is the only time the secret is shown.
+
+  ankka_3f9a1c2e7b4d8f01_9c2e…a1f0
+
+Expires 2026-12-24T10:00:00Z. Store it as a secret named ANKKA_TOKEN.
+```
+
+The secret is shown once and stored only as a one-way digest, so a lost token is replaced rather than
+recovered. Present it to the CLI through `ANKKA_TOKEN` or `--token`, exactly as any other token:
+
+```bash
+ANKKA_TOKEN=ankka_… ankka services deploy orders ghcr.io/acme/orders:1.4.2
+```
+
+A deploy token authenticates as `token:<id>`, an ordinary **member** of the organization it was created
+in. That is the whole of its design: it is authorized, attributed and made invisible outside its
+organization by exactly the rules that apply to a person, with no second set of rules for machines.
+It can do everything a member can, and nothing an owner can — it cannot invite members, rename or
+delete the organization, or manage deploy tokens, including its own. So a leaked CI credential cannot
+mint a replacement for itself or revoke the one that would stop it.
+
+```bash
+ankka organizations tokens list acme         # label, creator, expiry, the date last used
+ankka organizations tokens revoke acme 3f9a1c2e7b4d8f01
+```
+
+A token expires 90 days after it is created unless you choose otherwise — `--expires-in 30d`, up to
+365 days, or `--never-expires` for a pipeline that must not stop on a date nobody remembers. The
+listing always says which. Revoking takes effect at once on the control plane node that handled it,
+and within a second everywhere else; the id is never reused.
+
+Every change a token makes is recorded under its own identity, so `ankka services history` distinguishes
+a deploy from CI from a deploy by hand. See [Deploy from GitHub Actions](../deploy/ci.md).
+
+### A machine account in Keycloak
+
+The alternative, for an installation that wants every principal in its own identity provider. It needs
+an administrator with access to Keycloak's console, which is why it is not the recommended path:
 
 1. Create a confidential client with **service accounts enabled**.
 2. Assign it the **`ankka-controlplane`** client scope as a default scope. That scope puts the control
    plane's audience, the subject and the identity claims the control plane reads on every token; a
    token without it is refused.
 3. To invite it to an organization like a person, give its service-account user an email address marked
-   verified.
+   verified, then invite that address.
 
-The machine obtains a token with the client-credentials grant and passes it to the CLI through
-`ANKKA_TOKEN` or `--token`, which presents it exactly as given. A machine is another principal in the
-same identity provider, so there is no second kind of credential to create, rotate or audit, and its
-changes are recorded under its own identity. See [Deploy from CI](../deploy/ci.md).
+The machine obtains a token with the client-credentials grant and presents it as given. Because it is a
+principal in the same identity provider as your people, it appears in Keycloak's own session and audit
+views — which is the reason to prefer it, where that matters more than an owner being able to grant
+access without an administrator.
 
 ## The realm
 

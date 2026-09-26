@@ -1,8 +1,11 @@
 package com.thinkmorestupidless.ankka.controlplane.deploy
 
-import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder}
+import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder, SecretBuilder}
 import io.fabric8.kubernetes.client.informers.{ResourceEventHandler, SharedIndexInformer}
 import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientBuilder}
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString}
+import com.thinkmorestupidless.ankka.controlplane.api.Registries
+import com.thinkmorestupidless.ankka.core.Codecs
 import com.thinkmorestupidless.ankka.crd.{AnkkaSerialization, AnkkaService, AnkkaServiceSpec}
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -43,6 +46,39 @@ final class Fabric8AnkkaServiceClient(
         .build()
       val _ = client.resource(ns).fieldManager(FieldManager).forceConflicts().serverSideApply()
       log.debug("created namespace {}", namespace)
+
+  def ensurePullSecret(
+      namespace: String,
+      server: String,
+      username: String,
+      password: String
+  ): Unit =
+    ensureNamespace(namespace)
+    // Always a freshly built object, never one read back — and here there is no choice, because the
+    // control plane holds no `get` on secrets. That is also what makes server-side apply safe: an
+    // object carrying `metadata.managedFields` is rejected outright.
+    val secret = new SecretBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(Registries.SecretName)
+          .withNamespace(namespace)
+          .withLabels(java.util.Map.of("app.kubernetes.io/managed-by", "ankka"))
+          .build()
+      )
+      .withType("kubernetes.io/dockerconfigjson")
+      // `stringData` rather than `data`: the API server does the base64, so there is one fewer place
+      // to encode something twice. The `auth` field inside the document is base64 of `user:password`
+      // by the format's own definition, which is not the same thing.
+      .withStringData(
+        java.util.Map.of(
+          ".dockerconfigjson",
+          Fabric8AnkkaServiceClient.dockerConfig(server, username, password)
+        )
+      )
+      .build()
+    val _ = client.resource(secret).fieldManager(FieldManager).forceConflicts().serverSideApply()
+    // The server and the user, never the password, and never at a level a log ships by default.
+    log.debug("wrote registry credentials for {} in {} as {}", server, namespace, username)
 
   def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit =
     val resources = client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name)
@@ -132,3 +168,22 @@ object Fabric8AnkkaServiceClient:
       .withKubernetesSerialization(AnkkaSerialization())
       .build()
     new Fabric8AnkkaServiceClient(client, namespacePrefix)
+
+  /** One registry's entry in a `.dockerconfigjson` document, as Docker and the kubelet read it. */
+  private final case class DockerAuth(username: String, password: String, auth: String)
+  private final case class DockerConfig(auths: Map[String, DockerAuth])
+
+  private given JsonValueCodec[DockerConfig] = Codecs.make[DockerConfig]
+
+  /**
+   * The `.dockerconfigjson` document for one registry.
+   *
+   * Written through the JSON codec rather than string interpolation: a password may contain a quote
+   * or a backslash, and a hand-built document would produce a Secret that parses as nothing and a
+   * pull failure with no hint of why.
+   */
+  def dockerConfig(server: String, username: String, password: String): String =
+    val auth = java.util.Base64.getEncoder.encodeToString(
+      s"$username:$password".getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    )
+    writeToString(DockerConfig(Map(server -> DockerAuth(username, password, auth))))

@@ -112,7 +112,17 @@ final case class AnkkaServiceSpec(
      * developer's process in another language and the operator runs the sidecar beside it). The
      * sidecar's image is the operator's, never the resource's.
      */
-    hosting: String = "embedded"
+    hosting: String = "embedded",
+    /**
+     * The name of a `kubernetes.io/dockerconfigjson` Secret in this service's namespace, named on
+     * the pod so the kubelet can pull from a private registry (feature 013).
+     *
+     * Set by the control plane from the *project's* registered credentials — the operator does not
+     * know what a project is, and never reads the Secret: it renders a reference and the kubelet
+     * resolves it, exactly as it does for a descriptor's own `secretKeyRef` variables. `None` on a
+     * resource written before this field existed, which renders as it always did.
+     */
+    imagePullSecret: Option[String] = None
 )
 
 /**

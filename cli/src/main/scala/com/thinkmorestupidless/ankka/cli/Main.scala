@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.monovore.decline.{Command, Opts}
 import com.thinkmorestupidless.ankka.controlplane.api.*
+import com.thinkmorestupidless.ankka.controlplane.api.Deploy.withImage
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
 import com.thinkmorestupidless.ankka.cli.console.{ConsoleServer, LocalSource}
@@ -190,6 +191,54 @@ object Main:
       list.orElse(add).orElse(remove).orElse(role).orElse(repair)
     }
 
+    val tokens = Opts.subcommand("tokens", "Deploy tokens: credentials a machine can hold.") {
+      val list = Opts.subcommand("list", "List an organization's deploy tokens.") {
+        (Opts.argument[String]("organization"), contextOpt).mapN { (org, ctx) => () =>
+          Output.deployTokens(ctx.client.listDeployTokens(org), ctx.format)
+        }
+      }
+
+      val create = Opts.subcommand(
+        "create",
+        "Create a deploy token. The secret is shown once and cannot be recovered."
+      ) {
+        (
+          Opts.argument[String]("organization"),
+          Opts.option[String]("label", "What this token is for, for people reading the listing."),
+          Opts
+            .option[String](
+              "expires-in",
+              "How long it lives: 30d, 12h. Defaults to 90d; at most 365d."
+            )
+            .orNone,
+          Opts
+            .flag("never-expires", "Create a token with no expiry. Prefer a lifetime.")
+            .orFalse,
+          contextOpt
+        ).mapN { (org, label, expiresIn, never, ctx) => () =>
+          if never && expiresIn.isDefined then
+            throw ApiError(0, "--expires-in and --never-expires cannot both be given")
+          // `0` is how the API says "never"; absent is how it says "the default".
+          val seconds =
+            if never then Some(0L)
+            else expiresIn.map(Durations.seconds)
+          val problems = DeployTokenRules.problems(label, seconds)
+          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+          Output.deployTokenCreated(ctx.client.createDeployToken(org, label, seconds), ctx.format)
+        }
+      }
+
+      val revoke = Opts.subcommand("revoke", "Revoke a deploy token. It stops working at once.") {
+        (Opts.argument[String]("organization"), Opts.argument[String]("token-id"), contextOpt)
+          .mapN { (org, tokenId, ctx) => () =>
+            ctx.client.revokeDeployToken(org, tokenId)
+            s"revoked deploy token $tokenId"
+          }
+      }
+
+      list.orElse(create).orElse(revoke)
+    }
+
     val invitations = Opts.subcommand("invitations", "Pending invitations.") {
       Opts.subcommand("revoke", "Withdraw an invitation that has not been claimed.") {
         (Opts.argument[String]("organization"), Opts.argument[String]("email"), contextOpt).mapN {
@@ -226,6 +275,7 @@ object Main:
       .orElse(rename)
       .orElse(delete)
       .orElse(members)
+      .orElse(tokens)
       .orElse(invitations)
       .orElse(disable)
       .orElse(enable)
@@ -268,7 +318,54 @@ object Main:
       }
     }
 
-    list.orElse(get).orElse(create).orElse(rename).orElse(delete)
+    val registry = Opts.subcommand(
+      "registry",
+      "Credentials the cluster pulls this project's private images with."
+    ) {
+      val set = Opts.subcommand("set", "Register a registry credential for a project.") {
+        (
+          Opts.argument[String]("id"),
+          Opts.option[String]("server", "The registry host, such as ghcr.io."),
+          Opts.option[String]("username", "The user or robot account to authenticate as."),
+          Opts
+            .option[String]("password", "The password or access token. Prefer --password-stdin.")
+            .orNone,
+          Opts
+            .flag(
+              "password-stdin",
+              "Read the password from standard input, so it is in no process listing."
+            )
+            .orFalse,
+          contextOpt
+        ).mapN { (id, server, username, password, fromStdin, ctx) => () =>
+          if password.isDefined && fromStdin then
+            throw ApiError(0, "--password and --password-stdin cannot both be given")
+          // `Console.in`, not `System.in`: only the former is redirectable by `Console.withIn`,
+          // which is what lets a test drive this without spawning a subprocess.
+          val secret =
+            if fromStdin then Option(Console.in.readLine()).map(_.trim).getOrElse("")
+            else password.getOrElse("")
+          val problems = Registries.problems(server, username, secret)
+          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+          ctx.client.setRegistry(id, server, username, secret)
+          s"project '$id' pulls from $server as $username"
+        }
+      }
+
+      val clear = Opts.subcommand("clear", "Stop using a registry credential for a project.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          ctx.client.clearRegistry(id)
+          // Said plainly, because it is the part people do not expect: the credential stays in the
+          // cluster, and what changes is that no service names it any more.
+          s"project '$id' no longer uses a registry credential; " +
+            "restart its services to stop using the one they have"
+        }
+      }
+
+      set.orElse(clear)
+    }
+
+    list.orElse(get).orElse(create).orElse(rename).orElse(delete).orElse(registry)
   }
 
   // ── services ──────────────────────────────────────────────────────────────
@@ -290,6 +387,34 @@ object Main:
       (fileOpt, contextOpt).mapN { (file, ctx) => () =>
         val descriptor = Descriptors.read(file)
         Output.service(ctx.client.applyService(ctx.project, descriptor), ctx.format)
+      }
+    }
+
+    /**
+     * `services deploy <service> <image>` — Akka's verb, and Akka's positional image.
+     *
+     * The image is the one field that is genuinely different on every build, so it comes from the
+     * command line and everything else from the descriptor, which is never rewritten. There is no
+     * `--push`: ankka runs no registry, so the image must already be somewhere the cluster can pull
+     * from.
+     */
+    val deployCommand = Opts.subcommand(
+      "deploy",
+      "Deploy a service: the descriptor's settings with this image, which must already be pushed."
+    ) {
+      (
+        Opts.argument[String]("service"),
+        Opts.argument[String]("image"),
+        fileOpt.withDefault("service.json"),
+        contextOpt
+      ).mapN { (service, image, file, ctx) => () =>
+        val descriptor = Descriptors.read(file)
+        val problems   = Deploy.problems(descriptor, service, image)
+        if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+        Output.service(
+          ctx.client.applyService(ctx.project, descriptor.withImage(image)),
+          ctx.format
+        )
       }
     }
 
@@ -366,6 +491,7 @@ object Main:
     list
       .orElse(get)
       .orElse(applyCommand)
+      .orElse(deployCommand)
       .orElse(pause)
       .orElse(resume)
       .orElse(restart)
@@ -656,6 +782,28 @@ object Main:
 
   def main(args: Array[String]): Unit =
     sys.exit(run(args.toIndexedSeq, System.out, System.err))
+
+/**
+ * Short durations as a person writes them: `90d`, `12h`, `30m`.
+ *
+ * Deliberately not `scala.concurrent.duration`'s parser, which accepts `"90 days"` and a dozen
+ * other spellings: a CLI flag wants one obvious form, and an unrecognised one should say what it
+ * wanted rather than guess.
+ */
+private object Durations:
+
+  private val Pattern = raw"(\d+)([smhd])".r
+
+  def seconds(value: String): Long = value.trim match
+    case Pattern(amount, unit) =>
+      val n = amount.toLong
+      unit match
+        case "s" => n
+        case "m" => n * 60
+        case "h" => n * 3600
+        case _   => n * 86400
+    case other =>
+      throw ApiError(0, s"'$other' is not a duration; write it as 90d, 12h, 30m or 45s")
 
 /** Reads a descriptor from a file or stdin. */
 private object Descriptors:

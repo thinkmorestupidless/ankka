@@ -1,9 +1,14 @@
 # What the control plane may do in the cluster, and nothing more.
 #
 # It projects desired state into AnkkaService resources and reads their status back. It never
-# creates a workload, never reads a secret, and never writes a status — so even fully
-# compromised it can only ask for services, not make them. The operator, which does make them,
-# holds credentials the control plane never sees.
+# creates a workload and never writes a status — so even fully compromised it can only ask for
+# services, not make them. The operator, which does make them, holds credentials the control
+# plane never sees.
+#
+# Since feature 013 it can WRITE one kind of secret and still cannot READ any: a project's
+# registry credential, create and patch only. A compromised control plane can therefore replace
+# a registry credential and never recover one it was given earlier, including one it wrote
+# itself.
 #
 # Since feature 004 it also reads the pods of ITS OWN namespace — a Role at the bottom, not a
 # ClusterRole — so its instances can find each other. That reaches no project namespace, so
@@ -45,6 +50,23 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "create", "patch"]
+  # A project's registry credential (feature 013): a dockerconfigjson Secret in the project's
+  # namespace that the operator names on every workload in it, so the kubelet can pull a private
+  # image.
+  #
+  # create and patch only, and the omissions are the point. No "get" and no "list", so the control
+  # plane can put a credential where the kubelet will read it and can never read one back — not
+  # even the ones it wrote. No "delete", the same rule that keeps it away from database
+  # credentials, which is why clearing a registry stops naming the Secret rather than removing it.
+  # "patch" is required for the reason it is on namespaces: server-side apply is a PATCH even for
+  # an object that does not exist yet.
+  #
+  # This grants no new power over what runs. The control plane already decides every workload's
+  # image; being able to supply the credential for pulling it adds nothing it could not already
+  # cause.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch"]
   # `ankka services logs`, and nothing more than reading.
   #
   # This is a change in what a compromised control plane DISCLOSES, and not in what it can DO.

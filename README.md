@@ -70,6 +70,13 @@ A service of your own starts from the template — `ankka init orders` or
 `sbt new thinkmorestupidless/ankka.g8 --name=orders` — as
 [Your first service in Scala](docs/get-started/first-service-scala.md) describes.
 
+What the template gives you includes its own GitHub workflows: push the project and it builds and
+tests on every commit, and a version tag builds the image, pushes it to the repository's container
+registry and deploys it. That needs a credential a machine can hold, which is what a **deploy token**
+is — `ankka organizations tokens create acme --label github`, three repository secrets, and nothing
+about the installation to administer. See
+[Deploy from GitHub Actions](docs/deploy/ci.md).
+
 ## Why Pekko
 
 Akka moved to the Business Source Licence. Pekko is the Apache 2.0 fork of Akka 2.6 with the same
@@ -96,6 +103,8 @@ sdks/python       the Python SDK, its testkits, and the sample cart ported to it
 sdks/typescript   the TypeScript SDK, its testkits, and the sample cart ported to it
 samples/          the shopping cart and the multi-agent planner
 ankka.g8          the service template
+action            the GitHub Action that installs and authenticates the CLI; pushed to ankka-action on release
+homebrew          the Homebrew formula for the CLI; pushed to homebrew-tap on release
 docs              the documentation; tools/docs builds it
 marketplace       the Claude Code plugin: the documentation as skills, and `ankka mcp`; pushed to ankka-marketplace on release
 kustomization     the platform's manifests and the local deploy script

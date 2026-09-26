@@ -954,6 +954,12 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **munit's `--` filter matches the full test name, suite included.** `ANKKA_CONFORMANCE_ONLY='es.*'`
   matched nothing and the whole `ConformanceSuite` reported as *ignored* with zero tests — a green exit for
   a run that did nothing. The glob needs a leading wildcard: `'*es.*'`.
+- **`npm publish dist-pack/x.tgz` is a GitHub clone, not a file.** npm-package-arg treats a bare
+  `a/b` as the `owner/repo` shorthand whatever its suffix, so the release's publish step ran
+  `git ls-remote ssh://git@github.com/dist-pack/ankka-0.6.0.tgz.git` and failed with `Permission
+  denied (publickey)` — a failure that reads like a missing SSH key on the runner and is a spelling.
+  A spec is a file only when it starts with `./`, `../`, `/` or `~/`; the step and the manual
+  first-publish command both say `./dist-pack/…`.
 - **`await using` is Node 24; Node 22 refuses it with a syntax error.** The integration testkit offers
   `Symbol.asyncDispose` and `stop()`, and the docs show `try`/`finally`, because the package's floor is 22.22.
 
@@ -1108,8 +1114,8 @@ job is green:
 ```bash
 git checkout vX.Y.Z && cd sdks/typescript
 npm version X.Y.Z --no-git-tag-version && npm ci && npm run proto && npm run build
-mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
-git checkout -- package.json package-lock.json
+mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
+git checkout -- package.json package-lock.json src/version.ts   # all three are 0.0.0 in the tree; CI packs ankka-0.0.0.tgz
 ```
 
 Then on npmjs.com, package settings → Trusted Publisher → GitHub Actions: owner `thinkmorestupidless`,

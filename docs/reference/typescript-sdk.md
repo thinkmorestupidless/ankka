@@ -20,7 +20,7 @@ The SDK is on npm as [`ankka`](https://www.npmjs.com/package/ankka). Every ankka
 at the same version, so pin the version of the platform you deploy to:
 
 ```bash
-npm install ankka@0.5.0                                        # the SDK
+npm install ankka@0.6.0                                        # the SDK
 npm install -D testcontainers @testcontainers/postgresql        # only for the integration testkit
 ```
 

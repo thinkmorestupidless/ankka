@@ -25,7 +25,7 @@ happen. The two talk over gRPC on loopback, and the SDK hides that entirely.
 mkdir cart && cd cart
 npm init -y
 npm pkg set type=module
-npm install ankka@0.5.0                                        # the version of the platform you will deploy to
+npm install ankka@0.6.0                                        # the version of the platform you will deploy to
 npm install -D typescript @types/node testcontainers @testcontainers/postgresql
 ```
 

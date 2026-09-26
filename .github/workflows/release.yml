@@ -422,7 +422,11 @@ jobs:
             echo "ankka@$version is already on npm; nothing to publish"
             exit 0
           fi
-          npm publish "dist-pack/ankka-$version.tgz" --access public
+          # `./`, not a bare relative path: npm reads `dist-pack/ankka-0.6.0.tgz` as the GitHub shorthand
+          # `owner/repo` and runs `git ls-remote ssh://git@github.com/dist-pack/…`, which the runner answers
+          # with "Permission denied (publickey)" — v0.6.0's first run failed on exactly that, having never
+          # reached npm. A spec is a file only when it starts with `./`, `../`, `/` or `~/`.
+          npm publish "./dist-pack/ankka-$version.tgz" --access public
 
   docs:
     # The documentation site — pages, llms.txt, llms-full.txt, raw Markdown per page and

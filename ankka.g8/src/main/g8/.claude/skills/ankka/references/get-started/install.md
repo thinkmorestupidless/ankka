@@ -120,7 +120,7 @@ release with the platform's version. Add it to your own project, pinned to the v
 deploy to:
 
 ```bash
-npm install ankka@0.5.0
+npm install ankka@0.6.0
 npm install -D testcontainers @testcontainers/postgresql      # only for the integration testkit
 ```
 

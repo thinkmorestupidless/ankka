@@ -1,6 +1,10 @@
 # The operator injects the sidecar beside every process-hosted service, so no manifest names the
 # image and kustomize's `images:` transformer cannot rename it; the operator reads it from here.
 # Keep the tag equal to the `images:` block's: the sidecar is released with the operator.
+#
+# The container name must be the operator's own (components/operator/operator.yaml). A strategic
+# merge keys containers by name, so any other name adds a second container holding only this env
+# var and no image, and the API server refuses the whole Deployment.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,7 +14,7 @@ spec:
   template:
     spec:
       containers:
-        - name: operator
+        - name: ankka-operator
           env:
             - name: ANKKA_SIDECAR_IMAGE
-              value: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:0.6.2 # SET
+              value: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:0.6.3 # SET

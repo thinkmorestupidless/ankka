@@ -1,11 +1,11 @@
 # Services in other languages
 
-> How ankka hosts a service written in Python — the runtime runs beside the process as a sidecar, owning everything durable and distributed, while the process decides what each command does.
+> How ankka hosts a service written in Python or TypeScript — the runtime runs beside the process as a sidecar, owning everything durable and distributed, while the process decides what each command does.
 
 Source: https://docs.ankka.cloud/concepts/polyglot/
-A service written in Python is hosted by the same runtime as one written in Scala, with the same
+A service written in Python or TypeScript is hosted by the same runtime as one written in Scala, with the same
 components, journal, cluster, deployment and console. What differs is where the code runs. A Scala
-service compiles into one JVM with the runtime. A Python service runs as its own process, and the ankka
+service compiles into one JVM with the runtime. A Python or TypeScript service runs as its own process, and the ankka
 runtime runs beside it as a **sidecar**, booted from a conversation with that process instead of from a
 Scala builder.
 
@@ -48,18 +48,19 @@ The protocol is versioned `MAJOR.MINOR`, and a process-hosted service declares t
 speaks. The platform accepts a declaration with the same major version and a minor version no higher
 than its own. See [Sidecar protocol](../reference/sidecar-protocol.md).
 
-## One journal, two languages
+## One journal, three languages
 
-Stored data does not record which language wrote it. The Python SDK's default encoding produces the same
+Stored data does not record which language wrote it. The Python and TypeScript SDKs' default encoding produces the same
 JSON the Scala SDK does: records with every field present, sum types with a `"type"` discriminator
 naming the case, `null` for an absent optional value, and primitives such as a string or an integer as
 plain text. The mapping is written down in the protocol's
 [ENCODING.md](https://github.com/thinkmorestupidless/ankka/blob/main/protocol/ENCODING.md) and checked by
 shared fixtures that every SDK must pass.
 
-So a cart written by a Scala service can be read by a Python service on the same database, and the
-reverse. Field names are the contract. A Python dataclass that stores a field as `product_id` does not
-read a journal that says `productId`, which is why the Python samples use the stored spelling.
+So a cart written by a Scala service can be read by a Python or TypeScript service on the same database,
+and the reverse. Field names are the contract. A Python dataclass or a TypeScript shape that stores a field
+as `product_id` does not read a journal that says `productId`, which is why the Python and TypeScript
+samples use the stored spelling.
 
 ## Deployed, a service is two containers
 
@@ -87,6 +88,6 @@ platform, and the descriptor cannot name its image or set its variables.
 A second language is compatible when it behaves the same, not when it looks the same. ankka defines that
 with a conformance suite: one case per behaviour, from "a deleted entity written to again starts empty"
 to "a query answered while a workflow step runs", run against the Scala reference in-process and against
-any process through the real sidecar. The Python SDK passes it, and a third language arrives by passing
+any process through the real sidecar. The Python and TypeScript SDKs pass it, and a further language arrives by passing
 it with its own reference service, plus the encoding fixtures. The platform needs no change to host it.
 See [Adding a language SDK](../contributing/language-sdks.md).

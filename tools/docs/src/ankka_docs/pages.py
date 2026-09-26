@@ -21,7 +21,7 @@ MKDOCS_YML = ROOT / "mkdocs.yml"
 EXCLUDED_DIRS = ("design/",)
 
 KINDS = ("tutorial", "guide", "concept", "reference", "contributing")
-LANGUAGES = ("scala", "python")
+LANGUAGES = ("scala", "python", "typescript")
 COMPONENTS = (
     "event-sourced-entity",
     "key-value-entity",

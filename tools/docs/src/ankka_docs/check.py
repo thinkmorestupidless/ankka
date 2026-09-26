@@ -192,6 +192,8 @@ LINKS_TO_SITE = [
     "README.md",
     "sdks/python/README.md",
     "sdks/python/pyproject.toml",
+    "sdks/typescript/README.md",
+    "sdks/typescript/package.json",
     "marketplace/plugins/ankka/.claude-plugin/plugin.json",
     "marketplace/.claude-plugin/marketplace.json",
     "marketplace/README.md",

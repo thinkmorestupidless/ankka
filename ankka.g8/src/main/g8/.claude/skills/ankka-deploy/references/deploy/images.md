@@ -1,11 +1,11 @@
 # Build an image
 
-> Package a Scala or Python ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
+> Package a Scala, Python or TypeScript ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 
 Source: https://docs.ankka.cloud/deploy/images/
 A service is deployed as a container image, and the descriptor names that image. A Scala service's image
-holds the service and the ankka runtime in one JVM. A Python service's image holds only your process and
-the SDK; the platform supplies the runtime as a sidecar container beside it.
+holds the service and the ankka runtime in one JVM. A Python or TypeScript service's image holds only your
+process and the SDK; the platform supplies the runtime as a sidecar container beside it.
 
 ## A Scala service
 
@@ -70,6 +70,31 @@ docker build -t my-cart:1.0.0 .
 
 The descriptor then says the image is a process, and which protocol version its SDK speaks. See
 [Deploy a service](deploy-a-service.md#services-in-another-language).
+
+## A TypeScript service
+
+A TypeScript service's image is the same idea on Node: your code and the SDK, no JVM, no runtime. Node runs
+the service from source, so there is no build step in the image either. For a project that depends on the
+SDK from npm (`ankka@0.5.0` in its `package.json`):
+
+```text
+FROM node:24-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY . .
+ENV ANKKA_PROCESS_PORT=9010
+CMD ["node", "main.ts"]
+```
+
+The sample in the ankka repository runs against the SDK's own source tree instead, so its Dockerfile copies
+the SDK's sources in, generates the protocol stubs with `npm run proto`, and starts the process with
+`node --conditions=ankka-source`, a flag a project that installed the package does not need. The process
+listens on port 9010 for the sidecar and declares no HTTP port. Build it with plain Docker:
+
+```bash
+docker build -t my-cart:1.0.0 .
+```
 
 ## Get the image onto the cluster
 

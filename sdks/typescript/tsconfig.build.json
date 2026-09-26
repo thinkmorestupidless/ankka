@@ -1,0 +1,14 @@
+{
+  // What the package ships: `dist/` emitted from `src/` only, with declarations, and every `.ts`
+  // import rewritten to `.js` (`rewriteRelativeImportExtensions`, inherited). Tests and examples are
+  // not built; they run from source.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "customConditions": []
+  },
+  "include": ["src"]
+}

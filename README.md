@@ -10,7 +10,7 @@
 
 A serverless application platform for agentic AI, built on the actor model — a
 reimplementation of [Akka's](https://doc.akka.io/) component model in Scala 3 on
-[Apache Pekko](https://pekko.apache.org/), with services in Scala or Python.
+[Apache Pekko](https://pekko.apache.org/), with services in Scala, Python or TypeScript.
 
 You write components; ankka supplies the runtime. Sharding, persistence, replay,
 projections, durable orchestration, timers, HTTP and the agent loop are the platform's
@@ -93,6 +93,7 @@ cli               the `ankka` command, over HTTP; `ankka mcp` for agents
 protocol          the sidecar protocol: .proto files, ENCODING.md, the encoding fixtures
 sidecar           the runtime booted from a discovery handshake, for a service in another language
 sdks/python       the Python SDK, its testkits, and the sample cart ported to it
+sdks/typescript   the TypeScript SDK, its testkits, and the sample cart ported to it
 samples/          the shopping cart and the multi-agent planner
 ankka.g8          the service template
 docs              the documentation; tools/docs builds it

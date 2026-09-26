@@ -31,3 +31,9 @@ sdks/python/src/ankka/_proto/
 
 # Claude Code worktrees: other sessions' checkouts, never part of this one
 .claude/worktrees/
+
+# TypeScript (the SDK under sdks/typescript)
+sdks/typescript/node_modules/
+sdks/typescript/src/_proto/
+sdks/typescript/dist/
+sdks/typescript/dist-pack/

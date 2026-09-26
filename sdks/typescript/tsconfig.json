@@ -1,0 +1,25 @@
+{
+  // The check configuration: everything in the SDK, its tests and its examples, as Node runs it.
+  // Sources are executed directly by Node's type stripping, which is why the syntax is restricted to
+  // what erases (`erasableSyntaxOnly`) and why every local import names its `.ts` extension
+  // (`allowImportingTsExtensions`). `tsconfig.build.json` extends this to emit `dist/`.
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "lib": ["es2024"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "skipLibCheck": true,
+    // `ankka` inside this package resolves to the sources, the same way `node --conditions=ankka-source` does.
+    "customConditions": ["ankka-source"]
+  },
+  "include": ["src", "test", "examples", "bin", "scripts"]
+}

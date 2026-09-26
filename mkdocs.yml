@@ -3,7 +3,7 @@
 # Markdown per page, docs-index.json and the agent skill — is rendered from the same tree by
 # tools/docs (`uv run --project tools/docs docs build`). See docs/contributing/documentation.md.
 site_name: ankka
-site_description: A serverless application platform for agentic AI on the actor model — Akka's component model in Scala 3 on Apache Pekko, with services in Scala or Python.
+site_description: A serverless application platform for agentic AI on the actor model — Akka's component model in Scala 3 on Apache Pekko, with services in Scala, Python or TypeScript.
 site_url: https://docs.ankka.cloud/
 repo_url: https://github.com/thinkmorestupidless/ankka
 repo_name: thinkmorestupidless/ankka
@@ -70,6 +70,7 @@ nav:
       - Install the tools: get-started/install.md
       - Your first service in Scala: get-started/first-service-scala.md
       - Your first service in Python: get-started/first-service-python.md
+      - Your first service in TypeScript: get-started/first-service-typescript.md
       - Deploy to a local platform: get-started/deploy-locally.md
       - Work with a coding agent: get-started/coding-agents.md
   - Concepts:
@@ -132,6 +133,7 @@ nav:
       - Error codes: reference/error-codes.md
       - Scala SDK: reference/scala-sdk.md
       - Python SDK: reference/python-sdk.md
+      - TypeScript SDK: reference/typescript-sdk.md
       - Sidecar protocol: reference/sidecar-protocol.md
       - Divergences from Akka: reference/akka-divergences.md
       - Limitations: reference/limitations.md

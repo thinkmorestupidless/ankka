@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala or Python — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, and several agents coordinated from a workflow. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, or streaming tokens.
+description: Design, write, change or test an ankka agent in Scala, Python or TypeScript — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, and several agents coordinated from a workflow. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, or streaming tokens.
 pages:
   - concepts/agents.md
   - concepts/designing-agents.md
@@ -88,6 +88,18 @@ the memory-less case; `with_model(name)` chooses among the sidecar's configured 
 (`anthropic`, `scripted`); `then_reply_json()` decodes by the handler's reply type; compaction is not yet
 configurable. The model is configured on the sidecar through the descriptor's `env`: `ANTHROPIC_API_KEY`,
 `ANKKA_MODEL_NAME`, or `ANKKA_MODEL_SCRIPT` for tests. The process never holds the key.
+
+## TypeScript differences
+
+Tools and guardrails are static tables of `tool(name, description, InputShape, run)` and `guardrail(name,
+check)`, named in the effect by wire name (`.tools("lookup")`); the tool's input shape is also the JSON
+Schema the model sees, and its arguments arrive decoded. Handlers are `command(...)` or `stream(...)` entries
+returning `this.effects.systemMessage(...).userMessage(q)....thenReply()`; `thenReplyJson<R>()` types the
+JSON reply for the caller; `memory(false)` is the memory-less case; `withModel(name)` chooses among the
+sidecar's configured models. A tool runs on a fresh agent instance bound to the session, so `this.sessionId`
+and `this.client` are available in it. `AgentTestKit.of(Cls, session, new ScriptedModel().expectToolCall(...)
+.expectText(...))` runs the loop in process and fails when the script runs out. The model is configured on
+the sidecar as for Python; the process never holds the key.
 
 ## Testing
 

@@ -11,23 +11,23 @@ orchestration, timers, HTTP and the agent loop are the platform's problem, not y
 
 ankka is for developers who build services that hold state, react to change, run long processes and
 talk to language models, and who want to deploy and operate them without assembling that machinery
-themselves. A service is written in Scala, or in Python with the runtime running beside it as a
+themselves. A service is written in Scala, or in Python or TypeScript with the runtime running beside it as a
 sidecar, and is deployed to a Kubernetes cluster with the `ankka` command-line tool.
 
 ## What a service is made of
 
 A service is a set of components, registered explicitly and hosted by the runtime:
 
-| Component | What it is for | Scala | Python |
-|---|---|---|---|
-| Event sourced entity | State derived by replaying the events it persisted | yes | yes |
-| Key value entity | The latest value only, with no history | yes | yes |
-| View | A queryable projection of another component's changes | yes | yes |
-| Consumer | Reacting to changes, and optionally publishing onward | yes | yes |
-| Workflow | A durable multi-step process that survives restarts | yes | yes |
-| Timed action | A call the runtime makes later, on your behalf | yes | yes |
-| Agent | A task carried out by talking to a model, with tools and memory | yes | yes |
-| HTTP endpoint | The service's edge: routes, access control, request handling | yes | yes |
+| Component | What it is for | Scala | Python | TypeScript |
+|---|---|---|---|---|
+| Event sourced entity | State derived by replaying the events it persisted | yes | yes | yes |
+| Key value entity | The latest value only, with no history | yes | yes | yes |
+| View | A queryable projection of another component's changes | yes | yes | yes |
+| Consumer | Reacting to changes, and optionally publishing onward | yes | yes | yes |
+| Workflow | A durable multi-step process that survives restarts | yes | yes | yes |
+| Timed action | A call the runtime makes later, on your behalf | yes | yes | yes |
+| Agent | A task carried out by talking to a model, with tools and memory | yes | yes | yes |
+| HTTP endpoint | The service's edge: routes, access control, request handling | yes | yes | yes |
 
 A handler returns an effect, which is a description of what should happen. It performs no I/O itself:
 

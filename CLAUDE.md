@@ -49,6 +49,7 @@ sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts
 sbt 'sidecar/testOnly *ConformanceSuite'                                       # the Scala reference, in-process
 sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:9010   # a process speaking the protocol
 cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
+cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end
 sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
@@ -903,6 +904,44 @@ not a template engine, a session store or a cookie API: those belong to the appl
   Desktop provides it; the Python integration testkit and compose set it unconditionally.
 - **ghcr.io denies anonymous pulls on some networks.** The Python sample's Dockerfile installs with
   pip from the official `python` image rather than `ghcr.io/astral-sh/uv`.
+- **Node's type stripping runs only erasable TypeScript, and codegen does not know that.** The TypeScript
+  SDK (`sdks/typescript`) runs its sources, tests and examples directly under `node`, which refuses `enum`,
+  parameter properties (`constructor(private x)`) and decorators. protoc-gen-es emits a TypeScript `enum`
+  for every proto enum unless `erasable_syntax=true` is set in `buf.gen.yaml`; the first typecheck of the
+  generated stubs failed on exactly that. `erasableSyntaxOnly` in `tsconfig.json` keeps hand-written code
+  honest, and it caught four parameter properties written from habit on the first day.
+- **Generated imports say `.ts`, and `tsc` rewrites them.** `import_extension=ts` in `buf.gen.yaml` with
+  `rewriteRelativeImportExtensions` in the tsconfig is what lets the same generated file run from source
+  under Node and resolve as `.js` in `dist/`. The two options are a pair; drop either and one of the two
+  paths breaks.
+- **`exports` conditions are matched in order, and TypeScript honours `types` first.** The package's
+  `exports` carry an `ankka-source` condition pointing at `src/` so the examples can `import "ankka"` in
+  the repository (`node --conditions=ankka-source`, `customConditions` in the tsconfig). Listed after
+  `types`, it was never reached once `dist/` existed and the typecheck quietly resolved against a stale
+  build. `ankka-source` comes first.
+- **`files` in `package.json` overrides `.gitignore` for packing.** `src/_proto/` is gitignored and
+  `dist/_proto/` ships, because `files: ["dist"]` is the whole rule. The Python wheel needed hatchling's
+  `artifacts` for the same thing; npm needs nothing.
+- **`npm pack --pack-destination` does not create the directory.** `enoent` with no path in the message.
+- **A Connect bidi client needs the request iterable to implement `throw`.** An `AsyncIterable` built by
+  hand as a queue failed every conversation test with `[internal] AsyncIterable does not implement throw`;
+  the queue's iterator has `return` and `throw` for this reason.
+- **`http2.Server.close()` waits for every session to end, and a client keeps an idle one open for
+  minutes.** `Server.stop()` closes the sessions it has seen (tracked from the `session` event) and destroys
+  the stragglers after a grace period, or the test process never exits and `after` hooks hang. It looked
+  like a hanging test; it was a hanging listener.
+- **Connect speaks gRPC to grpc-java over plain HTTP/2 on loopback**, verified against the sidecar image on
+  2026-09-26: discovery, the entity stream with init, replay and snapshot requests, a graceful stop ending
+  the stream cleanly and a kill surfacing as `Premature close`. The gRPC protocol needs `http2.createServer`;
+  Connect's HTTP/1.1 path cannot carry bidirectional streams.
+- **npm's trusted publishing cannot create a package.** A trusted publisher is configured on a package
+  that already exists, and npm/cli#8544 (a PyPI-style pending publisher) is open. The first publish of the
+  TypeScript SDK is by hand, after the tag's `publish` job; see *Publishing*.
+- **munit's `--` filter matches the full test name, suite included.** `ANKKA_CONFORMANCE_ONLY='es.*'`
+  matched nothing and the whole `ConformanceSuite` reported as *ignored* with zero tests — a green exit for
+  a run that did nothing. The glob needs a leading wildcard: `'*es.*'`.
+- **`await using` is Node 24; Node 22 refuses it with a syntax error.** The integration testkit offers
+  `Symbol.asyncDispose` and `stop()`, and the docs show `try`/`finally`, because the package's floor is 22.22.
 
 ## Documentation
 
@@ -1040,6 +1079,32 @@ workflow `release.yml`, environment `pypi`). The `ci` workflow builds and smoke-
 commit, because the stubs under `src/ankka/_proto/` are gitignored and hatchling honours a project's
 `.gitignore`: the wheel carries them only because `[tool.hatch.build] artifacts` names them. A version
 on PyPI can never be re-uploaded, only superseded, same as Central.
+
+**The TypeScript SDK ships through npm**, as the package `ankka`, from the release workflow's
+`sdk-typescript` job. Its version is `version` in `sdks/typescript/package.json` — `0.0.0` in the tree, like
+the other placeholders — and `npm run proto` writes `src/version.ts` from it, so the version the SDK reports
+to the sidecar in discovery is the one on npm. The job writes the tag's version with `npm version`, generates
+the stubs from the tag's `protocol/`, builds `dist/`, packs, installs the tarball into an empty directory and
+imports both entry points, and publishes under **trusted publishing**, the PyPI job's OIDC shape, on Node 24
+because trusted publishing needs npm 11.5.1 and Node 22 bundles 10. **npm cannot create a package this way**:
+a trusted publisher is attached to an existing package, and a pending-publisher shape (npm/cli#8544) does
+not exist. So the first release that carries the SDK publishes it **once by hand**, after that tag's `publish`
+job is green:
+
+```bash
+git checkout vX.Y.Z && cd sdks/typescript
+npm version X.Y.Z --no-git-tag-version && npm ci && npm run proto && npm run build
+mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
+git checkout -- package.json package-lock.json
+```
+
+Then on npmjs.com, package settings → Trusted Publisher → GitHub Actions: owner `thinkmorestupidless`,
+repository `ankka`, workflow `release.yml`, environment `npm`, with `npm publish` allowed (a new configuration
+defaults to stage-only since September 2026); and "Require two-factor authentication and disallow tokens".
+From the next tag the job publishes, and its `npm view` guard makes a re-run of a tag finish what a cancelled
+run left without a second upload. The `npm` environment on the repository is where a required reviewer would
+go, as `pypi` is for the Python SDK. The `ci` workflow's `sdk-typescript` job runs the fast tests on Node 22
+and 24 (the floor and the documented line) and the Docker-backed tests and the conformance suite on 24.
 
 **Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,

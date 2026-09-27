@@ -23,7 +23,7 @@ on:
     tags: ["v*"]
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Upload, and stop. sbt's `sonaRelease` uploads the bundle in seconds and then polls the portal
     # every 30s until Sonatype reports it PUBLISHED — the sync to repo1, which is minutes on a good
     # day and was an hour of a runner doing nothing on a bad one (v0.4.0, v0.5.0). The portal
@@ -33,10 +33,10 @@ jobs:
     # The bound below is for a stuck upload, not a wait.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # dynver needs the tags
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -130,7 +130,7 @@ jobs:
     # workload identity federation: no key anywhere, and the federation's condition admits a run on
     # a `v*` tag of exactly this repository and nothing else. The two values below name the
     # identity, they do not grant it, which is why they are in the file.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write   # publish the images to this repository's packages on ghcr.io
@@ -140,10 +140,10 @@ jobs:
       GHCR_CACHE: europe-west2-docker.pkg.dev/ankka-ops/ghcr
       IMAGES: ankka-operator ankka-controlplane ankka-sidecar sample-shopping-cart
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # dynver needs the tags: Docker / version is the release version
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -155,7 +155,7 @@ jobs:
         run: |
           git update-index -q --refresh
           git diff-index --quiet HEAD -- || { echo "::error::working tree is dirty"; git status --porcelain; exit 1; }
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -182,7 +182,7 @@ jobs:
             fi
             echo "public: ghcr.io/thinkmorestupidless/$image:$version"
           done
-      - uses: google-github-actions/auth@v2
+      - uses: google-github-actions/auth@v3
         id: auth
         with:
           workload_identity_provider: projects/846467939619/locations/global/workloadIdentityPools/github-actions/providers/github
@@ -212,9 +212,9 @@ jobs:
     # another repository. Pushed from ankka.g8/ on every tag, after the artifacts it names exist.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # actions/checkout otherwise persists the workflow's own token as
@@ -252,9 +252,9 @@ jobs:
     # way the template is: a subtree split of committed history, after the version has been written in.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # See the template job: with credentials persisted, the push below authenticates as
@@ -287,14 +287,14 @@ jobs:
     # those resolve the libraries from Maven Central.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write   # the release and its asset, with the workflow's own token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # dynver needs the tags: the zip's name and `ankka version` are the release version
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -349,7 +349,7 @@ jobs:
     permissions:
       contents: write   # the release's assets, with the workflow's own token
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # dynver needs the tags: `ankka version` is the release version
       - uses: graalvm/setup-graalvm@v1
@@ -391,9 +391,9 @@ jobs:
     # to thinkmorestupidless/homebrew-tap, the way the template and the marketplace are.
     needs: cli-native
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # the subtree split below
           # See the template job: with credentials persisted, the push to the tap below authenticates
@@ -445,9 +445,9 @@ jobs:
     # Two tags move: v<version> pins, and v<major> is what a workflow normally follows.
     needs: [publish, cli-native]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # See the template job: with credentials persisted, the push below authenticates as
@@ -494,7 +494,7 @@ jobs:
     # superseded, so a failed smoke test below is the last point at which a release can be withdrawn.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: pypi
       url: https://pypi.org/project/ankka/
@@ -502,8 +502,8 @@ jobs:
       contents: read
       id-token: write   # the OIDC token PyPI verifies
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
       - name: Write the version, generate the stubs, build the wheel
@@ -556,7 +556,7 @@ jobs:
     # lets a re-run of the tag finish what a cancelled run left without a second upload.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: npm
       url: https://www.npmjs.com/package/ankka
@@ -564,8 +564,8 @@ jobs:
       contents: read
       id-token: write   # the OIDC token npm verifies
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
@@ -616,7 +616,7 @@ jobs:
     # job because a release that never reached Maven Central should not be documented as released.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pages: write
       id-token: write
@@ -624,13 +624,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
       - run: uv run --project tools/docs docs build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: target/docs-site
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -21,13 +21,15 @@ class DeployTokenIndexSuite extends munit.FunSuite:
   private val expiry  = Instant.parse("2026-12-24T10:00:00Z")
 
   private def fresh = new ConcurrentHashMap[String, Live]()
+  private def none  = ConcurrentHashMap.newKeySet[String]()
 
   private def creation(expiresAt: Option[Instant] = Some(expiry)) =
     DeployTokenCreated("acme", "github-deploy", "d" * 64, expiresAt, None, Some(created))
 
   test("a creation adds an entry carrying everything the acl needs, and nothing else") {
-    val map = fresh
-    DeployTokenIndex.fold(map, "t1", creation())
+    val map     = fresh
+    val revoked = none
+    DeployTokenIndex.fold(map, revoked, "t1", creation())
 
     val entry = map.get("t1")
     assertEquals(entry.digest, "d" * 64)
@@ -38,23 +40,44 @@ class DeployTokenIndexSuite extends munit.FunSuite:
   }
 
   test("a revocation removes the entry rather than flagging it") {
-    val map = fresh
-    DeployTokenIndex.fold(map, "t1", creation())
-    DeployTokenIndex.fold(map, "t1", DeployTokenRevoked())
+    val map     = fresh
+    val revoked = none
+    DeployTokenIndex.fold(map, revoked, "t1", creation())
+    DeployTokenIndex.fold(map, revoked, "t1", DeployTokenRevoked())
     assertEquals(map.get("t1"), null)
     // And a revocation for something this node never saw is harmless, which matters because a
     // node that started late replays from the beginning and sees both events in order anyway.
-    DeployTokenIndex.fold(map, "never-seen", DeployTokenRevoked())
+    DeployTokenIndex.fold(map, revoked, "never-seen", DeployTokenRevoked())
     assertEquals(map.size, 0)
   }
 
+  test("a creation that arrives after the revocation does not bring the token back") {
+    // The live query can be behind when a revocation lands, so the creation can come second.
+    val map     = fresh
+    val revoked = none
+    DeployTokenIndex.fold(map, revoked, "t1", DeployTokenRevoked())
+    DeployTokenIndex.fold(map, revoked, "t1", creation())
+    assertEquals(map.get("t1"), null)
+  }
+
+  test("evict is remembered: the creation still in flight cannot re-admit the token") {
+    // The endpoint's write-through, then the journal's late delivery of the creation — the order
+    // in which a just-revoked token was once accepted again on the node that revoked it.
+    val index = new DeployTokenIndex()
+    index.admit("t1", "d" * 64, "acme", "github-deploy", Some(expiry))
+    index.evict("t1")
+    index.applyEvent("t1", creation())
+    assertEquals(index.lookup("t1"), None)
+  }
+
   test("a use updates the persisted date, and one for an unknown token is ignored") {
-    val map = fresh
-    DeployTokenIndex.fold(map, "t1", creation())
-    DeployTokenIndex.fold(map, "t1", DeployTokenUsed(LocalDate.parse("2026-09-25")))
+    val map     = fresh
+    val revoked = none
+    DeployTokenIndex.fold(map, revoked, "t1", creation())
+    DeployTokenIndex.fold(map, revoked, "t1", DeployTokenUsed(LocalDate.parse("2026-09-25")))
     assertEquals(map.get("t1").persistedLastUsed, Some(LocalDate.parse("2026-09-25")))
 
-    DeployTokenIndex.fold(map, "t2", DeployTokenUsed(LocalDate.parse("2026-09-25")))
+    DeployTokenIndex.fold(map, revoked, "t2", DeployTokenUsed(LocalDate.parse("2026-09-25")))
     assertEquals(map.get("t2"), null)
   }
 

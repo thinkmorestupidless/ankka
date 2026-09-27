@@ -42,6 +42,12 @@ import scala.util.control.NonFatal
  * Revocation reaches the node that handled it immediately, because the endpoint calls `evict`
  * write-through; every other node sees the event one read-refresh interval later (500ms for the
  * control plane, set in `reference.conf` — the polling knob, not `behind-current-time`).
+ *
+ * A revoked id is remembered, not only removed. The live query can still be behind when `evict`
+ * runs, and its delivery of the token's *creation* would otherwise put the revoked token back until
+ * the revocation event caught up — a window in which a credential its owner had just revoked still
+ * worked, on exactly the node that revoked it. `CliEndToEndSuite` lost that race once in CI. Token
+ * ids are never reused, so remembering them is exact, and it grows only with revocations.
  */
 final class DeployTokenIndex(
     clock: Clock = Clock.systemUTC(),
@@ -53,6 +59,9 @@ final class DeployTokenIndex(
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.deploy-tokens")
 
   private val live = new ConcurrentHashMap[String, Live]()
+
+  /** Every id this node has seen revoked, by `evict` or by the event; see the class comment. */
+  private val revoked = ConcurrentHashMap.newKeySet[String]()
 
   @volatile private var caughtUp                                          = false
   @volatile private var switch: Option[UniqueKillSwitch]                  = None
@@ -100,6 +109,7 @@ final class DeployTokenIndex(
     switch = None
     sweep = None
     live.clear()
+    revoked.clear()
 
   /** The live query, from where the replay finished. */
   private def follow(journal: R2dbcReadJournal, maxSlice: Int, from: Offset)(using
@@ -118,7 +128,7 @@ final class DeployTokenIndex(
   /** Folds one envelope in, and answers with its offset so the replay can resume from it. */
   private def apply(envelope: EventEnvelope[JournalRecord]): Offset =
     val id = typed.PersistenceId.extractEntityId(envelope.persistenceId)
-    decode(envelope.event).foreach(event => fold(live, id, event))
+    decode(envelope.event).foreach(event => fold(live, revoked, id, event))
     envelope.offset
 
   private def decode(record: JournalRecord): Option[DeployTokenEvent] =
@@ -176,12 +186,18 @@ final class DeployTokenIndex(
    * The endpoint that revoked calls this, which is what makes "revoke, then the next call is
    * refused" true on the node a CLI is talking to. Other nodes learn from the event.
    */
-  def evict(id: String): Unit = live.remove(id): Unit
+  def evict(id: String): Unit =
+    revoked.add(id)
+    live.remove(id): Unit
 
   /** For tests and for the benchmark: an index with known contents and no database behind it. */
   private[ankka] def put(id: String, entry: Live): Unit = live.put(id, entry): Unit
 
   private[ankka] def size: Int = live.size
+
+  /** For tests: an event arriving through the live query, folded exactly as `apply` folds it. */
+  private[ankka] def applyEvent(id: String, event: DeployTokenEvent): Unit =
+    fold(live, revoked, id, event)
 
   private[ankka] def markCaughtUp(): Unit = caughtUp = true
 
@@ -234,14 +250,23 @@ object DeployTokenIndex:
    * The fold, as a function over the map, so a test can drive it without a database.
    *
    * A revoked token is *removed* rather than flagged: there is no state in which the ACL should
-   * find a revoked token and think about it.
+   * find a revoked token and think about it. Its id is added to `revoked`, and a creation for an id
+   * already there is ignored, whichever order the two reached this node in.
    */
-  def fold(into: ConcurrentHashMap[String, Live], id: String, event: DeployTokenEvent): Unit =
+  def fold(
+      into: ConcurrentHashMap[String, Live],
+      revoked: java.util.Set[String],
+      id: String,
+      event: DeployTokenEvent
+  ): Unit =
     event match
       case DeployTokenCreated(organizationId, label, digest, expiresAt, _, _) =>
-        into.put(id, Live(digest, organizationId, label, expiresAt)): Unit
+        if !revoked.contains(id) then
+          into.put(id, Live(digest, organizationId, label, expiresAt)): Unit
       case DeployTokenUsed(date) =>
         Option(into.get(id)).foreach(entry =>
           into.put(id, entry.copy(persistedLastUsed = Some(date))): Unit
         )
-      case _: DeployTokenRevoked => into.remove(id): Unit
+      case _: DeployTokenRevoked =>
+        revoked.add(id)
+        into.remove(id): Unit

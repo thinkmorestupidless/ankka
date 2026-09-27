@@ -5,8 +5,6 @@ points it at a control plane, and authenticates it — so every later step in th
 `ankka` command with no further setup.
 
 ```yaml
-- uses: actions/setup-java@v4
-  with: { distribution: temurin, java-version: "21" }
 - uses: thinkmorestupidless/ankka-action@v1
   with:
     url: ${{ secrets.ANKKA_URL }}
@@ -15,10 +13,9 @@ points it at a control plane, and authenticates it — so every later step in th
 - run: ankka services deploy orders ghcr.io/acme/orders:1.4.2
 ```
 
-**Java 21 or later must be on `PATH`.** The CLI is a JVM application and this action installs no
-runtime: `actions/setup-java` is the standard, cached way to pick one, and fetching a second here
-would be slower and larger for no gain. The action checks first and fails naming `setup-java` when
-there is none, rather than letting a later step produce a stack trace.
+**No Java is needed.** The action installs the CLI's native executable for the runner — Linux or
+macOS, x64 or ARM64 — and nothing else. A Windows runner is refused before anything is downloaded,
+naming the platform it has no build for.
 
 ## Inputs
 
@@ -58,11 +55,11 @@ See [Identity and machine accounts](https://github.com/thinkmorestupidless/ankka
 ## What it guarantees
 
 - The CLI on `PATH` at exactly the version asked for, verified against the checksum published beside
-  the release's zip.
+  the release's native build for the runner.
 - `ANKKA_URL`, `ANKKA_TOKEN`, and where given `ANKKA_PROJECT` and `ANKKA_CA`, set for the rest of the
   job and nowhere else — nothing is written into the checkout, and `GITHUB_ENV` goes with the runner.
 - The token masked in the log before it is written anywhere.
-- A failure that names its cause: no Java, no such version, a checksum mismatch, a missing input, or
+- A failure that names its cause: an unsupported runner, no such version, a checksum mismatch, a missing input, or
   a credential the control plane refused.
 
 ## Versioning

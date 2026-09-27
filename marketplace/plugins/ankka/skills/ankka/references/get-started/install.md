@@ -30,7 +30,7 @@ throwaway Postgres in a container. No model API key is needed for anything on th
 ## Install the CLI
 
 On macOS, and on Linux with [Homebrew](https://brew.sh/), the CLI comes from ankka's tap. The formula
-installs the JDK it runs on, so nothing else is needed:
+installs a native executable that needs no JVM, so nothing else is needed:
 
 ```bash
 brew install thinkmorestupidless/tap/ankka

@@ -115,21 +115,30 @@ jobs:
             "https://central.sonatype.com/api/v1/publisher/status?id=$deployment" || true
           cat status.out; echo
   images:
-    # The four images, pushed to the shared registry in the ankka-ops project — the operator, the
-    # control plane and the shopping cart sample — tagged with the release version and `latest`.
+    # The four images — the operator, the control plane, the sidecar and the shopping cart sample —
+    # published to GitHub Container Registry, public, tagged with the release version and `latest`.
+    # Public because a Python or TypeScript developer runs the sidecar on their own machine, and a
+    # pull there should need no account anywhere. The workflow's own token pushes them: each image
+    # carries org.opencontainers.image.source naming this repository (build.sbt), which links the
+    # package to it.
     #
-    # No key anywhere: the job asks GitHub for its own OIDC token and exchanges it, through the
-    # workload identity federation defined in ankka-deployments (environments/ops), for a
-    # short-lived credential of a service account whose only role is writer on this one
-    # repository. The federation's condition admits a run on a `v*` tag of exactly this repository
-    # and nothing else, so a fork or a pull request cannot push. The two values below are not
-    # secrets — they name the identity, they do not grant it — which is why they are in the file.
+    # The clusters do not pull from ghcr.io. They pull through a remote repository in the ankka-ops
+    # project that caches it (ankka-deployments, modules/artifact-registry) — in-region, and still
+    # served when ghcr.io is not. A version is cached only once something has pulled it, so the last
+    # steps here pull every image through the cache: no cluster depends on ghcr.io being up for a
+    # version it has not run before. That pull is a read, done as the release identity through
+    # workload identity federation: no key anywhere, and the federation's condition admits a run on
+    # a `v*` tag of exactly this repository and nothing else. The two values below name the
+    # identity, they do not grant it, which is why they are in the file.
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # the OIDC token the exchange starts from
+      packages: write   # publish the images to this repository's packages on ghcr.io
+      id-token: write   # the OIDC token the cache pull's credential is exchanged from
     env:
-      DOCKER_REPOSITORY: europe-west2-docker.pkg.dev/ankka-ops/ankka
+      DOCKER_REPOSITORY: ghcr.io/thinkmorestupidless
+      GHCR_CACHE: europe-west2-docker.pkg.dev/ankka-ops/ghcr
+      IMAGES: ankka-operator ankka-controlplane ankka-sidecar sample-shopping-cart
     steps:
       - uses: actions/checkout@v4
         with:
@@ -140,21 +149,62 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
-      - uses: google-github-actions/auth@v2
-        id: auth
-        with:
-          workload_identity_provider: projects/846467939619/locations/global/workloadIdentityPools/github-actions/providers/github
-          service_account: ankka-release@ankka-ops.iam.gserviceaccount.com
-          token_format: access_token
-      - name: Log docker in to the registry with the exchanged token
-        run: echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin europe-west2-docker.pkg.dev
       # The same clean-tree rule as the publish job: an image tagged with a -SNAPSHOT version is
       # not a release image, and the registry should never hold one under a release's name.
       - name: The version comes from a clean tree, or not at all
         run: |
           git update-index -q --refresh
           git diff-index --quiet HEAD -- || { echo "::error::working tree is dirty"; git status --porcelain; exit 1; }
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish
+      # A package ghcr.io has never seen is created private, whatever its source repository is, and
+      # a private package is invisible both to a developer and to the cache (which pulls
+      # anonymously). Asked of ghcr.io with no credential at all, so the answer is what a stranger
+      # gets; the fix is one click per package, once, and the error names the page.
+      - name: Every image is publicly pullable
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          for image in $IMAGES; do
+            # A private or unknown package is refused at the token endpoint already; carry on with no
+            # token, so the manifest request below fails and the error names the fix.
+            token="$(curl -sS "https://ghcr.io/token?scope=repository:thinkmorestupidless/$image:pull" | jq -r '.token // empty' || true)"
+            status="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
+              "https://ghcr.io/v2/thinkmorestupidless/$image/manifests/$version")"
+            if [ "$status" != 200 ]; then
+              echo "::error::ghcr.io/thinkmorestupidless/$image:$version is not publicly pullable ($status). Make the package public once, at https://github.com/users/thinkmorestupidless/packages/container/$image/settings, then re-run this job."
+              exit 1
+            fi
+            echo "public: ghcr.io/thinkmorestupidless/$image:$version"
+          done
+      - uses: google-github-actions/auth@v2
+        id: auth
+        with:
+          workload_identity_provider: projects/846467939619/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: ankka-release@ankka-ops.iam.gserviceaccount.com
+          token_format: access_token
+      - name: Warm the clusters' cache, and check it serves what was published
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin europe-west2-docker.pkg.dev
+          for image in $IMAGES; do
+            # A full pull, not a manifest read: the cache stores the layers it has served, and the
+            # layers are what a node needs when ghcr.io is down.
+            docker pull -q "$GHCR_CACHE/thinkmorestupidless/$image:$version"
+            published="$(docker buildx imagetools inspect "ghcr.io/thinkmorestupidless/$image:$version" --format '{{json .Manifest.Digest}}')"
+            cached="$(docker buildx imagetools inspect "$GHCR_CACHE/thinkmorestupidless/$image:$version" --format '{{json .Manifest.Digest}}')"
+            if [ "$published" != "$cached" ]; then
+              echo "::error::the cache serves $cached for $image:$version, and ghcr.io serves $published"
+              exit 1
+            fi
+            echo "cached: $image:$version $cached"
+          done
 
   template:
     # The template as its own repository, so `sbt new thinkmorestupidless/ankka.g8` works: sbt's

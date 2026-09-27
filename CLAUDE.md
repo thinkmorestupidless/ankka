@@ -976,8 +976,14 @@ not a template engine, a session store or a cookie API: those belong to the appl
   start now raises with its own logs attached.
 - **`host.docker.internal` needs `--add-host=host.docker.internal:host-gateway` on Linux.** Docker
   Desktop provides it; the Python integration testkit and compose set it unconditionally.
-- **ghcr.io denies anonymous pulls on some networks.** The Python sample's Dockerfile installs with
-  pip from the official `python` image rather than `ghcr.io/astral-sh/uv`.
+- **A Docker that refuses every ghcr.io image is a Docker Desktop policy, not ghcr.io.** On the machine
+  this repository is developed on, Docker answers `denied` for every ghcr.io image, even with an empty
+  credentials config, while quay.io and public ECR images pull and `curl` fetches the same ghcr.io
+  manifests anonymously with a 200 — a registry allow-list set by a Docker organisation the account is
+  signed into (Registry Access Management) behaves exactly so. It was first written down as "ghcr.io
+  denies anonymous pulls on some networks". The Python sample's Dockerfile installs with pip from the
+  official `python` image rather than `ghcr.io/astral-sh/uv` because of it; pulling ankka's own images
+  through the Artifact Registry cache (`pkg.dev`) is not affected.
 - **Node's type stripping runs only erasable TypeScript, and codegen does not know that.** The TypeScript
   SDK (`sdks/typescript`) runs its sources, tests and examples directly under `node`, which refuses `enum`,
   parameter properties (`constructor(private x)`) and decorators. protoc-gen-es emits a TypeScript `enum`
@@ -1233,6 +1239,20 @@ The formula needs no JDK. `brew audit --strict` passes, and the proof of the who
 local tap (`brew tap-new`) pointed at a locally built tarball by `file://` URL — with the test formula
 renamed and `keg_only` if a real `ankka` is installed, and `HOMEBREW_NO_AUTOREMOVE=1` on the uninstall:
 removing a test formula once auto-removed the JDK an installed `ankka` from an untapped tap needed.
+
+**The images ship through GitHub Container Registry**, public: `ghcr.io/thinkmorestupidless/<image>`
+for the operator, the control plane, the sidecar and the shopping cart sample, from the release
+workflow's `images` job, pushed with the workflow's own token (each image's
+`org.opencontainers.image.source` label links its package to this repository). Public because a Python
+or TypeScript developer runs the sidecar on their own machine. **A package ghcr.io has not seen before
+is created private**, so the job asks ghcr.io for each image with no credential and fails, naming the
+package's settings page, until it is made public — once per package. **The clusters do not pull from
+ghcr.io**: they pull through `europe-west2-docker.pkg.dev/ankka-ops/ghcr`, an Artifact Registry remote
+repository caching it (ankka-deployments, `modules/artifact-registry`), whose paths mirror ghcr.io's.
+In-region, and a cached version is still served when ghcr.io is down — but a version is cached only
+once something pulls it, so the job ends by pulling every image through the cache as the release
+identity and comparing the digests. One registry is published to, so the two cannot drift. The
+standard `ankka-ops/ankka` repository holds releases up to 0.6.4 and is written to no longer.
 
 **The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
 job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the

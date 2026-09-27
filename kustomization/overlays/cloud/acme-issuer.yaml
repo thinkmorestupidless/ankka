@@ -52,8 +52,9 @@
 # **Issue against staging first.** Let's Encrypt rate-limits failed production issuance hard (5 per
 # account per hostname per week), and a DNS-01 misconfiguration is discovered by failing. Staging
 # issues an untrusted certificate, which proves the whole path — webhook reachable, token valid,
-# TXT record written and observed — without spending the budget. arrakis did exactly that; this is
-# the production issuer that followed.
+# TXT record written and observed — without spending the budget. Start with a
+# `letsencrypt-staging` issuer at https://acme-staging-v02.api.letsencrypt.org/directory, then move
+# to this one.
 #
 # **The issuer's name says which CA it is, and changing CA means changing the name.** cert-manager
 # reissues a certificate when its spec changes or its secret was signed by a different issuer than
@@ -63,8 +64,8 @@
 # next reconcile. The account key is named to match, so each CA has its own account.
 #
 # **Production is also rate-limited when it works**: five certificates for the same names a week.
-# A cluster torn down and brought back up (ankka-deployments' down.sh / up.sh) issues a new one each
-# time; sleeping and waking it keeps the certificate.
+# A cluster torn down and brought back up issues a new one each time; one whose Secrets survive
+# keeps the certificate.
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -72,7 +73,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: trevor@thinkmorestupidless.com
+    email: admin@example.com # SET
     privateKeySecretRef:
       # cert-manager creates this; it is the ACME account key, not something you supply.
       name: letsencrypt-production-account
@@ -91,9 +92,8 @@ spec:
                 # release name, and its Role pins `resourceNames` to exactly this.
                 name: cert-manager-webhook-dnsimple
                 key: token
-              # The token in cert-manager's namespace is a user token (ankka-deployments writes
-              # it), so the account that owns the zone has to be named — see above.
-              accountID: "80646"
+              # Only for a *user* token — see above. An account token needs no account ID.
+              # accountID: "12345" # SET
 ---
 # Named and shaped like the local overlay's, because deploy-local.sh, the k3s suites and anything
 # else that waits on the gateway wait on `certificate/ankka-wildcard` in `ankka-gateway` being

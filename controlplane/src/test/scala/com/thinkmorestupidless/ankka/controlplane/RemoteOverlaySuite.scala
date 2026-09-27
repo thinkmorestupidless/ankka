@@ -7,7 +7,7 @@ import scala.sys.process.*
 import scala.util.Try
 
 /**
- * That `overlays/arrakis` — the first production cluster, once `overlays/remote` — still renders,
+ * That `overlays/cloud` — the example production overlay an installation copies — still renders,
  * and still differs from `overlays/local` in exactly the ways it is supposed to.
  *
  * The two overlays share all eight components, which is the point of the split — the CRD, the
@@ -47,7 +47,7 @@ final class RemoteOverlaySuite extends FunSuite:
     assert(out.nonEmpty, s"$overlay rendered nothing: $errors")
     out
 
-  private lazy val remote = render("arrakis")
+  private lazy val remote = render("cloud")
   private lazy val local  = render("local")
 
   /**
@@ -85,7 +85,7 @@ final class RemoteOverlaySuite extends FunSuite:
       documentsOfKind(remote, "Deployment").find(_.contains("name: ankka-operator")).get
     assert(
       remoteOperator.contains(
-        "europe-west2-docker.pkg.dev/ankka-ops/ghcr/thinkmorestupidless/ankka-sidecar:"
+        "ghcr.io/thinkmorestupidless/ankka-sidecar:"
       ),
       "the remote operator does not name the registry's sidecar image"
     )
@@ -186,11 +186,11 @@ final class RemoteOverlaySuite extends FunSuite:
   ) {
     val routes = documentsOfKind(remote, "HTTPRoute")
     assert(
-      routes.exists(r => r.contains("name: ankka-keycloak") && r.contains("- auth.ankka.cloud")),
+      routes.exists(r => r.contains("name: ankka-keycloak") && r.contains("- auth.example.com")),
       "the identity provider's route"
     )
     assert(
-      documentsOfKind(remote, "Keycloak").exists(_.contains("hostname: auth.ankka.cloud")),
+      documentsOfKind(remote, "Keycloak").exists(_.contains("hostname: auth.example.com")),
       "the instance's own hostname"
     )
     assert(
@@ -237,7 +237,7 @@ final class RemoteOverlaySuite extends FunSuite:
     // Five places, one source (platform-configmap.yaml). They cannot be allowed to drift: the
     // certificate covers one of them, the listener matches on another, and a mismatch is a
     // gateway that serves a certificate for a name nobody asked for.
-    val domain = "ankka.cloud"
+    val domain = "example.com"
     assert(remote.contains(s"'*.$domain'"), "the wildcard certificate and listener")
     assert(remote.contains(s"api.$domain"), "the control plane's own route")
     assert(

@@ -43,10 +43,12 @@
 #
 # **Images.** Every component names an image without a registry (`ankka-controlplane:latest`) and
 # sets `imagePullPolicy: IfNotPresent`, which is right for a node the image was copied onto and
-# useless for a cluster that has to pull. The `images:` block below renames all three to the shared
-# registry in the ankka-ops project, where the release workflow pushes them on every `v*` tag, at
-# the version this cluster runs. The tag is the release; `latest` exists in the registry too and is
-# never named here — a cluster runs a version that was built, tested and published as one.
+# useless for a cluster that has to pull. The release workflow publishes every image to ghcr.io on
+# each `v*` tag, public; the `images:` block below renames them to the cache of ghcr.io in the
+# ankka-ops project (ankka-deployments, modules/artifact-registry), whose paths mirror ghcr.io's.
+# The cluster pulls in-region, and a version the release workflow has warmed is still served when
+# ghcr.io is down. The tag is the release; `latest` exists too and is never named here — a cluster
+# runs a version that was built, tested and published as one.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -70,19 +72,19 @@ resources:
 # ankka-deployments, which pins the tag whose overlay this is.
 images:
   - name: ankka-controlplane
-    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-controlplane
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ghcr/thinkmorestupidless/ankka-controlplane
     newTag: "0.6.4" # SET: the tag this overlay is cut at
   - name: ankka-operator
-    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-operator
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ghcr/thinkmorestupidless/ankka-operator
     newTag: "0.6.4" # SET
   - name: sample-shopping-cart
-    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/sample-shopping-cart
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ghcr/thinkmorestupidless/sample-shopping-cart
     newTag: "0.6.4" # SET
   # The sidecar is not a container in any manifest here — the operator injects it beside every
   # process-hosted service — so the `images:` transformer never sees it. The operator learns the
   # name from ANKKA_SIDECAR_IMAGE, set by the patch below to the same registry and tag.
   - name: ankka-sidecar
-    newName: europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar
+    newName: europe-west2-docker.pkg.dev/ankka-ops/ghcr/thinkmorestupidless/ankka-sidecar
     newTag: "0.6.4" # SET
 
 patches:

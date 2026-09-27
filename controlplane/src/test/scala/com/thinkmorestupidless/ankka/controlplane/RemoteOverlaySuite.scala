@@ -84,7 +84,9 @@ final class RemoteOverlaySuite extends FunSuite:
     val remoteOperator =
       documentsOfKind(remote, "Deployment").find(_.contains("name: ankka-operator")).get
     assert(
-      remoteOperator.contains("europe-west2-docker.pkg.dev/ankka-ops/ankka/ankka-sidecar:"),
+      remoteOperator.contains(
+        "europe-west2-docker.pkg.dev/ankka-ops/ghcr/thinkmorestupidless/ankka-sidecar:"
+      ),
       "the remote operator does not name the registry's sidecar image"
     )
     // Naming the image somewhere in the document is not enough. A patch that names a container the

@@ -84,6 +84,16 @@ lazy val dockerSettings = Seq(
   dockerBaseImage    := "eclipse-temurin:21-jre",
   dockerUpdateLatest := true,
   dockerRepository   := sys.env.get("DOCKER_REPOSITORY"),
+  // GitHub Container Registry links a package to the repository its image names as its source, and
+  // only a linked package can be published by that repository's workflow token.
+  // The title and description replace the base image's, which ghcr.io would otherwise show as this
+  // package's: "ubuntu", and a paragraph about Ubuntu.
+  dockerLabels ++= Map(
+    "org.opencontainers.image.source"   -> "https://github.com/thinkmorestupidless/ankka",
+    "org.opencontainers.image.licenses" -> "Apache-2.0",
+    "org.opencontainers.image.title"    -> (Docker / packageName).value,
+    "org.opencontainers.image.description" -> s"${(Docker / packageName).value}, part of ankka: https://docs.ankka.cloud/"
+  ),
   // A Docker tag may not contain '+', and a dynver snapshot version does (`0.2.0+3-sha-SNAPSHOT`).
   // A release version has no '+', so a released image is tagged exactly with its version.
   Docker / version := version.value.replace('+', '-')

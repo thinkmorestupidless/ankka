@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import grpc
 import httpx
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
@@ -165,19 +166,35 @@ class AnkkaTestKit:
         callback_port = int(sidecar.get_exposed_port(CALLBACK_PORT))
         self.client.reconnect(f"127.0.0.1:{callback_port}")
         self.http = httpx.AsyncClient(base_url=f"http://127.0.0.1:{http_port}", timeout=30.0)
-        await self._wait_ready(ready_timeout)
+        await self._wait_ready(ready_timeout, f"127.0.0.1:{callback_port}")
 
-    async def _wait_ready(self, timeout: float) -> None:
+    async def _wait_ready(self, timeout: float, callback_address: str) -> None:
+        """Ready means both of the sidecar's ports serve: HTTP for the test, and the callback port
+        every handler's component client calls. The health route answers as soon as HTTP is bound,
+        which can be before the callback server is, and Docker's port proxy accepts a connection to
+        a port nothing inside the container listens on yet, then resets it — so a handler's first
+        call after a restart failed UNAVAILABLE. A gRPC channel is READY only once the real server
+        has completed the HTTP/2 handshake."""
         deadline = time.monotonic() + timeout
         last: str = "no answer yet"
+        healthy = False
         while time.monotonic() < deadline:
-            try:
-                r = await self.http.get("/_ankka/health")
-                if r.status_code == 200:
+            if not healthy:
+                try:
+                    r = await self.http.get("/_ankka/health")
+                    healthy = r.status_code == 200
+                    last = f"HTTP {r.status_code}"
+                except Exception as e:  # not up yet
+                    last = str(e)
+            if healthy:
+                channel = grpc.aio.insecure_channel(callback_address)
+                try:
+                    await asyncio.wait_for(channel.channel_ready(), timeout=2.0)
                     return
-                last = f"HTTP {r.status_code}"
-            except Exception as e:  # not up yet
-                last = str(e)
+                except asyncio.TimeoutError:
+                    last = f"HTTP answered, the callback port {callback_address} did not"
+                finally:
+                    await channel.close()
             await asyncio.sleep(0.5)
         logs = self._sidecar.get_logs() if self._sidecar is not None else (b"", b"")
         # A non-200 *answer* here is almost never the sidecar's: its health route answers 200 from

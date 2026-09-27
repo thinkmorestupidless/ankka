@@ -17,6 +17,6 @@ jobs:
       # `npm ci` installs exactly what package-lock.json names; commit the lockfile `npm install` wrote.
       - run: npm ci
       - run: npm run typecheck
-      # The integration test needs the sidecar image; where it is not available it is reported as
-      # skipped, with the reason, rather than failing.
+      # The integration test starts Postgres and the published sidecar through testcontainers, which a
+      # GitHub-hosted runner can do: Docker is already there.
       - run: npm test

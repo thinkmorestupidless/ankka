@@ -5,20 +5,18 @@ count: one event sourced entity (`src/{{module}}/item_entity.py`), one view for 
 (`item_rows.py`), one HTTP endpoint (`api.py`), and tests at two levels. Replace the domain; keep the
 shape.
 
-Needs: [uv](https://docs.astral.sh/uv/), Python 3.12, Docker, and the ankka sidecar image.
+Needs: [uv](https://docs.astral.sh/uv/), Python 3.12, and Docker.
 
 Your process makes the decisions — given this command and this state, what should happen. The ankka
 **sidecar** beside it owns everything stateful and distributed: the journal, the views, HTTP, timers
 and the agent loop. The two talk over gRPC on loopback, and the SDK hides that entirely.
 
-## The sidecar image
+## The sidecar
 
-Running the service locally and the integration tests both need the sidecar image, named by
-`ANKKA_SIDECAR_IMAGE` or `ankka-sidecar:latest`. It is built from the ankka repository:
-
-```bash
-sbt sidecar/Docker/publishLocal         # in a checkout of github.com/thinkmorestupidless/ankka
-```
+Running the service locally and the integration test both start the ankka sidecar in Docker:
+`ghcr.io/thinkmorestupidless/ankka-sidecar`, public, at the same version as the SDK this project
+depends on, pulled the first time it is needed. `ANKKA_SIDECAR_IMAGE` names another image — one built
+from a checkout of the ankka repository with `sbt sidecar/Docker/publishLocal`, say.
 
 ## Test
 
@@ -30,7 +28,7 @@ uv run mypy
 
 `tests/test_item.py` runs the entity and the view with no sidecar at all, in milliseconds.
 `tests/test_integration.py` starts Postgres and the sidecar in Docker and drives the service over
-HTTP; it is skipped, with the reason, when the sidecar image is not on this machine.
+HTTP; it needs Docker.
 
 ## Run locally
 
@@ -125,6 +123,7 @@ The workflow deploys to `Ready`. It does not expose the service: that is your de
 ## Upgrading ankka
 
 The SDK version is pinned in `pyproject.toml`, twice (the runtime dependency and the `testkit` extra in
-the dev group): move both together, then `uv sync`. Use a sidecar image of the same version, and
-`docker compose down -v && docker compose up -d` for the local database. `protocol` in `service.json`
+the dev group): move both together, then `uv sync`. The integration test's sidecar follows the SDK's version
+by itself; the sidecar's tag in `docker-compose.yml` is written once, so move it to the same version,
+then `docker compose down -v && docker compose up -d` for the local database. `protocol` in `service.json`
 changes only when the SDK's does.

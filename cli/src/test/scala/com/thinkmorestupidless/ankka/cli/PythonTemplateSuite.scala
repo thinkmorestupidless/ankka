@@ -32,9 +32,5 @@ class PythonTemplateSuite extends PolyglotTemplateSuite(Language.Python, "uv"):
     assertEquals(run("uv", "run", "mypy")._1, 0, "mypy")
     val (code, output) = run("uv", "run", "pytest", "-q", "-rs")
     assertEquals(code, 0, "pytest")
-    if sidecarImagePresent then
-      assert(
-        !output.contains("skipped"),
-        "the sidecar image is here, so the integration test must run"
-      )
+    assert(!output.contains("skipped"), "the integration test must run, not skip")
   }

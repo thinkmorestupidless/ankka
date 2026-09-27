@@ -116,8 +116,10 @@ uv run python main.py                        # your process, listening on 9010; 
 curl localhost:9000/carts/c1
 ```
 
-The compose file expects an image named `ankka-sidecar:latest` in the local Docker daemon. From a
-checkout of the ankka repository, `sbt sidecar/Docker/publishLocal` builds it.
+The repository's compose file runs `ankka-sidecar:latest`, the sidecar of that checkout, which
+`sbt sidecar/Docker/publishLocal` builds. A project made with `ankka init --language python` (or
+`typescript`) carries its own `docker-compose.yml` instead, which pulls the published sidecar,
+`ghcr.io/thinkmorestupidless/ankka-sidecar`, at the project's ankka version.
 
 The sidecar reaches your process at `host.docker.internal:9010`. Docker Desktop provides that name; on
 Linux the compose file maps it with `host-gateway`, which is also what any compose file of your own needs.

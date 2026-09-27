@@ -159,8 +159,9 @@ loopback. The platform sets these variables on the two containers, and a descrip
   handshake before giving up, `60s` by default. It accepts `ms`, `s` and `m` suffixes; a bare number is
   seconds.
 
-The Python integration testkit reads `ANKKA_SIDECAR_IMAGE` to choose the sidecar image it starts,
-`ankka-sidecar:latest` by default.
+The Python and TypeScript integration testkits read `ANKKA_SIDECAR_IMAGE` to choose the sidecar image they
+start. Without it, a released SDK starts `ghcr.io/thinkmorestupidless/ankka-sidecar` at its own version, and an
+unreleased one (version `0.0.0`, from a checkout of the repository) starts `ankka-sidecar:latest`.
 
 ## Settings without a variable
 

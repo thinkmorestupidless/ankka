@@ -14,4 +14,4 @@ export {
   type ModelResponse,
   type ModelCall,
 } from "./kinds.ts"
-export { AnkkaTestKit, type AnkkaTestKitOptions, type HttpResponse, type Http, type Beside } from "./integration.ts"
+export { AnkkaTestKit, PUBLISHED_SIDECAR, sidecarImage, type AnkkaTestKitOptions, type HttpResponse, type Http, type Beside } from "./integration.ts"

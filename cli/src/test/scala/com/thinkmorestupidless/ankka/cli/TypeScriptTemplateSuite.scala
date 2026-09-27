@@ -31,9 +31,5 @@ class TypeScriptTemplateSuite extends PolyglotTemplateSuite(Language.TypeScript,
     assertEquals(run("npm", "run", "typecheck")._1, 0, "typecheck")
     val (code, output) = run("npm", "test")
     assertEquals(code, 0, "npm test")
-    if sidecarImagePresent then
-      assert(
-        output.contains("ℹ skipped 0"),
-        "the sidecar image is here, so the integration test must run"
-      )
+    assert(output.contains("ℹ skipped 0"), "the integration test must run, not skip")
   }

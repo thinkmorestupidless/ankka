@@ -16,9 +16,10 @@ import scala.jdk.CollectionConverters.*
  * The project pins the SDK at this CLI's version, which for a build of this repository is a
  * snapshot no registry has. So the suite first asserts the pin is there, then points the dependency
  * at the SDK in this repository, the way `TemplateSuite` publishes the Scala artifacts locally: the
- * project is tested against the SDK of the same commit. Its integration test needs the sidecar
- * image, and where `ankka-sidecar:latest` is on this machine the suite insists that test ran rather
- * than skipped.
+ * project is tested against the SDK of the same commit. That SDK is unreleased (0.0.0), so its
+ * testkit starts `ankka-sidecar:latest`, the sidecar of the same commit — build it first with
+ * `sbt sidecar/Docker/publishLocal`, as the SDK jobs in CI do. Nothing in the project skips, and
+ * the suite checks nothing did.
  */
 abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends munit.FunSuite:
 
@@ -57,13 +58,6 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
     val text = new String(process.getInputStream.readAllBytes())
     print(text)
     (process.waitFor(), text)
-
-  protected def sidecarImagePresent: Boolean =
-    TemplateSwitch.onPath("docker") &&
-      new ProcessBuilder("docker", "image", "inspect", "ankka-sidecar:latest")
-        .redirectErrorStream(true)
-        .start()
-        .waitFor() == 0
 
   test("every token is rendered, and GitHub's own expressions are untouched") {
     val leftovers = files.flatMap { f =>

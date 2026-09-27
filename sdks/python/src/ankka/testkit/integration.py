@@ -6,7 +6,10 @@ process through ``host.docker.internal``, and this process's gRPC server. ``http
 sidecar's HTTP port, where the declared routes are served; ``restart`` replaces the sidecar
 container against the same database, which is how a test proves durability rather than caching.
 
-Needs Docker. The image is ``$ANKKA_SIDECAR_IMAGE`` or ``ankka-sidecar:latest``.
+Needs Docker. The image is ``$ANKKA_SIDECAR_IMAGE`` when that is set. Otherwise a released SDK uses the
+sidecar published with it, ``ghcr.io/thinkmorestupidless/ankka-sidecar:<this SDK's version>`` — public,
+so Docker pulls it on first use — and an unreleased one (version ``0.0.0``, a checkout of the ankka
+repository) uses ``ankka-sidecar:latest``, the image ``sbt sidecar/Docker/publishLocal`` builds.
 """
 
 from __future__ import annotations
@@ -34,8 +37,18 @@ HTTP_PORT = 9000
 CALLBACK_PORT = 9011
 
 
-def _sidecar_image() -> str:
-    return os.environ.get("ANKKA_SIDECAR_IMAGE", "ankka-sidecar:latest")
+PUBLISHED_SIDECAR = "ghcr.io/thinkmorestupidless/ankka-sidecar"
+
+
+def sidecar_image(version: str | None = None) -> str:
+    """The sidecar this testkit starts: see the module's docstring. A release publishes the SDK and the
+    sidecar under one version, so a released SDK's own version names the sidecar it was tested with."""
+    explicit = os.environ.get("ANKKA_SIDECAR_IMAGE")
+    if explicit:
+        return explicit
+    if version is None:
+        from ankka import __version__ as version
+    return "ankka-sidecar:latest" if version == "0.0.0" else f"{PUBLISHED_SIDECAR}:{version}"
 
 
 def _copy_ddl(image: str, into: Path) -> None:
@@ -84,7 +97,7 @@ class AnkkaTestKit:
         cls, service: ServiceBuilder, image: str | None = None, ready_timeout: float = 90.0, env: dict[str, str] | None = None
     ) -> AnkkaTestKit:
         """``env`` goes onto the sidecar container: ``ANKKA_MODEL_SCRIPT`` scripts its model."""
-        kit = cls(service, image or _sidecar_image(), env)
+        kit = cls(service, image or sidecar_image(), env)
         try:
             await kit._start(ready_timeout)
         except BaseException:

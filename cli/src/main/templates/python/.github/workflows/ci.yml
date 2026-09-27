@@ -13,6 +13,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: uv sync
       - run: uv run mypy
-      # The integration tests need the sidecar image; where it is not available they are reported as
-      # skipped, with the reason, rather than failing.
+      # The integration test starts Postgres and the published sidecar through testcontainers, which a
+      # GitHub-hosted runner can do: Docker is already there.
       - run: uv run pytest -q -rs

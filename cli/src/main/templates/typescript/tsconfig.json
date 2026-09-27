@@ -1,0 +1,16 @@
+{
+  // Node runs the sources directly — there is no build step — so the type checker is set up to match
+  // how Node reads them: only syntax that erases (`erasableSyntaxOnly`: no `enum`, parameter properties
+  // or decorators), and local imports that name their `.ts` extension (`allowImportingTsExtensions`).
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "test"]
+}

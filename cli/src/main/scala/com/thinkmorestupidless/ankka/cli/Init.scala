@@ -5,14 +5,27 @@ import com.thinkmorestupidless.ankka.controlplane.api.ServiceDescriptor
 import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 
+/** The language a new service is written in. */
+enum Language(val id: String):
+  case Scala      extends Language("scala")
+  case Python     extends Language("python")
+  case TypeScript extends Language("typescript")
+
+object Language:
+  def parse(text: String): Either[String, Language] = text.toLowerCase match
+    case "scala"             => Right(Scala)
+    case "python" | "py"     => Right(Python)
+    case "typescript" | "ts" => Right(TypeScript)
+    case other               => Left(s"unknown language '$other'; one of scala, python, typescript")
+
 /**
  * `ankka init <name>`: a new service from the platform's template.
  *
- * Runs `sbt new` — Giter8, the way every Scala framework's template is expanded — with the same
- * template `sbt new thinkmorestupidless/ankka.g8` uses; the CLI carries no template and no template
- * engine, so the two front doors cannot drift. The version handed to the template is this CLI's own
- * (`--ankka_version`): the CLI you run is the version you get, and the artifacts of that version
- * are the ones its `publishLocal` or release put where a build resolves them.
+ * For Scala it runs `sbt new` — Giter8, the way every Scala framework's template is expanded — with
+ * the same template `sbt new thinkmorestupidless/ankka.g8` uses; the CLI carries no Scala template
+ * and no template engine, so the two front doors cannot drift. For Python and TypeScript the
+ * template is this CLI's own and `Scaffold` renders it (see there for why). Either way the version
+ * handed to the template is this CLI's own: the CLI you run is the version you get.
  */
 object Init:
 
@@ -20,10 +33,12 @@ object Init:
 
   final case class Request(
       name: String,
-      template: String = DefaultTemplate,
+      template: Option[String] = None,
       pkg: Option[String] = None,
-      directory: Path = Path.of(".")
-  )
+      directory: Path = Path.of("."),
+      language: Language = Language.Scala
+  ):
+    def templateRef: String = template.getOrElse(DefaultTemplate)
 
   /** The `sbt` invocation, as a value — so the argument shape is tested without a process. */
   def command(
@@ -35,7 +50,7 @@ object Init:
   def newCommand(request: Request, version: String): String =
     val parts = Vector(
       "new",
-      request.template,
+      request.templateRef,
       s"--name=${request.name}",
       s"--ankka_version=$version"
     ) ++ request.pkg.map(p => s"--package=$p")
@@ -49,7 +64,17 @@ object Init:
       if Files.isDirectory(target) && Files.list(target).iterator().asScala.nonEmpty then
         Vector(s"$target already exists and is not empty")
       else Vector.empty
-    name ++ occupied
+    val options = request.language match
+      case Language.Scala  => Vector.empty
+      case Language.Python => template(request) ++ Scaffold.moduleProblems(Scaffold.module(request))
+      case Language.TypeScript =>
+        template(request) ++ request.pkg
+          .map(_ => "--package applies to scala and python only")
+          .toVector
+    name ++ occupied ++ options
+
+  private def template(request: Request): Vector[String] =
+    request.template.map(_ => "--template applies to scala only; its template is sbt's").toVector
 
   def sbtOnPath(env: Map[String, String] = sys.env): Boolean =
     val path = env.getOrElse("PATH", "")

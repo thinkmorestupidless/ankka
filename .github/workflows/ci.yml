@@ -1,6 +1,7 @@
 # The subset of the build that runs without Docker-in-Docker. The k3s suites (three modules'
-# worth, each starting a Kubernetes node in a container) and the template suite (which publishes
-# locally and runs an external sbt build) stay local for now: see CLAUDE.md, "Commands".
+# worth, each starting a Kubernetes node in a container) and the Scala template suite (which publishes
+# locally and runs an external sbt build) stay local for now: see CLAUDE.md, "Commands". The Python and
+# TypeScript template suites run in their SDK's job.
 #
 # Only what a change can break is built. The `changes` job maps the files a pull request touched
 # onto the jobs below, and a job whose inputs are untouched is skipped — which GitHub counts as a
@@ -73,14 +74,29 @@ jobs:
               - 'cli/**'
               - 'marketplace/**'
               - 'ankka.g8/**'
+            # What `ankka init --language` renders, and the suites that run the result: each SDK job
+            # proves its language's template against the SDK and sidecar it has just built.
+            templates: &templates
+              - 'cli/src/main/templates/common/**'
+              - 'cli/src/main/scala/**/cli/Init.scala'
+              - 'cli/src/main/scala/**/cli/Scaffold.scala'
+              - 'cli/src/main/scala/**/cli/Main.scala'
+              - 'cli/src/test/scala/**/cli/PolyglotTemplateSuite.scala'
+              - 'marketplace/plugins/ankka/skills/**'
             sdk-python:
               - *workflow
               - *scala-build
+              - *templates
               - 'sdks/python/**'
+              - 'cli/src/main/templates/python/**'
+              - 'cli/src/test/scala/**/cli/PythonTemplateSuite.scala'
             sdk-typescript:
               - *workflow
               - *scala-build
+              - *templates
               - 'sdks/typescript/**'
+              - 'cli/src/main/templates/typescript/**'
+              - 'cli/src/test/scala/**/cli/TypeScriptTemplateSuite.scala'
 
   build:
     needs: changes
@@ -161,6 +177,10 @@ jobs:
         working-directory: sdks/python
       - run: uv run conformance
         working-directory: sdks/python
+      # `ankka init --language python`, rendered and then made to pass its own mypy and pytest against
+      # this SDK and the sidecar image built above. The list form of the switch runs this template's
+      # suite alone, without the Scala template's local publish.
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'
 
   # The TypeScript SDK: the same proof as the Python job, on the two Node lines the package supports —
   # the floor (22) and the line the docs show (24) — so `engines.node` is a fact and not a claim. The
@@ -223,3 +243,7 @@ jobs:
       - if: matrix.node == 24
         run: npm run conformance
         working-directory: sdks/typescript
+      # `ankka init --language typescript`, rendered and then made to pass its own typecheck and tests
+      # against this SDK (built above) and the sidecar image. See the Python job.
+      - if: matrix.node == 24
+        run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=typescript 'cli/testOnly *TypeScriptTemplateSuite'

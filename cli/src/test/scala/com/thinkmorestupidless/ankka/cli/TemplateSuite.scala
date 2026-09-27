@@ -22,7 +22,7 @@ class TemplateSuite extends munit.FunSuite:
   override val munitTimeout: FiniteDuration = 15.minutes
 
   override def munitIgnore: Boolean =
-    sys.props.get("ankka.template.tests").contains("off") || !Init.sbtOnPath()
+    !TemplateSwitch.enabled("scala") || !Init.sbtOnPath()
 
   private val Name    = "probe"
   private val Version = com.thinkmorestupidless.ankka.core.BuildInfo.version
@@ -39,7 +39,7 @@ class TemplateSuite extends munit.FunSuite:
     if !munitIgnore then
       workspace = Files.createTempDirectory("ankka-template")
       val request =
-        Init.Request(Name, s"file://${repoRoot.resolve("ankka.g8")}", directory = workspace)
+        Init.Request(Name, Some(s"file://${repoRoot.resolve("ankka.g8")}"), directory = workspace)
       assertEquals(Init.problems(request), Vector.empty)
       assertEquals(Init.run(request, Version), 0, "sbt new failed")
 

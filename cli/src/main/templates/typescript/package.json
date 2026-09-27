@@ -1,0 +1,23 @@
+{
+  "name": "{{name}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "ankka": "{{ankka_version}}"
+  },
+  "devDependencies": {
+    "@testcontainers/postgresql": "^12.1.0",
+    "@types/node": "^24.19.0",
+    "testcontainers": "^12.1.0",
+    "typescript": "^7.0.2"
+  }
+}

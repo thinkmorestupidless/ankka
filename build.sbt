@@ -501,13 +501,57 @@ lazy val cli = project
       IO.write(index, pages.map(_._1).mkString("", "\n", "\n"))
       index +: copied
     }.taskValue,
+    // The Python and TypeScript templates `ankka init --language` renders (Scaffold): each language's
+    // own files from cli/src/main/templates/<language>, the files every language shares from
+    // common/, and the agent skills a project carries, from the rendered copy in marketplace/ — the
+    // same skills the Scala template carries. Onto the classpath at ankka/templates/<language>/ with
+    // an index, because a directory inside a jar cannot be listed. Walked by hand rather than through
+    // unmanagedResources, whose default filter drops hidden files, and a template is mostly
+    // .github/, .claude/ and .gitignore.
+    Compile / resourceGenerators += Def.task {
+      val root      = (ThisBuild / baseDirectory).value
+      val templates = (Compile / sourceDirectory).value / "templates"
+      val skills    = root / "marketplace" / "plugins" / "ankka" / "skills"
+      val out       = (Compile / resourceManaged).value / "ankka" / "templates"
+      // A machine's litter is not part of a template: it would land in every project made from it.
+      val litter: File => Boolean = f =>
+        f.getName == ".DS_Store" || f.getPath.contains("__pycache__") || f.getPath
+          .contains("node_modules")
+      def filesUnder(dir: File): Seq[(String, File)] =
+        (dir ** AllPassFilter).get
+          .filter(f => f.isFile && !litter(f))
+          .flatMap(f => IO.relativize(dir, f).map(_ -> f))
+      IO.delete(out)
+      Seq("python", "typescript").flatMap { language =>
+        val files = (
+          filesUnder(templates / "common") ++
+            filesUnder(templates / language) ++
+            filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f }
+        ).sortBy(_._1)
+        val duplicated =
+          files.groupBy(_._1).collect { case (path, copies) if copies.size > 1 => path }
+        if (duplicated.nonEmpty)
+          sys.error(s"the $language template has ${duplicated.mkString(", ")} more than once")
+        val copied = files.map { case (relative, file) =>
+          val target = out / language / relative
+          IO.copyFile(file, target)
+          target
+        }
+        val index = out / language / "index.txt"
+        IO.write(index, files.map(_._1).mkString("", "\n", "\n"))
+        index +: copied
+      }
+    }.taskValue,
     // TemplateSuite expands the template into a build outside this one, which resolves ankka from
     // ~/.ivy2/local — so the artifacts have to be there first. A build-level task dependency, the
-    // same shape as sampleImageForClusterTests; off with -Dankka.template.tests=off. On both
-    // `test` and `testOnly`: the second is how a single suite is run, and it does not go through
-    // the first.
+    // same shape as sampleImageForClusterTests; off with -Dankka.template.tests=off, or with a
+    // list that does not name scala (`=python`). On both `test` and `testOnly`: the second is how a
+    // single suite is run, and it does not go through the first.
     templateArtifacts := Def.taskDyn {
-      if (sys.props.get("ankka.template.tests").contains("off")) Def.task(())
+      // The switch also takes a list of languages (TemplateSwitch); only `scala` needs the publish.
+      val selected = sys.props.get("ankka.template.tests")
+      if (selected.exists(s => s == "off" || !s.split(',').map(_.trim).contains("scala")))
+        Def.task(())
       else
         // Six of the seven by name: a task dependency on the root's publishLocal runs only the
         // root's own (skipped) publish — aggregation is how the command line fans out, not the task

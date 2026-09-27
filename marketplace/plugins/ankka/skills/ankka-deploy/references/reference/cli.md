@@ -4,7 +4,7 @@
 
 Source: https://docs.ankka.cloud/reference/cli/
 `ankka` is the command-line client for an ankka control plane, plus three local tools: `ankka init`
-creates a service from the template, `ankka local console` serves a console over the services
+creates a service from a template, in Scala, Python or TypeScript, `ankka local console` serves a console over the services
 running on your own machine, and `ankka mcp` serves the CLI's service commands, the local services and
 this documentation to a coding agent over the Model Context Protocol
 ([Work with a coding agent](../get-started/coding-agents.md)). Every other command makes one HTTP call to the control plane and prints
@@ -134,7 +134,7 @@ Subcommands:
     version
         Print the ankka version of this CLI.
     init
-        Create a new service from the ankka template (runs `sbt new`; needs sbt on PATH).
+        Create a new service from the ankka template, in Scala (runs `sbt new`), Python or TypeScript.
     local
         Tools for services running on this machine.
     mcp
@@ -1243,17 +1243,19 @@ Options and flags:
 ### `ankka init`
 
 ```text
-Usage: ankka init [--template <string>] [--package <string>] [--dir <string>] <name>
+Usage: ankka init [--language <string>] [--template <string>] [--package <string>] [--dir <string>] <name>
 
-Create a new service from the ankka template (runs `sbt new`; needs sbt on PATH).
+Create a new service from the ankka template, in Scala (runs `sbt new`), Python or TypeScript.
 
 Options and flags:
     --help
         Display this help text.
+    --language <string>, -l <string>
+        scala (the default), python or typescript.
     --template <string>
-        A Giter8 template reference, e.g. file:///path/to/ankka.g8.
+        Scala only: a Giter8 template, e.g. file:///path/to/ankka.g8.
     --package <string>
-        The Scala package; defaults to com.example.<name>.
+        The Scala package (default com.example.<name>) or Python package (default the name, '-' as '_').
     --dir <string>
         Where to create the project; defaults to the current directory.
 ```

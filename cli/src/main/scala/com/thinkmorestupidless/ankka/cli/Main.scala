@@ -637,35 +637,54 @@ object Main:
 
   private val initCommand = Opts.subcommand(
     "init",
-    "Create a new service from the ankka template (runs `sbt new`; needs sbt on PATH)."
+    "Create a new service from the ankka template, in Scala (runs `sbt new`), Python or TypeScript."
   ) {
     (
       Opts.argument[String]("name"),
       Opts
-        .option[String]("template", "A Giter8 template reference, e.g. file:///path/to/ankka.g8.")
-        .withDefault(Init.DefaultTemplate),
-      Opts.option[String]("package", "The Scala package; defaults to com.example.<name>.").orNone,
+        .option[String]("language", "scala (the default), python or typescript.", "l")
+        .mapValidated(text => Validated.fromEither(Language.parse(text)).toValidatedNel)
+        .withDefault(Language.Scala),
+      Opts
+        .option[String]("template", "Scala only: a Giter8 template, e.g. file:///path/to/ankka.g8.")
+        .orNone,
+      Opts
+        .option[String](
+          "package",
+          "The Scala package (default com.example.<name>) or Python package (default the name, '-' as '_')."
+        )
+        .orNone,
       Opts
         .option[String]("dir", "Where to create the project; defaults to the current directory.")
         .orNone
-    ).mapN { (name, template, pkg, dir) => () =>
+    ).mapN { (name, language, template, pkg, dir) => () =>
       val request = Init.Request(
         name,
         template,
         pkg,
-        dir.map(java.nio.file.Path.of(_)).getOrElse(java.nio.file.Path.of("."))
+        dir.map(java.nio.file.Path.of(_)).getOrElse(java.nio.file.Path.of(".")),
+        language
       )
       val problems = Init.problems(request)
       if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
-      if !Init.sbtOnPath() then
-        throw ApiError(
-          0,
-          "ankka init needs sbt on PATH; install it from https://www.scala-sbt.org/"
-        )
-      val code = Init.run(request)
-      if code != 0 then throw ApiError(0, s"sbt new exited with $code")
       val where = request.directory.resolve(name).toAbsolutePath.normalize
-      s"created $where\n\n  cd $name\n  sbt test\n  sbt schema && docker compose up -d && sbt run\n\nsee README.md for the rest"
+      language match
+        case Language.Scala =>
+          if !Init.sbtOnPath() then
+            throw ApiError(
+              0,
+              "ankka init needs sbt on PATH for a Scala service; install it from https://www.scala-sbt.org/"
+            )
+          val code = Init.run(request)
+          if code != 0 then throw ApiError(0, s"sbt new exited with $code")
+          s"created $where\n\n  cd $name\n  sbt test\n  sbt schema && docker compose up -d && sbt run\n\nsee README.md for the rest"
+        case Language.Python =>
+          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+          val module = Scaffold.module(request)
+          s"created $where\n\n  cd $name\n  uv sync\n  uv run pytest -q -rs\n  docker compose up -d && uv run python -m $module.main\n\nsee README.md for the rest"
+        case Language.TypeScript =>
+          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+          s"created $where\n\n  cd $name\n  npm install\n  npm test\n  docker compose up -d && npm start\n\nsee README.md for the rest"
     }
   }
 

@@ -17,7 +17,7 @@ and this page says where that applies.
 | Tool | Needed for | Version |
 |---|---|---|
 | JDK | Scala services, the CLI (Homebrew installs its own), building the platform's images | 21 |
-| [sbt](https://www.scala-sbt.org/) | Scala services, `ankka init` | any recent 1.x |
+| [sbt](https://www.scala-sbt.org/) | Scala services, and `ankka init` for one | any recent 1.x |
 | Docker | running Postgres locally, integration tests, building images | any recent |
 | [uv](https://docs.astral.sh/uv/) and Python | Python services | Python 3.12 |
 | [Node.js](https://nodejs.org/) | TypeScript services | 22.22 or later; 24 recommended |
@@ -37,8 +37,9 @@ brew install thinkmorestupidless/tap/ankka
 ankka version
 ```
 
-`brew upgrade ankka` moves to a newer release. `ankka init` also needs `sbt` on the `PATH`, because it
-runs `sbt new` to expand the service template; every other command works without it.
+`brew upgrade ankka` moves to a newer release. `ankka init` needs `sbt` on the `PATH` for a Scala service,
+because it runs `sbt new` to expand the Scala template; a Python or TypeScript service, and every other
+command, works without it.
 
 Anywhere else, releases after 0.6.4 carry the CLI as a single native executable for each platform, with
 no JVM to install: `linux-x64`, `linux-arm64`, `macos-arm64` and `macos-x64`, each on the

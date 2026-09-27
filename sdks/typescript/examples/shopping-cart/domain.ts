@@ -9,12 +9,14 @@ export type LineItem = Infer<typeof LineItem>
 export const ShoppingCart = s.record("ShoppingCart", { cartId: s.string, items: s.list(LineItem), checkedOut: s.boolean })
 export type ShoppingCart = Infer<typeof ShoppingCart>
 
+// docs:start events
 export const ShoppingCartEvent = s.sumType("ShoppingCartEvent", {
   ItemAdded: { item: LineItem },
   ItemRemoved: { productId: s.string },
   CheckedOut: {},
 })
 export type ShoppingCartEvent = Infer<typeof ShoppingCartEvent>
+// docs:end events
 // docs:end domain
 
 export function emptyCart(cartId: string): ShoppingCart {

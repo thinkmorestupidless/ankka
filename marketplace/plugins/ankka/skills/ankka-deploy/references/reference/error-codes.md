@@ -49,6 +49,16 @@ def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingC
     return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 ```
 
+**TypeScript**
+
+```ts
+addItem(item: LineItem) {
+  if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+  if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was ${item.quantity}`)
+  return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+}
+```
+
 Without a code, an error is `BadRequest`.
 
 ## Receiving a refusal

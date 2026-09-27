@@ -2,7 +2,7 @@
 title: Components
 description: The component kinds an ankka service is built from, what each is for, how the runtime hosts it, and how to choose between them.
 kind: concept
-languages: [scala, python]
+languages: [scala, python, typescript]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
 related: [concepts/designing-services.md, concepts/effects.md, concepts/consistency.md, concepts/architecture.md]
 ---
@@ -12,7 +12,7 @@ related: [concepts/designing-services.md, concepts/effects.md, concepts/consiste
 An ankka service is built from a fixed set of component kinds. Each kind has one job, and the runtime
 supplies everything that job needs: persistence, distribution, scheduling or delivery. You choose the kind
 by the question the component answers, write its handlers, and register it. Every kind is available in
-Scala and in Python.
+Scala, Python and TypeScript.
 
 ## The kinds
 
@@ -127,7 +127,7 @@ Every component is registered on the service builder explicitly. There is no cla
 registration is the complete inventory of what a service hosts, and a component that is not registered
 fails at startup rather than at its first request.
 
-**Scala**
+/// tab | Scala
 
 ```scala
 Ankka.service
@@ -138,12 +138,37 @@ Ankka.service
   .start()
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
-await Ankka.service().register(ShoppingCartEntity).register(CartRows).register(ShoppingCartEndpoint).listen()
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+    .register(ShoppingCartEndpoint)
+)
+
+asyncio.run(service.listen())
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CartRows)
+  .register(ShoppingCartEndpoint)
+
+await service.listen()
+```
+
+///
 
 In Scala, some kinds need a runtime extension as well as registration: views and consumers need
 `ProjectionRuntime`, timed actions need `TimerRuntime`, agents need `AgentRuntime`, and endpoints need
-`HttpServer`. In Python the sidecar supplies all of them.
+`HttpServer`. In Python and TypeScript the sidecar supplies all of them, which is why those two register
+the same set of components with the same call and no extensions.

@@ -45,3 +45,11 @@ enum ShoppingCartEvent:
   case ItemRemoved(productId: String)
   case CheckedOut
 // docs:end events
+
+/**
+ * What the checkout log holds for one cart: when it was checked out, and whether anything was told.
+ *
+ * Field for field the Python and TypeScript carts' `CheckoutRecord`, because the three samples are
+ * the same service written three times and a journal written by one must replay in the others.
+ */
+final case class CheckoutRecord(cartId: String, at: Long = 0L, notified: Boolean = false)

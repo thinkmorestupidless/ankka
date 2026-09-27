@@ -1,8 +1,8 @@
 ---
 title: HTTP endpoints
-description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala or Python.
+description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
 kind: guide
-languages: [scala, python]
+languages: [scala, python, typescript]
 components: [http-endpoint]
 related: [build/component-client.md, build/streaming.md, deploy/expose.md, concepts/tenancy-and-access.md]
 ---
@@ -17,10 +17,12 @@ Every endpoint declares an access control list (ACL) saying who may call it. A s
 cluster until it is exposed, but exposing it changes only who can reach the endpoint, never who is
 allowed to call it. Decide the ACL before exposing the service; see [Expose a service](../deploy/expose.md).
 
-## An endpoint in Scala
+## An endpoint
 
-An endpoint extends `HttpEndpoint(prefix)`, declares its `acl`, and declares routes in its body. This is
-the shopping cart sample's whole endpoint:
+An endpoint declares a prefix, an access control list and its routes. This is the shopping cart sample's
+whole endpoint, the same routes in each language:
+
+/// tab | Scala
 
 <!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/ShoppingCartEndpoint.scala -->
 ```scala
@@ -73,13 +75,81 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
     client.forEventSourcedEntity(EntityId(cartId))
 ```
 
-Note what is absent: no status codes, no error mapping, no `try`. A command the entity refuses carries an
-error code, and the server turns it into the right status, so the endpoint describes only the successful
-path.
+///
 
-Routes are collected as they are declared, when the endpoint is constructed, which is at service start.
-A route whose handler takes a different number of parameters than its template names fails the service
-at startup rather than on the first request that matches it.
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/endpoint.py#endpoint -->
+```python
+class ShoppingCartEndpoint(Endpoint):
+    """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
+
+    prefix = "/carts"
+    acl = Acl.ALLOW_ALL
+
+    def __init__(self, client: ComponentClient) -> None:
+        self.client = client
+
+    def _cart(self, cart_id: str) -> Calls:
+        return self.client.with_metadata(self.request.metadata).for_event_sourced_entity("shopping-cart", cart_id)
+
+    @get("/{cartId}")
+    async def get_cart(self, cartId: str) -> ShoppingCart:
+        return await self._cart(cartId).call("get-cart").invoke(reply=ShoppingCart)
+
+    @get("/{cartId}/total")
+    async def total(self, cartId: str) -> int:
+        return await self._cart(cartId).call("total-quantity").invoke(reply=int)
+
+    @post("/{cartId}/items")
+    async def add_item(self, cartId: str, item: LineItem) -> Done:
+        return await self._cart(cartId).call("add-item").invoke(item, reply=Done)
+
+    @delete("/{cartId}/items/{productId}")
+    async def remove_item(self, cartId: str, productId: str) -> Done:
+        return await self._cart(cartId).call("remove-item").invoke(productId, reply=Done)
+
+    @post("/{cartId}/checkout")
+    async def checkout(self, cartId: str) -> ShoppingCart:
+        return await self._cart(cartId).call("checkout").invoke(reply=ShoppingCart)
+```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#endpoint -->
+```ts
+/** The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout. */
+export class ShoppingCartEndpoint extends Endpoint {
+  static readonly prefix = "/carts"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    getCart: get("/{cartId}", ShoppingCart, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.getCart).invoke()),
+    total: get("/{cartId}/total", s.int, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.totalQuantity).invoke()),
+    addItem: post("/{cartId}/items", LineItem, Done, (ep: ShoppingCartEndpoint, req, item) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)),
+    removeItem: del("/{cartId}/items/{productId}", Done, (ep: ShoppingCartEndpoint, req) =>
+      ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.removeItem).invoke(req.params.productId),
+    ),
+    checkout: post("/{cartId}/checkout", ShoppingCart, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.checkout).invoke()),
+```
+
+///
+
+A Scala endpoint extends `HttpEndpoint(prefix)` and declares routes in its body, so they are collected
+when the endpoint is constructed, at service start. A route whose handler takes a different number of
+parameters than its template names fails the service at startup rather than on the first request that
+matches it.
+
+A Python endpoint is a class with a `prefix`, an `acl` and decorated methods — `@get`, `@post`, `@put`,
+`@delete`, `@patch` and `@sse` — and a TypeScript one declares its routes in a `routes` object. In both,
+path parameters bind by name from the template, at most one further parameter is the body, and the
+declared reply type decides the response's encoding. A `GET` route cannot take a body. The constructor
+may take a component client, and the SDK passes one when it does.
+
+**A Python or TypeScript process never binds an HTTP port.** The sidecar serves the routes the process
+declared, applies the ACL, opens the request's trace, and forwards each request to the process.
 
 ## Routes
 
@@ -298,8 +368,11 @@ that does not, rather than disclosing which is which.
 
 ## Registering endpoints
 
-Endpoints are served by the `HttpServer` extension. It takes one factory per endpoint, a function from the
-service's clients to the endpoint:
+In Scala, endpoints are served by the `HttpServer` extension, which takes one factory per endpoint, a
+function from the service's clients to the endpoint. In Python and TypeScript an endpoint is registered
+like any other component, and the sidecar serves it:
+
+/// tab | Scala
 
 ```scala
 Ankka.service
@@ -307,6 +380,34 @@ Ankka.service
   .withExtension(HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient)))
   .start()
 ```
+
+///
+
+/// tab | Python
+
+```python
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(ShoppingCartEndpoint)
+)
+
+asyncio.run(service.listen())
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(ShoppingCartEndpoint)
+
+await service.listen()
+```
+
+///
 
 `clients` is an `EndpointClients`, which carries `componentClient` for components and `viewClient` for
 views. The lambda cannot be shortened to `ShoppingCartEndpoint(_.componentClient)`: the placeholder would
@@ -320,58 +421,26 @@ descriptor, and setting `ANKKA_HTTP_PORT` yourself is refused; see
 
 Two endpoints may not share a prefix. The server also answers `/_ankka/health` on its own.
 
-## An endpoint in Python
+## The request, outside Scala
 
-A Python endpoint is a class with a `prefix`, an `acl`, and decorated methods. Path parameters bind by
-name from the template; at most one further parameter is the body; the return annotation decides the
-response's encoding.
+`self.request` in Python and `req` in TypeScript carry the query and the headers as sequences of pairs,
+with helpers for one or many, and the `principal` when the ACL established one. Every SDK answers with a
+status by raising or throwing an `HttpProblem(status, message)`:
 
-<!-- include: sdks/python/examples/shopping_cart/endpoint.py#endpoint -->
-```python
-class ShoppingCartEndpoint(Endpoint):
-    """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
+/// tab | Scala
 
-    prefix = "/carts"
-    acl = Acl.ALLOW_ALL
-
-    def __init__(self, client: ComponentClient) -> None:
-        self.client = client
-
-    def _cart(self, cart_id: str) -> Calls:
-        return self.client.with_metadata(self.request.metadata).for_event_sourced_entity("shopping-cart", cart_id)
-
-    @get("/{cartId}")
-    async def get_cart(self, cartId: str) -> ShoppingCart:
-        return await self._cart(cartId).call("get-cart").invoke(reply=ShoppingCart)
-
-    @get("/{cartId}/total")
-    async def total(self, cartId: str) -> int:
-        return await self._cart(cartId).call("total-quantity").invoke(reply=int)
-
-    @post("/{cartId}/items")
-    async def add_item(self, cartId: str, item: LineItem) -> Done:
-        return await self._cart(cartId).call("add-item").invoke(item, reply=Done)
-
-    @delete("/{cartId}/items/{productId}")
-    async def remove_item(self, cartId: str, productId: str) -> Done:
-        return await self._cart(cartId).call("remove-item").invoke(productId, reply=Done)
-
-    @post("/{cartId}/checkout")
-    async def checkout(self, cartId: str) -> ShoppingCart:
-        return await self._cart(cartId).call("checkout").invoke(reply=ShoppingCart)
+```scala
+get("/{cartId}/rows") { (cartId: String) =>
+  clients.viewClient
+    .forView(CartRows)
+    .byId(cartId)
+    .getOrElse(throw HttpProblem.notFound(s"no row for cart '$cartId'"))
+}
 ```
 
-The decorators are `@get`, `@post`, `@put`, `@delete`, `@patch` and `@sse`. A `GET` route cannot take a
-body. The endpoint's constructor may take a `ComponentClient`, and the SDK passes one when it does.
+///
 
-**The process never binds an HTTP port.** The sidecar serves the routes the process declared, applies
-the ACL, opens the request's trace, and forwards each request to the process. Passing
-`self.request.metadata` to the client with `with_metadata`, as `_cart` does, is what makes the calls a
-handler makes appear as children of the request in the console's traces.
-
-`self.request` carries `query` and `headers` as sequences of pairs, with `query_param(name)`,
-`query_params(name)` and `header(name)` helpers, and `principal` when the ACL established one. Raise
-`HttpProblem(status, message)` to answer with a status:
+/// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#problem -->
 ```python
@@ -382,6 +451,21 @@ async def row(self, cartId: str) -> CartRow:
         raise HttpProblem(404, f"no row for cart '{cartId}'")
     return found  # type: ignore[no-any-return]
 ```
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#problem -->
+```ts
+row: get("/{cartId}/rows", CartRow, async (ep: ShoppingCartEndpoint, req) => {
+  const found = await ep.client.views.get(CartRows.componentId, req.params.cartId, CartRow)
+  if (found === null) throw new HttpProblem(404, `no row for cart '${req.params.cartId}'`)
+  return found
+}),
+```
+
+///
 
 A `CommandError` from a component call propagates as its code's status, as in Scala. Routes are matched
 by the same rules, so a literal segment outranks a parameter.

@@ -2,7 +2,7 @@
 title: Error codes
 description: The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
 kind: reference
-languages: [scala, python]
+languages: [scala, python, typescript]
 related: [concepts/effects.md, build/http-endpoints.md, build/component-client.md, reference/control-plane-api.md]
 ---
 
@@ -34,7 +34,7 @@ A retryable code means a caller could reasonably send the same request again unc
 A refusal is a value the handler returns, not an exception it throws. Nothing is persisted for a refused
 command, and the runtime does not retry it.
 
-**Scala**
+/// tab | Scala
 
 ```scala
 def addItem(item: LineItem): Effect[Done] =
@@ -44,7 +44,9 @@ def addItem(item: LineItem): Effect[Done] =
   else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
 @command("add-item")
@@ -53,6 +55,20 @@ def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingC
         return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
     return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+addItem(item: LineItem) {
+  if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+  if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was ${item.quantity}`)
+  return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+}
+```
+
+///
 
 Without a code, an error is `BadRequest`.
 

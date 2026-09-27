@@ -2,7 +2,7 @@
 title: Broker topics
 description: Read views and consumers from a Kafka topic and publish to one, with CloudEvents attributes as headers, per-entity ordering by subject, and a broker-free in-memory pair for tests.
 kind: guide
-languages: [scala, python]
+languages: [scala, python, typescript]
 components: [view, consumer]
 related: [build/views.md, build/consumers.md, concepts/consistency.md, reference/configuration.md]
 ---
@@ -17,7 +17,7 @@ services and services written with no ankka at all. Kafka is the broker ankka sh
 
 Declare a topic as the source, with the serializer that decodes its messages:
 
-**Scala**
+/// tab | Scala
 
 ```scala
 import com.thinkmorestupidless.ankka.core.{Codecs, ComponentId}
@@ -40,7 +40,9 @@ object StockLevels
   def create(ctx: ViewComponentContext) = new StockLevelsView
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
 from dataclasses import dataclass, replace
@@ -72,6 +74,32 @@ class StockLevels(View[StockEvent, StockRow]):
         current = self.row or StockRow(self.metadata.subject or "")
         return self.effects.update_row(replace(current, level=current.level + event.delta))
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+export const StockEvent = s.record("StockEvent", { productId: s.string, delta: s.int })
+export type StockEvent = Infer<typeof StockEvent>
+
+export const StockRow = s.record("StockRow", { productId: s.string, level: s.int })
+export type StockRow = Infer<typeof StockRow>
+
+export class StockLevels extends View<StockEvent, StockRow> {
+  static readonly componentId = "stock-levels"
+  static readonly topic = "stock-events"
+  static readonly events = jsonCodec(StockEvent, "stock-event")
+  static readonly row = jsonCodec(StockRow, "stock-row")
+
+  onChange(event: StockEvent) {
+    const current = this.row ?? { productId: this.subject, level: 0 }
+    return this.effects.updateRow({ ...current, level: current.level + event.delta })
+  }
+}
+```
+
+///
 
 A consumer reads a topic the same way: `ChangeSource.fromTopic(...)` in Scala, `topic = "..."` in Python.
 

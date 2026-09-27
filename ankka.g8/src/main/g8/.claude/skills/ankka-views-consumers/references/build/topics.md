@@ -67,6 +67,28 @@ class StockLevels(View[StockEvent, StockRow]):
         return self.effects.update_row(replace(current, level=current.level + event.delta))
 ```
 
+**TypeScript**
+
+```ts
+export const StockEvent = s.record("StockEvent", { productId: s.string, delta: s.int })
+export type StockEvent = Infer<typeof StockEvent>
+
+export const StockRow = s.record("StockRow", { productId: s.string, level: s.int })
+export type StockRow = Infer<typeof StockRow>
+
+export class StockLevels extends View<StockEvent, StockRow> {
+  static readonly componentId = "stock-levels"
+  static readonly topic = "stock-events"
+  static readonly events = jsonCodec(StockEvent, "stock-event")
+  static readonly row = jsonCodec(StockRow, "stock-row")
+
+  onChange(event: StockEvent) {
+    const current = this.row ?? { productId: this.subject, level: 0 }
+    return this.effects.updateRow({ ...current, level: current.level + event.delta })
+  }
+}
+```
+
 A consumer reads a topic the same way: `ChangeSource.fromTopic(...)` in Scala, `topic = "..."` in Python.
 
 The view's row is keyed by the message's CloudEvents subject, the `ce-subject` header, falling back to the

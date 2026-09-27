@@ -102,8 +102,8 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/views.md` — Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python.
+- `references/build/views.md` — Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python and TypeScript.
 - `references/build/consumers.md` — React to every change from an entity or a topic, call other components or publish onward to a topic, and make the reaction safe to repeat under at-least-once delivery.
 - `references/build/topics.md` — Read views and consumers from a Kafka topic and publish to one, with CloudEvents attributes as headers, per-entity ordering by subject, and a broker-free in-memory pair for tests.
-- `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in both languages, and how to change a stored type without breaking a journal.
-- `references/build/testing.md` — Test ankka components at two levels in Scala and Python — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+- `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
+- `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.

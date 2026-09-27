@@ -122,8 +122,8 @@ Open the one a task needs; each is one topic and stands alone.
 ### Build
 
 - `references/build/workflows.md` — Build a durable multi-step process in Scala or Python — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
-- `references/build/agents.md` — Write an agent in Scala or Python — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
+- `references/build/agents.md` — Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
-- `references/build/testing.md` — Test ankka components at two levels in Scala and Python — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+- `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.

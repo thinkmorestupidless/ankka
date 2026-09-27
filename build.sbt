@@ -585,7 +585,10 @@ lazy val cli = project
  */
 lazy val shoppingCart = project
   .in(file("samples/shopping-cart"))
-  .dependsOn(sdk, runtime, http, testkit % Test)
+  // `agent` because the cart carries an assistant, as the Python and TypeScript carts do — the three
+  // samples are one service written three times, and a component missing from one makes its
+  // documentation page unable to show all three.
+  .dependsOn(sdk, runtime, http, agent, testkit % Test)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)

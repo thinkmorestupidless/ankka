@@ -248,7 +248,11 @@ val service = Ankka.service
 /// tab | Python
 
 ```python
-service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+)
 ```
 
 ///
@@ -256,7 +260,9 @@ service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
 /// tab | TypeScript
 
 ```ts
-const service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CartRows)
 ```
 
 ///

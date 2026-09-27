@@ -164,7 +164,13 @@ from ankka import Ankka
 from api import ShoppingCartEndpoint
 from cart import ShoppingCartEntity
 
-asyncio.run(Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint).listen())
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(ShoppingCartEndpoint)
+)
+
+asyncio.run(service.listen())
 ```
 
 Registration is explicit: a component that is not registered does not exist. `listen()` serves the
@@ -238,7 +244,11 @@ from cart import ShoppingCartEntity
 
 
 async def test_a_cart_survives_a_restart() -> None:
-    service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+    service = (
+        Ankka.service()
+        .register(ShoppingCartEntity)
+        .register(ShoppingCartEndpoint)
+    )
     async with await AnkkaTestKit.start(service) as kit:
         await kit.http.post("/carts/c1/items", json={"productId": "p1", "name": "Pen", "quantity": 2})
         await kit.restart()                                  # a new sidecar, the same database

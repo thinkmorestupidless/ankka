@@ -198,7 +198,13 @@ makes the call a child span of the request's trace. See [Calling components](../
 import asyncio
 from ankka import Ankka
 
-asyncio.run(Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint).listen())
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(ShoppingCartEndpoint)
+)
+
+asyncio.run(service.listen())
 ```
 
 `listen()` serves the protocol on port 9010, or `ANKKA_PROCESS_PORT`, and waits for the sidecar to connect.

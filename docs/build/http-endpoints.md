@@ -386,7 +386,11 @@ Ankka.service
 /// tab | Python
 
 ```python
-service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(ShoppingCartEndpoint)
+)
 
 asyncio.run(service.listen())
 ```
@@ -396,7 +400,9 @@ asyncio.run(service.listen())
 /// tab | TypeScript
 
 ```ts
-const service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(ShoppingCartEndpoint)
 
 await service.listen()
 ```

@@ -8,10 +8,11 @@ brew install thinkmorestupidless/tap/ankka
 ankka version
 ```
 
-The formula installs the CLI's own JDK dependency, `openjdk@21`. `ankka init`, which creates a service
-from the template by running `sbt new`, also needs `brew install sbt`; every other command does not.
+The formula installs the CLI as a native executable for macOS or Linux, x64 or ARM64, with no JVM.
+`ankka init`, which creates a service from the template by running `sbt new`, also needs
+`brew install sbt`; every other command does not.
 
 This repository is generated. The formula is rendered from
 [thinkmorestupidless/ankka](https://github.com/thinkmorestupidless/ankka) (`homebrew/` there) by the
-release workflow on every tag, with the version and the checksum of the zip attached to that tag's
-GitHub release. Changes go to the ankka repository, not here.
+release workflow on every tag, with the version and the checksum of each native build attached to
+that tag's GitHub release. Changes go to the ankka repository, not here.

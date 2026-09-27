@@ -4,9 +4,9 @@
 # release workflow — the same arrangement as ankka.g8, marketplace/ and homebrew/, and for the same
 # reason: a workflow can only reference an action as owner/repo@ref.
 #
-# It installs no Java. GitHub-hosted runners ship several JDKs and actions/setup-java is the standard,
-# cached way to pick one; fetching a second runtime here would be slower, larger, and would re-solve a
-# problem the ecosystem has already solved. It checks for one and says so when there is none.
+# It installs the native build of the CLI for the runner's platform — one executable, needing no JVM —
+# from the GitHub release of the version asked for, and refuses to run it unless it matches the
+# checksum published beside it.
 name: ankka
 description: Install the ankka CLI, point it at a control plane, and authenticate it for the rest of the job.
 author: thinkmorestupidless
@@ -43,34 +43,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # First, and before anything is downloaded: a runner with no suitable Java cannot run the CLI,
-    # and finding that out from a stack trace three steps later is no use to anyone.
-    - name: Check for Java 21 or later
-      shell: bash
-      run: |
-        set -uo pipefail
-        major=""
-        if command -v java >/dev/null 2>&1; then
-          # `java -version` writes to stderr, and quotes the version on the first line in one of two
-          # shapes: `openjdk version "21.0.2"` since JDK 9, and `java version "1.8.0_392"` before it,
-          # where the major is the number after `1.`.
-          line=$(java -version 2>&1 | head -1)
-          quoted=${line#*\"}
-          quoted=${quoted%%\"*}
-          if [ "$quoted" != "$line" ]; then
-            case "$quoted" in
-              1.*) rest=${quoted#1.}; major=${rest%%[.._-]*} ;;
-              *)   major=${quoted%%[.._-]*} ;;
-            esac
-          fi
-        fi
-        if [ -z "$major" ] || [ "$major" -lt 21 ] 2>/dev/null; then
-          found=${major:-none}
-          echo "::error::the ankka CLI needs Java 21 or later on PATH and found $found. Add before this step:%0A  - uses: actions/setup-java@v4%0A    with: { distribution: temurin, java-version: \"21\" }"
-          exit 1
-        fi
-        echo "java $major"
-
     - name: Install the ankka CLI
       shell: bash
       env:
@@ -80,29 +52,42 @@ runs:
         ANKKA_CLI_BASE_URL: ${{ env.ANKKA_CLI_BASE_URL }}
       run: |
         set -euo pipefail
+        # The release carries one native build per platform; RUNNER_OS and RUNNER_ARCH are how
+        # GitHub names the runner's. Decided first, so an unsupported runner fails before anything
+        # is downloaded, naming what it is.
+        case "$RUNNER_OS/$RUNNER_ARCH" in
+          Linux/X64)   platform=linux-x64 ;;
+          Linux/ARM64) platform=linux-arm64 ;;
+          macOS/X64)   platform=macos-x64 ;;
+          macOS/ARM64) platform=macos-arm64 ;;
+          *)
+            echo "::error::the ankka CLI has no build for $RUNNER_OS/$RUNNER_ARCH; it runs on Linux and macOS, x64 and ARM64"
+            exit 1 ;;
+        esac
+
         base="${ANKKA_CLI_BASE_URL:-https://github.com/thinkmorestupidless/ankka/releases/download/v$ANKKA_VERSION}"
-        zip="ankka-cli-$ANKKA_VERSION.zip"
+        archive="ankka-cli-$ANKKA_VERSION-$platform.tar.gz"
         work="$RUNNER_TEMP/ankka-cli"
         mkdir -p "$work"
         cd "$work"
 
-        if ! curl --fail --location --silent --show-error -O "$base/$zip"; then
-          echo "::error::ankka CLI $ANKKA_VERSION could not be fetched from $base/$zip"
+        if ! curl --fail --location --silent --show-error -O "$base/$archive"; then
+          echo "::error::ankka CLI $ANKKA_VERSION for $platform could not be fetched from $base/$archive"
           exit 1
         fi
-        if ! curl --fail --location --silent --show-error -O "$base/$zip.sha256"; then
-          echo "::error::no published checksum for $zip at $base — refusing to run an unverified download"
+        if ! curl --fail --location --silent --show-error -O "$base/$archive.sha256"; then
+          echo "::error::no published checksum for $archive at $base — refusing to run an unverified download"
           exit 1
         fi
-        if ! sha256sum --check --status "$zip.sha256"; then
-          echo "::error::the downloaded $zip does not match its published checksum"
+        # shasum, not sha256sum: macOS runners carry only the first. Both read the same file format.
+        if ! shasum -a 256 --check --status "$archive.sha256"; then
+          echo "::error::the downloaded $archive does not match its published checksum"
           exit 1
         fi
 
-        unzip -q "$zip"
-        bin="$work/ankka-cli-$ANKKA_VERSION/bin"
-        test -x "$bin/ankka" || { echo "::error::$zip did not contain bin/ankka"; exit 1; }
-        echo "$bin" >> "$GITHUB_PATH"
+        tar -xzf "$archive" ankka
+        test -x "$work/ankka" || { echo "::error::$archive did not contain an executable ankka"; exit 1; }
+        echo "$work" >> "$GITHUB_PATH"
 
     - name: Configure the CLI for this job
       shell: bash

@@ -43,6 +43,8 @@ sbt docker:publishLocal           # build all three images — aggregates to ope
                                    # project is silently skipped, same as compile and test
 sbt buildAll                      # everything: format check, compile, test, every image —
                                    # one command, stops at the first failing stage
+GRAALVM_HOME=... sbt cli/GraalVMNativeImage/packageBin   # the CLI as one executable, no JVM:
+                                   # cli/target/graalvm-native-image/ankka; cli/native-smoke.sh checks it
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
 sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts on a real journal
                                    # against a scriptable process double, and one k3s suite
@@ -1174,26 +1176,40 @@ named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
 new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
 
+**The CLI ships as a native executable per platform**, from the release workflow's `cli-native`
+matrix: GraalVM's `native-image` over the same jar, one runner per platform because it cannot
+cross-compile (`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`), each attached to the tag's
+release as `ankka-cli-<version>-<platform>.tar.gz` with a `.sha256`. It waits for `cli`, which creates
+the release and attaches the JVM build as a zip (`cli/Universal/packageBin`, a JDK 21 its only need) —
+the install route for any platform without a native build. The Linux legs build on Ubuntu 22.04
+because the binary links the build machine's glibc; none runs on musl. What the image must carry is
+declared in the jar, in `cli/src/main/resources/META-INF/native-image/`, and **a missing resource is
+not a build failure**: the first image built without the resource globs served `ankka mcp` with zero
+pages and no error. So the job runs `cli/native-smoke.sh` on each binary, which asks it for the docs
+and the console's files, and a new resource the CLI reads needs a glob there.
+
 **The GitHub Action ships as its own repository.** `action/` is a composite action, subtree-pushed to
 `thinkmorestupidless/ankka-action` by the release workflow's `action` job exactly as `ankka.g8/`,
 `marketplace/` and `homebrew/` are pushed, and the job then moves the `v<version>` and `v<major>` tags
-so `uses: thinkmorestupidless/ankka-action@v1` resolves. It installs the CLI from the release's zip and
+so `uses: thinkmorestupidless/ankka-action@v1` resolves. It installs the native build for the runner,
+chosen from `RUNNER_OS`/`RUNNER_ARCH` (a Windows runner is refused before any download), and
 **refuses to install without a published checksum** — an action that silently skipped verification when
 the `.sha256` was missing would verify nothing on exactly the release where something went wrong. It
-installs no Java: `actions/setup-java` is the standard, cached way to get one, and the action checks and
-fails naming it.
+needs no Java. The job waits for `cli-native`, so no action is published pointing at assets that do
+not exist yet.
 
 **The CLI ships through Homebrew**, from `thinkmorestupidless/homebrew-tap` (`brew install
 thinkmorestupidless/tap/ankka`). The formula is canonical in `homebrew/Formula/ankka.rb` with version
-`0.0.0` and a checksum of zeros — deliberate, like the plugin's `0.0.0` — and the release workflow's
-`cli` job builds `cli/Universal/packageBin` (a zip of `bin/ankka` and `lib/*.jar`, a JDK 21 its only
-need), attaches it to a GitHub release for the tag, writes the version and the zip's SHA-256 into the
-formula and subtree-pushes `homebrew/` to the tap, exactly as the template and the marketplace go.
-`HomebrewFormulaSuite` pins the two placeholders the job's `sed` rewrites. The formula depends on
-`openjdk@21` and wraps the launcher with that `JAVA_HOME` rather than the user's, so a JDK 17 on
-someone's `PATH` cannot break it; `brew audit --strict` passes, and the proof of the whole thing is a
-throwaway local tap (`brew tap-new`) pointed at a locally built zip by `file://` URL. The release
-asset is also the install route for a machine without Homebrew.
+`0.0.0` and four checksums of zeros, one per platform in `on_macos`/`on_linux` × `on_arm`/`on_intel`
+blocks, each line ending in a comment naming its platform — deliberate, like the plugin's `0.0.0`. The
+release workflow's `homebrew` job waits for every leg of `cli-native`, reads each `.sha256` from the
+release, writes the version and each checksum onto the line naming its platform, refuses to push if a
+placeholder survives, and subtree-pushes `homebrew/` to the tap, exactly as the template and the
+marketplace go. `HomebrewFormulaSuite` pins the placeholders and the comments the job's `sed` matches.
+The formula needs no JDK. `brew audit --strict` passes, and the proof of the whole thing is a throwaway
+local tap (`brew tap-new`) pointed at a locally built tarball by `file://` URL — with the test formula
+renamed and `keg_only` if a real `ankka` is installed, and `HOMEBREW_NO_AUTOREMOVE=1` on the uninstall:
+removing a test formula once auto-removed the JDK an installed `ankka` from an untapped tap needed.
 
 **The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
 job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the

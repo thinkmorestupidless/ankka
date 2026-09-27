@@ -64,8 +64,6 @@ fill in rather than a workflow to edit.
 ## Use the action
 
 ```yaml
-- uses: actions/setup-java@v4
-  with: { distribution: temurin, java-version: "21" }
 - uses: thinkmorestupidless/ankka-action@v1
   with:
     url: ${{ secrets.ANKKA_URL }}
@@ -82,9 +80,9 @@ the environment for the rest of the job — so every later step runs any `ankka`
 setup. It does not wrap commands: `services deploy`, `services logs`, `projects list` and everything
 else work exactly as they do in a terminal.
 
-**Java 21 or later must be on `PATH`.** The CLI is a JVM application and the action installs no
-runtime, because `actions/setup-java` is the standard, cached way to pick one. The action checks and
-fails naming `setup-java` when there is none.
+**No Java is needed.** The action installs the CLI's native executable for the runner: Linux or
+macOS, x64 or ARM64. A Windows runner is refused before anything is downloaded, with a message naming
+it.
 
 ## Deploy the image the build just pushed
 

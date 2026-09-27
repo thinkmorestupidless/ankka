@@ -3,39 +3,72 @@ package com.thinkmorestupidless.ankka.cli
 import java.nio.file.Files
 
 /**
- * The Homebrew formula in `homebrew/Formula/ankka.rb` is generated at release: the `cli` job of the
- * release workflow attaches the CLI's zip to the tag's GitHub release and rewrites two placeholders
- * — the version `0.0.0` and a checksum of sixty-four zeros — with `sed`, then pushes `homebrew/` to
- * the tap repository. A formula whose placeholders have drifted is one that job rewrites into
- * nonsense, and nothing before the tag would notice; this pins the shape the job relies on.
+ * The Homebrew formula in `homebrew/Formula/ankka.rb` is generated at release: the `homebrew` job
+ * of the release workflow rewrites the version `0.0.0` and one checksum of sixty-four zeros per
+ * platform — found by the platform named in the comment on its line — with `sed`, from the
+ * `.sha256` each native build published beside its tarball, then pushes `homebrew/` to the tap
+ * repository. A formula whose placeholders have drifted is one that job rewrites into nonsense, and
+ * nothing before the tag would notice; this pins the shape the job relies on.
  */
 class HomebrewFormulaSuite extends munit.FunSuite:
 
   private lazy val formula =
     Files.readString(CliReferenceSuite.repoRoot.resolve("homebrew/Formula/ankka.rb"))
 
-  test("the formula downloads the zip the release job attaches, under the placeholder version") {
-    assert(
-      formula.contains(
-        "url \"https://github.com/thinkmorestupidless/ankka/releases/download/v0.0.0/ankka-cli-0.0.0.zip\""
-      ),
-      formula
-    )
-    // `ankka-cli` is the module's artifact name, so `cli/Universal/packageBin` produces
-    // `ankka-cli-<version>.zip`; the job replaces every 0.0.0 with the tag's version.
+  private val platforms = Seq("macos-arm64", "macos-x64", "linux-arm64", "linux-x64")
+
+  test("the version is the one placeholder the release job replaces") {
+    assert(formula.contains("  version \"0.0.0\""), formula)
     assertEquals(
       formula.linesIterator.count(_.contains("0.0.0")),
       1,
-      "0.0.0 appears on the url line only"
+      "0.0.0 appears on the version line only; the urls interpolate it"
     )
   }
 
-  test("the checksum is the placeholder the release job replaces") {
-    assert(formula.contains("sha256 \"" + "0" * 64 + "\""), formula)
+  test("each platform downloads the native build the release attaches, under the version") {
+    platforms.foreach { platform =>
+      val url =
+        "url \"https://github.com/thinkmorestupidless/ankka/releases/download/v#{version}/" +
+          s"ankka-cli-#{version}-$platform.tar.gz\""
+      assertEquals(formula.linesIterator.count(_.trim == url), 1, s"no single url for $platform")
+    }
   }
 
-  test("the formula runs the CLI on a JDK 21 and checks its version") {
-    assert(formula.contains("depends_on \"openjdk@21\""), formula)
-    assert(formula.contains("Language::Java.java_home_env(\"21\")"), formula)
+  test(
+    "each checksum is a placeholder on a line naming its platform, as the job's sed matches it"
+  ) {
+    val placeholder = "sha256 \"" + "0" * 64 + "\""
+    platforms.foreach { platform =>
+      assertEquals(
+        formula.linesIterator.count(_.trim == s"$placeholder # $platform"),
+        1,
+        s"no single checksum placeholder for $platform"
+      )
+    }
+    assertEquals(formula.linesIterator.count(_.contains("0" * 64)), platforms.size, formula)
+  }
+
+  test("the url and checksum for a platform sit in the block that selects it") {
+    val lines = formula.linesIterator.map(_.trim).toVector
+    def block(os: String, arch: String): Vector[String] =
+      val osAt   = lines.indexOf(s"on_$os do")
+      val archAt = lines.indexWhere(_ == s"on_$arch do", osAt)
+      lines.slice(archAt, lines.indexWhere(_ == "end", archAt))
+    Seq(
+      ("macos", "arm", "macos-arm64"),
+      ("macos", "intel", "macos-x64"),
+      ("linux", "arm", "linux-arm64"),
+      ("linux", "intel", "linux-x64")
+    ).foreach { case (os, arch, platform) =>
+      val inside = block(os, arch)
+      assert(inside.exists(_.endsWith(s"-$platform.tar.gz\"")), s"on_$os/on_$arch: $inside")
+      assert(inside.exists(_.endsWith(s"# $platform")), s"on_$os/on_$arch: $inside")
+    }
+  }
+
+  test("the formula installs the executable alone, needs no JDK, and checks its version") {
+    assert(formula.contains("bin.install \"ankka\""), formula)
+    assert(!formula.contains("openjdk"), "the native build needs no JVM")
     assert(formula.contains("ankka version"), formula)
   }

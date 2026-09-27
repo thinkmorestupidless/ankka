@@ -460,9 +460,18 @@ lazy val cli = project
   .in(file("cli"))
   .dependsOn(controlPlaneApi)
   .settings(commonSettings)
-  .enablePlugins(JavaAppPackaging)
+  .enablePlugins(JavaAppPackaging, GraalVMNativeImagePlugin)
   .settings(
-    name           := "ankka-cli",
+    name := "ankka-cli",
+    // `sbt cli/GraalVMNativeImage/packageBin` is the CLI as one executable with no JVM to install:
+    // cli/target/graalvm-native-image/ankka. It needs a GraalVM's `native-image` on PATH or named
+    // by GRAALVM_HOME. What the image must carry (the docs, the console's files) is declared in the
+    // jar itself, under META-INF/native-image, so any native build of this jar gets it right.
+    GraalVMNativeImage / name := "ankka",
+    graalVMNativeImageCommand := sys.env
+      .get("GRAALVM_HOME")
+      .map(home => s"$home/bin/native-image")
+      .getOrElse("native-image"),
     publish / skip := true,
     // `sbt cli/stage` is how the CLI is run as a program: target/universal/stage/bin/ankka.
     executableScriptName := "ankka",

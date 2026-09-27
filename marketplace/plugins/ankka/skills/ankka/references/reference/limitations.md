@@ -94,9 +94,10 @@ feature also says what that feature does not do.
 - **The sidecar image is not on a public registry.** A Python or TypeScript service runs beside `ankka-sidecar`,
   which is built from the repository with `sbt sidecar/docker:publishLocal`; the SDKs themselves are on PyPI
   and npm.
-- **The CLI is a JVM program.** It is installed with Homebrew (`brew install
-  thinkmorestupidless/tap/ankka`, which brings its own JDK) or unpacked from a release's zip onto a
-  JDK 21; there is no native binary and no Linux package. `ankka init` needs `sbt` on `PATH` too.
+- **The CLI has native builds for macOS and Linux only.** There is no Windows executable, no Linux
+  package, and the Linux builds need glibc, so they do not run on musl (Alpine); the release's zip runs
+  anywhere with a JDK 21. The macOS executables are not signed by Apple. `ankka init` needs `sbt` on
+  `PATH` too.
 - **The template waits on a release.** `sbt new thinkmorestupidless/ankka.g8` works once a release has
   published the template; until then use `sbt new file:///path/to/ankka/ankka.g8` from a checkout.
 - **No local image registry.** A local platform loads images straight into its cluster with

@@ -13,11 +13,12 @@ import scala.jdk.CollectionConverters.*
  * nonsense, and nothing before the tag would notice. `HomebrewFormulaSuite` pins that shape for the
  * formula; the first cases here do it for the action.
  *
- * The last case runs the action's own install script against the zip this build produces, served
- * over `file://`. That is as close as this repository can get to proving the action works without a
- * GitHub runner: the script, the checksum check, the unzip and `bin/ankka version` are all the real
- * ones. What it cannot cover is GitHub's own contract — `$GITHUB_PATH` being read by later steps —
- * which is the manual tier in the feature's quickstart.
+ * The last cases run the action's own install script: against a tarball of the native build this
+ * machine produced, served over `file://`, and as a runner with no native build. That is as close
+ * as this repository can get to proving the action works without a GitHub runner: the platform
+ * choice, the script, the checksum check, the unpacking and `ankka version` are all the real ones.
+ * What it cannot cover is GitHub's own contract — `$GITHUB_PATH` being read by later steps — which
+ * is the manual tier in the feature's quickstart.
  */
 class ActionSuite extends munit.FunSuite:
 
@@ -27,7 +28,7 @@ class ActionSuite extends munit.FunSuite:
     Files.readString(CliReferenceSuite.repoRoot.resolve("action/action.yml"))
 
   private def hasTools: Boolean =
-    Seq("unzip", "sha256sum").forall(tool =>
+    Seq("curl", "tar", "shasum").forall(tool =>
       sys.env
         .getOrElse("PATH", "")
         .split(java.io.File.pathSeparator)
@@ -59,16 +60,19 @@ class ActionSuite extends munit.FunSuite:
       ),
       actionYaml
     )
-    assert(actionYaml.contains("ankka-cli-$ANKKA_VERSION.zip"), actionYaml)
-    assert(actionYaml.contains("$zip.sha256"), "the checksum published beside the zip")
-    assert(actionYaml.contains("sha256sum --check"), actionYaml)
+    assert(actionYaml.contains("ankka-cli-$ANKKA_VERSION-$platform.tar.gz"), actionYaml)
+    assert(actionYaml.contains("$archive.sha256"), "the checksum published beside the tarball")
+    assert(actionYaml.contains("shasum -a 256 --check"), actionYaml)
   }
 
-  test("it installs no Java, and says what to add when there is none") {
-    assert(actionYaml.contains("actions/setup-java@v4"), "the failure names the fix")
-    assert(actionYaml.contains("Java 21 or later"), actionYaml)
-    // Nothing here may fetch a runtime: that is the caller's step, deliberately.
-    assert(!actionYaml.contains("uses: actions/setup-java") || actionYaml.contains("::error::"))
+  test("it installs the native build for each platform the release carries, and needs no Java") {
+    Seq(
+      "Linux/X64)   platform=linux-x64",
+      "Linux/ARM64) platform=linux-arm64",
+      "macOS/X64)   platform=macos-x64",
+      "macOS/ARM64) platform=macos-arm64"
+    ).foreach(line => assert(actionYaml.contains(line), s"missing: $line"))
+    assert(!actionYaml.toLowerCase.contains("java"), "the native build needs no JVM")
   }
 
   test("the token is masked before it is written, and nothing outlives the job") {
@@ -91,66 +95,95 @@ class ActionSuite extends munit.FunSuite:
    * The install step, run for real.
    *
    * Extracted from the YAML by its step name so the script under test is the one that ships, not a
-   * copy of it. Gated on `unzip` and `sha256sum` being present, as `TemplateSuite` is gated on
-   * `sbt`.
+   * copy of it. Gated on `curl`, `tar` and `shasum` being present, and on a native build existing,
+   * as `TemplateSuite` is gated on `sbt`.
    */
-  test("the install step fetches, verifies and unpacks a real zip") {
-    assume(hasTools, "needs unzip and sha256sum on PATH")
-
-    // Found rather than predicted. On a dirty tree dynver appends a timestamp, so the version
-    // compiled into `BuildInfo` and the one in a zip built minutes later do not match — and an
-    // `assume` on a name that can never exist is a test that silently never runs.
-    val universal = CliReferenceSuite.repoRoot.resolve("cli/target/universal")
-    val zip = Option(universal.toFile.listFiles()).toVector.flatten
-      .filter(f => f.getName.startsWith("ankka-cli-") && f.getName.endsWith(".zip"))
-      .sortBy(-_.lastModified())
-      .headOption
-      .map(_.toPath)
+  test("the install step fetches, verifies and unpacks this machine's native build") {
+    assume(hasTools, "needs curl, tar and shasum on PATH")
+    val binary = CliReferenceSuite.repoRoot.resolve("cli/target/graalvm-native-image/ankka")
     assume(
-      zip.isDefined,
-      s"needs a zip in $universal — run `sbt cli/Universal/packageBin` first"
+      Files.isExecutable(binary),
+      s"needs $binary — run `sbt cli/GraalVMNativeImage/packageBin` first"
     )
-    val archive = zip.get
-    val version = archive.getFileName.toString
-      .stripPrefix("ankka-cli-")
-      .stripSuffix(".zip")
+    val (runnerOs, runnerArch, platform) = thisPlatform
+    // Any version will do: the tarball is named for it here and served from a local directory.
+    val version = "9.9.9"
+    val archive = s"ankka-cli-$version-$platform.tar.gz"
 
     val work = Files.createTempDirectory("ankka-action")
     try
+      val staging = Files.createDirectory(work.resolve("staging"))
+      Files.copy(binary, staging.resolve("ankka")): Unit
+      run(staging, "tar", "-czf", work.resolve(archive).toString, "ankka"): Unit
       // The checksum the release job writes: computed from inside the directory, so the line names
       // the bare file and `--check` can find it wherever it is run.
-      val checksum = run(archive.getParent, "sha256sum", archive.getFileName.toString)
-      Files.writeString(work.resolve(s"ankka-cli-$version.zip.sha256"), checksum): Unit
-      Files.copy(archive, work.resolve(s"ankka-cli-$version.zip")): Unit
+      Files.writeString(
+        work.resolve(s"$archive.sha256"),
+        run(work, "shasum", "-a", "256", archive)
+      ): Unit
 
-      val script  = installScript
-      val runner  = Files.createTempDirectory("ankka-runner")
-      val path    = Files.createTempFile("github-path", ".txt")
-      val scriptF = work.resolve("install.sh")
-      Files.writeString(scriptF, script): Unit
+      val (status, output, path) = install(work, version, runnerOs, runnerArch)
+      assertEquals(status, 0, s"the install step failed:\n$output")
 
-      val process = new ProcessBuilder("bash", scriptF.toString)
-        .directory(work.toFile)
-        .redirectErrorStream(true)
-      process.environment().put("ANKKA_VERSION", version)
-      process.environment().put("ANKKA_CLI_BASE_URL", s"file://${work.toAbsolutePath}")
-      process.environment().put("RUNNER_TEMP", runner.toString)
-      process.environment().put("GITHUB_PATH", path.toString)
-      val started = process.start()
-      val output  = new String(started.getInputStream.readAllBytes())
-      assertEquals(started.waitFor(), 0, s"the install step failed:\n$output")
-
-      // It appended a bin directory to GITHUB_PATH, and that directory runs.
+      // It appended a directory to GITHUB_PATH, and the ankka in it runs.
       val appended = Files.readAllLines(path).asScala.filter(_.nonEmpty)
       assertEquals(appended.size, 1, appended.toString)
       val bin = Path.of(appended.head)
       assert(Files.isExecutable(bin.resolve("ankka")), s"$bin/ankka is not executable")
-      // `ankka version` prints the version compiled into BuildInfo, which on a dirty tree is
-      // not the zip's name — so this asserts it runs and says something, not that the two agree.
+      // `ankka version` prints the version compiled into BuildInfo, not the tarball's name — so this
+      // asserts it runs and says something, not that the two agree.
       val reported = run(bin, "./ankka", "version")
       assert(reported.trim.nonEmpty, "`ankka version` printed nothing")
     finally deleteRecursively(work)
   }
+
+  test("a runner with no native build is refused before anything is downloaded, naming it") {
+    val work = Files.createTempDirectory("ankka-action")
+    try
+      val (status, output, _) = install(work, "9.9.9", "Windows", "X64")
+      assertNotEquals(status, 0, output)
+      assert(output.contains("no build for Windows/X64"), output)
+      assert(!output.contains("could not be fetched"), "it tried a download first:\n" + output)
+    finally deleteRecursively(work)
+  }
+
+  /** Runs the install step as a runner would, from `work`, serving the release from `work` too. */
+  private def install(
+      work: Path,
+      version: String,
+      runnerOs: String,
+      runnerArch: String
+  ): (Int, String, Path) =
+    val runner  = Files.createTempDirectory("ankka-runner")
+    val path    = Files.createTempFile("github-path", ".txt")
+    val scriptF = work.resolve("install.sh")
+    Files.writeString(scriptF, installScript): Unit
+    val process = new ProcessBuilder("bash", scriptF.toString)
+      .directory(work.toFile)
+      .redirectErrorStream(true)
+    process.environment().put("ANKKA_VERSION", version)
+    process.environment().put("ANKKA_CLI_BASE_URL", s"file://${work.toAbsolutePath}")
+    process.environment().put("RUNNER_OS", runnerOs)
+    process.environment().put("RUNNER_ARCH", runnerArch)
+    process.environment().put("RUNNER_TEMP", runner.toString)
+    process.environment().put("GITHUB_PATH", path.toString)
+    val started = process.start()
+    val output  = new String(started.getInputStream.readAllBytes())
+    (started.waitFor(), output, path)
+
+  /** This machine as GitHub would name it, and the release's name for its native build. */
+  private def thisPlatform: (String, String, String) =
+    val os = sys.props("os.name").toLowerCase match
+      case n if n.contains("mac")   => "macOS"
+      case n if n.contains("linux") => "Linux"
+      case n                        => fail(s"no native build for $n")
+    val arch = sys.props("os.arch") match
+      case "aarch64" | "arm64" => "ARM64"
+      case "amd64" | "x86_64"  => "X64"
+      case other               => fail(s"no native build for $other")
+    val platform =
+      (if os == "macOS" then "macos" else "linux") + (if arch == "ARM64" then "-arm64" else "-x64")
+    (os, arch, platform)
 
   /** The `run:` body of the install step, as it ships. */
   private def installScript: String =

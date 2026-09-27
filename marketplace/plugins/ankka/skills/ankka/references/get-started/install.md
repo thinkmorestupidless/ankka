@@ -30,7 +30,7 @@ throwaway Postgres in a container. No model API key is needed for anything on th
 ## Install the CLI
 
 On macOS, and on Linux with [Homebrew](https://brew.sh/), the CLI comes from ankka's tap. The formula
-installs the JDK it runs on, so nothing else is needed:
+installs a native executable that needs no JVM, so nothing else is needed:
 
 ```bash
 brew install thinkmorestupidless/tap/ankka
@@ -40,9 +40,27 @@ ankka version
 `brew upgrade ankka` moves to a newer release. `ankka init` also needs `sbt` on the `PATH`, because it
 runs `sbt new` to expand the service template; every other command works without it.
 
-Anywhere else, every release carries the same CLI as a zip on its
-[GitHub release](https://github.com/thinkmorestupidless/ankka/releases): unpack it and put its `bin`
-directory on your `PATH`. It needs a JDK 21 on the `PATH` or in `JAVA_HOME`.
+Anywhere else, releases after 0.6.4 carry the CLI as a single native executable for each platform, with
+no JVM to install: `linux-x64`, `linux-arm64`, `macos-arm64` and `macos-x64`, each on the
+[GitHub release](https://github.com/thinkmorestupidless/ankka/releases) beside a `.sha256` checksum. The
+Linux builds need glibc 2.35 or later, so they do not run on Alpine.
+
+```bash
+version=0.7.0                                        # a release from the releases page
+platform=linux-x64                                   # or linux-arm64, macos-arm64, macos-x64
+base="https://github.com/thinkmorestupidless/ankka/releases/download/v$version"
+curl -LO "$base/ankka-cli-$version-$platform.tar.gz" -LO "$base/ankka-cli-$version-$platform.tar.gz.sha256"
+shasum -a 256 --check "ankka-cli-$version-$platform.tar.gz.sha256"
+tar -xzf "ankka-cli-$version-$platform.tar.gz"      # one file, ankka: put it on your PATH
+./ankka version
+```
+
+The macOS executables are not signed by Apple. `curl` downloads them without the quarantine attribute and
+they run as they are; one downloaded through a browser is refused by Gatekeeper until the attribute is
+removed with `xattr -d com.apple.quarantine ankka`.
+
+Every release also carries the CLI as a zip that runs on a JDK 21 on the `PATH` or in `JAVA_HOME`, for a
+platform with no native build: unpack it and put its `bin` directory on your `PATH`.
 
 ```bash
 version=0.3.1                                        # a release from the releases page

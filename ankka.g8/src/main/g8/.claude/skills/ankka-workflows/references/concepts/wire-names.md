@@ -42,6 +42,21 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]: ...
 ```
 
+**TypeScript**
+
+```ts
+export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
+  static readonly componentId = "shopping-cart"
+  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+
+  static readonly handlers = {
+    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+    getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+  }
+}
+```
+
 In Scala the declaration is a value on the companion object, and a call site uses that value:
 
 ```scala

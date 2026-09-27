@@ -2,7 +2,7 @@
 title: Handlers and wire names
 description: How ankka names components, handlers and stored types independently of your code's names, why those names are a versioning boundary, and which renames are safe in a running system.
 kind: concept
-languages: [scala, python]
+languages: [scala, python, typescript]
 related: [build/serialization.md, deploy/scaling-and-rollouts.md, concepts/designing-services.md]
 ---
 
@@ -17,7 +17,7 @@ used to address calls. The code names are yours to change at any time.
 
 A handler is declared under its wire name, beside the method that implements it.
 
-**Scala**
+/// tab | Scala
 
 ```scala
 object ShoppingCartEntity
@@ -32,7 +32,9 @@ object ShoppingCartEntity
   val getCart = query("get-cart")(_.getCart)
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
 class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
@@ -46,6 +48,25 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     @query("get-cart")
     def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]: ...
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
+  static readonly componentId = "shopping-cart"
+  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+
+  static readonly handlers = {
+    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+    getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+  }
+}
+```
+
+///
 
 In Scala the declaration is a value on the companion object, and a call site uses that value:
 

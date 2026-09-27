@@ -18,8 +18,8 @@ and file path followed — so git history before that commit reads `nakka` throu
 services on ankka — and `README.md` is a landing page into it. Start with
 `docs/concepts/architecture.md`, `docs/concepts/designing-services.md` and
 `docs/reference/limitations.md` (the honest "not implemented" list) before making design decisions.
-`docs/design/` holds internal design treatments that feed feature specifications; it is never
-published. See *Documentation* below for how the tree is built and the rules a page follows.
+Everything under `docs/` is public; internal design treatments live in the private
+`ankka-deployments` repository (`design/`), not here. See *Documentation* below for how the tree is built and the rules a page follows.
 
 ## Commands
 

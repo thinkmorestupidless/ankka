@@ -26,7 +26,7 @@ The runtime hosts each workflow instance as a sharded, event-sourced actor whose
 transitions. That is what makes the transitions durable and what makes one instance single-writer: two
 steps of one instance never run at the same time.
 
-## Declaring a workflow in Scala
+## A workflow in Scala, step by step
 
 This workflow moves money between two wallets and puts it back if the deposit fails. The class holds the
 handlers; the companion registers them under their wire names.
@@ -115,10 +115,89 @@ Ankka.service
   .start()
 ```
 
-## Declaring a workflow in Python
+## One workflow, three languages
 
-The Python workflow is a class with a `component_id`, a `state_codec`, `@command` and `@query` handlers,
-and `@step` methods. Steps may be `async`, and call other components through `self.context.client`.
+The shopping cart's checkout is the same durable process in each SDK: reserve what the cart holds,
+charge, and check the cart out — or compensate. A workflow class holds a state type, `command` and
+`query` handlers, and step methods; the runtime journals every transition before the next step begins.
+
+**Scala**
+
+```scala
+final class CheckoutWorkflow(context: WorkflowContext) extends Workflow[Checkout]:
+
+  private val client = context.componentClient
+
+  def emptyState: Checkout = Checkout(context.workflowId)
+
+  override def settings: WorkflowSettings =
+    WorkflowSettings.builder
+      .defaultStepTimeout(10.seconds)
+      .stepRecovery(
+        CheckoutWorkflow.charge,
+        RecoverStrategy.maxRetries(1).failoverTo(CheckoutWorkflow.compensate)
+      )
+      .build
+
+  /** `mode`: `ok`, `fail` (the charge is declined) or `pause` (a pause before it). */
+  def start(mode: String): Effect[Done] =
+    if currentState.status != "new" then
+      effects.error(s"checkout is already \${currentState.status}", ErrorCode.Conflict)
+    else
+      effects
+        .updateState(currentState.copy(status = "reserving", mode = mode))
+        .transitionTo(CheckoutWorkflow.reserve)
+        .thenReply(Done)
+
+  def status: ReadOnlyEffect[Checkout] = effects.reply(currentState)
+
+  def reserveStep: StepEffect =
+    // A client call from a step: what the cart holds.
+    val total = cart.call(ShoppingCartEntity.totalQuantity).invoke()
+    val next =
+      if currentState.mode == "pause" then CheckoutWorkflow.waitForTimeout
+      else CheckoutWorkflow.charge
+    stepEffects
+      .updateState(currentState.copy(status = "reserved", reserved = total))
+      .thenTransitionTo(next.ref)
+
+  def waitStep: StepEffect =
+    stepEffects
+      .updateState(currentState.copy(status = "waiting"))
+      .thenPause(1500.millis, CheckoutWorkflow.charge.ref)
+
+  def chargeStep: StepEffect =
+    if currentState.mode == "fail" then throw PaymentDeclined("payment declined")
+    // Not idempotent — a retry after the cart was checked out is refused — which is why `charge` is
+    // allowed one retry and then fails over, and why compensation exists.
+    if currentState.reserved > 0 then cart.call(ShoppingCartEntity.checkout).invoke(): Unit
+    stepEffects.updateState(currentState.copy(status = "charged")).thenEnd
+
+  def compensateStep: StepEffect =
+    stepEffects.updateState(currentState.copy(status = "compensated", reserved = 0)).thenEnd
+
+  private def cart = client.forEventSourcedEntity(EntityId(currentState.cartId))
+
+object CheckoutWorkflow
+    extends Workflow.Companion[CheckoutWorkflow, Checkout](
+      componentId = ComponentId("checkout"),
+      stateSerializer = Codecs.serializer[Checkout]("checkout")
+    ):
+
+  def create(context: WorkflowContext) = new CheckoutWorkflow(context)
+
+  val reserve = step("reserve")(_.reserveStep)
+  // The wire name is "wait"; the Scala name cannot be, because `wait` is final on `AnyRef`. That the
+  // two are declared separately is exactly what makes this possible.
+  val waitForTimeout = step("wait")(_.waitStep)
+  val charge         = step("charge")(_.chargeStep)
+  val compensate     = step("compensate")(_.compensateStep)
+
+  val start  = command("start")(_.start)
+  val status = query("status")(_.status)
+```
+
+**Python**
 
 ```python
 class CheckoutWorkflow(Workflow[Checkout]):
@@ -172,9 +251,76 @@ class CheckoutWorkflow(Workflow[Checkout]):
         return self.context.client.for_event_sourced_entity("shopping-cart", self.state.cartId)
 ```
 
-A Python step names its successor by its wire name, `then_transition_to("charge")`, and passes an input
-as a second argument when the step takes one. The sidecar journals the transition and runs the steps; the
-process is asked to run one step at a time and answers with the step's effect.
+**TypeScript**
+
+```ts
+export class CheckoutWorkflow extends Workflow<Checkout> {
+  static readonly componentId = "checkout"
+  static readonly state = jsonCodec(Checkout, "checkout")
+  static readonly settings = workflowSettings({
+    defaultStepTimeout: Duration.ofSeconds(10),
+    steps: { charge: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
+  })
+
+  static readonly handlers = {
+    /** `mode`: `ok`, `fail` (the charge is declined) or `pause` (a pause before it). */
+    start: command("start", s.string, Done, (w: CheckoutWorkflow, mode) => w.start(mode)),
+    status: query("status", Checkout, (w: CheckoutWorkflow) => w.effects.reply(w.state)),
+  }
+
+  static readonly steps = {
+    reserve: step("reserve", (w: CheckoutWorkflow) => w.reserve()),
+    wait: step("wait", (w: CheckoutWorkflow) => w.wait()),
+    charge: step("charge", (w: CheckoutWorkflow) => w.charge()),
+    compensate: step("compensate", (w: CheckoutWorkflow) => w.compensate()),
+  }
+
+  emptyState(): Checkout {
+    return { cartId: this.entityId, status: "new", reserved: 0, mode: "ok" }
+  }
+
+  start(mode: string) {
+    if (this.state.status !== "new") return this.effects.error(`checkout is already \${this.state.status}`, ErrorCode.Conflict)
+    return this.effects.updateState({ ...this.state, status: "reserving", mode }).thenTransitionTo("reserve").thenReply(() => done)
+  }
+
+  async reserve() {
+    // A client call from a step: what the cart holds.
+    const total = await this.cart().call(ShoppingCartEntity.handlers.totalQuantity).invoke()
+    const next = this.state.mode === "pause" ? "wait" : "charge"
+    return this.stepEffects.updateState({ ...this.state, status: "reserved", reserved: total }).thenTransitionTo(next)
+  }
+
+  wait() {
+    return this.stepEffects.updateState({ ...this.state, status: "waiting" }).thenPause({ after: Duration.ofMillis(1500), onTimeout: "charge" })
+  }
+
+  async charge() {
+    if (this.state.mode === "fail") throw new PaymentDeclined("payment declined")
+    // Not idempotent — a retry after the cart was checked out is refused — which is why `charge` is
+    // allowed one retry and then fails over, and why compensation exists.
+    if (this.state.reserved > 0) await this.cart().call(ShoppingCartEntity.handlers.checkout).invoke()
+    return this.stepEffects.updateState({ ...this.state, status: "charged" }).thenEnd()
+  }
+
+  compensate() {
+    return this.stepEffects.updateState({ ...this.state, status: "compensated", reserved: 0 }).thenEnd()
+  }
+
+  cart() {
+    return this.client.of(ShoppingCartEntity, this.state.cartId)
+  }
+}
+```
+
+A Scala step names its successor with the companion's step handle, which carries the wire name; Python
+and TypeScript name it by the wire name itself, `then_transition_to("charge")` and
+`thenTransitionTo("charge")`, passing an input as a further argument when the step takes one. In every
+case the transition is journalled and the runtime runs one step at a time.
+
+Steps may be asynchronous. In Python and TypeScript they are `async` and call other components through
+the client; in Scala a step is ordinary blocking code on a virtual thread, so `invoke` inside a step
+costs nothing but the wait.
 
 ## What a command can do
 
@@ -241,6 +387,15 @@ settings = WorkflowSettings(
     default_step_timeout=timedelta(seconds=10),
     steps={"charge": StepSettings(recovery=Recovery(max_retries=1, failover_to="compensate"))},
 )
+```
+
+**TypeScript**
+
+```ts
+static readonly settings = workflowSettings({
+  defaultStepTimeout: Duration.ofSeconds(10),
+  steps: { charge: { recovery: { maxRetries: 1, failoverTo: "compensate" } } },
+})
 ```
 
 | Setting | Default | Meaning |

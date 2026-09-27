@@ -2,7 +2,7 @@
 title: Consumers
 description: React to every change from an entity or a topic, call other components or publish onward to a topic, and make the reaction safe to repeat under at-least-once delivery.
 kind: guide
-languages: [scala, python]
+languages: [scala, python, typescript]
 components: [consumer]
 related: [build/topics.md, build/views.md, concepts/consistency.md, build/component-client.md]
 ---
@@ -22,11 +22,11 @@ safe to do twice.
 
 A consumer reads one source, declared the same way as a view's:
 
-| Source | Scala | Python |
-|---|---|---|
-| An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` |
-| A key value entity's state | `ChangeSource.stateOf(PreferencesEntity)` | `source = CheckoutLog` |
-| A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` |
+| Source | Scala | Python | TypeScript |
+|---|---|---|---|
+| An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` | `static readonly source = ShoppingCartEntity` |
+| A key value entity's state | `ChangeSource.stateOf(CheckoutLog)` | `source = CheckoutLog` | `static readonly source = CheckoutLog` |
+| A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` |
 
 From a key value entity a consumer sees the latest value, and intermediate values can be skipped. Use an
 event sourced source for anything that must react to every change.
@@ -35,11 +35,11 @@ event sourced source for anything that must react to every change.
 
 A consumer's handler returns one of three effects. All three advance the consumer past the change.
 
-| Scala | Python | Meaning |
-|---|---|---|
-| `effects.produce(message)` | `self.effects.produce(message)` | Publish `message` to the consumer's topic. |
-| `effects.done()` | `self.effects.done()` | Handled; nothing to publish. |
-| `effects.ignore()` | `self.effects.ignore()` | Not interesting to this consumer. |
+| Scala | Python | TypeScript | Meaning |
+|---|---|---|---|
+| `effects.produce(message)` | `self.effects.produce(message)` | `this.effects.produce(message)` | Publish `message` to the consumer's topic. |
+| `effects.done()` | `self.effects.done()` | `this.effects.done()` | Handled; nothing to publish. |
+| `effects.ignore()` | `self.effects.ignore()` | `this.effects.ignore()` | Not interesting to this consumer. |
 
 Failure is not an effect. A handler that throws or raises does not advance, and the change is delivered
 again. That is the mechanism for retrying a call that failed, and it is also why a handler that fails the
@@ -108,8 +108,39 @@ without it, naming the consumer.
 
 ## Calling other components
 
-A consumer can act on other components through the component client. The Python sample records each
-checkout in a key value entity:
+A consumer can act on other components through the component client. Each of these records every
+checkout in the `CheckoutLog` key value entity:
+
+/// tab | Scala
+
+```scala
+import com.thinkmorestupidless.ankka.core.{ComponentId, Done, EntityId}
+import com.thinkmorestupidless.ankka.sdk.*
+import shoppingcart.domain.ShoppingCartEvent
+import shoppingcart.domain.ShoppingCartEvent.*
+
+final class CheckoutRecorder(client: ComponentClient) extends Consumer[ShoppingCartEvent, Nothing]:
+
+  def onMessage(event: ShoppingCartEvent): Effect = event match
+    case CheckedOut =>
+      client
+        .forKeyValueEntity(EntityId(messageContext.subject))
+        .call(CheckoutLog.record)
+        .invoke(System.currentTimeMillis()): Unit
+      effects.done()
+    case _ => effects.ignore()
+
+object CheckoutRecorder
+    extends Consumer.Companion[CheckoutRecorder, ShoppingCartEvent, Nothing](
+      componentId = ComponentId("checkout-recorder"),
+      source = ChangeSource.eventsOf(ShoppingCartEntity)
+    ):
+  def create(ctx: ConsumerContext) = new CheckoutRecorder(ctx.componentClient)
+```
+
+///
+
+/// tab | Python
 
 <!-- include: sdks/python/examples/shopping_cart/checkout_notifier.py -->
 ```python
@@ -144,38 +175,36 @@ class CheckoutNotifier(Consumer[ShoppingCartEvent, None]):
         return self.effects.done()
 ```
 
-In Scala the client arrives in the context the companion's `create` receives. Consumers run on virtual
-threads, so a blocking `invoke` inside `onMessage` is cheap:
+///
 
-```scala
-import com.thinkmorestupidless.ankka.core.{ComponentId, Done, EntityId}
-import com.thinkmorestupidless.ankka.sdk.*
-import shoppingcart.domain.ShoppingCartEvent
-import shoppingcart.domain.ShoppingCartEvent.*
+/// tab | TypeScript
 
-final class CheckoutRecorder(client: ComponentClient) extends Consumer[ShoppingCartEvent, Nothing]:
+<!-- include: sdks/typescript/examples/shopping-cart/checkoutNotifier.ts#consumer -->
+```ts
+export class CheckoutNotifier extends Consumer<ShoppingCartEvent> {
+  static readonly componentId = "checkout-notifier"
+  static readonly source = ShoppingCartEntity
+  static readonly message = ShoppingCartEntity.events
 
-  def onMessage(event: ShoppingCartEvent): Effect = event match
-    case CheckedOut =>
-      client
-        .forKeyValueEntity(EntityId(messageContext.subject))
-        .call(CheckoutLog.record)
-        .invoke(System.currentTimeMillis()): Unit
-      effects.done()
-    case _ => effects.ignore()
-
-object CheckoutRecorder
-    extends Consumer.Companion[CheckoutRecorder, ShoppingCartEvent, Nothing](
-      componentId = ComponentId("checkout-recorder"),
-      source = ChangeSource.eventsOf(ShoppingCartEntity)
-    ):
-  def create(ctx: ConsumerContext) = new CheckoutRecorder(ctx.componentClient)
+  async onMessage(event: ShoppingCartEvent) {
+    if (event.type !== "CheckedOut") return this.effects.ignore()
+    await this.client.of(CheckoutLog, this.subject).call(CheckoutLog.handlers.record).invoke(BigInt(Date.now()))
+    return this.effects.done()
+  }
+}
 ```
 
-`CheckoutLog` here stands for any key value entity with a `record` command taking a `Long`. A consumer that
-only reacts, and publishes nothing, has `Nothing` as its output type in Scala and `None` in Python.
+///
 
-The source entity's id is `messageContext.subject` in Scala and `self.metadata.subject` in Python.
+The client reaches the consumer differently in each. In Scala it arrives in the context the companion's
+`create` receives; in Python it is `self.client` and in TypeScript `this.client`. Scala consumers run on
+virtual threads, so a blocking `invoke` inside `onMessage` costs nothing but the wait.
+
+A consumer that only reacts, and publishes nothing, has `Nothing` as its output type in Scala; Python and
+TypeScript simply declare no output.
+
+The source entity's id is `messageContext.subject` in Scala, `self.metadata.subject` in Python and
+`this.subject` in TypeScript.
 
 ## Making a consumer safe to repeat
 
@@ -204,7 +233,7 @@ something keyed by the deleted entity's id.
 
 Like a view, a consumer runs only in a service with the projection runtime:
 
-**Scala**
+/// tab | Scala
 
 ```scala
 val service = Ankka.service
@@ -214,11 +243,31 @@ val service = Ankka.service
   .start()
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
-service = Ankka.service().register(ShoppingCartEntity).register(CheckoutLog).register(CheckoutNotifier)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CheckoutLog)
+    .register(CheckoutNotifier)
+)
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CheckoutLog)
+  .register(CheckoutNotifier)
+```
+
+///
 
 A consumer's work is spread across the service's instances, and each change is handled on one of them.
 `parallelism` on the Scala companion, 4 by default, sets how many slices of the source's changes are read

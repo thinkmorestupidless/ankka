@@ -25,10 +25,12 @@ for as long as it keeps failing. Two consequences follow.
   after the timer was set — must return `done`. Returning an error reschedules it, forever. This is the
   sharpest edge in the timer API.
 
-## A timed action in Scala
+## Writing a timed action
 
-A timed action is a class extending `TimedAction` whose handlers return an `Effect`, and a companion that
-registers them under wire names:
+A timed action is a class whose handlers are registered under wire names, because a scheduled timer names
+its handler as a string that has to survive a deployment:
+
+**Scala**
 
 ```scala
 final class OrderTimers(context: TimedActionContext) extends TimedAction:
@@ -41,70 +43,7 @@ final class OrderTimers(context: TimedActionContext) extends TimedAction:
     effects.done()
 ```
 
-The handler reports success whatever the order's state was: an order that had already been confirmed
-has nothing to cancel, and that is not a failure. The companion:
-
-```scala
-object OrderTimers extends TimedAction.Companion[OrderTimers](ComponentId("order-timers")):
-  def create(context: TimedActionContext) = new OrderTimers(context)
-
-  val expireOrder = handler("expire-order")(_.expireOrder)
-```
-
-`handler("expire-order")(_.expireOrder)` registers a handler that takes one argument; a handler with no
-argument is registered the same way from a method with no parameters. The argument needs a `Serializer`
-in scope, exactly as a command's does, because it is stored with the timer.
-
-`effects.done()` completes the timer. `effects.error(message)` fails it, so it is retried. The
-`TimedActionContext` passed to `create` carries the component client, `timerName` — which schedule fired
-— and `previousAttempts`, how many times this timer has already failed.
-
-## Scheduling and cancelling in Scala
-
-Timers are scheduled through a `TimerScheduler`, which the `TimerRuntime` extension provides once the
-service has started:
-
-```scala
-val timers = TimerRuntime()
-
-val service = Ankka.service
-  .register(OrderEntity.descriptor)
-  .register(OrderTimers.descriptor)
-  .withExtension(timers)
-  .start()
-
-val scheduler = timers.timerScheduler
-```
-
-Hand `timers.timerScheduler` to the code that schedules timers once the service is running, for example
-by passing it to an endpoint from the factory given to `HttpServer.of`. Extensions start in the order
-they are added, so add the `TimerRuntime` before the `HttpServer` for the scheduler to exist when the
-endpoints are built. Asking for it before the timer runtime has started throws. A call is captured with
-`deferred`, which encodes the argument there and then:
-
-```scala
-scheduler.createSingleTimer("expire-o-1", 300.millis, OrderTimers.expireOrder.deferred("o-1"))
-assert(scheduler.exists("expire-o-1"))
-```
-
-| Method | Meaning |
-|---|---|
-| `createSingleTimer(name, delay, call)` | Run `call` once, after `delay`. Scheduling again under the same name replaces the earlier schedule. |
-| `delete(name)` | Cancel. Cancelling a timer that does not exist is not an error. |
-| `exists(name)` | Whether a timer with this name is still scheduled. |
-
-**The name is the timer's identity.** Scheduling twice under one name replaces the first schedule, which
-makes "extend the deadline" one call rather than a cancel followed by a create that could race. Build
-names from the thing the timer is about — `expire-<orderId>` — so the code that confirms the order can
-cancel the timer by name without having stored anything.
-
-A timer's argument is limited to 1024 bytes. Pass an id and let the handler read what it needs, rather
-than passing the data itself.
-
-## A timed action in Python
-
-A Python timed action is a class with a `component_id` and handlers declared with `@action`. It reaches
-other components through `self.client`, and reads the timer's name and attempt count from its metadata:
+**Python**
 
 ```python
 from ankka import Done
@@ -125,20 +64,57 @@ class Reminder(TimedAction):
         return self.effects.done()
 ```
 
-`self.effects.done()` completes the timer and `self.effects.fail(message)` fails it, so it is retried. An
-exception raised by the handler, or a process that cannot be reached, is retried in the same way. The
-metadata keys are `ankka.timer`, the timer's name, and `ankka.attempts`, the number of earlier failed
-attempts.
+**TypeScript**
 
-Register it with the service like any other component:
+```ts
+import { TimedAction, action, s } from "ankka"
 
-```python
-Ankka.service().register(Reminder)
+export class Reminder extends TimedAction {
+  static readonly componentId = "reminder"
+  static readonly actions = {
+    nudge: action("nudge", s.string, async (r: Reminder, cartId) => {
+      await r.client.of(Reminders, cartId).call(Reminders.handlers.record).invoke()
+      return r.effects.done()
+    }),
+  }
+}
 ```
 
-## Scheduling and cancelling in Python
+The Scala handler reports success whatever the order's state was: an order that had already been
+confirmed has nothing to cancel, and that is not a failure. Its companion registers the handler:
 
-A Python process schedules through `client.timers`, which forwards to the sidecar:
+```scala
+object OrderTimers extends TimedAction.Companion[OrderTimers](ComponentId("order-timers")):
+  def create(context: TimedActionContext) = new OrderTimers(context)
+
+  val expireOrder = handler("expire-order")(_.expireOrder)
+```
+
+`handler("expire-order")(_.expireOrder)` registers a handler that takes one argument; a handler with no
+argument is registered the same way from a method with no parameters. The argument needs a `Serializer`
+in scope, exactly as a command's does, because it is stored with the timer. Python declares the same with
+`@action(name)` and TypeScript with `action(name, shape, run)` in `actions`.
+
+`done()` completes the timer; `error(message)` in Scala and `fail(message)` in Python and TypeScript fail
+it, so it is retried. An exception raised by the handler, or a process that cannot be reached, is retried
+in the same way.
+
+What fired, and how many times it has already failed, reaches the handler differently: Scala's
+`TimedActionContext` carries `timerName` and `previousAttempts`, while Python and TypeScript read the
+metadata keys `ankka.timer` and `ankka.attempts`.
+
+Register it with the service like any other component.
+
+## Scheduling and cancelling
+
+**Scala**
+
+```scala
+scheduler.createSingleTimer("expire-o-1", 300.millis, OrderTimers.expireOrder.deferred("o-1"))
+assert(scheduler.exists("expire-o-1"))
+```
+
+**Python**
 
 ```python
 from datetime import timedelta
@@ -147,10 +123,22 @@ await client.timers.schedule("nudge-c1", timedelta(hours=1), "reminder", "nudge"
 await client.timers.cancel("nudge-c1")
 ```
 
-`schedule(timer_id, delay, component_id, name, input)` names the timed action and handler by their wire
-names. As in Scala, scheduling twice under one id replaces the earlier schedule, and cancelling a timer
-that does not exist is not an error. The timer lives in the sidecar's database, so it fires even if the
-process that set it has restarted in the meantime.
+**TypeScript**
+
+```ts
+import { Duration } from "ankka"
+
+await client.timers.schedule("nudge-c1", Duration.ofHours(1), { component: Reminder, handler: Reminder.actions.nudge }, "c1")
+await client.timers.cancel("nudge-c1")
+```
+
+Every SDK names the timer by an id of your choosing, and the handler that will run. Python names the
+timed action and handler by their wire names, `schedule(timer_id, delay, component_id, name, input)`;
+TypeScript passes the component and handler themselves, so the names come from their declarations.
+
+Scheduling twice under one id replaces the earlier schedule, and cancelling a timer that does not exist
+is not an error. The timer lives in the database, so it fires even if the process that set it has
+restarted in the meantime.
 
 ## Timers and workflows
 

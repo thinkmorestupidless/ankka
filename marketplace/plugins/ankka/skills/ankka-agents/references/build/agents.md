@@ -1,6 +1,6 @@
 # Agents
 
-> Write an agent in Scala or Python — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
+> Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 
 Source: https://docs.ankka.cloud/build/agents/
 An agent is a component that carries out a task by talking to a model. Its handler describes one
@@ -15,51 +15,176 @@ to one session would otherwise read the same history, both append to it, and pro
 which neither turn acknowledges the other. Several agents can share a session, which is how agents
 collaborate; see [Agents and sessions](../concepts/agents.md).
 
-## An agent in Scala
+## An agent
 
-An agent is a class extending `Agent` whose handlers return an `Effect[R]`, and a companion that
-registers them:
+An agent declares its instructions, its tools and its guardrails, and returns an effect describing the
+interaction. It never calls a model itself: the runtime runs the loop, keeps the session, and calls back
+to run a tool or check a guardrail. The shopping cart's assistant is the same agent in each language:
+
+**Scala**
 
 ```scala
-final class WeatherAgent extends Agent:
+final class CartAssistant extends Agent:
 
-  def consult(destination: String): Effect[String] =
+  /**
+   * One description, two ways of delivering it: a single reply, or a token stream.
+   *
+   * The tool is built *here*, inside the handler, and closes over `componentClient` as a value.
+   * That is not a style choice. `componentClient` reads the session context, the loop runs a tool
+   * only after this handler has returned, and by then the session context is gone — so a tool whose
+   * body says `componentClient` throws "sessionContext is only available inside a command handler"
+   * when it is finally called. Reading it once, while still inside the handler, is what makes the
+   * call work.
+   */
+  private def describe(question: String) =
+    val client = componentClient
+
+    val lookup = FunctionTool
+      .named("lookup")
+      .describedAs("Looks up what is in a cart by its id.")
+      .param[String]("cartId", "The id of the cart to look up.")
+      .handle { cartId =>
+        val cart = client
+          .forEventSourcedEntity(EntityId(cartId))
+          .call(ShoppingCartEntity.getCart)
+          .invoke()
+        if cart.items.isEmpty then s"cart $cartId is empty"
+        else cart.items.map(item => s"${item.quantity} x ${item.name}").mkString(", ")
+      }
+
     effects
       .systemMessage(
-        "You are a concise weather specialist. Use your tools, then answer in one sentence."
+        "You help shoppers with their carts. Use the lookup tool before answering about a cart."
       )
-      .userMessage(s"What is the weather like in $destination?")
-      .tools(WeatherAgent.forecast)
-      .thenReply()
+      .userMessage(question)
+      .tools(lookup)
+      .guardrails(CartAssistant.noSecrets)
 
-object WeatherAgent extends Agent.Companion[WeatherAgent](ComponentId("weather-agent")):
+  def ask(question: String): Effect[String] = describe(question).thenReply()
 
-  override val role: String = Specialist.Weather
+  def chat(question: String): StreamEffect = describe(question).thenStream()
 
-  /** A stand-in forecast service, deterministic so the sample behaves the same each run. */
-  val forecast = FunctionTool
-    .named("get_forecast")
-    .describedAs("Returns a short weather forecast for a destination.")
-    .param[String]("destination", "The city or region to forecast.")
-    .handle { destination =>
-      val outlook =
-        if destination.toLowerCase.contains("reykjav") then "cold and windy"
-        else if destination.toLowerCase.contains("cairo") then "hot and dry"
-        else "mild with occasional rain"
-      s"$destination: $outlook"
-    }
+object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assistant")):
 
-  def create(context: AgentContext) = new WeatherAgent
+  /**
+   * Refuses a reply that looks like it is carrying an API key.
+   *
+   * Output only: the check runs before memory is written, so a rejected reply leaves no trace in
+   * the conversation. Nothing is wrong with a shopper *asking* about a key.
+   */
+  val noSecrets: Guardrail = new Guardrail:
+    val name = "no-secrets"
+    override def checkOutput(text: String): Either[String, Unit] =
+      if text.contains("sk-") then Left("a key leaked") else Right(())
 
-  val consult = command("consult")(_.consult)
+  def create(context: AgentContext) = new CartAssistant
+
+  val ask  = command("ask")(_.ask)
+  val chat = stream("chat")(_.chat)
 ```
 
-The companion's `command("consult")(_.consult)` declares the handler under its wire name, as on an
-entity. `role` names the agent in shared memory; it defaults to the component id. A handler that takes
-no argument is declared from a method with no parameters.
+**Python**
 
-Agents live in the `ankka-agent` module, and `import com.thinkmorestupidless.ankka.agent.*` brings in
-`Agent`, `FunctionTool`, `MemoryProvider`, `Guardrail` and the `forAgent` method on the component client.
+```python
+"""An agent that answers questions about a cart. It declares its instructions, one tool and one
+guardrail; the sidecar runs the loop — the model, memory, compaction — and asks this process to run
+the tool and check the guardrail. No model key lives here."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ankka.agent import Agent, Guardrail, Tool, stream
+from ankka.effects.agent import AgentEffect
+from ankka.event_sourced_entity import command
+
+from examples.shopping_cart.domain import ShoppingCart
+
+
+@dataclass(frozen=True)
+class CartLookup:
+    cartId: str
+
+
+async def _lookup(agent: Agent, arguments: CartLookup) -> str:
+    assert agent.client is not None
+    cart = await agent.client.for_event_sourced_entity("shopping-cart", arguments.cartId).call("get-cart").invoke(reply=ShoppingCart)
+    if not cart.items:
+        return f"cart {arguments.cartId} is empty"
+    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items)
+
+
+class CartAssistant(Agent):
+    component_id = "assistant"
+    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
+    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
+
+    def _describe(self, question: str) -> AgentEffect[str]:
+        return (
+            self.effects.system_message("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
+            .user_message(question)
+            .tools("lookup")
+            .guardrails("no-secrets")
+            .then_reply()
+        )
+
+    @command("ask")
+    def ask(self, question: str) -> AgentEffect[str]:
+        return self._describe(question)
+
+    @stream("chat")
+    def chat(self, question: str) -> AgentEffect[str]:
+        return self._describe(question)
+```
+
+**TypeScript**
+
+```ts
+const CartLookup = s.record("CartLookup", { cartId: s.string })
+
+export class CartAssistant extends Agent {
+  static readonly componentId = "assistant"
+  static readonly role = "helps shoppers with their carts"
+
+  static readonly tools = {
+    lookup: tool("lookup", "Looks up what is in a cart by its id.", CartLookup, (a: CartAssistant, input) => a.lookup(input.cartId)),
+  }
+
+  static readonly guardrails = {
+    noSecrets: guardrail("no-secrets", (stage, text) => (stage === "output" && text.includes("sk-") ? "a key leaked" : null)),
+  }
+
+  static readonly handlers = {
+    ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
+    chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
+  }
+
+  describe(question: string) {
+    return this.effects
+      .systemMessage("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
+      .userMessage(question)
+      .tools("lookup")
+      .guardrails("no-secrets")
+      .thenReply()
+  }
+
+  async lookup(cartId: string): Promise<string> {
+    const cart = await this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
+    if (cart.items.length === 0) return `cart ${cartId} is empty`
+    return cart.items.map((i) => `${i.quantity} x ${i.name}`).join(", ")
+  }
+}
+```
+
+In Scala the class extends `Agent`, the companion registers the handlers under their wire names, and the
+agent's component id identifies it. Python declares its tools and guardrails as class attributes;
+TypeScript declares them as statics. **In Python and TypeScript the loop runs in the sidecar**, which
+calls the model, keeps the session, and calls back into your process only to run a tool or check a
+guardrail — so the process never calls a model and never holds the model's key.
+
+A tool that calls another component must take the client while the handler is still running. The loop
+runs a tool *after* the handler has returned, so a tool that reaches for per-request state when it is
+finally called finds it gone.
 
 ## Describing an interaction
 
@@ -337,6 +462,8 @@ compaction for every session.
 
 Agents are called through the component client, addressed by session:
 
+**Scala**
+
 ```scala
 import com.thinkmorestupidless.ankka.agent.*
 
@@ -344,77 +471,32 @@ val answer: String =
   componentClient.forAgent(SessionId("session-42")).call(WeatherAgent.consult).invoke("Lisbon")
 ```
 
+**Python**
+
+```python
+answer = await client.for_agent("assistant", "session-42").call("ask").invoke("what is in cart c1?", reply=str)
+```
+
+**TypeScript**
+
+```ts
+const answer = await client.of(CartAssistant, "session-42").call(CartAssistant.handlers.ask).invoke("what is in cart c1?")
+```
+
 Choose session ids to match conversations: one per chat, or one per workflow instance when several
 agents collaborate on one task. The [multi-agent orchestration](multi-agent-orchestration.md) guide uses
 the workflow's id.
 
-## An agent in Python
-
-A Python agent declares its tools and guardrails as class attributes and returns an `AgentEffect` — a
-plan, as data. **The loop runs in the sidecar.** The sidecar calls the model, keeps the session, and
-calls back into your process to run a tool or check a guardrail, and for nothing else. The process never
-calls a model and never holds the model's key.
-
-```python
-"""An agent that answers questions about a cart. It declares its instructions, one tool and one
-guardrail; the sidecar runs the loop — the model, memory, compaction — and asks this process to run
-the tool and check the guardrail. No model key lives here."""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-from ankka.agent import Agent, Guardrail, Tool, stream
-from ankka.effects.agent import AgentEffect
-from ankka.event_sourced_entity import command
-
-from examples.shopping_cart.domain import ShoppingCart
-
-
-@dataclass(frozen=True)
-class CartLookup:
-    cartId: str
-
-
-async def _lookup(agent: Agent, arguments: CartLookup) -> str:
-    assert agent.client is not None
-    cart = await agent.client.for_event_sourced_entity("shopping-cart", arguments.cartId).call("get-cart").invoke(reply=ShoppingCart)
-    if not cart.items:
-        return f"cart {arguments.cartId} is empty"
-    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items)
-
-
-class CartAssistant(Agent):
-    component_id = "assistant"
-    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
-    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
-
-    def _describe(self, question: str) -> AgentEffect[str]:
-        return (
-            self.effects.system_message("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
-            .user_message(question)
-            .tools("lookup")
-            .guardrails("no-secrets")
-            .then_reply()
-        )
-
-    @command("ask")
-    def ask(self, question: str) -> AgentEffect[str]:
-        return self._describe(question)
-
-    @stream("chat")
-    def chat(self, question: str) -> AgentEffect[str]:
-        return self._describe(question)
-```
+## Agents in Python and TypeScript
 
 A `Tool` is a description, an async or plain function taking the agent and the decoded input, and an
 input dataclass whose fields are the JSON Schema the model sees. An exception from the function is fed
 back to the model as a tool error. A `Guardrail` wraps a function of `(stage, text)`, where `stage` is
 `"input"` or `"output"`, returning a reason to block or `None`.
 
-The Python effect has the same shape as the Scala one:
+The effect has the same shape as the Scala one, with each SDK's spelling:
 
-| Python | Meaning |
+| Python and TypeScript | Meaning |
 |---|---|
 | `system_message(text)`, `user_message(text)`, `with_context(text)` | As in Scala. |
 | `tools(*names)`, `guardrails(*names)` | By their keys in the class's `tools` and `guardrails`. |
@@ -424,8 +506,9 @@ The Python effect has the same shape as the Scala one:
 | `then_reply_json()` | Reply with the model's JSON, decoded by the handler's reply type. |
 | `self.effects.error(message, code)` | Refuse without calling a model. |
 
-A handler declared with `@stream` streams its reply; see [Streaming responses](streaming.md). The class
-attributes `role` and `max_tool_call_steps` match the Scala companion's.
+A handler declared with `@stream` in Python, or `stream` in TypeScript, streams its reply; see
+[Streaming responses](streaming.md). The class attributes `role` and `max_tool_call_steps` match the
+Scala companion's.
 
 The model is configured on the sidecar, through the descriptor's environment, which the platform routes
 to the sidecar container rather than to your process:
@@ -437,7 +520,7 @@ to the sidecar container rather than to your process:
 | `ANKKA_MODEL_SCRIPT` | A scripted model for tests: a JSON array of turns, or the path of a file holding one. See [Testing](testing.md). |
 
 A sidecar with neither a key nor a script refuses agent calls, naming both variables. Compaction is not
-yet configurable for a Python service's sessions.
+yet configurable for a Python or TypeScript service's sessions.
 
 ## What to read next
 

@@ -1,21 +1,23 @@
 # Serialization and evolution
 
-> How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in both languages, and how to change a stored type without breaking a journal.
+> How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 
 Source: https://docs.ankka.cloud/build/serialization/
 Everything ankka stores or sends — an entity's events and state, a view's rows, a handler's argument and
 reply, a message on a topic — is encoded by a serializer, and stored with the serializer's *manifest*: a
 name for the type that you choose. Records and sum types are encoded as JSON; primitives are encoded as
-plain text. The encoding is the same in Scala and Python, so a journal written by a service in one
-language is read by the same service in the other.
+plain text. The encoding is the same in every SDK, so a journal written by a service in one language is
+read by the same service rewritten in another.
 
 What is in a journal stays there. A change to a stored type is therefore a change to data that already
 exists, and the rules for making one safely are the most important part of this page.
 
 ## Declaring a serializer
 
-In Scala, `Codecs.serializer[A](manifest)` derives a JSON serializer for a type at compile time and names
-its manifest. A type that cannot be encoded fails the build, not the first replay:
+Each SDK derives a JSON serializer from a type and names its manifest. A type that cannot be encoded is
+refused where the code is written, not at the first replay.
+
+**Scala**
 
 ```scala
 import com.thinkmorestupidless.ankka.core.{Codecs, Serializer}
@@ -23,8 +25,7 @@ import com.thinkmorestupidless.ankka.core.{Codecs, Serializer}
 given Serializer[LineItem] = Codecs.serializer[LineItem]("line-item")
 ```
 
-In Python, `json_codec(type, manifest)` does the same for a dataclass, a union of dataclasses, an `Enum`,
-or any combination of them with lists, dicts and scalars:
+**Python**
 
 ```python
 from ankka import json_codec
@@ -33,11 +34,30 @@ state_codec = json_codec(ShoppingCart, "shopping-cart")
 event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
 ```
 
+**TypeScript**
+
+```ts
+import { jsonCodec, s, type Infer } from "ankka"
+
+export const LineItem = s.record("LineItem", { productId: s.string, name: s.string, quantity: s.int })
+export type LineItem = Infer<typeof LineItem>
+
+static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+```
+
+`Codecs.serializer[A](manifest)` derives at compile time, so an unencodable type fails the build.
+`json_codec(type, manifest)` does the same for a dataclass, a union of dataclasses, an `Enum`, or any
+combination of them with lists, dicts and scalars. `jsonCodec(shape, manifest)` takes a shape built with
+`s.record`, `s.sumType` and the scalar builders, and the TypeScript type is inferred from the shape with
+`Infer`, so the shape and the type cannot drift apart.
+
 An entity names a serializer for its state and one for its events. A view names one for its rows. A
 consumer that publishes names one for its output. Handler arguments and replies need one too: in Scala,
 primitives, `Done`, `Unit`, `Option` and `FiniteDuration` are provided by
 `import com.thinkmorestupidless.ankka.core.Serializers.given`, and any other type needs a `given` of its
-own. The Python SDK chooses the codec for a handler's argument and reply from its type annotations.
+own. The Python SDK chooses the codec for a handler's argument and reply from its type annotations; the
+TypeScript SDK takes the shape as an argument to `command` and `query`.
 
 ## Manifests are names you keep
 
@@ -52,12 +72,12 @@ Treat a manifest like a wire name: choose it once, and never change it for a typ
 
 The encoding is defined once, in
 [the protocol's encoding document](https://github.com/thinkmorestupidless/ankka/blob/main/protocol/ENCODING.md),
-and both SDKs produce and accept exactly it.
+and every SDK produces and accepts exactly it.
 
 | Value | Encoding | Example |
 |---|---|---|
-| a record: a case class or a dataclass | a JSON object with every field, including empty collections and absent options | `{"productId":"p1","name":"Pen","quantity":2}` |
-| a case of a sum type: a Scala `enum` case or a member of a union of dataclasses | the case's object with `"type"` set to the case's simple name | `{"type":"ItemAdded","item":{"productId":"p1","name":"Pen","quantity":2}}` |
+| a record: a case class, a dataclass or an `s.record` | a JSON object with every field, including empty collections and absent options | `{"productId":"p1","name":"Pen","quantity":2}` |
+| a case of a sum type: a Scala `enum` case, a member of a union of dataclasses, or an `s.sumType` case | the case's object with `"type"` set to the case's simple name | `{"type":"ItemAdded","item":{"productId":"p1","name":"Pen","quantity":2}}` |
 | a case with no fields | an object holding only the discriminator | `{"type":"CheckedOut"}` |
 | an absent optional field | `null` | `{"note":null}` |
 | a sequence | an array; empty is `[]` | `{"items":[]}` |
@@ -84,10 +104,11 @@ string, and a `String` body is posted raw.
 ## Field names are the contract
 
 The JSON field names are the names of the fields as declared, in whichever language wrote them. A Scala
-case class field `productId` and a Python dataclass field `productId` produce the same JSON; a Python
-field named `product_id` would not, and a cart written by one could not be read by the other. When a
-service may be read or written from both languages, or may move from one to the other, declare the fields
-with the same names in both, as the shopping cart samples do.
+case class field `productId`, a Python dataclass field `productId` and an `s.record` field `productId`
+produce the same JSON; a Python field named `product_id` would not, and a cart written by one could not
+be read by the others. When a service may be read or written from more than one language, or may move
+from one to another, declare the fields with the same names in each, as the three shopping cart samples
+do.
 
 The sum-type discriminator is the case's simple name: `ItemAdded`, not a qualified name. Renaming an event
 case is therefore a stored-data change, even though renaming its enclosing type is not.

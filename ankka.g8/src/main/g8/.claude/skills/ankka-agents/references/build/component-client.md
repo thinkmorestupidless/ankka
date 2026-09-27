@@ -13,10 +13,11 @@ Endpoints, workflow steps, consumers, timed actions and agents all have a client
 handler does not call other components: it decides from its own state and returns an effect. See
 [Designing a service](../concepts/designing-services.md) for where cross-component logic belongs.
 
-## Addressing a component in Scala
+## Addressing a component
 
-The client is addressed first by kind and instance, then by handler. Handlers are the typed values the
-component's companion declared, so the argument and reply types are checked by the compiler:
+The client is addressed first by kind and instance, then by handler:
+
+**Scala**
 
 ```scala
 val cart = componentClient.forEventSourcedEntity(EntityId("cart-1"))
@@ -25,27 +26,56 @@ cart.call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 2))   // D
 cart.call(ShoppingCartEntity.getCart).invoke()                              // ShoppingCart
 ```
 
-| Method | Addresses |
-|---|---|
-| `forEventSourcedEntity(entityId)` | an event sourced entity instance |
-| `forKeyValueEntity(entityId)` | a key value entity instance |
-| `forWorkflow(workflowId)` | a workflow instance; also `lifecycle(companion)` for the engine's state |
-| `forAgent(sessionId)` | an agent session, with `import com.thinkmorestupidless.ankka.agent.*`; also `stream(handler)(input)` |
+**Python**
 
-The component is identified by the handler, which carries its component id; the instance is identified
-by the id passed to `for…`. An instance that has never been written to exists already, holding its empty
-state, so reading one is not an error.
+```python
+cart = client.for_event_sourced_entity("shopping-cart", "c1")
+
+await cart.call("add-item").invoke(LineItem("p1", "Pen", 2))            # Done
+state = await cart.call("get-cart").invoke(reply=ShoppingCart)          # decoded as ShoppingCart
+```
+
+**TypeScript**
+
+```ts
+const cart = client.of(ShoppingCartEntity, "cart-1")
+
+await cart.call(ShoppingCartEntity.handlers.addItem).invoke({ productId: "p1", name: "Widget", quantity: 2 })
+await cart.call(ShoppingCartEntity.handlers.getCart).invoke()          // ShoppingCart
+```
+
+In Scala and TypeScript the handler is the typed value the component declared, so the argument and reply
+types are checked by the compiler and the component's id travels with the handler. Python names the
+component by its id and the handler by its wire name, and every call is awaited.
+
+| Addresses | Scala | Python | TypeScript |
+|---|---|---|---|
+| an event sourced entity instance | `forEventSourcedEntity(entityId)` | `for_event_sourced_entity(component_id, entity_id)` | `of(Entity, entityId)` |
+| a key value entity instance | `forKeyValueEntity(entityId)` | `for_key_value_entity(component_id, entity_id)` | `of(Entity, entityId)` |
+| a workflow instance | `forWorkflow(workflowId)`; `lifecycle(companion)` for the engine's state | `for_workflow(component_id, workflow_id)` | `of(Workflow, workflowId)` |
+| an agent session | `forAgent(sessionId)`, with `import com.thinkmorestupidless.ankka.agent.*` | `for_agent(component_id, session_id)` | `of(Agent, sessionId)` |
+| a view's rows | the view client; see [Views](views.md) | `views.get(view_id, key, Row)`, `views.all(view_id, Row)` | `views.get(viewId, key, Row)`, `views.all(viewId, Row)` |
+| timers | the timer scheduler; see [Timers](timers.md) | `timers.schedule(...)`, `timers.cancel(timer_id)` | `timers.schedule(...)`, `timers.cancel(timerId)` |
+
+A streaming handler is reached with `stream(handler)(input)` in Scala and `.call(name).stream(input)` in
+Python and TypeScript.
+
+The instance is identified by the id. An instance that has never been written to exists already, holding
+its empty state, so reading one is not an error.
 
 Where the client comes from depends on what is calling:
 
-| Caller | Client |
-|---|---|
-| An HTTP endpoint | `clients.componentClient`, from the factory given to `HttpServer.of` |
-| A workflow | `context.componentClient`, from the `WorkflowContext` |
-| A consumer | its context's `componentClient` |
-| A timed action | `context.componentClient`, from the `TimedActionContext` |
-| An agent | `componentClient`, inherited from `Agent` |
-| A test | `testKit.componentClient`, from `AnkkaTestKit` |
+| Caller | Scala | Python and TypeScript |
+|---|---|---|
+| An HTTP endpoint | `clients.componentClient`, from the factory given to `HttpServer.of` | the endpoint's own `client` |
+| A workflow | `context.componentClient`, from the `WorkflowContext` | `self.context.client` / `this.client` |
+| A consumer | its context's `componentClient` | `self.client` / `this.client` |
+| A timed action | `context.componentClient`, from the `TimedActionContext` | `self.client` / `this.client` |
+| An agent | `componentClient`, inherited from `Agent` | `self.client` / `this.client` |
+| A test | `testKit.componentClient`, from `AnkkaTestKit` | the test kit's own client |
+
+In Python and TypeScript the client talks to the sidecar, which routes the call through the cluster
+exactly as a Scala call is routed.
 
 ## Blocking is free
 
@@ -125,38 +155,30 @@ call is issued there. Work handed to another thread, such as a `Future` callback
 see the request, and calls made from it appear in the console as unattributed time. Read what you need
 first, and issue calls from the handler's thread.
 
-## Calling components in Python
+## Encoding a call
 
-The Python client addresses components by their component ids and handlers by wire name, and every call
-is awaited:
+In Python, `invoke(input, reply=Type)` encodes the input with its type's default codec and decodes the
+reply as `reply`; without `reply` the call expects `Done`, and `codec=` and `reply_codec=` override
+either codec. TypeScript takes both shapes from the handler, so a call needs no annotation. In Scala both
+come from the handler's `given` serializers. A refusal is a `CommandError` in every SDK, carrying the
+`ErrorCode` the handler chose.
 
-```python
-cart = client.for_event_sourced_entity("shopping-cart", "c1")
+## Pass the request's metadata on
 
-await cart.call("add-item").invoke(LineItem("p1", "Pen", 2))            # Done
-state = await cart.call("get-cart").invoke(reply=ShoppingCart)         # decoded as ShoppingCart
+A call made from an endpoint should be a child of the request in the console, not a trace of its own.
+Scala gets that from the request context on the handler's own thread; Python and TypeScript carry it by
+passing the request's metadata to the client:
+
+**Scala**
+
+```scala
+post("/{cartId}/checkouts") { (cartId: String, mode: String) =>
+  // The request's context is already on this thread, so the call joins its trace.
+  client.forWorkflow(EntityId(cartId)).call(CheckoutWorkflow.start).invoke(mode)
+}
 ```
 
-| Method | Addresses |
-|---|---|
-| `for_event_sourced_entity(component_id, entity_id)` | an event sourced entity instance |
-| `for_key_value_entity(component_id, entity_id)` | a key value entity instance |
-| `for_workflow(component_id, workflow_id)` | a workflow instance |
-| `for_agent(component_id, session_id)` | an agent session; `.call(name).stream(input)` streams |
-| `views.get(view_id, key, Row)`, `views.all(view_id, Row)` | a view's rows |
-| `timers.schedule(...)`, `timers.cancel(timer_id)` | timers; see [Timers](timers.md) |
-
-`invoke(input, reply=Type)` encodes the input with its type's default codec and decodes the reply as
-`reply`; without `reply` the call expects `Done`. `codec=` and `reply_codec=` override either codec. A
-refusal raises `ankka.client.CommandError`, whose `error.code` is the `ErrorCode`.
-
-The client talks to the sidecar, which routes the call through the cluster exactly as a Scala call is
-routed. An endpoint receives the client in its constructor; a workflow step uses `self.context.client`;
-consumers, timed actions and agents use `self.client`.
-
-**Pass the request's metadata on.** In an endpoint, `self.client.with_metadata(self.request.metadata)`
-returns a client whose calls carry the request's trace, so they appear as children of the request in the
-console. Calls made without it start traces of their own:
+**Python**
 
 ```python
 @post("/{cartId}/checkouts")
@@ -164,3 +186,17 @@ async def start_checkout(self, cartId: str, mode: str) -> Done:
     """``mode`` is the body: ``ok``, ``fail`` or ``pause``."""
     return await self.client.with_metadata(self.request.metadata).for_workflow("checkout", cartId).call("start").invoke(mode or "ok", reply=Done)
 ```
+
+**TypeScript**
+
+```ts
+/** The body is the mode: `ok`, `fail` or `pause`. */
+startCheckout: post("/{cartId}/checkouts", s.string, Done, (ep: ShoppingCartEndpoint, req, mode) =>
+  ep.client.of(CheckoutWorkflow, req.params.cartId).call(CheckoutWorkflow.handlers.start).invoke(mode || "ok"),
+),
+```
+
+`with_metadata` and `withMetadata` return a client whose calls carry that metadata; a call made without
+it starts a trace of its own. The Scala form has the caveat in
+[the request context does not follow work to another thread](#the-request-context-does-not-follow-work-to-another-thread):
+work handed to another thread cannot see the context, and there the metadata must be passed explicitly.

@@ -1,6 +1,6 @@
 # Event sourced entities
 
-> Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala or Python.
+> Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Python or TypeScript.
 
 Source: https://docs.ankka.cloud/build/event-sourced-entities/
 An event sourced entity is a piece of state, addressed by an id, whose current value is derived by
@@ -24,8 +24,8 @@ An entity has four parts, and each has one job:
 | Part | Job |
 |---|---|
 | state type | What the entity knows now. Plain data with no ankka types. |
-| event type | Everything that can happen to the entity. A closed set: a Scala `enum` or a union of Python dataclasses. |
-| event handler | `applyEvent` in Scala, `apply_event` in Python. Folds one event into the state, and is the only place state changes. |
+| event type | Everything that can happen to the entity. A closed set: a Scala `enum`, a union of Python dataclasses, or a TypeScript `s.sumType`. |
+| event handler | `applyEvent` in Scala and TypeScript, `apply_event` in Python. Folds one event into the state, and is the only place state changes. |
 | command handlers | Decide, given the current state and a request, what should happen, and return it as an effect. |
 
 The events of the shopping cart sample are a closed set of three cases:
@@ -59,6 +59,17 @@ class CheckedOut:
 
 
 ShoppingCartEvent = ItemAdded | ItemRemoved | CheckedOut
+```
+
+**TypeScript**
+
+```ts
+export const ShoppingCartEvent = s.sumType("ShoppingCartEvent", {
+  ItemAdded: { item: LineItem },
+  ItemRemoved: { productId: s.string },
+  CheckedOut: {},
+})
+export type ShoppingCartEvent = Infer<typeof ShoppingCartEvent>
 ```
 
 ## Writing the entity
@@ -179,6 +190,60 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
     @query("total-quantity")
     def total_quantity(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, int]:
         return self.effects.reply(self.state.total_quantity)
+```
+
+**TypeScript**
+
+```ts
+export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
+  static readonly componentId = "shopping-cart"
+  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+  static readonly snapshotEvery = 100
+
+  static readonly handlers = {
+    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+    removeItem: command("remove-item", s.string, Done, (cart: ShoppingCartEntity, productId) => cart.removeItem(productId)),
+    checkout: command("checkout", ShoppingCart, (cart: ShoppingCartEntity) => cart.checkout()),
+    getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+    totalQuantity: query("total-quantity", s.int, (cart: ShoppingCartEntity) => cart.effects.reply(totalQuantity(cart.state))),
+  }
+
+  emptyState(): ShoppingCart {
+    return emptyCart(this.entityId)
+  }
+
+  applyEvent(cart: ShoppingCart, event: ShoppingCartEvent): ShoppingCart {
+    switch (event.type) {
+      case "ItemAdded":
+        return addItem(cart, event.item)
+      case "ItemRemoved":
+        return removeItem(cart, event.productId)
+      case "CheckedOut":
+        return { ...cart, checkedOut: true }
+    }
+  }
+
+  addItem(item: LineItem) {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    if (item.quantity <= 0) return this.effects.error(`quantity must be greater than zero, was \${item.quantity}`)
+    return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+  }
+
+  removeItem(productId: string) {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    if (!contains(this.state, productId)) return this.effects.error(`cart does not contain '\${productId}'`, ErrorCode.NotFound)
+    return this.effects.persist({ type: "ItemRemoved", productId }).thenReply(() => done)
+  }
+
+  checkout() {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    if (this.state.items.length === 0) return this.effects.error("cannot check out an empty cart")
+    // As the Scala cart: the event is persisted, then the cart is deleted, so a consumer downstream
+    // still sees the checkout rather than a cart that vanished.
+    return this.effects.persist({ type: "CheckedOut" }).deleteEntity().thenReplyState()
+  }
+}
 ```
 
 In Scala, `currentState` is the state as of now: after replay, and after any events this command has
@@ -309,8 +374,8 @@ events.
 ## Registering the entity
 
 Registration is explicit: a component the service does not register does not exist, and a call to it
-fails. In Scala, register the companion's descriptor on the service builder. In Python, register the
-class.
+fails. In Scala, register the companion's descriptor on the service builder. In Python and TypeScript,
+register the class.
 
 **Scala**
 
@@ -328,6 +393,14 @@ val service = Ankka.service
 from ankka import Ankka
 
 service = Ankka.service().register(ShoppingCartEntity)
+```
+
+**TypeScript**
+
+```ts
+import { Ankka } from "ankka"
+
+const service = Ankka.service().register(ShoppingCartEntity)
 ```
 
 ## Calling the entity
@@ -349,6 +422,13 @@ val cart  = componentClient.forEventSourcedEntity(EntityId("c1")).call(ShoppingC
 ```python
 done = await client.for_event_sourced_entity("shopping-cart", "c1").call("add-item").invoke(item, reply=Done)
 cart = await client.for_event_sourced_entity("shopping-cart", "c1").call("get-cart").invoke(reply=ShoppingCart)
+```
+
+**TypeScript**
+
+```ts
+const done = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.addItem).invoke(item)
+const cart = await client.of(ShoppingCartEntity, "c1").call(ShoppingCartEntity.handlers.getCart).invoke()
 ```
 
 In Scala, `invoke` blocks and `invokeAsync` returns a `Future`. Blocking is cheap because endpoints,
@@ -381,6 +461,18 @@ assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
 ```python
 kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
 assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
+```
+
+**TypeScript**
+
+```ts
+test("adds an item and replies done", async () => {
+  const kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+  const result = await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p1", name: "Pen", quantity: 2 })
+  assert.deepEqual(result.events, [{ type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 2 } }])
+  assert.equal(result.reply, done)
+  assert.equal(kit.state.items.length, 1)
+})
 ```
 
 See [Testing](testing.md) for the integration testkit, which runs the whole service against a real

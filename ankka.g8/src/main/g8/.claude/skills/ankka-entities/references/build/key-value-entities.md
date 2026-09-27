@@ -33,49 +33,32 @@ replay. That is right for a projection of what is, and wrong for anything that c
 ## Writing the entity
 
 A key value entity declares its empty state and its handlers. A command replaces the state with
-`updateState` and then chooses a reply. A query only replies. The sample below keeps a traveller's
-preferences:
+`updateState` and then chooses a reply. A query only replies. The sample below records when a cart was
+checked out — the value is the record, and how it came to be recorded is of no interest to anything:
 
 **Scala**
 
 ```scala
-package planner.application
+final class CheckoutLog(context: KeyValueEntityContext) extends KeyValueEntity[CheckoutRecord]:
 
-import com.thinkmorestupidless.ankka.core.*
-import com.thinkmorestupidless.ankka.core.Serializers.given
-import com.thinkmorestupidless.ankka.sdk.*
-import planner.domain.Preferences
+  private val cartId: String = context.entityId
 
-/** A user's stated preferences, so an agent can be given context it did not ask for. */
-final class PreferencesEntity(context: KeyValueEntityContext) extends KeyValueEntity[Preferences]:
+  def emptyState: CheckoutRecord = CheckoutRecord(cartId)
 
-  private val userId: String = context.entityId
+  def record(at: Long): Effect[Done] =
+    effects.updateState(CheckoutRecord(cartId, at, notified = true)).thenReply(_ => Done)
 
-  def emptyState: Preferences = Preferences.empty(userId)
+  def get: ReadOnlyEffect[CheckoutRecord] = effects.reply(currentState)
 
-  def set(preferences: Preferences): Effect[Done] =
-    if preferences.maxBudget < 0 then effects.error("budget cannot be negative")
-    else effects.updateState(preferences.copy(userId = userId)).thenReply(_ => Done)
-
-  def addLike(activity: String): Effect[Preferences] =
-    if activity.isBlank then effects.error("an activity needs a name")
-    else
-      effects
-        .updateState(currentState.copy(likes = (currentState.likes :+ activity).distinct))
-        .thenReplyState
-
-  def get: ReadOnlyEffect[Preferences] = effects.reply(currentState)
-
-object PreferencesEntity
-    extends KeyValueEntity.Companion[PreferencesEntity, Preferences](
-      componentId = ComponentId("preferences"),
-      stateSerializer = Codecs.serializer[Preferences]("preferences")
+object CheckoutLog
+    extends KeyValueEntity.Companion[CheckoutLog, CheckoutRecord](
+      componentId = ComponentId("checkout-log"),
+      stateSerializer = Codecs.serializer[CheckoutRecord]("checkout-record")
     ):
-  def create(context: KeyValueEntityContext) = new PreferencesEntity(context)
+  def create(context: KeyValueEntityContext) = new CheckoutLog(context)
 
-  val set     = command("set")(_.set)
-  val addLike = command("add-like")(_.addLike)
-  val get     = query("get")(_.get)
+  val record = command("record")(_.record)
+  val get    = query("get")(_.get)
 ```
 
 **Python**
@@ -116,23 +99,45 @@ class CheckoutLog(KeyValueEntity[CheckoutRecord]):
         return self.effects.reply(self.state)
 ```
 
+**TypeScript**
+
+```ts
+export const CheckoutRecord = s.record("CheckoutRecord", { cartId: s.string, at: s.long, notified: s.boolean })
+export type CheckoutRecord = Infer<typeof CheckoutRecord>
+
+export class CheckoutLog extends KeyValueEntity<CheckoutRecord> {
+  static readonly componentId = "checkout-log"
+  static readonly state = jsonCodec(CheckoutRecord, "checkout-record")
+
+  static readonly handlers = {
+    record: command("record", s.long, Done, (log: CheckoutLog, at) => log.effects.updateState({ cartId: log.entityId, at, notified: true }).thenReply(() => done)),
+    get: query("get", CheckoutRecord, (log: CheckoutLog) => log.effects.reply(log.state)),
+  }
+
+  emptyState(): CheckoutRecord {
+    return { cartId: this.entityId, at: 0n, notified: false }
+  }
+}
+```
+
 The shape matches an event sourced entity's, and so do the rules. Handlers are declared with
 `command` or `query` under a wire name that is separate from the method name. A query must return a
-read-only effect, so it cannot change the state. In Scala the current value is `currentState`; in Python
-it is `self.state`. The id is `context.entityId` in Scala and `self.entity_id` in Python.
+read-only effect, so it cannot change the state. The current value is `currentState` in Scala,
+`self.state` in Python and `this.state` in TypeScript; the id is `context.entityId`, `self.entity_id`
+and `this.entityId`.
 
 ## Effects
 
-| Scala | Python | Meaning |
-|---|---|---|
-| `effects.updateState(s)` | `self.effects.update_state(s)` | Replace the stored value with `s`, then choose a reply. |
-| `.thenReply(s => value)` | `.then_reply(lambda s: value)` | Reply with a value computed from the new state. |
-| `.thenReplyState` | `.then_reply_state()` | Reply with the new state. |
-| `.thenNoReply` | `.then_no_reply()` | Update and reply with nothing. |
-| `.expireAfter(duration)` | `.expire_after(timedelta)` | Delete the entity once `duration` passes with no further update. |
-| `effects.deleteEntity()` | `self.effects.delete_entity()` | Delete the stored value; then choose a reply. |
-| `effects.reply(value)` | `self.effects.reply(value)` | Reply without changing anything. |
-| `effects.error(message, code)` | `self.effects.error(message, code)` | Refuse the command; nothing changes. The code defaults to `BadRequest`. |
+| Scala | Python | TypeScript | Meaning |
+|---|---|---|---|
+| `effects.updateState(s)` | `self.effects.update_state(s)` | `this.effects.updateState(s)` | Replace the stored value with `s`, then choose a reply. |
+| `.thenReply(s => value)` | `.then_reply(lambda s: value)` | `.thenReply(s => value)` | Reply with a value computed from the new state. |
+| `.thenReplyState` | `.then_reply_state()` | `.thenReplyState()` | Reply with the new state. |
+| `.thenNoReply` | `.then_no_reply()` | `.thenNoReply()` | Update and reply with nothing. |
+| `.expireAfter(duration)` | `.expire_after(timedelta)` | `.expireAfter(duration)` | Delete the entity once `duration` passes with no further update. |
+| `effects.deleteEntity()` | `self.effects.delete_entity()` | `this.effects.deleteEntity()` | Delete the stored value; then choose a reply. |
+| `effects.reply(value)` | `self.effects.reply(value)` | `this.effects.reply(value)` | Reply without changing anything. |
+| `effects.error(message, code)` | `self.effects.error(message, code)` | `this.effects.error(message, code)` | Refuse the command; nothing changes. The code defaults to `BadRequest`. |
 
 A handler that replies without calling `updateState` leaves the value exactly as it was, and nothing is
 written.
@@ -146,10 +151,10 @@ Register the entity like any other component, and call it through the component 
 **Scala**
 
 ```scala
-val service = Ankka.service.register(PreferencesEntity.descriptor).start()
+val service = Ankka.service.register(CheckoutLog.descriptor).start()
 
-val preferences =
-  componentClient.forKeyValueEntity(EntityId("user-1")).call(PreferencesEntity.get).invoke()
+val record =
+  componentClient.forKeyValueEntity(EntityId("c1")).call(CheckoutLog.get).invoke()
 ```
 
 **Python**
@@ -160,33 +165,59 @@ service = Ankka.service().register(CheckoutLog)
 record = await client.for_key_value_entity("checkout-log", "c1").call("get").invoke(reply=CheckoutRecord)
 ```
 
+**TypeScript**
+
+```ts
+const service = Ankka.service().register(CheckoutLog)
+
+const record = await client.of(CheckoutLog, "c1").call(CheckoutLog.handlers.get).invoke()
+```
+
 ## Projecting a key value entity
 
-A view or consumer can read a key value entity's changes. In Scala the source is
-`ChangeSource.stateOf(PreferencesEntity)`; in Python it is `source = CheckoutLog`. Each change delivered
-is the entity's whole new value, not a difference. See [Views](views.md) and [Consumers](consumers.md).
+A view or consumer can read a key value entity's changes. The source is
+`ChangeSource.stateOf(CheckoutLog)` in Scala, `source = CheckoutLog` in Python and
+`static readonly source = CheckoutLog` in TypeScript. Each change delivered is the entity's whole new
+value, not a difference. See [Views](views.md) and [Consumers](consumers.md).
 
 ## Testing
 
-`KeyValueEntityTestKit` in Scala and `KeyValueTestKit` in Python run a handler with no runtime, apply the
-new state, and show the reply:
+`KeyValueEntityTestKit` in Scala and `KeyValueTestKit` in Python and TypeScript run a handler with no
+runtime, apply the new state, and show the reply:
 
 **Scala**
 
 ```scala
-val kit    = KeyValueEntityTestKit.of(PreferencesEntity, "user-1")
-val result = kit.call(PreferencesEntity.addLike)("hiking")
+test("recording a checkout replaces the value and acknowledges") {
+  val kit    = KeyValueEntityTestKit.of(CheckoutLog, "c1")
+  val result = kit.call(CheckoutLog.record)(1_700_000_000_000L)
 
-assertEquals(result.replyValue.likes, List("hiking"))
-assert(result.changed)
+  assertEquals(result.replyValue, Done)
+  assert(result.changed, "recording should write a new value")
+  assertEquals(result.state.at, 1_700_000_000_000L)
+  assertEquals(result.state.notified, true)
+}
 ```
 
 **Python**
 
 ```python
-kit = KeyValueTestKit.of(CheckoutLog, "c1")
-kit.call("record", 1_700_000_000_000)
-assert kit.call("get").reply.notified
+def test_recording_a_checkout_replaces_the_value() -> None:
+    log = KeyValueTestKit.of(CheckoutLog, "c1")
+    assert log.call("record", 1700000000000).reply is not None
+    assert log.call("get").reply == CheckoutRecord("c1", 1700000000000, True)
+```
+
+**TypeScript**
+
+```ts
+test("recording a checkout replaces the value", async () => {
+  const kit = KeyValueTestKit.of(CheckoutLog, "c1")
+  const recorded = await kit.call(CheckoutLog.handlers.record, 1700000000000n)
+  assert.equal(recorded.reply, done)
+  assert.equal(kit.state.notified, true)
+  assert.equal(kit.state.at, 1700000000000n)
+})
 ```
 
 See [Testing](testing.md) for running the whole service against a real database.

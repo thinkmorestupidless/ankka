@@ -493,13 +493,12 @@ lazy val cli = project
     libraryDependencies ++= Seq(decline, munit % Test),
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a
-    // jar cannot be listed. docs/design/ holds internal treatments and is left out, as the site does.
+    // jar cannot be listed.
     Compile / resourceGenerators += Def.task {
       val docs = (ThisBuild / baseDirectory).value / "docs"
       val out  = (Compile / resourceManaged).value / "ankka" / "docs"
       val pages = (docs ** "*.md").get
         .flatMap(file => IO.relativize(docs, file).map(_ -> file))
-        .filterNot { case (relative, _) => relative.startsWith("design/") }
         .sortBy(_._1)
       IO.delete(out)
       val copied = pages.map { case (relative, file) =>
@@ -586,7 +585,10 @@ lazy val cli = project
  */
 lazy val shoppingCart = project
   .in(file("samples/shopping-cart"))
-  .dependsOn(sdk, runtime, http, testkit % Test)
+  // `agent` because the cart carries an assistant, as the Python and TypeScript carts do — the three
+  // samples are one service written three times, and a component missing from one makes its
+  // documentation page unable to show all three.
+  .dependsOn(sdk, runtime, http, agent, testkit % Test)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)

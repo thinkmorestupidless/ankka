@@ -78,7 +78,7 @@ Every page starts with this block:
 title: Views
 description: Build a queryable projection of an entity's changes, query it with SQL, and choose between entity, key value and topic sources.
 kind: guide
-languages: [scala, python]
+languages: [scala, python, typescript]
 components: [view]
 related: [concepts/consistency.md, build/topics.md]
 ---
@@ -89,7 +89,7 @@ related: [concepts/consistency.md, build/topics.md]
 | `title` | yes | The page's name. The body's first line is `# ` and exactly this. |
 | `description` | yes | One sentence, under 240 characters, ending with a full stop. It is what `llms.txt` and the skill show beside the link, so it says what the reader will be able to do or will understand, not what the page "covers". |
 | `kind` | yes | `tutorial`, `concept`, `guide`, `reference` or `contributing`. |
-| `languages` | no | `scala`, `python`, or both. Leave it out for a page that is not about writing code. |
+| `languages` | no | Any of `scala`, `python`, `typescript`. Leave it out for a page that is not about writing code. |
 | `components` | no | The component kinds the page is about: `event-sourced-entity`, `key-value-entity`, `view`, `consumer`, `workflow`, `timed-action`, `agent`, `http-endpoint`. |
 | `related` | no | Paths under `docs/` of the pages a reader of this one most often needs next. |
 
@@ -117,33 +117,56 @@ refuses the common forms.
 **Show, then say.** A concept is followed by code, and a command by what it prints. Output goes in the same
 block as a comment, or in a `text` block after it.
 
-**Every code block names its language.** `scala`, `python`, `bash`, `json`, `yaml`, `hocon`, `protobuf`,
-or `text` for output. A block with no language fails the check.
+**Every code block names its language.** `scala`, `python`, `ts`, `bash`, `json`, `yaml`, `hocon`,
+`protobuf`, or `text` for output. A block with no language fails the check.
 
 **Complete samples, or say it is an excerpt.** A sample a reader can copy should compile or run as shown,
 imports included. Where a sample is an excerpt of something larger, the sentence before it says so and
 links to the whole.
 
-**Both languages, labelled.** When a page shows a component in both Scala and Python, show the Scala
-block, then the Python block, each preceded by a line that is only the language name in bold:
+**Every language, in one tab set.** When a page shows the same thing in more than one language, the
+blocks go in a tab set, Scala first, then Python, then TypeScript. Each tab opens with `/// tab | <name>`
+and closes with `///` on its own line:
 
 ````markdown
-**Scala**
+/// tab | Scala
 
 ```scala
 val getCart = query("get-cart")(_.getCart)
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
 @query("get-cart")
 def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]: ...
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+```
+
+///
 ````
 
-No tabs, admonitions or other renderer syntax. A page must read correctly as raw Markdown, because that
-is how a model most often receives it.
+On the site the reader picks a language once and every tab set on every page follows, remembered between
+visits. Everywhere else — the raw Markdown, `llms-full.txt`, the agent skills — the markers are flattened
+back to a bold language label above each block, so a page still reads correctly with no renderer at all.
+
+This is the **only** renderer syntax a page may use. No admonitions, no snippet includes, no other
+extensions. Tabs earn the exception because the alternative is the same example three times down the
+page; they are written in the `///` blocks syntax rather than the indented one precisely so the fenced
+blocks stay flush left and a reader with no renderer still sees ordinary Markdown.
+
+A tab set that shows the same *idea* in each language must show the same *example* in each: one domain,
+one set of names. Three languages solving three different problems under one set of tabs reads as a
+translation and is not one.
 
 **Link to repository files by GitHub URL.** Links between pages are relative (`../build/views.md`) and
 the check verifies both the page and the anchor. A link to a source file uses its full URL on

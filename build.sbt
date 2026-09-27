@@ -488,8 +488,8 @@ lazy val cli = project
     // JavaAppPackaging drags DockerPlugin in, and root's `docker:publishLocal` aggregates to every
     // project that has the task. The CLI is a local binary, never an image: make the task a no-op
     // here rather than let it build one.
-    Docker / publishLocal := (),
-    Docker / publish      := (),
+    Docker / publishLocal := {},
+    Docker / publish      := {},
     libraryDependencies ++= Seq(decline, munit % Test),
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a

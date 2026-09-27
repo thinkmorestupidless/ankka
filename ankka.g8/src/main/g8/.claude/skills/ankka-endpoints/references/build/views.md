@@ -231,13 +231,19 @@ val service = Ankka.service
 **Python**
 
 ```python
-service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CartRows)
+)
 ```
 
 **TypeScript**
 
 ```ts
-const service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CartRows)
 ```
 
 A view over a topic also needs a broker. See [Broker topics](topics.md).

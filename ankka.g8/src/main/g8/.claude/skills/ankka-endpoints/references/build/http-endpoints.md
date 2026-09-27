@@ -1,6 +1,6 @@
 # HTTP endpoints
 
-> Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala or Python.
+> Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
 
 Source: https://docs.ankka.cloud/build/http-endpoints/
 An HTTP endpoint is how the outside world reaches a service. It declares routes under a path prefix,
@@ -364,13 +364,23 @@ Ankka.service
 **Python**
 
 ```python
-Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(ShoppingCartEndpoint)
+)
+
+asyncio.run(service.listen())
 ```
 
 **TypeScript**
 
 ```ts
-Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(ShoppingCartEndpoint)
+
+await service.listen()
 ```
 
 `clients` is an `EndpointClients`, which carries `componentClient` for components and `viewClient` for

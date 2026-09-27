@@ -242,6 +242,61 @@ def addresses(tree: Tree) -> list[Problem]:
     return problems
 
 
+# A tab set says "the same thing, in each language". Two tabs holding the same characters say instead
+# that one of them was pasted and never rewritten, and that is exactly how a reader reports it: "the
+# Python sample looks like the TypeScript one". The languages' APIs are deliberately close, so this is
+# easy to do by accident and invisible on review — hence a check rather than a note.
+TAB = re.compile(r"^/// tab \| (?P<label>.+?)\s*$")
+
+
+def tabs(tree: Tree) -> list[Problem]:
+    problems: list[Problem] = []
+    for page in tree.pages.values():
+        lines = page.body.split("\n")
+        seen: dict[str, tuple[str, int]] = {}
+        label: str | None = None
+        number = 0
+        for index, line in enumerate(lines, start=1):
+            opened = TAB.match(line)
+            if opened:
+                label, number = opened.group("label"), index
+                continue
+            if line.strip() == "///":
+                # A closer ends the tab; a run of tabs with nothing but blanks between them is one set.
+                label = None
+                rest = lines[index:]
+                if not any(TAB.match(l) for l in rest[: _gap(rest)] or [""]):
+                    seen = {}
+                continue
+            if label is None or not line.startswith("```"):
+                continue
+            fence = line[: len(line) - len(line.lstrip("`"))]
+            close = next((j for j in range(index, len(lines)) if lines[j].strip() == fence), None)
+            code = "\n".join(lines[index:close]).strip() if close else ""
+            if code and code in seen:
+                other, where = seen[code]
+                problems.append(
+                    Problem(
+                        page.path,
+                        number,
+                        f"the '{label}' and '{other}' tabs (line {where}) hold the same code; "
+                        "write each in its own language's idiom, or say in prose why they are the same",
+                    )
+                )
+            elif code:
+                seen[code] = (label, number)
+            label = None
+    return problems
+
+
+def _gap(rest: list[str]) -> int:
+    """How many blank lines follow, so a tab set is told from two sets that happen to be adjacent."""
+    n = 0
+    while n < len(rest) and not rest[n].strip():
+        n += 1
+    return n + 1
+
+
 def run(tree: Tree) -> list[Problem]:
     pages = sorted(tree.pages)
     problems = [
@@ -252,6 +307,7 @@ def run(tree: Tree) -> list[Problem]:
         *links(tree),
         *navigation(tree),
         *examples(tree),
+        *tabs(tree),
         *addresses(tree),
         *snippets.check(pages),
         *generate.check(pages),

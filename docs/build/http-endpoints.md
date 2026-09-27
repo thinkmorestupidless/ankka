@@ -1,6 +1,6 @@
 ---
 title: HTTP endpoints
-description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala or Python.
+description: Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
 kind: guide
 languages: [scala, python, typescript]
 components: [http-endpoint]
@@ -386,7 +386,13 @@ Ankka.service
 /// tab | Python
 
 ```python
-Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(ShoppingCartEndpoint)
+)
+
+asyncio.run(service.listen())
 ```
 
 ///
@@ -394,7 +400,11 @@ Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
 /// tab | TypeScript
 
 ```ts
-Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(ShoppingCartEndpoint)
+
+await service.listen()
 ```
 
 ///

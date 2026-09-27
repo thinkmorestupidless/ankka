@@ -238,7 +238,11 @@ a child span; `client.withMetadata(md)` scopes a client by hand. See
 
 ```ts
 import { Ankka } from "ankka"
-await Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint).listen()
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(ShoppingCartEndpoint)
+
+await service.listen()
 ```
 
 `listen()` serves the protocol on port 9010, or `ANKKA_PROCESS_PORT`, on loopback, and waits for the

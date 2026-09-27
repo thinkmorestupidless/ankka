@@ -231,13 +231,21 @@ val service = Ankka.service
 **Python**
 
 ```python
-service = Ankka.service().register(ShoppingCartEntity).register(CheckoutLog).register(CheckoutNotifier)
+service = (
+    Ankka.service()
+    .register(ShoppingCartEntity)
+    .register(CheckoutLog)
+    .register(CheckoutNotifier)
+)
 ```
 
 **TypeScript**
 
 ```ts
-const service = Ankka.service().register(ShoppingCartEntity).register(CheckoutLog).register(CheckoutNotifier)
+const service = Ankka.service()
+  .register(ShoppingCartEntity)
+  .register(CheckoutLog)
+  .register(CheckoutNotifier)
 ```
 
 A consumer's work is spread across the service's instances, and each change is handled on one of them.

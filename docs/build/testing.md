@@ -204,6 +204,7 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite:
 
 /// tab | Python
 
+<!-- include: sdks/python/examples/shopping_cart/test_cart.py#integration -->
 ```python
 @pytest.mark.slow
 async def test_cart_through_the_sidecar_survives_a_restart() -> None:

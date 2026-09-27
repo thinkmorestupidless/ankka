@@ -35,9 +35,9 @@ jobs:
       contents: read
       packages: write # push the image to this repository's GitHub Container Registry
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

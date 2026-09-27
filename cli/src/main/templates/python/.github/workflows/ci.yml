@@ -9,8 +9,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      # The Python the SDK is tested on. Without it uv takes the runner's own, which moves with the
+      # image (3.14 on Ubuntu 26.04) whether or not the SDK has been tested there.
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
       - run: uv sync
       - run: uv run mypy
       # The integration test starts Postgres and the published sidecar through testcontainers, which a

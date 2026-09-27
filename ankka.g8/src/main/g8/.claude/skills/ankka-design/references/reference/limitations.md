@@ -91,9 +91,6 @@ feature also says what that feature does not do.
 
 - **Three languages.** Services are written in Scala, Python or TypeScript. Another language needs an SDK that passes the
   conformance suite; see [Adding a language SDK](../contributing/language-sdks.md).
-- **The sidecar image is not on a public registry.** A Python or TypeScript service runs beside `ankka-sidecar`,
-  which is built from the repository with `sbt sidecar/docker:publishLocal`; the SDKs themselves are on PyPI
-  and npm.
 - **The CLI has native builds for macOS and Linux only.** There is no Windows executable, no Linux
   package, and the Linux builds need glibc, so they do not run on musl (Alpine); the release's zip runs
   anywhere with a JDK 21. The macOS executables are not signed by Apple. `ankka init` needs `sbt` on

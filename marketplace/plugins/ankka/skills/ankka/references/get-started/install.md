@@ -125,12 +125,17 @@ install it from a checkout of the repository instead: generate its protocol stub
 scripts/proto.py` in `sdks/python`, then `uv add --editable /path/to/ankka/sdks/python`.
 
 A Python service also needs the ankka sidecar image, which runs beside your process and hosts
-everything stateful. It is not on a public registry yet, so build it into your local Docker daemon from
-the repository:
+everything stateful. It is public on GitHub Container Registry, tagged with the platform's version:
 
 ```bash
-sbt sidecar/docker:publishLocal                      # ankka-sidecar:latest
+docker pull ghcr.io/thinkmorestupidless/ankka-sidecar:0.6.4
 ```
+
+SDKs released after 0.6.4 start that image in the integration testkit by default, at their own version, and
+pull it on first use; a project made by `ankka init` does the same in its `docker-compose.yml`. Earlier SDKs
+start `ankka-sidecar:latest` unless `ANKKA_SIDECAR_IMAGE` names the published one. An SDK installed from a
+checkout of the repository is version `0.0.0` and starts `ankka-sidecar:latest`, built from the same checkout
+with `sbt sidecar/Docker/publishLocal`.
 
 ## Install the TypeScript SDK
 
@@ -146,13 +151,13 @@ npm install -D testcontainers @testcontainers/postgresql      # only for the int
 Node.js 22.22 or later runs a TypeScript service from source, with no build step. To use an SDK that is not
 released yet, build it from a checkout of the repository instead: `npm ci && npm run proto && npm run build`
 in `sdks/typescript`, then `npm install /path/to/ankka/sdks/typescript`. A TypeScript service needs the same
-`ankka-sidecar` image as a Python one, built into your local Docker daemon with `sbt sidecar/docker:publishLocal`.
+`ankka-sidecar` image as a Python one, chosen the same way.
 
 ## What you have now
 
 - `ankka` on your `PATH`, for creating services, running the local console and operating a platform.
 - The Scala libraries resolvable by sbt, or the Python or TypeScript SDK installed in your project.
-- For Python or TypeScript, the `ankka-sidecar` image in your local Docker daemon.
+- For Python or TypeScript, the `ankka-sidecar` image, pulled from `ghcr.io/thinkmorestupidless/ankka-sidecar`.
 
 Continue with [your first service in Scala](first-service-scala.md),
 [your first service in Python](first-service-python.md) or

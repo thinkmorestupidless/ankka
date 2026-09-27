@@ -92,14 +92,19 @@ console. See [Identity and machine accounts](identity.md).
 
 Every platform manifest names an unqualified image, such as `ankka-controlplane:latest`, with
 `imagePullPolicy: IfNotPresent`. That suits a node the image was loaded onto and is useless for a
-cluster that pulls. Build the images tagged for your registry by setting `DOCKER_REPOSITORY` when you
-build them:
+cluster that pulls. Every release publishes the images publicly on GitHub Container Registry, tagged with
+the release's version: `ghcr.io/thinkmorestupidless/ankka-operator`, `ankka-controlplane`,
+`ankka-sidecar` and `sample-shopping-cart`. A cluster can pull those directly, through a pull-through
+cache of `ghcr.io` in its own cloud, or from a registry of your own that you build them into by setting
+`DOCKER_REPOSITORY`:
 
 ```bash
 DOCKER_REPOSITORY=registry.example.com/ankka sbt docker:publish
 ```
 
-Then rename them in the overlay with an `images:` block, at the release you run:
+A cache in the cluster's own region keeps pulls local and keeps serving a version it has already
+fetched when `ghcr.io` is unavailable. Whichever you choose, rename the images in the overlay with an
+`images:` block, at the release you run:
 
 ```yaml
 images:

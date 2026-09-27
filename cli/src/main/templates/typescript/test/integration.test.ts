@@ -1,17 +1,13 @@
 // The whole service through the real sidecar: Postgres and the sidecar image in Docker, this process
 // serving the components to it, and an HTTP client for the routes. Seconds, not milliseconds.
 //
-// The sidecar image is `$ANKKA_SIDECAR_IMAGE`, or `ankka-sidecar:latest`. These tests are skipped, and
-// say so, when that image is not on this machine; see README.md, "The sidecar image".
+// The sidecar is the one published with the SDK's version, pulled on first use; `$ANKKA_SIDECAR_IMAGE`
+// names another. Needs Docker.
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
 import { AnkkaTestKit } from "ankka/testkit"
 import { service } from "../src/main.ts"
 
-const image = process.env.ANKKA_SIDECAR_IMAGE ?? "ankka-sidecar:latest"
-const haveImage = spawnSync("docker", ["image", "inspect", image], { stdio: "ignore" }).status === 0
-const skip = haveImage ? false : `the sidecar image ${image} is not on this machine; see README.md`
 
 /** A view is eventually consistent: retry until the answer is the one expected, then return it. */
 async function jsonWhen(kit: AnkkaTestKit, path: string, ready: (body: unknown) => boolean, timeoutMs = 20_000): Promise<unknown> {
@@ -23,7 +19,7 @@ async function jsonWhen(kit: AnkkaTestKit, path: string, ready: (body: unknown) 
   }
 }
 
-test("an item survives a restart and is listed", { skip }, async () => {
+test("an item survives a restart and is listed", async () => {
   const kit = await AnkkaTestKit.start(service())
   try {
     assert.ok((await kit.http.post("/items/i1", { name: "Widget", count: 2 })).status < 300)

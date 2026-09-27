@@ -1200,8 +1200,10 @@ change the stored format of the events it already has; and **the schema comes ou
 image** (the compose file's `schema` service copies `/opt/docker/ddl`, as the testkits do), so a
 project holds no DDL to fall out of step with its sidecar. `PythonTemplateSuite` and
 `TypeScriptTemplateSuite` render through `Main.run`, assert the pin names the CLI's version, point it at
-this repository's SDK, and run the project's own type check and tests — insisting the integration test
-ran whenever `ankka-sidecar:latest` is present. `-Dankka.template.tests` takes `off`, or a list of
+this repository's SDK, and run the project's own type check and tests — insisting nothing skipped. A
+released SDK's testkit, and a generated project's compose file, start
+`ghcr.io/thinkmorestupidless/ankka-sidecar:<version>`; an unreleased SDK (0.0.0) starts
+`ankka-sidecar:latest`, so the suites and the SDK jobs test against the sidecar of the same commit. `-Dankka.template.tests` takes `off`, or a list of
 languages (`python`, `typescript,scala`); only `scala` pays for the local publish, which is how each SDK
 job in CI runs its own template's suite against the SDK and sidecar it just built.
 

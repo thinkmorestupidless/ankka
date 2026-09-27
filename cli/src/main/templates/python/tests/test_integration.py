@@ -1,31 +1,16 @@
 """The whole service through the real sidecar: Postgres and the sidecar image in Docker, this process
 serving the components to it, and an HTTP client for the routes. Seconds, not milliseconds.
 
-The sidecar image is `$ANKKA_SIDECAR_IMAGE`, or `ankka-sidecar:latest`. These tests are skipped, and
-say so, when that image is not on this machine; see README.md, "The sidecar image"."""
+The sidecar is the one published with the SDK's version, pulled on first use; `$ANKKA_SIDECAR_IMAGE`
+names another. Needs Docker."""
 
 import asyncio
-import os
-import shutil
-import subprocess
 from collections.abc import Callable
 from typing import Any
 
-import pytest
 from ankka.testkit.integration import AnkkaTestKit
 
 from {{module}}.main import service
-
-IMAGE = os.environ.get("ANKKA_SIDECAR_IMAGE", "ankka-sidecar:latest")
-
-
-def _have_image() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    return subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True).returncode == 0
-
-
-pytestmark = pytest.mark.skipif(not _have_image(), reason=f"the sidecar image {IMAGE} is not on this machine; see README.md")
 
 
 async def _json_when(kit: AnkkaTestKit, path: str, ready: Callable[[Any], bool], timeout: float = 20.0) -> Any:

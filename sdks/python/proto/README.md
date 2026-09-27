@@ -3,7 +3,7 @@
 This directory is the artifact an SDK consumes: the `.proto` files under `src/main/protobuf`,
 `ENCODING.md` (what the bytes inside a `Payload` mean) and `fixtures/` (documents every SDK's
 default codec must encode and decode exactly). An SDK copies the whole directory in — the Python
-SDK's `uv run proto` does — and CI checks the copies are identical.
+SDK's `uv run python scripts/proto.py` and the TypeScript SDK's `npm run proto` do — and CI checks the copies are identical.
 
 The sbt project here (`ankka-protocol`) only generates Scala for the sidecar; it is never
 published. Nothing of ankka's depends on it except `sidecar`, and it depends on nothing of

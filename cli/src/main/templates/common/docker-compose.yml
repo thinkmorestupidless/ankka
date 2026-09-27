@@ -3,13 +3,14 @@
 #
 #   docker compose up -d        # then start your process; the service answers on localhost:9000
 #
-# The sidecar image is $ANKKA_SIDECAR_IMAGE, or ankka-sidecar:latest. The database schema comes out
-# of that same image, so it always matches the sidecar that uses it. Postgres applies its init
-# directory only to an empty volume: after changing the sidecar's version, `docker compose down -v`.
+# The sidecar is the one published with this project's ankka version, pulled from ghcr.io on first
+# use; set ANKKA_SIDECAR_IMAGE to run another. The database schema comes out of that same image, so it
+# always matches the sidecar that uses it. Postgres applies its init directory only to an empty
+# volume: after changing the sidecar's version, `docker compose down -v`.
 services:
   # Copies the schema out of the sidecar image into a volume Postgres initialises from, then exits.
   schema:
-    image: ${ANKKA_SIDECAR_IMAGE:-ankka-sidecar:latest}
+    image: ${ANKKA_SIDECAR_IMAGE:-ghcr.io/thinkmorestupidless/ankka-sidecar:{{ankka_version}}}
     user: root
     entrypoint: ["sh", "-c", "cp -R /opt/docker/ddl/. /ddl/ && chmod -R a+rX /ddl"]
     volumes:
@@ -36,7 +37,7 @@ services:
       retries: 20
 
   sidecar:
-    image: ${ANKKA_SIDECAR_IMAGE:-ankka-sidecar:latest}
+    image: ${ANKKA_SIDECAR_IMAGE:-ghcr.io/thinkmorestupidless/ankka-sidecar:{{ankka_version}}}
     depends_on:
       postgres:
         condition: service_healthy

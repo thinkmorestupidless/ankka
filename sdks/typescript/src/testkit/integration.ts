@@ -7,7 +7,10 @@
 // is how a test proves durability rather than caching.
 //
 // Needs Docker, and `testcontainers` with `@testcontainers/postgresql` installed (optional peers of this
-// package). The image is `$ANKKA_SIDECAR_IMAGE` or `ankka-sidecar:latest`.
+// package). The image is `$ANKKA_SIDECAR_IMAGE` when that is set. Otherwise a released SDK uses the sidecar
+// published with it, `ghcr.io/thinkmorestupidless/ankka-sidecar:<this SDK's version>` — public, so Docker
+// pulls it on first use — and an unreleased one (version `0.0.0`, a checkout of the ankka repository) uses
+// `ankka-sidecar:latest`, the image `sbt sidecar/Docker/publishLocal` builds.
 
 import { execFileSync } from "node:child_process"
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs"
@@ -18,13 +21,14 @@ import type { StartedPostgreSqlContainer } from "@testcontainers/postgresql"
 import type { ComponentClient } from "../client.ts"
 import type { ServiceBuilder } from "../service.ts"
 import type { Server } from "../server/server.ts"
+import { VERSION } from "../version.ts"
 
 const POSTGRES_IMAGE = "postgres:17-alpine"
 const HTTP_PORT = 9000
 const CALLBACK_PORT = 9011
 
 export interface AnkkaTestKitOptions {
-  /** The sidecar image; `$ANKKA_SIDECAR_IMAGE` or `ankka-sidecar:latest` by default. */
+  /** The sidecar image; `sidecarImage()` by default. */
   readonly image?: string
   /** Environment for the sidecar container: `ANKKA_MODEL_SCRIPT` scripts its model. */
   readonly env?: Readonly<Record<string, string>>
@@ -112,8 +116,16 @@ export interface Beside {
   stop(): Promise<void>
 }
 
-function sidecarImage(): string {
-  return process.env.ANKKA_SIDECAR_IMAGE ?? "ankka-sidecar:latest"
+export const PUBLISHED_SIDECAR = "ghcr.io/thinkmorestupidless/ankka-sidecar"
+
+/**
+ * The sidecar the testkit starts when it is not told: see the top of this file. A release publishes the SDK
+ * and the sidecar under one version, so a released SDK's own version names the sidecar it was tested with.
+ */
+export function sidecarImage(version: string = VERSION): string {
+  const explicit = process.env.ANKKA_SIDECAR_IMAGE
+  if (explicit) return explicit
+  return version === "0.0.0" ? "ankka-sidecar:latest" : `${PUBLISHED_SIDECAR}:${version}`
 }
 
 /** The DDL as files, from `/opt/docker/ddl` in the sidecar image, without running the image. */

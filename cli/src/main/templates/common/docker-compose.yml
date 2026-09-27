@@ -1,0 +1,63 @@
+# Everything {{name}} needs to run on this machine except itself: Postgres, and the ankka sidecar
+# that owns the journal, the views, HTTP and the rest, and dials your process on port 9010.
+#
+#   docker compose up -d        # then start your process; the service answers on localhost:9000
+#
+# The sidecar image is $ANKKA_SIDECAR_IMAGE, or ankka-sidecar:latest. The database schema comes out
+# of that same image, so it always matches the sidecar that uses it. Postgres applies its init
+# directory only to an empty volume: after changing the sidecar's version, `docker compose down -v`.
+services:
+  # Copies the schema out of the sidecar image into a volume Postgres initialises from, then exits.
+  schema:
+    image: ${ANKKA_SIDECAR_IMAGE:-ankka-sidecar:latest}
+    user: root
+    entrypoint: ["sh", "-c", "cp -R /opt/docker/ddl/. /ddl/ && chmod -R a+rX /ddl"]
+    volumes:
+      - ddl:/ddl
+
+  postgres:
+    image: postgres:17-alpine
+    depends_on:
+      schema:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: ankka
+      POSTGRES_PASSWORD: ankka
+      POSTGRES_DB: ankka
+    ports:
+      - "5432:5432"
+    volumes:
+      - ddl:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ankka -d ankka"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  sidecar:
+    image: ${ANKKA_SIDECAR_IMAGE:-ankka-sidecar:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Your process, on the host. extra_hosts is what makes the name resolve on Linux; Docker
+      # Desktop provides it anyway.
+      ANKKA_PROCESS_ADDRESS: host.docker.internal:9010
+      ANKKA_SIDECAR_BIND: 0.0.0.0
+      ANKKA_HTTP_PORT: "9000"
+      ANKKA_DB_HOST: postgres
+      ANKKA_DB_PORT: "5432"
+      ANKKA_DB_NAME: ankka
+      ANKKA_DB_USER: ankka
+      ANKKA_DB_PASSWORD: ankka
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9000:9000"
+      # The port your process calls back on, published on loopback only.
+      - "127.0.0.1:9011:9011"
+
+volumes:
+  ddl:
+  pgdata:

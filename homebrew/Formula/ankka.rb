@@ -40,7 +40,7 @@ class Ankka < Formula
 
   def caveats
     <<~EOS
-      `ankka init` creates a service from the template by running `sbt new`, so it needs sbt:
+      `ankka init` creates a Scala service from the template by running `sbt new`, so it needs sbt:
         brew install sbt
       Every other command works without it.
     EOS

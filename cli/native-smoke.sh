@@ -2,7 +2,8 @@
 # Smoke-tests a native build of the CLI: `cli/native-smoke.sh <binary> [expected version]`.
 #
 # A native image builds successfully with a resource missing, and the command that needed it then
-# answers with nothing — `ankka mcp` listing no pages, the console serving 404s. So this runs the
+# answers with nothing — `ankka mcp` listing no pages, the console serving 404s, `ankka init` writing
+# a project with no workflows. So this runs the
 # binary and asks for each thing the image has to carry, rather than trusting the build.
 set -euo pipefail
 
@@ -42,3 +43,12 @@ for file in / /app.js /style.css; do
   [ "$status" = "200" ] || fail "the console answered $status for $file: the image is missing console/"
 done
 echo "console    serves its files"
+
+for language in python typescript; do
+  "$bin" init smoke --language "$language" --dir "$work/$language" > /dev/null \
+    || fail "ankka init --language $language failed"
+  for file in service.json .gitignore .github/workflows/deploy.yml .claude/skills/ankka/SKILL.md; do
+    [ -f "$work/$language/smoke/$file" ] || fail "ankka init --language $language wrote no $file: the image is missing ankka/templates"
+  done
+done
+echo "init       renders the python and typescript templates"

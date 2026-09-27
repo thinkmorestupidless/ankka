@@ -1,6 +1,7 @@
 {
   "resources": [
     { "glob": "ankka/docs/**" },
-    { "glob": "console/*" }
+    { "glob": "console/*" },
+    { "glob": "ankka/templates/**" }
   ]
 }

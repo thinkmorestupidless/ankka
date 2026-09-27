@@ -1,0 +1,18 @@
+# Type-check and test on every push and pull request. Needs no secrets, so it is green from the first
+# push — before anything about a control plane has been configured.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run mypy
+      # The integration tests need the sidecar image; where it is not available they are reported as
+      # skipped, with the reason, rather than failing.
+      - run: uv run pytest -q -rs

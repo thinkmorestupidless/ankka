@@ -54,6 +54,8 @@ cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conforman
 cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end
 sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
 sbt 'cli/testOnly *ActionSuite'   # the GitHub Action's install and configure steps, run as bash
+sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka init --language python`, run
+                                   # against sdks/python (and typescript likewise); needs uv, or node and npm
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
@@ -1170,11 +1172,32 @@ dirty, rather than shipping a snapshot named like a release. `com.thinkmorestupi
 **The template** is `ankka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which
 publishes locally, expands it into a temp directory through the real `ankka init`, and runs the
 expansion's own `sbt test` and image build as subprocesses (`-Dankka.template.tests=off` skips
-it; it needs `sbt` on `PATH` and Docker). `ankka init` shells out to `sbt new` and carries no
-template of its own; it passes its `BuildInfo.version` as `--ankka_version`. The directory is
+it; it needs `sbt` on `PATH` and Docker). For Scala `ankka init` shells out to `sbt new` and carries
+no template of its own; it passes its `BuildInfo.version` as `--ankka_version`. The directory is
 named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
 new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
+
+**The Python and TypeScript templates are the CLI's own**, in `cli/src/main/templates/{python,
+typescript,common}`, rendered by `ankka init --language` (`Scaffold`). Neither language has a template
+tool its developers all have, so there is no second front door to drift from, and the template is
+always the CLI's version. The build copies each language's files, `common/` (the compose file) and the
+rendered skills from `marketplace/` onto the classpath with an `index.txt` — walked by hand, because
+`unmanagedResources` drops hidden files and a template is mostly `.github/`, `.claude/` and
+`.gitignore` — and the native image carries them by the `ankka/templates/**` glob, which
+`native-smoke.sh` checks by rendering both. Rendering replaces exact tokens (`{{name}}`, `{{module}}`,
+`{{ankka_version}}`, `{{protocol_version}}`) and nothing else, so `${{ … }}` in a workflow needs no
+escaping — the opposite of the Giter8 trap. Two things a template must get right that no compiler
+checks: **an event type starts as a union**, because the Python codec writes a lone dataclass with no
+`type` field and a union's members with one, so a one-event service that later gains a second would
+change the stored format of the events it already has; and **the schema comes out of the sidecar
+image** (the compose file's `schema` service copies `/opt/docker/ddl`, as the testkits do), so a
+project holds no DDL to fall out of step with its sidecar. `PythonTemplateSuite` and
+`TypeScriptTemplateSuite` render through `Main.run`, assert the pin names the CLI's version, point it at
+this repository's SDK, and run the project's own type check and tests — insisting the integration test
+ran whenever `ankka-sidecar:latest` is present. `-Dankka.template.tests` takes `off`, or a list of
+languages (`python`, `typescript,scala`); only `scala` pays for the local publish, which is how each SDK
+job in CI runs its own template's suite against the SDK and sidecar it just built.
 
 **The CLI ships as a native executable per platform**, from the release workflow's `cli-native`
 matrix: GraalVM's `native-image` over the same jar, one runner per platform because it cannot

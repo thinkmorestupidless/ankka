@@ -15,6 +15,11 @@ The two talk over gRPC on loopback, and the SDK hides that entirely.
 
 ## Create the project
 
+This page builds the project one file at a time, so that each part is explained. To start from a
+complete project instead, run `ankka init cart --language python`: it writes an entity, a view, an endpoint, tests at both
+levels, a `docker-compose.yml` that starts Postgres and the sidecar, a Dockerfile, the descriptor and
+GitHub workflows, and its README says how to run each. To follow this page, start empty:
+
 ```bash
 uv init cart && cd cart
 uv add "ankka[testkit]==0.5.0"          # the version of the platform you will deploy to

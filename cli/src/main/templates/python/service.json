@@ -1,0 +1,8 @@
+{
+  "name": "{{name}}",
+  "service": {
+    "image": "{{name}}:latest",
+    "hosting": "process",
+    "protocol": "{{protocol_version}}"
+  }
+}

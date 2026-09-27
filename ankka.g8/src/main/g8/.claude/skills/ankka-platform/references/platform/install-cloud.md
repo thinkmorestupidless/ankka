@@ -5,8 +5,8 @@
 Source: https://docs.ankka.cloud/platform/install-cloud/
 A cloud installation is the same set of components as the local platform, applied with a production
 kustomize overlay that changes only what must differ from a laptop. The ankka repository carries an
-example production overlay in `kustomization/overlays/arrakis`; copy it, set its values for your
-installation, and apply it by hand after the three controllers whose resources it uses.
+example production overlay in `kustomization/overlays/cloud`; copy it, set every value marked `SET` for
+your installation, and apply it by hand after the three controllers whose resources it uses.
 
 `deploy-local.sh` is not used here. It refuses any `kubectl` context that is not the local kind cluster,
 on purpose: a script that deploys to whatever context happens to be current is a script that eventually

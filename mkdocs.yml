@@ -11,10 +11,6 @@ edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: target/docs-site
 
-# Internal design treatments that feed feature specifications. Not for the people using ankka.
-exclude_docs: |
-  design/
-
 validation:
   omitted_files: warn
   absolute_links: warn

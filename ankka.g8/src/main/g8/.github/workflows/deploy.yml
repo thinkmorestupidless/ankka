@@ -64,7 +64,7 @@ jobs:
           echo "IMAGE=\$DOCKER_REPOSITORY/$name;format="norm"$:\$SERVICE_VERSION" >> "\$GITHUB_ENV"
 
       # Installs the CLI, verifies it against its published checksum, and authenticates it for the
-      # rest of this job. It needs the Java above; it installs none of its own.
+      # rest of this job. The CLI is a native executable: the Java above is for sbt, not for it.
       - uses: thinkmorestupidless/ankka-action@v1
         with:
           url: \${{ secrets.ANKKA_URL }}

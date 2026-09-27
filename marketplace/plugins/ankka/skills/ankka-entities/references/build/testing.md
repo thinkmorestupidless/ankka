@@ -1,6 +1,6 @@
 # Testing
 
-> Test ankka components at two levels in Scala and Python — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+> Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
 
 Source: https://docs.ankka.cloud/build/testing/
 ankka services are tested at two levels, and both are real.
@@ -17,10 +17,12 @@ ankka services are tested at two levels, and both are real.
 Docker is the only requirement for integration tests. No model API key is needed at either level: agents
 are tested against a scripted model.
 
-## Unit testing an entity in Scala
+## Unit testing a component
 
-`EventSourcedTestKit.of(companion, entityId)` hosts one entity instance. `call` runs a handler and
-returns a result holding the events it persisted, its reply or its refusal:
+A unit test kit hosts one component with nothing else — no actor system, no cluster, no database, no
+sidecar. `call` runs a handler and returns what the effect it produced would have done:
+
+**Scala**
 
 ```scala
 val kit    = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
@@ -30,6 +32,34 @@ assertEquals(result.replyValue, Done)
 assertEquals(result.events, Vector(ItemAdded(LineItem("p1", "Widget", 2))))
 assertEquals(kit.currentState.totalQuantity, 2)
 ```
+
+**Python**
+
+```python
+from ankka.testkit import EventSourcedTestKit
+
+kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
+assert kit.call("get-cart").reply.items[0].name == "Pen"
+```
+
+**TypeScript**
+
+```ts
+test("adds an item and replies done", async () => {
+  const kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+  const result = await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p1", name: "Pen", quantity: 2 })
+  assert.deepEqual(result.events, [{ type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 2 } }])
+  assert.equal(result.reply, done)
+  assert.equal(kit.state.items.length, 1)
+})
+```
+
+Scala names the handler with the typed value its companion declared; Python and TypeScript name it
+by its wire name or its handler reference. What each kit hands back differs a little by language.
+
+### What a Scala kit gives you
+
 
 | On the result | Meaning |
 |---|---|
@@ -61,11 +91,80 @@ Workflows, views, consumers, timed actions and agents are tested in Scala throug
 kit, because what matters about them — transitions and recovery, projection, delivery, the agent loop —
 is the runtime's behaviour.
 
-## Integration testing in Scala
+### What a Python kit gives you
 
-`AnkkaTestKit.start(descriptors, extensions)` starts Postgres in Docker, applies the runtime's schema,
-and hosts the components with the given extensions. It returns once the service's node has joined its
-cluster, so a test's first call cannot race startup.
+
+| Kit | Drives |
+|---|---|
+| `EventSourcedTestKit.of(Entity, id)` | commands; the result has `events`, `reply`, `error`, `persisted`, `retention` |
+| `KeyValueTestKit.of(Entity, id)` | commands on a key value entity |
+| `WorkflowTestKit.of(Workflow, id)` | `call` a command, `run_step` a step, `run_until_end` to follow transitions |
+| `ViewTestKit.of(View)` | `on_change(key, event)`, `on_delete(key)`, then `get(key)` for the row |
+| `ConsumerTestKit.of(Consumer)` | `on_message(message, subject)`, `on_delete(subject)` |
+| `TimedActionTestKit.of(Action)` | `call(name, input)` |
+| `AgentTestKit.of(Agent, session, model)` | a handler plus the loop the sidecar would run, against a `ScriptedModel` |
+| `EndpointTestKit.of(Endpoint, *args)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response` |
+
+A component's client calls are refused inside a unit test kit, because there is nothing to call. Test a
+component that calls others at the integration level.
+
+A workflow's commands and steps can be run by hand:
+
+```python
+def test_checkout_workflow_declares_its_recovery() -> None:
+    kit = WorkflowTestKit.of(CheckoutWorkflow, "c1")
+    started = kit.call("start", "fail")
+    assert started.transition is not None and started.transition.step == "reserve"
+    assert kit.state.status == "reserving" and kit.state.mode == "fail"
+    assert kit.call("start", "ok").error is not None
+    assert kit.run_step("compensate").next == End()
+    assert kit.state.status == "compensated"
+    settings = CheckoutWorkflow.to_component().workflow.settings
+    assert {s.step: s.recovery.failover_to for s in settings.steps} == {"charge": "compensate"}
+```
+
+`AgentTestKit` runs the handler, then the loop the sidecar would run, against a `ScriptedModel`: tools run
+in-process with the scripted arguments, and guardrails are checked. `ScriptedModel` fails loudly when it
+runs out, like `TestModelProvider`:
+
+```python
+def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
+    from ankka.testkit import AgentTestKit, ScriptedModel
+    from examples.shopping_cart.assistant import CartAssistant
+
+    model = ScriptedModel().expect_tool_call("lookup", {"cartId": "c9"}).expect_text("Your cart is empty.")
+    answer = AgentTestKit.of(CartAssistant, "s1", model).call("ask", "what is in cart c9?")
+    assert answer.plan.tool_names == ("lookup",) and answer.plan.guardrail_names == ("no-secrets",)
+    assert answer.reply == "Your cart is empty."
+    # The tool ran in this process — the unit testkit's client answers nothing, so it reports that.
+    assert answer.tool_results and answer.tool_results[0].startswith("error:")
+```
+
+### What a TypeScript kit gives you
+
+`ankka/testkit` holds the same set, and every call is awaited:
+
+| Kit | Drives |
+|---|---|
+| `EventSourcedTestKit.of(Entity, id)` | `call(handler, input)`; the result has `events`, `newState`, `reply`, `error`, `noReply`, `retention` |
+| `KeyValueTestKit.of(Entity, id)` | the same, with `changed` in place of `events` |
+| `WorkflowTestKit.of(Workflow, id)` | `call` a command, `runStep` a step, `runUntilEnd` and `resume` to follow transitions |
+| `ViewTestKit.of(View)` | `onChange(key, event)`, `onDelete(key)`, then `get(key)` for the row |
+| `ConsumerTestKit.of(Consumer)` | `onMessage(message, subject)`, `onDelete(subject)` |
+| `TimedActionTestKit.of(Action)` | `invoke(action, input)` |
+| `AgentTestKit.of(Agent, session, model)` | a handler plus the loop the sidecar would run, against a `ScriptedModel` |
+| `EndpointTestKit.of(Endpoint)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response` |
+
+`ScriptedModel` scripts turns with `expectText`, `expectToolCall` and `expectRefusal`, and fails loudly
+when the script runs out.
+
+## Integration testing
+
+An integration test kit starts the whole service against a throwaway Postgres in Docker and drives it
+as a caller would. Restarting inside a test drops everything held in memory, so a test that passes
+across a restart has proved durability rather than caching:
+
+**Scala**
 
 ```scala
 class ShoppingCartIntegrationSuite extends munit.FunSuite:
@@ -84,6 +183,48 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite:
 
     assertEquals(cart("c1").call(ShoppingCartEntity.getCart).invoke(), before)
   }
+```
+
+**Python**
+
+```python
+@pytest.mark.slow
+async def test_cart_through_the_sidecar_survives_a_restart() -> None:
+    service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
+    async with await AnkkaTestKit.start(service) as kit:
+        assert (await kit.http.post("/carts/c1/items", json=PEN_JSON)).status_code == 204
+        assert (await kit.http.post("/carts/c1/items", json=INK_JSON)).status_code == 204
+        cart = (await kit.http.get("/carts/c1")).json()
+        assert cart == {"cartId": "c1", "items": [PEN_JSON, INK_JSON], "checkedOut": False}
+        assert (await kit.http.get("/carts/c1/total")).json() == 3
+        # A refusal reaches the caller as its status.
+        assert (await kit.http.post("/carts/c1/items", json={**PEN_JSON, "quantity": 0})).status_code == 400
+        assert (await kit.http.delete("/carts/c1/items/nope")).status_code == 404
+
+        await kit.restart()
+        assert (await kit.http.get("/carts/c1")).json()["items"] == [PEN_JSON, INK_JSON]
+
+        checked = (await kit.http.post("/carts/c1/checkout")).json()
+        assert checked["checkedOut"] is True
+        # Deleted after the checkout, as the Scala cart: the id is fresh again.
+        assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [], "checkedOut": False}
+```
+
+**TypeScript**
+
+```ts
+test("items survive the sidecar restarting", async () => {
+  const kit = await AnkkaTestKit.start(service())
+  try {
+    const added = await kit.http.post("/carts/c1/items", { productId: "p1", name: "Pen", quantity: 2 })
+    assert.equal(added.status, 204)
+    await kit.restart()                                  // a new sidecar, the same database
+    const cart = (await kit.http.get("/carts/c1")).json() as { items: unknown[] }
+    assert.equal(cart.items.length, 1)
+  } finally {
+    await kit.stop()
+  }
+})
 ```
 
 `restartService()` stops the service and starts a new one against the same database, so every entity
@@ -112,7 +253,17 @@ fast, as in [Timers](timers.md#testing-timers). Views and consumers see changes 
 so assert on them by retrying until the expected value appears, and retry on the value that changes
 rather than on the mere presence of a row.
 
+In Python and TypeScript the kit starts the real sidecar image beside Postgres, serves your
+components from the test process, and drives the routes through the sidecar. `restart()` replaces the
+sidecar against the same database. Mark the Python tests `@pytest.mark.slow` and run them with
+`uv run pytest -m slow`; the TypeScript ones are skipped unless `ANKKA_SLOW=1` is set, so that neither
+suite needs Docker by default.
+
+Mark such tests `@pytest.mark.slow` and run them with `uv run pytest -m slow`; `uv run pytest` runs the
+unit tests alone.
+
 ## Testing agents with a scripted model
+
 
 `TestModelProvider` answers from a script, in order, and **fails loudly when the script runs out**. A
 test whose model quietly returned a default would no longer be testing what it says.
@@ -167,51 +318,10 @@ Two rules keep scripted-model tests honest:
 - **Let a workflow finish before the test ends.** A workflow left mid-flight keeps taking responses from
   a shared script, starving the next test.
 
-## Unit testing in Python
+### Scripting a model in Python and TypeScript
 
-`ankka.testkit` holds a unit test kit for every component kind, and none of them needs a sidecar. Calls
-take the handler's wire name:
-
-```python
-from ankka.testkit import EventSourcedTestKit
-
-kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
-assert kit.call("add-item", LineItem("p1", "Pen", 2)).events == (ItemAdded(LineItem("p1", "Pen", 2)),)
-assert kit.call("get-cart").reply.items[0].name == "Pen"
-```
-
-| Kit | Drives |
-|---|---|
-| `EventSourcedTestKit.of(Entity, id)` | commands; the result has `events`, `reply`, `error`, `persisted`, `retention` |
-| `KeyValueTestKit.of(Entity, id)` | commands on a key value entity |
-| `WorkflowTestKit.of(Workflow, id)` | `call` a command, `run_step` a step, `run_until_end` to follow transitions |
-| `ViewTestKit.of(View)` | `on_change(key, event)`, `on_delete(key)`, then `get(key)` for the row |
-| `ConsumerTestKit.of(Consumer)` | `on_message(message, subject)`, `on_delete(subject)` |
-| `TimedActionTestKit.of(Action)` | `call(name, input)` |
-| `AgentTestKit.of(Agent, session, model)` | a handler plus the loop the sidecar would run, against a `ScriptedModel` |
-| `EndpointTestKit.of(Endpoint, *args)` | `get`, `post`, `put`, `delete` against the routes, returning a `Response` |
-
-A component's client calls are refused inside a unit test kit, because there is nothing to call. Test a
-component that calls others at the integration level.
-
-A workflow's commands and steps can be run by hand:
-
-```python
-def test_checkout_workflow_declares_its_recovery() -> None:
-    kit = WorkflowTestKit.of(CheckoutWorkflow, "c1")
-    started = kit.call("start", "fail")
-    assert started.transition is not None and started.transition.step == "reserve"
-    assert kit.state.status == "reserving" and kit.state.mode == "fail"
-    assert kit.call("start", "ok").error is not None
-    assert kit.run_step("compensate").next == End()
-    assert kit.state.status == "compensated"
-    settings = CheckoutWorkflow.to_component().workflow.settings
-    assert {s.step: s.recovery.failover_to for s in settings.steps} == {"charge": "compensate"}
-```
-
-`AgentTestKit` runs the handler, then the loop the sidecar would run, against a `ScriptedModel`: tools run
-in-process with the scripted arguments, and guardrails are checked. `ScriptedModel` fails loudly when it
-runs out, like `TestModelProvider`:
+`AgentTestKit` runs the handler and then the loop the sidecar would run, against a `ScriptedModel`
+that fails loudly the same way:
 
 ```python
 def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
@@ -225,39 +335,6 @@ def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
     # The tool ran in this process — the unit testkit's client answers nothing, so it reports that.
     assert answer.tool_results and answer.tool_results[0].startswith("error:")
 ```
-
-## Integration testing in Python
-
-`ankka.testkit.integration.AnkkaTestKit` starts Postgres and the real sidecar image in Docker, serves
-your components from the test process, and drives the routes through the sidecar with `kit.http`, an
-`httpx` client pointed at it. `restart()` replaces the sidecar against the same database, so the next read
-has to rebuild from the journal:
-
-```python
-@pytest.mark.slow
-async def test_cart_through_the_sidecar_survives_a_restart() -> None:
-    service = Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint)
-    async with await AnkkaTestKit.start(service) as kit:
-        assert (await kit.http.post("/carts/c1/items", json=PEN_JSON)).status_code == 204
-        assert (await kit.http.post("/carts/c1/items", json=INK_JSON)).status_code == 204
-        cart = (await kit.http.get("/carts/c1")).json()
-        assert cart == {"cartId": "c1", "items": [PEN_JSON, INK_JSON], "checkedOut": False}
-        assert (await kit.http.get("/carts/c1/total")).json() == 3
-        # A refusal reaches the caller as its status.
-        assert (await kit.http.post("/carts/c1/items", json={**PEN_JSON, "quantity": 0})).status_code == 400
-        assert (await kit.http.delete("/carts/c1/items/nope")).status_code == 404
-
-        await kit.restart()
-        assert (await kit.http.get("/carts/c1")).json()["items"] == [PEN_JSON, INK_JSON]
-
-        checked = (await kit.http.post("/carts/c1/checkout")).json()
-        assert checked["checkedOut"] is True
-        # Deleted after the checkout, as the Scala cart: the id is fresh again.
-        assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [], "checkedOut": False}
-```
-
-Mark such tests `@pytest.mark.slow` and run them with `uv run pytest -m slow`; `uv run pytest` runs the
-unit tests alone.
 
 To test an agent through the real sidecar, script the sidecar's model with `ANKKA_MODEL_SCRIPT`, passed
 through `env`. The script is a JSON array of turns — `{"text": ...}`, `{"tool": name, "arguments": {...}}`,

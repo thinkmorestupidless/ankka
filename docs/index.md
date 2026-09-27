@@ -35,6 +35,8 @@ A service is a set of components, registered explicitly and hosted by the runtim
 
 A handler returns an effect, which is a description of what should happen. It performs no I/O itself:
 
+/// tab | Scala
+
 ```scala
 final class ShoppingCartEntity(context: EventSourcedEntityContext)
     extends EventSourcedEntity[ShoppingCart, ShoppingCartEvent]:
@@ -50,6 +52,74 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
+
+///
+
+/// tab | Python
+
+```python
+class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
+    component_id = "shopping-cart"
+    state_codec = json_codec(ShoppingCart, "shopping-cart")
+    event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
+
+    def empty_state(self) -> ShoppingCart:
+        return ShoppingCart.empty(self.entity_id)
+
+    def apply_event(self, state: ShoppingCart, event: ShoppingCartEvent) -> ShoppingCart:
+        match event:
+            case ItemAdded(item):
+                return state.add_item(item)
+            case ItemRemoved(product_id):
+                return state.remove_item(product_id)
+            case CheckedOut():
+                return state.on_checked_out()
+        raise AssertionError(event)
+
+    @command("add-item")
+    def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+        if self.state.checkedOut:
+            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+        return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
+```
+
+///
+
+/// tab | TypeScript
+
+```ts
+export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
+  static readonly componentId = "shopping-cart"
+  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
+  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+
+  static readonly handlers = {
+    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
+  }
+
+  emptyState(): ShoppingCart {
+    return emptyCart(this.entityId)
+  }
+
+  applyEvent(cart: ShoppingCart, event: ShoppingCartEvent): ShoppingCart {
+    switch (event.type) {
+      case "ItemAdded":
+        return addItem(cart, event.item)
+      case "ItemRemoved":
+        return removeItem(cart, event.productId)
+      case "CheckedOut":
+        return { ...cart, checkedOut: true }
+    }
+  }
+
+  addItem(item: LineItem) {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+  }
+}
+```
+
+///
 
 The runtime interprets the effect: it writes the event to the journal, applies it to the state and
 replies. Because building an effect does nothing, a component's decisions can be tested with nothing

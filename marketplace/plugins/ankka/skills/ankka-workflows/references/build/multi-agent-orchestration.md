@@ -224,12 +224,25 @@ final class ActivityAgent extends Agent:
 `withContext` rather than appending to `userMessage`: memory then records what the user asked, not the
 whole assembled prompt, so later turns' history is not filled with data the user never typed.
 
-## Agents in Python
+## The same patterns outside Scala
 
-Everything on this page holds for a Python service, because none of it lives in the agent's own code: the
-loop, the session memory and the model are the sidecar's. A Python workflow step calls an agent with the
-workflow's id as the session, and the agents accumulate one conversation exactly as the Scala ones do.
-In this excerpt `Plan` and `Selection` are the workflow's own dataclasses:
+The worked example above is the Scala multi-agent planner, because that is the sample this repository
+carries. Every pattern on this page holds in Python and TypeScript unchanged, because none of it lives in
+the agent's own code: the loop, the session memory and the model are the sidecar's. A step calls an agent
+with the workflow's id as the session, and the agents accumulate one conversation exactly as the Scala
+ones do:
+
+**Scala**
+
+```scala
+def selectSpecialistsStep(destination: String): StepEffect =
+  val selection = client.forAgent(session).call(SelectorAgent.select).invoke(destination)
+  stepEffects
+    .updateState(currentState.copy(selection = Some(selection)))
+    .thenTransitionTo(PlannerWorkflow.consultSpecialists)
+```
+
+**Python**
 
 ```python
 @step("select")
@@ -238,8 +251,19 @@ async def select(self) -> WorkflowStepEffect[Plan]:
     return self.step_effects.update_state(replace(self.state, selection=selection)).then_transition_to("consult")
 ```
 
-`asyncio.gather` over several `invoke` calls is the parallel pattern. A selector that should stay out of
-the conversation uses `memory(False)`.
+**TypeScript**
+
+```ts
+select: step("select", async (w: PlannerWorkflow) => {
+  const selection = await w.client.of(SelectorAgent, w.entityId).call(SelectorAgent.handlers.select).invoke(w.state.destination)
+  return w.stepEffects.updateState({ ...w.state, selection }).thenTransitionTo("consult")
+}),
+```
+
+In Python `Plan` and `Selection` are the workflow's own dataclasses; in TypeScript they are its shapes.
+The parallel pattern is `invokeAsync` with `ComponentClient.await` in Scala, `asyncio.gather` in Python
+and `Promise.all` in TypeScript. A selector that should stay out of the conversation turns memory off:
+`memory(MemoryProvider.none)`, `memory(False)` and `memory(false)`.
 
 ## Observing a run
 

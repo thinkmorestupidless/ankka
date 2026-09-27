@@ -2,7 +2,7 @@
 title: Components
 description: The component kinds an ankka service is built from, what each is for, how the runtime hosts it, and how to choose between them.
 kind: concept
-languages: [scala, python]
+languages: [scala, python, typescript]
 components: [event-sourced-entity, key-value-entity, view, consumer, workflow, timed-action, agent, http-endpoint]
 related: [concepts/designing-services.md, concepts/effects.md, concepts/consistency.md, concepts/architecture.md]
 ---
@@ -127,7 +127,7 @@ Every component is registered on the service builder explicitly. There is no cla
 registration is the complete inventory of what a service hosts, and a component that is not registered
 fails at startup rather than at its first request.
 
-**Scala**
+/// tab | Scala
 
 ```scala
 Ankka.service
@@ -138,11 +138,23 @@ Ankka.service
   .start()
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
 await Ankka.service().register(ShoppingCartEntity).register(CartRows).register(ShoppingCartEndpoint).listen()
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+await Ankka.service().register(ShoppingCartEntity).register(CartRows).register(ShoppingCartEndpoint).listen()
+```
+
+///
 
 In Scala, some kinds need a runtime extension as well as registration: views and consumers need
 `ProjectionRuntime`, timed actions need `TimerRuntime`, agents need `AgentRuntime`, and endpoints need

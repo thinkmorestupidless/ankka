@@ -34,6 +34,10 @@ theme:
     - search.highlight
     - content.code.copy
     - content.action.edit
+    # Content tabs, linked: clicking "Python" switches every tab set on the page with that label,
+    # and the choice is remembered in localStorage (scoped to the site) so it holds across pages
+    # and sessions. Material reads it back in partials/javascripts/content.html on every load.
+    - content.tabs.link
     - toc.follow
   palette:
     - media: "(prefers-color-scheme: light)"
@@ -51,8 +55,16 @@ theme:
         icon: material/weather-sunny
         name: Light mode
 
-# Deliberately plain. No admonitions, tabs or snippet syntax: a page must read correctly with no
-# renderer at all, because that is how a model most often receives it.
+# Deliberately plain: no admonitions, no snippet syntax. A page must read correctly with no renderer
+# at all, because that is how a model most often receives it.
+#
+# The one exception is the language tabs a component page uses to show the same example in Scala,
+# Python and TypeScript, and it is `pymdownx.blocks.tab` rather than `pymdownx.tabbed` on purpose.
+# `tabbed` indents its content four spaces, which would (a) break tools/docs/snippets.py, whose
+# INCLUDE and OPEN_FENCE patterns are anchored to the start of a line, and (b) leave a model reading
+# the raw Markdown an indented fence. The blocks syntax keeps the fence flush left, so the include
+# machinery is untouched, and `render.py` flattens `/// tab | Python` back to a bold label for every
+# machine-facing rendering — so the plainness rule above still holds off the site.
 markdown_extensions:
   - toc:
       permalink: true
@@ -60,6 +72,8 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: false
   - pymdownx.superfences
+  - pymdownx.blocks.tab:
+      alternate_style: true
 
 extra:
   generator: false

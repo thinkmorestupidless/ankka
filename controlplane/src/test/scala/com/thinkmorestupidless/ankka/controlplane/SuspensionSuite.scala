@@ -95,8 +95,16 @@ class SuspensionSuite extends munit.FunSuite:
     eventually("the cluster is told to stop it") {
       fake.current("ankka-checkout", "cart").exists(_.spec.paused)
     }
-    val inventory = status("inventory")
-    assertEquals((inventory.lifecycle, inventory.suspended), (ServiceLifecycle.Paused, true))
+    // The trigger suspends the organization's services one at a time, so cart being suspended says
+    // nothing about inventory yet: wait for the flag that changes, then assert what must not.
+    eventually("inventory is marked suspended too") {
+      status("inventory").suspended
+    }
+    assertEquals(
+      status("inventory").lifecycle,
+      ServiceLifecycle.Paused,
+      "a paused service stays paused"
+    )
     val history = service("cart").call(ServiceEntity.history).invoke()
     assertEquals(history.head.kind, "suspended")
     assertEquals(

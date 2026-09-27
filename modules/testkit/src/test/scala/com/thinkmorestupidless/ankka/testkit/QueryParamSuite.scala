@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.testkit
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, readFromString}
+import com.thinkmorestupidless.ankka.core.Codecs
 import com.thinkmorestupidless.ankka.http.HttpServer
 
 import java.net.URI
@@ -9,6 +11,9 @@ import scala.concurrent.duration.DurationInt
 
 /** Query parameters and headers, over real HTTP. */
 class QueryParamSuite extends munit.FunSuite:
+
+  private case class Problem(status: Int, error: String)
+  private given JsonValueCodec[Problem] = Codecs.make[Problem]
 
   override val munitTimeout = 3.minutes
 
@@ -66,6 +71,17 @@ class QueryParamSuite extends munit.FunSuite:
     assertEquals(status, 400)
     assert(body.contains("'q'"), body)
     assert(body.contains("required"), body)
+  }
+
+  test("an error body is valid JSON whatever characters its message holds") {
+    // A gRPC status reached a client as {"error":"<AioRpcError ...\tstatus = ..."} with the tab raw,
+    // and the client failed parsing the error rather than reporting it.
+    val reason = "line one\n\tindented \"quoted\" back\\slash \u0001"
+    val (status, body) =
+      get(s"/search/refuse?reason=${java.net.URLEncoder.encode(reason, "UTF-8")}")
+    assertEquals(status, 400)
+    val problem = readFromString[Problem](body)
+    assertEquals(problem, Problem(400, reason))
   }
 
   test("an unparseable parameter is a 400 naming it and the expected type") {

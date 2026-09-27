@@ -15,10 +15,11 @@
   value: LoadBalancer
 - op: remove
   path: /spec/provider/kubernetes/envoyService/patch
-# The address the load balancer answers on: reserved by ankka-deployments (modules/gateway-address)
-# and pointed at by the DNS records there, so the cluster asks for it by value rather than being
-# handed whichever one the provider had free. An ephemeral address would change whenever this
-# Service was recreated and take every record with it.
-- op: add
-  path: /spec/provider/kubernetes/envoyService/loadBalancerIP
-  value: 34.147.235.52 # ankka-deployments: environments/arrakis/edge `terraform output -raw gateway_address`
+# To pin the address the load balancer answers on — reserved in your cloud and pointed at by your
+# DNS records — add it here, so the Service asks for it by value rather than being handed whichever
+# one the provider had free. An ephemeral address changes whenever the Service is recreated and
+# takes every record with it:
+#
+# - op: add
+#   path: /spec/provider/kubernetes/envoyService/loadBalancerIP
+#   value: 203.0.113.10 # SET

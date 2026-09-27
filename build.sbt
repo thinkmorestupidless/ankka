@@ -493,13 +493,12 @@ lazy val cli = project
     libraryDependencies ++= Seq(decline, munit % Test),
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a
-    // jar cannot be listed. docs/design/ holds internal treatments and is left out, as the site does.
+    // jar cannot be listed.
     Compile / resourceGenerators += Def.task {
       val docs = (ThisBuild / baseDirectory).value / "docs"
       val out  = (Compile / resourceManaged).value / "ankka" / "docs"
       val pages = (docs ** "*.md").get
         .flatMap(file => IO.relativize(docs, file).map(_ -> file))
-        .filterNot { case (relative, _) => relative.startsWith("design/") }
         .sortBy(_._1)
       IO.delete(out)
       val copied = pages.map { case (relative, file) =>

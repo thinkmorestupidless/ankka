@@ -18,8 +18,8 @@ and file path followed — so git history before that commit reads `nakka` throu
 services on ankka — and `README.md` is a landing page into it. Start with
 `docs/concepts/architecture.md`, `docs/concepts/designing-services.md` and
 `docs/reference/limitations.md` (the honest "not implemented" list) before making design decisions.
-`docs/design/` holds internal design treatments that feed feature specifications; it is never
-published. See *Documentation* below for how the tree is built and the rules a page follows.
+Everything under `docs/` is public; internal design treatments live in the private
+`ankka-deployments` repository (`design/`), not here. See *Documentation* below for how the tree is built and the rules a page follows.
 
 ## Commands
 
@@ -573,7 +573,7 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **The ClusterIssuer trap runs both ways, and the remote overlay needs the other direction.**
   A cluster-scoped issuer resolves its secrets in *cert-manager's* namespace rather than the
   Certificate's, which is why a `ClusterIssuer` was wrong for the local CA (above) — its secret
-  sits beside the Certificate. `overlays/arrakis` is the mirror: DNSimple is not one of
+  sits beside the Certificate. `overlays/cloud` is the mirror: DNSimple is not one of
   cert-manager's built-in DNS-01 solvers, so it needs the out-of-tree webhook, and that webhook
   reads its API token with *its own* ServiceAccount in the namespace of the challenge. The chart
   grants that with a Role in its release namespace, pinned by `resourceNames` to its own secret.
@@ -847,17 +847,17 @@ not a template engine, a session store or a cookie API: those belong to the appl
   doing the thing the README recommends.
 
 - **A strategic merge patch that names a container the target lacks adds a container.** Containers
-  merge by `name`, so arrakis's sidecar patch, written for `operator` when the container is
+  merge by `name`, so the production overlay's sidecar patch, written for `operator` when the container is
   `ankka-operator`, rendered a second container holding only `ANKKA_SIDECAR_IMAGE` and no image.
   kustomize accepted it and `RemoteOverlaySuite` passed, because it asked whether the registry's
   sidecar appeared *somewhere* in the document. The API server refused the Deployment
-  (`containers[0].image: Required value`) on arrakis's first reconcile after v0.2.2, three minor
+  (`containers[0].image: Required value`) on the first production reconcile after v0.2.2, three minor
   versions after the patch was written. Assert the shape a patch must produce (the variable set
   once, the default gone), not the presence of a string.
 - **Changing a cert-manager issuer's `server` does not replace the certificate it issued.**
   cert-manager reissues on a spec change or when the secret's issuer annotations disagree with
   `issuerRef`; a new server under the same issuer name is neither, so the old CA's certificate
-  stays until renewal. Moving arrakis from Let's Encrypt staging to production renamed the
+  stays until renewal. Moving a production cluster from Let's Encrypt staging to production renamed the
   ClusterIssuer (`letsencrypt-production`) for exactly this, and `RemoteOverlaySuite` checks that
   the Certificate names an issuer that exists.
 
@@ -1354,17 +1354,23 @@ DDL's canonical copy, plus one `99-grants.sql` literal — see the trap above ab
 
 ## Deploying anywhere else
 
-`kustomization/overlays/arrakis/` (the first production cluster; production clusters are named after
-planets from Dune, and `caladan` would be a copy with its own base domain) is the same components
-with only what must differ: a
+`kustomization/overlays/cloud/` is an **example** production overlay, with every
+installation-specific value a placeholder marked `SET`. It is the same components with only what
+must differ: a
 `LoadBalancer` instead of the kind node ports, an ACME issuer over **DNS-01** instead of a
 self-signed root (a wildcard certificate cannot be had from HTTP-01), a real base domain on 443,
 and Keycloak's development admin secret **deleted** rather than overridden — `admin`/`admin` is
 public in this repository, so the identity provider is made to refuse to start until a real Secret
-exists out of band. (The shared control plane token this once applied to no longer exists.) Images are the remaining gap: every Deployment names an unqualified image with
-`imagePullPolicy: IfNotPresent`, which is right for `kind load` and useless for a cluster that
-must pull, so a registry needs `DOCKER_REPOSITORY` and an `images:` block (left commented in the
-overlay — a wrong registry fails minutes later as `ImagePullBackOff`, an absent one immediately).
+exists out of band, and an `images:` block naming ghcr.io at a release (every Deployment names an
+unqualified image with `imagePullPolicy: IfNotPresent`, which is right for `kind load` and useless
+for a cluster that must pull).
+
+**No real installation's overlay lives here.** The production clusters' overlays — their domains,
+addresses, account IDs and the release each runs — live in the private `ankka-deployments`
+repository beside the Terraform and Flux that create those clusters, and consume this repository's
+`kustomization/components/` at a pinned tag. Keeping them here coupled every cluster change to an
+ankka release: the tag Flux fetched had to name its own version inside it. A change a cluster
+needs is a component change here, released, then a tag bump there.
 
 `deploy-local.sh` will not apply it: that script refuses any context that is not the local kind
 cluster, on purpose, and that guard is worth more than the convenience. Apply it by hand, after

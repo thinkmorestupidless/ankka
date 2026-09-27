@@ -15,11 +15,6 @@ ROOT = Path(__file__).resolve().parents[4]
 DOCS = ROOT / "docs"
 MKDOCS_YML = ROOT / "mkdocs.yml"
 
-# Directories under docs/ that are not public pages. `design/` holds internal design treatments that
-# feed feature specifications; they name features and specs by number and are written for the people
-# building ankka, not the people using it.
-EXCLUDED_DIRS = ("design/",)
-
 KINDS = ("tutorial", "guide", "concept", "reference", "contributing")
 LANGUAGES = ("scala", "python", "typescript")
 COMPONENTS = (
@@ -91,10 +86,6 @@ class Tree:
         return [self.pages[p] for p in [*seen, *rest]]
 
 
-def is_public(relative: str) -> bool:
-    return not any(relative.startswith(d) for d in EXCLUDED_DIRS)
-
-
 def parse(relative: str, raw: str) -> Page:
     match = FRONTMATTER.match(raw)
     if not match:
@@ -107,8 +98,6 @@ def load() -> Tree:
     tree = Tree()
     for file in sorted(DOCS.rglob("*.md")):
         relative = file.relative_to(DOCS).as_posix()
-        if not is_public(relative):
-            continue
         tree.pages[relative] = parse(relative, file.read_text(encoding="utf-8"))
     tree.nav = read_nav()
     return tree

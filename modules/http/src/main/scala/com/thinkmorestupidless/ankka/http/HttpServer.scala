@@ -408,17 +408,19 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
   private def text(status: Int, body: String): HttpResponse =
     HttpResponse(StatusCode.int2StatusCode(status), entity = HttpEntity(body))
 
-  /** Errors come back as JSON so a client can act on them without scraping prose. */
+  /**
+   * Errors come back as JSON so a client can act on them without scraping prose.
+   *
+   * The message is encoded by `JsonText`, never escaped by hand: an error's text is often someone
+   * else's (a gRPC status, an exception), and a tab or other control character left raw makes the
+   * whole body unparseable — so the client loses the error it was being told about.
+   */
   private def problem(failure: HttpProblem): HttpResponse =
-    val escaped = failure.message
-      .replace("\\", "\\\\")
-      .replace("\"", "\\\"")
-      .replace("\n", " ")
     HttpResponse(
       StatusCode.int2StatusCode(failure.status),
       entity = HttpEntity(
         ContentTypes.`application/json`,
-        s"""{"status":${failure.status},"error":"$escaped"}"""
+        s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}}"""
       )
     )
 

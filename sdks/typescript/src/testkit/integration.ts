@@ -257,7 +257,13 @@ export class AnkkaTestKit {
         ...this.#env,
       })
       .withExposedPorts(HTTP_PORT, CALLBACK_PORT)
-      .withWaitStrategy(tc.Wait.forHttp("/_ankka/health", HTTP_PORT).forStatusCode(200))
+      // Both ports, not only the health route: it answers as soon as HTTP is bound, which can be
+      // before the callback server listens, and Docker's port proxy accepts then resets a
+      // connection to a port nothing in the container listens on yet — so a handler's first call
+      // after a restart failed UNAVAILABLE. forListeningPorts checks from inside the container.
+      .withWaitStrategy(
+        tc.Wait.forAll([tc.Wait.forHttp("/_ankka/health", HTTP_PORT).forStatusCode(200), tc.Wait.forListeningPorts()]),
+      )
       .withStartupTimeout(this.#readyTimeoutMs)
       .start()
     this.#sidecar = container

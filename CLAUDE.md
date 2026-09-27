@@ -43,6 +43,8 @@ sbt docker:publishLocal           # build all three images — aggregates to ope
                                    # project is silently skipped, same as compile and test
 sbt buildAll                      # everything: format check, compile, test, every image —
                                    # one command, stops at the first failing stage
+GRAALVM_HOME=... sbt cli/GraalVMNativeImage/packageBin   # the CLI as one executable, no JVM:
+                                   # cli/target/graalvm-native-image/ankka; cli/native-smoke.sh checks it
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
 sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts on a real journal
                                    # against a scriptable process double, and one k3s suite
@@ -1194,6 +1196,18 @@ formula and subtree-pushes `homebrew/` to the tap, exactly as the template and t
 someone's `PATH` cannot break it; `brew audit --strict` passes, and the proof of the whole thing is a
 throwaway local tap (`brew tap-new`) pointed at a locally built zip by `file://` URL. The release
 asset is also the install route for a machine without Homebrew.
+
+**The CLI also ships as a native executable per platform**, from the release workflow's `cli-native`
+matrix: GraalVM's `native-image` over the same jar, one runner per platform because it cannot
+cross-compile (`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`), each attached to the tag's
+release as `ankka-cli-<version>-<platform>.tar.gz` with a `.sha256`. It waits for `cli`, which creates
+the release. The Linux legs build on Ubuntu 22.04 because the binary links the build machine's glibc;
+none runs on musl. What the image must carry is declared in the jar, in
+`cli/src/main/resources/META-INF/native-image/`, and **a missing resource is not a build failure**: the
+first image built without the resource globs served `ankka mcp` with zero pages and no error. So the
+job runs `cli/native-smoke.sh` on each binary, which asks it for the docs and the console's files, and a
+new resource the CLI reads needs a glob there. The Homebrew formula and the GitHub Action still install
+the zip.
 
 **The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
 job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Smoke-tests a native build of the CLI: `cli/native-smoke.sh <binary> [expected version]`.
+#
+# A native image builds successfully with a resource missing, and the command that needed it then
+# answers with nothing — `ankka mcp` listing no pages, the console serving 404s. So this runs the
+# binary and asks for each thing the image has to carry, rather than trusting the build.
+set -euo pipefail
+
+bin="$1"
+expected="${2:-}"
+work="$(mktemp -d)"
+trap 'kill "${console:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
+export ANKKA_CONFIG="$work/config.json"   # never the developer's own ~/.ankka
+
+fail() { echo "native smoke: $*" >&2; exit 1; }
+
+version="$("$bin" version)"
+if [ -n "$expected" ] && [ "$version" != "$expected" ]; then
+  fail "version is '$version', expected '$expected'"
+fi
+echo "version    $version"
+
+pages="$(printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"resources/list"}' \
+  | "$bin" mcp | { grep -o '"uri":"ankka://docs/' || true; } | wc -l | tr -d ' ')"
+[ "$pages" -gt 0 ] || fail "ankka mcp lists no documentation pages: the image is missing ankka/docs"
+echo "mcp        $pages pages"
+
+port=$(( 20000 + RANDOM % 20000 ))
+"$bin" local console --no-open --port "$port" > "$work/console.out" 2>&1 &
+console=$!
+address=""
+for _ in $(seq 1 50); do
+  address="$(grep -o 'http://localhost:[0-9]*' "$work/console.out" || true)"
+  [ -n "$address" ] && break
+  sleep 0.1
+done
+[ -n "$address" ] || fail "the local console did not start: $(cat "$work/console.out")"
+for file in / /app.js /style.css; do
+  status="$(curl -s -o /dev/null -w '%{http_code}' "$address$file" || true)"
+  [ "$status" = "200" ] || fail "the console answered $status for $file: the image is missing console/"
+done
+echo "console    serves its files"

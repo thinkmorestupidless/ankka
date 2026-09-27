@@ -298,6 +298,64 @@ jobs:
           git tag -f "${GITHUB_REF_NAME}" homebrew-tap
           git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git" "${GITHUB_REF_NAME}"
 
+  cli-native:
+    # The CLI as one executable per platform, needing no JVM: GraalVM's native-image over the same
+    # jar the zip carries. native-image cannot cross-compile, so each platform builds on its own
+    # runner. Each binary is attached to the tag's GitHub release as
+    # ankka-cli-<version>-<platform>.tar.gz (a tarball, so the executable bit survives the download)
+    # with a .sha256 beside it. It waits for the `cli` job because that job creates the release.
+    needs: cli
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      # One platform's failure must not cancel the others: a re-run of the failed leg finishes the
+      # release, and the upload replaces rather than duplicates.
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04, not latest: the binary links the build machine's glibc, and an older one runs on
+          # more distributions. Alpine (musl) runs none of these.
+          - { platform: linux-x64, runner: ubuntu-22.04 }
+          - { platform: linux-arm64, runner: ubuntu-22.04-arm }
+          - { platform: macos-arm64, runner: macos-14 }
+          - { platform: macos-x64, runner: macos-15-intel }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write   # the release's assets, with the workflow's own token
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # dynver needs the tags: `ankka version` is the release version
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: "25"
+          distribution: graalvm-community
+          cache: sbt
+          github-token: ${{ github.token }}
+      - uses: sbt/setup-sbt@v1
+      - name: The version comes from a clean tree, or not at all
+        run: |
+          git update-index -q --refresh
+          git diff-index --quiet HEAD -- || { echo "::error::working tree is dirty"; git status --porcelain; exit 1; }
+      - run: sbt cli/GraalVMNativeImage/packageBin
+      # A native image builds successfully with a resource missing; this asks the binary for each one.
+      - run: cli/native-smoke.sh cli/target/graalvm-native-image/ankka "${GITHUB_REF_NAME#v}"
+      - name: Attach the binary to the tag's GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          archive="ankka-cli-$version-${{ matrix.platform }}.tar.gz"
+          # From inside the directory, for the same reason as the zip's checksum: the line names the
+          # bare file. shasum, not sha256sum, because macOS runners carry only the first.
+          ( cd cli/target/graalvm-native-image \
+              && tar -czf "$archive" ankka \
+              && shasum -a 256 "$archive" > "$archive.sha256" )
+          gh release upload "$GITHUB_REF_NAME" \
+            "cli/target/graalvm-native-image/$archive" \
+            "cli/target/graalvm-native-image/$archive.sha256" \
+            --clobber
+
   action:
     # The GitHub Action as its own repository, so a workflow can say
     # `uses: thinkmorestupidless/ankka-action@v1` — an action can only be referenced as

@@ -1,6 +1,6 @@
 # Views
 
-> Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python.
+> Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python and TypeScript.
 
 Source: https://docs.ankka.cloud/build/views/
 A view is a queryable table built from one source's changes. An entity can only be found by its id, so
@@ -16,11 +16,11 @@ silently orphan the old row the first time the attribute changed.
 
 A view reads exactly one source:
 
-| Source | Scala | Python | Delivery |
-|---|---|---|---|
-| An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` | Every event, in order, exactly once. |
-| A key value entity's state | `ChangeSource.stateOf(PreferencesEntity)` | `source = CheckoutLog` | The latest value; intermediate values can be skipped. |
-| A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | At least once; see [Broker topics](topics.md). |
+| Source | Scala | Python | TypeScript | Delivery |
+|---|---|---|---|---|
+| An event sourced entity's events | `ChangeSource.eventsOf(ShoppingCartEntity)` | `source = ShoppingCartEntity` | `static readonly source = ShoppingCartEntity` | Every event, in order, exactly once. |
+| A key value entity's state | `ChangeSource.stateOf(CheckoutLog)` | `source = CheckoutLog` | `static readonly source = CheckoutLog` | The latest value; intermediate values can be skipped. |
+| A broker topic | `ChangeSource.fromTopic("stock-events", serializer)` | `topic = "stock-events"` | `static readonly topic = "stock-events"` | At least once; see [Broker topics](topics.md). |
 
 The source is built from the source component's own declaration, so a view over the cart is typed
 against the cart's event type and decodes with the cart's own serializer. It cannot drift when the entity's
@@ -148,12 +148,49 @@ class CartRows(View[ShoppingCartEvent, CartRow]):
         return self.effects.update_row(replace(self.row, checkedOut=True))
 ```
 
-| | Scala | Python |
-|---|---|---|
-| The current row, or none | `rowState: Option[Row]` | `self.row`, `None` when there is none |
-| The source's id | `updateContext.subject` | `self.metadata.subject` |
-| Handle a change | `def onChange(change: Src): Effect` | `def on_change(self, event) -> ViewEffect` |
-| Handle a deletion | `override def onDelete: Effect` | `def on_delete(self) -> ViewEffect` |
+**TypeScript**
+
+```ts
+export const CartRow = s.record("CartRow", { cartId: s.string, quantities: s.stringMap(s.int), checkedOut: s.boolean })
+export type CartRow = Infer<typeof CartRow>
+
+export class CartRows extends View<ShoppingCartEvent, CartRow> {
+  static readonly componentId = "cart-rows"
+  static readonly source = ShoppingCartEntity
+  static readonly events = ShoppingCartEntity.events
+  static readonly row = jsonCodec(CartRow, "cart-row")
+  static readonly queries = ["by-id", "all"]
+
+  onChange(event: ShoppingCartEvent) {
+    const current = this.row ?? { cartId: this.subject, quantities: {}, checkedOut: false }
+    switch (event.type) {
+      case "ItemAdded": {
+        const { productId, quantity } = event.item
+        return this.effects.updateRow({ ...current, quantities: { ...current.quantities, [productId]: (current.quantities[productId] ?? 0) + quantity } })
+      }
+      case "ItemRemoved": {
+        const { [event.productId]: _removed, ...rest } = current.quantities
+        return this.effects.updateRow({ ...current, quantities: rest })
+      }
+      case "CheckedOut":
+        return this.effects.updateRow({ ...current, checkedOut: true })
+    }
+  }
+
+  /** Checkout deletes the cart, but a checked-out cart is exactly what an order history needs: the row outlives the entity. */
+  override onDelete() {
+    if (this.row === null) return this.effects.ignore()
+    return this.effects.updateRow({ ...this.row, checkedOut: true })
+  }
+}
+```
+
+| | Scala | Python | TypeScript |
+|---|---|---|---|
+| The current row, or none | `rowState: Option[Row]` | `self.row`, `None` when there is none | `this.row`, `undefined` when there is none |
+| The source's id | `updateContext.subject` | `self.metadata.subject` | `this.subject` |
+| Handle a change | `def onChange(change: Src): Effect` | `def on_change(self, event) -> ViewEffect` | `onChange(event)` |
+| Handle a deletion | `override def onDelete: Effect` | `def on_delete(self) -> ViewEffect` | `onDelete()` |
 
 A handler returns one of three effects:
 
@@ -177,7 +214,7 @@ that produced it.
 
 A view runs only in a service that has the projection runtime. In Scala, register the view's descriptor and
 add `ProjectionRuntime()` as an extension; without it, every command still succeeds and every view stays
-empty. In Python, register the class; the sidecar runs the projection.
+empty. In Python and TypeScript, register the class; the sidecar runs the projection.
 
 **Scala**
 
@@ -195,6 +232,12 @@ val service = Ankka.service
 
 ```python
 service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
+```
+
+**TypeScript**
+
+```ts
+const service = Ankka.service().register(ShoppingCartEntity).register(CartRows)
 ```
 
 A view over a topic also needs a broker. See [Broker topics](topics.md).

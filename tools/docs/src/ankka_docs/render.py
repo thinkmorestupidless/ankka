@@ -21,9 +21,51 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .pages import Page, Tree, headings, mkdocs_config
+from .pages import Page, Tree, fenced_lines, headings, mkdocs_config
 
 COMMENT = re.compile(r"^<!--\s*(include|generated):.*-->\s*\n", re.MULTILINE)
+
+# Language tabs exist for the site only. A model receives a page as Markdown with no renderer, so the
+# tab markers are flattened back to the bold language label the pages used before tabs — which is what
+# `docs/contributing/documentation.md` still asks for off the site. `/// tab | Python` becomes
+# `**Python**`, and the closing `///` on a line of its own goes. Anything else beginning with `///` is
+# left alone: it is not a tab, and silently eating it would hide a mistake.
+# `[ \t]*`, never `\s*`: `\s` matches newlines, so a greedy trailing `\s*$` would swallow the blank line
+# between the label and its fence and the flattened page would come out as `**Scala**` glued to ```scala.
+TAB_OPEN = re.compile(r"^/// tab \| (?P<label>.+?)[ \t]*$")
+
+
+def flatten_tabs(body: str) -> str:
+    """The page with its language tabs reduced to labelled blocks, for every reader that is not the site."""
+    # Markers inside a fenced block are an *example* of the syntax, not an instruction — the page that
+    # documents tabs shows one. Flattening those would have that page teach the flattened form, which is
+    # not what a writer should type. `fenced_lines` counts fence length, so the ````markdown block that
+    # wraps such an example is tracked correctly around the ```scala blocks inside it.
+    in_code = fenced_lines(body)
+    lines = body.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if i not in in_code:
+            opened = TAB_OPEN.match(line)
+            if opened:
+                out.append(f"**{opened.group('label')}**")
+                i += 1
+                continue
+            if line.rstrip() == "///":
+                # Drop the closer and the blank line under it, so what is left is one blank line rather
+                # than two. Collapsing runs of newlines afterwards would be the obvious alternative and
+                # is wrong: it also reformats the blank lines *inside* a Python sample, and these blocks
+                # are copied verbatim from tested source.
+                i += 1
+                if i < len(lines) and not lines[i].strip():
+                    i += 1
+                continue
+        out.append(line)
+        i += 1
+    return "\n".join(out)
+
 
 SECTION_ORDER_FALLBACK = "Other"
 
@@ -35,7 +77,7 @@ def site_url() -> str:
 
 def page_markdown(page: Page, base: str) -> str:
     """A page as a model should receive it: title, summary, where it lives, then the body — no tooling comments."""
-    body = COMMENT.sub("", page.body.lstrip("\n"))
+    body = flatten_tabs(COMMENT.sub("", page.body.lstrip("\n")))
     lines = body.split("\n", 1)
     rest = lines[1] if len(lines) > 1 else ""
     header = [lines[0], "", f"> {page.description}", "", f"Source: {base}{page.url_path}", ""]

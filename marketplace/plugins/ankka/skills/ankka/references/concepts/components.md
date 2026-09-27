@@ -138,6 +138,12 @@ Ankka.service
 await Ankka.service().register(ShoppingCartEntity).register(CartRows).register(ShoppingCartEndpoint).listen()
 ```
 
+**TypeScript**
+
+```ts
+await Ankka.service().register(ShoppingCartEntity).register(CartRows).register(ShoppingCartEndpoint).listen()
+```
+
 In Scala, some kinds need a runtime extension as well as registration: views and consumers need
 `ProjectionRuntime`, timed actions need `TimerRuntime`, agents need `AgentRuntime`, and endpoints need
 `HttpServer`. In Python the sidecar supplies all of them.

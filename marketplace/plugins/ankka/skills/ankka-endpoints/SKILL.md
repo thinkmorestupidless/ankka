@@ -91,11 +91,11 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/views.md` — Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python.
+- `references/build/views.md` — Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python and TypeScript.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/http-endpoints.md` — Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala or Python.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
-- `references/build/testing.md` — Test ankka components at two levels in Scala and Python — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+- `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
 
 ### Run and deploy
 

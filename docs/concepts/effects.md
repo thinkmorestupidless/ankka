@@ -2,7 +2,7 @@
 title: Effects are data
 description: Why every ankka handler returns a description of what should happen instead of doing it, what each component's effects look like, and why a refusal is a returned value rather than an exception.
 kind: concept
-languages: [scala, python]
+languages: [scala, python, typescript]
 related: [concepts/components.md, build/testing.md, reference/error-codes.md, concepts/consistency.md]
 ---
 
@@ -13,7 +13,7 @@ performs no I/O, reads no state, and calls no model. The runtime receives the va
 writes the events, stores the state, sends the reply, starts the next step. This is the organising idea
 of the whole platform.
 
-**Scala**
+/// tab | Scala
 
 ```scala
 def addItem(item: LineItem): Effect[Done] =
@@ -21,7 +21,9 @@ def addItem(item: LineItem): Effect[Done] =
   else effects.persist(ItemAdded(item)).thenReply(_ => Done)
 ```
 
-**Python**
+///
+
+/// tab | Python
 
 ```python
 @command("add-item")
@@ -30,6 +32,19 @@ def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingC
         return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
     return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
 ```
+
+///
+
+/// tab | TypeScript
+
+```ts
+addItem(item: LineItem) {
+  if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+  return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+}
+```
+
+///
 
 Reading either handler, "persist `ItemAdded`, then reply `Done`" is a sentence, not a sequence of calls.
 Nothing has been written when the handler returns.

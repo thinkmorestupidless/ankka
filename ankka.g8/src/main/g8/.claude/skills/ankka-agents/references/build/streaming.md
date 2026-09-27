@@ -11,8 +11,10 @@ would wait forever.
 
 ## Declaring a streaming handler
 
-In Scala, a streaming handler returns a `StreamEffect`, built with `thenStream()`, and is registered with
-`stream` rather than `command`:
+A streaming handler is registered as a stream rather than a command, and answers many times instead of
+once:
+
+**Scala**
 
 ```scala
 /** Streams the reply token by token, tools and all. */
@@ -24,6 +26,25 @@ def chat(question: String): StreamEffect =
     .thenStream()
 ```
 
+**Python**
+
+```python
+@stream("chat")
+def chat(self, question: str) -> AgentEffect[str]:
+    return self._describe(question)
+```
+
+**TypeScript**
+
+```ts
+static readonly handlers = {
+  chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
+}
+```
+
+In Scala the handler returns a `StreamEffect`, built with `thenStream()`, and the companion registers it
+with `stream` rather than `command`:
+
 ```scala
 val chat = stream("chat")(_.chat)
 ```
@@ -32,43 +53,50 @@ The two registrations are separate on purpose. A `command` is called with `.call
 a `stream` is called with `.stream(...)` and answers many times. Keeping them apart means a caller cannot
 await one value from a handler that produces many, or the reverse; the compiler refuses it.
 
-In Python, the decorator is `@stream` and the handler returns an ordinary `AgentEffect`. The assistant in
-[Agents](agents.md#an-agent-in-python) declares one:
-
-```python
-@stream("chat")
-def chat(self, question: str) -> AgentEffect[str]:
-    return self._describe(question)
-```
+In Python the decorator is `@stream` and the handler returns an ordinary `AgentEffect`; in TypeScript the
+handler is declared with `stream` in the component's `handlers`. The assistant in
+[Agents](agents.md) declares one in each.
 
 ## Consuming a stream
 
-Through the Scala component client, `stream` returns a Pekko Streams `Source[String, NotUsed]` of text
-chunks:
+**Scala**
 
 ```scala
 val tokens: Source[String, NotUsed] =
   componentClient.forAgent(SessionId("s-1")).stream(WeatherAgent.chat)("Will it rain in Lisbon?")
 ```
 
-Nothing is sent until the source is run. Tokens are pushed straight from wherever the session is hosted
-in the cluster to wherever the source was run, with nothing buffering the whole reply. A consumer that
-falls more than 1024 chunks behind fails the stream rather than silently dropping text.
-
-In Python, `stream` is an async iterator:
+**Python**
 
 ```python
 async for token in client.for_agent("assistant", "s-1").call("chat").stream("Will it rain?"):
     print(token, end="")
 ```
 
+**TypeScript**
+
+```ts
+for await (const token of client.of(CartAssistant, "s-1").call(CartAssistant.handlers.chat).stream("Will it rain?")) {
+  process.stdout.write(token)
+}
+```
+
+The Scala client answers with a Pekko Streams `Source[String, NotUsed]` of text chunks, and nothing is
+sent until the source is run. Python and TypeScript answer with an async iterator, which starts the
+stream when it is first pulled.
+
+Tokens are pushed straight from wherever the session is hosted in the cluster to wherever the stream is
+being read, with nothing buffering the whole reply. A consumer that falls more than 1024 chunks behind
+fails the stream rather than silently dropping text.
+
 A refusal — a guardrail, an error effect, a failed model call — ends the stream with an error: a
-`CommandError` in both languages.
+`CommandError` in every SDK.
 
 ## Serving a stream over HTTP
 
-An endpoint serves a stream with `sse`, which answers `GET` as `text/event-stream`. In Scala the handler
-returns the `Source`:
+An endpoint serves a stream with `sse`, which answers `GET` as `text/event-stream`:
+
+**Scala**
 
 ```scala
 sse("/{session}") { (session: String) =>
@@ -78,8 +106,7 @@ sse("/{session}") { (session: String) =>
 }
 ```
 
-`sseBody` is the `POST` form, taking a path parameter and a decoded body. In Python, an `@sse` route is an
-async generator:
+**Python**
 
 ```python
 @post("/ask/{session}")
@@ -92,6 +119,21 @@ async def chat(self, session: str) -> AsyncIterator[str]:
     async for token in self.client.with_metadata(self.request.metadata).for_agent("assistant", session).call("chat").stream(question):
         yield token
 ```
+
+**TypeScript**
+
+```ts
+ask: post("/ask/{session}", s.string, s.string, (ep: ShoppingCartEndpoint, req, question) =>
+  ep.client.of(CartAssistant, req.params.session).call(CartAssistant.handlers.ask).invoke(question),
+),
+chat: sse("/chat/{session}", (ep: ShoppingCartEndpoint, req) =>
+  ep.client.of(CartAssistant, req.params.session).call(CartAssistant.handlers.chat).stream(req.query.get("q") ?? ""),
+),
+```
+
+The Scala handler returns the `Source`, and `sseBody` is the `POST` form, taking a path parameter and a
+decoded body. A Python `@sse` route is an async generator, and a TypeScript one returns an async
+iterable.
 
 Read query parameters and headers while building the stream, not inside it. In Scala the handler only
 builds the `Source`; the HTTP server pulls its elements later, on another thread, where the request is no

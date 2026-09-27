@@ -106,8 +106,8 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala or Python.
+- `references/build/event-sourced-entities.md` — Model state as a sequence of persisted events, write commands and queries that return effects, delete or expire an entity, and tune snapshots, in Scala, Python or TypeScript.
 - `references/build/key-value-entities.md` — Store only the latest value of a piece of state, replace it with updateState, delete or expire it, and decide when that is a better fit than event sourcing.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
-- `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in both languages, and how to change a stored type without breaking a journal.
-- `references/build/testing.md` — Test ankka components at two levels in Scala and Python — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+- `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
+- `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.

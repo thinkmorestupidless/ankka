@@ -3,8 +3,9 @@
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
 import { done } from "ankka"
-import { AnkkaTestKit, EventSourcedTestKit } from "ankka/testkit"
+import { AnkkaTestKit, EventSourcedTestKit, KeyValueTestKit } from "ankka/testkit"
 import { ShoppingCartEntity } from "./entity.ts"
+import { CheckoutLog } from "./checkoutLog.ts"
 import { service } from "./main.ts"
 
 const slow = process.env.ANKKA_SLOW ? false : "set ANKKA_SLOW=1 to run the tests that need Docker"
@@ -58,6 +59,24 @@ describe("the cart entity, without a sidecar", () => {
     const kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
     const r = await kit.call(ShoppingCartEntity.handlers.removeItem, "nope")
     assert.equal(r.error?.code, "NOT_FOUND")
+  })
+})
+
+describe("the checkout log, without a sidecar", () => {
+  // docs:start key-value-test
+  test("recording a checkout replaces the value", async () => {
+    const kit = KeyValueTestKit.of(CheckoutLog, "c1")
+    const recorded = await kit.call(CheckoutLog.handlers.record, 1700000000000n)
+    assert.equal(recorded.reply, done)
+    assert.equal(kit.state.notified, true)
+    assert.equal(kit.state.at, 1700000000000n)
+  })
+  // docs:end key-value-test
+
+  test("an unrecorded cart starts from the empty state, carrying its own id", async () => {
+    const kit = KeyValueTestKit.of(CheckoutLog, "c2")
+    const got = await kit.call(CheckoutLog.handlers.get)
+    assert.deepEqual(got.reply, { cartId: "c2", at: 0n, notified: false })
   })
 })
 

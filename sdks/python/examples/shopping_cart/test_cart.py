@@ -82,9 +82,14 @@ def test_notifier_only_cares_about_checkouts() -> None:
     kit = ConsumerTestKit.of(CheckoutNotifier)
     assert kit.on_message(ItemAdded(PEN)).__class__.__name__ == "Ignore"
     assert kit.on_delete().__class__.__name__ == "Ignore"
+
+
+# docs:start key-value-test
+def test_recording_a_checkout_replaces_the_value() -> None:
     log = KeyValueTestKit.of(CheckoutLog, "c1")
     assert log.call("record", 1700000000000).reply is not None
     assert log.call("get").reply == CheckoutRecord("c1", 1700000000000, True)
+# docs:end key-value-test
 
 
 # docs:start workflow-test

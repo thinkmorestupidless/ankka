@@ -976,14 +976,18 @@ not a template engine, a session store or a cookie API: those belong to the appl
   start now raises with its own logs attached.
 - **`host.docker.internal` needs `--add-host=host.docker.internal:host-gateway` on Linux.** Docker
   Desktop provides it; the Python integration testkit and compose set it unconditionally.
-- **A Docker that refuses every ghcr.io image is a Docker Desktop policy, not ghcr.io.** On the machine
-  this repository is developed on, Docker answers `denied` for every ghcr.io image, even with an empty
-  credentials config, while quay.io and public ECR images pull and `curl` fetches the same ghcr.io
-  manifests anonymously with a 200 — a registry allow-list set by a Docker organisation the account is
-  signed into (Registry Access Management) behaves exactly so. It was first written down as "ghcr.io
-  denies anonymous pulls on some networks". The Python sample's Dockerfile installs with pip from the
-  official `python` image rather than `ghcr.io/astral-sh/uv` because of it; pulling ankka's own images
-  through the Artifact Registry cache (`pkg.dev`) is not affected.
+- **On the machine this repository is developed on, every Docker registry client is refused by ghcr.io,
+  and the cause is unknown.** Docker Desktop's engine and CLI, OrbStack's engine and CLI, with and without
+  credentials, signed in to Docker or not: `denied` for every ghcr.io image, public ones included. `curl`
+  and `crane` from the same Mac, and `curl` from inside a container on the same engine, get the same
+  manifests anonymously with a 200, and replaying Docker's requests (its User-Agent, its token parameters,
+  IPv4 or IPv6 — ghcr.io has no AAAA) with `curl` succeeds too. It is not an organisation's registry
+  policy, which was the first guess and was written down here. CI and other machines pull from ghcr.io
+  normally. Locally, pull through the Artifact Registry cache
+  (`europe-west2-docker.pkg.dev/ankka-ops/ghcr/…`, via `ANKKA_SIDECAR_IMAGE`), or `crane pull` to a tarball
+  and `docker load` it. The Python sample's Dockerfile installs with pip from the official `python` image
+  rather than `ghcr.io/astral-sh/uv` for the same reason. A separate, stale ghcr.io login in the Docker
+  keychain breaks tools that read Docker's config (`crane`); `docker logout ghcr.io` removes it.
 - **Node's type stripping runs only erasable TypeScript, and codegen does not know that.** The TypeScript
   SDK (`sdks/typescript`) runs its sources, tests and examples directly under `node`, which refuses `enum`,
   parameter properties (`constructor(private x)`) and decorators. protoc-gen-es emits a TypeScript `enum`

@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.http
 
 /**
- * Minimal JSON string encoding, for server-sent event payloads.
+ * Minimal JSON string encoding, for server-sent event payloads and error bodies.
  *
  * Raw text cannot be put in an SSE `data:` field safely. The protocol strips one space after the
  * colon, so a token beginning with a space arrives short; and a newline inside a token terminates

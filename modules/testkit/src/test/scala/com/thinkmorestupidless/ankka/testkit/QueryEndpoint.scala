@@ -58,6 +58,11 @@ final class QueryEndpoint extends HttpEndpoint("/search"):
   }
   // docs:end sse-query
 
+  /** A refusal whose message is the caller's text, control characters and all. */
+  get("/refuse") { () =>
+    (throw HttpProblem.badRequest(query.required[String]("reason"))): String
+  }
+
   /** Query parameters with a body. */
   postBody("/submit/{category}") { (category: String, payload: SearchResult) =>
     s"$category:${payload.term}:${query.optional[String]("mode").getOrElse("default")}"

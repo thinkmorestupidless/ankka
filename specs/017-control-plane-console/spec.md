@@ -48,6 +48,19 @@ Three facts about the platform decide the shape:
   and is reached by the gateway the way the control plane is. Locally, it runs against the compose
   Keycloak and `sbt controlPlane/run` in the clear, as the CLI does.
 
+A fourth fact comes from outside this repository. `ankka-cloud`, the hosted product, is a website
+of its own — sign-up, checkout, an account area — and its design defers "a browser console for
+services" to exactly this feature. It will want these pages, and later more of them: a billing panel
+on an organization, a checkout where "create an organization" is, an operator's view across
+installations. So the console is built as **a package and a host**. The package holds what any host
+of these pages needs — a typed client for the control plane's API, the sign-in and session machinery,
+and the pages themselves as route modules a host mounts under a prefix inside its own layout, with
+the extension points a product needs to add to them. The host in this repository is the thinnest one
+that can exist: a layout, the package, and a container. `ankka-cloud` takes the same package into a
+host of its own when it is ready, and until then deploys this one beside its site; the two are clients
+of one realm, and single sign-on makes the hop between them invisible. Nothing about the product
+enters this repository, and nothing a self-hoster runs knows the product exists.
+
 The name is deliberate. The local console shows services on your machine; this is *the installation's
 console*, and the limitations page's "no console for a deployed installation" is the sentence this
 feature removes.
@@ -277,7 +290,53 @@ its port is refused at the network; its ServiceAccount can do nothing.
 
 ---
 
-### User Story 6 - Fast, and working with scripts off (Priority: P3)
+### User Story 6 - The console is a package a second host builds on (Priority: P2)
+
+A developer of another product — `ankka-cloud` is the one that exists — takes the console's package
+and mounts its pages under a prefix of their own site, inside their own layout and navigation, with
+their own sign-in already established. They add a panel of their own to every organization's page, an
+action of their own beside "create organization", and a page of their own beside the package's, without
+copying or patching anything in it. They keep sessions the way their site does, which may be a store
+rather than a cookie. When the platform releases, they take the package's matching version and
+nothing else in their host changes.
+
+**Why this priority**: Reuse is the reason the console is split in two rather than written once as an
+application; a package that only its own host can use is an application with extra steps. It is P2
+because the first host proves the pages and the boundary can be drawn against it, but a boundary
+never crossed by a second host is one nobody has tested.
+
+**Independent Test**: The package's own test suite includes a second host — a fixture, not a
+product — that mounts the package under a different prefix, in a different layout, with a session
+store of its own and an added panel and action, against a scripted control plane; every page and
+operation in stories 2–4 works there without a change to the package. A version bump of the package
+in that fixture compiles.
+
+**Acceptance Scenarios**:
+
+1. **Given** a host application with its own layout, **When** it mounts the package under a prefix,
+   **Then** every page in stories 2–4 renders inside that layout at that prefix, and every link
+   between them stays under it.
+2. **Given** a host with its own sign-in, **When** it hands the package a way to obtain the signed-in
+   person's access token, **Then** the package makes every control plane call as that person and
+   never signs anyone in itself.
+3. **Given** a host that keeps sessions in a store, **When** it supplies its own session store to the
+   package's sign-in machinery, **Then** sign-in, renewal and sign-out work against that store, with
+   the sealed cookie as the default it replaced.
+4. **Given** a host, **When** it registers a panel for an organization's page, an action beside a
+   named operation, and a route of its own beside the package's, **Then** each appears where declared
+   and receives the entity it was declared for.
+5. **Given** a host that hides an operation the package offers, **When** a person views the page,
+   **Then** the operation is not shown, and the control plane's own refusal still stands if it is
+   attempted.
+6. **Given** the control plane's wire format for a response, **When** the package's client decodes
+   it, **Then** the decoded value agrees with what the platform's own serializers wrote, checked
+   against fixtures the platform emits rather than examples written by hand.
+7. **Given** a platform release, **When** its images are published, **Then** the package is published
+   beside the TypeScript SDK at the same version, and its version is the one the host pins.
+
+---
+
+### User Story 7 - Fast, and working with scripts off (Priority: P3)
 
 Every page arrives from the server already rendered, so the first paint is the page and not a spinner.
 After that, moving between pages does not reload the document: the console fetches what the next page
@@ -307,13 +366,14 @@ operation works.
 
 ---
 
-### User Story 7 - The console is documented, and the limitation removed (Priority: P3)
+### User Story 8 - The console is documented, and the limitation removed (Priority: P3)
 
 A person reads how to sign in to the console and what it can do; an operator reads what the console
 needs from the installation — its realm client, its secret, its hostname — and how to add the client
-to an installation that predates it; a contributor reads how to run and test it. The limitations page
-no longer says there is no console for a deployed installation, and says what the console still does
-not show.
+to an installation that predates it; a contributor reads how to run and test it; a developer of
+another host reads what the package offers, how to mount it and where its extension points are. The
+limitations page no longer says there is no console for a deployed installation, and says what the
+console still does not show.
 
 **Why this priority**: The documentation's most common reader is a model that retrieved one page, and
 a page that says "the CLI is the only client" beside an installation with a console misleads it.
@@ -333,6 +393,9 @@ name the console's address and placeholders.
    hostname, secret and image are among what they must set.
 4. **Given** the documentation tree, **When** it is built, **Then** every new page is in the
    navigation and in a skill, and every descriptor block in it is valid.
+5. **Given** the package's reference page, **When** a host's developer reads it, **Then** they find
+   how to mount the pages, what the host must supply, every extension point with what it receives,
+   and the version rule.
 
 ---
 
@@ -383,6 +446,17 @@ name the console's address and placeholders.
 - **A descriptor the browser thinks is JSON and the control plane does not.** Validation is the
   control plane's; the console may check that the text parses before sending it, and nothing more,
   so the two can never disagree.
+- **A host's prefix leaks into a link.** A page that writes an absolute path to a sibling works in
+  the first host and breaks in every other; every link the package writes is relative to where it
+  was mounted.
+- **A host's extension throws.** A panel a product added must not take the organization's page down
+  with it; the package renders the page and shows the panel's failure in its place.
+- **The package and the control plane disagree about a field.** A wire type the platform adds
+  appears in a response before a host has upgraded; the client must ignore what it does not know and
+  fail loudly only on what it needs and cannot find.
+- **Two hosts, one realm, one browser.** A person signed in to the product's site and to the
+  installation's console holds two sessions from one Keycloak session; signing out of one must end
+  the Keycloak session, and the other then sends them to sign in on its next page, as story 1 says.
 
 ## Requirements *(mandatory)*
 
@@ -493,8 +567,9 @@ name the console's address and placeholders.
 
 **Delivery**
 
-- **FR-037**: The console's source MUST live in this repository, in a directory of its own, with its
-  own dependency lock, type check, unit tests and browser tests, runnable with one command each.
+- **FR-037**: The console's source MUST live in this repository, in a directory of its own holding
+  the package and the host as separate units with one dependency lock, type check, unit tests and
+  browser tests, runnable with one command each.
 - **FR-038**: Continuous integration MUST build, type-check and test the console when its directory or
   the manifests it depends on change, and the release MUST build its image from the tag.
 - **FR-039**: The end-to-end cluster suite MUST deploy the console into its cluster and prove a
@@ -502,6 +577,33 @@ name the console's address and placeholders.
 - **FR-040**: The limitations page MUST no longer state that there is no console for a deployed
   installation, and MUST state what the console does not show; the identity, local install and cloud
   install pages MUST describe the console's client, secrets, hostname and image.
+
+**The package**
+
+- **FR-041**: The pages, the control plane client and the sign-in and session machinery MUST be a
+  package separate from the host, and the host in this repository MUST contain nothing a second host
+  would need to copy: a layout, configuration, and the container.
+- **FR-042**: The package's pages MUST be mountable under a prefix a host chooses, inside a layout
+  the host supplies, and every link the package writes MUST be relative to that prefix.
+- **FR-043**: The package MUST obtain the signed-in person's access token through an interface the
+  host implements, MUST supply a default implementation built on its own sign-in machinery, and MUST
+  make no control plane call any other way.
+- **FR-044**: The package's session machinery MUST keep a session through a store interface, with
+  the sealed cookie as the default implementation, so a host may keep sessions server-side.
+- **FR-045**: The package MUST offer extension points a host registers without modifying it: a panel
+  on an organization's, project's or service's page; an action beside a named operation; the hiding
+  of a named operation; and a route of the host's own beside the package's. Each MUST receive the
+  entity it was declared for, and a failing extension MUST NOT fail the page.
+- **FR-046**: The package's client MUST carry types for every request and response it makes, and
+  those types MUST be checked against fixtures the platform's own serializers emit, regenerated when
+  the wire types change, so the two cannot drift unnoticed. Unknown fields MUST be ignored.
+- **FR-047**: The package MUST be published beside the TypeScript SDK by the release, at the
+  platform's version, and a host MUST be able to pin it as it pins the platform.
+- **FR-048**: The package's own tests MUST include a second host fixture that mounts it under another
+  prefix, in another layout, with another session store and registered extensions, and MUST run every
+  operation in stories 2–4 through it.
+- **FR-049**: The documentation MUST include a reference page for the package: how to mount it, what a
+  host supplies, every extension point and what it receives, and the version rule.
 
 ### Key Entities
 
@@ -517,6 +619,13 @@ name the console's address and placeholders.
   post-logout addresses, secret, and the control plane's scope.
 - **Page**: A server-rendered view over the control plane's answer to one or more requests made as
   the signed-in person; carries no state of its own beyond what the URL names.
+- **Package**: The reusable unit: the client, the session machinery and the pages, with their
+  extension points, versioned with the platform and published beside the TypeScript SDK.
+- **Host**: An application that mounts the package under a prefix, supplies a layout, a way to obtain
+  the signed-in person's token and optionally a session store, and registers extensions. This
+  repository's console is one; a product's site is another.
+- **Extension**: Something a host adds to a page without changing the package: a panel on an entity's
+  page, an action beside a named operation, the hiding of one, or a route of the host's own.
 
 ## Success Criteria *(mandatory)*
 
@@ -541,6 +650,11 @@ name the console's address and placeholders.
   console's port from another namespace is refused at the network.
 - **SC-008**: `just docs` passes with the limitations sentence removed, and the console's image is
   among those the release publishes and caches.
+- **SC-009**: The second host fixture runs every operation in stories 2–4 with zero changes to the
+  package, and the host in this repository is under 500 lines of its own source outside configuration
+  and styling.
+- **SC-010**: The package's client decodes every fixture the platform emits for the control plane's
+  wire types, and a wire type added on the Scala side without a fixture fails the platform's build.
 
 ## Assumptions
 
@@ -580,7 +694,22 @@ name the console's address and placeholders.
   wants something the API does not offer, that is a control plane change proposed separately, and the
   CLI gets it too.
 - **Plain HTML and CSS of the console's own.** No component library or design system is adopted; the
-  console's pages are few and its look is its own to decide during planning.
+  console's pages are few and its look is its own to decide during planning. The package's pages carry
+  their own styles under a prefix a host's stylesheet can override, so a product can restyle them
+  without forking them.
+- **A host is an application of the same framework.** The route modules are the framework's, so a
+  host is a React Router application; the client and the session machinery depend on the web
+  platform's request and response types alone, so a host of any shape can use those two without the
+  pages. That is the boundary `ankka-cloud` crosses first if it keeps its Scala site: it deploys this
+  host beside it and links across, under the realm's single sign-on, and builds a host of its own only
+  when it wants the pages inside its own layout.
+- **Published beside the SDK, versioned with the platform.** The package goes to npm from the release
+  workflow the way the TypeScript SDK does, at the tag's version, so a host pins it as `ankka-cloud`
+  pins the platform's libraries. Its name is settled in planning, since the SDK holds `ankka` and a
+  scoped name needs an organization on the registry.
+- **Sessions are the host's if it wants them.** The sealed-cookie session is the default because this
+  repository's host has no database; `ankka-cloud` keeps its sessions in an entity, and the store
+  interface is what lets it keep doing so if it adopts the package's sign-in.
 - **The local console is untouched.** `ankka local console` keeps its name, its scope and its page in
   the documentation; the two are described side by side.
 
@@ -595,3 +724,6 @@ name the console's address and placeholders.
 - A design system, theming, or a visual refresh of the local console.
 - Native or mobile applications; the console is a web page that works at a phone's width.
 - Changes to the control plane's API or its authorization rules.
+- `ankka-cloud`'s own host, and any change to its site: this feature publishes the package and proves
+  it with a fixture host; taking it into the product is that repository's feature, and the choice of
+  whether its account area moves to the same framework is its to make.

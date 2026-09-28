@@ -89,8 +89,15 @@ object Main:
           spec => RemoteAgent.descriptor(spec, conversation, models, settings.commandTimeout)
         )
     }
+    // An autonomous agent's definition is all in discovery: the sidecar runs its loop and keeps its
+    // tasks, and asks the process only to run a tool, check a guardrail or check a task rule.
+    val autonomousAgents: Vector[ComponentDescriptor] = discovered.autonomousAgents.map(c =>
+      RemoteAutonomousAgent.descriptor(c, conversation, models, settings.commandTimeout)
+    )
     val agentRuntime = models.default.fold(AgentRuntime())(AgentRuntime.withDefaultModel(_))
-    val memory       = if agents.isEmpty then Vector.empty else AgentRuntime.descriptors.toVector
+    val memory =
+      if agents.isEmpty && autonomousAgents.isEmpty then Vector.empty
+      else AgentRuntime.descriptors.toVector
     // A process has no builder to hand a broker to, so the one broker the sidecar knows how to
     // speak is chosen by environment: a producing consumer or a topic-sourced view is refused at
     // startup without it, naming the variable.
@@ -106,7 +113,7 @@ object Main:
         case None       => HttpServer.of(endpoints.map(e => _ => e)*)
 
     Ankka.service
-      .registerAll(discovered.descriptors ++ agents ++ memory)
+      .registerAll(discovered.descriptors ++ agents ++ autonomousAgents ++ memory)
       .withConversation(conversation)
       .withExtension(projections)
       .withExtension(timers)

@@ -4,7 +4,7 @@ import { Kind as ProtoKind } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
 import { ErrorCode as ProtoErrorCode } from "./_proto/ankka/protocol/v1/payload_pb.ts"
 import { ErrorCode } from "./effects/common.ts"
 
-export type ComponentKind = "event-sourced" | "key-value" | "workflow" | "view" | "consumer" | "timed-action" | "agent"
+export type ComponentKind = "event-sourced" | "key-value" | "workflow" | "view" | "consumer" | "timed-action" | "agent" | "autonomous-agent"
 
 const KIND_TO_PROTO: Readonly<Record<ComponentKind, ProtoKind>> = Object.freeze({
   "event-sourced": ProtoKind.EVENT_SOURCED_ENTITY,
@@ -14,6 +14,7 @@ const KIND_TO_PROTO: Readonly<Record<ComponentKind, ProtoKind>> = Object.freeze(
   consumer: ProtoKind.CONSUMER,
   "timed-action": ProtoKind.TIMED_ACTION,
   agent: ProtoKind.AGENT,
+  "autonomous-agent": ProtoKind.AUTONOMOUS_AGENT,
 })
 
 export function kindToProto(kind: ComponentKind): ProtoKind {

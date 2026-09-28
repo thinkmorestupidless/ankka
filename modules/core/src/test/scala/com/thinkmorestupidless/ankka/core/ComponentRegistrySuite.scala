@@ -88,3 +88,20 @@ class ComponentRegistrySuite extends munit.FunSuite:
     )
     assert(!View.sharded && !Consumer.sharded && !TimedAction.sharded && !Endpoint.sharded)
   }
+
+  test("two sharded kinds may not share an id, since sharding keys by id alone") {
+    val result = ComponentRegistry.from(
+      Seq(
+        descriptor("helper", ComponentKind.Agent),
+        descriptor("helper", ComponentKind.AutonomousAgent)
+      )
+    )
+    val problems = result.left.getOrElse(Vector.empty)
+    assertEquals(problems.size, 1)
+    assert(problems.head.contains("'helper'"), problems.head)
+    assert(problems.head.contains("Agent and AutonomousAgent"), problems.head)
+  }
+
+  test("an autonomous agent is sharded") {
+    assert(ComponentKind.AutonomousAgent.sharded)
+  }

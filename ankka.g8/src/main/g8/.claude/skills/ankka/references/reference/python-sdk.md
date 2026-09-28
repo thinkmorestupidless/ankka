@@ -155,6 +155,23 @@ A handler returns a plan; the sidecar runs the model loop, calls tools back in t
 arguments, and checks guardrails. A guardrail's check takes the stage (`"input"` or `"output"`) and the text,
 and returns `None` to pass or a reason to block. See [Agents](../build/agents.md).
 
+## Autonomous agent
+
+| Part | API |
+|---|---|
+| Task type | `TaskType(name, description, result=Dataclass, rules=(TaskRule(name, check),))`; a check returns `Accepted()` or `Rejected(reason)` |
+| Base class | `ankka.autonomous.AutonomousAgent` |
+| Class attributes | `component_id`, `description`, `accepts = [TaskAcceptance(task_type, max_iterations=n)]`, optionally `instructions`, `tools`, `guardrails`, `model`, `settings` |
+| In a tool | `self.client`, `self.task_id` |
+| Tasks | `await client.tasks.create(task_type, instructions, id=…, attachments=[…], depends_on=[…])` |
+| A task | `client.for_task(id)`: `await .get(task_type)`, `.wait(task_type, timeout)`, `.cancel(reason)` |
+| An instance | `client.for_autonomous_agent(Agent, instance_id)`: `.assign(*ids)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()` |
+| One task | `await client.for_autonomous_agent(Agent).run_single_task(task_type, instructions)` |
+| Testing | `AutonomousAgentTestKit.of(Agent)`: `run_tool`, `check_result`, `check_guardrail`; the integration kit's `await_task` and `notifications`, with `ANKKA_MODEL_SCRIPT` turns that may carry `when` or `when_tool_result` |
+
+The sidecar runs the loop and keeps every record; the process runs the tools, checks guardrails, and checks a
+result against its task type and rules. See [Autonomous agents](../build/autonomous-agents.md).
+
 ## HTTP endpoint
 
 | Part | API |

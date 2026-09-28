@@ -1,0 +1,25 @@
+task-event {"type":"Created","id":"t-1","typeName":"answer","instructions":"How many?","attachments":[{"name":"brief","contentType":"text/plain","content":{"type":"Inline","text":"Be brief."}},{"name":"catalogue","contentType":"application/json","content":{"type":"Reference","uri":"https://example.test/c"}}],"dependencies":["t-0"],"at":1}
+task-event {"type":"DependentAdded","taskId":"t-2"}
+task-event {"type":"Assigned","assignee":{"componentId":"answerer","instanceId":"i-1"},"at":2}
+task-event {"type":"Unassigned","reason":"assignee terminated","at":3}
+task-event {"type":"Started","at":4}
+task-event {"type":"ResultRejected","reason":"sources must not be empty","iterations":2,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":5}
+task-event {"type":"Completed","result":"{\"answer\":\"3\"}","iterations":3,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":6}
+task-event {"type":"Failed","reason":"iteration budget of 5 exhausted","iterations":5,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":7}
+task-event {"type":"Cancelled","reason":"cancelled by caller","at":8}
+agent-instance-event {"type":"Created","terminateWhenDone":true,"at":1}
+agent-instance-event {"type":"TasksAssigned","taskIds":["t-1","t-2"],"at":2}
+agent-instance-event {"type":"TaskDequeued","taskId":"t-2","reason":"cancelled by caller","at":3}
+agent-instance-event {"type":"TaskSelected","taskId":"t-1","at":4}
+agent-instance-event {"type":"TaskStarted","taskId":"t-1","at":6}
+agent-instance-event {"type":"IterationStarted","iteration":1,"at":7}
+agent-instance-event {"type":"IterationFailed","iteration":1,"error":"the model did not respond within 2 minutes","at":8}
+agent-instance-event {"type":"IterationCompleted","iteration":1,"usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":5},"at":9}
+agent-instance-event {"type":"StruggleNoted","struggle":"ApproachingBudget","reset":false}
+agent-instance-event {"type":"StruggleNoted","struggle":"ApproachingBudget","reset":true}
+agent-instance-event {"type":"TaskEnded","taskId":"t-1","outcome":{"type":"Completed"},"iterations":1,"at":10}
+agent-instance-event {"type":"TaskEnded","taskId":"t-1","outcome":{"type":"Failed","reason":"budget"},"iterations":5,"at":10}
+agent-instance-event {"type":"TaskEnded","taskId":"t-1","outcome":{"type":"Cancelled","reason":"cancelled by caller"},"iterations":2,"at":10}
+agent-instance-event {"type":"Suspended","at":11}
+agent-instance-event {"type":"Resumed","at":12}
+agent-instance-event {"type":"Terminated","at":13}

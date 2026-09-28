@@ -34,12 +34,14 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.0"`;
+- its protocol version, `"1.2"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
   and settings for a workflow; the source, row manifest and queries for a view; the source and topic for a
-  consumer; the tools, with descriptions and JSON Schemas, and guardrails for an agent;
+  consumer; the tools, with descriptions and JSON Schemas, and guardrails for an agent; and for an
+  autonomous agent its whole definition — description, instructions, tools, guardrails, model, task types
+  with their result schemas and rule names, and the types it accepts with their iteration budgets;
 - every HTTP endpoint: its prefix, ACL and routes, where a route may carry an ACL of its own that replaces
   the endpoint's for that route alone — a route that carries none is served under the endpoint's.
 
@@ -56,6 +58,7 @@ The table is generated from the `.proto` files.
 | `Agent` | `Plan` | `PlanRequest` | `PlanReply` | `agent.proto` |
 | `Agent` | `InvokeTool` | `ToolRequest` | `ToolResult` | `agent.proto` |
 | `Agent` | `CheckGuardrail` | `GuardrailRequest` | `GuardrailResult` | `agent.proto` |
+| `Agent` | `CheckTaskResult` | `TaskResultRequest` | `TaskResultVerdict` | `agent.proto` |
 | `Client` | `Invoke` | `InvokeRequest` | `InvokeReply` | `client.proto` |
 | `Client` | `InvokeStream` | `InvokeRequest` | `stream StreamToken` | `client.proto` |
 | `Client` | `Query` | `QueryRequest` | `QueryReply` | `client.proto` |
@@ -78,7 +81,7 @@ The table is generated from the `.proto` files.
 | `event_sourced.proto`, `key_value.proto`, `workflow.proto` | One bidirectional stream per loaded instance. |
 | `view.proto`, `consumer.proto`, `timed_action.proto` | Stateless: one request, one effect. |
 | `endpoint.proto` | HTTP requests the sidecar forwards for declared routes, with streaming for server-sent events. |
-| `agent.proto` | The process plans and runs tools and guardrails; the sidecar runs the loop. |
+| `agent.proto` | The process plans, runs tools and guardrails, and checks autonomous agents' results; the sidecar runs the loop. |
 | `client.proto` | The sidecar's service for the process: component calls, streaming calls, view queries, timers. |
 
 ### Stateful conversations
@@ -93,6 +96,17 @@ instance, or one that was deleted or expired; start from the empty state.
 When a command asks for a snapshot, the reply carries the state after its events. The sidecar stores it
 beside the journal; the stored snapshot may sit at the sequence of the last event the reply persisted or at
 the next one, and both are correct.
+
+### Autonomous agents
+
+An autonomous agent has no plan to ask for: its definition arrived in discovery, and the sidecar runs its
+loop, its task records and its instance records. It asks the process for three things, each with the session
+id `task:<task id>`: `Agent.InvokeTool` to run one of its tools, `Agent.CheckGuardrail` to check its
+instructions or a result, and `Agent.CheckTaskResult` when the model completes a task. For the last, the
+process decodes the result as the task type's and runs the type's rules in order, answering `accept`,
+`malformed` with why it did not decode, or `reject` naming the first rule that refused it. A rule that throws
+is answered as an error, which the sidecar treats as a failed iteration and tries again. The sidecar never
+sends `complete_task` or `fail_task` to the process; they are its own.
 
 ### Stateless conversations
 
@@ -130,7 +144,8 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.0`, and both sides state it in discovery.
+The protocol version is `MAJOR.MINOR`, currently `1.2`, and both sides state it in discovery. `1.1` added
+the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

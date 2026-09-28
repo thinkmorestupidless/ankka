@@ -211,6 +211,7 @@ companion and anything it needs arrives that way.
 | Workflow | `EventSourcedBehavior` whose events *are* step transitions |
 | Timer | Postgres table + cluster-singleton sweeper |
 | Agent | Sharded per **session id**, serialized per conversation via a stash |
+| Autonomous agent | Sharded per **instance id**, `remember-entities`; its state an `ankka-agent-instance` entity, its tasks `ankka-task` entities |
 | HTTP Endpoint | pekko-http route tree |
 
 Entity and workflow hosts pre-serialize domain values into `JournalRecord` /
@@ -324,6 +325,21 @@ SDK as transport only.
 
 Session memory is an event-sourced entity, which is what makes multi-agent collaboration,
 compaction hooks and durability fall out rather than being features.
+
+An **autonomous agent** (feature 015, `agent/autonomous`) is the second kind: handed a task, it iterates
+until the model calls the built-in `complete_task` or `fail_task`, or the budget runs out. Three
+platform components carry it, all in `AgentRuntime.descriptors`: `ankka-task` (the task's record),
+`ankka-agent-instance` (the instance's record, written only by its host, through one `record(event)`
+command) and `ankka-task-cascade` (a consumer that cancels a failed task's dependents — so it needs a
+`ProjectionRuntime`). The host is an actor shell (subscribers, operations one at a time, passivation) plus
+one worker virtual thread running `IterationLoop`, which re-reads both records at every boundary. What an
+instance did on a task is session memory, session `task:<id>`. Each iteration records its start, the
+model's response, its completion, then the tool results; `IterationLoop.resumePoint` reads the instance
+record and only the session's last message to pick up exactly — a recorded model call is never repeated,
+a tool is run at least once. The entity type uses `remember-entities` with the event-sourced store, so a
+working instance comes back after a crash with nothing sent to it (proven by `RememberEntitiesSpike`). In
+the sidecar the definition arrives whole in discovery; the process runs tools, guardrails and
+`CheckTaskResult` (decode as the type, then every rule, in one call).
 
 ### Reconciliation is split across two processes
 
@@ -914,6 +930,30 @@ not a template engine, a session store or a cookie API: those belong to the appl
   ClusterIssuer (`letsencrypt-production`) for exactly this, and `RemoteOverlaySuite` checks that
   the Certificate names an issuer that exists.
 
+- **Nothing wakes a passivated entity, and idle passivation stops a working one.** A workflow mid-step
+  survives a restart only because something polls it. Autonomous agents are the one entity type with
+  `remember-entities` (event-sourced store — the coordinator's list of shards is journaled too, so no LMDB
+  on a pod's disk); remembering turns automatic passivation off, so the host passivates itself when it is
+  idle and unwatched. A subscription keeps an instance alive.
+- **A host that stops under an operation loses the reply.** Sharding's default stop message stopped the
+  autonomous host while an `assign` it had started was in flight, and the caller timed out instead of
+  hearing `Conflict`. The entity has its own `Stop` (`withStopMessage`): the host finishes the operation
+  and everything stashed behind it first.
+- **Work done for a task outside its iterations needs the task too.** A remote guardrail names the task's
+  session, and the input guardrails run when a task *starts*, before any iteration. The current task is set
+  around all work on a task (`AutonomousAgent.CurrentTask.within`), not per iteration.
+- **Only the process can decode a remote result.** A per-rule check sent a malformed result to a Python
+  rule, which raised, which is a failed iteration, retried forever — and a remote type with no rules would
+  have accepted anything. `CheckTaskResult` decodes and runs every rule in one call, answering `malformed`
+  as the Scala agent's decode failure is answered: a tool error the model corrects.
+- **`protocol/fixtures/` belongs to `core`'s `EncodingFixturesSuite`**, which refuses any file it did not
+  generate. The autonomous agent's fixtures live in `protocol/fixtures/autonomous/`, written by
+  `AutonomousFixturesSuite` in `testkit`.
+- **`testkit` depends on `agent`,** so a suite that needs `EventSourcedTestKit`, `TestTransport` or
+  `AnkkaTestKit` for an agent-module type lives in `testkit/src/test`. `EntityRouter` there routes real
+  calls to real entity test kits by id, which is how client-side orderings are tested without a runtime.
+- **Two sharded kinds may not share a component id.** Sharding keys by the id alone, so an agent and an
+  autonomous agent both named `helper` would share one region; `ComponentRegistry` refuses it.
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.

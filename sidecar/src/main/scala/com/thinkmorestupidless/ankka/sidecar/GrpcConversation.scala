@@ -7,6 +7,8 @@ import ankka.protocol.v1.agent.{
   GuardrailResult,
   PlanReply,
   PlanRequest as PbPlanRequest,
+  TaskResultRequest,
+  TaskResultVerdict as PbVerdict,
   ToolRequest,
   ToolResult
 }
@@ -549,6 +551,21 @@ final class GrpcConversation(
         result.result match
           case GuardrailResult.Result.Block(reason) => Left(reason)
           case _                                    => Right(())
+      }
+
+  def checkTaskResult(
+      componentId: ComponentId,
+      taskId: String,
+      taskType: String,
+      resultJson: String
+  ): Future[TaskResultVerdict] =
+    agent
+      .checkTaskResult(TaskResultRequest(componentId, taskId, taskType, resultJson))
+      .map { answer =>
+        answer.verdict match
+          case PbVerdict.Verdict.Malformed(problem) => TaskResultVerdict.Malformed(problem)
+          case PbVerdict.Verdict.Reject(r)          => TaskResultVerdict.Reject(r.rule, r.reason)
+          case _                                    => TaskResultVerdict.Accept
       }
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =

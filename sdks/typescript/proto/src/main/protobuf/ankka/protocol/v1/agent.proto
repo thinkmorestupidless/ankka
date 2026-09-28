@@ -9,6 +9,7 @@ service Agent {
   rpc Plan           (PlanRequest)      returns (PlanReply);
   rpc InvokeTool     (ToolRequest)      returns (ToolResult);
   rpc CheckGuardrail (GuardrailRequest) returns (GuardrailResult);
+  rpc CheckTaskResult (TaskResultRequest) returns (TaskResultVerdict);   // protocol 1.2
 }
 
 message PlanRequest {
@@ -51,3 +52,24 @@ message GuardrailRequest {
 }
 
 message GuardrailResult { oneof result { Empty pass = 1; string block = 2; } }
+
+// An autonomous agent's result, as the model sent it to complete_task (protocol 1.2). The process
+// decodes it as the task type's result and runs the type's rules in order: `malformed` when it does
+// not decode (the model is told, as a tool error), `reject` naming the first rule that refuses it.
+// A rule that throws is answered as a gRPC error, which the sidecar treats as a failed iteration and
+// tries again — never as a rejection, since nothing was decided.
+message TaskResultRequest {
+  string component_id = 1;
+  string task_id = 2;
+  string task_type = 3;
+  string result_json = 4;
+}
+
+message TaskResultVerdict {
+  oneof verdict {
+    Empty accept = 1;
+    string malformed = 2;
+    Rejection reject = 3;
+  }
+  message Rejection { string rule = 1; string reason = 2; }
+}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import json
 
 from typing import Any
@@ -127,6 +129,9 @@ import pytest
 
 from ankka import Ankka
 from ankka.testkit.integration import AnkkaTestKit
+from ankka.agent import Tool
+from ankka.autonomous import AutonomousAgent, TaskAcceptance
+from examples.shopping_cart.answerer import ANSWER, Answer, CartAnswerer, CartRef
 from examples.shopping_cart.endpoint import ShoppingCartEndpoint
 from examples.shopping_cart.main import service
 
@@ -248,3 +253,126 @@ async def test_cart_through_the_sidecar_survives_a_restart() -> None:
         # Deleted after the checkout, as the Scala cart: the id is fresh again.
         assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [], "checkedOut": False}
 # docs:end integration
+
+
+# docs:start scripted-autonomous
+ANSWER_SCRIPT = json.dumps(
+    [
+        {"tool": "cart_total", "arguments": {"cartId": "q1"}},
+        # The first answer cites nothing, so the rule in this process sends it back.
+        {"tool": "complete_task", "arguments": {"answer": "3 items", "sources": []}},
+        {"tool": "complete_task", "arguments": {"answer": "Cart q1 holds 3 items.", "sources": ["cart_total"]}},
+    ]
+)
+
+
+@pytest.mark.slow
+async def test_autonomous_task_through_the_sidecar() -> None:
+    """The loop runs in the sidecar; the tool runs here and reads the cart; the rule here rejects an
+    answer that cites nothing; the typed result is read back through the task's record."""
+    async with await AnkkaTestKit.start(service(), env={"ANKKA_MODEL_SCRIPT": ANSWER_SCRIPT}) as kit:
+        assert (await kit.http.post("/carts/q1/items", json=PEN_JSON)).status_code == 204
+        assert (await kit.http.post("/carts/q1/items", json=INK_JSON)).status_code == 204
+        asked = await kit.http.post("/questions/ask", content="How many items are in q1?", headers={"content-type": "text/plain"})
+        assert asked.status_code == 200, asked.text
+        task_id = asked.json()["taskId"]
+
+        done = await kit.await_task(task_id, ANSWER)
+        assert done.status == "completed", done
+        assert done.result == Answer("Cart q1 holds 3 items.", ["cart_total"])
+        assert done.iterations == 3
+        read = (await kit.http.get(f"/questions/{task_id}")).json()
+        assert read["status"] == "completed" and read["answer"]["sources"] == ["cart_total"]
+# docs:end scripted-autonomous
+
+
+FAIL_SCRIPT = json.dumps([{"tool": "fail_task", "arguments": {"reason": "carts cannot see the future"}}])
+
+
+@pytest.mark.slow
+async def test_autonomous_task_fails_on_request() -> None:
+    async with await AnkkaTestKit.start(service(), env={"ANKKA_MODEL_SCRIPT": FAIL_SCRIPT}) as kit:
+        task_id = await kit.client.for_autonomous_agent(CartAnswerer).run_single_task(ANSWER, "What will be in q2 next year?")
+        done = await kit.await_task(task_id, ANSWER)
+        assert (done.status, done.reason, done.result) == ("failed", "carts cannot see the future", None)
+
+
+
+# A tool that holds its first call until the test lets it go: an instance frozen mid-iteration.
+_entered = asyncio.Event()
+_release = asyncio.Event()
+
+
+async def _slow_total(agent: AutonomousAgent, ref: CartRef) -> str:
+    if not _entered.is_set():
+        _entered.set()
+        await _release.wait()
+    return f"cart {ref.cartId} holds 3 items"
+
+
+class SlowAnswerer(AutonomousAgent):
+    component_id = "slow-answerer"
+    description = "Answers questions about carts, slowly"
+    tools = {"cart_total": Tool("Counts the items in a cart.", _slow_total, CartRef)}
+    accepts = [TaskAcceptance(ANSWER, max_iterations=5)]
+
+
+# Rules only, chosen by what each request holds, so a replacement sidecar's fresh script picks up
+# where the task stands rather than from its first turn.
+RESUME_SCRIPT = json.dumps(
+    [
+        {"when_tool_result": "holds", "tool": "complete_task", "arguments": {"answer": "3", "sources": ["cart_total"]}},
+        {"when": "q3", "tool": "cart_total", "arguments": {"cartId": "q3"}},
+    ]
+)
+
+
+@pytest.mark.slow
+async def test_autonomous_task_survives_the_sidecar_being_replaced() -> None:
+    """The sidecar runs the loop and holds the records: replaced mid-tool, the new one resumes the
+    task from its journal, runs the unrecorded tool again, and finishes."""
+    service = Ankka.service().register(SlowAnswerer)
+    async with await AnkkaTestKit.start(service, env={"ANKKA_MODEL_SCRIPT": RESUME_SCRIPT}) as kit:
+        task_id = await kit.client.for_autonomous_agent(SlowAnswerer).run_single_task(ANSWER, "How many items in q3?")
+        await asyncio.wait_for(_entered.wait(), 30)
+        await kit.restart()
+        _release.set()
+        done = await kit.await_task(task_id, ANSWER, timeout=60)
+        assert done.status == "completed", done
+        assert done.result == Answer("3", ["cart_total"])
+
+
+@pytest.mark.slow
+async def test_autonomous_notifications_ordered() -> None:
+    """A subscriber hears a task's run in order, from the moment it subscribed."""
+    script = json.dumps([{"tool": "complete_task", "arguments": {"answer": "empty", "sources": ["memory"]}}])
+    async with await AnkkaTestKit.start(service(), env={"ANKKA_MODEL_SCRIPT": script}) as kit:
+        seen: list[str] = []
+        started = asyncio.Event()
+
+        async def watch() -> None:
+            async for n in kit.notifications("cart-answerer", "watched"):
+                seen.append(n.type)
+                started.set()
+                if n.type == "TaskCompleted":
+                    return
+
+        watcher = asyncio.create_task(watch())
+        await asyncio.wait_for(started.wait(), 30)
+        task_id = await kit.client.tasks.create(ANSWER, "What is in q9?")
+        await kit.client.for_autonomous_agent(CartAnswerer, "watched").assign(task_id)
+        await asyncio.wait_for(watcher, 30)
+        assert seen[0] == "Activated"
+        assert seen[1:] == ["TaskAssigned", "TaskStarted", "IterationStarted", "IterationCompleted", "TaskCompleted"], seen
+
+
+# docs:start unit-test
+async def test_answerer_pieces_without_a_sidecar() -> None:
+    """The tools, the result check and the rules, run directly: no sidecar, no model."""
+    from ankka.testkit import AutonomousAgentTestKit
+
+    kit = AutonomousAgentTestKit.of(CartAnswerer)
+    assert await kit.check_result(ANSWER, Answer("3", [])) == ("cites-sources", "say which tools you used in sources")
+    assert await kit.check_result(ANSWER, Answer("3", ["cart_total"])) is None
+# docs:end unit-test
+

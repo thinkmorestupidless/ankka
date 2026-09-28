@@ -1,8 +1,9 @@
 // Renders the discovery Spec from the registry: what the sidecar hosts is exactly what is registered.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
-import { Endpoint_Acl, SpecSchema, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
-import type { Registry, RegisteredComponent, Source } from "./service.ts"
+import { Endpoint_Acl, SpecSchema, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
+import type { Registry, RegisteredAutonomousAgent, RegisteredComponent, Source } from "./service.ts"
+import { resultSchemaJson, type AutonomousSettings } from "./autonomous.ts"
 import type { HandlerRef } from "./handlers.ts"
 import type { Recovery, WorkflowSettings } from "./effects/workflow.ts"
 import { kindToProto } from "./kinds.ts"
@@ -11,7 +12,7 @@ import { toJsonSchema } from "./schema.ts"
 import { isCodec } from "./codec.ts"
 import { VERSION } from "./version.ts"
 
-export const PROTOCOL_VERSION = "1.1"
+export const PROTOCOL_VERSION = "1.2"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -83,6 +84,8 @@ function settingsInit(s: WorkflowSettings): SettingsInit {
 function componentInit(c: RegisteredComponent): ComponentInit {
   const base = { kind: kindToProto(c.kind), id: c.id }
   switch (c.kind) {
+    case "autonomous-agent":
+      return autonomousInit(c)
     case "event-sourced":
       return { ...base, handlers: handlerInits(c.handlers), detail: { case: "eventSourced", value: { snapshotEvery: c.snapshotEvery } } }
     case "key-value":
@@ -115,6 +118,42 @@ function componentInit(c: RegisteredComponent): ComponentInit {
           },
         },
       }
+  }
+}
+
+function settingsOf(s: AutonomousSettings): MessageInitShape<typeof AutonomousAgentDetail_AutonomousSettingsSchema> {
+  return {
+    ...(s.approachingBudgetAt !== undefined ? { approachingBudgetAt: s.approachingBudgetAt } : {}),
+    ...(s.repeatedFailureAt !== undefined ? { repeatedFailureAt: s.repeatedFailureAt } : {}),
+    ...(s.maxConsecutiveFailures !== undefined ? { maxConsecutiveFailures: s.maxConsecutiveFailures } : {}),
+    ...(s.dependencyStuckAfterMillis !== undefined ? { dependencyStuckAfterMillis: BigInt(s.dependencyStuckAfterMillis) } : {}),
+  }
+}
+
+function autonomousInit(c: RegisteredAutonomousAgent): ComponentInit {
+  const cls = c.cls
+  return {
+    kind: kindToProto(c.kind),
+    id: c.id,
+    handlers: [],
+    detail: {
+      case: "autonomousAgent",
+      value: {
+        description: cls.description,
+        ...(cls.instructions !== undefined ? { instructions: cls.instructions } : {}),
+        ...(cls.model !== undefined ? { model: cls.model } : {}),
+        tools: [...c.tools.values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((t) => ({ name: t.name, description: t.description, inputSchemaJson: JSON.stringify(isCodec(t.input) ? { type: "object" } : toJsonSchema(t.input)) })),
+        guardrails: [...c.guardrails.keys()].sort(),
+        taskTypes: [...c.taskTypes.values()].map((t) => {
+          const schema = resultSchemaJson(t)
+          return { name: t.name, description: t.description, rules: t.rules.map((r) => r.name), ...(schema !== undefined ? { resultSchemaJson: schema } : {}) }
+        }),
+        accepts: cls.accepts.map((a) => ({ taskType: a.taskType.name, maxIterations: a.maxIterations })),
+        ...(cls.settings ? { settings: settingsOf(cls.settings) } : {}),
+      },
+    },
   }
 }
 

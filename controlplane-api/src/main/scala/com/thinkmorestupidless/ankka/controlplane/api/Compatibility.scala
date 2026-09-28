@@ -45,9 +45,10 @@ object ProtocolVersion:
  */
 object Protocol:
   /**
-   * 1.1 added the caller to forwarded requests and caller-naming ACLs to discovery (feature 014).
+   * 1.1 added the caller to forwarded requests and caller-naming ACLs to discovery. 1.2 added the
+   * autonomous agent: a component kind, its definition in discovery, and the task-rule check.
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 1)
+  val version: ProtocolVersion = ProtocolVersion(1, 2)
 
 object Compatibility:
 

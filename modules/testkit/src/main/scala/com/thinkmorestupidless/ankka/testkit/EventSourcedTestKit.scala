@@ -105,6 +105,22 @@ final class EventSourcedTestKit[C <: EventSourcedEntity[S, E], S, E] private (
   def call[O](handle: NoArgHandle[C, O], metadata: Metadata): CommandResult[S, E, O] =
     run(handle, Array.emptyByteArray, handle.outputSerializer, metadata)
 
+  /**
+   * Runs a handler named on the wire, from and to bytes — what a test transport routing real calls
+   * to this kit needs. A name the entity does not declare is `NotFound`, as the runtime answers.
+   */
+  private[ankka] def callRaw(
+      name: MethodName,
+      payload: Array[Byte]
+  ): Either[CommandError, Array[Byte]] =
+    companion.descriptor.handler(name) match
+      case None =>
+        Left(CommandError(s"no handler '$name' on '${companion.componentId}'", ErrorCode.NotFound))
+      case Some(binding) =>
+        // The identity serializer makes `run`'s reply round-trip yield the encoded reply itself.
+        run(binding, payload, Serializer.bytes, Metadata.empty).reply
+          .map(_.getOrElse(Array.emptyByteArray))
+
   private def run[O](
       binding: HandlerBinding[C],
       payload: Array[Byte],

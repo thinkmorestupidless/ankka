@@ -12,6 +12,7 @@ import { View, type ViewClass } from "./view.ts"
 import { Consumer, type ConsumerClass } from "./consumer.ts"
 import { TimedAction, type TimedActionClass } from "./timedAction.ts"
 import { Agent, type AgentClass } from "./agent.ts"
+import { AutonomousAgent, COMPLETE_TASK, FAIL_TASK, type AutonomousAgentClass, type TaskType } from "./autonomous.ts"
 import { Endpoint, type EndpointClass } from "./endpoint.ts"
 import type { GuardrailRef, HandlerRef, ToolRef } from "./handlers.ts"
 import type { RouteRef, Acl } from "./routes.ts"
@@ -92,6 +93,15 @@ export interface RegisteredAgent {
   readonly maxToolCallSteps: number
 }
 
+export interface RegisteredAutonomousAgent {
+  readonly kind: "autonomous-agent"
+  readonly id: string
+  readonly cls: AutonomousAgentClass<any>
+  readonly tools: ReadonlyMap<string, ToolRef<any, any>>
+  readonly guardrails: ReadonlyMap<string, GuardrailRef>
+  readonly taskTypes: ReadonlyMap<string, TaskType<any>>
+}
+
 export type RegisteredComponent =
   | RegisteredEventSourced
   | RegisteredKeyValue
@@ -100,6 +110,7 @@ export type RegisteredComponent =
   | RegisteredConsumer
   | RegisteredTimedAction
   | RegisteredAgent
+  | RegisteredAutonomousAgent
 
 export interface RegisteredEndpoint {
   readonly id: string
@@ -190,6 +201,7 @@ export class ServiceBuilder {
   register<M, Out, C extends Consumer<M, Out>>(cls: ConsumerClass<M, Out, C>): this
   register<C extends TimedAction>(cls: TimedActionClass<C>): this
   register<C extends Agent>(cls: AgentClass<C>): this
+  register<C extends AutonomousAgent>(cls: AutonomousAgentClass<C>): this
   register<C extends Endpoint>(cls: EndpointClass<C>): this
   register(cls: AnyClass): this {
     this.#classes.push(cls)
@@ -217,6 +229,7 @@ export class ServiceBuilder {
       else if (extendsBase(cls, Consumer)) add(registerConsumer(cls as ConsumerClass<any, any, any>, problems), cls)
       else if (extendsBase(cls, TimedAction)) add(registerTimedAction(cls as TimedActionClass<any>, problems), cls)
       else if (extendsBase(cls, Agent)) add(registerAgent(cls as AgentClass<any>, problems), cls)
+      else if (extendsBase(cls, AutonomousAgent)) add(registerAutonomousAgent(cls as AutonomousAgentClass<any>, problems), cls)
       else if (extendsBase(cls, Endpoint)) {
         const ep = cls as EndpointClass<any>
         if (typeof ep.prefix === "string") {
@@ -230,7 +243,7 @@ export class ServiceBuilder {
           else endpoints.set(r.id, r)
         }
       } else {
-        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, Consumer, TimedAction, Agent or Endpoint`)
+        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, Consumer, TimedAction, Agent, AutonomousAgent or Endpoint`)
       }
     }
 
@@ -421,6 +434,37 @@ function registerAgent(cls: AgentClass<any>, problems: string[]): RegisteredAgen
   if (!Number.isInteger(maxToolCallSteps) || maxToolCallSteps <= 0) fail("maxToolCallSteps must be a positive integer")
   if (!ok()) return undefined
   return Object.freeze({ kind: "agent", id: cls.componentId, cls, handlers, tools, guardrails, role: cls.role ?? "", maxToolCallSteps })
+}
+
+function registerAutonomousAgent(cls: AutonomousAgentClass<any>, problems: string[]): RegisteredAutonomousAgent | undefined {
+  const { fail, ok } = checker(cls, problems)
+  requireId(cls, fail)
+  if (typeof cls.description !== "string" || cls.description.trim() === "") fail("a description is required")
+  const tools = new Map<string, ToolRef<any, any>>()
+  for (const [property, t] of Object.entries(cls.tools ?? {})) {
+    if (typeof t !== "object" || t === null || typeof t.name !== "string" || typeof t.run !== "function") {
+      fail(`tools.${property} is not a tool: declare it with tool(name, description, input, run)`)
+      continue
+    }
+    if (t.name === COMPLETE_TASK || t.name === FAIL_TASK) fail(`tool name ${JSON.stringify(t.name)} is reserved`)
+    if (tools.has(t.name)) fail(`two tools declare the name ${JSON.stringify(t.name)}`)
+    tools.set(t.name, t)
+  }
+  const guardrails = new Map<string, GuardrailRef>()
+  for (const g of Object.values(cls.guardrails ?? {})) {
+    if (guardrails.has(g.name)) fail(`two guardrails declare the name ${JSON.stringify(g.name)}`)
+    guardrails.set(g.name, g)
+  }
+  const taskTypes = new Map<string, TaskType<any>>()
+  const accepts = cls.accepts ?? []
+  if (accepts.length === 0) fail("it accepts no task type: declare accepts = [taskAcceptance(...)]")
+  for (const a of accepts) {
+    if (taskTypes.has(a.taskType.name)) fail(`task type ${JSON.stringify(a.taskType.name)} is accepted twice`)
+    if (!Number.isInteger(a.maxIterations) || a.maxIterations < 1) fail(`task type ${JSON.stringify(a.taskType.name)} needs a budget of at least one iteration`)
+    taskTypes.set(a.taskType.name, a.taskType)
+  }
+  if (!ok()) return undefined
+  return Object.freeze({ kind: "autonomous-agent", id: cls.componentId, cls, tools, guardrails, taskTypes })
 }
 
 /** Collects a handler table by wire name, reporting a duplicate wire name or a kind the component cannot host. */

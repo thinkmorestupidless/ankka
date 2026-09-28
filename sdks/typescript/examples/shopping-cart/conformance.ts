@@ -4,7 +4,13 @@
 import {
   Acl,
   Agent,
+  AutonomousAgent,
   Callers,
+  accepted,
+  rejected,
+  taskAcceptance,
+  taskRule,
+  taskType,
   Ankka,
   Consumer,
   Done,
@@ -233,6 +239,85 @@ export class PrivateEndpoint extends Endpoint {
   }
 }
 
+// ── answerer: an autonomous agent, whose tool acts through the client ──
+
+const Answer = s.record("Answer", { answer: s.string, sources: s.list(s.string) })
+type Answer = Infer<typeof Answer>
+const ANSWER = taskType("answer", "Answer a question, citing what you looked up", {
+  result: Answer,
+  rules: [
+    taskRule<Answer>("cites-sources", (a) => (a.sources.length > 0 ? accepted() : rejected("sources must not be empty"))),
+    // Throws the first time it sees "flaky-once": a rule that fails once, then decides.
+    taskRule<Answer>("steady", (a) => {
+      if (a.answer === "flaky-once" && !flakySeen.has(a.answer)) {
+        flakySeen.add(a.answer)
+        throw new Error("the rule threw")
+      }
+      return accepted()
+    }),
+  ],
+})
+const flakySeen = new Set<string>()
+
+export class ConformanceAnswerer extends AutonomousAgent {
+  static readonly componentId = "answerer"
+  static readonly description = "Answers questions"
+  static readonly tools = {
+    lookup: tool("lookup", "Looks up how many things were recorded under an id.", LookupArguments, async (a: ConformanceAnswerer, input) => {
+      if (!input.id) throw new Error("an id is needed")
+      const entity = a.client.of(Conformance, input.id)
+      await entity.call(Conformance.handlers.record).invoke("looked-up")
+      return `count for ${input.id} is ${await entity.call(Conformance.handlers.count).invoke()}`
+    }),
+  }
+  static readonly guardrails = { noSecrets: guardrail("no-secrets", (stage, text) => (text.includes("sk-") ? `${stage} rejected by no-secrets` : null)) }
+  static readonly accepts = [taskAcceptance(ANSWER, { maxIterations: 4 })]
+}
+
+/** Autonomous agents: tasks run, read and cancelled; instances driven and watched. */
+export class AutonomousEndpoint extends Endpoint {
+  static readonly prefix = "/autonomous"
+  static readonly acl = Acl.allowAll
+  static readonly routes = {
+    run: post("/tasks/{taskType}", s.string, s.string, async (ep: AutonomousEndpoint, req, instructions) => {
+      if (req.params.taskType !== ANSWER.name) throw new HttpProblem(400, `no task type '${req.params.taskType}'`)
+      const taskId = await ep.client.forAutonomousAgent(ConformanceAnswerer).runSingleTask(ANSWER, instructions)
+      const task = await ep.client.forTask(taskId).get()
+      return JSON.stringify({ taskId, instanceId: task.assignee?.instanceId ?? "" })
+    }),
+    read: get("/tasks/{id}", s.string, async (ep: AutonomousEndpoint, req) => JSON.stringify((await ep.client.forTask(req.params.id).get()).record)),
+    cancel: post("/tasks/{id}/cancel", Done, async (ep: AutonomousEndpoint, req) => {
+      await ep.client.forTask(req.params.id).cancel()
+      return done
+    }),
+    create: post("/tasks/{taskType}/create", s.string, s.string, async (ep: AutonomousEndpoint, req, body) => {
+      if (req.params.taskType !== ANSWER.name) throw new HttpProblem(400, `no task type '${req.params.taskType}'`)
+      const request = JSON.parse(body) as { instructions?: string; dependsOn?: string[] }
+      const taskId = await ep.client.tasks.create(ANSWER, request.instructions ?? "", { dependsOn: request.dependsOn ?? [] })
+      return JSON.stringify({ taskId })
+    }),
+    assign: post("/instances/{instance}/assign", s.string, s.string, async (ep: AutonomousEndpoint, req, body) => {
+      const answer = await ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance).assign(...(JSON.parse(body) as string[]))
+      return JSON.stringify({ accepted: answer.accepted })
+    }),
+    operate: post("/instances/{instance}/{op}", Done, async (ep: AutonomousEndpoint, req) => {
+      const calls = ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance)
+      if (req.params.op === "suspend") await calls.suspend()
+      else if (req.params.op === "resume") await calls.resume()
+      else if (req.params.op === "terminate") await calls.terminate()
+      else throw new HttpProblem(404, `no operation '${req.params.op}'`)
+      return done
+    }),
+    notifications: sse("/instances/{instance}/notifications", async function* (ep: AutonomousEndpoint, req) {
+      for await (const n of ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance).notifications()) yield JSON.stringify(n)
+    }),
+    state: get("/instances/{instance}/state", s.string, async (ep: AutonomousEndpoint, req) => {
+      const st = await ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance).state()
+      return JSON.stringify({ phase: st.phase, queued: st.queued, currentTask: st.currentTask })
+    }),
+  }
+}
+
 /** The cart sample plus the conformance extras: what `npm run conformance` serves. */
 export function referenceService() {
   return Ankka.service()
@@ -244,8 +329,10 @@ export function referenceService() {
     .register(CheckoutRecorder)
     .register(Reminder)
     .register(ConformanceAssistant)
+    .register(ConformanceAnswerer)
     .register(ShoppingCartEndpoint)
     .register(ConformanceEndpoint)
     .register(PrivateEndpoint)
     .register(CallersEndpoint)
+    .register(AutonomousEndpoint)
 }

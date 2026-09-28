@@ -5,7 +5,7 @@
 | Variable | In a cluster | Locally | Meaning |
 |---|---|---|---|
 | `ANKKA_CONSOLE_CONTROL_PLANE_URL` | `https://ankka-controlplane.ankka-controlplane.svc:9000` | `http://localhost:9000` | The API |
-| `ANKKA_CONSOLE_AUTHORITY` | from `ankka-platform.consoleAuthority` | `localhost:3000` | The console's own host and port; the public origin is `https://` (cluster) or `http://` (local) plus this |
+| `ANKKA_CONSOLE_AUTHORITY` | from `ankka-platform.consoleAuthority` | `localhost:3000` | The console's own host and port. `ConsoleOptions.publicOrigin` is derived from it and nothing else: `https://` plus this when `ANKKA_CONSOLE_TLS_DIR` is set, `http://` plus this otherwise |
 | `ANKKA_CONSOLE_CLIENT_ID` | `ankka-console` | same | |
 | `ANKKA_CONSOLE_CLIENT_SECRET` | Secret `ankka-console-secrets/clientSecret` | `dev` | |
 | `ANKKA_CONSOLE_SESSION_SECRET` | Secret `ankka-console-secrets/sessionSecret` | `dev-session-secret` | Rotating it signs everyone out |

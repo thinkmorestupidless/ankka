@@ -619,8 +619,9 @@ name the console's address and placeholders.
   port, and MUST serve through a rolling replacement without a refused request.
 - **FR-033**: The realm file MUST carry the console's confidential client with the authorization code
   flow, PKCE required, the control plane's client scope as a default, and redirect and post-logout
-  addresses for the installation's console hostname and for local development; the local overlay
-  MUST substitute the base domain into them as it does into every other hostname.
+  addresses for the installation's console authority (hostname, and port when it is not 443) and for
+  local development; each overlay MUST write that authority once and substitute it into them, as it
+  does the base domain into every other hostname.
 - **FR-034**: The console's client secret and session-sealing secret MUST be Secrets the installation
   supplies: development values in the local overlay, deleted rather than overridden in the example
   cloud overlay.

@@ -266,7 +266,12 @@ object ZeroTrust:
         secretVolume("ankka-service-tls", serviceSecretName(spec.serviceName), None)
       ) ++
       Option.when(provisioned)(
-        secretVolume("ankka-database-tls", Database.certificateSecret(spec.serviceName), None)
+        secretVolume(
+          "ankka-database-tls",
+          Database.certificateSecret(spec.serviceName),
+          None,
+          Some(Database.KeyMode)
+        )
       ) ++
       // Only `ca.crt` from CNPG's own server authority: that Secret also holds its private key,
       // and nothing in the pod has any business with it.
@@ -286,6 +291,15 @@ object ZeroTrust:
    */
   object Database:
     val Issuer: String = "ankka-database"
+
+    /** The pod's filesystem group, which owns the mounted database key. */
+    val FsGroup: java.lang.Long = java.lang.Long.valueOf(2000L)
+
+    /**
+     * `u=r,g=r`: libpq refuses a key anyone else can read, and a non-root runtime reads it by
+     * group.
+     */
+    val KeyMode: Integer = Integer.valueOf(0x120) // 0440
 
     def certificateName(service: String): String   = s"$service-database"
     def certificateSecret(service: String): String = s"$service-database-tls"
@@ -357,8 +371,14 @@ object ZeroTrust:
 
   // Never `subPath`: the kubelet does not update a subPath mount when a Secret changes, and rotation
   // is the point.
-  private def secretVolume(name: String, secret: String, onlyKey: Option[String]): Volume =
+  private def secretVolume(
+      name: String,
+      secret: String,
+      onlyKey: Option[String],
+      mode: Option[Integer] = None
+  ): Volume =
     val source = new SecretVolumeSourceBuilder().withSecretName(secret)
+    mode.foreach(m => source.withDefaultMode(m): Unit)
     onlyKey.foreach(key =>
       source.withItems(new KeyToPathBuilder().withKey(key).withPath(key).build()): Unit
     )

@@ -51,7 +51,7 @@ final class ServiceReconciler(
 
     val databasePlan = decideDatabasePlan(ref, spec)
 
-    Rendering.render(resource, settings, databasePlan, Passwords.generate()) match
+    Rendering.render(resource, settings, databasePlan) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
         // why, which is the only way an operator finds out.

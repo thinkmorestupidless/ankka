@@ -9,6 +9,8 @@ import com.thinkmorestupidless.ankka.operator.cnpg.{BootstrapSpec, InitdbSpec}
  * See
  * [contracts/cnpg-resources.md](../../../../../specs/002-cnpg-database-provisioning/contracts/cnpg-resources.md).
  */
+import scala.jdk.CollectionConverters.*
+
 class CnpgRenderingSuite extends munit.FunSuite:
 
   private val settings = Settings.default
@@ -88,31 +90,29 @@ class CnpgRenderingSuite extends munit.FunSuite:
 
   test("the role's password secret is named after the service") {
     val role = CnpgRendering.databaseRole(spec, "ankka-checkout")
-    assertEquals(role.getSpec.passwordSecret.name, s"${spec.serviceName}-db")
+    // No password secret and no password (feature 014): the role logs in by certificate only.
+    assertEquals(role.getSpec.passwordSecret, None)
+    assertEquals(role.getSpec.disablePassword, Some(true))
+    assertEquals(role.getSpec.inRoles, Vector(CnpgRendering.TlsGroup))
   }
 
-  test("the credential secret carries both basic-auth keys and the ANKKA_DB_* keys") {
+  test("the credential secret says where the database is, and carries no password at all") {
     val secret =
-      CnpgRendering.credentialSecret(
-        spec,
-        "ankka-checkout",
-        CnpgRendering.projectClusterName,
-        "generated-pw"
+      CnpgRendering.credentialSecret(spec, "ankka-checkout", CnpgRendering.projectClusterName)
+    val data = secret.getStringData.asScala.toMap
+    assertEquals(
+      data,
+      Map(
+        "ANKKA_DB_HOST" -> s"${CnpgRendering.projectClusterName}-rw",
+        "ANKKA_DB_PORT" -> "5432",
+        "ANKKA_DB_NAME" -> spec.serviceName,
+        "ANKKA_DB_USER" -> spec.serviceName
       )
-    val data = secret.getStringData
-    assertEquals(data.get("username"), spec.serviceName)
-    assertEquals(data.get("password"), "generated-pw")
-    assertEquals(data.get("ANKKA_DB_HOST"), s"${CnpgRendering.projectClusterName}-rw")
-    assertEquals(data.get("ANKKA_DB_PORT"), "5432")
-    assertEquals(data.get("ANKKA_DB_NAME"), spec.serviceName)
-    assertEquals(data.get("ANKKA_DB_USER"), spec.serviceName)
-    assertEquals(data.get("ANKKA_DB_PASSWORD"), "generated-pw")
-  }
-
-  test("the credential secret is basic-auth typed, which DatabaseRole requires") {
-    val secret =
-      CnpgRendering.credentialSecret(spec, "ankka-checkout", CnpgRendering.projectClusterName, "pw")
-    assertEquals(secret.getType, "kubernetes.io/basic-auth")
+    )
+    // Asked of the serialized object, not the map above: a password anywhere in it is a failure.
+    val serialized = io.fabric8.kubernetes.client.utils.Serialization.asJson(secret).toLowerCase
+    assert(!serialized.contains("password"), serialized)
+    assertEquals(secret.getType, "Opaque")
   }
 
   test("CNPG objects carry no owner reference to the AnkkaService — they must outlive it") {
@@ -122,7 +122,7 @@ class CnpgRenderingSuite extends munit.FunSuite:
     // operator's RBAC). No owner reference is what makes retain mean anything.
     val role     = CnpgRendering.databaseRole(spec, "ankka-checkout")
     val database = CnpgRendering.database(spec, "ankka-checkout")
-    val secret   = CnpgRendering.credentialSecret(spec, "ankka-checkout", "ankka-db", "pw")
+    val secret   = CnpgRendering.credentialSecret(spec, "ankka-checkout", "ankka-db")
 
     assert(
       role.getMetadata.getOwnerReferences.isEmpty,

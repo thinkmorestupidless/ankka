@@ -38,7 +38,7 @@ class ServiceRenderingSuite extends munit.FunSuite:
   )
 
   private def actionsFor(s: AnkkaServiceSpec, uid: String = "uid-1"): Vector[Action] =
-    Rendering.render(resource(s, uid), settings, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(s, uid), settings, ProvisioningPlan.Supplied) match
       case Right(actions) => actions
       case Left(problems) => fail(s"expected a render, got $problems")
 

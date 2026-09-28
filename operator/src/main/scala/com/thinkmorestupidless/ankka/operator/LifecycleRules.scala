@@ -132,7 +132,7 @@ object LifecycleRules:
     val (name, detail) = plan match
       case ProvisioningPlan.Supplied               => ("", None)
       case ProvisioningPlan.Waiting(_, _, _, _, d) => (serviceName, d)
-      case ProvisioningPlan.Ready(_)               => (serviceName, None)
+      case ProvisioningPlan.Ready(_, _)            => (serviceName, None)
       case ProvisioningPlan.Failed(problems)       => (serviceName, Some(problems.mkString("; ")))
 
     com.thinkmorestupidless.ankka.crd.DatabaseStatus(
@@ -140,8 +140,8 @@ object LifecycleRules:
       name = name,
       cluster = if plan == ProvisioningPlan.Supplied then "" else clusterName,
       recovered = plan match
-        case ProvisioningPlan.Ready(recovered) => recovered
-        case _                                 => false
+        case ProvisioningPlan.Ready(recovered, _) => recovered
+        case _                                    => false
       ,
       detail = detail
     )

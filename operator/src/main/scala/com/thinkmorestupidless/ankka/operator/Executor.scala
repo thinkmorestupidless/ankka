@@ -500,7 +500,10 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
       secretExists = secret.isDefined,
       role = objectState(role.map(r => Option(r.getStatus))),
       database = objectState(database.map(d => Option(d.getStatus))),
-      secretCreatedAt = secret.flatMap(s => parseTimestamp(s.getMetadata.getCreationTimestamp))
+      secretCreatedAt = secret.flatMap(s => parseTimestamp(s.getMetadata.getCreationTimestamp)),
+      roleHasPassword = role
+        .flatMap(r => Option(r.getSpec))
+        .exists(spec => !spec.disablePassword.contains(true))
     )
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =

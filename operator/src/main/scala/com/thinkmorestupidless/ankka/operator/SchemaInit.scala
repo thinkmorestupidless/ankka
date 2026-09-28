@@ -44,10 +44,26 @@ object SchemaInit:
           )
           .build()
       )
+      .withEnv(
+        ZeroTrust.Database.Environment.map((n, v) =>
+          new io.fabric8.kubernetes.api.model.EnvVarBuilder().withName(n).withValue(v).build()
+        )*
+      )
       .withVolumeMounts(
         new VolumeMountBuilder()
           .withName(VolumeName)
           .withMountPath(MountPath)
+          .withReadOnly(true)
+          .build(),
+        // The service's own database identity: schema-init logs in as the service, by certificate.
+        new VolumeMountBuilder()
+          .withName("ankka-database-tls")
+          .withMountPath(ZeroTrust.DatabaseMount)
+          .withReadOnly(true)
+          .build(),
+        new VolumeMountBuilder()
+          .withName("ankka-database-ca")
+          .withMountPath(ZeroTrust.DatabaseCaMount)
           .withReadOnly(true)
           .build()
       )
@@ -63,14 +79,19 @@ object SchemaInit:
       .build()
 
   /**
-   * `psql` reads `PGHOST`/`PGPORT`/`PGUSER`/`PGPASSWORD`/`PGDATABASE` from the environment, and the
-   * `ANKKA_DB_*` keys the credential secret already carries are exactly those, one field short of
-   * the standard names — set below rather than duplicating the secret under both sets of key names.
+   * `psql` reads `PGHOST`/`PGPORT`/`PGUSER`/`PGDATABASE` and the `PGSSL*` settings from the
+   * environment, and the `ANKKA_DB_*` keys the credential secret already carries are exactly those,
+   * one field short of the standard names — set below rather than duplicating the secret under both
+   * sets of key names.
    */
   private def script: String =
     """set -e
       |export PGHOST="$ANKKA_DB_HOST" PGPORT="$ANKKA_DB_PORT" PGUSER="$ANKKA_DB_USER"
-      |export PGPASSWORD="$ANKKA_DB_PASSWORD" PGDATABASE="$ANKKA_DB_NAME"
+      |export PGDATABASE="$ANKKA_DB_NAME"
+      |# By certificate (feature 014): verify the server against the project cluster's own authority,
+      |# and present the service's client certificate, whose common name is the role.
+      |export PGSSLMODE="$ANKKA_DB_SSL_MODE" PGSSLROOTCERT="$ANKKA_DB_SSL_ROOT_CERT"
+      |export PGSSLCERT="$ANKKA_DB_SSL_CERT" PGSSLKEY="$ANKKA_DB_SSL_KEY"
       |
       |# 1. Wait. The project's Cluster may still be starting, or the role may not have landed
       |#    yet because CNPG's per-cluster secret RBAC allowlist has not caught up (research R5).

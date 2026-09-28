@@ -129,16 +129,11 @@ object Rendering:
    * @param databasePlan
    *   already decided by the caller (`ServiceReconciler`, from `Provisioning.decide`) — `render`
    *   stays a pure function of its arguments and never reads the cluster itself.
-   * @param newPassword
-   *   by-name, so `Passwords.generate()` is only ever evaluated when `databasePlan` actually needs
-   *   fresh credentials. `render` still performs no I/O of its own; the randomness lives in the
-   *   caller's argument expression, not in this function's body.
    */
   def render(
       resource: AnkkaService,
       settings: Settings,
-      databasePlan: ProvisioningPlan,
-      newPassword: => String
+      databasePlan: ProvisioningPlan
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -155,7 +150,7 @@ object Rendering:
     else
       Right(
         (Action.EnsureNamespace(namespace) +:
-          databaseActions(spec, namespace, settings, databasePlan, newPassword)) ++
+          databaseActions(resource, spec, namespace, settings, databasePlan)) ++
           identityActions(resource, spec, namespace) ++
           zeroTrustActions(resource, spec, namespace) :+
           Action.ApplyDeployment(
@@ -428,47 +423,58 @@ object Rendering:
   /** What the runtime reads its port from — `modules/http`'s `reference.conf`. */
   private val PortEnvVar = "ANKKA_HTTP_PORT"
 
-  /** The CNPG objects this pass needs to ensure, ahead of the Deployment that depends on them. */
+  /**
+   * The CNPG objects this pass needs to ensure, ahead of the Deployment that depends on them.
+   *
+   * Since feature 014 every provisioned pass also ensures the project's database authority, the
+   * cluster's TLS fields and the service's client certificate: a project or service provisioned
+   * before certificates must gain them, and an unchanged server-side apply changes nothing. The
+   * credential Secret, the role and the database keep their own rule — written only when needed —
+   * except that a role still holding a password is re-applied without one, once.
+   */
   private def databaseActions(
+      resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
       settings: Settings,
-      plan: ProvisioningPlan,
-      newPassword: => String
-  ): Vector[Action] = plan match
-    case ProvisioningPlan.Supplied => Vector.empty
-    case ProvisioningPlan.Waiting(needsCluster, needsCredentials, needsRole, needsDatabase, _) =>
-      Vector(
-        Option.when(needsCluster)(
-          Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings))
-        ),
-        Option.when(needsCredentials)(
-          Action.EnsureCredentials(
-            CnpgRendering.credentialSecret(
-              spec,
-              namespace,
-              CnpgRendering.projectClusterName,
-              newPassword
+      plan: ProvisioningPlan
+  ): Vector[Action] =
+    def tls: Vector[Action] =
+      CnpgRendering.projectAuthority(namespace).map {
+        case issuer if issuer.getKind == "Issuer" => Action.EnsureIssuer(issuer)
+        case certificate                          => Action.EnsureCertificate(certificate)
+      } ++ Vector(
+        Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings)),
+        Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
+      )
+    plan match
+      case ProvisioningPlan.Supplied => Vector.empty
+      case ProvisioningPlan.Waiting(_, needsCredentials, needsRole, needsDatabase, _) =>
+        tls ++ Vector(
+          Option.when(needsCredentials)(
+            Action.EnsureCredentials(
+              CnpgRendering.credentialSecret(spec, namespace, CnpgRendering.projectClusterName)
             )
-          )
-        ),
-        Option.when(needsRole)(
-          Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
-        ),
-        Option.when(needsDatabase)(
-          Action.EnsureDatabase(CnpgRendering.database(spec, namespace))
-        ),
-        Some(Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace)))
-      ).flatten
-    case ProvisioningPlan.Ready(_) =>
-      // A deliberate, narrow exception to "steady state writes nothing" (contracts/schema-init.md):
-      // the schema ConfigMap is kept current on every pass so a schema change reaches an
-      // existing project namespace automatically, rather than sitting unapplied until some other
-      // event happens to trigger a reconcile. This does cost one small, idempotent write per
-      // project's active reconciles — never a credential, a role or a database, which is what
-      // the idempotence tests (SC-010) actually assert zero writes on.
-      Vector(Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace)))
-    case ProvisioningPlan.Failed(_) => Vector.empty
+          ),
+          Option.when(needsRole)(
+            Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
+          ),
+          Option.when(needsDatabase)(
+            Action.EnsureDatabase(CnpgRendering.database(spec, namespace))
+          ),
+          Some(Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace)))
+        ).flatten
+      case ProvisioningPlan.Ready(_, migrateRole) =>
+        // A deliberate, narrow exception to "steady state writes nothing" (contracts/schema-init.md):
+        // the schema ConfigMap is kept current on every pass so a schema change reaches an
+        // existing project namespace automatically. Never a credential or a database; a role only
+        // for the one migration to certificates.
+        tls ++
+          Option.when(migrateRole)(
+            Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
+          ) :+
+          Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace))
+      case ProvisioningPlan.Failed(_) => Vector.empty
 
   /** Exposed so tests can assert on the object rather than on an action wrapper. */
   def deployment(
@@ -513,6 +519,13 @@ object Rendering:
             .withInitContainers(SchemaInit.container(spec.serviceName))
             .withContainers(containers*)
             .withVolumes((SchemaInit.volume() +: tlsVolumes)*)
+            // The database key is mounted readable by this group and nobody else, which is what
+            // libpq (in schema-init) insists on and what a non-root runtime can still read.
+            .withSecurityContext(
+              new io.fabric8.kubernetes.api.model.PodSecurityContextBuilder()
+                .withFsGroup(ZeroTrust.Database.FsGroup)
+                .build()
+            )
         ).build()
       else
         withPullSecret(
@@ -750,7 +763,10 @@ object Rendering:
       // test deployed registry.k8s.io/pause:3.9: pullable, and not :latest. Becomes a descriptor
       // field the day there is a registry and a re-pushed mutable tag has to be picked up.
       .withImagePullPolicy("IfNotPresent")
-      .withEnv((spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv)*)
+      .withEnv(
+        (spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv ++
+          (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty))*
+      )
       .withEnvFrom(envFrom*)
       .withPorts((containerPorts.toVector ++ clusterPorts)*)
       .withVolumeMounts(ZeroTrust.mounts(owner, withDatabaseEnv)*)

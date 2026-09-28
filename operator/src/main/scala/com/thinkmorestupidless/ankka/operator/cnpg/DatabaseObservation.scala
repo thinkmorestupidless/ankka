@@ -40,7 +40,12 @@ final case class DatabaseObservation(
      * deletes one.
      */
     resourceCreatedAt: Option[Instant] = None,
-    secretCreatedAt: Option[Instant] = None
+    secretCreatedAt: Option[Instant] = None,
+    /**
+     * The role exists and still logs in by password: provisioned before feature 014, and due the
+     * one write that moves it to certificate authentication.
+     */
+    roleHasPassword: Boolean = false
 ):
   /** True when the credential secret is older than the resource asking for it. See FR-026. */
   def recovered: Boolean =

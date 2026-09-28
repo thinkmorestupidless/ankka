@@ -39,7 +39,7 @@ class RenderingSuite extends munit.FunSuite:
   )
 
   private def deploymentFor(s: AnkkaServiceSpec, uid: String = "uid-1") =
-    Rendering.render(resource(s, uid), settings, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(s, uid), settings, ProvisioningPlan.Supplied) match
       case Right(actions) =>
         actions
           .collectFirst { case Action.ApplyDeployment(d) => d }
@@ -48,7 +48,7 @@ class RenderingSuite extends munit.FunSuite:
 
   test("a namespace is ensured before the workload that goes in it") {
     val Right(actions) =
-      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     assertEquals(actions.head, Action.EnsureNamespace("ankka-checkout"))
   }
 
@@ -111,7 +111,7 @@ class RenderingSuite extends munit.FunSuite:
 
   test("no autoscaler is rendered — the maximum and the CPU target stay carried and unhonoured") {
     val Right(actions) =
-      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     // Stated as what it means rather than as a count: nothing is rendered beyond the namespace,
     // the identity, the certificates and policies zero trust needs, the Deployment and the
     // service's address. An autoscaler would be another kind of thing — and scaling a sharded
@@ -215,8 +215,7 @@ class RenderingSuite extends munit.FunSuite:
     val bad = Rendering.render(
       resource(spec.copy(projectId = "Not_A_Label")),
       settings,
-      ProvisioningPlan.Supplied,
-      "unused"
+      ProvisioningPlan.Supplied
     )
     assert(bad.isLeft)
     assert(bad.left.exists(_.exists(_.contains("DNS label"))), s"got: $bad")
@@ -226,8 +225,7 @@ class RenderingSuite extends munit.FunSuite:
     val bad = Rendering.render(
       resource(spec.copy(projectId = "a" * 60)),
       settings,
-      ProvisioningPlan.Supplied,
-      "unused"
+      ProvisioningPlan.Supplied
     )
     assert(bad.left.exists(_.exists(_.contains("over the 63"))), s"got: $bad")
   }
@@ -236,8 +234,7 @@ class RenderingSuite extends munit.FunSuite:
     val bad = Rendering.render(
       resource(spec.copy(projectId = "BAD", serviceName = "", image = "")),
       settings,
-      ProvisioningPlan.Supplied,
-      "unused"
+      ProvisioningPlan.Supplied
     )
     assertEquals(bad.left.map(_.size), Left(3))
   }
@@ -411,7 +408,7 @@ class RenderingSuite extends munit.FunSuite:
   private val exposing = settings.copy(baseDomain = Some("example.test"))
 
   private def routeActionFor(s: AnkkaServiceSpec, settings: Settings = exposing) =
-    Rendering.render(resource(s, "uid-1"), settings, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(s, "uid-1"), settings, ProvisioningPlan.Supplied) match
       case Right(actions) =>
         actions
           .collectFirst {
@@ -468,9 +465,9 @@ class RenderingSuite extends munit.FunSuite:
   test("an unexposed service's other objects are untouched by this feature") {
     // SC-009: nothing changes for a service that was never exposed.
     val Right(before) =
-      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     val Right(after) =
-      Rendering.render(resource(spec), exposing, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), exposing, ProvisioningPlan.Supplied): @unchecked
     assertEquals(before, after)
     assertEquals(routeActionFor(spec, settings), routeActionFor(spec, exposing))
   }
@@ -499,8 +496,7 @@ class RenderingSuite extends munit.FunSuite:
       Rendering.render(
         resource(spec.copy(imagePullSecret = Some("ankka-registry"), provisionDatabase = true)),
         settings,
-        ProvisioningPlan.Ready(recovered = false),
-        "pw"
+        ProvisioningPlan.Ready(recovered = false)
       ) match
         case Right(actions) =>
           actions

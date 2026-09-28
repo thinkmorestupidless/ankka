@@ -40,7 +40,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
 
   private def deployment(spec: AnkkaServiceSpec): Deployment =
     Rendering
-      .render(resource(spec), settings, ProvisioningPlan.Supplied, "pw")
+      .render(resource(spec), settings, ProvisioningPlan.Supplied)
       .toOption
       .get
       .collectFirst { case Action.ApplyDeployment(d) => d }
@@ -106,7 +106,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
 
   test("the credential reaches the sidecar only") {
     val cs = Rendering
-      .render(resource(process), settings, ProvisioningPlan.Ready(recovered = false), "pw")
+      .render(resource(process), settings, ProvisioningPlan.Ready(recovered = false))
       .toOption
       .get
       .collectFirst { case Action.ApplyDeployment(d) => d }
@@ -136,8 +136,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     val refused = Rendering.render(
       resource(process),
       settings.copy(sidecarImage = ""),
-      ProvisioningPlan.Supplied,
-      "pw"
+      ProvisioningPlan.Supplied
     )
     assert(refused.left.exists(_.exists(_.contains("no sidecar image"))), refused)
   }

@@ -31,7 +31,7 @@ class IdentityRenderingSuite extends munit.FunSuite:
   )
 
   private def actions(uid: String = "uid-1") =
-    Rendering.render(resource(spec, uid), settings, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(spec, uid), settings, ProvisioningPlan.Supplied) match
       case Right(a)       => a
       case Left(problems) => fail(s"expected a render, got $problems")
 

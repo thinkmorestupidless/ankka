@@ -192,3 +192,23 @@ class ProvisioningSuite extends munit.FunSuite:
     assertEquals(plan1, plan2)
     assert(plan1.isInstanceOf[ProvisioningPlan.Ready])
   }
+
+  test("a ready database whose role still has a password is ready, and due its migration") {
+    val observed = com.thinkmorestupidless.ankka.operator.cnpg.DatabaseObservation(
+      clusterReadyInstances = 1,
+      secretExists = true,
+      role = com.thinkmorestupidless.ankka.operator.cnpg.CnpgObjectState(true, true, None),
+      database = com.thinkmorestupidless.ankka.operator.cnpg.CnpgObjectState(true, true, None),
+      roleHasPassword = true
+    )
+    val spec = com.thinkmorestupidless.ankka.crd
+      .AnkkaServiceSpec(serviceName = "cart", provisionDatabase = true)
+    assertEquals(
+      Provisioning.decide(spec, observed),
+      ProvisioningPlan.Ready(recovered = false, migrateRole = true)
+    )
+    assertEquals(
+      Provisioning.decide(spec, observed.copy(roleHasPassword = false)),
+      ProvisioningPlan.Ready(recovered = false)
+    )
+  }

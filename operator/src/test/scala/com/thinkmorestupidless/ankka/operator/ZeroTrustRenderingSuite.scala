@@ -38,7 +38,7 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
   )
 
   private def actions(s: AnkkaServiceSpec): Vector[Action] =
-    Rendering.render(resource(s), base, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(s), base, ProvisioningPlan.Supplied) match
       case Right(a)       => a
       case Left(problems) => fail(problems.mkString("; "))
 
@@ -244,4 +244,112 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
       .getEnv
       .asScala
     assertEquals(env.find(_.getName == "ANKKA_NAMESPACE_PREFIX").map(_.getValue), Some("ankka"))
+  }
+
+  // ── The database (feature 014, user story 4) ─────────────────────────────────────────────
+
+  private val provisioned = spec.copy(provisionDatabase = true)
+
+  private def rendered(plan: ProvisioningPlan): Vector[Action] =
+    Rendering.render(resource(provisioned), base, plan) match
+      case Right(a)       => a
+      case Left(problems) => fail(problems.mkString("; "))
+
+  private val ready = ProvisioningPlan.Ready(recovered = false)
+
+  test("a provisioned service gets a client certificate whose common name is its role") {
+    val cert = rendered(ready)
+      .collectFirst {
+        case Action.EnsureCertificate(c) if c.getMetadata.getName == "cart-database" => c
+      }
+      .getOrElse(fail("no database certificate"))
+    val s = certSpec(cert)
+    assertEquals(s("commonName"), "cart")
+    assertEquals(list(s("usages")), List("client auth"))
+    assertEquals(
+      s("issuerRef").asInstanceOf[java.util.Map[String, String]].asScala.toMap,
+      Map("name" -> "ankka-database", "kind" -> "Issuer", "group" -> "cert-manager.io")
+    )
+  }
+
+  test("the project's database authority and the cluster's TLS fields are ensured on every pass") {
+    for plan <- Vector(ready, ProvisioningPlan.Waiting(true, true, true, true, None)) do
+      val a = rendered(plan)
+      assert(
+        a.exists {
+          case Action.EnsureIssuer(i) => i.getMetadata.getName == "ankka-database"; case _ => false
+        },
+        plan.toString
+      )
+      val names = a.collect { case Action.EnsureCertificate(c) => c.getMetadata.getName }.toSet
+      assert(Set("ankka-db-client-ca", "ankka-db-replication").subsetOf(names), names.toString)
+      val cluster = a
+        .collectFirst { case Action.EnsureCluster(c) => c.getSpec }
+        .getOrElse(fail(s"no cluster for $plan"))
+      assertEquals(cluster.certificates.map(_.clientCASecret), Some("ankka-db-client-ca"))
+      assertEquals(cluster.postgresql.map(_.pgHba), Some(Vector(CnpgRendering.CertificateRule)))
+      assert(cluster.managed.exists(_.roles.exists(_.name == "ankka_tls")))
+    // The authority comes before the cluster that names it, and the Issuer before what it issues.
+    val order = rendered(ready).map(_.describe)
+    assert(
+      order.indexWhere(_.contains("ankka-db-client-ca")) < order.indexWhere(
+        _.contains("ensure cluster")
+      ),
+      order.mkString("\n")
+    )
+  }
+
+  test("a role that still has a password is re-applied without one, once; a steady role is not") {
+    def roles(plan: ProvisioningPlan) = rendered(plan).collect {
+      case Action.EnsureDatabaseRole(r) => r
+    }
+    assertEquals(roles(ready), Vector.empty)
+    val migrated = roles(ProvisioningPlan.Ready(recovered = false, migrateRole = true))
+    assertEquals(migrated.map(_.getSpec.disablePassword), Vector(Some(true)))
+    assertEquals(migrated.map(_.getSpec.inRoles), Vector(Vector("ankka_tls")))
+    // And the credential Secret and the database are never rewritten by the migration.
+    assert(!rendered(ProvisioningPlan.Ready(false, true)).exists {
+      case _: Action.EnsureCredentials | _: Action.EnsureDatabase => true
+      case _                                                      => false
+    })
+  }
+
+  test("the pod mounts its database identity privately, and is told to connect with it") {
+    val d       = rendered(ready).collectFirst { case Action.ApplyDeployment(d) => d }.get
+    val pod     = d.getSpec.getTemplate.getSpec
+    val volumes = pod.getVolumes.asScala.map(v => v.getName -> v).toMap
+    assertEquals(volumes("ankka-database-tls").getSecret.getSecretName, "cart-database-tls")
+    assertEquals(
+      volumes("ankka-database-tls").getSecret.getDefaultMode.intValue,
+      Integer.parseInt("440", 8)
+    )
+    // Only the certificate from CNPG's server authority, never its key.
+    val ca = volumes("ankka-database-ca").getSecret
+    assertEquals(ca.getSecretName, "ankka-db-ca")
+    assertEquals(ca.getItems.asScala.map(_.getKey).toList, List("ca.crt"))
+    assertEquals(pod.getSecurityContext.getFsGroup.longValue, 2000L)
+    for container <- Vector(pod.getContainers.get(0), pod.getInitContainers.get(0)) do
+      val env = container.getEnv.asScala.map(e => e.getName -> e.getValue).toMap
+      assertEquals(env.get("ANKKA_DB_SSL_MODE"), Some("verify-full"), container.getName)
+      assertEquals(
+        env.get("ANKKA_DB_SSL_KEY"),
+        Some("/var/run/secrets/ankka/database/tls.key"),
+        container.getName
+      )
+      assertEquals(
+        container.getVolumeMounts.asScala
+          .map(_.getMountPath)
+          .toSet
+          .intersect(Set("/var/run/secrets/ankka/database", "/var/run/secrets/ankka/database-ca")),
+        Set("/var/run/secrets/ankka/database", "/var/run/secrets/ankka/database-ca"),
+        container.getName
+      )
+  }
+
+  test("a supplied database gets none of it") {
+    val a = Rendering.render(resource(spec), base, ProvisioningPlan.Supplied).toOption.get
+    assert(!a.exists {
+      case Action.EnsureCertificate(c) => c.getMetadata.getName == "cart-database"; case _ => false
+    })
+    assert(!a.exists { case _: Action.EnsureIssuer => true; case _ => false })
   }

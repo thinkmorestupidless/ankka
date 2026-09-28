@@ -211,7 +211,11 @@ object ServiceSpec:
     "POD_IP",
     "ANKKA_CLUSTER_SERVICE",
     "ANKKA_CLUSTER_POD_SELECTOR",
-    "ANKKA_CLUSTER_CONTACT_POINTS"
+    "ANKKA_CLUSTER_CONTACT_POINTS",
+    // How a project id becomes a namespace, which a service calling another by name relies on
+    // (feature 014). A descriptor that set it could point its calls at another installation's
+    // naming, so it is the platform's like the rest.
+    "ANKKA_NAMESPACE_PREFIX"
   )
 
   val Embedded: String = "embedded"

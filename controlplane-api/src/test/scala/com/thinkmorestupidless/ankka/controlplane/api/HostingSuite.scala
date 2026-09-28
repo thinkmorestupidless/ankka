@@ -81,5 +81,5 @@ class HostingSuite extends munit.FunSuite:
     assert(!Compatibility.supportsProtocol(platform, ProtocolVersion(2, 0)))
     assert(!Compatibility.supportsProtocol(platform, ProtocolVersion(0, 9)))
     assertEquals(Compatibility.describeProtocol(platform), "protocols 1.0–1.2 (platform 1.2)")
-    assertEquals(Protocol.version.toString, "1.0")
+    assertEquals(Protocol.version.toString, "1.1")
   }

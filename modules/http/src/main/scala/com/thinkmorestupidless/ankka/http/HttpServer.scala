@@ -107,7 +107,17 @@ final class HttpServer private (
     val bound = Await.result(
       tls match
         case Some(identity) =>
+          // The caller is read from the session's client certificate, which Pekko hands a route
+          // only as the `Tls-Session-Info` header, and only when asked. Without it every request
+          // is refused as having no certificate, so a TLS binding asks for it itself rather than
+          // trusting whichever configuration the process happened to load.
+          val settings = org.apache.pekko.http.scaladsl.settings.ServerSettings(system)
           server
+            .withSettings(
+              settings.withParserSettings(
+                settings.parserSettings.withIncludeTlsSessionInfoHeader(true)
+              )
+            )
             .enableHttps(ConnectionContext.httpsServer(() => identity.serverEngine()))
             .bind(handler)
         case None => server.bind(handler)

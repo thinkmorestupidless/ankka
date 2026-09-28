@@ -98,6 +98,24 @@ issued by the same authority, cannot join.
 A connection without a client certificate, or with one from another authority, is refused during the
 TLS handshake. No route, ACL or handler runs for it.
 
+## What mutual TLS costs
+
+The gateway and the service client keep their connections open, so a TLS handshake is paid once per
+connection and not once per request. What remains is encrypting each request and its reply.
+
+On a request that runs an entity command, writes to the journal and replies, that cost is small but
+measurable. Across five runs of the platform's benchmark on one laptop, the median run measured mutual
+TLS at about a tenth slower than plain HTTP:
+
+| Measure | Result |
+|---|---|
+| Median of five runs | 9.6% slower |
+| Range across runs | 13.4% faster to 13.6% slower |
+| One request, plain HTTP | about 0.5 ms |
+
+The range is wider than the cost, because the journal write dominates a request and varies more than
+encryption does. A request that does less work pays a larger share of the same absolute cost.
+
 ## The certificates a workload holds
 
 The operator asks cert-manager for each workload's certificates and mounts the Secrets cert-manager

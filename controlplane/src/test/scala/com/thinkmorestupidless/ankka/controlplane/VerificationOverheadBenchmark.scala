@@ -189,6 +189,9 @@ final class VerificationOverheadBenchmark extends munit.FunSuite:
       .version(HttpClient.Version.HTTP_1_1)
       .sslContext(RotatingTls(clientDir, 1.minute).sslContext)
       .build()
+    // The same client shape for both arms: HTTP/1.1, kept alive. The suite's shared client defaults
+    // to HTTP/2 and offers a cleartext upgrade, which made plain HTTP measure slower than TLS.
+    val plainClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
     def rename(base: String, client: HttpClient, org: String, label: String): Int =
       client
         .send(
@@ -212,11 +215,15 @@ final class VerificationOverheadBenchmark extends munit.FunSuite:
             .build(),
           HttpResponse.BodyHandlers.discarding()
         )
-      create(plainBase, http, "bench-plain"): Unit
-      create(tlsBase, tlsClient, "bench-tls"): Unit
+      val created = Vector(
+        create(plainBase, plainClient, "bench-plain"),
+        create(tlsBase, tlsClient, "bench-tls")
+      ).map(r => r.statusCode -> r.uri.getPath)
+      assertEquals(created.map(_._1), Vector(204, 204), created.toString)
+      assertEquals(rename(plainBase, plainClient, "bench-plain", "check"), 204)
       assertEquals(rename(tlsBase, tlsClient, "bench-tls", "check"), 204)
       (1 to 300).foreach { i =>
-        rename(plainBase, http, "bench-plain", s"warm $i")
+        rename(plainBase, plainClient, "bench-plain", s"warm $i")
         rename(tlsBase, tlsClient, "bench-tls", s"warm $i")
       }
       def measure(base: String, client: HttpClient, org: String, n: Int): Double =
@@ -224,9 +231,10 @@ final class VerificationOverheadBenchmark extends munit.FunSuite:
         (0 until n).foreach(i => rename(base, client, org, s"n $i"))
         (System.nanoTime() - started).toDouble / n
       val rounds = (0 until 6).map { round =>
-        val a = if round % 2 == 0 then measure(plainBase, http, "bench-plain", 1_500) else 0.0
+        val a =
+          if round % 2 == 0 then measure(plainBase, plainClient, "bench-plain", 1_500) else 0.0
         val b = measure(tlsBase, tlsClient, "bench-tls", 1_500)
-        val c = if round % 2 == 1 then measure(plainBase, http, "bench-plain", 1_500) else a
+        val c = if round % 2 == 1 then measure(plainBase, plainClient, "bench-plain", 1_500) else a
         (c, b)
       }
       val bestPlain = rounds.map(_._1).min

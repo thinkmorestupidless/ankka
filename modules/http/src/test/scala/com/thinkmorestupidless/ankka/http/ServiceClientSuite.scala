@@ -50,7 +50,6 @@ class ServiceClientSuite extends munit.FunSuite:
         .parseString(s"""
           |ankka.http.tls.enabled = on
           |ankka.tls.service-directory = "$dir"
-          |pekko.http.server.parsing.tls-session-info-header = on
           |""".stripMargin)
         .withFallback(ConfigFactory.load())
     )

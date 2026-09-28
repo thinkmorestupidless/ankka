@@ -37,7 +37,6 @@ class TlsServerSuite extends munit.FunSuite:
         |ankka.http.tls.enabled = on
         |ankka.tls.service-directory = "$serverDir"
         |ankka.tls.reload-interval = 200ms
-        |pekko.http.server.parsing.tls-session-info-header = on
         |""".stripMargin)
       .withFallback(ConfigFactory.load())
   )

@@ -46,7 +46,7 @@ final class HttpServer private (
       java.util.concurrent.TimeUnit.MILLISECONDS
     )
 
-    val clients = EndpointClients(service.componentClient, service.viewClient)
+    val clients = EndpointClients(service.componentClient, service.viewClient, service.services)
     serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout)
 
   /**

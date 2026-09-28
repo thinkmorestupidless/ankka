@@ -59,6 +59,30 @@ final class RotatingTls(
   /** This process's own identity, from its certificate's `ankka://` URI, if it has one. */
   def identity: Option[Identity] = identityOf(current)
 
+  /**
+   * A client context that accepts only a server carrying `uri` among its `ankka://` identities —
+   * for calling one named service and nobody else. The same object until the files change, so a
+   * caller can key a connection pool on it and a renewal reaches the next pool.
+   */
+  def contextRequiring(uri: String): SSLContext =
+    val current = refreshed()
+    Option(requiring.get((uri, current.certificate))).getOrElse {
+      val context = SSLContext.getInstance("TLS")
+      context.init(
+        current.keyManagers,
+        current.trustManagers.map {
+          case x: X509ExtendedTrustManager => RequiredIdentityTrustManager(x, uri)
+          case other                       => other
+        },
+        new SecureRandom()
+      )
+      requiring.put((uri, current.certificate), context)
+      context
+    }
+
+  private val requiring =
+    new java.util.concurrent.ConcurrentHashMap[(String, X509Certificate), SSLContext]()
+
   /** An engine for accepting a connection: TLS 1.3, a client certificate required. */
   def serverEngine(): SSLEngine =
     val engine = sslContext.createSSLEngine()
@@ -93,6 +117,7 @@ final class RotatingTls(
         else
           try load()
           catch case _: Exception => current.copy(checkedAt = now)
+      if next.certificate ne current.certificate then requiring.clear()
       loaded = next
       next
 
@@ -133,7 +158,14 @@ final class RotatingTls(
 
     val context = SSLContext.getInstance("TLS")
     context.init(keyManagers.getKeyManagers, trust, new SecureRandom())
-    Loaded(context, chain.head, mtimes, System.nanoTime())
+    Loaded(
+      context,
+      chain.head,
+      mtimes,
+      System.nanoTime(),
+      keyManagers.getKeyManagers,
+      trustManagers.getTrustManagers
+    )
 
   private def read(name: String): String =
     val file = directory.resolve(name)
@@ -209,8 +241,37 @@ object RotatingTls:
       context: SSLContext,
       certificate: X509Certificate,
       mtimes: Vector[Long],
-      checkedAt: Long
+      checkedAt: Long,
+      keyManagers: Array[javax.net.ssl.KeyManager],
+      trustManagers: Array[javax.net.ssl.TrustManager]
   )
+
+  /**
+   * The authority's verdict — hostname included, since the caller asked for a named host — and then
+   * the server must carry exactly the identity asked for. A service reached at the right name but
+   * holding another's certificate fails the handshake, before any request is written.
+   */
+  private final class RequiredIdentityTrustManager(delegate: X509ExtendedTrustManager, uri: String)
+      extends X509ExtendedTrustManager:
+    private def named(chain: Array[X509Certificate]): Unit =
+      val presented = chain.headOption.map(ankkaUris).getOrElse(Vector.empty)
+      if !presented.contains(uri) then
+        throw CertificateException(
+          s"peer identity ${presented.mkString(", ").ifEmpty("(none)")} is not $uri"
+        )
+    override def checkServerTrusted(c: Array[X509Certificate], a: String): Unit =
+      delegate.checkServerTrusted(c, a); named(c)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String, s: Socket): Unit =
+      delegate.checkServerTrusted(c, a, s); named(c)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String, e: SSLEngine): Unit =
+      delegate.checkServerTrusted(c, a, e); named(c)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String): Unit =
+      delegate.checkClientTrusted(c, a)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String, s: Socket): Unit =
+      delegate.checkClientTrusted(c, a, s)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String, e: SSLEngine): Unit =
+      delegate.checkClientTrusted(c, a, e)
+    override def getAcceptedIssuers: Array[X509Certificate] = delegate.getAcceptedIssuers
 
   /** Fails naming the directory and the missing file, so a pod that cannot start says why. */
   def apply(

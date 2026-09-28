@@ -1,0 +1,13 @@
+# The installation's authorities (feature 014): one for cluster traffic between a service's own
+# instances, one for HTTP between services and from the gateway. Separate, so a certificate for one
+# kind of traffic is worth nothing on the other. Each project's database authority is the operator's
+# to render, beside the project's Postgres; it is not here.
+#
+# Self-signed roots, because Pekko's remoting engine refuses a certificate issued by an intermediate.
+# An installation that wants its authorities elsewhere — a corporate PKI, a cloud CA — replaces the two
+# ClusterIssuers here and nothing else; the names are what the operator asks for.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - authorities.yaml
+  - service-ca-bundle.yaml

@@ -10,6 +10,14 @@ metadata:
   name: ankka
   namespace: ankka-gateway
 spec:
+  # What the gateway presents when it reaches a service (feature 014): every service requires a
+  # client certificate, and this one names the gateway. Which authority it trusts the service with,
+  # and which name it expects, are per service, on the BackendTLSPolicy the operator renders beside
+  # the route.
+  backendTLS:
+    clientCertificateRef:
+      kind: Secret
+      name: ankka-gateway-client-tls
   provider:
     type: Kubernetes
     kubernetes:

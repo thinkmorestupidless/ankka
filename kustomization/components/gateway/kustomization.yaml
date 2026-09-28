@@ -12,5 +12,6 @@ resources:
   - namespace.yaml
   - gatewayclass.yaml
   - envoyproxy.yaml
+  - gateway-client-certificate.yaml
   - gateway.yaml
   - redirect-route.yaml

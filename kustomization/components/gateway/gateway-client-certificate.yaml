@@ -1,0 +1,30 @@
+# The gateway's identity to services (feature 014). Every request that reaches a service from outside
+# the cluster arrives over mutual TLS presenting this certificate, and a service reads it as the
+# caller `Gateway` — the internet. One principal for the whole installation, whatever hostname the
+# request arrived at: per-user authorization on top of it is a bearer token, as before.
+#
+# In the gateway's own namespace, because Envoy Gateway resolves `backendTLS.clientCertificateRef` in
+# the namespace of the EnvoyProxy that names it. From the service authority, like every service's
+# own certificate, so a service verifies the gateway exactly as it verifies another service.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-gateway-client
+  namespace: ankka-gateway
+spec:
+  secretName: ankka-gateway-client-tls
+  uris:
+    - ankka://gateway
+  usages:
+    - client auth
+  duration: 24h
+  renewBefore: 16h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: ankka-service
+    kind: ClusterIssuer
+    group: cert-manager.io

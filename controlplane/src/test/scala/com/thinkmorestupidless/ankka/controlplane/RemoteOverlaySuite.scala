@@ -270,11 +270,20 @@ final class RemoteOverlaySuite extends FunSuite:
     // it will do, which is why the local overlay can use a self-signed root and this one cannot.
     assert(remote.contains("ankka-wildcard-tls"), "the gateway's certificate secret must not move")
 
-    val issuers = documentsOfKind(remote, "Issuer") ++ documentsOfKind(remote, "ClusterIssuer")
-    assert(issuers.nonEmpty, "the remote overlay issues no certificates at all")
+    // The installation's own authorities (feature 014) are private roots on purpose: no public
+    // authority issues an `ankka://` identity or a cluster-internal name, and nothing outside the
+    // cluster is asked to trust them. What must be public is the issuer of the certificate the
+    // world sees.
+    // trust-manager's chart brings its own self-signed Issuer for its webhook's serving
+    // certificate, which is a dependency's business and serves nothing on the domain.
+    val internal = Set("ankka-selfsigned", "ankka-cluster", "ankka-service")
+    val issuers = (documentsOfKind(remote, "Issuer") ++ documentsOfKind(remote, "ClusterIssuer"))
+      .filterNot(d => internal.exists(n => d.linesIterator.contains(s"  name: $n")))
+      .filterNot(_.contains("app.kubernetes.io/name: trust-manager"))
+    assert(issuers.nonEmpty, "the remote overlay issues no public certificates at all")
     assert(
       issuers.forall(_.contains("acme:")),
-      s"every remote issuer must come from a real authority, got: $issuers"
+      s"every public-facing remote issuer must come from a real authority, got: $issuers"
     )
     assert(
       !issuers.exists(_.contains("selfSigned")),
@@ -329,4 +338,42 @@ final class RemoteOverlaySuite extends FunSuite:
       ),
       "the webhook solver must match what cert-manager-webhook-dnsimple registers"
     )
+  }
+
+  // ── Zero trust (feature 014) ─────────────────────────────────────────────────────────────
+
+  test("both overlays install the installation's two authorities and the bundle that shares one") {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val issuers = documentsOfKind(render, "ClusterIssuer")
+      for issuer <- Vector("ankka-selfsigned", "ankka-cluster", "ankka-service") do
+        assert(issuers.exists(_.contains(s"name: $issuer")), s"$name: no ClusterIssuer $issuer")
+      val roots = documentsOfKind(render, "Certificate").filter(_.contains("isCA: true"))
+      for root <- Vector("ankka-cluster-ca", "ankka-service-ca") do
+        assert(
+          roots.exists(d => d.contains(s"name: $root") && d.contains("namespace: cert-manager")),
+          s"$name: no root $root in cert-manager's namespace, where a ClusterIssuer looks"
+        )
+      val bundle = documentsOfKind(render, "Bundle").find(_.contains("name: ankka-service-ca"))
+      assert(bundle.exists(_.contains("app.kubernetes.io/managed-by: ankka")), s"$name: $bundle")
+      assert(
+        documentsOfKind(render, "Deployment").exists(_.contains("quay.io/jetstack/trust-manager:")),
+        s"$name: trust-manager is not installed"
+      )
+  }
+
+  test("the gateway presents its own client certificate to services, set exactly once") {
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val proxy = documentsOfKind(render, "EnvoyProxy").find(_.contains("name: ankka")).get
+      assertEquals(
+        "clientCertificateRef".r.findAllIn(proxy).size,
+        1,
+        s"$name: the EnvoyProxy's backendTLS is missing or set twice"
+      )
+      assert(proxy.contains("name: ankka-gateway-client-tls"), s"$name: $proxy")
+      val certificate = documentsOfKind(render, "Certificate")
+        .find(_.contains("name: ankka-gateway-client"))
+        .getOrElse(fail(s"$name: no gateway client certificate"))
+      assert(certificate.contains("namespace: ankka-gateway"), certificate)
+      assert(certificate.contains("ankka://gateway"), certificate)
+      assert(certificate.contains("name: ankka-service"), certificate)
   }

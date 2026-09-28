@@ -1,0 +1,19 @@
+# The service authority's root, as a ConfigMap `ankka-service-ca` (key `ca.crt`) in every namespace
+# labelled managed-by ankka: every project's, the gateway's, the control plane's and the identity
+# provider's. A BackendTLSPolicy reads its CA from a ConfigMap in its own namespace, and this is how
+# one gets there without anything ankka runs reading the authority's Secret.
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: ankka-service-ca
+spec:
+  sources:
+    - secret:
+        name: ankka-service-ca
+        key: ca.crt
+  target:
+    configMap:
+      key: ca.crt
+    namespaceSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: ankka

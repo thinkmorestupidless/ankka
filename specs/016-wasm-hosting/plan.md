@@ -1,9 +1,9 @@
 # Implementation Plan: WebAssembly Hosting
 
-**Branch**: `design/wasm-hosting` (the spec directory is `015-wasm-hosting`) | **Date**: 2026-09-28 |
+**Branch**: `design/wasm-hosting` (the spec directory is `016-wasm-hosting`) | **Date**: 2026-09-28 |
 **Spec**: [spec.md](./spec.md)
 
-**Input**: Feature specification from `/specs/015-wasm-hosting/spec.md`, the design treatment it was
+**Input**: Feature specification from `/specs/016-wasm-hosting/spec.md`, the design treatment it was
 written from, `docs/design/wasm-hosting.md`, and the spike that treatment records (`WasmHostSpike` in
 `sidecar`, with a Rust and a Go guest), whose numbers this plan is held to.
 
@@ -102,7 +102,7 @@ something that could look like scope.
 ### Documentation (this feature)
 
 ```text
-specs/015-wasm-hosting/
+specs/016-wasm-hosting/
 ├── plan.md              # This file
 ├── research.md          # Phase 0: R1–R15, each verified or named as a task
 ├── data-model.md        # Phase 1: module, spec envelope, shapes, instances, held state, descriptor

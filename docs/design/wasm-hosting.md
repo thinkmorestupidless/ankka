@@ -230,7 +230,7 @@ runtime version out of the developer's build.
 **Planning correction (2026-09-28):** the kubelet's default is not the whole story. The container
 runtime must support the CRI mount as well, and containerd does only from 2.3.2, which k3s ships
 from 1.36.2; the k3s test image (1.35.1) cannot mount one, and the local kind node and the
-production cluster were not verified. Feature 015 therefore delivers the module by running the
+production cluster were not verified. Feature 016 therefore delivers the module by running the
 descriptor's image once as an init container that copies the module into an `emptyDir` the runtime
 container mounts, which works on every cluster today at the cost of a `cp` in the developer's
 image, supplied by the template. The image volume stays the eventual simplification: the runtime

@@ -107,3 +107,48 @@ class TokenVerifierSuite extends munit.FunSuite:
       "served from the cache"
     )
   }
+
+  test("keys fetched over TLS are trusted by the named root alone") {
+    // What a cluster does since feature 014: the identity provider serves its in-cluster address
+    // with a certificate from the service authority, and the control plane names that root.
+    import com.thinkmorestupidless.ankka.controlplane.auth.TokenVerifier
+    import com.thinkmorestupidless.ankka.testpki.TestPki
+    import com.sun.net.httpserver.{HttpsConfigurator, HttpsServer}
+
+    val authority = TestPki.root("identity-provider")
+    val leaf      = authority.issue(dnsNames = Seq("localhost"))
+    val tlsDir    = leaf.writeTo(java.nio.file.Files.createTempDirectory("idp"))
+    val context   = com.thinkmorestupidless.ankka.runtime.RotatingTls(tlsDir, 1.minute).sslContext
+    val https     = HttpsServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    https.setHttpsConfigurator(new HttpsConfigurator(context))
+    https.createContext(
+      "/jwks",
+      exchange =>
+        val body = scala.io.Source.fromURL(identity.jwksUrl).mkString.getBytes("UTF-8")
+        exchange.getResponseHeaders.add("Content-Type", "application/json")
+        exchange.sendResponseHeaders(200, body.length.toLong)
+        exchange.getResponseBody.write(body)
+        exchange.close()
+    )
+    https.start()
+    try
+      val url = s"https://localhost:${https.getAddress.getPort}/jwks"
+      val root = java.nio.file.Files
+        .writeString(java.nio.file.Files.createTempFile("root", ".crt"), authority.pem)
+      def verifierTrusting(ca: Option[String]) =
+        new TokenVerifier(
+          identity.config().copy(jwksUrl = url, jwksCa = ca),
+          TokenVerifier.keySource(url, 200.millis, trusting = ca)
+        )
+      assert(
+        verifierTrusting(Some(root.toString))
+          .verify(identity.token("a"))
+          .isInstanceOf[Verification.Verified],
+        "the named root should verify the identity provider"
+      )
+      // The JVM's own trust store knows nothing of the installation's authority.
+      verifierTrusting(None).verify(identity.token("a")) match
+        case Verification.Unavailable(_) => ()
+        case other                       => fail(s"an unverifiable key server was trusted: $other")
+    finally https.stop(0)
+  }

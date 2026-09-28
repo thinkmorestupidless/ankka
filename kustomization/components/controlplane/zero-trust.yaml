@@ -1,0 +1,94 @@
+# The control plane under the same guarantees as every service it deploys (feature 014): a cluster
+# certificate for its own instances, a service certificate for its HTTP, the network policies that
+# decide who may connect, and the gateway's instruction to reach it over TLS. The same shapes the
+# operator renders for a service — the control plane is an ankka application, deployed by manifest.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-controlplane-cluster
+  namespace: ankka-controlplane
+spec:
+  secretName: ankka-controlplane-cluster-tls
+  uris:
+    - ankka://platform/controlplane
+  dnsNames:
+    - ankka-controlplane.ankka-controlplane.svc
+  usages: [server auth, client auth]
+  duration: 24h
+  renewBefore: 16h
+  privateKey: { algorithm: RSA, size: 2048, encoding: PKCS8, rotationPolicy: Always }
+  issuerRef: { name: ankka-cluster, kind: ClusterIssuer, group: cert-manager.io }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-controlplane-service
+  namespace: ankka-controlplane
+spec:
+  secretName: ankka-controlplane-service-tls
+  uris:
+    - ankka://platform/controlplane
+  dnsNames:
+    - ankka-controlplane
+    - ankka-controlplane.ankka-controlplane.svc
+    - ankka-controlplane.ankka-controlplane.svc.cluster.local
+  usages: [server auth, client auth]
+  duration: 24h
+  renewBefore: 16h
+  privateKey: { algorithm: RSA, size: 2048, encoding: PKCS8, rotationPolicy: Always }
+  issuerRef: { name: ankka-service, kind: ClusterIssuer, group: cert-manager.io }
+---
+# Remoting and management: the control plane's own instances only. Readiness: anyone.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ankka-controlplane-cluster
+  namespace: ankka-controlplane
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-controlplane }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 17355 }, { protocol: TCP, port: 7626 }]
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: ankka-controlplane }
+    - ports: [{ protocol: TCP, port: 7627 }]
+---
+# The API: the gateway, and ankka workloads, which carry a platform identity to present.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ankka-controlplane-http
+  namespace: ankka-controlplane
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-controlplane }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 9000 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-gateway }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: ankka-controlplane
+  namespace: ankka-controlplane
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: ankka-controlplane
+      sectionName: http
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: ankka-service-ca
+    hostname: ankka-controlplane.ankka-controlplane.svc.cluster.local

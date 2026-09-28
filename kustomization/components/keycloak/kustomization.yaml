@@ -19,3 +19,4 @@ resources:
   - keycloak.yaml
   - realm-import.json
   - httproute.yaml
+  - zero-trust.yaml

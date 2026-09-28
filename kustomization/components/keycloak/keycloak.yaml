@@ -32,7 +32,12 @@ spec:
     hostname: auth.BASE_DOMAIN
     strict: false
   http:
+    # TLS on 8443 with a certificate from the installation's service authority (feature 014): the
+    # gateway reaches the identity provider over it, and the control plane fetches its keys over it
+    # and verifies it. Plain HTTP on 8080 stays on for the one thing that uses it — the admin CLI
+    # inside the pod, which the deploy script and the test stack drive over localhost.
     httpEnabled: true
+    tlsSecret: ankka-keycloak-tls
   proxy:
     headers: xforwarded
   ingress:

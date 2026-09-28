@@ -10,5 +10,7 @@ spec:
   selector:
     app.kubernetes.io/name: ankka-controlplane
   ports:
-    - port: 9000
+    # Named, so the gateway's BackendTLSPolicy can target it (feature 014).
+    - name: http
+      port: 9000
       targetPort: 9000

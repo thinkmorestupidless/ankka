@@ -31,6 +31,10 @@ spec:
         # below). A pod from an older template — no management port — must not be asked, or the
         # new pods wait on it forever and the roll never completes. Found upgrading a real cluster.
         ankka.thinkmorestupidless.com/formation: bootstrap
+        # Mutual TLS between the control plane's own instances (feature 014). In the contact-point
+        # selector too, so a TLS node never probes a plain one; an installation moving across it
+        # stops the old instances first — deploy-local.sh does, and upgrading.md says how.
+        ankka.thinkmorestupidless.com/transport: tls
     spec:
       # Its own identity, distinct from the operator's — see controlplane-rbac.yaml for why
       # the two must never share a ServiceAccount: this one cannot touch a workload at all.
@@ -62,20 +66,29 @@ spec:
           image: ankka-controlplane:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 9000
+            - name: http
+              containerPort: 9000
             # The NAME "management" is load-bearing: Kubernetes API discovery finds a pod's
             # contact point by looking for a container port called exactly that.
             - name: management
               containerPort: 7626
             - name: remoting
               containerPort: 17355
+            # Readiness, on a plain listener: management requires the control plane's own cluster
+            # certificate, which the kubelet does not hold (feature 014).
+            - name: probe
+              containerPort: 7627
           env:
             # Identity (feature 008). The issuer tokens must name is derived in-process from
             # ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT below — https://auth.<base>[:port]/realms/ankka
             # — so nothing here has to be replaced by the overlay a second time. Keys are read over
             # the plain in-cluster address: no gateway, no TLS, no certificate to trust.
+            # The identity provider's TLS port, verified against the service authority alone
+            # (feature 014): its certificate is issued by that authority for this very address.
             - name: ANKKA_AUTH_JWKS_URL
-              value: "http://ankka-keycloak-service.ankka-auth.svc:8080/realms/ankka/protocol/openid-connect/certs"
+              value: "https://ankka-keycloak-service.ankka-auth.svc:8443/realms/ankka/protocol/openid-connect/certs"
+            - name: ANKKA_AUTH_JWKS_CA
+              value: "/var/run/secrets/ankka/service/ca.crt"
             # Must match the operator's ANKKA_K8S_NAMESPACE_PREFIX. A mismatch presents as
             # every service reporting "no operator has reported on this service".
             - name: ANKKA_K8S_NAMESPACE_PREFIX
@@ -99,7 +112,7 @@ spec:
             - name: ANKKA_CLUSTER_SERVICE
               value: ankka-controlplane
             - name: ANKKA_CLUSTER_POD_SELECTOR
-              value: "app.kubernetes.io/name=ankka-controlplane,ankka.thinkmorestupidless.com/formation=bootstrap"
+              value: "app.kubernetes.io/name=ankka-controlplane,ankka.thinkmorestupidless.com/formation=bootstrap,ankka.thinkmorestupidless.com/transport=tls"
             - name: ANKKA_CLUSTER_CONTACT_POINTS
               value: "2"
             # CNPG's bootstrap.initdb generates this secret itself (contracts/credentials.md)
@@ -128,8 +141,15 @@ spec:
           readinessProbe:
             httpGet:
               path: /ready
-              port: management
+              port: probe
             periodSeconds: 5
+          volumeMounts:
+            - name: ankka-cluster-tls
+              mountPath: /var/run/secrets/ankka/cluster
+              readOnly: true
+            - name: ankka-service-tls
+              mountPath: /var/run/secrets/ankka/service
+              readOnly: true
           # Serve for a moment after the decision to stop: the pod leaves its Service's endpoints
           # when deletion starts, kube-proxy learns that up to a second later, and the runtime
           # unbinds on SIGTERM at once — so without this, a command routed to the old pod in that
@@ -145,3 +165,11 @@ spec:
             limits:
               cpu: "1"
               memory: "768Mi"
+      # Whole Secrets, never subPath: a rotated certificate reaches the pod only through a volume.
+      volumes:
+        - name: ankka-cluster-tls
+          secret:
+            secretName: ankka-controlplane-cluster-tls
+        - name: ankka-service-tls
+          secret:
+            secretName: ankka-controlplane-service-tls

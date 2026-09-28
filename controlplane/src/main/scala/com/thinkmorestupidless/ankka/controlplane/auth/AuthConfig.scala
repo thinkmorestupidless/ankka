@@ -18,7 +18,9 @@ final case class AuthConfig(
     audience: String,
     clientId: String,
     realmHint: String,
-    clockSkew: FiniteDuration
+    clockSkew: FiniteDuration,
+    /** The one authority the key fetch trusts; none means the JVM's trust store. */
+    jwksCa: Option[String] = None
 )
 
 object AuthConfig:
@@ -54,7 +56,10 @@ object AuthConfig:
       audience = section.getString("audience"),
       clientId = section.getString("client-id"),
       realmHint = section.getString("realm-hint"),
-      clockSkew = section.getDuration("clock-skew").toMillis.millis
+      clockSkew = section.getDuration("clock-skew").toMillis.millis,
+      jwksCa = Option
+        .when(section.hasPath("jwks-ca"))(section.getString("jwks-ca").trim)
+        .filter(_.nonEmpty)
     )
 
   /** The issuer of the platform's realm, as tokens obtained through the gateway name it. */

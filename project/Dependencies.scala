@@ -31,6 +31,9 @@ object Dependencies {
     val decline        = "2.6.2"
     val nimbusJoseJwt  = "10.9.1"
 
+    /** Test scope only: mints certificates in-process for the TLS suites (feature 014, R13). */
+    val bouncyCastle = "1.86"
+
     /**
      * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.
      *
@@ -129,6 +132,8 @@ object Dependencies {
 
   /** JOSE/JWT verification for the control plane. Deliberately not in any published module. */
   val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt
+
+  val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle
 
   /**
    * Scala support for fabric8's serialisation.

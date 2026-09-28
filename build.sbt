@@ -174,6 +174,21 @@ lazy val core = project
     buildInfoObject  := "BuildInfo"
   )
 
+/**
+ * Test support that mints certificates: a root CA, leaves with any SANs and lifetime, PEM files in
+ * the layout cert-manager writes (feature 014, research R13). Its own project, depending on nothing
+ * of ankka's, so the operator's tests can use it without the operator's build seeing the runtime.
+ * Never published; every consumer takes it `% Test`.
+ */
+lazy val testPki = project
+  .in(file("modules/test-pki"))
+  .settings(commonSettings)
+  .settings(
+    name           := "ankka-test-pki",
+    publish / skip := true,
+    libraryDependencies ++= Seq(bcpkix, munit)
+  )
+
 /** The user-facing component API: entities, views, workflows, consumers, timers. */
 lazy val sdk = project
   .in(file("modules/sdk"))
@@ -188,7 +203,7 @@ lazy val sdk = project
  */
 lazy val runtime = project
   .in(file("modules/runtime"))
-  .dependsOn(core, sdk)
+  .dependsOn(core, sdk, testPki % Test)
   .settings(commonSettings)
   .settings(
     name := "ankka-runtime",
@@ -227,7 +242,7 @@ lazy val runtime = project
 /** HTTP endpoint DSL and server. */
 lazy val http = project
   .in(file("modules/http"))
-  .dependsOn(core, sdk, runtime)
+  .dependsOn(core, sdk, runtime, testPki % Test)
   .settings(commonSettings)
   .settings(
     name := "ankka-http",
@@ -306,7 +321,7 @@ lazy val crd = project
  */
 lazy val operator = project
   .in(file("operator"))
-  .dependsOn(crd)
+  .dependsOn(crd, testPki % Test)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)
@@ -356,7 +371,8 @@ lazy val controlPlane = project
     // test->test as well: the cluster suites share the image-import helper, and since feature
     // 004 both modules' suites must deploy a real ankka image to see a service go Ready.
     operator % "test->test;test->compile",
-    testkit  % Test
+    testkit  % Test,
+    testPki  % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
@@ -436,7 +452,15 @@ lazy val sidecar = project
   // operator test->test for ClusterImages and the k3s helpers, and test->compile for the
   // Operator itself: SidecarClusterSuite runs the real operator against k3s with a process-hosted
   // service, the same way the control plane's cluster suites do.
-  .dependsOn(runtime, http, agent, protocol, testkit % Test, operator % "test->test;test->compile")
+  .dependsOn(
+    runtime,
+    http,
+    agent,
+    protocol,
+    testkit  % Test,
+    operator % "test->test;test->compile",
+    testPki  % Test
+  )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)
@@ -627,6 +651,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     core,
+    testPki,
     sdk,
     runtime,
     http,

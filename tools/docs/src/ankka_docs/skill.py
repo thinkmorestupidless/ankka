@@ -5,20 +5,19 @@ reference files it opens only when a task needs them. The documentation renders 
 kind of task — designing a service, writing entities, writing agents, deploying — so an agent loads the
 rules for the component it is writing rather than an index of everything.
 
-Each skill is curated in `tools/docs/skill/<name>/SKILL.md`: the frontmatter names the skill and says
-when to load it, a `pages:` list names the documentation pages it carries, and the body holds the rules
-an agent must hold for that task. Rendering strips `pages:`, appends an index of the named pages with
-their one-sentence descriptions, and copies the pages themselves under `references/`, keeping the docs
-tree's paths so links between pages still resolve. A page may belong to several skills; every public page
-must belong to at least one, so a new page is a failing build until someone says which task it serves.
+Each skill is curated in `<skills.source>/<name>/SKILL.md` (`tools/docs/skill` unless `mkdocs.yml`
+says otherwise): the frontmatter names the skill and says when to load it, a `pages:` list names the
+documentation pages it carries, and the body holds the rules an agent must hold for that task. Rendering
+strips `pages:`, appends an index of the named pages with their one-sentence descriptions, and copies the
+pages themselves under `references/`, keeping the docs tree's paths so links between pages still resolve.
+A page may belong to several skills; every public page must belong to at least one, so a new page is a
+failing build until someone says which task it serves.
 
-The skills are written to two places, both committed and both checked:
-
-- `marketplace/plugins/ankka/skills/`, the Claude Code plugin this repository publishes through the
-  `ankka-marketplace` repository (the release workflow pushes `marketplace/` there on every tag);
-- `ankka.g8/src/main/g8/.claude/skills/`, so every service created from the template starts with the
-  documentation of the ankka version it was created against. Giter8 reads `$` as template syntax, so
-  that copy escapes it.
+The skills are written to every directory `skills.targets` names, each committed and each checked. In
+ankka they are the Claude Code plugin under `marketplace/` (the release workflow pushes it to the
+`ankka-marketplace` repository on every tag) and the template's `.claude/skills/`, so every service
+created from the template starts with the documentation of the ankka version it was created against.
+Giter8 reads `$` as template syntax, so that target is marked `escape: giter8` and the copy escapes it.
 """
 
 from __future__ import annotations
@@ -32,15 +31,11 @@ from pathlib import Path
 
 import yaml
 
-from .pages import FRONTMATTER, ROOT, Tree
-from .render import page_markdown, sections, site_url
+from .pages import FRONTMATTER, Settings, Tree
+from .render import page_markdown, sections
 from .snippets import Problem
 
-CURATED = ROOT / "tools/docs/skill"
-PLUGIN_TARGET = ROOT / "marketplace/plugins/ankka/skills"
-TEMPLATE_TARGET = ROOT / "ankka.g8/src/main/g8/.claude/skills"
-
-# Pages about writing these pages are not about using ankka.
+# Pages about writing these pages are not about using the product.
 EXCLUDED_KINDS = {"contributing"}
 
 SKILL_NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -54,14 +49,12 @@ class Skill:
     body: str
     pages: list[str]
 
-    @property
-    def label(self) -> str:
-        return f"../{self.source.relative_to(ROOT)}"
 
-
-def curated() -> list[Skill]:
+def curated(settings: Settings) -> list[Skill]:
+    if settings.skills_source is None:
+        return []
     skills = []
-    for source in sorted(CURATED.glob("*/SKILL.md")):
+    for source in sorted(settings.skills_source.glob("*/SKILL.md")):
         raw = source.read_text(encoding="utf-8")
         match = FRONTMATTER.match(raw)
         meta = yaml.safe_load(match.group(1)) if match else {}
@@ -91,10 +84,10 @@ def _skill_markdown(skill: Skill, tree: Tree) -> str:
 
 
 def render(tree: Tree, target: Path, escape_dollars: bool) -> None:
-    base = site_url()
+    base = tree.project.site_url
     if target.exists():
         shutil.rmtree(target)
-    for skill in curated():
+    for skill in curated(tree.project.settings):
         files = {"SKILL.md": _skill_markdown(skill, tree)}
         for path in skill.pages:
             page = tree.pages.get(path)
@@ -106,12 +99,9 @@ def render(tree: Tree, target: Path, escape_dollars: bool) -> None:
             file.write_text(content.replace("$", "\\$") if escape_dollars else content, encoding="utf-8")
 
 
-TARGETS = [(PLUGIN_TARGET, False), (TEMPLATE_TARGET, True)]
-
-
 def sync(tree: Tree) -> None:
-    for target, escape in TARGETS:
-        render(tree, target, escape)
+    for target in tree.project.settings.skill_targets:
+        render(tree, target.path, target.escape == "giter8")
 
 
 def _same(left: Path, right: Path) -> bool:
@@ -126,40 +116,46 @@ def _same(left: Path, right: Path) -> bool:
 
 def check(tree: Tree) -> list[Problem]:
     """The curated skills are well-formed, cover every public page, and the rendered copies are current."""
+    project = tree.project
+    settings = project.settings
+    if settings.skills_source is None:
+        return []
     problems: list[Problem] = []
-    skills = curated()
+    skills = curated(settings)
     covered: set[str] = set()
+    source_label = settings.skills_source.relative_to(project.root).as_posix()
     for skill in skills:
+        label = project.label(skill.source)
         if not SKILL_NAME.match(skill.name):
-            problems.append(Problem(skill.label, 1, "a skill's directory name is lower-case words joined by hyphens"))
+            problems.append(Problem(label, 1, "a skill's directory name is lower-case words joined by hyphens"))
         if skill.meta.get("name") != skill.name:
-            problems.append(Problem(skill.label, 1, f"the skill's `name` must be its directory name, `{skill.name}`"))
+            problems.append(Problem(label, 1, f"the skill's `name` must be its directory name, `{skill.name}`"))
         description = str(skill.meta.get("description", ""))
         if not description:
-            problems.append(Problem(skill.label, 1, "a skill needs a `description` saying when an agent should load it"))
+            problems.append(Problem(label, 1, "a skill needs a `description` saying when an agent should load it"))
         elif len(description) > 1024:
-            problems.append(Problem(skill.label, 1, "a skill's `description` is at most 1024 characters"))
+            problems.append(Problem(label, 1, "a skill's `description` is at most 1024 characters"))
         if not skill.pages:
-            problems.append(Problem(skill.label, 1, "a skill needs a `pages:` list naming the documentation pages it carries"))
+            problems.append(Problem(label, 1, "a skill needs a `pages:` list naming the documentation pages it carries"))
         for path in skill.pages:
             page = tree.pages.get(path)
             if page is None:
-                problems.append(Problem(skill.label, 1, f"`pages:` names `{path}`, which is not a public page"))
+                problems.append(Problem(label, 1, f"`pages:` names `{path}`, which is not a public page"))
             elif page.kind in EXCLUDED_KINDS:
-                problems.append(Problem(skill.label, 1, f"`pages:` names `{path}`, a {page.kind} page, which is not about using ankka"))
+                problems.append(Problem(label, 1, f"`pages:` names `{path}`, a {page.kind} page, which is not about using {project.site_name}"))
             else:
                 covered.add(path)
         if len(set(skill.pages)) != len(skill.pages):
-            problems.append(Problem(skill.label, 1, "`pages:` lists a page twice"))
+            problems.append(Problem(label, 1, "`pages:` lists a page twice"))
     for page in tree.ordered():
         if page.kind not in EXCLUDED_KINDS and page.path not in covered:
-            problems.append(Problem(page.path, 1, "no skill carries this page; add it to a `pages:` list under tools/docs/skill/"))
+            problems.append(Problem(page.path, 1, f"no skill carries this page; add it to a `pages:` list under {source_label}/"))
     if problems:
         return problems
-    for target, escape in TARGETS:
+    for target in settings.skill_targets:
         with tempfile.TemporaryDirectory() as scratch:
             expected = Path(scratch) / "skills"
-            render(tree, expected, escape)
-            if not target.exists() or not _same(expected, target):
-                problems.append(Problem(f"../{target.relative_to(ROOT)}", 1, "the rendered skills are stale; run `docs sync`"))
+            render(tree, expected, target.escape == "giter8")
+            if not target.path.exists() or not _same(expected, target.path):
+                problems.append(Problem(project.label(target.path), 1, "the rendered skills are stale; run `docs sync`"))
     return problems

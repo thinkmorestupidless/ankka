@@ -1139,6 +1139,14 @@ Markdown copy of each page, `docs-index.json`, the Agent Skills (one per kind of
 that `ankka mcp` serves. `docs/contributing/documentation.md` is the full set of rules; the ones that
 bite:
 
+- **The tool is not ankka's alone.** Everything ankka-specific — the frontmatter vocabularies, the
+  skill targets, which generator owns which block, the files that link to the site — is `extra.docs`
+  in `mkdocs.yml`, and the tool finds the repository by the nearest `mkdocs.yml` above its working
+  directory. satisfactory (`../satisfactory`) depends on `ankka-docs` from `tools/docs` and writes its
+  own block, so a rule changed here changes there. `uv run --project tools/docs pytest tools/docs` runs the tool
+  against a fixture repository that is not ankka; a new ankka-specific constant in the Python is wrong,
+  it goes in the block.
+
 - **A page stands alone.** Its most common reader is a model that retrieved it alone. No positional
   references ("see above"), no internal history (feature numbers, specs, "a test found") — `docs check`
   refuses both. Explain behaviour as a property of the system.

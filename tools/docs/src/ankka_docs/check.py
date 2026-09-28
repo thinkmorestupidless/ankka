@@ -12,7 +12,7 @@ import re
 from pathlib import PurePosixPath
 
 from . import generate, snippets
-from .pages import COMPONENTS, DOCS, FENCE, KINDS, LANGUAGES, ROOT, Tree, anchors, strip_code
+from .pages import FENCE, FIXED_KEYS, KINDS, Tree, anchors, strip_code
 from .snippets import Problem
 
 # Phrases that only make sense to a reader who arrived from somewhere else on the site.
@@ -24,7 +24,8 @@ POSITIONAL = re.compile(
 )
 
 # The build's own history. Public pages explain behaviour as a property of the system, not as the
-# outcome of a feature, a research note or a test that caught something.
+# outcome of a feature, a research note or a test that caught something. The forms are the ones a
+# specification-driven build leaves behind: feature and task numbers, research notes, success criteria.
 HISTORY = re.compile(
     r"\bfeature\s+0\d\d\b|\bresearch\s+R\d+\b|\bSC-\d{3}\b|\bspecs/0\d\d|\bFR-\d{3}\b|\bT\d{3}\b",
     re.IGNORECASE,
@@ -37,6 +38,8 @@ MAX_DESCRIPTION = 240
 
 def frontmatter(tree: Tree) -> list[Problem]:
     problems: list[Problem] = []
+    facets = tree.project.settings.facets
+    allowed = {*FIXED_KEYS, *facets}
     for page in tree.pages.values():
         meta = page.meta
         if not meta:
@@ -45,7 +48,6 @@ def frontmatter(tree: Tree) -> list[Problem]:
         for key in ("title", "description", "kind"):
             if not meta.get(key):
                 problems.append(Problem(page.path, 1, f"frontmatter has no '{key}'"))
-        allowed = {"title", "description", "kind", "languages", "components", "related"}
         for key in meta:
             if key not in allowed:
                 problems.append(Problem(page.path, 1, f"unknown frontmatter key '{key}'; one of {sorted(allowed)}"))
@@ -56,7 +58,7 @@ def frontmatter(tree: Tree) -> list[Problem]:
             problems.append(Problem(page.path, 1, f"description is {len(description)} characters; keep it under {MAX_DESCRIPTION}"))
         if description and not description.endswith("."):
             problems.append(Problem(page.path, 1, "description should be one sentence ending with a full stop"))
-        for key, vocabulary in (("languages", LANGUAGES), ("components", COMPONENTS)):
+        for key, vocabulary in facets.items():
             values = meta.get(key, [])
             if not isinstance(values, list):
                 problems.append(Problem(page.path, 1, f"'{key}' must be a list"))
@@ -114,23 +116,23 @@ def prose(tree: Tree) -> list[Problem]:
             history = HISTORY.search(line) if page.kind != "contributing" else None
             if history:
                 problems.append(Problem(page.path, number, f"'{history.group(0)}' is the project's internal history; explain the behaviour instead"))
-            if "](http" not in line and re.search(r"\]\((\.\./)+(modules|samples|sdks|protocol|cli|controlplane|kustomization|sidecar|operator|crd)/", line):
-                problems.append(Problem(page.path, number, "a relative link out of docs/; link to repository files by their GitHub URL"))
     return problems
 
 
 def escapes(tree: Tree) -> list[Problem]:
-    """No page may contain a literal backslash-dollar.
+    """No page may contain a literal backslash-dollar, when a skill target escapes for Giter8.
 
-    Every page is copied into the template's skills with each `$` escaped for Giter8, which reads an
-    unescaped one as its own syntax. A page that already contains the escape is escaped a second time,
-    and Giter8 then sees an escaped backslash followed by a live expression and refuses the whole
-    template: `sbt new` exits with an error naming this file, every generated project is empty, and the
-    only thing that notices is a slow, gated suite.
+    Every page is copied into such a target with each `$` escaped, because Giter8 reads an unescaped one
+    as its own syntax. A page that already contains the escape is escaped a second time, and Giter8 then
+    sees an escaped backslash followed by a live expression and refuses the whole template: `sbt new`
+    exits with an error naming this file, every generated project is empty, and the only thing that
+    notices is a slow, gated suite.
 
     A page explaining the escape is exactly the page that wants to print it, so this says what to do
     instead rather than only refusing.
     """
+    if not tree.project.settings.escapes_dollars:
+        return []
     problems: list[Problem] = []
     for page in tree.pages.values():
         for number, line in enumerate(page.body.splitlines(), start=1):
@@ -147,6 +149,7 @@ def escapes(tree: Tree) -> list[Problem]:
 
 
 def links(tree: Tree) -> list[Problem]:
+    """Links between pages are relative and resolve, anchors included; anything outside docs/ is a URL."""
     problems: list[Problem] = []
     page_anchors = {path: anchors(page.body) for path, page in tree.pages.items()}
     for page in tree.pages.values():
@@ -160,10 +163,12 @@ def links(tree: Tree) -> list[Problem]:
                 if not path_part:
                     resolved = page.path
                 else:
-                    resolved = str(PurePosixPath(page.path).parent / path_part)
-                    resolved = _normalise(resolved)
-                    if resolved is None or not resolved.endswith(".md"):
-                        problems.append(Problem(page.path, number, f"link '{target}' leaves docs/ or is not a page; use a GitHub URL for repository files"))
+                    resolved = _normalise(str(PurePosixPath(page.path).parent / path_part))
+                    if resolved is None:
+                        problems.append(Problem(page.path, number, f"link '{target}' leaves docs/; link to repository files by their GitHub URL"))
+                        continue
+                    if not resolved.endswith(".md"):
+                        problems.append(Problem(page.path, number, f"link '{target}' is not a page; link to repository files by their GitHub URL"))
                         continue
                 if resolved not in tree.pages:
                     problems.append(Problem(page.path, number, f"link '{target}' points at a page that does not exist"))
@@ -174,6 +179,7 @@ def links(tree: Tree) -> list[Problem]:
 
 
 def _normalise(path: str) -> str | None:
+    """The path with `.` and `..` resolved, or None when `..` climbs out of docs/."""
     parts: list[str] = []
     for part in path.split("/"):
         if part in ("", "."):
@@ -200,7 +206,7 @@ def navigation(tree: Tree) -> list[Problem]:
 
 
 def examples(tree: Tree) -> list[Problem]:
-    """A block titled service.json is a whole descriptor. Its validity is checked by the JVM; its shape here."""
+    """A block titled service.json is a whole ankka service descriptor. Its validity is checked by the JVM; its shape here."""
     problems: list[Problem] = []
     for page in tree.pages.values():
         for number, line in enumerate(page.body.splitlines(), start=1):
@@ -211,34 +217,29 @@ def examples(tree: Tree) -> list[Problem]:
     return problems
 
 
-# The site's home is `site_url` in mkdocs.yml. Its first home, GitHub Pages' project address, is dead;
-# a link to it reads as correct and goes nowhere, so it is refused wherever the site is linked from.
-RETIRED_HOST = "thinkmorestupidless.github.io"
-LINKS_TO_SITE = [
-    "mkdocs.yml",
-    "README.md",
-    "sdks/python/README.md",
-    "sdks/python/pyproject.toml",
-    "sdks/typescript/README.md",
-    "sdks/typescript/package.json",
-    "marketplace/plugins/ankka/.claude-plugin/plugin.json",
-    "marketplace/.claude-plugin/marketplace.json",
-    "marketplace/README.md",
-    *[f"tools/docs/skill/{d.name}/SKILL.md" for d in sorted((ROOT / "tools/docs/skill").iterdir()) if d.is_dir()],
-]
-
-
 def addresses(tree: Tree) -> list[Problem]:
+    """The site's home is `site_url`. A former home — `site-links.retired-hosts` — reads as correct and goes
+    nowhere, so it is refused on every page and in every file `site-links.files` names, and in the curated
+    skills, which link to the site from wherever a plugin installs them."""
+    settings = tree.project.settings
+    if not settings.retired_hosts:
+        return []
+    project = tree.project
+    files = [(f"../{name}", project.root / name) for name in settings.site_link_files]
+    if settings.skills_source is not None:
+        files += [(project.label(s), s) for s in sorted(settings.skills_source.glob("*/SKILL.md"))]
+    files += [(page.path, project.docs / page.path) for page in tree.pages.values()]
     problems: list[Problem] = []
-    files = [(f"../{name}", (ROOT / name)) for name in LINKS_TO_SITE] + [
-        (page.path, DOCS / page.path) for page in tree.pages.values()
-    ]
+    for host in settings.retired_hosts:
+        if host in project.site_url:
+            problems.append(Problem("../mkdocs.yml", 1, f"site_url is on {host}, which extra.docs.site-links says is retired"))
     for label, path in files:
         if not path.exists():
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-            if RETIRED_HOST in line:
-                problems.append(Problem(label, number, f"{RETIRED_HOST} is not where the site lives; use site_url from mkdocs.yml"))
+            for host in settings.retired_hosts:
+                if host in line:
+                    problems.append(Problem(label, number, f"{host} is not where the site lives; use site_url from mkdocs.yml"))
     return problems
 
 
@@ -298,8 +299,7 @@ def _gap(rest: list[str]) -> int:
 
 
 def run(tree: Tree) -> list[Problem]:
-    pages = sorted(tree.pages)
-    problems = [
+    return [
         *frontmatter(tree),
         *structure(tree),
         *prose(tree),
@@ -309,10 +309,9 @@ def run(tree: Tree) -> list[Problem]:
         *examples(tree),
         *tabs(tree),
         *addresses(tree),
-        *snippets.check(pages),
-        *generate.check(pages),
+        *snippets.check(tree),
+        *generate.check(tree),
     ]
-    return problems
 
 
-__all__ = ["run", "DOCS", "ROOT"]
+__all__ = ["run"]

@@ -126,6 +126,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
+      - run: uv run --project tools/docs pytest tools/docs
       - run: uv run --project tools/docs docs build
       - uses: actions/upload-artifact@v7
         with:

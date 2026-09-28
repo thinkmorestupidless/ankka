@@ -10,20 +10,20 @@ Everything between them is owned by a generator and rewritten by it; everything 
 hand. Most reference pages are both: a generated table of facts (every variable, every route, every
 command) and hand-written prose saying what they mean, with a check that the prose covers every fact.
 
-Two owners. The generators here read files — HOCON configuration and protobuf definitions. The CLI and
-the control plane's routes can only be enumerated by the JVM, so their blocks are owned by Scala test
-suites (`CliReferenceSuite`, `ControlPlaneRoutesReferenceSuite`), which fail when the page is stale and
-rewrite it under `-Dankka.docs.update=true`. This module leaves those blocks alone.
+Which generator owns which block is `extra.docs.generated` in `mkdocs.yml`: each block name maps to a
+`kind` this module knows and that kind's options. Two kinds read files here — `hocon` (configuration
+keys and the environment variables that override them) and `protobuf` (the RPCs of every service). A
+block of kind `external` is owned by something that can enumerate what the file system cannot: in ankka,
+Scala test suites rewrite the CLI's command tree and the control plane's route table, and fail when the
+page is stale. This module leaves those blocks alone.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-
-from .pages import DOCS, ROOT, fenced_lines
+from .pages import ConfigError, Generator, Tree, fenced_lines
 from .snippets import Problem
 
 BLOCK = re.compile(
@@ -31,18 +31,10 @@ BLOCK = re.compile(
     re.DOTALL,
 )
 
-# Blocks whose owner is a Scala suite, not this module.
-JVM_OWNED = {"cli", "control-plane-routes"}
+KINDS = ("hocon", "protobuf", "external")
 
 
-# ── configuration ────────────────────────────────────────────────────────────
-
-CONF_FILES = [
-    ("modules/runtime/src/main/resources/reference.conf", "every service"),
-    ("modules/http/src/main/resources/reference.conf", "every service"),
-    ("modules/runtime/src/main/resources/ankka-cluster-local.conf", "local mode"),
-    ("modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf", "kubernetes mode"),
-]
+# ── hocon ────────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -90,12 +82,31 @@ def _hocon_settings(path: Path, scope: str) -> list[Setting]:
     return [found[k] for k in order]
 
 
-def configuration() -> str:
+def _hocon_files(root: Path, generator: Generator) -> list[tuple[Path, str]]:
+    files = generator.options.get("files")
+    if not isinstance(files, list) or not files:
+        raise ConfigError(f"extra.docs.generated.{generator.name}: a hocon block needs a `files` list of {{path, scope}}")
+    out = []
+    for entry in files:
+        if not isinstance(entry, dict) or "path" not in entry:
+            raise ConfigError(f"extra.docs.generated.{generator.name}: each file is a mapping with `path` and `scope`")
+        out.append((root / str(entry["path"]), str(entry.get("scope", ""))))
+    return out
+
+
+def _all_settings(root: Path, generator: Generator) -> list[Setting]:
     settings: list[Setting] = []
-    for file, scope in CONF_FILES:
-        settings.extend(_hocon_settings(ROOT / file, scope))
+    for path, scope in _hocon_files(root, generator):
+        settings.extend(_hocon_settings(path, scope))
+    return settings
+
+
+def hocon(root: Path, generator: Generator) -> str:
+    """Two tables: the settings an environment variable overrides, then the rest under `prefix`."""
+    settings = _all_settings(root, generator)
+    prefix = str(generator.options.get("prefix", ""))
     from_env = [s for s in settings if s.env]
-    ankka_keys = [s for s in settings if s.key.startswith("ankka.") and not s.env]
+    own_keys = [s for s in settings if s.key.startswith(prefix) and not s.env]
 
     lines = [
         "| Variable | Configuration key | Default | Applies in |",
@@ -111,26 +122,24 @@ def configuration() -> str:
         "| Configuration key | Default | Applies in |",
         "|---|---|---|",
     ]
-    for s in ankka_keys:
+    for s in own_keys:
         lines.append(f"| `{s.key}` | `{s.default}` | {s.scope} |")
     return "\n".join(lines) + "\n"
 
 
-def configuration_variables() -> list[str]:
-    names: list[str] = []
-    for file, scope in CONF_FILES:
-        names.extend(s.env for s in _hocon_settings(ROOT / file, scope) if s.env)
-    return names
+def hocon_variables(root: Path, generator: Generator) -> list[str]:
+    return [s.env for s in _all_settings(root, generator) if s.env]
 
 
-# ── protocol ────────────────────────────────────────────────────────────────
-
-PROTO_DIR = ROOT / "protocol/src/main/protobuf/ankka/protocol/v1"
+# ── protobuf ─────────────────────────────────────────────────────────────────
 
 
-def protocol() -> str:
+def protobuf(root: Path, generator: Generator) -> str:
+    directory = generator.options.get("directory")
+    if not directory:
+        raise ConfigError(f"extra.docs.generated.{generator.name}: a protobuf block needs a `directory` of .proto files")
     lines = ["| Service | RPC | Request | Response | Defined in |", "|---|---|---|---|---|"]
-    for path in sorted(PROTO_DIR.glob("*.proto")):
+    for path in sorted((root / str(directory)).glob("*.proto")):
         service = None
         for raw in path.read_text(encoding="utf-8").splitlines():
             line = raw.split("//", 1)[0].strip()
@@ -151,58 +160,65 @@ def protocol() -> str:
     return "\n".join(lines) + "\n"
 
 
-GENERATORS: dict[str, Callable[[], str]] = {
-    "configuration": configuration,
-    "protocol": protocol,
-}
-
-
 # ── applying ────────────────────────────────────────────────────────────────
 
 
-def process(page: str, text: str) -> tuple[str, list[Problem]]:
+def render(root: Path, generator: Generator) -> str | None:
+    """The block's content, or None for a block this module does not own."""
+    if generator.kind == "hocon":
+        return hocon(root, generator)
+    if generator.kind == "protobuf":
+        return protobuf(root, generator)
+    if generator.kind == "external":
+        return None
+    raise ConfigError(f"extra.docs.generated.{generator.name}: unknown kind '{generator.kind}'; one of {', '.join(KINDS)}")
+
+
+def process(tree: Tree, page: str, text: str) -> tuple[str, list[Problem]]:
     problems: list[Problem] = []
     in_code = fenced_lines(text)
+    generators = tree.project.settings.generators
+    root = tree.project.root
 
     def replace(match: re.Match[str]) -> str:
         name = match.group("name")
         # A block shown inside a code fence is an example of the syntax, not a block to fill.
         if text[: match.start()].count("\n") in in_code:
             return match.group(0)
-        if name in JVM_OWNED:
-            return match.group(0)
-        generator = GENERATORS.get(name)
+        generator = generators.get(name)
         if generator is None:
             line = text[: match.start()].count("\n") + 1
-            problems.append(Problem(page, line, f"no generator named '{name}'"))
+            problems.append(Problem(page, line, f"no generator named '{name}' in mkdocs.yml's extra.docs.generated"))
             return match.group(0)
-        return match.group("open") + generator() + match.group("close")
+        content = render(root, generator)
+        if content is None:
+            return match.group(0)
+        return match.group("open") + content + match.group("close")
 
     return BLOCK.sub(replace, text), problems
 
 
-def sync(pages: list[str]) -> tuple[list[str], list[Problem]]:
+def sync(tree: Tree) -> tuple[list[str], list[Problem]]:
     changed, problems = [], []
-    for page in pages:
-        path = DOCS / page
-        text = path.read_text(encoding="utf-8")
-        updated, found = process(page, text)
+    for page in sorted(tree.pages):
+        text = tree.read(page)
+        updated, found = process(tree, page, text)
         problems.extend(found)
         if updated != text:
-            path.write_text(updated, encoding="utf-8")
+            tree.write(page, updated)
             changed.append(page)
     return changed, problems
 
 
-def check(pages: list[str]) -> list[Problem]:
+def check(tree: Tree) -> list[Problem]:
     problems: list[Problem] = []
-    for page in pages:
-        text = (DOCS / page).read_text(encoding="utf-8")
-        updated, found = process(page, text)
+    for page in sorted(tree.pages):
+        text = tree.read(page)
+        updated, found = process(tree, page, text)
         problems.extend(found)
         if updated != text:
             problems.append(Problem(page, 1, "a generated block is stale; run `docs sync`"))
-    problems.extend(coverage())
+    problems.extend(coverage(tree))
     return problems
 
 
@@ -210,14 +226,21 @@ def outside_blocks(text: str) -> str:
     return BLOCK.sub("", text)
 
 
-def coverage() -> list[Problem]:
-    """Hand-written prose must mention every fact a generated table lists."""
+def coverage(tree: Tree) -> list[Problem]:
+    """Hand-written prose must mention every variable a hocon table lists, on the page `described-on` names."""
     problems: list[Problem] = []
-    page = "reference/configuration.md"
-    path = DOCS / page
-    if path.exists():
-        prose = outside_blocks(path.read_text(encoding="utf-8"))
-        for name in configuration_variables():
+    for generator in tree.project.settings.generators.values():
+        if generator.kind != "hocon":
+            continue
+        page = generator.options.get("described-on")
+        if not page:
+            continue
+        page = str(page)
+        if page not in tree.pages:
+            raise ConfigError(f"extra.docs.generated.{generator.name}: described-on names {page}, which is not a page")
+        prose = outside_blocks(tree.read(page))
+        for name in hocon_variables(tree.project.root, generator):
             if f"`{name}`" not in prose:
                 problems.append(Problem(page, 1, f"`{name}` is in the generated table but described nowhere on the page"))
     return problems
+

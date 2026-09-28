@@ -23,8 +23,23 @@ message HttpRequest {
   bytes body = 7;                                    // empty when the route has no body
   optional Principal principal = 8;                  // when the ACL is AUTHENTICATED
   Metadata metadata = 9;                             // trace and span ids for this request's span
+  // Which workload sent the request, as the platform established it from the client certificate
+  // (protocol 1.1). Absent from a sidecar that predates it, which a process reads as local.
+  optional Caller caller = 10;
   message Pair { string name = 1; string value = 2; }
 }
+
+// The gateway (the internet), a named service of this installation, or — outside a cluster — the
+// local machine. Never taken from anything the request says about itself.
+message Caller {
+  oneof kind {
+    Empty gateway = 1;
+    ServiceCaller service = 2;
+    Empty local = 3;
+  }
+}
+
+message ServiceCaller { string project = 1; string name = 2; }
 
 message Principal {
   string subject = 1;

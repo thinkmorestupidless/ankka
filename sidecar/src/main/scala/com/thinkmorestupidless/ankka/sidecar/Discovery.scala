@@ -28,7 +28,10 @@ object Discovery:
   private val log = LoggerFactory.getLogger(getClass)
 
   /** The sidecar's own protocol version. Written once here and once in `controlplane-api`. */
-  val ProtocolVersion: String = "1.0"
+  /**
+   * 1.1: the caller on every forwarded request and caller-naming ACLs in discovery (feature 014).
+   */
+  val ProtocolVersion: String = "1.1"
 
   /** What discovery hands the rest of the sidecar: validated descriptors plus the raw spec. */
   final case class Discovered(
@@ -212,6 +215,8 @@ object Discovery:
       if e.id.isEmpty then problems += s"an endpoint with prefix '${e.prefix}' has no id"
       if !e.prefix.startsWith("/") then
         problems += s"endpoint '${e.id}': prefix '${e.prefix}' must start with '/'"
+      if e.acl.isCallers && e.allowCallers.isEmpty then
+        problems += s"endpoint '${e.id}': a CALLERS acl must name at least one caller"
       e.routes.groupBy(r => (r.method.toUpperCase, r.template)).foreach { (key, dup) =>
         if dup.sizeIs > 1 then
           problems += s"endpoint '${e.id}' declares ${key._1} ${key._2} ${dup.size} times"
@@ -225,6 +230,8 @@ object Discovery:
           problems += s"endpoint '${e.id}': route '${r.id}' has an unsupported method '${r.method}'"
         if !r.template.startsWith("/") then
           problems += s"endpoint '${e.id}': route '${r.id}' template '${r.template}' must start with '/'"
+        if r.acl.exists(_.isCallers) && r.allowCallers.isEmpty then
+          problems += s"endpoint '${e.id}': route '${r.id}' has a CALLERS acl naming no caller"
         if r.template.count(_ == '{') != r.template.count(_ == '}') then
           problems += s"endpoint '${e.id}': route '${r.id}' template '${r.template}' has unbalanced braces"
       }

@@ -204,8 +204,18 @@ final case class HttpForward(
     contentType: String,
     body: Array[Byte],
     principal: Option[RemotePrincipal],
-    metadata: Metadata
+    metadata: Metadata,
+    caller: RemoteCaller = RemoteCaller.Local
 )
+
+/**
+ * Which workload sent a forwarded request; `http.Caller` in plain values, so `runtime` needs no
+ * `http`.
+ */
+enum RemoteCaller:
+  case Gateway
+  case Service(project: String, name: String)
+  case Local
 
 final case class HttpResult(
     status: Int,

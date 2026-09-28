@@ -87,7 +87,8 @@ object ProcessDouble:
       prefix: String,
       routes: Vector[Route],
       acl: ankka.protocol.v1.discovery.Endpoint.Acl =
-        ankka.protocol.v1.discovery.Endpoint.Acl.ALLOW_ALL
+        ankka.protocol.v1.discovery.Endpoint.Acl.ALLOW_ALL,
+      allowCallers: Vector[ankka.protocol.v1.discovery.CallerMatcher] = Vector.empty
   )
 
   // ── The other kinds, scripted the same way ──────────────────────────────
@@ -450,7 +451,8 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           e.acl,
           e.routes.map(r =>
             ankka.protocol.v1.discovery.Route(r.id, r.method, r.template, r.hasBody, r.streaming)
-          )
+          ),
+          e.allowCallers
         )
       }
     )

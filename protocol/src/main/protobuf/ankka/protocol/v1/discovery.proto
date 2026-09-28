@@ -87,8 +87,22 @@ message Endpoint {
   string prefix = 2;             // as HttpEndpoint's prefix: "/carts"
   Acl    acl = 3;
   repeated Route routes = 4;
-  enum Acl { ALLOW_ALL = 0; DENY_ALL = 1; AUTHENTICATED = 2; }
+  // Read only when `acl` is CALLERS: the callers admitted, any one of which suffices (protocol 1.1).
+  repeated CallerMatcher allow_callers = 5;
+  enum Acl { ALLOW_ALL = 0; DENY_ALL = 1; AUTHENTICATED = 2; CALLERS = 3; }
 }
+
+// One kind of caller a CALLERS acl admits. A named service with no project means this service's own.
+message CallerMatcher {
+  oneof kind {
+    Empty internet = 1;
+    NamedService service = 2;
+    Empty any_in_project = 3;
+    Empty self = 4;
+  }
+}
+
+message NamedService { optional string project = 1; string name = 2; }
 
 message Route {
   string id = 1;                 // unique within the endpoint; the sidecar sends it back on each request
@@ -100,6 +114,8 @@ message Route {
   // absent means "the endpoint's" rather than ALLOW_ALL, which is what lets a process built
   // against an earlier protocol keep the endpoint-wide behaviour it expects.
   optional Endpoint.Acl acl = 6;
+  // The route's own callers, read only when its `acl` is CALLERS.
+  repeated CallerMatcher allow_callers = 7;
 }
 
 message Problem { string message = 1; }

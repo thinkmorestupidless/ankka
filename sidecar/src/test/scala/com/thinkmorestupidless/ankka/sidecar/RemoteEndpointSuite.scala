@@ -1,6 +1,9 @@
 package com.thinkmorestupidless.ankka.sidecar
 
-import ankka.protocol.v1.discovery.Endpoint as EndpointSpec
+import ankka.protocol.v1.discovery.{CallerMatcher, Endpoint as EndpointSpec, NamedService}
+import ankka.protocol.v1.endpoint.Caller.Kind
+import ankka.protocol.v1.payload.Empty
+import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import ankka.protocol.v1.endpoint.HttpResponse
 import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.http.HttpServer
@@ -85,6 +88,31 @@ class RemoteEndpointSuite extends munit.FunSuite:
     acl = EndpointSpec.Acl.AUTHENTICATED
   )
 
+  /** Answers with the caller the sidecar forwarded, as the process sees it. */
+  private val whoami = ProcessDouble.Endpoint(
+    "whoami",
+    "/whoami",
+    Vector(
+      ProcessDouble.Route(
+        "root",
+        "GET",
+        "/",
+        handler = r =>
+          val seen = r.caller.map(_.kind) match
+            case Some(Kind.Gateway(_))  => "gateway"
+            case Some(Kind.Service(sv)) => s"service:${sv.project}/${sv.name}"
+            case Some(Kind.Local(_))    => "local"
+            case _                      => "absent"
+          Right(HttpResponse(200, "text/plain", ByteString.copyFromUtf8(seen)))
+      )
+    ),
+    acl = EndpointSpec.Acl.CALLERS,
+    allowCallers = Vector(
+      CallerMatcher(CallerMatcher.Kind.Internet(Empty())),
+      CallerMatcher(CallerMatcher.Kind.Service(NamedService(None, "orders")))
+    )
+  )
+
   private var double: ProcessDouble   = scala.compiletime.uninitialized
   private var channel: ManagedChannel = scala.compiletime.uninitialized
   private var kit: AnkkaTestKit       = scala.compiletime.uninitialized
@@ -95,7 +123,7 @@ class RemoteEndpointSuite extends munit.FunSuite:
     double = new ProcessDouble(
       ProcessDouble.DoubleSpec(
         entities = Vector(ProcessDouble.recorder()),
-        endpoints = Vector(carts, denied, authed)
+        endpoints = Vector(carts, denied, authed, whoami)
       )
     )
     val port = double.start()
@@ -199,4 +227,27 @@ class RemoteEndpointSuite extends munit.FunSuite:
       Thread.sleep(200)
       up = get("/carts/c1")
     assertEquals(up.statusCode, 200)
+  }
+
+  test("the caller crosses to the process, and a CALLERS acl is applied before it is reached") {
+    val gateway = LocalCallers.header(Caller.Gateway)
+    assertEquals(get("/whoami/", gateway).body, "gateway")
+    val orders = LocalCallers.header(Caller.Service("local", "orders"))
+    assertEquals(get("/whoami/", orders).body, "service:local/orders")
+    // Named service means this project's, and outside a cluster this service's project is `local`.
+    assertEquals(
+      get("/whoami/", LocalCallers.header(Caller.Service("billing", "orders"))).statusCode,
+      403
+    )
+    assertEquals(get("/whoami/").body, "local")
+  }
+
+  test("discovery refuses a CALLERS acl that names nobody") {
+    val empty = double.toSpec.copy(endpoints =
+      Seq(
+        EndpointSpec("x", "/x", EndpointSpec.Acl.CALLERS, Seq.empty, Seq.empty)
+      )
+    )
+    val problems = Discovery.validate(empty).left.toOption.getOrElse(fail("accepted"))
+    assert(problems.exists(_.contains("must name at least one caller")), problems.toString)
   }

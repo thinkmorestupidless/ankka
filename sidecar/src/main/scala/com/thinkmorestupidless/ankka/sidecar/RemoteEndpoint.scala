@@ -1,10 +1,16 @@
 package com.thinkmorestupidless.ankka.sidecar
 
-import ankka.protocol.v1.discovery.{Endpoint as EndpointSpec, Route as RouteSpec}
+import ankka.protocol.v1.discovery.{
+  CallerMatcher as CallerMatcherSpec,
+  Endpoint as EndpointSpec,
+  Route as RouteSpec
+}
 import com.thinkmorestupidless.ankka.core.Metadata
 import com.thinkmorestupidless.ankka.http.{
   Acl,
   AuthDecision,
+  Caller,
+  CallerMatcher,
   EncodedResponse,
   HttpEndpoint,
   HttpProblem,
@@ -12,7 +18,12 @@ import com.thinkmorestupidless.ankka.http.{
   Route,
   StreamRoute
 }
-import com.thinkmorestupidless.ankka.runtime.remote.{Conversation, HttpForward, RemotePrincipal}
+import com.thinkmorestupidless.ankka.runtime.remote.{
+  Conversation,
+  HttpForward,
+  RemoteCaller,
+  RemotePrincipal
+}
 import com.thinkmorestupidless.ankka.runtime.{ServedRoute, Trace}
 
 import java.util.concurrent.TimeoutException
@@ -34,7 +45,7 @@ final class RemoteEndpoint private (
     settings: Settings
 ) extends HttpEndpoint(spec.prefix):
 
-  def acl: Acl = RemoteEndpoint.aclOf(spec.acl)
+  def acl: Acl = RemoteEndpoint.aclOf(spec.acl, spec.allowCallers)
 
   private val (plain, streaming) = spec.routes.toVector.partition(!_.streaming)
 
@@ -45,7 +56,7 @@ final class RemoteEndpoint private (
         PathTemplate.parse(r.template),
         r.hasBody,
         (args, body) => forward(r, args, body),
-        r.acl.map(RemoteEndpoint.aclOf)
+        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers))
       )
     }
 
@@ -56,7 +67,7 @@ final class RemoteEndpoint private (
         PathTemplate.parse(r.template),
         r.hasBody,
         (args, body) => conversation.handleHttpStream(forwardOf(r, args, body)),
-        r.acl.map(RemoteEndpoint.aclOf)
+        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers))
       )
     }
 
@@ -83,6 +94,10 @@ final class RemoteEndpoint private (
       principal = ctx.principal.map(p =>
         RemotePrincipal(p.subject, p.name, p.email, p.emailVerified, p.roles)
       ),
+      caller = ctx.caller match
+        case Caller.Gateway          => RemoteCaller.Gateway
+        case Caller.Service(p, name) => RemoteCaller.Service(p, name)
+        case Caller.Local            => RemoteCaller.Local,
       metadata = Trace.into(Metadata.empty, traceId, spanId)
     )
 
@@ -111,6 +126,23 @@ object RemoteEndpoint:
    * "the endpoint's" — so a process built against a protocol without the field keeps exactly the
    * endpoint-wide behaviour it was written for.
    */
+  private[sidecar] def aclOf(acl: EndpointSpec.Acl, callers: Seq[CallerMatcherSpec]): Acl =
+    acl match
+      case EndpointSpec.Acl.CALLERS =>
+        // An empty list would admit only Local — silently open locally and closed in a cluster, the
+        // worst shape a misconfiguration can have. Discovery refuses it; this is the backstop.
+        if callers.isEmpty then Acl.DenyAll else Acl.AllowCallers(callers.toVector.map(matcherOf))
+      case other => aclOf(other)
+
+  private def matcherOf(spec: CallerMatcherSpec): CallerMatcher = spec.kind match
+    case CallerMatcherSpec.Kind.Internet(_) => CallerMatcher.Internet
+    case CallerMatcherSpec.Kind.Service(named) =>
+      CallerMatcher.NamedService(named.project, named.name)
+    case CallerMatcherSpec.Kind.AnyInProject(_) => CallerMatcher.AnyInProject
+    case CallerMatcherSpec.Kind.Self(_)         => CallerMatcher.Self
+    // A matcher kind this sidecar does not know — a newer SDK's — admits nobody rather than guessing.
+    case CallerMatcherSpec.Kind.Empty => CallerMatcher.NamedService(Some(""), "")
+
   private[sidecar] def aclOf(acl: EndpointSpec.Acl): Acl = acl match
     case EndpointSpec.Acl.DENY_ALL      => Acl.DenyAll
     case EndpointSpec.Acl.AUTHENTICATED =>

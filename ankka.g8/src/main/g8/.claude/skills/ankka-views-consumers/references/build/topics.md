@@ -109,6 +109,20 @@ Ankka.service
 A component that reads or publishes a topic in a service with no broker configured is refused at startup,
 rather than started and never delivering anything.
 
+A deployed service is configured by its descriptor, not by its code, so a Scala service that runs on the
+platform names the broker in the environment instead. `ProjectionRuntime.fromEnv()` connects to the broker
+named by `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and runs entity sources only when the variable is absent:
+
+```scala
+Ankka.service
+  .register(StockLevels.descriptor)
+  .withExtension(ProjectionRuntime.fromEnv())
+  .start()
+```
+
+Set the variable in the service descriptor's `env`. The platform provides no broker of its own, so its value
+is the address of a Kafka the cluster can reach.
+
 A Python service's sidecar connects to the broker named by `ANKKA_KAFKA_BOOTSTRAP_SERVERS`. Set it in the
 service descriptor's `env`, where the platform routes it to the sidecar. Without it the sidecar refuses to
 start, naming the component that needs a broker.

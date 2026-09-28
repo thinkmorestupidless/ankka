@@ -16,7 +16,7 @@ from typing import Any, Generic, TypeVar
 
 from ankka.agent import Agent
 from ankka.client import ComponentClient
-from ankka.context import CommandContext, Metadata, Principal, RequestContext
+from ankka.context import Caller, CommandContext, LocalCaller, Metadata, Principal, RequestContext
 from ankka.effects.agent import AgentEffect
 from ankka.effects.common import Error, Fail, NoReply, Reply, Retention
 from ankka.endpoint import Endpoint, HttpProblem, RouteSpec
@@ -187,7 +187,10 @@ class EndpointTestKit:
         query: list[tuple[str, str]] | None = None,
         headers: list[tuple[str, str]] | None = None,
         principal: Principal | None = None,
+        caller: Caller | None = None,
     ) -> Response:
+        """``caller`` is what ``request.caller`` reads; the ACL itself is the sidecar's to apply, so a
+        handler test states the caller it expects to have been admitted."""
         matched = self._match(method, path)
         if matched is None:
             return Response(404, "text/plain", f"no route {method} {path}".encode())
@@ -195,7 +198,9 @@ class EndpointTestKit:
         body_bytes = b""
         if body is not None and spec.body_codec is not None:
             body_bytes = body if isinstance(body, bytes) else spec.body_codec.encode(body)
-        ctx = RequestContext(tuple(query or ()), tuple(headers or ()), principal, Metadata())
+        ctx = RequestContext(
+            tuple(query or ()), tuple(headers or ()), principal, Metadata(), caller if caller is not None else LocalCaller()
+        )
         try:
             if spec.streaming:
                 frames = _run(self._collect(spec, args, body_bytes, ctx))

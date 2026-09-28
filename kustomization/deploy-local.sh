@@ -46,6 +46,30 @@ fi
 
 BASE_DOMAIN="${ANKKA_BASE_DOMAIN:-127.0.0.1.sslip.io}"
 
+# Network policy must be enforced, not merely accepted (feature 014). Every API server admits a
+# NetworkPolicy; only a network that implements them refuses anything, and on one that does not, the
+# platform's isolation is a set of objects that do nothing. kind has enforced policy since 0.24.
+# Proven rather than assumed: a deny-all policy on a pod, and a connection to it that must fail.
+KIND_VERSION="$(kind version 2>/dev/null | sed -n 's/^kind v\([0-9]*\.[0-9]*\).*/\1/p')"
+if [[ -n "$KIND_VERSION" ]] && awk -v v="$KIND_VERSION" 'BEGIN { split(v, p, "."); exit !(p[1] == 0 && p[2] < 24) }'; then
+  echo "refusing to deploy: kind $KIND_VERSION does not enforce network policy; ankka needs a network that does." >&2
+  echo "upgrade kind to 0.24 or later and recreate the cluster (see docs/platform/install-local.md)." >&2
+  exit 1
+fi
+# shellcheck source=kustomization/netpol-probe.sh
+source kustomization/netpol-probe.sh
+probe_status=0
+netpol_enforced || probe_status=$?
+if [[ $probe_status -eq 1 ]]; then
+  echo "refusing to deploy: this cluster accepted a NetworkPolicy and did not enforce it; ankka needs a" >&2
+  echo "network that does (kind 0.24 or later does; see docs/platform/install-local.md)." >&2
+  exit 1
+elif [[ $probe_status -ne 0 ]]; then
+  echo "refusing to deploy: could not check that this cluster enforces network policy (the reason is" >&2
+  echo "above); run the script again once the cluster is healthy." >&2
+  exit 1
+fi
+
 echo "==> installing CloudNativePG"
 # Applied directly, not only through the overlay: its CRDs must exist before anything in
 # overlays/local that references a Cluster/Database/DatabaseRole is applied in the same pass,
@@ -75,6 +99,13 @@ kubectl apply -k kustomization/components/keycloak-operator --server-side --forc
 kubectl -n cert-manager rollout status deployment/cert-manager-webhook --timeout=180s
 kubectl -n envoy-gateway-system rollout status deployment/envoy-gateway --timeout=180s
 
+echo "==> installing trust-manager"
+# After cert-manager, whose Issuer serves its webhook's certificate; before the overlay, whose
+# Bundle it admits (feature 014). The Bundle is how the service authority's root reaches every
+# ankka namespace as the ConfigMap the gateway verifies services with.
+kubectl apply -k kustomization/components/trust-manager --server-side --force-conflicts
+kubectl -n cert-manager rollout status deployment/trust-manager --timeout=180s
+
 echo "==> building images"
 # Root-level, not per-project: docker:publishLocal aggregates to every project with
 # DockerPlugin enabled (operator, controlPlane, shoppingCart) and silently skips the rest, the same way
@@ -103,6 +134,20 @@ kubectl create namespace ankka-controlplane --dry-run=client -o yaml | kubectl a
 # configMapGenerator from the DDL's canonical copy in that component, so `kubectl apply -k`
 # below carries it — on kind and on every cluster Flux reconciles alike. It used to be created
 # here with `kubectl create configmap`, which meant the overlay only worked from this script.
+
+# Moving the control plane to mutual TLS (feature 014) cannot be a rolling update: a TLS instance and
+# a plain one cannot join each other, so the new pods would wait forever for peers. The operator does
+# this for every service it deploys; the control plane is applied here, so this does it for that one.
+# Once, and only when the running template predates the transport label.
+if kubectl -n ankka-controlplane get deployment ankka-controlplane >/dev/null 2>&1; then
+  transport="$(kubectl -n ankka-controlplane get deployment ankka-controlplane \
+    -o jsonpath='{.spec.template.metadata.labels.ankka\.thinkmorestupidless\.com/transport}')"
+  if [[ "$transport" != "tls" ]]; then
+    echo "==> the control plane predates mutual TLS: stopping its instances before applying, once"
+    kubectl -n ankka-controlplane delete deployment ankka-controlplane --wait=true
+    kubectl -n ankka-controlplane wait --for=delete pod -l app.kubernetes.io/name=ankka-controlplane --timeout=120s || true
+  fi
+fi
 
 echo "==> applying everything else"
 # --server-side throughout, now that the overlay includes CNPG's large CRDs too (see the note

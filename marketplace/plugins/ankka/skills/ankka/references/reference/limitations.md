@@ -30,22 +30,34 @@ feature also says what that feature does not do.
 
 ## Networking and security
 
-- **Cluster traffic is neither isolated nor encrypted.** Remoting on port 17355 and the management port 7626
-  are plain TCP on the pod network, reachable from any namespace. A node chooses its peers by pod label, but
-  nothing stops another workload connecting. TLS for cluster traffic and a network policy are not built.
-- **Projects are not a network boundary.** A service's in-cluster address is reachable from every namespace,
-  so any project's pods can call any other project's services. Projects separate names and databases, and
-  database separation is enforced, but not traffic.
-- **The platform authenticates its operators, not your service's callers.** The control plane verifies
-  identity-provider tokens; a deployed service's endpoints are protected only by the ACL their author wrote.
-  The platform provisions no identity realm, client or token check for services.
-- **The platform establishes no caller identity, so an ACL sees only what the request carries.** There is no
-  mutual TLS between services and no workload identity, so nothing distinguishes a request that arrived from
-  the internet from one sent by a pod in the next namespace, and there is no principal naming the service
-  that called. An `Acl.AllowIf` predicate is given the request's own headers and query parameters and
-  nothing more; a header naming a calling service is set by the client and is evidence of nothing. Where a
-  service must know who is calling, that has to be a credential it can verify itself — a signed token, or a
-  certificate — checked in `Acl.Authenticate`.
+- **No restriction on where a workload connects to.** Network policies decide who may connect to a
+  workload; nothing restricts where it may connect. There is no egress policy.
+- **A project is not a network boundary for HTTP.** Any ankka workload can open a connection to any
+  service's HTTP port; whether the request is served is the callee's ACL's decision, from the caller's
+  certificate. Cluster ports and databases are closed to other projects.
+- **The gateway is one caller.** Every request from outside the cluster reads as the gateway, whichever
+  hostname it arrived at. Telling users apart is a bearer token the service verifies in
+  `Acl.Authenticate`.
+- **The platform authenticates its operators, not your service's users.** The control plane verifies
+  identity-provider tokens; a deployed service's endpoints are protected only by the ACL their author
+  wrote. The platform provisions no identity realm, client or token check for a service's users.
+- **Python and TypeScript services cannot call another service as themselves.** They can be called, and
+  read the caller; only a Scala service has a service client that presents its certificate.
+- **Protection depends on the cluster enforcing network policy.** On a network plugin that accepts
+  policies and ignores them, every connection is still mutual TLS and every caller still named, but
+  nothing is refused before the handshake. `deploy-local.sh` checks; a cloud cluster must be checked by
+  its installer.
+- **The installation's root authorities do not rotate.** Workload certificates rotate every eight hours;
+  the two roots they are issued from are valid for ten years and replacing one is a manual job.
+- **The operator's grant on Secrets is broader than it uses.** It reads one Secret per provisioned
+  database by name, and the same grant would let it read any Secret whose name it knows, including an
+  issued certificate's. It never does.
+- **A supplied database's credential is its owner's.** A service that brings its own database through
+  `ANKKA_DB_*` variables can connect with TLS and a client certificate, but the platform issues and
+  rotates nothing for it.
+- **The control plane's own database still uses a password.** Every service's provisioned database
+  authenticates by certificate; the control plane's does not yet, though its connection is private to
+  its namespace.
 - **Roles are per organization.** A member is an owner or a member of an organization. There are no
   per-project roles and no read-only role.
 - **Nothing at the gateway but routing.** There is no authentication, rate limiting or header policy at the

@@ -1,9 +1,16 @@
 package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.api.model.apps.Deployment
-import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.{BackendTLSPolicy, HTTPRoute}
+import io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy
 import io.fabric8.kubernetes.api.model.rbac.{Role, RoleBinding}
-import io.fabric8.kubernetes.api.model.{ConfigMap, Secret, Service, ServiceAccount}
+import io.fabric8.kubernetes.api.model.{
+  ConfigMap,
+  GenericKubernetesResource,
+  Secret,
+  Service,
+  ServiceAccount
+}
 import com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus
 import com.thinkmorestupidless.ankka.operator.cnpg.{
   PostgresCluster,
@@ -113,6 +120,29 @@ enum Action:
    */
   case NoAction
 
+  /**
+   * Asks cert-manager for a certificate (feature 014). Owned by the resource, server-side applied;
+   * the operator writes the request and never reads the Secret it produces.
+   */
+  case EnsureCertificate(certificate: GenericKubernetesResource)
+
+  /** A project's database authority: its self-signed root and the Issuer over it. */
+  case EnsureIssuer(issuer: GenericKubernetesResource)
+
+  /** Who may connect to a workload's ports at all. */
+  case EnsureNetworkPolicy(policy: NetworkPolicy)
+
+  /** Owner-checked and read-first, like `RemoveService`: a service that stopped serving HTTP. */
+  case RemoveNetworkPolicy(namespace: String, name: String, ownerUid: String)
+
+  /** The gateway's instruction to reach an exposed service over TLS; rendered with its route. */
+  case EnsureBackendTlsPolicy(policy: BackendTLSPolicy)
+
+  /**
+   * Removed with the route, owner-checked, and absent-safe on a cluster without the Gateway API.
+   */
+  case RemoveBackendTlsPolicy(namespace: String, name: String, ownerUid: String)
+
   def describe: String = this match
     case EnsureNamespace(name) => s"ensure namespace $name"
     case ApplyDeployment(d) =>
@@ -141,3 +171,13 @@ enum Action:
     case EnsureSchemaConfig(cm) =>
       s"ensure schema config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
     case NoAction => "nothing to do"
+    case EnsureCertificate(c) =>
+      s"ensure certificate ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
+    case EnsureIssuer(i) =>
+      s"ensure ${i.getKind.toLowerCase} ${i.getMetadata.getNamespace}/${i.getMetadata.getName}"
+    case EnsureNetworkPolicy(p) =>
+      s"ensure networkpolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
+    case RemoveNetworkPolicy(ns, name, _) => s"remove networkpolicy $ns/$name if owned"
+    case EnsureBackendTlsPolicy(p) =>
+      s"ensure backendtlspolicy ${p.getMetadata.getNamespace}/${p.getMetadata.getName}"
+    case RemoveBackendTlsPolicy(ns, name, _) => s"remove backendtlspolicy $ns/$name if owned"

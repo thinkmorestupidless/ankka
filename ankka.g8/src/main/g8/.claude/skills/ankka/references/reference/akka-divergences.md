@@ -17,7 +17,7 @@ will recognise every component. The differences below are deliberate, and each h
 | A bespoke SQL-like view query language | real SQL over a JSON row column | Nothing to learn or parse, strictly more expressive, and indexes are explicit. |
 | Route order decides dispatch | literal segments outrank parameters | `/users/me` works whether it is declared before or after `/users/{id}`. |
 | An ACL by absent annotation | an abstract `acl` every endpoint must define | An unstated ACL is a decision nobody made. |
-| Principals naming the caller — the internet, a named service, self | a predicate over the request, or a credential the service verifies | Without mutual TLS there is nothing to name a caller with, and a header the caller sets is not evidence. |
+| `BACKOFFICE` among the callers an ACL can name | no equivalent | There is no backoffice proxy to be the caller. |
 | `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
@@ -83,21 +83,29 @@ A route can state an ACL of its own — `withAcl` in Scala, an `acl` argument to
 Python — which replaces the endpoint's for that route exactly as Akka's method-level annotation replaces
 its class's.
 
-## ACLs name what the request carries, not who is calling
+## Callers are named by certificate
 
-Most of Akka's ACL vocabulary names the caller: the internet, a specific deployed service, any service, the
-service itself, a backoffice proxy. Those principals are trustworthy on Akka because the platform terminates
-mutual TLS and guarantees the identity cannot be forged. ankka has none of them, because it has none of that
-machinery: there is no mesh, no workload identity and no service-to-service invocation, and a service's
-in-cluster address is reachable from every namespace. Inventing the vocabulary anyway would mean deciding who
-a caller is from a header the caller sets, which is not a security control.
+Akka's ACL principals name who is calling — the internet, a named service, any service, the service
+itself — and they are trustworthy because the platform terminates mutual TLS and the identity cannot be
+forged. ankka does the same: every connection inside a cluster is mutual TLS with a certificate the
+installation issued for exactly one workload, and the caller is read from it.
 
-So ankka's ACLs are the two honest kinds. `Acl.AllowIf` is a predicate over the request as it arrived, and
-`Acl.Authenticate` verifies a credential — a signed token, a client certificate — that a service can check
-for itself. What Akka expresses as `@Acl(allow = @Acl.Matcher(service = "shopping-cart"))` has no ankka
-spelling, and will not until the platform can establish identity; it is recorded in
-[Limitations](limitations.md). In one respect ankka's is the richer model: `AuthDecision` distinguishes "log
-in" from "you may not" from "the check could not be made", where Akka's ACL has a single refusal.
+| Akka | ankka |
+|---|---|
+| `@Acl(allow = @Acl.Matcher(principal = INTERNET))` | `Acl.allowCallers(Callers.internet)` |
+| `@Acl(allow = @Acl.Matcher(service = "orders"))` | `Acl.allowCallers(Callers.service("orders"))` |
+| `@Acl(allow = @Acl.Matcher(service = "*"))` | `Acl.allowCallers(Callers.anyInProject)`, for this project's services |
+| `@Acl(allow = @Acl.Matcher(principal = SELF))` | `Acl.allowCallers(Callers.self)` |
+| `@Acl(allow = @Acl.Matcher(principal = BACKOFFICE))` | none; there is no backoffice proxy |
+
+Two differences. ankka names a service in another project explicitly, `Callers.service("billing",
+"invoices")`, because projects are ankka's unit of tenancy. And outside a cluster every caller is the
+local machine, which every caller-naming ACL admits; Akka instead offers switches that disable ACLs
+locally. A test names a caller through the test kit rather than a header anyone could send. See
+[HTTP endpoints](../build/http-endpoints.md#name-who-may-call).
+
+In one respect ankka's model is the richer: `AuthDecision` distinguishes "log in" from "you may not" from
+"the check could not be made", where Akka's ACL has a single refusal.
 
 ## Model settings follow current models
 

@@ -71,6 +71,28 @@ class CommandContext:
 
 
 @dataclass(frozen=True)
+class Gateway:
+    """The request arrived through the installation's gateway: from the internet."""
+
+
+@dataclass(frozen=True)
+class ServiceCaller:
+    """Another workload of this installation, named by the certificate the platform issued it."""
+
+    project: str
+    name: str
+
+
+@dataclass(frozen=True)
+class LocalCaller:
+    """Outside a cluster, where there is no certificate to read: every caller is this."""
+
+
+Caller = Gateway | ServiceCaller | LocalCaller
+"""Which workload sent a request, as the platform established it; never read from the request."""
+
+
+@dataclass(frozen=True)
 class Principal:
     subject: str
     name: str | None = None
@@ -82,12 +104,14 @@ class Principal:
 @dataclass(frozen=True)
 class RequestContext:
     """What an endpoint handler sees beyond its typed arguments: query parameters (repeatable),
-    headers, the principal when the ACL established one, and the request's trace metadata."""
+    headers, the principal when the ACL established one, the request's trace metadata, and the
+    caller — which workload sent it."""
 
     query: tuple[tuple[str, str], ...] = ()
     headers: tuple[tuple[str, str], ...] = ()
     principal: Principal | None = None
     metadata: Metadata = field(default_factory=Metadata)
+    caller: Caller = field(default_factory=LocalCaller)
 
     def query_param(self, name: str) -> str | None:
         for k, v in self.query:

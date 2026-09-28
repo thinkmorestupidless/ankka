@@ -1,0 +1,6 @@
+# trust-manager, a platform dependency beside cert-manager (feature 014). See trust-manager.yaml for
+# why it is here and how the manifest is regenerated.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - trust-manager.yaml

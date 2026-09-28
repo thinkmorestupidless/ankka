@@ -33,3 +33,28 @@ class CompatibilitySuite extends munit.FunSuite:
     assertEquals(Compatibility.describe(v("0.0.5")), "runtimes 0.0.x (platform 0.0.5)")
     assertEquals(Compatibility.describe(v("2.0.0")), "runtimes 2.0.x (platform 2.0.0)")
   }
+
+  test("from 0.8.0 a runtime without mutual TLS is refused, naming the floor") {
+    val platform = v("0.8.0")
+    assert(!Compatibility.supports(platform, v("0.7.9")), "one minor below, but below the floor")
+    assert(Compatibility.supports(platform, v("0.8.0")))
+    assertEquals(
+      Compatibility.refusal(platform, v("0.7.1")),
+      "runtime 0.7.1 predates mutual TLS; this platform requires 0.8.0 or later"
+    )
+    assert(Compatibility.refusal(v("0.9.0"), v("0.1.0")).contains("predates mutual TLS"))
+  }
+
+  test("the floor does not refuse the builds of the release that introduces it") {
+    // Until 0.8.0 is tagged this branch builds as 0.7.1+N, and must run its own images.
+    val snapshot = v("0.7.1+11-5623eff8-SNAPSHOT")
+    assert(Compatibility.supports(snapshot, v("0.7.1")))
+    assert(
+      Compatibility.refusal(snapshot, v("0.5.0")).contains("outside the platform's supported range")
+    )
+  }
+
+  test("the sidecar protocol is 1.1, and an SDK on 1.0 is still supported") {
+    assertEquals(Protocol.version, ProtocolVersion(1, 1))
+    assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 0)))
+  }

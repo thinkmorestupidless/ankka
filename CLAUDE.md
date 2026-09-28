@@ -290,6 +290,20 @@ The reference for the shape is the substrate project's three-file layout; its
 `-Dconfig.resource` selector was rejected because it *replaces* `application.conf`, which
 belongs to the service, not the platform.
 
+### Zero trust is an overlay property
+
+In the Kubernetes overlay every port a workload has is mutual TLS with a certificate cert-manager
+issues for it, and a network policy decides who may connect at all (feature 014); locally there is
+no TLS and every caller is `Caller.Local`. One `RotatingTls` (runtime) reads cert-manager's
+`tls.key`/`tls.crt`/`ca.crt`, re-reads on mtime change and serves the HTTP server, management,
+bootstrap's client and `ServiceClients`; remoting uses Pekko's own rotating-keys engine over the
+same files. Two installation authorities (`ankka-cluster`, `ankka-service`, component `pki`) plus a
+per-project database authority the operator renders. The caller is read from the client
+certificate's `ankka://<project>/<service>` URI (`ankka://gateway` for the gateway); nothing the
+request says is trusted. Readiness has its own plain port, 7627 `probe`. The one non-rolling
+deployment — a template without `ankka.thinkmorestupidless.com/transport=tls` — is `Transition`:
+delete, wait for no pods, apply.
+
 ### Virtual threads
 
 Endpoints, workflow steps, consumers, timers and agent loops all run on
@@ -476,6 +490,38 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **Read piped input through `Console.in`, not `System.in`.** Only the former is
   redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
   spawning a subprocess.
+- **TLS client authentication belongs to a listener, not a route**, and the kubelet holds no
+  certificate — so once management requires the service's certificate, readiness needs a port of
+  its own (7627, named `probe`). Renaming it in `Rendering` or the control plane's manifest leaves a
+  probe that resolves to nothing, as with `management` before it.
+- **Pekko's `reference.conf` arrives already resolved.** Overriding
+  `rotating-keys-engine.secret-mount-point` alone leaves `key-file`/`cert-file`/`ca-cert-file` at
+  Pekko's default path; the overlay names all three. Found as a missing `ca.crt` under
+  `/var/run/secrets/pekko-tls`.
+- **Pekko's TLS stage turns endpoint identification back on for a client engine**, so a cluster peer
+  reached by pod IP failed "No subject alternative names matching IP address". Cluster contexts use
+  `RotatingTls.Peers.SameIdentity`: the chain is checked with the two-argument trust check (no
+  hostname) and the peer must carry this process's own `ankka://` URI.
+- **Bootstrap counts contact points per host.** Two nodes on one loopback address are one contact
+  point; `TlsClusterFormationSuite` tells them apart as `localhost` and `127.0.0.1`.
+- **pekko-persistence-r2dbc hands its options customizer the whole configuration**, not the
+  connection factory's block — reading `ssl.mode` at the root connected in the clear.
+- **libpq refuses a key file anyone else can read**, and a root-owned `0600` Secret is unreadable to
+  a non-root runtime. The database volume is `0440` with a pod `fsGroup`.
+- **A `cert` rule in `pg_hba` for `all` would lock out every role not yet redeployed.** The rule is
+  for members of `ankka_tls`, which a role joins when its service is next deployed; others fall
+  through to CNPG's password default until then.
+- **The operator's `secrets: get` reads any Secret by name**, including an issued certificate's,
+  whose name is derivable. Its code never does; narrowing the grant means the credential Secret
+  becoming a ConfigMap (it holds nothing secret since feature 014).
+- **Every k3s suite that runs the operator needs `PkiStack.install`**: the operator asks cert-manager
+  for every workload's certificates and a pod starts only once they exist. And a plain `wget` from
+  the node reaches no service any more — `InPod.curl` runs `curl` inside a service pod (the images
+  are `eclipse-temurin`, which has it) with that pod's certificates.
+- **A Python endpoint without its own `__init__` was handed a client and failed its first request**:
+  `object.__init__`'s `*args` counted as a parameter. The private endpoint never reached its handler,
+  so nothing noticed until the conformance suite's caller cases.
+
 - **A Deployment's `spec.selector` is immutable.** It must never contain ankka's
   generation, or the second apply is rejected permanently and the service is bricked at
   generation 2. The generation lives on the Deployment's own annotations.
@@ -584,6 +630,13 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **A Gateway API `RequestRedirect` without `port` keeps the *request's* port in the Location.**
   `http://…:8080/x` → `https://…:8080/x`, which goes nowhere on kind, where HTTPS is on 8443. The
   redirect route names its port (443 in the component, the kind host port in the overlay).
+- **Envoy Gateway runs a Gateway's proxy in its own namespace, `envoy-gateway-system`, not the
+  Gateway's.** A network policy admitting `ankka-gateway` admits no pod that routes anything: the
+  route and its `BackendTLSPolicy` were both `Accepted` and `ResolvedRefs`, and every request was a
+  503 `remote_connection_failure … Connection_refused` from Envoy — k3s's policy enforcement
+  *rejects*, so a dropped connection reads as a closed port. The HTTP policies (operator-rendered
+  and the control plane's) name the proxy pods by `gateway.envoyproxy.io/owning-gateway-{name,
+  namespace}` in `envoy-gateway-system`.
 - **A route can be `Accepted` and still not serve.** A backend in another namespace is
   `ResolvedRefs: False / RefNotPermitted` and Envoy answers 500 for it; an unlabelled namespace is
   `Accepted: False / NotAllowedByListeners` and gets a 404. The resource's `status.route` folds

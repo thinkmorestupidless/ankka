@@ -80,17 +80,38 @@ class CnpgModelsSuite extends munit.FunSuite:
     assertEquals(PostgresDatabase.identity.crdName, "databases.postgresql.cnpg.io")
   }
 
-  test("a DatabaseRole spec round-trips") {
-    val spec = DatabaseRoleSpec(
+  test("a DatabaseRole spec round-trips, the pre-certificate shape and today's") {
+    val old = DatabaseRoleSpec(
       name = "cart",
       cluster = ClusterRef("ankka-db"),
       login = true,
-      passwordSecret = PasswordSecretRef("cart-db")
+      passwordSecret = Some(PasswordSecretRef("cart-db"))
     )
-    assertEquals(
-      serialization.unmarshal(serialization.asJson(spec), classOf[DatabaseRoleSpec]),
-      spec
+    val current = DatabaseRoleSpec(
+      name = "cart",
+      cluster = ClusterRef("ankka-db"),
+      login = true,
+      disablePassword = Some(true),
+      inRoles = Vector("ankka_tls")
     )
+    for spec <- Vector(old, current) do
+      assertEquals(
+        serialization.unmarshal(serialization.asJson(spec), classOf[DatabaseRoleSpec]),
+        spec
+      )
+    // An absent password secret is absent on the wire, not an empty name CNPG would go looking for.
+    assert(!serialization.asJson(current).contains("passwordSecret"), serialization.asJson(current))
+  }
+
+  test("a Cluster spec with the TLS fields round-trips, and pg_hba keeps CNPG's field name") {
+    val spec = ClusterSpec(
+      certificates = Some(CertificatesSpec("ankka-db-client-ca", "ankka-db-replication")),
+      postgresql = Some(PostgresqlSpec(Vector("hostssl all +ankka_tls all cert"))),
+      managed = Some(ManagedSpec(Vector(ManagedRole("ankka_tls"))))
+    )
+    val json = serialization.asJson(spec)
+    assert(json.contains("\"pg_hba\""), json)
+    assertEquals(serialization.unmarshal(json, classOf[ClusterSpec]), spec)
   }
 
   test("DatabaseRole defaults to retain, never delete") {

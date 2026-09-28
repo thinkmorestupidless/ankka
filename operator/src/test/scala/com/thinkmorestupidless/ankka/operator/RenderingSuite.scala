@@ -39,7 +39,7 @@ class RenderingSuite extends munit.FunSuite:
   )
 
   private def deploymentFor(s: AnkkaServiceSpec, uid: String = "uid-1") =
-    Rendering.render(resource(s, uid), settings, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(s, uid), settings, ProvisioningPlan.Supplied) match
       case Right(actions) =>
         actions
           .collectFirst { case Action.ApplyDeployment(d) => d }
@@ -48,7 +48,7 @@ class RenderingSuite extends munit.FunSuite:
 
   test("a namespace is ensured before the workload that goes in it") {
     val Right(actions) =
-      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     assertEquals(actions.head, Action.EnsureNamespace("ankka-checkout"))
   }
 
@@ -111,14 +111,18 @@ class RenderingSuite extends munit.FunSuite:
 
   test("no autoscaler is rendered — the maximum and the CPU target stay carried and unhonoured") {
     val Right(actions) =
-      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     // Stated as what it means rather than as a count: nothing is rendered beyond the namespace,
-    // the identity, the Deployment and the service's address. An autoscaler would be another
-    // kind of thing — and scaling a sharded cluster on a load signal needs draining proven first.
+    // the identity, the certificates and policies zero trust needs, the Deployment and the
+    // service's address. An autoscaler would be another kind of thing — and scaling a sharded
+    // cluster on a load signal needs draining proven first.
     val unexpected = actions.filterNot {
       case _: Action.EnsureNamespace | _: Action.ApplyDeployment | _: Action.EnsureService |
           _: Action.RemoveService | _: Action.EnsureServiceAccount | _: Action.EnsureRole |
-          _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute =>
+          _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute |
+          _: Action.EnsureCertificate | _: Action.EnsureNetworkPolicy |
+          _: Action.RemoveNetworkPolicy | _: Action.EnsureBackendTlsPolicy |
+          _: Action.RemoveBackendTlsPolicy =>
         true
       case _ => false
     }
@@ -211,8 +215,7 @@ class RenderingSuite extends munit.FunSuite:
     val bad = Rendering.render(
       resource(spec.copy(projectId = "Not_A_Label")),
       settings,
-      ProvisioningPlan.Supplied,
-      "unused"
+      ProvisioningPlan.Supplied
     )
     assert(bad.isLeft)
     assert(bad.left.exists(_.exists(_.contains("DNS label"))), s"got: $bad")
@@ -222,8 +225,7 @@ class RenderingSuite extends munit.FunSuite:
     val bad = Rendering.render(
       resource(spec.copy(projectId = "a" * 60)),
       settings,
-      ProvisioningPlan.Supplied,
-      "unused"
+      ProvisioningPlan.Supplied
     )
     assert(bad.left.exists(_.exists(_.contains("over the 63"))), s"got: $bad")
   }
@@ -232,8 +234,7 @@ class RenderingSuite extends munit.FunSuite:
     val bad = Rendering.render(
       resource(spec.copy(projectId = "BAD", serviceName = "", image = "")),
       settings,
-      ProvisioningPlan.Supplied,
-      "unused"
+      ProvisioningPlan.Supplied
     )
     assertEquals(bad.left.map(_.size), Left(3))
   }
@@ -267,16 +268,22 @@ class RenderingSuite extends munit.FunSuite:
 
   // --- Cluster membership (feature 004): readiness, ports, identity, environment
 
-  test("readiness is cluster membership: httpGet /ready on the management port, HTTP or not") {
+  test("readiness is cluster membership: httpGet /ready on the probe port, HTTP or not") {
     // Replaces feature 003's tcpSocket on the HTTP port, which could not exist for a service that
     // serves no HTTP — so such a service was Ready the moment its container ran. Every service is
     // a cluster member, so every service now has a meaningful Ready. Cluster Bootstrap registers
     // the membership check itself; ankka adds "HTTP is bound" for services that declare a port.
+    // On the port named `probe` since feature 014: management requires the service's certificate,
+    // which the kubelet does not hold, so the same checks answer on a plain listener of their own.
     for s <- Vector(spec.copy(port = Some(8080)), spec.copy(port = None)) do
       val probe = containerOf(s).getReadinessProbe
       assert(probe != null, s"no probe for port=${s.port}")
       assertEquals(probe.getHttpGet.getPath, "/ready")
-      assertEquals(probe.getHttpGet.getPort.getStrVal, "management")
+      assertEquals(probe.getHttpGet.getPort.getStrVal, "probe")
+      assertEquals(
+        containerOf(s).getPorts.asScala.find(_.getName == "probe").map(_.getContainerPort.intValue),
+        Some(7627)
+      )
       assertEquals(probe.getTcpSocket, null)
       assertEquals(probe.getPeriodSeconds.intValue, 5)
   }
@@ -314,7 +321,8 @@ class RenderingSuite extends munit.FunSuite:
     val templateLabels = d.getSpec.getTemplate.getMetadata.getLabels.asScala
     val expected =
       (d.getSpec.getSelector.getMatchLabels.asScala.toMap +
-        (Labels.FormationKey -> Labels.FormationBootstrap)).toSeq.sorted
+        (Labels.FormationKey -> Labels.FormationBootstrap) +
+        (Labels.TransportKey -> Labels.TransportTls)).toSeq.sorted
         .map((k, v) => s"$k=$v")
         .mkString(",")
     assertEquals(value("ANKKA_CLUSTER_POD_SELECTOR"), Some(expected))
@@ -400,7 +408,7 @@ class RenderingSuite extends munit.FunSuite:
   private val exposing = settings.copy(baseDomain = Some("example.test"))
 
   private def routeActionFor(s: AnkkaServiceSpec, settings: Settings = exposing) =
-    Rendering.render(resource(s, "uid-1"), settings, ProvisioningPlan.Supplied, "unused") match
+    Rendering.render(resource(s, "uid-1"), settings, ProvisioningPlan.Supplied) match
       case Right(actions) =>
         actions
           .collectFirst {
@@ -457,9 +465,9 @@ class RenderingSuite extends munit.FunSuite:
   test("an unexposed service's other objects are untouched by this feature") {
     // SC-009: nothing changes for a service that was never exposed.
     val Right(before) =
-      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     val Right(after) =
-      Rendering.render(resource(spec), exposing, ProvisioningPlan.Supplied, "unused"): @unchecked
+      Rendering.render(resource(spec), exposing, ProvisioningPlan.Supplied): @unchecked
     assertEquals(before, after)
     assertEquals(routeActionFor(spec, settings), routeActionFor(spec, exposing))
   }
@@ -488,8 +496,7 @@ class RenderingSuite extends munit.FunSuite:
       Rendering.render(
         resource(spec.copy(imagePullSecret = Some("ankka-registry"), provisionDatabase = true)),
         settings,
-        ProvisioningPlan.Ready(recovered = false),
-        "pw"
+        ProvisioningPlan.Ready(recovered = false)
       ) match
         case Right(actions) =>
           actions

@@ -84,7 +84,43 @@ object TokenVerifier:
 
   /** A verifier over the configured JWKS URL, with production cache settings. */
   def remote(config: AuthConfig): TokenVerifier =
-    new TokenVerifier(config, keySource(config.jwksUrl, minTimeBetweenFetches = 30.seconds))
+    new TokenVerifier(
+      config,
+      keySource(config.jwksUrl, minTimeBetweenFetches = 30.seconds, trusting = config.jwksCa)
+    )
+
+  /**
+   * How keys are fetched: over TLS verified against `trusting` alone when it names a root — the
+   * installation's service authority, which issued the identity provider's in-cluster certificate —
+   * and the JVM's trust store otherwise (feature 014). The timeouts and size limit are nimbus's own
+   * defaults, stated because this constructor requires them.
+   */
+  private def retriever(trusting: Option[String]): com.nimbusds.jose.util.ResourceRetriever =
+    val socketFactory = trusting.map { path =>
+      val certificates = java.security.cert.CertificateFactory
+        .getInstance("X.509")
+        .generateCertificates(java.nio.file.Files.newInputStream(java.nio.file.Paths.get(path)))
+      val store = java.security.KeyStore.getInstance("PKCS12")
+      store.load(null, null)
+      var i = 0
+      certificates.forEach { c =>
+        store.setCertificateEntry(s"ca-$i", c)
+        i += 1
+      }
+      val trust = javax.net.ssl.TrustManagerFactory
+        .getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm)
+      trust.init(store)
+      val context = javax.net.ssl.SSLContext.getInstance("TLS")
+      context.init(null, trust.getTrustManagers, null)
+      context.getSocketFactory
+    }
+    new com.nimbusds.jose.util.DefaultResourceRetriever(
+      com.nimbusds.jose.jwk.source.JWKSourceBuilder.DEFAULT_HTTP_CONNECT_TIMEOUT,
+      com.nimbusds.jose.jwk.source.JWKSourceBuilder.DEFAULT_HTTP_READ_TIMEOUT,
+      com.nimbusds.jose.jwk.source.JWKSourceBuilder.DEFAULT_HTTP_SIZE_LIMIT,
+      true,
+      socketFactory.orNull
+    )
 
   /**
    * A cached, rate-limited, outage-tolerant remote key set.
@@ -95,10 +131,11 @@ object TokenVerifier:
    */
   def keySource(
       jwksUrl: String,
-      minTimeBetweenFetches: FiniteDuration
+      minTimeBetweenFetches: FiniteDuration,
+      trusting: Option[String] = None
   ): JWKSource[SecurityContext] =
     JWKSourceBuilder
-      .create[SecurityContext](new URL(jwksUrl))
+      .create[SecurityContext](new URL(jwksUrl), retriever(trusting))
       .cache(5.minutes.toMillis, 15.seconds.toMillis)
       .rateLimited(minTimeBetweenFetches.toMillis)
       .outageTolerant(1.hour.toMillis)

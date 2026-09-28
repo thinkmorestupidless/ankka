@@ -15,7 +15,7 @@ import { Agent, type AgentClass } from "./agent.ts"
 import { Endpoint, type EndpointClass } from "./endpoint.ts"
 import type { GuardrailRef, HandlerRef, ToolRef } from "./handlers.ts"
 import type { RouteRef, Acl } from "./routes.ts"
-import { Acl as AclValues } from "./routes.ts"
+import { isAcl } from "./routes.ts"
 import { ComponentClient, type ComponentRef } from "./client.ts"
 import type { ComponentKind } from "./kinds.ts"
 import type { WorkflowSettings } from "./effects/workflow.ts"
@@ -463,8 +463,8 @@ function registerEndpoint(cls: EndpointClass<any>, problems: string[]): Register
   if (typeof cls.prefix !== "string" || !cls.prefix.startsWith("/") || (cls.prefix.length > 1 && cls.prefix.endsWith("/"))) {
     fail(`needs a static prefix starting with "/" and not ending with one, not ${JSON.stringify(cls.prefix)}`)
   }
-  if (!Object.values(AclValues).includes(cls.acl as Acl)) {
-    fail(`needs a static acl — Acl.allowAll, Acl.denyAll or Acl.authenticated. An unstated access rule is a decision nobody made`)
+  if (!isAcl(cls.acl)) {
+    fail(`needs a static acl — Acl.allowAll, Acl.denyAll, Acl.authenticated or Acl.allowCallers(...). An unstated access rule is a decision nobody made`)
   }
   const routes = new Map<string, RouteRef<any, any, any, any>>()
   const seen = new Map<string, string>()
@@ -481,7 +481,7 @@ function registerEndpoint(cls: EndpointClass<any>, problems: string[]): Register
       const other = seen.get(key)
       if (other) fail(`routes ${other} and ${id} both declare ${key}`)
       seen.set(key, id)
-      if (r.acl !== undefined && !Object.values(AclValues).includes(r.acl)) fail(`routes.${id}: unknown acl ${JSON.stringify(r.acl)}`)
+      if (r.acl !== undefined && !isAcl(r.acl)) fail(`routes.${id}: unknown acl ${JSON.stringify(r.acl)}`)
       routes.set(id, r)
     }
   }

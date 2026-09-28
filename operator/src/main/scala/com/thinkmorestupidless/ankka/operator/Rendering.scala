@@ -129,16 +129,11 @@ object Rendering:
    * @param databasePlan
    *   already decided by the caller (`ServiceReconciler`, from `Provisioning.decide`) — `render`
    *   stays a pure function of its arguments and never reads the cluster itself.
-   * @param newPassword
-   *   by-name, so `Passwords.generate()` is only ever evaluated when `databasePlan` actually needs
-   *   fresh credentials. `render` still performs no I/O of its own; the randomness lives in the
-   *   caller's argument expression, not in this function's body.
    */
   def render(
       resource: AnkkaService,
       settings: Settings,
-      databasePlan: ProvisioningPlan,
-      newPassword: => String
+      databasePlan: ProvisioningPlan
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -155,14 +150,69 @@ object Rendering:
     else
       Right(
         (Action.EnsureNamespace(namespace) +:
-          databaseActions(spec, namespace, settings, databasePlan, newPassword)) ++
-          identityActions(resource, spec, namespace) :+
+          databaseActions(resource, spec, namespace, settings, databasePlan)) ++
+          identityActions(resource, spec, namespace) ++
+          zeroTrustActions(resource, spec, namespace) :+
           Action.ApplyDeployment(
-            deployment(resource, spec, namespace, databasePlan, settings.sidecarImage)
+            deployment(
+              resource,
+              spec,
+              namespace,
+              databasePlan,
+              settings.sidecarImage,
+              settings.namespacePrefix
+            )
           ) :+
           addressAction(resource, spec, namespace) :+
-          routeAction(resource, spec, namespace, settings.baseDomain)
+          routeAction(resource, spec, namespace, settings.baseDomain) :+
+          backendTlsAction(resource, spec, namespace, settings.baseDomain)
       )
+
+  /**
+   * The certificates a service's pods mount and the policies that decide who may connect to them
+   * (feature 014) — before the Deployment, so the Secrets exist by the time a pod asks the kubelet
+   * for them. A pod scheduled first waits on its volume and starts once cert-manager has issued.
+   */
+  private def zeroTrustActions(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): Vector[Action] =
+    val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    // The service certificate always, not only with a port: it is the identity the service calls
+    // others with, and the runtime's HTTP server starts in every ankka service, exposed or not.
+    Vector(
+      Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
+      Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
+      Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
+    ) ++ (spec.port match
+      case Some(port) =>
+        Vector(Action.EnsureNetworkPolicy(ZeroTrust.httpPolicy(resource, spec, namespace, port)))
+      case None =>
+        Vector(
+          Action
+            .RemoveNetworkPolicy(namespace, ZeroTrust.httpPolicyName(spec.serviceName), ownerUid)
+        ))
+
+  /**
+   * Beside the route, with the same three conditions: the gateway reaches an exposed service over
+   * TLS.
+   */
+  private def backendTlsAction(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      baseDomain: Option[String]
+  ): Action =
+    (spec.exposed, spec.port, baseDomain) match
+      case (true, Some(_), Some(_)) =>
+        Action.EnsureBackendTlsPolicy(ZeroTrust.backendTlsPolicy(resource, spec, namespace))
+      case _ =>
+        Action.RemoveBackendTlsPolicy(
+          namespace,
+          spec.serviceName,
+          Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+        )
 
   /**
    * The identity a service's pods run as, and the one thing it may do: read the pods of its own
@@ -373,47 +423,59 @@ object Rendering:
   /** What the runtime reads its port from — `modules/http`'s `reference.conf`. */
   private val PortEnvVar = "ANKKA_HTTP_PORT"
 
-  /** The CNPG objects this pass needs to ensure, ahead of the Deployment that depends on them. */
+  /**
+   * The CNPG objects this pass needs to ensure, ahead of the Deployment that depends on them.
+   *
+   * Since feature 014 every provisioned pass also ensures the project's database authority, the
+   * cluster's TLS fields and the service's client certificate: a project or service provisioned
+   * before certificates must gain them, and an unchanged server-side apply changes nothing. The
+   * credential Secret, the role and the database keep their own rule — written only when needed —
+   * except that a role still holding a password is re-applied without one, once.
+   */
   private def databaseActions(
+      resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
       settings: Settings,
-      plan: ProvisioningPlan,
-      newPassword: => String
-  ): Vector[Action] = plan match
-    case ProvisioningPlan.Supplied => Vector.empty
-    case ProvisioningPlan.Waiting(needsCluster, needsCredentials, needsRole, needsDatabase, _) =>
-      Vector(
-        Option.when(needsCluster)(
-          Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings))
-        ),
-        Option.when(needsCredentials)(
-          Action.EnsureCredentials(
-            CnpgRendering.credentialSecret(
-              spec,
-              namespace,
-              CnpgRendering.projectClusterName,
-              newPassword
+      plan: ProvisioningPlan
+  ): Vector[Action] =
+    def tls: Vector[Action] =
+      CnpgRendering.projectAuthority(namespace).map {
+        case issuer if issuer.getKind == "Issuer" => Action.EnsureIssuer(issuer)
+        case certificate                          => Action.EnsureCertificate(certificate)
+      } ++ Vector(
+        Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings)),
+        Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
+        Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
+      )
+    plan match
+      case ProvisioningPlan.Supplied => Vector.empty
+      case ProvisioningPlan.Waiting(_, needsCredentials, needsRole, needsDatabase, _) =>
+        tls ++ Vector(
+          Option.when(needsCredentials)(
+            Action.EnsureCredentials(
+              CnpgRendering.credentialSecret(spec, namespace, CnpgRendering.projectClusterName)
             )
-          )
-        ),
-        Option.when(needsRole)(
-          Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
-        ),
-        Option.when(needsDatabase)(
-          Action.EnsureDatabase(CnpgRendering.database(spec, namespace))
-        ),
-        Some(Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace)))
-      ).flatten
-    case ProvisioningPlan.Ready(_) =>
-      // A deliberate, narrow exception to "steady state writes nothing" (contracts/schema-init.md):
-      // the schema ConfigMap is kept current on every pass so a schema change reaches an
-      // existing project namespace automatically, rather than sitting unapplied until some other
-      // event happens to trigger a reconcile. This does cost one small, idempotent write per
-      // project's active reconciles — never a credential, a role or a database, which is what
-      // the idempotence tests (SC-010) actually assert zero writes on.
-      Vector(Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace)))
-    case ProvisioningPlan.Failed(_) => Vector.empty
+          ),
+          Option.when(needsRole)(
+            Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
+          ),
+          Option.when(needsDatabase)(
+            Action.EnsureDatabase(CnpgRendering.database(spec, namespace))
+          ),
+          Some(Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace)))
+        ).flatten
+      case ProvisioningPlan.Ready(_, migrateRole) =>
+        // A deliberate, narrow exception to "steady state writes nothing" (contracts/schema-init.md):
+        // the schema ConfigMap is kept current on every pass so a schema change reaches an
+        // existing project namespace automatically. Never a credential or a database; a role only
+        // for the one migration to certificates.
+        tls ++
+          Option.when(migrateRole)(
+            Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
+          ) :+
+          Action.EnsureSchemaConfig(CnpgRendering.schemaConfigMap(namespace))
+      case ProvisioningPlan.Failed(_) => Vector.empty
 
   /** Exposed so tests can assert on the object rather than on an action wrapper. */
   def deployment(
@@ -421,7 +483,8 @@ object Rendering:
       spec: AnkkaServiceSpec,
       namespace: String,
       databasePlan: ProvisioningPlan = ProvisioningPlan.Supplied,
-      sidecarImage: String = Settings.default.sidecarImage
+      sidecarImage: String = Settings.default.sidecarImage,
+      namespacePrefix: String = Settings.default.namespacePrefix
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -431,7 +494,9 @@ object Rendering:
     // its own connection details, so there is no schema to establish and no credential to mount.
     val provisioned = databasePlan != ProvisioningPlan.Supplied
 
-    val containers = containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage)
+    val containers =
+      containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage, namespacePrefix)
+    val tlsVolumes = ZeroTrust.volumes(spec, provisioned, CnpgRendering.projectClusterName)
 
     // The pull secret is *named*, never read. The Secret itself is the control plane's to write in
     // the project's namespace from the credential a member supplied, and the operator holds no
@@ -454,19 +519,30 @@ object Rendering:
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
             .withInitContainers(SchemaInit.container(spec.serviceName))
             .withContainers(containers*)
-            .withVolumes(SchemaInit.volume())
+            .withVolumes((SchemaInit.volume() +: tlsVolumes)*)
+            // The database key is mounted readable by this group and nobody else, which is what
+            // libpq (in schema-init) insists on and what a non-root runtime can still read.
+            .withSecurityContext(
+              new io.fabric8.kubernetes.api.model.PodSecurityContextBuilder()
+                .withFsGroup(ZeroTrust.Database.FsGroup)
+                .build()
+            )
         ).build()
       else
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
             .withContainers(containers*)
+            .withVolumes(tlsVolumes*)
         ).build()
 
     val podTemplate = new PodTemplateSpecBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
-          .withLabels((labels + (Labels.FormationKey -> Labels.FormationBootstrap)).asJava)
+          .withLabels(
+            (labels + (Labels.FormationKey -> Labels.FormationBootstrap) +
+              (Labels.TransportKey         -> Labels.TransportTls)).asJava
+          )
           // The restart count on the *pod template* is what makes a restart roll the pods: it
           // changes, the template changes, Kubernetes replaces them. NOT the generation, which is
           // on the Deployment's own metadata (where status reads it) — feature 001 put it here,
@@ -531,9 +607,11 @@ object Rendering:
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
-      sidecarImage: String
+      sidecarImage: String,
+      namespacePrefix: String
   ): Vector[Container] =
-    if spec.hosting != ProcessHosting then Vector(container(spec, identity, withDatabaseEnv))
+    if spec.hosting != ProcessHosting then
+      Vector(container(spec, identity, withDatabaseEnv, namespacePrefix = namespacePrefix))
     else
       // A descriptor's variables are split: a model's key and configuration belong to the sidecar,
       // which runs the agent loop; everything else is the process's. By prefix, as
@@ -548,7 +626,11 @@ object Rendering:
         extraEnv = Vector(
           literal("ANKKA_PROCESS_ADDRESS", s"127.0.0.1:$ProcessPort"),
           literal("ANKKA_SIDECAR_PORT", SidecarPort.toString)
-        )
+        ),
+        namespacePrefix = namespacePrefix,
+        // The sidecar is the node: it holds every identity. The process beside it speaks only to
+        // the sidecar, over the pod's loopback, and needs none.
+        mountsFor = Some(spec)
       )
       val app = new ContainerBuilder()
         .withName(Names.container(spec.serviceName) + "-app")
@@ -582,8 +664,13 @@ object Rendering:
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
-      extraEnv: Vector[EnvVar] = Vector.empty
+      extraEnv: Vector[EnvVar] = Vector.empty,
+      namespacePrefix: String,
+      mountsFor: Option[AnkkaServiceSpec] = None
   ): Container =
+    // For a sidecar the image and env are the sidecar's, but the identities mounted are the
+    // service's own — its port decides whether it has a service certificate.
+    val owner = mountsFor.getOrElse(spec)
     // Requests equal limits. The descriptor models one size, and inventing a ratio between
     // request and limit would be a scheduling policy nobody asked for.
     val quantities = Map(
@@ -640,7 +727,10 @@ object Rendering:
       // Identity plus the formation label: a pod from a template that predates cluster formation
       // must not be a contact point, or bootstrap waits on it forever (see Labels.FormationKey).
       literal("ANKKA_CLUSTER_POD_SELECTOR", contactPointSelector(identity)),
-      literal("ANKKA_CLUSTER_CONTACT_POINTS", requiredContactPoints(spec).toString)
+      literal("ANKKA_CLUSTER_CONTACT_POINTS", requiredContactPoints(spec).toString),
+      // How a project id becomes a namespace, so a service can address another by name (feature
+      // 014). The platform's, like the variables above; a descriptor that sets it is refused.
+      literal("ANKKA_NAMESPACE_PREFIX", namespacePrefix)
     )
     // The management port's NAME is load-bearing: Kubernetes API discovery finds a pod's contact
     // point by looking for a container port called exactly this. Get it wrong and discovery finds
@@ -654,6 +744,11 @@ object Rendering:
       new ContainerPortBuilder()
         .withName("remoting")
         .withContainerPort(RemotingPort)
+        .withProtocol("TCP")
+        .build(),
+      new ContainerPortBuilder()
+        .withName(ZeroTrust.ProbePortName)
+        .withContainerPort(ZeroTrust.ProbePort)
         .withProtocol("TCP")
         .build()
     )
@@ -669,9 +764,13 @@ object Rendering:
       // test deployed registry.k8s.io/pause:3.9: pullable, and not :latest. Becomes a descriptor
       // field the day there is a registry and a re-pushed mutable tag has to be picked up.
       .withImagePullPolicy("IfNotPresent")
-      .withEnv((spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv)*)
+      .withEnv(
+        (spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv ++
+          (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty))*
+      )
       .withEnvFrom(envFrom*)
       .withPorts((containerPorts.toVector ++ clusterPorts)*)
+      .withVolumeMounts(ZeroTrust.mounts(owner, withDatabaseEnv)*)
       .withResources(
         new ResourceRequirementsBuilder().withRequests(quantities).withLimits(quantities).build()
       )
@@ -689,7 +788,9 @@ object Rendering:
           .withHttpGet(
             new HTTPGetActionBuilder()
               .withPath("/ready")
-              .withPort(new IntOrString("management"))
+              // `probe`, not `management`: management requires the service's own certificate, and
+              // the kubelet has none. The name is load-bearing exactly as `management` was.
+              .withPort(new IntOrString(ZeroTrust.ProbePortName))
               .build()
           )
           .withPeriodSeconds(5)
@@ -713,9 +814,14 @@ object Rendering:
       )
       .build()
 
-  /** The label selector Cluster Bootstrap discovers contact points with, `k=v,k=v`. */
+  /**
+   * The label selector Cluster Bootstrap discovers contact points with, `k=v,k=v`. The transport
+   * label too, so a TLS node never probes a plain one (and the reverse cannot arise: an old pod's
+   * selector predates the label).
+   */
   def contactPointSelector(identity: Map[String, String]): String =
-    (identity + (Labels.FormationKey -> Labels.FormationBootstrap)).toSeq.sorted
+    (identity + (Labels.FormationKey -> Labels.FormationBootstrap) +
+      (Labels.TransportKey           -> Labels.TransportTls)).toSeq.sorted
       .map((k, v) => s"$k=$v")
       .mkString(",")
 

@@ -40,6 +40,43 @@ object ServiceRegistration:
   private def fileFor(pid: Long): Path = directory.resolve(s"$pid.json")
 
   /**
+   * Where a service announced as `name` serves HTTP on this machine, asked of it now — the way the
+   * console asks — so a service that has not bound yet, or has gone, answers nothing. For
+   * `ServiceClients` outside a cluster (feature 014).
+   */
+  def httpAddressOf(name: String): Option[String] =
+    val NameField    = "\"name\":\"([^\"]*)\"".r
+    val AddressField = "\"observabilityAddress\":\"([^\"]*)\"".r
+    val HttpAddress  = "\"http\":\\{\"address\":\"([^\"]*)\"".r
+    val entries =
+      try
+        Option(directory.toFile.listFiles()).toVector.flatten
+          .filter(_.getName.endsWith(".json"))
+          .flatMap(f => scala.util.Try(Files.readString(f.toPath)).toOption)
+      catch case _: Throwable => Vector.empty
+    entries.iterator
+      .filter(json => NameField.findFirstMatchIn(json).exists(_.group(1) == name))
+      .flatMap(json => AddressField.findFirstMatchIn(json).map(_.group(1)))
+      .flatMap { observability =>
+        scala.util
+          .Try {
+            val response = java.net.http.HttpClient
+              .newHttpClient()
+              .send(
+                java.net.http.HttpRequest
+                  .newBuilder(java.net.URI(s"$observability/observability/service"))
+                  .timeout(java.time.Duration.ofSeconds(2))
+                  .build(),
+                java.net.http.HttpResponse.BodyHandlers.ofString()
+              )
+            HttpAddress.findFirstMatchIn(response.body).map(_.group(1))
+          }
+          .toOption
+          .flatten
+      }
+      .nextOption()
+
+  /**
    * Announces this process, returning the file written so it can be removed later.
    *
    * Failure to write is not failure to start: a service whose console registration fails is a

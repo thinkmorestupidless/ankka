@@ -118,9 +118,15 @@ class ProtocolSuite extends munit.FunSuite:
       val refused = Discovery.discover(channel, settings(), "test")
       assert(refused.isLeft)
       val message = refused.left.toOption.get.mkString("\n")
-      assert(message.contains("99.0") && message.contains("1.0"), message)
+      assert(message.contains("99.0") && message.contains(Discovery.ProtocolVersion), message)
       assertEquals(double.problems.size, 1)
     }
+  }
+
+  test("discovery: an SDK on an earlier minor is admitted, since a minor only adds") {
+    // The double declares 1.0; the sidecar speaks 1.1, which added the caller.
+    assertEquals(spec.protocolVersion, "1.0")
+    withDouble(spec)((double, _, _) => assert(Discovery.validate(double.toSpec).isRight))
   }
 
   test(

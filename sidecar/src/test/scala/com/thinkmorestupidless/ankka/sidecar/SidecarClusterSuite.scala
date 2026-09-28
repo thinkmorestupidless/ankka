@@ -88,6 +88,8 @@ class SidecarClusterSuite extends munit.FunSuite:
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
       k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      // The installation's authorities: the sidecar's certificates come from them.
+      com.thinkmorestupidless.ankka.operator.PkiStack.install(k3s, k8s)
       waitFor(60.seconds)(
         k8s
           .apiextensions()
@@ -237,25 +239,25 @@ spec:
       .map(_.intValue)
       .getOrElse(0)
 
+  /**
+   * From inside a ready pod's sidecar — which holds the service's certificate, as every port is
+   * mutual TLS and admits only workloads with a platform identity — to the Service's name, so the
+   * request still takes Service → endpoints → pod. 0 for a 2xx, as `wget` answered.
+   */
+  /** See `InPod.prober`: the one place requests are made from, whatever the service's pods do. */
+  private lazy val prober: String =
+    com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service)
+
   private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
-    val service = k8s.services().inNamespace(Namespace).withName(Service).get()
-    val target =
-      s"http://${service.getSpec.getClusterIP}:${service.getSpec.getPorts.get(0).getPort}$path"
-    val command = post match
-      case None => Seq("wget", "-qO-", "-T", "5", target)
-      case Some(body) =>
-        Seq(
-          "wget",
-          "-qO-",
-          "-T",
-          "5",
-          "--header",
-          "Content-Type: application/json",
-          "--post-data",
-          body,
-          target
-        )
-    nodeExec(command*)
+    val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$Service.$Namespace.svc.cluster.local:9000$path",
+      method = if post.isDefined then "POST" else "GET",
+      body = post
+    )
+    (if code / 100 == 2 then 0 else 1, s"$code $body")
 
   // ── the story ─────────────────────────────────────────────────────────────
 
@@ -386,6 +388,9 @@ spec:
       "-n",
       Namespace,
       "--image=busybox:1.36",
+      // A platform workload's label, so the network admits it to the HTTP port: what is proved
+      // below is that the loopback protocol ports stay closed even to a pod the network admits.
+      "--labels=app.kubernetes.io/managed-by=ankka",
       "--restart=Never",
       "--",
       "sleep",

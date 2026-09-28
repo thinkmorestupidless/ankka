@@ -199,10 +199,11 @@ See [Agents](../build/agents.md).
 | Part | API |
 |---|---|
 | Base class | `Endpoint` |
-| Statics | `prefix`, `acl` (required: `Acl.allowAll`, `Acl.denyAll` or `Acl.authenticated`), `routes` |
+| Statics | `prefix`, `acl` (required: `Acl.allowAll`, `Acl.denyAll`, `Acl.authenticated` or `Acl.allowCallers(...)`), `routes` |
 | Declarations | `get(template, reply, run, options?)`, `post`/`put`/`patch`/`del(template, body?, reply, run, options?)`, `sse(template, run, options?)`; `options` may carry `acl` for that route alone and `params` schemas narrowing path parameters |
 | Handlers | `(self, req, body) => reply`, sync or `async`; `req.params` is typed from the template; the return value is encoded with the reply shape, `done` or `undefined` answers 204 |
-| In a handler | `this.request`: `params`, `query.get`/`getAll`, `headers.get`, `principal`, `metadata`; `this.client`, scoped to the request |
+| Callers | `Callers.internet`, `Callers.service(name, { project })`, `Callers.anyInProject`, `Callers.self` |
+| In a handler | `this.request`: `params`, `query.get`/`getAll`, `headers.get`, `principal`, `metadata`, `caller` (`{ kind: "gateway" }`, `{ kind: "service", project, name }` or `{ kind: "local" }`); `this.client`, scoped to the request |
 | Errors | `throw new HttpProblem(status, message)`; a `CommandError` from a call answers with its code's status |
 
 The process never binds an HTTP port: the sidecar serves the routes and forwards each request. `acl` is

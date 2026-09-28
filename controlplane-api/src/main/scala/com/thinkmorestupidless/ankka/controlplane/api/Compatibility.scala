@@ -44,7 +44,10 @@ object ProtocolVersion:
  * the sidecar's `Discovery.ProtocolVersion` is the same string.
  */
 object Protocol:
-  val version: ProtocolVersion = ProtocolVersion(1, 0)
+  /**
+   * 1.1 added the caller to forwarded requests and caller-naming ACLs to discovery (feature 014).
+   */
+  val version: ProtocolVersion = ProtocolVersion(1, 1)
 
 object Compatibility:
 
@@ -55,10 +58,35 @@ object Compatibility:
   def describeProtocol(platform: ProtocolVersion): String =
     s"protocols ${platform.major}.0–${platform.major}.${platform.minor} (platform $platform)"
 
+  /**
+   * The oldest runtime that speaks mutual TLS (feature 014). A runtime below it cannot form a
+   * cluster with the certificates the operator mounts, nor be reached by the gateway, so the "one
+   * minor below" rule does not reach across it.
+   *
+   * Applied only once the platform is itself at or past it: until the release that introduces it is
+   * tagged, the platform's own builds are versioned below it, and a floor they could not meet would
+   * refuse every image built from the same commit.
+   */
+  val MinimumRuntime: Version = Version(0, 8, 0)
+
+  private def atLeast(v: Version, floor: Version): Boolean =
+    Ordering[(Int, Int, Int)]
+      .gteq((v.major, v.minor, v.patch), (floor.major, floor.minor, floor.patch))
+
   def supports(platform: Version, runtime: Version): Boolean =
     runtime.major == platform.major &&
       runtime.minor <= platform.minor &&
-      runtime.minor >= platform.minor - 1
+      runtime.minor >= platform.minor - 1 &&
+      (!atLeast(platform, MinimumRuntime) || atLeast(runtime, MinimumRuntime))
+
+  /**
+   * Why `runtime` is refused, as a detail a person can act on: the floor when it is the floor that
+   * refuses, the range otherwise.
+   */
+  def refusal(platform: Version, runtime: Version): String =
+    if atLeast(platform, MinimumRuntime) && !atLeast(runtime, MinimumRuntime) then
+      s"runtime $runtime predates mutual TLS; this platform requires $MinimumRuntime or later"
+    else s"runtime $runtime is outside the platform's supported range: ${describe(platform)}"
 
   /** The supported range as a phrase, for a refusal and for the README. */
   def describe(platform: Version): String =

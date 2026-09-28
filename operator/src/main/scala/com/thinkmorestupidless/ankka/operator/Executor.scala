@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.operator
 
-import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute
+import io.fabric8.kubernetes.api.model.gatewayapi.v1.{BackendTLSPolicy, HTTPRoute}
 import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder}
 import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientException}
 import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceStatus}
@@ -53,6 +53,22 @@ trait Executor:
    * When the `AnkkaService` resource's current incarnation was created — for the recovered check.
    */
   def resourceCreatedAt(namespace: String, name: String): Option[Instant]
+
+  /**
+   * The labels on an ankka-owned Deployment's pod template, or None when there is no such
+   * Deployment.
+   */
+  def podTemplateLabels(namespace: String, name: String): Option[Map[String, String]]
+
+  /**
+   * Waits, up to `timeout`, until no pod matches `selector`; true once none does. For the one
+   * transition that must not overlap old pods with new ones.
+   */
+  def awaitNoPods(
+      namespace: String,
+      selector: Map[String, String],
+      timeout: scala.concurrent.duration.FiniteDuration
+  ): Boolean
 
 /**
  * The only thing in the operator that touches the cluster.
@@ -246,6 +262,54 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
         database.getMetadata.getName
       )
 
+    case Action.EnsureCertificate(certificate) =>
+      val _ =
+        client.resource(certificate).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured certificate {}/{}",
+        certificate.getMetadata.getNamespace,
+        certificate.getMetadata.getName
+      )
+
+    case Action.EnsureIssuer(issuer) =>
+      val _ = client.resource(issuer).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug("ensured {} {}", issuer.getKind, issuer.getMetadata.getName)
+
+    case Action.EnsureNetworkPolicy(policy) =>
+      val _ = client.resource(policy).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured networkpolicy {}/{}",
+        policy.getMetadata.getNamespace,
+        policy.getMetadata.getName
+      )
+
+    case Action.RemoveNetworkPolicy(namespace, name, ownerUid) =>
+      val policies = client.network().v1().networkPolicies().inNamespace(namespace).withName(name)
+      val existing = Option(policies.get())
+      if existing.exists(p => ownedBy(p.getMetadata, ownerUid)) then
+        val _ = policies.delete()
+        log.debug("removed networkpolicy {}/{}", namespace, name)
+
+    case Action.EnsureBackendTlsPolicy(policy) =>
+      val _ = client.resource(policy).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured backendtlspolicy {}/{}",
+        policy.getMetadata.getNamespace,
+        policy.getMetadata.getName
+      )
+
+    case Action.RemoveBackendTlsPolicy(namespace, name, ownerUid) =>
+      // Absent-safe for the same reason as the route: rendered on every pass for every unexposed
+      // service, so a cluster without the Gateway API must read as "no policy", not fail.
+      val policies =
+        client.resources(classOf[BackendTLSPolicy]).inNamespace(namespace).withName(name)
+      val existing =
+        try Option(policies.get())
+        catch case e: KubernetesClientException if e.getCode == 404 => None
+      if existing.exists(p => ownedBy(p.getMetadata, ownerUid)) then
+        val _ = policies.delete()
+        log.debug("removed backendtlspolicy {}/{}", namespace, name)
+
     case Action.EnsureSchemaConfig(configMap) =>
       val _ =
         client.resource(configMap).fieldManager(FieldManager).forceConflicts().serverSideApply()
@@ -277,7 +341,7 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
       serviceName: String,
       projectId: String
   ): Vector[PodProblem] =
-    client
+    val pods = client
       .pods()
       .inNamespace(namespace)
       .withLabels(Labels.identity(projectId, serviceName).asJava)
@@ -285,7 +349,75 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
       .getItems
       .asScala
       .toVector
-      .flatMap(PodProblem.of)
+    pods.flatMap(pod => PodProblem.of(pod).orElse(fromEvents(namespace, pod)))
+
+  /**
+   * For a pod no container state explains — running and never ready, or waiting on a volume — the
+   * kubelet's own words, from its newest readiness or mount event. That is what turns "the deadline
+   * passed" into "the readiness probe was refused" or "the certificate's Secret does not exist
+   * yet".
+   */
+  private def fromEvents(
+      namespace: String,
+      pod: io.fabric8.kubernetes.api.model.Pod
+  ): Option[PodProblem] =
+    val uid = Option(pod.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    if uid.isEmpty || PodProblem.isReady(pod) then None
+    else
+      val events =
+        try
+          client
+            .v1()
+            .events()
+            .inNamespace(namespace)
+            .withField("involvedObject.uid", uid)
+            .list()
+            .getItems
+            .asScala
+            .toVector
+        catch case _: KubernetesClientException => Vector.empty
+      events
+        .filter(e => PodProblem.FromEvents.contains(Option(e.getReason).getOrElse("")))
+        .sortBy(e =>
+          Option(e.getLastTimestamp).orElse(Option(e.getEventTime).map(_.getTime)).getOrElse("")
+        )
+        .lastOption
+        .map(e =>
+          PodProblem(
+            pod = Option(pod.getMetadata).map(_.getName).getOrElse(""),
+            reason = e.getReason,
+            message = Option(e.getMessage).getOrElse("").trim
+          )
+        )
+
+  override def podTemplateLabels(namespace: String, name: String): Option[Map[String, String]] =
+    Option(client.apps().deployments().inNamespace(namespace).withName(name).get())
+      .filter(d =>
+        Labels.ownedByAnkka(Option(d.getMetadata.getLabels).getOrElse(java.util.Map.of()))
+      )
+      .map(d =>
+        Option(d.getSpec)
+          .flatMap(s => Option(s.getTemplate))
+          .flatMap(t => Option(t.getMetadata))
+          .flatMap(m => Option(m.getLabels))
+          .map(_.asScala.toMap)
+          .getOrElse(Map.empty)
+      )
+
+  override def awaitNoPods(
+      namespace: String,
+      selector: Map[String, String],
+      timeout: scala.concurrent.duration.FiniteDuration
+  ): Boolean =
+    val deadline = timeout.fromNow
+    def remaining =
+      client.pods().inNamespace(namespace).withLabels(selector.asJava).list().getItems.size
+    while remaining > 0 && deadline.hasTimeLeft() do Thread.sleep(1000)
+    remaining == 0
+
+  private def ownedBy(meta: io.fabric8.kubernetes.api.model.ObjectMeta, ownerUid: String): Boolean =
+    ownerUid.nonEmpty &&
+      Option(meta.getOwnerReferences).exists(_.asScala.exists(_.getUid == ownerUid))
 
   /** The status currently recorded on a resource, for the "has anything changed" check. */
   def recordedStatus(namespace: String, name: String): Option[AnkkaServiceStatus] =
@@ -368,7 +500,10 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
       secretExists = secret.isDefined,
       role = objectState(role.map(r => Option(r.getStatus))),
       database = objectState(database.map(d => Option(d.getStatus))),
-      secretCreatedAt = secret.flatMap(s => parseTimestamp(s.getMetadata.getCreationTimestamp))
+      secretCreatedAt = secret.flatMap(s => parseTimestamp(s.getMetadata.getCreationTimestamp)),
+      roleHasPassword = role
+        .flatMap(r => Option(r.getSpec))
+        .exists(spec => !spec.disablePassword.contains(true))
     )
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =

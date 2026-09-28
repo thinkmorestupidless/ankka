@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.http
 
 import com.thinkmorestupidless.ankka.runtime.ViewClient
-import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, ServiceClient, ServiceClients}
 
 /**
  * What an endpoint is handed when the server builds it.
@@ -15,5 +15,18 @@ import com.thinkmorestupidless.ankka.sdk.ComponentClient
  */
 final class EndpointClients private[ankka] (
     val componentClient: ComponentClient,
-    val viewClient: ViewClient
+    val viewClient: ViewClient,
+    /**
+     * Other services, called as this one (feature 014):
+     * `clients.services("orders").get[Order](...)`. In a cluster the call carries this service's
+     * certificate, so the callee's ACL knows who is calling; locally it reaches the named service
+     * on this machine.
+     */
+    val services: ServiceClients = EndpointClients.noServices
 )
+
+object EndpointClients:
+  private[ankka] val noServices: ServiceClients = new ServiceClients:
+    def apply(name: String): ServiceClient =
+      throw IllegalStateException(s"no service client is configured; cannot call '$name'")
+    def apply(project: String, name: String): ServiceClient = apply(name)

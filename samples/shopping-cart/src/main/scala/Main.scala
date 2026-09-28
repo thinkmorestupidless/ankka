@@ -1,7 +1,7 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
-import shoppingcart.api.ShoppingCartEndpoint
+import shoppingcart.api.{CallersEndpoint, ShoppingCartEndpoint}
 import shoppingcart.application.*
 
 /**
@@ -38,7 +38,12 @@ import shoppingcart.application.*
         .registerAll(AgentRuntime.descriptors)
         .withExtension(AgentRuntime.withDefaultModel(AnthropicProvider.withApiKey(key)))
     }
-    .withExtension(HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient)))
+    .withExtension(
+      HttpServer.of(
+        clients => ShoppingCartEndpoint(clients.componentClient),
+        clients => CallersEndpoint(clients.services)
+      )
+    )
     .start()
   // docs:end registration
 

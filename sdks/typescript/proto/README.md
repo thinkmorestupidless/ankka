@@ -11,7 +11,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.0`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.1`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here.
 
 `MAJOR.MINOR`. Within a major:

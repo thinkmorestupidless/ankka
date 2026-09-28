@@ -52,6 +52,16 @@ object Labels:
   val FormationKey: String       = "ankka.thinkmorestupidless.com/formation"
   val FormationBootstrap: String = "bootstrap"
 
+  /**
+   * On every pod template rendered since mutual TLS (feature 014), and in the contact-point
+   * selector beside the formation label — for the same reason: a plain-TCP node and a TLS node
+   * cannot join each other, so a new pod must never be told to probe an old one. Its absence on a
+   * running Deployment's template is how the operator knows the service needs its one non-rolling
+   * transition. Never in the Deployment's immutable `spec.selector`.
+   */
+  val TransportKey: String = "ankka.thinkmorestupidless.com/transport"
+  val TransportTls: String = "tls"
+
   /** `managed-by=ankka` alone is the ownership test. No label, not ours, never touched. */
   def ownedByAnkka(labels: Map[String, String]): Boolean =
     labels.get(ManagedByKey).contains(ManagedByAnkka)

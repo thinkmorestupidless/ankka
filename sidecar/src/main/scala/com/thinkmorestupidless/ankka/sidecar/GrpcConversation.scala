@@ -720,8 +720,17 @@ final class GrpcConversation(
           ankka.protocol.v1.endpoint
             .Principal(p.subject, p.name, p.email, p.emailVerified, p.roles.toSeq)
         ),
-        Some(toMetadata(r.metadata))
+        Some(toMetadata(r.metadata)),
+        Some(toCaller(r.caller))
       )
+    private def toCaller(c: RemoteCaller): ankka.protocol.v1.endpoint.Caller =
+      import ankka.protocol.v1.endpoint.{Caller as PbCaller, ServiceCaller}
+      import ankka.protocol.v1.payload.Empty
+      c match
+        case RemoteCaller.Gateway => PbCaller(PbCaller.Kind.Gateway(Empty()))
+        case RemoteCaller.Service(p, name) =>
+          PbCaller(PbCaller.Kind.Service(ServiceCaller(p, name)))
+        case RemoteCaller.Local => PbCaller(PbCaller.Kind.Local(Empty()))
   end Translate
 
   /**

@@ -14,12 +14,19 @@ final case class DatabaseRoleSpec(
     cluster: ClusterRef = ClusterRef(),
     login: Boolean = true,
     /**
-     * Must already exist. CNPG does not generate a password — verified (research R3): given no
-     * secret, it creates a role with no password at all. The secret must be
-     * `kubernetes.io/basic-auth` with both `username` and `password`.
+     * Rendered for roles provisioned before feature 014 only as the observation of an old role; the
+     * operator no longer renders one. CNPG does not generate a password — given no secret it
+     * creates a role with none — which is now exactly what is wanted.
      */
-    passwordSecret: PasswordSecretRef = PasswordSecretRef(),
-    databaseRoleReclaimPolicy: String = "retain"
+    passwordSecret: Option[PasswordSecretRef] = None,
+    databaseRoleReclaimPolicy: String = "retain",
+    /**
+     * Feature 014: the role has no password at all, so the only way to log in as it is the `cert`
+     * rule for `ankka_tls` members. Setting it on a pre-feature role is what retires that role's
+     * generated password.
+     */
+    disablePassword: Option[Boolean] = None,
+    inRoles: Vector[String] = Vector.empty
 )
 
 @JsonInclude(JsonInclude.Include.NON_ABSENT)

@@ -15,19 +15,85 @@ import typing
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, ClassVar, get_type_hints
 
-from ankka._proto.ankka.protocol.v1 import discovery_pb2
+from ankka._proto.ankka.protocol.v1 import discovery_pb2, payload_pb2
 from ankka.codec import Codec, Done, default_codec_for
 from ankka.context import RequestContext
 from ankka.event_sourced_entity import RegistrationError
 
 
-class Acl(Enum):
-    ALLOW_ALL = discovery_pb2.Endpoint.ALLOW_ALL
-    DENY_ALL = discovery_pb2.Endpoint.DENY_ALL
-    AUTHENTICATED = discovery_pb2.Endpoint.AUTHENTICATED
+@dataclass(frozen=True)
+class CallerMatcher:
+    """One kind of caller an ``Acl.allow_callers`` admits; build one through ``Callers``."""
+
+    kind: str  # "internet" | "service" | "any_in_project" | "self"
+    name: str | None = None
+    project: str | None = None  # None on a named service: this service's own project
+
+    def to_pb(self) -> discovery_pb2.CallerMatcher:
+        empty = payload_pb2.Empty()
+        if self.kind == "internet":
+            return discovery_pb2.CallerMatcher(internet=empty)
+        if self.kind == "any_in_project":
+            return discovery_pb2.CallerMatcher(any_in_project=empty)
+        if self.kind == "self":
+            return discovery_pb2.CallerMatcher(self=empty)
+        named = discovery_pb2.NamedService(name=self.name or "")
+        if self.project is not None:
+            named.project = self.project
+        return discovery_pb2.CallerMatcher(service=named)
+
+
+class Callers:
+    """The callers an endpoint can name: ``Acl.allow_callers(Callers.internet, Callers.service("orders"))``."""
+
+    internet: ClassVar[CallerMatcher] = CallerMatcher("internet")
+    any_in_project: ClassVar[CallerMatcher] = CallerMatcher("any_in_project")
+    # ``self`` would shadow the conventional first parameter everywhere this is used; ``self_`` does not.
+    self_: ClassVar[CallerMatcher] = CallerMatcher("self")
+
+    @staticmethod
+    def service(name: str, *, project: str | None = None) -> CallerMatcher:
+        """A named service — in this service's own project unless ``project`` names another."""
+        return CallerMatcher("service", name=name, project=project)
+
+
+@dataclass(frozen=True)
+class Acl:
+    """Who may call an endpoint or a route.
+
+    ``Acl.ALLOW_ALL``, ``Acl.DENY_ALL`` and ``Acl.AUTHENTICATED`` as before, and
+    ``Acl.allow_callers(...)`` for only the callers named. In a cluster the caller is read from the
+    certificate the platform issued the calling workload, never from the request; outside a cluster
+    every caller is ``LocalCaller`` and ``allow_callers`` admits it.
+    """
+
+    kind: discovery_pb2.Endpoint.Acl
+    callers: tuple[CallerMatcher, ...] = ()
+
+    ALLOW_ALL: ClassVar[Acl]
+    DENY_ALL: ClassVar[Acl]
+    AUTHENTICATED: ClassVar[Acl]
+
+    @staticmethod
+    def allow_callers(*matchers: CallerMatcher) -> Acl:
+        if not matchers:
+            raise ValueError("Acl.allow_callers needs at least one caller")
+        return Acl(discovery_pb2.Endpoint.CALLERS, tuple(matchers))
+
+    @property
+    def value(self) -> discovery_pb2.Endpoint.Acl:
+        """The protocol's acl kind — what ``Acl`` was when it was an enum."""
+        return self.kind
+
+    def callers_pb(self) -> list[discovery_pb2.CallerMatcher]:
+        return [m.to_pb() for m in self.callers]
+
+
+Acl.ALLOW_ALL = Acl(discovery_pb2.Endpoint.ALLOW_ALL)
+Acl.DENY_ALL = Acl(discovery_pb2.Endpoint.DENY_ALL)
+Acl.AUTHENTICATED = Acl(discovery_pb2.Endpoint.AUTHENTICATED)
 
 
 class HttpProblem(Exception):
@@ -100,7 +166,8 @@ class RouteSpec:
         # Left unset when the route declares nothing, so the sidecar reads "the endpoint's"
         # rather than ALLOW_ALL — the field is `optional` in the protocol for exactly this.
         if self.acl is not None:
-            route.acl = self.acl.value
+            route.acl = self.acl.kind
+            route.allow_callers.extend(self.acl.callers_pb())
         return route
 
 
@@ -165,7 +232,7 @@ class Endpoint:
         if not hasattr(cls, "acl"):
             raise RegistrationError(
                 f"{cls.__name__} must declare an acl — say 'acl = Acl.ALLOW_ALL' for a public "
-                "endpoint, or Acl.AUTHENTICATED or Acl.DENY_ALL"
+                "endpoint, or Acl.AUTHENTICATED, Acl.DENY_ALL or Acl.allow_callers(...)"
             )
         cls._routes = collect_routes(cls)
 
@@ -189,8 +256,9 @@ class Endpoint:
         return discovery_pb2.Endpoint(
             id=cls.endpoint_id(),
             prefix=cls.prefix,
-            acl=cls.acl.value,
+            acl=cls.acl.kind,
             routes=[r.to_pb() for r in sorted(cls._routes.values(), key=lambda r: r.id)],
+            allow_callers=cls.acl.callers_pb(),
         )
 
     async def _handle(self, spec: RouteSpec, path_args: list[str], body: bytes, ctx: RequestContext) -> tuple[int, str, bytes]:

@@ -13,6 +13,8 @@ kind: Kustomization
 components:
   - ../../components/cnpg
   - ../../components/certmanager
+  - ../../components/trust-manager
+  - ../../components/pki
   - ../../components/envoy-gateway
   - ../../components/crd
   - ../../components/gateway

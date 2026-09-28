@@ -181,8 +181,10 @@ See [Agents](../build/agents.md), [Streaming responses](../build/streaming.md) a
 | Base class | `HttpEndpoint(prefix)` |
 | Must define | `acl: Acl` |
 | Routes | `get`, `post`, `put`, `patch`, `delete` with path parameters only; `postBody`, `putBody`, `patchBody` with a body as the last argument; `sse` and `sseBody` for server-sent events |
-| In a handler | `request` (`header`, `query`), `query` (`required`, `optional`, `all`, `flag`), `principal` |
-| ACLs | `Acl.DenyAll`, `Acl.AllowAll`, `Acl.AllowIf(ctx => …)`, `Acl.Authenticate(ctx => AuthDecision…)` |
+| In a handler | `request` (`header`, `query`, `caller`), `query` (`required`, `optional`, `all`, `flag`), `principal`, `caller` (`Caller.Gateway`, `Caller.Service(project, name)`, `Caller.Local`) |
+| ACLs | `Acl.DenyAll`, `Acl.AllowAll`, `Acl.AllowIf(ctx => …)`, `Acl.Authenticate(ctx => AuthDecision…)`, `Acl.allowCallers(Callers.internet, Callers.service("orders"), Callers.service(project, name), Callers.anyInProject, Callers.self)` |
+| Other services | `clients.services(name)` or `clients.services(project, name)`: `get[R]`, `getText`, `post[B, R]`, `put[B, R]`, `delete`, `request` |
+| Testing a caller | `testKit.asCaller(caller)` gives the header that makes a request arrive as that caller |
 | Errors | throw `HttpProblem(status, message)` or `HttpProblem.badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` |
 | Serving | `HttpServer.of(clients => Endpoint(clients.componentClient))`, `HttpServer.at(interface, port)(…)` |
 

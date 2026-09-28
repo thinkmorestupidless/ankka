@@ -37,6 +37,9 @@ object GatewayStack:
    *   produces a schema the API server rejects, while the raw manifest is fine.
    */
   def install(k3s: K3sContainer, k8s: KubernetesClient, repoRoot: Path, baseDomain: String): Unit =
+    // The installation's authorities first (feature 014): the gateway's own client certificate is
+    // issued by one of them, and everything the operator renders needs them.
+    PkiStack.install(k3s, k8s)
     for url <- Vector(CertManager, EnvoyGateway) do
       val result =
         k3s.execInContainer("kubectl", "apply", "--server-side", "--force-conflicts", "-f", url)
@@ -50,6 +53,7 @@ object GatewayStack:
       component.resolve("namespace.yaml"),
       component.resolve("gatewayclass.yaml"),
       component.resolve("envoyproxy.yaml"),
+      component.resolve("gateway-client-certificate.yaml"),
       component.resolve("gateway.yaml"),
       component.resolve("redirect-route.yaml"),
       repoRoot.resolve("kustomization/overlays/local/local-ca.yaml")

@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from ankka import DONE, Acl, Done, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
+from ankka import DONE, Acl, Callers, Done, Gateway, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.client import ComponentClient
 from ankka.consumer import Consumer
@@ -295,6 +295,28 @@ async def _swallow(awaitable: object) -> None:
         pass
 
 
+class CallersEndpoint(Endpoint):
+    """Caller-naming ACLs: the suite names callers through the local caller header."""
+
+    prefix = "/callers"
+    acl = Acl.allow_callers(Callers.internet, Callers.service("orders"))
+
+    @get("/whoami")
+    def whoami(self) -> str:
+        c = self.request.caller
+        if isinstance(c, ServiceCaller):
+            return f"service:{c.project}/{c.name}"
+        return "gateway" if isinstance(c, Gateway) else "local"
+
+    @get("/self", acl=Acl.allow_callers(Callers.self_))
+    def only_self(self) -> str:
+        return "self"
+
+    @sse("/events", acl=Acl.allow_callers(Callers.self_))
+    async def events(self) -> AsyncIterator[str]:
+        yield "tick"
+
+
 class PrivateEndpoint(Endpoint):
     prefix = "/private"
     acl = Acl.AUTHENTICATED
@@ -319,4 +341,5 @@ def reference_service() -> ServiceBuilder:
         .register(ShoppingCartEndpoint)
         .register(ConformanceEndpoint)
         .register(PrivateEndpoint)
+        .register(CallersEndpoint)
     )

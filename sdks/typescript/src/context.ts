@@ -42,6 +42,15 @@ export interface Principal {
   readonly roles: readonly string[]
 }
 
+/**
+ * Which workload sent a request, as the platform established it from the client certificate: the gateway
+ * (the internet), a named service, or — outside a cluster, where there is no certificate — the local machine.
+ */
+export type Caller =
+  | { readonly kind: "gateway" }
+  | { readonly kind: "service"; readonly project: string; readonly name: string }
+  | { readonly kind: "local" }
+
 /** Query parameters in request order; a name may repeat. */
 export class Query {
   private readonly pairs: readonly (readonly [string, string])[]
@@ -95,6 +104,8 @@ export interface RequestContext<P = Readonly<Record<string, unknown>>> {
   /** The caller, when the route's access rule is `authenticated`; `null` otherwise. */
   readonly principal: Principal | null
   readonly metadata: Metadata
+  /** Which workload sent the request. Always present; see `Caller`. */
+  readonly caller: Caller
 }
 
 const requestStorage = new AsyncLocalStorage<RequestContext>()

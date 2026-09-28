@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.testkit
 import com.typesafe.config.{Config, ConfigFactory}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.runtime.{ServiceBuilder, Ankka, AnkkaService, RuntimeExtension}
+import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.{DockerImageName, MountableFile}
@@ -39,6 +40,19 @@ final class AnkkaTestKit private (
 
   def service: AnkkaService            = current
   def componentClient: ComponentClient = current.componentClient
+
+  /**
+   * The header that makes a request to this service's HTTP endpoints arrive as `caller`, for
+   * testing an `Acl.allowCallers` without a cluster. Add it to a request made with any client:
+   *
+   * {{{
+   * val (name, value) = testKit.asCaller(Caller.Service("checkout", "orders"))
+   * }}}
+   *
+   * It works because the service and the test kit share a JVM and so a secret; a request without it
+   * arrives as `Caller.Local`, which every caller-naming ACL admits.
+   */
+  def asCaller(caller: Caller): (String, String) = LocalCallers.header(caller)
 
   /** JDBC URL of the backing database, for tests that want to inspect it directly. */
   def jdbcUrl: String = container.getJdbcUrl

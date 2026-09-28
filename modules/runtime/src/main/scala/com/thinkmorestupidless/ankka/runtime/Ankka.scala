@@ -318,6 +318,13 @@ final class AnkkaService private[ankka] (
 ):
 
   /**
+   * Other services, called as this one (feature 014). Built on first use, since only a service that
+   * calls another needs it, and in a cluster it reads the service's certificate.
+   */
+  lazy val services: com.thinkmorestupidless.ankka.sdk.ServiceClients =
+    HttpServiceClients(system.settings.config, None)
+
+  /**
    * Blocks until this node is a cluster member.
    *
    * Sharding buffers messages sent before the node is up, so this is not required for correctness —

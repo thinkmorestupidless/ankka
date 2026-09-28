@@ -1,0 +1,37 @@
+# The identity provider's in-cluster certificate (feature 014), from the service authority, for the
+# name the control plane fetches keys at and the gateway reaches it by.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-keycloak-tls
+  namespace: ankka-auth
+spec:
+  secretName: ankka-keycloak-tls
+  dnsNames:
+    - ankka-keycloak-service
+    - ankka-keycloak-service.ankka-auth.svc
+    - ankka-keycloak-service.ankka-auth.svc.cluster.local
+  usages: [server auth]
+  duration: 24h
+  renewBefore: 16h
+  privateKey: { algorithm: RSA, size: 2048, encoding: PKCS8, rotationPolicy: Always }
+  issuerRef: { name: ankka-service, kind: ClusterIssuer, group: cert-manager.io }
+---
+# The gateway reaches it over TLS, verifying that certificate. No section name: the route sends only
+# to the TLS port, and the Service's port names are the Keycloak operator's to choose.
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: ankka-keycloak
+  namespace: ankka-auth
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: ankka-keycloak-service
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: ankka-service-ca
+    hostname: ankka-keycloak-service.ankka-auth.svc.cluster.local

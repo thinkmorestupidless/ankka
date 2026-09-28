@@ -11,14 +11,18 @@ the local console instead.
 
 ## Ports on a deployed instance
 
-| Port | Name | What it serves |
-|---|---|---|
-| The descriptor's `port`, `9000` by default | `http` | The service's own routes. Absent with `"http": false`. |
-| `7626` | `management` | Readiness, version, metrics and cluster membership. |
-| `17355` | `remoting` | Cluster remoting between the service's instances. |
+| Port | Name | Transport | What it serves |
+|---|---|---|---|
+| The descriptor's `port`, `9000` by default | `http` | mutual TLS | The service's own routes. Absent with `"http": false`. |
+| `7626` | `management` | mutual TLS | Version, metrics, cluster membership and cluster bootstrap. |
+| `7627` | `probe` | plain HTTP | Readiness, and nothing else. |
+| `17355` | `remoting` | mutual TLS | Cluster remoting between the service's instances. |
 
-The management and remoting ports are plain TCP on the pod network, reachable from any namespace in the
-cluster. Nothing on them is authenticated. See [Limitations](limitations.md).
+Management and remoting accept a connection only from another instance of the same service, presenting
+the service's cluster certificate; a network policy refuses every other source before the handshake. The
+HTTP port requires a client certificate from the installation's service authority. The probe port is plain
+because the kubelet holds no certificate, and it answers only `GET /ready`. See
+[Networking and TLS](../platform/networking.md).
 
 In a process-hosted service these ports belong to the sidecar container; the process container has none.
 
@@ -28,8 +32,9 @@ In a process-hosted service these ports belong to the sidecar container; the pro
 
 The readiness probe. It answers `200` only when the instance is a member of its service's cluster and every
 part of the runtime with an opinion agrees, which includes the HTTP server having bound its port. Until then
-it answers with an error status. The platform's readiness probe calls it on the port named `management`, and
-a service is `Ready` only when all its instances pass.
+it answers with an error status. The platform's readiness probe calls it on the port named `probe`, and
+a service is `Ready` only when all its instances pass. Management answers the same path with the same checks
+to a caller holding the service's certificate.
 
 Readiness does not call your routes, so it says the instance can be routed to, not that your application is
 healthy. There is deliberately no liveness probe: entities rebuild from their journal, so restarting an

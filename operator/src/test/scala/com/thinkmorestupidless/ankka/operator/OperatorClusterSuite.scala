@@ -63,6 +63,10 @@ class OperatorClusterSuite extends munit.FunSuite:
       val crd = getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")
       client.load(crd).serverSideApply(): Unit
 
+      // The installation's authorities (feature 014): the operator asks cert-manager for every
+      // workload's certificates, and a pod starts only once they are issued.
+      PkiStack.install(k3s, client)
+
       // CloudNativePG too, from its pinned release manifest — the same one
       // kustomization/components/cnpg references — so a manifest mismatch between "what CI
       // tests against" and "what deploy-local.sh installs" cannot happen silently.
@@ -141,7 +145,38 @@ class OperatorClusterSuite extends munit.FunSuite:
         try check
         catch case _: Throwable => false
       if !passed then Thread.sleep(250)
-    if !passed then fail(s"condition did not hold within $timeout")
+    if !passed then fail(s"condition did not hold within $timeout\n${podLogs()}")
+
+  /** The last lines of every pod in the namespace, for a failure that only a pod can explain. */
+  private def podLogs(): String =
+    try
+      client
+        .pods()
+        .inNamespace(Namespace)
+        .list()
+        .getItems
+        .asScala
+        .map { p =>
+          val name = p.getMetadata.getName
+          val log = Option(p.getSpec.getContainers.get(0).getName)
+            .map(c =>
+              scala.util
+                .Try(
+                  client
+                    .pods()
+                    .inNamespace(Namespace)
+                    .withName(name)
+                    .inContainer(c)
+                    .tailingLines(40)
+                    .getLog
+                )
+                .getOrElse("(no log)")
+            )
+            .getOrElse("")
+          s"--- $name\n$log"
+        }
+        .mkString("\n")
+    catch case e: Exception => s"(could not read pod logs: $e)"
 
   private def spec(generation: Long = 1L, image: String = "busybox:1.36", paused: Boolean = false) =
     AnkkaServiceSpec(
@@ -378,8 +413,7 @@ class OperatorClusterSuite extends munit.FunSuite:
     // FR-008 / SC-010: idempotence. A steady-state service must not touch the credential, the
     // role or the database again — regenerating a password under a running service on a timer
     // is the one mistake this feature cannot afford to make.
-    val secretBefore   = client.secrets().inNamespace(Namespace).withName(s"$DbService-db").get()
-    val passwordBefore = secretBefore.getData.get("password")
+    val secretBefore = client.secrets().inNamespace(Namespace).withName(s"$DbService-db").get()
     val resourceVersionBefore = secretBefore.getMetadata.getResourceVersion
 
     (1 to 10).foreach { _ =>
@@ -389,11 +423,6 @@ class OperatorClusterSuite extends munit.FunSuite:
     Thread.sleep(3000) // let a few resync/reconcile passes actually happen
 
     val secretAfter = client.secrets().inNamespace(Namespace).withName(s"$DbService-db").get()
-    assertEquals(
-      secretAfter.getData.get("password"),
-      passwordBefore,
-      "the password must never change"
-    )
     assertEquals(
       secretAfter.getMetadata.getResourceVersion,
       resourceVersionBefore,
@@ -423,23 +452,50 @@ class OperatorClusterSuite extends munit.FunSuite:
     Seq("psql", "-U", "postgres", "-tA", "-c", sql)
   )
 
-  private def psqlAs(role: String, password: String, database: String, sql: String): (Int, String) =
+  /**
+   * Logs in as `role` the only way a provisioned role can (feature 014): TLS verified against the
+   * cluster's server authority, presenting the role's own client certificate. Run inside the
+   * Postgres pod with the certificate copied in once — so it still works after the service, and the
+   * Certificate object it owns, have been deleted, which is what a data-survives check needs.
+   */
+  private def psqlAs(role: String, database: String, sql: String): (Int, String) =
+    installCertificate(role)
+    val dir = s"/controller/ankka-test-certs/$role"
     execInPostgres(
       Seq(
-        "env",
-        s"PGPASSWORD=$password",
         "psql",
-        "-h",
-        "localhost",
-        "-U",
-        role,
-        "-d",
-        database,
+        s"host=ankka-db-rw port=5432 user=$role dbname=$database sslmode=verify-full " +
+          s"sslrootcert=$dir/ca.crt sslcert=$dir/tls.crt sslkey=$dir/tls.key",
         "-tA",
         "-c",
         sql
       )
     )
+
+  private val installedCertificates = scala.collection.mutable.Set.empty[String]
+
+  private def installCertificate(role: String): Unit =
+    if !installedCertificates.contains(role) then
+      waitFor(120.seconds)(
+        Option(
+          client.secrets().inNamespace(Namespace).withName(s"$role-database-tls").get()
+        ).isDefined
+      )
+      val client_ = client.secrets().inNamespace(Namespace).withName(s"$role-database-tls").get()
+      val server  = client.secrets().inNamespace(Namespace).withName("ankka-db-ca").get()
+      def put(name: String, b64: String) =
+        val (code, out) = execInPostgres(
+          Seq(
+            "sh",
+            "-c",
+            s"mkdir -p /controller/ankka-test-certs/$role && echo '$b64' | base64 -d > /controller/ankka-test-certs/$role/$name && chmod 600 /controller/ankka-test-certs/$role/$name"
+          )
+        )
+        assertEquals(code, 0, out)
+      put("tls.crt", client_.getData.get("tls.crt"))
+      put("tls.key", client_.getData.get("tls.key"))
+      put("ca.crt", server.getData.get("ca.crt"))
+      installedCertificates += role
 
   private def execInPostgres(command: Seq[String]): (Int, String) =
     val out = new java.io.ByteArrayOutputStream()
@@ -459,10 +515,6 @@ class OperatorClusterSuite extends munit.FunSuite:
       out.toString(java.nio.charset.StandardCharsets.UTF_8)
     )
 
-  private def passwordOf(secretName: String): String =
-    val secret = client.secrets().inNamespace(Namespace).withName(secretName).get()
-    new String(java.util.Base64.getDecoder.decode(secret.getData.get("password")))
-
   test("15. a second service in the same project reuses the existing Cluster") {
     writeDb(dbSpec2())
     waitFor(120.seconds)(dbStatusOf2.exists(_.lifecycle == "Ready"))
@@ -476,20 +528,54 @@ class OperatorClusterSuite extends munit.FunSuite:
     assertEquals(clusters.size, 1, "one project must share one Cluster across its services")
   }
 
-  test("16. each service's own database is reachable with its own credentials") {
-    val pw          = passwordOf(s"$DbService-db")
-    val (code, out) = psqlAs(DbService, pw, DbService, "select current_database();")
+  test("16. each service's own database is reachable with its own certificate") {
+    val (code, out) = psqlAs(DbService, DbService, "select current_database();")
     assertEquals(code, 0, out)
     assertEquals(out.trim, DbService)
+  }
+
+  test("16a. the session is TLS, authenticated by certificate, and no password exists anywhere") {
+    // Feature 014: what the database itself says about the service's session.
+    val (code, out) = psqlAs(
+      DbService,
+      DbService,
+      "select ssl, client_dn from pg_stat_ssl where pid = pg_backend_pid();"
+    )
+    assertEquals(code, 0, out)
+    assertEquals(out.trim, s"t|/CN=$DbService")
+    // The credential Secret carries where the database is and nothing secret.
+    val data =
+      client.secrets().inNamespace(Namespace).withName(s"$DbService-db").get().getData.asScala
+    assert(!data.keySet.exists(_.toLowerCase.contains("password")), data.keySet.toString)
+    // The role has no password to log in with.
+    val (roleCode, rolePassword) =
+      psqlAsPostgres(s"select rolpassword is null from pg_authid where rolname = '$DbService';")
+    assertEquals(roleCode, 0, rolePassword)
+    assertEquals(rolePassword.trim, "t")
+  }
+
+  test("16b. one service's certificate does not log in as another service's role") {
+    installCertificate(DbService)
+    val dir = s"/controller/ankka-test-certs/$DbService"
+    val (code, out) = execInPostgres(
+      Seq(
+        "psql",
+        s"host=ankka-db-rw port=5432 user=$DbService2 dbname=$DbService2 sslmode=verify-full " +
+          s"sslrootcert=$dir/ca.crt sslcert=$dir/tls.crt sslkey=$dir/tls.key",
+        "-tA",
+        "-c",
+        "select 1;"
+      )
+    )
+    assertNotEquals(code, 0, out)
+    assert(out.contains("certificate authentication failed"), out)
   }
 
   test(
     "17. cross-service CONNECT is refused in both directions — the property research R9 exists for"
   ) {
-    val pw1 = passwordOf(s"$DbService-db")
-    val pw2 = passwordOf(s"$DbService2-db")
 
-    val (code12, out12) = psqlAs(DbService, pw1, DbService2, "select 1;")
+    val (code12, out12) = psqlAs(DbService, DbService2, "select 1;")
     assertNotEquals(
       code12,
       0,
@@ -497,7 +583,7 @@ class OperatorClusterSuite extends munit.FunSuite:
     )
     assert(out12.contains("CONNECT"), out12)
 
-    val (code21, out21) = psqlAs(DbService2, pw2, DbService, "select 1;")
+    val (code21, out21) = psqlAs(DbService2, DbService, "select 1;")
     assertNotEquals(
       code21,
       0,
@@ -515,21 +601,16 @@ class OperatorClusterSuite extends munit.FunSuite:
     )
     assertEquals(code, 0, out)
     assertEquals(out.trim.linesIterator.toVector, Vector("with-db", "with-db-2"))
-
-    val pw1      = passwordOf(s"$DbService-db")
-    val pw2      = passwordOf(s"$DbService2-db")
-    val (c1, o1) = psqlAs(DbService, pw1, DbService, "select count(*) from ankka_timers;")
-    val (c2, o2) = psqlAs(DbService2, pw2, DbService2, "select count(*) from ankka_timers;")
+    val (c1, o1) = psqlAs(DbService, DbService, "select count(*) from ankka_timers;")
+    val (c2, o2) = psqlAs(DbService2, DbService2, "select count(*) from ankka_timers;")
     assertEquals(c1, 0, o1)
     assertEquals(c2, 0, o2)
   }
 
   test("19. deleting a service preserves its database and data; re-applying it recovers both") {
-    val pw = passwordOf(s"$DbService2-db")
     val (createCode, createOut) =
       psqlAs(
         DbService2,
-        pw,
         DbService2,
         "create table scratch_marker(id int); insert into scratch_marker values (42);"
       )
@@ -554,7 +635,7 @@ class OperatorClusterSuite extends munit.FunSuite:
       "the Database must survive deleting the AnkkaService that requested it"
     )
     val (survivedCode, survivedOut) =
-      psqlAs(DbService2, pw, DbService2, "select id from scratch_marker;")
+      psqlAs(DbService2, DbService2, "select id from scratch_marker;")
     assertEquals(survivedCode, 0, survivedOut)
     assertEquals(
       survivedOut.trim,
@@ -568,7 +649,7 @@ class OperatorClusterSuite extends munit.FunSuite:
     assertEquals(dbStatusOf2.flatMap(_.database).map(_.phase), Some("Recovered"))
 
     val (recoveredCode, recoveredOut) =
-      psqlAs(DbService2, pw, DbService2, "select id from scratch_marker;")
+      psqlAs(DbService2, DbService2, "select id from scratch_marker;")
     assertEquals(recoveredCode, 0, recoveredOut)
     assertEquals(
       recoveredOut.trim,
@@ -749,13 +830,34 @@ class OperatorClusterSuite extends munit.FunSuite:
       endpoints != null && endpoints.getSubsets.asScala.exists(!_.getAddresses.isEmpty)
     }
 
-    // From the node, to the clusterIP: Service -> endpoints -> pod, the real path. A port-forward
-    // would go API server -> pod and bypass the Service, passing with a broken selector. By IP,
-    // not name — the node does not resolve cluster DNS (both verified during planning).
-    val ip     = service.getSpec.getClusterIP
-    val result = k3s.execInContainer("wget", "-qO-", "-T", "10", s"http://$ip:9000/carts/reach")
-    assertEquals(result.getExitCode, 0, result.getStderr)
-    assert(result.getStdout.contains("\"cartId\":\"reach\""), result.getStdout)
+    // Through the Service's name, from inside a pod with a platform identity: Service ->
+    // endpoints -> pod, the real path. A port-forward would go API server -> pod and bypass the
+    // Service, passing with a broken selector. Since feature 014 the port is mutual TLS and
+    // admits only workloads carrying a platform identity, so the request is made from the
+    // service's own pod, presenting its certificate, and verifies the name it reached.
+    val pod = client
+      .pods()
+      .inNamespace(Namespace)
+      .withLabel(Labels.NameKey, WebService)
+      .list()
+      .getItems
+      .asScala
+      .head
+      .getMetadata
+      .getName
+    val (code, body) = InPod.curl(
+      k3s,
+      Namespace,
+      pod,
+      s"https://$WebService.$Namespace.svc.cluster.local:9000/carts/reach"
+    )
+    assertEquals(code, 200, body)
+    assert(body.contains("\"cartId\":\"reach\""), body)
+
+    // And plain HTTP from the node reaches nothing: no certificate, and no platform identity.
+    val ip    = service.getSpec.getClusterIP
+    val plain = k3s.execInContainer("wget", "-qO-", "-T", "5", s"http://$ip:9000/carts/reach")
+    assertNotEquals(plain.getExitCode, 0, plain.getStdout)
   }
 
   test("22. steady state leaves the Service untouched") {
@@ -951,19 +1053,16 @@ class OperatorClusterSuite extends munit.FunSuite:
    * What one pod says its cluster's Up members are — empty if it has not joined, or cannot answer.
    */
   private def membership(pod: io.fabric8.kubernetes.api.model.Pod): Set[String] =
-    val out = new java.io.ByteArrayOutputStream()
-    val watch = client
-      .pods()
-      .inNamespace(Namespace)
-      .withName(pod.getMetadata.getName)
-      .inContainer(pod.getSpec.getContainers.get(0).getName)
-      .writingOutput(out)
-      .writingError(new java.io.ByteArrayOutputStream())
-      .exec("wget", "-qO-", "-T", "3", s"http://${pod.getStatus.getPodIP}:7626/cluster/members")
-    try watch.exitCode().get(15, java.util.concurrent.TimeUnit.SECONDS)
-    catch case _: Exception => ()
-    finally watch.close()
-    val body = out.toString(java.nio.charset.StandardCharsets.UTF_8)
+    // Management requires this service's own cluster certificate (feature 014), which the pod
+    // holds; asked from inside it, as a peer would.
+    val (_, body) = InPod.curl(
+      k3s,
+      Namespace,
+      pod.getMetadata.getName,
+      s"https://${pod.getStatus.getPodIP}:7626/cluster/members",
+      identity = "cluster",
+      verifyHost = false
+    )
     // Deliberately naive parsing: the members array's "node" fields, keeping only Up ones.
     """\{"node":"([^"]+)"[^}]*?"status":"([A-Za-z]+)"""".r
       .findAllMatchIn(body)
@@ -1282,6 +1381,25 @@ class OperatorClusterSuite extends munit.FunSuite:
       forbidden("list secrets")(
         asOperator.secrets().inNamespace("ankka-gateway").list()
       )
+      // Feature 014: it may request certificates and write policies, and it may not replace an
+      // installation authority.
+      asOperator
+        .genericKubernetesResources("cert-manager.io/v1", "Certificate")
+        .inNamespace(Namespace)
+        .list(): Unit
+      asOperator
+        .genericKubernetesResources("cert-manager.io/v1", "Issuer")
+        .inNamespace(Namespace)
+        .list(): Unit
+      asOperator.network().v1().networkPolicies().inNamespace(Namespace).list(): Unit
+      asOperator
+        .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.BackendTLSPolicy])
+        .inNamespace(Namespace)
+        .list(): Unit
+      forbidden("list clusterissuers")(
+        asOperator.genericKubernetesResources("cert-manager.io/v1", "ClusterIssuer").list()
+      )
+
     finally asOperator.close()
 
     // A deployed service's own identity (test 29's) cannot see routes at all.

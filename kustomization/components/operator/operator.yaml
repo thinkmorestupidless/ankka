@@ -101,12 +101,36 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch"]
   # An exposed service's route (feature 005): one HTTPRoute in the service's namespace, attached
   # to the installer's Gateway. delete, because unexposing removes the route while the service —
-  # its owner — stays. Nothing on gateways, gatewayclasses, referencegrants, envoyproxies,
-  # certificates or issuers: the operator cannot change where traffic enters, or what certificate
-  # it is served under, and holds no verb it could be talked into using for either.
+  # its owner — stays. And its BackendTLSPolicy (feature 014), rendered and removed with the route,
+  # telling the gateway to reach the service over TLS. Nothing on gateways, gatewayclasses,
+  # referencegrants or envoyproxies: the operator cannot change where traffic enters.
   - apiGroups: ["gateway.networking.k8s.io"]
-    resources: ["httproutes"]
+    resources: ["httproutes", "backendtlspolicies"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # Zero trust (feature 014). The operator *requests* each workload's certificates — cluster,
+  # service, database — and a project's database authority, an Issuer over a self-signed root in
+  # the project's namespace. Its code never reads what cert-manager issues, and nothing here was
+  # added to let it: but `secrets: get` above predates this, works by name, and the name of an
+  # issued Secret is derivable, so the grant does not stop a compromised operator reading a key.
+  # Narrowing it means the credential Secret becoming a ConfigMap (it holds nothing secret since
+  # feature 014) — named as a limitation until it is done. No clusterissuers: the installation's
+  # authorities are the installer's, and the operator cannot replace one. delete, because a
+  # certificate or policy belongs to its service and goes with it — and an owned object is only
+  # ever deleted after an owner check.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates", "issuers"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # Who may connect to a workload's ports: its own pods on the cluster ports, the gateway and ankka
+  # workloads on its HTTP port, its project's workloads on a project's database (feature 014).
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # Read-only, for one reason: a pod that is running and never ready says why only in its events —
+  # a readiness probe refused, a certificate's Secret not issued yet — and `services get` should say
+  # it in the kubelet's words rather than "the deadline passed" (feature 014).
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -1,8 +1,5 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import ch.qos.logback.classic.Logger as LogbackLogger
-import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
 import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
@@ -28,7 +25,6 @@ import com.thinkmorestupidless.ankka.operator.{
 }
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
-import org.slf4j.LoggerFactory
 import org.testcontainers.k3s.K3sContainer
 import org.testcontainers.utility.DockerImageName
 
@@ -106,19 +102,8 @@ class EndToEndClusterSuite extends munit.FunSuite:
   private var spokeTestKit: AnkkaTestKit = null
   private var spokeUrl: String           = ""
 
-  // Captures every log event in this JVM for the life of the suite, so T053 can assert a
-  // generated database password never appears in the operator's own logs — the only way to
-  // check that with the operator running in-process rather than as a separate container whose
-  // stdout could be grepped.
-  private val logAppender = new ListAppender[ILoggingEvent]()
-
   override def beforeAll(): Unit =
     if !munitIgnore then
-      val root =
-        LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[LogbackLogger]
-      logAppender.start()
-      root.addAppender(logAppender)
-
       k3s = new K3sContainer(DockerImageName.parse(Image))
       k3s.withExposedPorts(6443, GatewayStack.HttpsNodePort, GatewayStack.HttpNodePort)
       k3s.start()
@@ -238,9 +223,6 @@ class EndToEndClusterSuite extends munit.FunSuite:
     if operator != null then operator.close()
     if k8s != null then k8s.close()
     if k3s != null then k3s.stop()
-    val root =
-      LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).asInstanceOf[LogbackLogger]
-    root.detachAppender(logAppender): Unit
 
   private def cli(args: String*): (Int, String) =
     val out  = ByteArrayOutputStream()
@@ -538,22 +520,20 @@ class EndToEndClusterSuite extends munit.FunSuite:
   }
 
   test(
-    "10. the generated password for a provisioned service never appears in status, spec or logs"
+    "10. a provisioned service holds no password: its credential Secret says only where the database is"
   ) {
-    val secret   = k8s.secrets().inNamespace(Namespace).withName(s"$Service-db").get()
-    val password = new String(Base64.getDecoder.decode(secret.getData.get("password")))
-
-    val statusJson = resource.flatMap(r => Option(r.getStatus)).map(_.toString).getOrElse("")
-    assert(!statusJson.contains(password), "the AnkkaService status must never carry the password")
-
-    val deploymentSpec = deployment.map(_.getSpec.toString).getOrElse("")
-    assert(
-      !deploymentSpec.contains(password),
-      "the Deployment spec references the secret by name, never the password's literal value"
+    // The service authenticates to its database with a certificate, so there is no password to
+    // generate, store, mount or leak into a status, a spec or a log line.
+    val secret = k8s.secrets().inNamespace(Namespace).withName(s"$Service-db").get()
+    assertEquals(
+      secret.getData.asScala.keySet.toSet,
+      Set("ANKKA_DB_HOST", "ANKKA_DB_PORT", "ANKKA_DB_NAME", "ANKKA_DB_USER")
     )
-
-    val logged = logAppender.list.asScala.exists(_.getFormattedMessage.contains(password))
-    assert(!logged, "the generated password must never appear in any log line this JVM produced")
+    val env = deployment.toVector
+      .flatMap(_.getSpec.getTemplate.getSpec.getContainers.asScala)
+      .flatMap(c => Option(c.getEnv).map(_.asScala).getOrElse(Nil))
+      .map(_.getName)
+    assert(!env.exists(_.contains("PASSWORD")), env.toString)
   }
 
   test(

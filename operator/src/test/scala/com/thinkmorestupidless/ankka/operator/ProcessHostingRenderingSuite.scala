@@ -40,7 +40,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
 
   private def deployment(spec: AnkkaServiceSpec): Deployment =
     Rendering
-      .render(resource(spec), settings, ProvisioningPlan.Supplied, "pw")
+      .render(resource(spec), settings, ProvisioningPlan.Supplied)
       .toOption
       .get
       .collectFirst { case Action.ApplyDeployment(d) => d }
@@ -65,9 +65,18 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     val node = cs(0)
     val app  = cs(1)
     // The node carries every port and the readiness probe; the app carries none.
-    assertEquals(node.getPorts.asScala.map(_.getName).toSet, Set("http", "management", "remoting"))
-    assertEquals(node.getReadinessProbe.getHttpGet.getPort.getStrVal, "management")
+    assertEquals(
+      node.getPorts.asScala.map(_.getName).toSet,
+      Set("http", "management", "remoting", "probe")
+    )
+    assertEquals(node.getReadinessProbe.getHttpGet.getPort.getStrVal, "probe")
     assert(app.getPorts.isEmpty)
+    // The sidecar holds every identity; the process speaks only to it, over loopback.
+    assertEquals(
+      node.getVolumeMounts.asScala.map(_.getMountPath).toSet,
+      Set("/var/run/secrets/ankka/cluster", "/var/run/secrets/ankka/service")
+    )
+    assert(app.getVolumeMounts.isEmpty)
     assertEquals(app.getReadinessProbe, null)
     // Both keep serving through a replacement.
     assertEquals(
@@ -97,7 +106,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
 
   test("the credential reaches the sidecar only") {
     val cs = Rendering
-      .render(resource(process), settings, ProvisioningPlan.Ready(recovered = false), "pw")
+      .render(resource(process), settings, ProvisioningPlan.Ready(recovered = false))
       .toOption
       .get
       .collectFirst { case Action.ApplyDeployment(d) => d }
@@ -127,8 +136,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     val refused = Rendering.render(
       resource(process),
       settings.copy(sidecarImage = ""),
-      ProvisioningPlan.Supplied,
-      "pw"
+      ProvisioningPlan.Supplied
     )
     assert(refused.left.exists(_.exists(_.contains("no sidecar image"))), refused)
   }

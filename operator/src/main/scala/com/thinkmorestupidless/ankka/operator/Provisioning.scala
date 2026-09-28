@@ -30,7 +30,14 @@ enum ProvisioningPlan:
   )
 
   /** Everything is present and applied. No CNPG action is rendered — this is the steady state. */
-  case Ready(recovered: Boolean)
+  case Ready(
+      recovered: Boolean,
+      /**
+       * The role was provisioned before feature 014 and still has a password: this pass re-applies
+       * it without one, once, and the observation says so no more.
+       */
+      migrateRole: Boolean = false
+  )
 
   /** A real, non-transient rejection. Nothing here resolves on its own. */
   case Failed(problems: Vector[String])
@@ -38,8 +45,8 @@ enum ProvisioningPlan:
   def reportedPhase: String = this match
     case ProvisioningPlan.Supplied               => "Supplied"
     case ProvisioningPlan.Waiting(_, _, _, _, _) => "Waiting"
-    case ProvisioningPlan.Ready(true)            => "Recovered"
-    case ProvisioningPlan.Ready(false)           => "Provisioned"
+    case ProvisioningPlan.Ready(true, _)         => "Recovered"
+    case ProvisioningPlan.Ready(false, _)        => "Provisioned"
     case ProvisioningPlan.Failed(_)              => "Failed"
 
 /**
@@ -109,7 +116,10 @@ object Provisioning:
       else
         // Rules 9 and 10: everything is present and applied. No action, and the only question
         // left is whether this database is new or a leftover from a prior incarnation.
-        ProvisioningPlan.Ready(recovered = observed.recovered)
+        ProvisioningPlan.Ready(
+          recovered = observed.recovered,
+          migrateRole = observed.roleHasPassword
+        )
 
   /** `Some(reason)` only for a message that is present and not one of the transient ones. */
   private def objectRejected(

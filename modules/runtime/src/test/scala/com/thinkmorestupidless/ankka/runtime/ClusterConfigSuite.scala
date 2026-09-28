@@ -238,3 +238,40 @@ class ClusterConfigSuite extends munit.FunSuite:
       cls.getConstructors.mkString
     )
   }
+
+  test("mutual TLS and the probe port are the kubernetes overlay's, and absent locally") {
+    val local = ClusterConfig.load(none)
+    assertEquals(local.getString("ankka.tls.cluster-directory"), "")
+    assertEquals(local.getBoolean("ankka.http.tls.enabled"), false)
+    assertEquals(local.getBoolean("ankka.probe.enabled"), false)
+    assertNotEquals(local.getString("pekko.remote.artery.transport"), "tls-tcp")
+
+    val cluster = ClusterConfig.load(
+      Map(
+        "ANKKA_CLUSTER_MODE"           -> "kubernetes",
+        "POD_IP"                       -> "10.1.2.3",
+        "ANKKA_CLUSTER_SERVICE"        -> "cart",
+        "ANKKA_CLUSTER_POD_SELECTOR"   -> "app.kubernetes.io/name=cart",
+        "ANKKA_CLUSTER_CONTACT_POINTS" -> "2"
+      )
+    )
+    assertEquals(cluster.getString("pekko.remote.artery.transport"), "tls-tcp")
+    val engine = cluster.getConfig("pekko.remote.artery.ssl.rotating-keys-engine")
+    // Each file by name: Pekko's own defaults arrive resolved against its mount point, not ours.
+    for (key, file) <- Seq(
+        "key-file"     -> "tls.key",
+        "cert-file"    -> "tls.crt",
+        "ca-cert-file" -> "ca.crt"
+      )
+    do assertEquals(engine.getString(key), s"/var/run/secrets/ankka/cluster/$file")
+    assertEquals(cluster.getString("ankka.tls.cluster-directory"), "/var/run/secrets/ankka/cluster")
+    assertEquals(cluster.getString("ankka.tls.service-directory"), "/var/run/secrets/ankka/service")
+    assertEquals(cluster.getBoolean("ankka.http.tls.enabled"), true)
+    assertEquals(cluster.getBoolean("pekko.http.server.parsing.tls-session-info-header"), true)
+    assertEquals(cluster.getBoolean("ankka.probe.enabled"), true)
+    assertEquals(cluster.getInt("ankka.probe.port"), 7627)
+    assertEquals(
+      cluster.getString("pekko.management.cluster.bootstrap.contact-point.http-client.ca-path"),
+      ""
+    )
+  }

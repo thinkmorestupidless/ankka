@@ -34,8 +34,8 @@ export { TimedAction, type TimedActionClass } from "./timedAction.ts"
 export { AgentEffects, type AgentEffect } from "./effects/agent.ts"
 export { Agent, type AgentClass } from "./agent.ts"
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
-export { Acl, HttpProblem, get, post, put, patch, del, sse, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
-export { type CommandContext, type RequestContext, type Principal, Query, Headers } from "./context.ts"
+export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
+export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
 export { ComponentClient, Calls, TypedCalls, Invocation, Views, Timers, type TimerTarget, type ComponentRef } from "./client.ts"
 export {
   Ankka, ServiceBuilder, Registry, RegistrationError,

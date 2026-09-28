@@ -404,6 +404,25 @@ object ConformanceReference:
       String(bytes, "UTF-8")
     }
 
+  /**
+   * Caller-naming ACLs (feature 014). The suite names callers through the local caller header,
+   * since every target runs outside a cluster, where this service's own identity is `local/local`.
+   */
+  final class CallersEndpoint extends HttpEndpoint("/callers"):
+    val acl: Acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
+
+    get("/whoami")(() =>
+      caller match
+        case Caller.Service(project, name) => s"service:$project/$name"
+        case Caller.Gateway                => "gateway"
+        case Caller.Local                  => "local"
+    )
+
+    withAcl(Acl.allowCallers(Callers.self)) {
+      get("/self")(() => "self")
+      sse("/events")(() => Source.single("tick"))
+    }
+
   final class PrivateEndpoint extends HttpEndpoint("/private"):
     val acl: Acl = Acl.Authenticate(_ => AuthDecision.Unavailable("no authenticator is configured"))
     get("/")(() => "private")
@@ -436,5 +455,6 @@ object ConformanceReference:
   ): Seq[EndpointClients => HttpEndpoint] = Seq(
     clients => CartsEndpoint(clients),
     clients => ConformanceEndpoint(clients, timers, problems),
-    _ => PrivateEndpoint()
+    _ => PrivateEndpoint(),
+    _ => CallersEndpoint()
   )

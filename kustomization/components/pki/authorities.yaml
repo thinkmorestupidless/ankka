@@ -1,0 +1,68 @@
+# Bootstraps the two roots. Used for nothing else.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ankka-selfsigned
+spec:
+  selfSigned: {}
+---
+# The roots live in cert-manager's own namespace, because that is where a ClusterIssuer of kind `ca`
+# looks for its secret — the opposite of the gateway's local CA, whose Issuer is namespaced for the
+# same reason (see kustomization/overlays/local/local-ca.yaml). Ten years; rotating a root is not
+# something this installation does, and saying so is better than implying it is automatic.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-cluster-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: ankka cluster authority
+  secretName: ankka-cluster-ca
+  duration: 87600h
+  privateKey:
+    algorithm: RSA
+    size: 4096
+    encoding: PKCS8
+  issuerRef:
+    name: ankka-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-service-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: ankka service authority
+  secretName: ankka-service-ca
+  duration: 87600h
+  privateKey:
+    algorithm: RSA
+    size: 4096
+    encoding: PKCS8
+  issuerRef:
+    name: ankka-selfsigned
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# What the operator asks for a service's cluster certificate from.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ankka-cluster
+spec:
+  ca:
+    secretName: ankka-cluster-ca
+---
+# What the operator asks for a service's HTTP certificate from; also the gateway's client
+# certificate, the control plane's and the identity provider's server certificates.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: ankka-service
+spec:
+  ca:
+    secretName: ankka-service-ca

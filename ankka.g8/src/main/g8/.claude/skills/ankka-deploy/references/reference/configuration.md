@@ -45,6 +45,10 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_DB_NAME` | `pekko.persistence.r2dbc.connection-factory.database` | `"ankka"` | every service |
 | `ANKKA_DB_USER` | `pekko.persistence.r2dbc.connection-factory.user` | `"ankka"` | every service |
 | `ANKKA_DB_PASSWORD` | `pekko.persistence.r2dbc.connection-factory.password` | `"ankka"` | every service |
+| `ANKKA_DB_SSL_MODE` | `pekko.persistence.r2dbc.connection-factory.ssl.mode` | `""` | every service |
+| `ANKKA_DB_SSL_ROOT_CERT` | `pekko.persistence.r2dbc.connection-factory.ssl.root-cert` | `""` | every service |
+| `ANKKA_DB_SSL_CERT` | `pekko.persistence.r2dbc.connection-factory.ssl.cert` | `""` | every service |
+| `ANKKA_DB_SSL_KEY` | `pekko.persistence.r2dbc.connection-factory.ssl.key` | `""` | every service |
 | `ANKKA_HTTP_INTERFACE` | `ankka.http.interface` | `"0.0.0.0"` | every service |
 | `ANKKA_HTTP_PORT` | `ankka.http.port` | `9000` | every service |
 | `ANKKA_CLUSTER_SEED_NODES` | `ankka.cluster.seed-nodes` | `""` | local mode |
@@ -60,12 +64,22 @@ Settings with no environment variable, overridable in the service's own `applica
 | Configuration key | Default | Applies in |
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
+| `ankka.tls.cluster-directory` | `""` | every service |
+| `ankka.tls.service-directory` | `""` | every service |
+| `ankka.tls.reload-interval` | `1m` | every service |
+| `ankka.http.tls.enabled` | `off` | every service |
+| `ankka.probe.enabled` | `off` | every service |
+| `ankka.probe.port` | `7627` | every service |
 | `ankka.observability.ring-capacity` | `4096` | every service |
 | `ankka.http.body-timeout` | `10s` | every service |
 | `ankka.cluster.formation` | `join-self-or-seeds` | local mode |
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
 | `ankka.cluster.formation` | `bootstrap` | kubernetes mode |
 | `ankka.join-self-if-no-seed-nodes` | `off` | kubernetes mode |
+| `ankka.tls.cluster-directory` | `"/var/run/secrets/ankka/cluster"` | kubernetes mode |
+| `ankka.tls.service-directory` | `"/var/run/secrets/ankka/service"` | kubernetes mode |
+| `ankka.http.tls.enabled` | `on` | kubernetes mode |
+| `ankka.probe.enabled` | `on` | kubernetes mode |
 ## What each variable means
 
 ### HTTP
@@ -85,7 +99,14 @@ descriptor that sets any `ANKKA_DB_*` variable brings its own database instead.
 - `ANKKA_DB_PORT` is the Postgres port, `5432` by default.
 - `ANKKA_DB_NAME` is the database, `ankka` by default.
 - `ANKKA_DB_USER` is the user, `ankka` by default.
-- `ANKKA_DB_PASSWORD` is the password, `ankka` by default.
+- `ANKKA_DB_PASSWORD` is the password, `ankka` by default. A provisioned database has none: its role logs
+  in by certificate.
+- `ANKKA_DB_SSL_MODE` turns on TLS to the database: `require`, `verify-ca` or `verify-full`. Empty, the
+  default, the connection is plain. The platform sets `verify-full` for a provisioned database.
+- `ANKKA_DB_SSL_ROOT_CERT` is the file of the authority the server's certificate is verified against.
+- `ANKKA_DB_SSL_CERT` and `ANKKA_DB_SSL_KEY` are a client certificate and its PKCS#8 key to log in with
+  instead of a password. The key is read when a connection is opened, so a renewed certificate reaches the
+  next connection without a restart.
 
 Never point two services at one database. Timers, view tables and projection offsets are not separated by
 service, so two services sharing a database delete each other's timers and overwrite each other's views.
@@ -113,9 +134,13 @@ These are set by the platform on every deployed instance, and a descriptor that 
   mistakes another service's pods for its own.
 - `ANKKA_CLUSTER_CONTACT_POINTS` is how many peers must be found before a new cluster forms: the smaller of
   the instance count and two.
+- `ANKKA_NAMESPACE_PREFIX` is how a project id becomes a namespace, `ankka-<project>`, which the service
+  client uses to address another service by name.
 
-In `kubernetes` mode the remoting port is fixed at 17355 and the management port at 7626. See
-[Runtime endpoints](runtime-endpoints.md).
+In `kubernetes` mode the remoting port is fixed at 17355, the management port at 7626 and the readiness
+port at 7627, and every one of them but readiness is mutual TLS with certificates the platform mounts under
+`/var/run/secrets/ankka/`. See [Runtime endpoints](runtime-endpoints.md) and
+[Networking and TLS](../platform/networking.md).
 
 ### Agents and models
 
@@ -159,6 +184,10 @@ loopback. The platform sets these variables on the two containers, and a descrip
   handshake before giving up, `60s` by default. It accepts `ms`, `s` and `m` suffixes; a bare number is
   seconds.
 
+`ANKKA_LOCAL_CALLER_TOKEN` is the secret a test presents to name a caller outside a cluster. The Python and
+TypeScript integration testkits generate one and pass it to the sidecar they start; nothing sets it in a
+cluster, where the caller comes from a certificate and the header is not read.
+
 The Python and TypeScript integration testkits read `ANKKA_SIDECAR_IMAGE` to choose the sidecar image they
 start. Without it, a released SDK starts `ghcr.io/thinkmorestupidless/ankka-sidecar` at its own version, and an
 unreleased one (version `0.0.0`, from a checkout of the repository) starts `ankka-sidecar:latest`.
@@ -178,6 +207,14 @@ These are overridden in the service's `application.conf` or with a system proper
   the overlay.
 - `ankka.join-self-if-no-seed-nodes` is `on` in `local` mode and `off` in `kubernetes` mode, where joining
   itself would split the service into several clusters.
+- `ankka.tls.cluster-directory` and `ankka.tls.service-directory` are where the cluster and service
+  certificates are read from, empty in `local` mode and set by the `kubernetes` overlay.
+  `ankka.tls.reload-interval`, `1m`, is how often a changed certificate file is noticed.
+- `ankka.http.tls.enabled` makes the HTTP server mutual TLS; `off` locally, `on` in `kubernetes` mode.
+- `ankka.probe.enabled` and `ankka.probe.port`, `7627`, are the plain readiness listener, on only in
+  `kubernetes` mode.
+- `ankka.local-services.<name>` is the address of another service on this machine for the service client,
+  such as `"http://127.0.0.1:9001"`. Without it the client asks the local console's registry.
 
 The runtime also sets Pekko's own settings. Two of them shape how a service behaves:
 

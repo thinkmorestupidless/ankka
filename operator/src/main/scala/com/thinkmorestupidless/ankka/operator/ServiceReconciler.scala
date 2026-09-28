@@ -51,7 +51,7 @@ final class ServiceReconciler(
 
     val databasePlan = decideDatabasePlan(ref, spec)
 
-    Rendering.render(resource, settings, databasePlan, Passwords.generate()) match
+    Rendering.render(resource, settings, databasePlan) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
         // why, which is the only way an operator finds out.
@@ -68,12 +68,40 @@ final class ServiceReconciler(
           )
           report(ref, resource, status(spec, None, problem, resource, databasePlan))
         else
-          actions.foreach(executor.execute)
-          report(
-            ref,
-            resource,
-            status(spec, snapshotOf(namespace, spec), Vector.empty, resource, databasePlan)
-          )
+          val transitioning =
+            Transition.needed(executor.podTemplateLabels(namespace, spec.serviceName))
+          def transitionStatus = status(spec, None, Vector.empty, resource, databasePlan)
+            .copy(lifecycle = "UpdateInProgress", detail = Some(Transition.Detail))
+          val ready =
+            if !transitioning then true
+            else
+              log.info("{} predates mutual TLS; stopping its instances before applying", ref)
+              report(ref, resource, transitionStatus)
+              executor.execute(
+                Action.DeleteDeployment(namespace, Names.deployment(spec.serviceName))
+              )
+              executor.awaitNoPods(
+                namespace,
+                Labels.identity(spec.projectId, spec.serviceName),
+                Transition.Wait
+              )
+          if !ready then
+            // Never apply beside a live old pod: that is the split the transition exists to avoid.
+            // The next reconcile finds no Deployment, so it applies straight away.
+            log.warn(
+              "{} still has instances after {}; retrying on the next pass",
+              ref,
+              Transition.Wait
+            )
+          else
+            actions.foreach(executor.execute)
+            val observed =
+              status(spec, snapshotOf(namespace, spec), Vector.empty, resource, databasePlan)
+            report(
+              ref,
+              resource,
+              if transitioning then observed.copy(detail = Some(Transition.Detail)) else observed
+            )
 
   /**
    * Reads what the cluster has for this service's database and decides what to do about it — once

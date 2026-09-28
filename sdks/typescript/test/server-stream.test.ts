@@ -10,6 +10,7 @@ import { ErrorCode as ProtoErrorCode } from "../src/_proto/ankka/protocol/v1/pay
 import { Counter, CounterState } from "./fixtures/counter.ts"
 import { Conversation, decode, failureOf, payload, replyOf, startServer, type Started } from "./helpers.ts"
 import { VERSION } from "../src/version.ts"
+import { PROTOCOL_VERSION } from "../src/spec.ts"
 
 describe("the event sourced servicer", () => {
   let started: Started
@@ -20,7 +21,7 @@ describe("the event sourced servicer", () => {
 
   test("discovery lists the component, its handlers and the SDK", async () => {
     const spec = await started.discovery.discover({ protocolVersion: "1.0", runtimeVersion: "test" })
-    assert.equal(spec.protocolVersion, "1.0")
+    assert.equal(spec.protocolVersion, PROTOCOL_VERSION)
     assert.deepEqual({ name: spec.sdk?.name, version: spec.sdk?.version }, { name: "ankka-typescript", version: VERSION })
     assert.equal(spec.components.length, 1)
     const c = spec.components[0]!

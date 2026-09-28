@@ -155,6 +155,12 @@ The control plane cannot reach the Kubernetes API, so it is restating the last r
 is recorded and will be acted on when the cluster is reachable. This is a platform problem, not a problem
 with the service.
 
+### `Unavailable` with `runtime … predates mutual TLS`
+
+The descriptor declares a runtime older than the platform's minimum: every workload now speaks mutual TLS,
+and a runtime that cannot would never join a cluster or be reached by the gateway. Rebuild against the
+platform's version and update `runtime`.
+
 ### `Unavailable` with `runtime … is outside the platform's supported range`
 
 The descriptor declares a `runtime` version the platform will not run: the platform accepts the same major
@@ -183,7 +189,12 @@ different port, never becomes ready and is reported `Failed` when the rollout's 
 - A service that serves no HTTP needs `"http": false` in its descriptor.
 - A service listening on another port needs `"port"` set to it.
 - An image that is not an ankka service at all is never ready, by design: readiness is the runtime's own
-  check. The same is true of an image built with an ankka version that predates the readiness endpoint.
+  check. The same is true of an image built with an ankka version that predates the readiness endpoint,
+  or mutual TLS: the detail then quotes the kubelet, `Readiness probe failed: … :7627/ready … connection
+  refused`, because such an image opens no probe port.
+- `FailedMount` naming a `-tls` Secret means cert-manager has not issued the instance's certificate. Check
+  `kubectl -n ankka-<project> get certificate`: a certificate that stays not `Ready` names why, most often
+  an installation authority that is missing.
 
 ### `operator has no sidecar image`
 
@@ -205,6 +216,18 @@ service's route or cannot reach its backend. A `404` for every request usually m
 admit routes from the service's namespace; a `500` usually means the route was accepted but its backend
 reference was not permitted. Both are platform configuration; see
 [Networking and TLS](../platform/networking.md).
+
+### The hostname answers 503 with `upstream connect error`
+
+The gateway reached the service and could not complete TLS with it. Either the service's namespace has no
+`ankka-service-ca` ConfigMap, which trust-manager writes into every namespace labelled
+`app.kubernetes.io/managed-by: ankka`, or the gateway's client certificate `ankka-gateway-client` in
+`ankka-gateway` is not `Ready`. Check both:
+
+```bash
+kubectl -n ankka-<project> get configmap ankka-service-ca
+kubectl -n ankka-gateway get certificate ankka-gateway-client
+```
 
 ### `expose` is refused
 

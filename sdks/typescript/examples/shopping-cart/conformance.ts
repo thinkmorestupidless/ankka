@@ -4,6 +4,7 @@
 import {
   Acl,
   Agent,
+  Callers,
   Ankka,
   Consumer,
   Done,
@@ -208,6 +209,22 @@ export class ConformanceEndpoint extends Endpoint {
   }
 }
 
+/** Caller-naming ACLs: the suite names callers through the local caller header. */
+export class CallersEndpoint extends Endpoint {
+  static readonly prefix = "/callers"
+  static readonly acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
+  static readonly routes = {
+    whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => {
+      const c = req.caller
+      return c.kind === "service" ? `service:${c.project}/${c.name}` : c.kind
+    }),
+    onlySelf: get("/self", s.string, () => "self", { acl: Acl.allowCallers(Callers.self) }),
+    events: sse("/events", async function* () {
+      yield "tick"
+    }, { acl: Acl.allowCallers(Callers.self) }),
+  }
+}
+
 export class PrivateEndpoint extends Endpoint {
   static readonly prefix = "/private"
   static readonly acl = Acl.authenticated
@@ -230,4 +247,5 @@ export function referenceService() {
     .register(ShoppingCartEndpoint)
     .register(ConformanceEndpoint)
     .register(PrivateEndpoint)
+    .register(CallersEndpoint)
 }

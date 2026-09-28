@@ -23,8 +23,33 @@ final case class ClusterSpec(
      * named database into it would create a database no service owns. Omitted entirely for a
      * project cluster.
      */
-    bootstrap: Option[BootstrapSpec] = None
+    bootstrap: Option[BootstrapSpec] = None,
+    /**
+     * Feature 014: the project's own database authority as CNPG's client CA, and a replication
+     * certificate from it — CNPG's documented cert-manager shape. The server CA stays CNPG's.
+     */
+    certificates: Option[CertificatesSpec] = None,
+    /**
+     * Feature 014: a `cert` rule for the members of `ankka_tls`, ahead of CNPG's password default.
+     */
+    postgresql: Option[PostgresqlSpec] = None,
+    /** Feature 014: the `ankka_tls` group every provisioned role joins. */
+    managed: Option[ManagedSpec] = None
 )
+
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class CertificatesSpec(clientCASecret: String = "", replicationTLSSecret: String = "")
+
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class PostgresqlSpec(
+    @com.fasterxml.jackson.annotation.JsonProperty("pg_hba") pgHba: Vector[String] = Vector.empty
+)
+
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ManagedSpec(roles: Vector[ManagedRole] = Vector.empty)
+
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ManagedRole(name: String = "", login: Boolean = false, ensure: String = "present")
 
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class StorageSpec(size: String = "1Gi")

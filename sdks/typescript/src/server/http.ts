@@ -9,7 +9,7 @@ import type { ConnectRouter } from "@connectrpc/connect"
 import { create } from "@bufbuild/protobuf"
 import { Http, HttpReplySchema, StreamFrameSchema, type HttpRequest, type HttpReply, type StreamFrame } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
 import { codecFor, type Codec } from "../codec.ts"
-import { Headers, Query, metadataFromProto, withRequest, type Principal, type RequestContext } from "../context.ts"
+import { Headers, Query, metadataFromProto, withRequest, type Caller, type Principal, type RequestContext } from "../context.ts"
 import { CommandError, ErrorCode, httpStatusOf } from "../effects/common.ts"
 import type { Endpoint } from "../endpoint.ts"
 import { DecodingError } from "../json.ts"
@@ -38,6 +38,19 @@ function principalOf(req: HttpRequest): Principal | null {
   const p = req.principal
   if (!p) return null
   return Object.freeze({ subject: p.subject, name: p.name ?? null, email: p.email ?? null, emailVerified: p.emailVerified, roles: Object.freeze([...p.roles]) })
+}
+
+/** The caller the sidecar established; a sidecar that predates protocol 1.1 sends none, which reads as local. */
+function callerOf(req: HttpRequest): Caller {
+  const kind = req.caller?.kind
+  switch (kind?.case) {
+    case "gateway":
+      return Object.freeze({ kind: "gateway" })
+    case "service":
+      return Object.freeze({ kind: "service", project: kind.value.project, name: kind.value.name })
+    default:
+      return Object.freeze({ kind: "local" })
+  }
 }
 
 /** A path parameter as its declared schema: strings as they are, scalars through their text codec. */
@@ -106,6 +119,7 @@ export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
         headers: new Headers(req.headers.map((p) => [p.name, p.value] as const)),
         principal: principalOf(req),
         metadata: metadataFromProto(req.metadata),
+        caller: callerOf(req),
       })
       const body = route.body ? codecFor(route.body).decode(req.body) : undefined
       return { ok: true, prepared: { endpoint, route, instance, request, body } }

@@ -34,10 +34,7 @@ object ServiceProjection:
       case Some(Right(runtime)) =>
         Version.parse(config.platformVersion) match
           case Right(platform) if !Compatibility.supports(platform, runtime) =>
-            Vector(
-              s"runtime $runtime is outside the platform's supported range: " +
-                Compatibility.describe(platform)
-            )
+            Vector(Compatibility.refusal(platform, runtime))
           case _ => Vector.empty
       case _ => Vector.empty // absent, or malformed (already a descriptor problem)
 

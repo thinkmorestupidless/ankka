@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.application
 
-import com.thinkmorestupidless.ankka.controlplane.api.{OrganizationDetail, Role}
-import com.thinkmorestupidless.ankka.controlplane.domain.{Actor, OrganizationEvent}
+import com.thinkmorestupidless.ankka.controlplane.api.{OrganizationDetail, Quota, Role}
+import com.thinkmorestupidless.ankka.controlplane.domain.{Actor, OrganizationEvent, UsageRecord}
 import com.thinkmorestupidless.ankka.controlplane.domain.OrganizationEvent.*
 import com.thinkmorestupidless.ankka.core.{Codecs, ComponentId}
 import com.thinkmorestupidless.ankka.sdk.*
@@ -32,9 +32,11 @@ final case class OrganizationRow(
     owners: Vector[String] = Vector.empty,
     invitations: Vector[String] = Vector.empty,
     disabledBy: Option[Actor] = None,
-    disabledAt: Option[Instant] = None
+    disabledAt: Option[Instant] = None,
+    quota: Option[Quota] = None,
+    record: UsageRecord = UsageRecord()
 ):
-  def detail: OrganizationDetail = OrganizationDetail(id, name, disabled)
+  def detail: OrganizationDetail = OrganizationDetail(id, name, disabled, quota, record.usage)
   def roleOf(subject: String): Option[Role] =
     if owners.contains(subject) then Some(Role.Owner)
     else if members.contains(subject) then Some(Role.Member)
@@ -93,6 +95,13 @@ final class OrganizationRowsView extends View[OrganizationEvent, OrganizationRow
       effects.updateRow(row.copy(disabled = true, disabledBy = actor, disabledAt = at))
     case OrganizationEnabled(actor, at) =>
       effects.updateRow(row.copy(disabled = false, disabledBy = actor, disabledAt = at))
+    // Quotas (feature 015): the listing shows them; the entity enforces them. The same fold as the
+    // entity's, so the two cannot disagree about a count.
+    case QuotaSet(quota, _, _) => effects.updateRow(row.copy(quota = Some(quota)))
+    case _: QuotaCleared       => effects.updateRow(row.copy(quota = None))
+    case usage @ (_: ProjectReserved | _: ProjectReleased | _: ServiceReserved |
+        _: ServiceReleased | _: UsageReconciled) =>
+      effects.updateRow(row.copy(record = row.record.fold(usage)))
 
 object OrganizationRows
     extends View.Companion[OrganizationRowsView, OrganizationEvent, OrganizationRow](

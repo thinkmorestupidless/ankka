@@ -23,12 +23,15 @@ object Output:
       case Format.Json => writeToString(rows)
       case Format.Table =>
         table(
-          Vector("ID", "NAME", "PROJECTS", "ROLE", "STATE"),
+          Vector("ID", "NAME", "PROJECTS", "SERVICES", "INSTANCES", "QUOTA", "ROLE", "STATE"),
           rows.map(row =>
             Vector(
               row.id,
               row.name,
               row.projects.toString,
+              row.usage.services.toString,
+              row.usage.instances.toString,
+              row.quota.fold("-")(quotaCell),
               row.role.fold("-")(Role.name),
               if row.disabled then "disabled" else "active"
             )
@@ -39,6 +42,22 @@ object Output:
     format match
       case Format.Json  => writeToString(row)
       case Format.Table => organizations(Vector(row), format)
+
+  /** `projects/services/instances`, `-` for a limit not set — the column a listing scans. */
+  private def quotaCell(quota: Quota): String =
+    Vector(quota.projects, quota.services, quota.instances)
+      .map(_.fold("-")(_.toString))
+      .mkString("/")
+
+  /** The quota in words, for a confirmation: `projects 2, instances 4`. */
+  def quota(quota: Quota): String =
+    Vector(
+      "projects"  -> quota.projects,
+      "services"  -> quota.services,
+      "instances" -> quota.instances
+    )
+      .collect { case (name, Some(limit)) => s"$name $limit" }
+      .mkString(", ")
 
   def projects(rows: Vector[ProjectSummary], format: Format): String =
     format match

@@ -298,3 +298,25 @@ class DescriptorSuite extends munit.FunSuite:
       Vector.empty
     )
   }
+
+  test("a quota names at least one non-negative limit; zero is a limit (feature 015)") {
+    assertEquals(Quota.problems(Quota(projects = Some(0))), Vector.empty)
+    assertEquals(Quota.problems(Quota(Some(1), Some(2), Some(3))), Vector.empty)
+    assert(Quota.problems(Quota()).exists(_.contains("clear the quota instead")))
+    assertEquals(
+      Quota.problems(Quota(projects = Some(-1), instances = Some(-2))),
+      Vector("a quota's projects cannot be negative", "a quota's instances cannot be negative")
+    )
+  }
+
+  test("a quota's absent and null limits both read as unlimited over the wire") {
+    import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
+    import Wire.given
+    val decoded = readFromString[Quota]("""{"projects":2,"services":null}""")
+    assertEquals(decoded, Quota(projects = Some(2)))
+    assertEquals(writeToString(decoded), """{"projects":2}""")
+    val summary = readFromString[OrganizationSummary](
+      """{"id":"acme","name":"Acme","projects":1,"disabled":false,"role":"owner"}"""
+    )
+    assertEquals((summary.quota, summary.usage), (None, Usage.zero))
+  }

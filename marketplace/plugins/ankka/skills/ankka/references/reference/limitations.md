@@ -60,6 +60,9 @@ feature also says what that feature does not do.
   its namespace.
 - **Roles are per organization.** A member is an owner or a member of an organization. There are no
   per-project roles and no read-only role.
+- **Quotas count projects, services and instances, and nothing else.** An organization's quota does not
+  cover memory, CPU or storage, there is no per-project quota, and a quota lowered below what an
+  organization holds refuses new things but stops nothing that runs.
 - **Nothing at the gateway but routing.** There is no authentication, rate limiting or header policy at the
   gateway. HTTP/1.1 only through it, with no gRPC or HTTP/2 to services, and one gateway per installation.
 - **One port, HTTP only.** A service has a single HTTP port and no other protocol.

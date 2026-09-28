@@ -483,3 +483,21 @@ class AuthorizationMatrixSuite extends munit.FunSuite:
     assertEquals(send("DELETE", s"/organizations/acme/members/token:$id", alice)._1, 204)
     assertEquals(send("GET", "/organizations/acme", secret)._1, 404)
   }
+
+  test(
+    "11. a quota is the platform administrator's to set and clear, nobody else's (feature 015)"
+  ) {
+    val body = Some("""{"projects":1}""")
+    // An owner is refused as forbidden, and so is a stranger — for the stranger the organization
+    // is 404 elsewhere, but the administrative routes refuse the role before looking at anything.
+    assertEquals(send("PUT", "/organizations/acme/quota", alice, body)._1, 403)
+    assertEquals(send("DELETE", "/organizations/acme/quota", alice)._1, 403)
+    assertEquals(send("PUT", "/organizations/acme/quota", bob, body)._1, 403)
+    assert(!send("GET", "/organizations/acme", alice)._2.contains("\"quota\""), "unchanged")
+
+    assertEquals(send("PUT", "/organizations/acme/quota", carol, body)._1, 204)
+    assert(send("GET", "/organizations/acme", alice)._2.contains("\"quota\":{\"projects\":1}"))
+    assertEquals(send("PUT", "/organizations/nowhere/quota", carol, body)._1, 404)
+    assertEquals(send("DELETE", "/organizations/acme/quota", carol)._1, 204)
+    assert(!send("GET", "/organizations/acme", alice)._2.contains("\"quota\""), "cleared")
+  }

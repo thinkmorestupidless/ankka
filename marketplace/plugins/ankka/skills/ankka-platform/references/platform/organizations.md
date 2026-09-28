@@ -115,6 +115,46 @@ a service its members had paused before the organization was disabled stays paus
 Every change a platform administrator makes is recorded as administrative, so the history of a service
 shows when the platform administrator role was what allowed it.
 
+## Quotas
+
+A platform administrator can cap what an organization holds: how many projects, how many services across
+its projects, and how many instances across them, counting every service's `minInstances`. There is no
+quota by default, and an organization without one is unlimited.
+
+```bash
+ankka organizations quota set acme --projects 2 --services 5 --instances 8
+ankka organizations quota set acme --services 3        # replaces the whole quota; projects and instances unlimited
+ankka organizations quota clear acme
+```
+
+A limit left out is unlimited; `0` allows none. The quota is enforced when something is asked for:
+creating a project when the organization is at its project quota is refused with a message naming the
+quota and the count in use, and so is applying a service that would take the organization past its
+service or instance quota. A refused apply changes nothing, and a service re-applied with the same or
+fewer instances is always accepted, since it needs no new capacity. Deleting a project or a service frees
+what it counted. Pausing a service, or disabling the organization, changes no count: what is paused is
+still the organization's and comes back when it resumes.
+
+Lowering a quota below what an organization already holds is accepted and stops nothing. New projects
+and services are refused until usage is under the quota again, and members can work their way down by
+re-applying services with fewer instances or deleting them.
+
+Members see the quota and the usage on the organization:
+
+```bash
+ankka organizations get acme
+```
+
+```text
+ID    NAME       PROJECTS  SERVICES  INSTANCES  QUOTA  ROLE   STATE
+acme  Acme Corp  2         3         5          2/5/8  owner  active
+```
+
+`SERVICES` and `INSTANCES` are the organization's own record of what it holds, kept as things are created
+and deleted, and `QUOTA` is `projects/services/instances` with `-` for a limit not set. Setting a quota
+also brings that record up to date with what exists, so an organization created before the installation
+had quotas shows its true usage from the moment it is first given one.
+
 ## Delete a project or an organization
 
 ```bash

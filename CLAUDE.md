@@ -436,6 +436,16 @@ Two invariants carry most of the weight:
   goes false but `known` stays true, so the id cannot be recreated. A service is
   deliberately the opposite — a name is a deployment target, not a tenancy boundary.
 
+- **Quotas are reserve-first.** An organization keeps an exact record of its projects and
+  services (`UsageRecord`, one fold shared by the entity and the listing row), and the project
+  and service endpoints ask it to *reserve* before creating or applying, then give the slot back
+  if the second step fails — only if this request was the one that took it, which is what the
+  reservation's reply says. `quota set` merges a snapshot from the views into the record, never
+  replaces it: a listing lags, and a replace forgot a project created a moment earlier on the
+  suite's first run. The shared codec omits a field at its default, so `usage` is absent from
+  the wire when every count is zero; `Usage`'s own fields have no defaults so a written one is
+  whole.
+
 Cross-entity checks live in the endpoint, never a handler. An entity cannot see another
 entity's state, and calling out to fetch it would be a check that does not hold anyway.
 
@@ -1182,8 +1192,8 @@ bite:
 - **The tool is not ankka's alone.** Everything ankka-specific — the frontmatter vocabularies, the
   skill targets, which generator owns which block, the files that link to the site — is `extra.docs`
   in `mkdocs.yml`, and the tool finds the repository by the nearest `mkdocs.yml` above its working
-  directory. satisfactory (`../satisfactory`) depends on `ankka-docs` from `tools/docs` and writes its
-  own block, so a rule changed here changes there. `uv run --project tools/docs pytest tools/docs` runs the tool
+  directory. satisfactory (`../satisfactory`) and ankka-flow (`../ankka-flow`) depend on `ankka-docs`
+  from `tools/docs` and write their own blocks, so a rule changed here changes there. `uv run --project tools/docs pytest tools/docs` runs the tool
   against a fixture repository that is not ankka; a new ankka-specific constant in the Python is wrong,
   it goes in the block.
 
@@ -1205,7 +1215,7 @@ bite:
   `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
 - **A new page goes in `mkdocs.yml`'s `nav` and in at least one skill's `pages:` list**, or `docs check`
   fails. `marketplace/` is ankka's part of the Claude Code marketplace, `thinkmorestupidless/ankka-marketplace`,
-  which holds one plugin per project (ankka's, satisfactory's). The release workflow's `marketplace` job
+  which holds one plugin per project (ankka's, satisfactory's, ankka-flow's). The release workflow's `marketplace` job
   clones that repository, replaces `plugins/ankka/` and ankka's manifest entry only, and pushes an
   ordinary commit — never a subtree split or a force push, which would erase the other projects' plugins;
   the plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control

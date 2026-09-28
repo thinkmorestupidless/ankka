@@ -88,6 +88,28 @@ enum OrganizationEvent:
   case OrganizationDisabled(actor: Option[Actor] = None, at: Option[Instant] = None)
   case OrganizationEnabled(actor: Option[Actor] = None, at: Option[Instant] = None)
 
+  // Quotas (feature 015). The quota is the administrator's; the usage events are written on a
+  // member's behalf by the endpoint that creates, applies or deletes — before the thing is created
+  // (a reservation) and after it is gone. `UsageReconciled` replaces the record with what the
+  // views say exists, written when a quota is set.
+  case QuotaSet(quota: Quota, actor: Option[Actor] = None, at: Option[Instant] = None)
+  case QuotaCleared(actor: Option[Actor] = None, at: Option[Instant] = None)
+  case ProjectReserved(projectId: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+  case ProjectReleased(projectId: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+  case ServiceReserved(
+      key: String,
+      instances: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+  case ServiceReleased(key: String, actor: Option[Actor] = None, at: Option[Instant] = None)
+  case UsageReconciled(
+      projects: Set[String],
+      services: Map[String, Int],
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 /**
  * `OrganizationEntity.claimInvitation`: who is claiming, with the verified email they presented.
  */
@@ -111,6 +133,23 @@ final case class AddMember(
 
 /** `OrganizationEntity.changeRole`. */
 final case class ChangeRole(subject: String, role: Role)
+
+/**
+ * `OrganizationEntity.setQuota` (feature 015): the quota, and a snapshot of what exists — project
+ * ids and each service's `minInstances` by key — read by the endpoint from the views, so that an
+ * organization created before quotas existed starts with a true record rather than an empty one.
+ */
+final case class SetQuota(quota: Quota, projects: Set[String], services: Map[String, Int])
+
+/** `OrganizationEntity.reserveService`: a service about to be applied, with its `minInstances`. */
+final case class ReserveService(key: String, instances: Int)
+
+/**
+ * `OrganizationEntity.recordService`: the unchecked write. `Some(n)` records the service at `n`
+ * instances whatever the quota, `None` removes it. Used after a delete, and to put back what a
+ * reservation replaced when the apply behind it failed.
+ */
+final case class RecordService(key: String, instances: Option[Int])
 
 /**
  * `OrganizationEntity.roleOf`, in one answer: the caller's role if any, whether the organization

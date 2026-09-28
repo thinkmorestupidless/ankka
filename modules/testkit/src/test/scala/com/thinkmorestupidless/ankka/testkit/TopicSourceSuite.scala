@@ -134,3 +134,13 @@ class TopicSourceSuite extends munit.FunSuite:
     assert(failure.getMessage.contains("MessageSubscriber"), failure.getMessage)
     assert(failure.getMessage.contains("stock-events"), failure.getMessage)
   }
+
+  test("fromEnv with no broker named is broker-less, and the refusal names the variable") {
+    // A deployed service reaches Kafka through its descriptor's env; forgetting the variable must
+    // fail the same way as forgetting the broker in code, and say which variable to set.
+    val failure = intercept[IllegalArgumentException] {
+      ProjectionRuntime.fromEnv(Map(ProjectionRuntime.KafkaEnvVar -> "  ")).start(testKit.service)
+    }
+    assert(failure.getMessage.contains("stock-events"), failure.getMessage)
+    assert(failure.getMessage.contains("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), failure.getMessage)
+  }

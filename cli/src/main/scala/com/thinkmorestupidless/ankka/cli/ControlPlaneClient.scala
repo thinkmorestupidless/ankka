@@ -120,6 +120,14 @@ final class ControlPlaneClient(settings: Settings):
   def enableOrganization(id: String): Unit =
     send("POST", s"/organizations/${segment(id)}/enable", None): Unit
 
+  // ── Quotas (feature 015) ──────────────────────────────────────────────────
+
+  def setQuota(id: String, quota: Quota): Unit =
+    send("PUT", s"/organizations/${segment(id)}/quota", Some(writeToString(quota))): Unit
+
+  def clearQuota(id: String): Unit =
+    send("DELETE", s"/organizations/${segment(id)}/quota", None): Unit
+
   // ── Projects ──────────────────────────────────────────────────────────────
 
   def listProjects(organizationId: Option[String]): Vector[ProjectSummary] =

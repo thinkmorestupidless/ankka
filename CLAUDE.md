@@ -1164,8 +1164,10 @@ bite:
 - **Giter8 reads `$` as template syntax**, so the skill's copy in the template is written with every
   `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
 - **A new page goes in `mkdocs.yml`'s `nav` and in at least one skill's `pages:` list**, or `docs check`
-  fails. `marketplace/` is the Claude Code marketplace, pushed whole to `thinkmorestupidless/ankka-marketplace`
-  by the release workflow's `marketplace` job (a `git subtree split`, exactly as `ankka.g8/` is pushed);
+  fails. `marketplace/` is ankka's part of the Claude Code marketplace, `thinkmorestupidless/ankka-marketplace`,
+  which holds one plugin per project (ankka's, satisfactory's). The release workflow's `marketplace` job
+  clones that repository, replaces `plugins/ankka/` and ankka's manifest entry only, and pushes an
+  ordinary commit — never a subtree split or a force push, which would erase the other projects' plugins;
   the plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control
   plane route fails the JVM suites until `just docs-reference` has run and the route has a
   hand-written section.

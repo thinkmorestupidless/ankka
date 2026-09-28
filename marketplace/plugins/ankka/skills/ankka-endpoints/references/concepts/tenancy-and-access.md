@@ -110,6 +110,12 @@ but every change is refused with a conflict. Enabling it again brings back exact
 service its members had paused stays paused. A suspended service reports `Suspended` rather than `Paused`,
 so it is always clear who stopped it.
 
+A platform administrator can also give an organization a **quota**: at most so many projects, services
+and instances. The organization keeps an exact record of what it holds, and the control plane refuses a
+project or a service that would exceed the quota at the moment it is asked for. Nothing that already runs
+is ever stopped by a quota, however it is lowered. See
+[Quotas](../platform/organizations.md#quotas).
+
 ## Every change is attributed
 
 Every command recorded by the control plane carries who asked for it, when, and whether it was the

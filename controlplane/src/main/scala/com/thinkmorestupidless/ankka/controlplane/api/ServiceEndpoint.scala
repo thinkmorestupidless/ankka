@@ -4,10 +4,13 @@ import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, ServiceRows}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, PodLogs}
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
+import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.crd.Hostnames
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
+
+import scala.util.control.NonFatal
 
 /**
  * Services, addressed by project and name.
@@ -32,6 +35,7 @@ final class ServiceEndpoint(
 
   private val services = clients.viewClient.forView(ServiceRows)
   private val authz = com.thinkmorestupidless.ankka.controlplane.auth.Authorization(clients, clock)
+  private val usage = OrganizationUsage(clients)
 
   /** The caller's standing in the project's organization, as command metadata (feature 008). */
   private def access(projectId: String, write: Boolean) =
@@ -52,15 +56,43 @@ final class ServiceEndpoint(
     withHostname(entity(projectId, name).call(ServiceEntity.get).invoke())
   }
 
+  /**
+   * The organization is asked for the capacity first (feature 015): a refusal for quota changes
+   * nothing, and an apply that then fails puts back what the service counted before — nothing, for
+   * a new one. The refusals the entity would make anyway (a descriptor naming another service, an
+   * invalid one) are made before asking, so a typo costs the organization no events.
+   */
   putBody("/{projectId}/{name}") {
     (projectId: String, name: String, descriptor: ServiceDescriptor) =>
-      val by = access(projectId, write = true)
-      withHostname(
-        entity(projectId, name)
-          .call(ServiceEntity.applyDescriptor)
-          .withMetadata(by)
-          .invoke(ApplyService(projectId, descriptor))
-      )
+      val authorized = authz.project(principal, projectId, write = true)
+      val by         = authz.metadata(authorized)
+      if descriptor.name != name then
+        throw CommandError(
+          s"descriptor names service '${descriptor.name}' but was applied to '$name'",
+          ErrorCode.BadRequest
+        )
+      val problems = descriptor.problems
+      if problems.nonEmpty then
+        throw CommandError(
+          problems.mkString("invalid descriptor: ", "; ", ""),
+          ErrorCode.BadRequest
+        )
+      val key       = ServiceKey(projectId, name).id
+      val instances = descriptor.service.resources.autoscaling.minInstances
+      val previous  = usage.reserveService(authorized.organizationId, key, instances, by)
+      try
+        withHostname(
+          entity(projectId, name)
+            .call(ServiceEntity.applyDescriptor)
+            .withMetadata(by)
+            .invoke(ApplyService(projectId, descriptor))
+        )
+      catch
+        case NonFatal(failure) =>
+          usage.undo(s"restore service '$key' to ${previous.fold("nothing")(_.toString)}") {
+            usage.recordService(authorized.organizationId, key, previous, by)
+          }
+          throw failure
   }
 
   post("/{projectId}/{name}/pause") { (projectId: String, name: String) =>
@@ -188,10 +220,11 @@ final class ServiceEndpoint(
   }
 
   delete("/{projectId}/{name}") { (projectId: String, name: String) =>
-    entity(projectId, name)
-      .call(ServiceEntity.delete)
-      .withMetadata(access(projectId, write = true))
-      .invoke(): Done
+    val authorized = authz.project(principal, projectId, write = true)
+    val by         = authz.metadata(authorized)
+    entity(projectId, name).call(ServiceEntity.delete).withMetadata(by).invoke(): Done
+    usage.recordService(authorized.organizationId, ServiceKey(projectId, name).id, None, by)
+    Done: Done
   }
 
   private def entity(projectId: String, name: String) =

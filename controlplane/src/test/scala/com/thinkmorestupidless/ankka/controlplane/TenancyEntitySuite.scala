@@ -1,6 +1,13 @@
 package com.thinkmorestupidless.ankka.controlplane
 
-import com.thinkmorestupidless.ankka.controlplane.api.{CreateProject, Invite, Owner, Role}
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  CreateProject,
+  Invite,
+  Owner,
+  Quota,
+  Role,
+  Usage
+}
 import com.thinkmorestupidless.ankka.controlplane.application.{
   DeployTokenEntity,
   OrganizationEntity,
@@ -14,7 +21,12 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{
   ConfigureRegistry,
   CreateForOwner,
   Organization,
-  RecordDeployToken
+  OrganizationEvent,
+  RecordDeployToken,
+  RecordService,
+  ReserveService,
+  SetQuota,
+  UsageRecord
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.DeployTokenEvent.*
 import com.thinkmorestupidless.ankka.controlplane.domain.OrganizationEvent.*
@@ -607,4 +619,230 @@ class TenancyEntitySuite extends munit.FunSuite:
     val kit = token
     val _   = kit.call(DeployTokenEntity.createToken)(request.copy(expiresAt = None))
     assertEquals(kit.call(DeployTokenEntity.get).replyValue.expiresAt, None)
+  }
+
+  // ── quotas (feature 015) ──────────────────────────────────────────────────
+
+  private type OrganizationKit =
+    EventSourcedTestKit[OrganizationEntity, Organization, OrganizationEvent]
+
+  private def usageOf(kit: OrganizationKit) =
+    kit.call(OrganizationEntity.get).replyValue.usage
+
+  // The snapshot an endpoint sends is what exists; here that is what the record already says.
+  private def quota(kit: OrganizationKit)(quota: Quota) =
+    val record = kit.currentState.record
+    kit.call(OrganizationEntity.setQuota, carol.metadata)(
+      SetQuota(quota, record.projects, record.services)
+    )
+
+  test("a quota is set whole, replaced whole, and cleared; none is the default") {
+    val kit = acme
+    assertEquals(kit.call(OrganizationEntity.get).replyValue.quota, None)
+    assertEquals(usageOf(kit), Usage.zero)
+
+    val set = quota(kit)(Quota(projects = Some(2), instances = Some(4)))
+    assertEquals(
+      set.events,
+      Vector(QuotaSet(Quota(Some(2), None, Some(4)), Some(carol.actor), Some(now)))
+    )
+    assertEquals(
+      kit.call(OrganizationEntity.get).replyValue.quota,
+      Some(Quota(Some(2), None, Some(4)))
+    )
+
+    val _ = quota(kit)(Quota(services = Some(1)))
+    assertEquals(
+      kit.call(OrganizationEntity.get).replyValue.quota,
+      Some(Quota(None, Some(1), None))
+    )
+
+    val cleared = kit.call(OrganizationEntity.clearQuota, carol.metadata)
+    assertEquals(cleared.events, Vector(QuotaCleared(Some(carol.actor), Some(now))))
+    assertEquals(kit.call(OrganizationEntity.get).replyValue.quota, None)
+    // Clearing nothing is not an error: a plan change that lifts every limit is idempotent.
+    assertEquals(kit.call(OrganizationEntity.clearQuota, carol.metadata).events, Vector.empty)
+  }
+
+  test("a negative limit and a quota naming no limit are refused; zero is a limit") {
+    val kit = acme
+    assertEquals(quota(kit)(Quota(projects = Some(-1))).error.code, ErrorCode.BadRequest)
+    assert(quota(kit)(Quota(projects = Some(-1))).errorMessage.contains("cannot be negative"))
+    assertEquals(quota(kit)(Quota()).error.code, ErrorCode.BadRequest)
+    assert(quota(kit)(Quota()).errorMessage.contains("clear the quota instead"))
+    assert(!quota(kit)(Quota(projects = Some(0))).isError)
+    val refused = kit.call(OrganizationEntity.reserveProject, alice.metadata)("checkout")
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assert(refused.errorMessage.contains("quota of 0 project(s) (0 in use)"), refused.errorMessage)
+  }
+
+  test(
+    "a project slot is reserved once, refused at the quota, and released; the reply says which"
+  ) {
+    val kit = acme
+    val _   = quota(kit)(Quota(projects = Some(2)))
+    assertEquals(kit.call(OrganizationEntity.reserveProject, alice.metadata)("a").replyValue, true)
+    assertEquals(kit.call(OrganizationEntity.reserveProject, alice.metadata)("b").replyValue, true)
+    // Already counted: a retry, or a create about to fail as a duplicate — nothing to give back.
+    val again = kit.call(OrganizationEntity.reserveProject, alice.metadata)("a")
+    assertEquals(again.replyValue, false)
+    assertEquals(again.events, Vector.empty)
+
+    val refused = kit.call(OrganizationEntity.reserveProject, alice.metadata)("c")
+    assertEquals(refused.error.code, ErrorCode.Conflict)
+    assertEquals(
+      refused.errorMessage,
+      "organization 'acme' has reached its quota of 2 project(s) (2 in use)"
+    )
+    assertEquals(usageOf(kit).projects, 2)
+
+    val _ = kit.call(OrganizationEntity.releaseProject, alice.metadata)("a")
+    assertEquals(usageOf(kit).projects, 1)
+    assertEquals(
+      kit.call(OrganizationEntity.releaseProject, alice.metadata)("zz").events,
+      Vector.empty
+    )
+    assertEquals(kit.call(OrganizationEntity.reserveProject, alice.metadata)("c").replyValue, true)
+  }
+
+  test("a service reservation checks the service count for a new key and only the increase") {
+    val kit = acme
+    val _   = quota(kit)(Quota(services = Some(2), instances = Some(4)))
+
+    val first =
+      kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/a", 2))
+    assertEquals(first.replyValue, None)
+    assertEquals(usageOf(kit), Usage(0, 1, 2))
+
+    // Over the instance quota: refused, naming where it would land and what is in use.
+    val tooMany =
+      kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/b", 3))
+    assertEquals(tooMany.error.code, ErrorCode.Conflict)
+    assertEquals(
+      tooMany.errorMessage,
+      "applying 'p/b' with 3 instance(s) would take organization 'acme' to 5 instances, " +
+        "over its quota of 4 (2 in use)"
+    )
+    assertEquals(
+      kit
+        .call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/b", 1))
+        .replyValue,
+      None
+    )
+    assertEquals(usageOf(kit), Usage(0, 2, 3))
+
+    // At the service quota: the service count is what refuses, before instances are looked at.
+    val third =
+      kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/c", 1))
+    assertEquals(
+      third.errorMessage,
+      "organization 'acme' has reached its quota of 2 service(s) (2 in use)"
+    )
+
+    // A re-apply at the same count is a reply and no event; lower is always accepted; higher is
+    // checked as an increase over what it already holds.
+    val same = kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/a", 2))
+    assertEquals((same.replyValue, same.events), (Some(2), Vector.empty))
+    val lower =
+      kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/a", 1))
+    assertEquals(lower.replyValue, Some(2))
+    assertEquals(usageOf(kit), Usage(0, 2, 2))
+    val higher =
+      kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/a", 3))
+    assertEquals(higher.replyValue, Some(1))
+    assertEquals(usageOf(kit), Usage(0, 2, 4))
+    assertEquals(
+      kit
+        .call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/a", 4))
+        .error
+        .code,
+      ErrorCode.Conflict
+    )
+  }
+
+  test("recording is unchecked: it undoes a reservation and forgets a deleted service") {
+    val kit = acme
+    val _   = quota(kit)(Quota(instances = Some(1)))
+    val _   = kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("p/a", 1))
+    // The apply behind the reservation failed: put back what was there — nothing.
+    val _ = kit.call(OrganizationEntity.recordService, alice.metadata)(RecordService("p/a", None))
+    assertEquals(usageOf(kit), Usage.zero)
+    // And a restore may well exceed the quota: it is what exists, whatever the limit.
+    val _ =
+      kit.call(OrganizationEntity.recordService, alice.metadata)(RecordService("p/a", Some(5)))
+    assertEquals(usageOf(kit), Usage(0, 1, 5))
+    assertEquals(
+      kit
+        .call(OrganizationEntity.recordService, alice.metadata)(RecordService("p/a", Some(5)))
+        .events,
+      Vector.empty
+    )
+    assertEquals(
+      kit
+        .call(OrganizationEntity.recordService, alice.metadata)(RecordService("p/zz", None))
+        .events,
+      Vector.empty
+    )
+  }
+
+  test(
+    "setting a quota merges in what the endpoint saw existing, forgetting nothing the record knows"
+  ) {
+    val kit = acme
+    // Recorded a moment ago: a listing may not show these yet, and they must survive.
+    val _ = kit.call(OrganizationEntity.reserveProject, alice.metadata)("fresh")
+    val _ =
+      kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("fresh/x", 1))
+    // Recorded at a count that drifted: the snapshot's, read from the descriptor, wins.
+    val _ = kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("old/y", 9))
+    val set = kit.call(OrganizationEntity.setQuota, carol.metadata)(
+      SetQuota(Quota(projects = Some(5)), Set("old"), Map("old/y" -> 2, "old/z" -> 1))
+    )
+    val expected = UsageRecord(Set("fresh", "old"), Map("fresh/x" -> 1, "old/y" -> 2, "old/z" -> 1))
+    assertEquals(
+      set.events,
+      Vector(
+        UsageReconciled(expected.projects, expected.services, Some(carol.actor), Some(now)),
+        QuotaSet(Quota(Some(5), None, None), Some(carol.actor), Some(now))
+      )
+    )
+    assertEquals(usageOf(kit), Usage(2, 3, 4))
+    // A snapshot that changes nothing writes only the quota.
+    val again = kit.call(OrganizationEntity.setQuota, carol.metadata)(
+      SetQuota(Quota(projects = Some(6)), Set("old"), Map("old/y" -> 2))
+    )
+    assertEquals(again.events.map(_.getClass.getSimpleName), Vector("QuotaSet"))
+  }
+
+  test("a lowered quota is accepted below usage; deleting the organization forgets it all") {
+    val kit = acme
+    val _   = kit.call(OrganizationEntity.reserveProject, alice.metadata)("a")
+    val _   = kit.call(OrganizationEntity.reserveProject, alice.metadata)("b")
+    assert(!quota(kit)(Quota(projects = Some(0))).isError)
+    assertEquals(usageOf(kit).projects, 2)
+    val _ = kit.call(OrganizationEntity.releaseProject, alice.metadata)("a")
+    val _ = kit.call(OrganizationEntity.releaseProject, alice.metadata)("b")
+    val _ = kit.call(OrganizationEntity.delete, alice.metadata)
+    assertEquals(kit.currentState.quota, None)
+    assertEquals(kit.currentState.record, UsageRecord())
+  }
+
+  test("usage and the quota are rebuilt purely by folding events") {
+    val kit = acme
+    val _   = quota(kit)(Quota(projects = Some(3), services = Some(3), instances = Some(9)))
+    val _   = kit.call(OrganizationEntity.reserveProject, alice.metadata)("a")
+    val _   = kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("a/x", 2))
+    val _   = kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("a/y", 1))
+    val _   = kit.call(OrganizationEntity.reserveService, alice.metadata)(ReserveService("a/x", 3))
+    val _   = kit.call(OrganizationEntity.recordService, alice.metadata)(RecordService("a/y", None))
+    val replayed = kit.allEvents.foldLeft(Organization.empty("acme")) { (state, event) =>
+      event match
+        case QuotaSet(q, _, _) => state.onQuotaSet(q)
+        case _: QuotaCleared   => state.onQuotaCleared
+        case OrganizationCreated(name, creator, at, owner) =>
+          state.onCreated(name, creator, at, owner)
+        case other => state.onUsage(other)
+    }
+    assertEquals(replayed, kit.currentState)
+    assertEquals(replayed.usage, Usage(1, 1, 3))
   }

@@ -581,3 +581,65 @@ class CliEndToEndSuite extends munit.FunSuite:
     // "not permitted", not "log in": the credential was accepted and the action is not its own.
     assert(err.contains("not permitted"), err)
   }
+
+  test("a quota is set, shown, enforced with the server's message, and cleared (feature 015)") {
+    val admin = identity.token(
+      "admin",
+      Some("admin@example.test"),
+      roles = Set("platform-admin"),
+      expiresIn = 2.hours
+    )
+    val _ = cli(connected("organizations", "create", "cli-quota", "--name", "Quota")*)
+    val _ =
+      cli(connected("projects", "create", "cli-quota-one", "--name", "One", "-O", "cli-quota")*)
+
+    // An empty or negative quota never reaches the server.
+    val (none, _, noneErr) = cli(connectedAs(admin, "organizations", "quota", "set", "cli-quota")*)
+    assertEquals(none, 1)
+    assert(noneErr.contains("clear the quota instead"), noneErr)
+    val (negative, _, negativeErr) =
+      cli(connectedAs(admin, "organizations", "quota", "set", "cli-quota", "--projects", "-1")*)
+    assertEquals(negative, 1)
+    assert(negativeErr.contains("cannot be negative"), negativeErr)
+
+    // A member is refused; the administrator sets it and the listing row shows it.
+    val (forbidden, _, forbiddenErr) =
+      cli(connected("organizations", "quota", "set", "cli-quota", "--projects", "1")*)
+    assertEquals(forbidden, 1)
+    assert(forbiddenErr.contains("platform administrator"), forbiddenErr)
+    val (set, setOut, setErr) = cli(
+      connectedAs(
+        admin,
+        "organizations",
+        "quota",
+        "set",
+        "cli-quota",
+        "--projects",
+        "1",
+        "--instances",
+        "4"
+      )*
+    )
+    assertEquals(set, 0, setErr)
+    assert(setOut.contains("quota set on 'cli-quota': projects 1, instances 4"), setOut)
+    val (_, shown, _) = cli(connected("organizations", "get", "cli-quota")*)
+    assert(shown.contains("QUOTA"), shown)
+    assert(shown.contains("1/-/4"), shown)
+    val (_, json, _) = cli(connected("organizations", "get", "cli-quota", "--output", "json")*)
+    assert(json.contains("\"quota\":{\"projects\":1,\"instances\":4}"), json)
+    assert(json.contains("\"usage\":{\"projects\":1,\"services\":0,\"instances\":0}"), json)
+
+    val (refused, _, refusedErr) =
+      cli(connected("projects", "create", "cli-quota-two", "--name", "Two", "-O", "cli-quota")*)
+    assertEquals(refused, 1)
+    assert(refusedErr.contains("quota of 1 project(s) (1 in use)"), refusedErr)
+
+    val (cleared, clearedOut, _) =
+      cli(connectedAs(admin, "organizations", "quota", "clear", "cli-quota")*)
+    assertEquals(cleared, 0)
+    assert(clearedOut.contains("quota cleared on 'cli-quota'"), clearedOut)
+    assertEquals(
+      cli(connected("projects", "create", "cli-quota-two", "--name", "Two", "-O", "cli-quota")*)._1,
+      0
+    )
+  }

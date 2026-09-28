@@ -249,7 +249,7 @@ jobs:
     # The Claude Code marketplace is its own repository, thinkmorestupidless/ankka-marketplace, so
     # `/plugin marketplace add thinkmorestupidless/ankka-marketplace` installs plugins whose skills hold
     # the documentation of a released version rather than whatever is on main. It holds one plugin per
-    # project — ankka's, satisfactory's — and each project's release publishes only its own: this job
+    # project — ankka's, satisfactory's, ankka-flow's — and each project's release publishes only its own: this job
     # clones the marketplace, replaces `plugins/ankka/` with the rendered plugin, writes ankka's entry
     # into the manifest's `plugins` list without touching the others, and pushes an ordinary commit.
     # No subtree split and no force push, because either would erase the other projects' plugins.

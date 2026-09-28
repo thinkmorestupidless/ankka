@@ -52,10 +52,11 @@ are written to (`skills`); which generator owns each generated block (`generated
 outside `docs/` link to the site, with the hosts the site no longer lives on (`site-links`). A new
 frontmatter vocabulary, a new skill target or a new configuration file is a line in that block.
 
-The same tool documents [satisfactory](https://github.com/thinkmorestupidless/satisfactory), and any
-repository whose pages follow this page can use it. Its `tools/docs/pyproject.toml` depends on
-`ankka-docs` from this repository's `tools/docs` directory, its `mkdocs.yml` carries its own
-`extra.docs`, and the commands are the same:
+The same tool documents [satisfactory](https://github.com/thinkmorestupidless/satisfactory) and
+[ankka-flow](https://github.com/thinkmorestupidless/ankka-flow), and any repository whose pages follow
+this page can use it. Each one's `tools/docs/pyproject.toml` depends on `ankka-docs` from this
+repository's `tools/docs` directory, its `mkdocs.yml` carries its own `extra.docs`, and the commands
+are the same:
 
 ```toml
 [project]

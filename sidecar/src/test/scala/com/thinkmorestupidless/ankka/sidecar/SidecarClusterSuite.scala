@@ -244,20 +244,20 @@ spec:
    * mutual TLS and admits only workloads with a platform identity — to the Service's name, so the
    * request still takes Service → endpoints → pod. 0 for a 2xx, as `wget` answered.
    */
+  /** See `InPod.prober`: the one place requests are made from, whatever the service's pods do. */
+  private lazy val prober: String =
+    com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service)
+
   private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
-    pods.find(readyOf) match
-      case None => (1, s"no ready pod to call from: ${podSummary()}")
-      case Some(from) =>
-        val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
-          k3s,
-          Namespace,
-          from.getMetadata.getName,
-          s"https://$Service.$Namespace.svc.cluster.local:9000$path",
-          method = if post.isDefined then "POST" else "GET",
-          body = post,
-          container = Some(from.getSpec.getContainers.get(0).getName)
-        )
-        (if code / 100 == 2 then 0 else 1, body)
+    val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$Service.$Namespace.svc.cluster.local:9000$path",
+      method = if post.isDefined then "POST" else "GET",
+      body = post
+    )
+    (if code / 100 == 2 then 0 else 1, s"$code $body")
 
   // ── the story ─────────────────────────────────────────────────────────────
 
@@ -388,6 +388,9 @@ spec:
       "-n",
       Namespace,
       "--image=busybox:1.36",
+      // A platform workload's label, so the network admits it to the HTTP port: what is proved
+      // below is that the loopback protocol ports stay closed even to a pod the network admits.
+      "--labels=app.kubernetes.io/managed-by=ankka",
       "--restart=Never",
       "--",
       "sleep",

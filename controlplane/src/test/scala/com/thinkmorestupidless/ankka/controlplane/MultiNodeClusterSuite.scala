@@ -211,49 +211,9 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     val result = k3s.execInContainer(command*)
     (result.getExitCode, result.getStdout + result.getStderr)
 
-  /**
-   * A client that outlives every pod of the service: a curl pod in the project's namespace,
-   * labelled as a platform workload so the service's HTTP policy admits it, and holding the cart's
-   * own service certificate so its HTTP port accepts it. A request from inside one of the service's
-   * pods would stop measuring the platform the moment that pod rolls or crashes — the exec fails
-   * (`container not found`), not the service. The node itself cannot call: it holds no identity.
-   */
+  /** See `InPod.prober`: the one place requests are made from, whatever the service's pods do. */
   private lazy val prober: String =
-    val manifest =
-      s"""apiVersion: v1
-         |kind: Pod
-         |metadata:
-         |  name: prober
-         |  namespace: $Namespace
-         |  labels: { app.kubernetes.io/managed-by: ankka }
-         |spec:
-         |  containers:
-         |    - name: curl
-         |      image: curlimages/curl:8.11.1
-         |      command: ["sleep", "infinity"]
-         |      volumeMounts:
-         |        - { name: service, mountPath: /var/run/secrets/ankka/service, readOnly: true }
-         |  volumes:
-         |    - name: service
-         |      secret: { secretName: $Service-service-tls }
-         |""".stripMargin
-    k3s.copyFileToContainer(
-      org.testcontainers.images.builder.Transferable.of(manifest.getBytes(StandardCharsets.UTF_8)),
-      "/tmp/prober.yaml"
-    )
-    val (applied, out) = nodeExec("kubectl", "apply", "-f", "/tmp/prober.yaml")
-    assertEquals(applied, 0, out)
-    val (ready, waited) = nodeExec(
-      "kubectl",
-      "wait",
-      "-n",
-      Namespace,
-      "--for=condition=Ready",
-      "pod/prober",
-      "--timeout=180s"
-    )
-    assertEquals(ready, 0, waited)
-    "prober"
+    com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service)
 
   /**
    * Through the Service's name — never a port-forward, which would bypass the Service — from the

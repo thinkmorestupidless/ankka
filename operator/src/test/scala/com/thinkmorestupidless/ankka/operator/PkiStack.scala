@@ -107,6 +107,49 @@ object PkiStack:
 object InPod:
 
   /**
+   * A client that outlives every pod of a service, named `prober`: a curl pod in `namespace`,
+   * labelled as a platform workload so the service's HTTP policy admits it, holding `service`'s own
+   * service certificate so its HTTP port accepts it. A request from inside one of the service's
+   * pods stops measuring the platform the moment that pod rolls or crashes — the exec fails
+   * (`container not found`), not the service — and the node cannot call at all, since it holds no
+   * identity. Idempotent: applying it twice leaves one pod. Answers the pod's name, for `curl`.
+   */
+  def prober(k3s: K3sContainer, namespace: String, service: String): String =
+    val manifest =
+      s"""apiVersion: v1
+         |kind: Pod
+         |metadata:
+         |  name: prober
+         |  namespace: $namespace
+         |  labels: { app.kubernetes.io/managed-by: ankka }
+         |spec:
+         |  containers:
+         |    - name: curl
+         |      image: curlimages/curl:8.11.1
+         |      command: ["sleep", "infinity"]
+         |      volumeMounts:
+         |        - { name: service, mountPath: /var/run/secrets/ankka/service, readOnly: true }
+         |  volumes:
+         |    - name: service
+         |      secret: { secretName: $service-service-tls }
+         |""".stripMargin
+    k3s.copyFileToContainer(
+      Transferable.of(manifest.getBytes(StandardCharsets.UTF_8)),
+      s"/tmp/prober-$namespace.yaml"
+    )
+    PkiStack.kubectl(k3s, "apply", "-f", s"/tmp/prober-$namespace.yaml"): Unit
+    PkiStack.kubectl(
+      k3s,
+      "wait",
+      "-n",
+      namespace,
+      "--for=condition=Ready",
+      "pod/prober",
+      "--timeout=180s"
+    ): Unit
+    "prober"
+
+  /**
    * `curl` inside `pod`'s node container. `identity` is `cluster` (management, remoting's peer
    * certificate) or `service` (HTTP). Answers the status and body; a TLS or connection failure is
    * status 0 with curl's message.

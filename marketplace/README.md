@@ -7,6 +7,7 @@ actor model, and for what is built on it.
 /plugin marketplace add thinkmorestupidless/ankka-marketplace
 /plugin install ankka@ankka
 /plugin install satisfactory@ankka
+/plugin install ankka-flow@ankka
 ```
 
 The `ankka` plugin carries the platform's documentation as a set of Agent Skills, one per kind of task
@@ -21,10 +22,17 @@ The `satisfactory` plugin carries the documentation of
 four skills: the service and its API (`satisfactory`), the Scala client (`satisfactory-client`), using
 it from an ankka application (`satisfactory-ankka`), and writing a model (`satisfactory-models`).
 
+The `ankka-flow` plugin carries the documentation of [ankka-flow](https://flow.ankka.cloud/), streaming
+pipelines beside ankka, as four skills: designing pipelines and blueprints (`ankka-flow`), writing and
+testing a streamlet in Python (`ankka-flow-python`), deploying and operating pipelines on Kubernetes
+(`ankka-flow-deploy`), and implementing the streamlet protocol in another language
+(`ankka-flow-protocol`).
+
 This repository is generated. Each plugin is rendered from its own project's documentation and pushed
 here by that project's release workflow on every tag, so a plugin's version is the release whose
 documentation it holds: `plugins/ankka/` from
 [thinkmorestupidless/ankka](https://github.com/thinkmorestupidless/ankka) (`marketplace/` there, which
 also owns this README and the manifest's name), `plugins/satisfactory/` from
-[thinkmorestupidless/satisfactory](https://github.com/thinkmorestupidless/satisfactory). Changes go to
-those repositories, not here.
+[thinkmorestupidless/satisfactory](https://github.com/thinkmorestupidless/satisfactory),
+`plugins/ankka-flow/` from [thinkmorestupidless/ankka-flow](https://github.com/thinkmorestupidless/ankka-flow).
+Changes go to those repositories, not here.

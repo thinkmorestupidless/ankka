@@ -1,6 +1,6 @@
 # Design treatment: a WebAssembly hosting mode
 
-**Status**: treatment, spike in progress. Not yet fed to `speckit-specify`.
+**Status**: treatment, spike done. Not yet fed to `speckit-specify`.
 **Date**: 2026-09-28
 
 ## The proposition
@@ -160,8 +160,9 @@ event on replay. What it buys: any instance of the module can serve any entity, 
 no pinning; memory per loaded entity is bounded by the host, not by the guest; a trap in the
 module loses nothing, because the host still has the state; and passivation is a map removal.
 The stateful alternative, one module instance holding a state table with `open` and `close`,
-keeps the gRPC shape and pins each entity to an instance for its lifetime. The spike measures
-the encode cost; the stateless shape is the default unless that number is surprising.
+keeps the gRPC shape and pins each entity to an instance for its lifetime. The spike measured
+the encode cost, and the number was surprising for one of the two guests: see *What the spike
+said*. Both shapes are in the ABI, chosen per component.
 
 **The encoding is untouched.** A `Payload` crossing the ABI carries the same content type,
 manifest and bytes it does over gRPC, and a Rust service's journal is readable by its Scala
@@ -306,51 +307,79 @@ Before a specification, in `sidecar`, gated on `-Dankka.benchmarks` like the loo
 
 ## What the spike said
 
-`WasmHostSpike` in `sidecar`, with a Rust guest at `sidecar/src/test/rust/spike-guest` built to
-`wasm32-unknown-unknown` (167 KB, prost and serde_json inside) and loaded through Chicory 1.7.5,
-run on 2026-09-28 on the development laptop (Apple silicon, 10 carriers). The guest exports the
-ABI sketched above, stateless, over the protocol's own messages; the correctness case runs
-unconditionally and the measurements under `-Dankka.benchmarks`, beside `LoopbackLatencySpike`
-for the number they are read against.
+`WasmHostSpike` in `sidecar`, with two guests loaded through Chicory 1.7.5 and run on 2026-09-28
+on the development laptop (Apple silicon, 10 carriers):
 
-| measurement | result |
-|---|---|
-| loopback gRPC, one message each way, no work (the sidecar's hop today) | p50 94 µs, p99 1007 µs |
-| `handle`, compiled, empty state: decode command, encode one event and the state | p50 10 µs, p99 38 µs |
-| `handle`, compiled, 20-item cart (1 KB of state in and out) | p50 33 µs, p99 93 µs |
-| `handle`, compiled, 200-item cart (10 KB of state in and out) | p50 230 µs, p99 497 µs |
-| `fold`, compiled, 20-item cart | p50 32 µs, p99 128 µs |
-| the same three, interpreted | 20× to 50× slower: p50 208 µs, 1.3 ms, 13 ms |
-| `discover` | p50 123 µs |
-| one instance from a compiled module | p50 47 µs, p99 580 µs |
-| compiling the module to bytecode, once | 30 ms |
-| an idle instance (17 initial pages, Rust's default 1 MB stack among them) | 1.2 MiB of heap |
-| 64 guests each blocking 200 ms in a host function, on virtual threads | wall 215 ms |
+- **Rust**, `sidecar/src/test/rust/spike-guest`, built to `wasm32-unknown-unknown`: 167 KB,
+  prost for the envelope and serde_json for the domain.
+- **Go**, `sidecar/src/test/go/spike-guest`, built by TinyGo 0.42 to `wasm-unknown` with the
+  precise collector and a 64 KB stack: 327 KB, protowire for the envelope, hand-encoded, and
+  `encoding/json` for the domain.
+
+Both export the ABI sketched above, stateless, over the protocol's own messages. The correctness
+case runs unconditionally against each and passes byte for byte on the JSON; the measurements
+run under `-Dankka.benchmarks`, beside `LoopbackLatencySpike` for the number they are read
+against.
+
+| measurement | Rust | Go |
+|---|---|---|
+| loopback gRPC, one message each way, no work (the sidecar's hop today) | p50 94 µs, p99 1007 µs | same |
+| `handle`, compiled, empty state: decode command, encode one event and the state | p50 9 µs, p99 21 µs | p50 40 µs, p99 362 µs |
+| `handle`, compiled, 20-item cart (1 KB of state in and out) | p50 31 µs, p99 80 µs | p50 475 µs, p99 1215 µs |
+| `handle`, compiled, 200-item cart (10 KB of state in and out) | p50 220 µs, p99 429 µs | p50 4.7 ms, p99 9.7 ms |
+| `fold`, compiled, 20-item cart | p50 29 µs, p99 67 µs | p50 467 µs, p99 1139 µs |
+| the same, interpreted | 20× to 50× slower | 20× to 30× slower |
+| `discover` | p50 69 µs | p50 61 µs |
+| one instance from a compiled module | p50 47 to 200 µs across runs | p50 31 µs |
+| compiling the module to bytecode, once | 26 ms | 61 ms |
+| an idle instance | 1.2 MiB (17 initial pages, a 1 MB default stack among them) | 260 KiB (2 pages) |
+| 64 guests, both languages, each blocking 200 ms in a host function, on virtual threads | wall 232 ms | |
 
 What each answers:
 
-1. **The call cost.** A handled command through the compiled module is a tenth of the hop it
-   replaces, with the state's decode and encode included. The stateless shape's price is linear
-   in the state, about 22 µs per KB each way, so a 10 KB state costs more than the hop did. That
-   is the argument for snapshots that stay small and for the stateful variant as a later option
-   for a component whose state is large; for the cart-sized states samples and services carry it
-   is not a consideration. The interpreter is not an option: the runtime compiler is required, and
-   its 30 ms per module happens once at discovery.
-2. **Instantiation** at 47 µs makes an instance per call affordable for the blocking pool, as
-   Extism does. It does not make it free at the entity pool's rate; a queue of reused instances
-   remains the shape there.
-3. **A blocking host function on a virtual thread releases its carrier.** Sixty-four guests each
-   held 200 ms inside Chicory on ten carriers and finished in 215 ms; a pinned carrier would have
-   taken well over a second. Nothing in the compiled call path holds a monitor around the host
-   call.
-4. **Memory** is 1.2 MiB per idle instance, most of it the guest's own initial memory, so a pool
-   the size of the carrier count is a few tens of megabytes and an instance per blocking call is a
-   megabyte that lives for the call. A Go module's number is the remaining half of this question.
-5. **The TinyGo envelope** is not yet measured; it is the next step.
+1. **The call cost is a property of the guest's codec, not of the boundary.** Crossing into a
+   compiled module and back costs single-digit microseconds: both guests answer an empty-state
+   command in tens of microseconds, a tenth of the hop, and `discover` is the same in both. What
+   differs is the JSON. serde_json handles a 1 KB cart in 20 µs; TinyGo's reflection-based
+   `encoding/json` takes 440 µs for the same bytes, so the Go guest's 20-item command is five
+   times the hop it was meant to replace, and its 10 KB case is 4.7 ms. The stateless shape's
+   price is linear in the state for both, at 22 µs per KB in Rust and 450 µs per KB in Go. Two
+   consequences follow. The interpreter is out for both, and the runtime compiler's 26 to 61 ms
+   per module happens once at discovery. And **the Go PDK cannot use `encoding/json`**: it needs
+   a generated codec, written per type from the same schema the PDK already knows, which is what
+   a Go PDK would have wanted anyway for the encoding's discriminator and its every-field rule. A
+   first version of the Go guest, built with `wasm-unknown`'s default *leaking* collector, ran
+   the 1 KB case in 199 µs and then trapped out of memory after a few thousand calls, so the
+   collector is not optional either, and its cost is inside the 475 µs.
+2. **Instantiation** at tens of microseconds makes an instance per call affordable for the
+   blocking pool, as Extism does; a Rust module pays for zero-filling its default 1 MB stack, so
+   a PDK should shrink it. It does not make instantiation free at the entity pool's rate; a queue
+   of reused instances remains the shape there.
+3. **A blocking host function on a virtual thread releases its carrier.** Sixty-four guests of
+   both languages each held 200 ms inside Chicory on ten carriers and finished in 232 ms; a
+   pinned carrier would have taken over a second. Nothing in the compiled call path holds a
+   monitor around the host call.
+4. **Memory** is 1.2 MiB per idle Rust instance and 260 KiB per Go one, most of it the guest's
+   own initial memory. A pool the size of the carrier count is a few tens of megabytes at most,
+   and an instance per blocking call is a stack's worth that lives for the call.
+5. **The TinyGo envelope works.** A 240-line Go guest decodes `SidecarInfo` and the command,
+   encodes `Spec`, the reply and the state with `protowire` alone, reflecting on nothing, and
+   TinyGo compiles it with the one import the ABI names. The envelope is not the Go risk; the
+   domain codec is, per item 1.
 
-The correctness case also settled a smaller thing: serde's internally tagged enum writes
+Two things the correctness case settled on the way: serde's internally tagged enum writes
 `{"type":"ItemAdded","item":{…}}` with every field present, which is the encoding's sum type
-exactly, and the guest's `Cart` reads the stored spelling `productId` without a rename trap.
+exactly; and Go's `encoding/json` with a `Type` field first in the struct writes the same bytes,
+so a generated Go codec has a byte-exact target to match.
+
+**What this changes in the design.** The stateless guest stands for Rust. For Go, and for any
+guest whose codec is an order of magnitude off serde's, the stateful variant is no longer a
+later option: it decodes the state once per loaded instance and only the command or event per
+call, and it is the difference between a 40 µs command and a 475 µs one for a cart-sized state.
+The ABI should therefore carry both from the start, chosen per component in discovery, with
+the host holding the encoded state in either case so a trap still loses nothing. A stateful
+guest pins an entity to an instance for its loaded life, which is the pooling the sidecar
+protocol already implies.
 
 ## Order of work, if the spike says yes
 

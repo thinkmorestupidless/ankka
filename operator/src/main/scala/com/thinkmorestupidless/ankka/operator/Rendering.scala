@@ -156,13 +156,68 @@ object Rendering:
       Right(
         (Action.EnsureNamespace(namespace) +:
           databaseActions(spec, namespace, settings, databasePlan, newPassword)) ++
-          identityActions(resource, spec, namespace) :+
+          identityActions(resource, spec, namespace) ++
+          zeroTrustActions(resource, spec, namespace) :+
           Action.ApplyDeployment(
-            deployment(resource, spec, namespace, databasePlan, settings.sidecarImage)
+            deployment(
+              resource,
+              spec,
+              namespace,
+              databasePlan,
+              settings.sidecarImage,
+              settings.namespacePrefix
+            )
           ) :+
           addressAction(resource, spec, namespace) :+
-          routeAction(resource, spec, namespace, settings.baseDomain)
+          routeAction(resource, spec, namespace, settings.baseDomain) :+
+          backendTlsAction(resource, spec, namespace, settings.baseDomain)
       )
+
+  /**
+   * The certificates a service's pods mount and the policies that decide who may connect to them
+   * (feature 014) — before the Deployment, so the Secrets exist by the time a pod asks the kubelet
+   * for them. A pod scheduled first waits on its volume and starts once cert-manager has issued.
+   */
+  private def zeroTrustActions(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): Vector[Action] =
+    val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    Vector(
+      Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
+      Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
+    ) ++ (spec.port match
+      case Some(port) =>
+        Vector(
+          Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
+          Action.EnsureNetworkPolicy(ZeroTrust.httpPolicy(resource, spec, namespace, port))
+        )
+      case None =>
+        Vector(
+          Action
+            .RemoveNetworkPolicy(namespace, ZeroTrust.httpPolicyName(spec.serviceName), ownerUid)
+        ))
+
+  /**
+   * Beside the route, with the same three conditions: the gateway reaches an exposed service over
+   * TLS.
+   */
+  private def backendTlsAction(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      baseDomain: Option[String]
+  ): Action =
+    (spec.exposed, spec.port, baseDomain) match
+      case (true, Some(_), Some(_)) =>
+        Action.EnsureBackendTlsPolicy(ZeroTrust.backendTlsPolicy(resource, spec, namespace))
+      case _ =>
+        Action.RemoveBackendTlsPolicy(
+          namespace,
+          spec.serviceName,
+          Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+        )
 
   /**
    * The identity a service's pods run as, and the one thing it may do: read the pods of its own
@@ -421,7 +476,8 @@ object Rendering:
       spec: AnkkaServiceSpec,
       namespace: String,
       databasePlan: ProvisioningPlan = ProvisioningPlan.Supplied,
-      sidecarImage: String = Settings.default.sidecarImage
+      sidecarImage: String = Settings.default.sidecarImage,
+      namespacePrefix: String = Settings.default.namespacePrefix
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -431,7 +487,9 @@ object Rendering:
     // its own connection details, so there is no schema to establish and no credential to mount.
     val provisioned = databasePlan != ProvisioningPlan.Supplied
 
-    val containers = containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage)
+    val containers =
+      containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage, namespacePrefix)
+    val tlsVolumes = ZeroTrust.volumes(spec, provisioned, CnpgRendering.projectClusterName)
 
     // The pull secret is *named*, never read. The Secret itself is the control plane's to write in
     // the project's namespace from the credential a member supplied, and the operator holds no
@@ -454,19 +512,23 @@ object Rendering:
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
             .withInitContainers(SchemaInit.container(spec.serviceName))
             .withContainers(containers*)
-            .withVolumes(SchemaInit.volume())
+            .withVolumes((SchemaInit.volume() +: tlsVolumes)*)
         ).build()
       else
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
             .withContainers(containers*)
+            .withVolumes(tlsVolumes*)
         ).build()
 
     val podTemplate = new PodTemplateSpecBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
-          .withLabels((labels + (Labels.FormationKey -> Labels.FormationBootstrap)).asJava)
+          .withLabels(
+            (labels + (Labels.FormationKey -> Labels.FormationBootstrap) +
+              (Labels.TransportKey         -> Labels.TransportTls)).asJava
+          )
           // The restart count on the *pod template* is what makes a restart roll the pods: it
           // changes, the template changes, Kubernetes replaces them. NOT the generation, which is
           // on the Deployment's own metadata (where status reads it) — feature 001 put it here,
@@ -531,9 +593,11 @@ object Rendering:
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
-      sidecarImage: String
+      sidecarImage: String,
+      namespacePrefix: String
   ): Vector[Container] =
-    if spec.hosting != ProcessHosting then Vector(container(spec, identity, withDatabaseEnv))
+    if spec.hosting != ProcessHosting then
+      Vector(container(spec, identity, withDatabaseEnv, namespacePrefix = namespacePrefix))
     else
       // A descriptor's variables are split: a model's key and configuration belong to the sidecar,
       // which runs the agent loop; everything else is the process's. By prefix, as
@@ -548,7 +612,11 @@ object Rendering:
         extraEnv = Vector(
           literal("ANKKA_PROCESS_ADDRESS", s"127.0.0.1:$ProcessPort"),
           literal("ANKKA_SIDECAR_PORT", SidecarPort.toString)
-        )
+        ),
+        namespacePrefix = namespacePrefix,
+        // The sidecar is the node: it holds every identity. The process beside it speaks only to
+        // the sidecar, over the pod's loopback, and needs none.
+        mountsFor = Some(spec)
       )
       val app = new ContainerBuilder()
         .withName(Names.container(spec.serviceName) + "-app")
@@ -582,8 +650,13 @@ object Rendering:
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
-      extraEnv: Vector[EnvVar] = Vector.empty
+      extraEnv: Vector[EnvVar] = Vector.empty,
+      namespacePrefix: String,
+      mountsFor: Option[AnkkaServiceSpec] = None
   ): Container =
+    // For a sidecar the image and env are the sidecar's, but the identities mounted are the
+    // service's own — its port decides whether it has a service certificate.
+    val owner = mountsFor.getOrElse(spec)
     // Requests equal limits. The descriptor models one size, and inventing a ratio between
     // request and limit would be a scheduling policy nobody asked for.
     val quantities = Map(
@@ -640,7 +713,10 @@ object Rendering:
       // Identity plus the formation label: a pod from a template that predates cluster formation
       // must not be a contact point, or bootstrap waits on it forever (see Labels.FormationKey).
       literal("ANKKA_CLUSTER_POD_SELECTOR", contactPointSelector(identity)),
-      literal("ANKKA_CLUSTER_CONTACT_POINTS", requiredContactPoints(spec).toString)
+      literal("ANKKA_CLUSTER_CONTACT_POINTS", requiredContactPoints(spec).toString),
+      // How a project id becomes a namespace, so a service can address another by name (feature
+      // 014). The platform's, like the variables above; a descriptor that sets it is refused.
+      literal("ANKKA_NAMESPACE_PREFIX", namespacePrefix)
     )
     // The management port's NAME is load-bearing: Kubernetes API discovery finds a pod's contact
     // point by looking for a container port called exactly this. Get it wrong and discovery finds
@@ -654,6 +730,11 @@ object Rendering:
       new ContainerPortBuilder()
         .withName("remoting")
         .withContainerPort(RemotingPort)
+        .withProtocol("TCP")
+        .build(),
+      new ContainerPortBuilder()
+        .withName(ZeroTrust.ProbePortName)
+        .withContainerPort(ZeroTrust.ProbePort)
         .withProtocol("TCP")
         .build()
     )
@@ -672,6 +753,7 @@ object Rendering:
       .withEnv((spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv)*)
       .withEnvFrom(envFrom*)
       .withPorts((containerPorts.toVector ++ clusterPorts)*)
+      .withVolumeMounts(ZeroTrust.mounts(owner, withDatabaseEnv)*)
       .withResources(
         new ResourceRequirementsBuilder().withRequests(quantities).withLimits(quantities).build()
       )
@@ -689,7 +771,9 @@ object Rendering:
           .withHttpGet(
             new HTTPGetActionBuilder()
               .withPath("/ready")
-              .withPort(new IntOrString("management"))
+              // `probe`, not `management`: management requires the service's own certificate, and
+              // the kubelet has none. The name is load-bearing exactly as `management` was.
+              .withPort(new IntOrString(ZeroTrust.ProbePortName))
               .build()
           )
           .withPeriodSeconds(5)
@@ -713,9 +797,14 @@ object Rendering:
       )
       .build()
 
-  /** The label selector Cluster Bootstrap discovers contact points with, `k=v,k=v`. */
+  /**
+   * The label selector Cluster Bootstrap discovers contact points with, `k=v,k=v`. The transport
+   * label too, so a TLS node never probes a plain one (and the reverse cannot arise: an old pod's
+   * selector predates the label).
+   */
   def contactPointSelector(identity: Map[String, String]): String =
-    (identity + (Labels.FormationKey -> Labels.FormationBootstrap)).toSeq.sorted
+    (identity + (Labels.FormationKey -> Labels.FormationBootstrap) +
+      (Labels.TransportKey           -> Labels.TransportTls)).toSeq.sorted
       .map((k, v) => s"$k=$v")
       .mkString(",")
 

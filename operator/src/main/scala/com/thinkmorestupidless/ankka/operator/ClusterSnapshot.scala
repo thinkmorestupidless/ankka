@@ -24,6 +24,20 @@ object PodProblem:
   val Actionable: Set[String] =
     Set("ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError", "CrashLoopBackOff")
 
+  /**
+   * Event reasons that explain a pod no container state does: a failed readiness probe — which is
+   * how an image that predates mutual TLS shows, since it opens no probe port — and a volume that
+   * cannot be mounted, which is how a certificate cert-manager has not issued yet shows.
+   */
+  val FromEvents: Set[String] = Set("Unhealthy", "FailedMount")
+
+  /** Every container reports ready. */
+  def isReady(pod: Pod): Boolean =
+    Option(pod.getStatus)
+      .flatMap(s => Option(s.getContainerStatuses))
+      .map(_.asScala.toVector)
+      .exists(cs => cs.nonEmpty && cs.forall(c => Boolean.box(true) == c.getReady))
+
   def of(pod: Pod): Option[PodProblem] =
     for
       status   <- Option(pod.getStatus)

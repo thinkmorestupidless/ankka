@@ -113,12 +113,16 @@ class RenderingSuite extends munit.FunSuite:
     val Right(actions) =
       Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied, "unused"): @unchecked
     // Stated as what it means rather than as a count: nothing is rendered beyond the namespace,
-    // the identity, the Deployment and the service's address. An autoscaler would be another
-    // kind of thing — and scaling a sharded cluster on a load signal needs draining proven first.
+    // the identity, the certificates and policies zero trust needs, the Deployment and the
+    // service's address. An autoscaler would be another kind of thing — and scaling a sharded
+    // cluster on a load signal needs draining proven first.
     val unexpected = actions.filterNot {
       case _: Action.EnsureNamespace | _: Action.ApplyDeployment | _: Action.EnsureService |
           _: Action.RemoveService | _: Action.EnsureServiceAccount | _: Action.EnsureRole |
-          _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute =>
+          _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute |
+          _: Action.EnsureCertificate | _: Action.EnsureNetworkPolicy |
+          _: Action.RemoveNetworkPolicy | _: Action.EnsureBackendTlsPolicy |
+          _: Action.RemoveBackendTlsPolicy =>
         true
       case _ => false
     }
@@ -267,16 +271,22 @@ class RenderingSuite extends munit.FunSuite:
 
   // --- Cluster membership (feature 004): readiness, ports, identity, environment
 
-  test("readiness is cluster membership: httpGet /ready on the management port, HTTP or not") {
+  test("readiness is cluster membership: httpGet /ready on the probe port, HTTP or not") {
     // Replaces feature 003's tcpSocket on the HTTP port, which could not exist for a service that
     // serves no HTTP — so such a service was Ready the moment its container ran. Every service is
     // a cluster member, so every service now has a meaningful Ready. Cluster Bootstrap registers
     // the membership check itself; ankka adds "HTTP is bound" for services that declare a port.
+    // On the port named `probe` since feature 014: management requires the service's certificate,
+    // which the kubelet does not hold, so the same checks answer on a plain listener of their own.
     for s <- Vector(spec.copy(port = Some(8080)), spec.copy(port = None)) do
       val probe = containerOf(s).getReadinessProbe
       assert(probe != null, s"no probe for port=${s.port}")
       assertEquals(probe.getHttpGet.getPath, "/ready")
-      assertEquals(probe.getHttpGet.getPort.getStrVal, "management")
+      assertEquals(probe.getHttpGet.getPort.getStrVal, "probe")
+      assertEquals(
+        containerOf(s).getPorts.asScala.find(_.getName == "probe").map(_.getContainerPort.intValue),
+        Some(7627)
+      )
       assertEquals(probe.getTcpSocket, null)
       assertEquals(probe.getPeriodSeconds.intValue, 5)
   }
@@ -314,7 +324,8 @@ class RenderingSuite extends munit.FunSuite:
     val templateLabels = d.getSpec.getTemplate.getMetadata.getLabels.asScala
     val expected =
       (d.getSpec.getSelector.getMatchLabels.asScala.toMap +
-        (Labels.FormationKey -> Labels.FormationBootstrap)).toSeq.sorted
+        (Labels.FormationKey -> Labels.FormationBootstrap) +
+        (Labels.TransportKey -> Labels.TransportTls)).toSeq.sorted
         .map((k, v) => s"$k=$v")
         .mkString(",")
     assertEquals(value("ANKKA_CLUSTER_POD_SELECTOR"), Some(expected))

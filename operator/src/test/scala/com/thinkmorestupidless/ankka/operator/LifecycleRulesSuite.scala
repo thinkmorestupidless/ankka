@@ -254,3 +254,24 @@ class LifecycleRulesSuite extends munit.FunSuite:
     // An operator with no base domain cannot render a route, and must say so, not go quiet.
     assert(LifecycleRules.routeStatus(exposed = true, None, None).contains("ANKKA_BASE_DOMAIN"))
   }
+
+  test("a never-ready pod's Failed detail quotes the kubelet's own probe failure") {
+    // What an image that predates mutual TLS looks like: running, never ready, because it opens no
+    // probe port (feature 014). The detail says so in the kubelet's words, not only "the deadline".
+    val refused = PodProblem(
+      "cart-7d9",
+      "Unhealthy",
+      """Readiness probe failed: Get "http://10.42.0.7:7627/ready": dial tcp 10.42.0.7:7627: connect: connection refused"""
+    )
+    val status = observe(
+      c = Some(
+        snapshot(
+          readyReplicas = 0,
+          progressing = Some(ConditionState(false, "ProgressDeadlineExceeded", "timed out")),
+          problems = Vector(refused)
+        )
+      )
+    )
+    assertEquals(status.lifecycle, "Failed")
+    assert(status.detail.exists(_.contains("7627/ready")), status.detail.toString)
+  }

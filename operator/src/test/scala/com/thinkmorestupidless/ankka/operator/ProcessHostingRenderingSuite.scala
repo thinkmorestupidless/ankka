@@ -65,9 +65,18 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     val node = cs(0)
     val app  = cs(1)
     // The node carries every port and the readiness probe; the app carries none.
-    assertEquals(node.getPorts.asScala.map(_.getName).toSet, Set("http", "management", "remoting"))
-    assertEquals(node.getReadinessProbe.getHttpGet.getPort.getStrVal, "management")
+    assertEquals(
+      node.getPorts.asScala.map(_.getName).toSet,
+      Set("http", "management", "remoting", "probe")
+    )
+    assertEquals(node.getReadinessProbe.getHttpGet.getPort.getStrVal, "probe")
     assert(app.getPorts.isEmpty)
+    // The sidecar holds every identity; the process speaks only to it, over loopback.
+    assertEquals(
+      node.getVolumeMounts.asScala.map(_.getMountPath).toSet,
+      Set("/var/run/secrets/ankka/cluster", "/var/run/secrets/ankka/service")
+    )
+    assert(app.getVolumeMounts.isEmpty)
     assertEquals(app.getReadinessProbe, null)
     // Both keep serving through a replacement.
     assertEquals(

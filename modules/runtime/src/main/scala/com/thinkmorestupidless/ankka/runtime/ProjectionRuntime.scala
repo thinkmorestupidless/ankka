@@ -132,7 +132,8 @@ final class ProjectionRuntime private (
       .foreach {
         case (id, source: ChangeSource.Topic[?]) if subscriber.isEmpty =>
           problems += s"'$id' consumes topic '${source.topic}' but no MessageSubscriber " +
-            "was configured; pass one to ProjectionRuntime.withBroker"
+            "was configured; pass one to ProjectionRuntime.withBroker, or set " +
+            s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
         case _ => ()
       }
 
@@ -140,7 +141,8 @@ final class ProjectionRuntime private (
       if consumer.produceTo.isDefined && publisher.isEmpty then
         problems += s"consumer '${consumer.componentId}' publishes to " +
           s"'${consumer.produceTo.get}' but no MessagePublisher was configured; " +
-          "pass one to ProjectionRuntime.withPublisher"
+          "pass one to ProjectionRuntime.withPublisher, or set " +
+          s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
     }
 
     val found = problems.result()
@@ -436,6 +438,22 @@ object ProjectionRuntime:
       Some(system => KafkaPublisher(bootstrapServers)(using system)),
       Some(system => KafkaSubscriber(bootstrapServers)(using system))
     )
+
+  /**
+   * The variable [[fromEnv]] reads, and a process-hosted service's sidecar reads, for the broker.
+   */
+  val KafkaEnvVar: String = "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
+
+  /**
+   * Kafka when the environment names a broker, entity sources only when it does not.
+   *
+   * The platform provides no broker, and a deployed service is configured by its descriptor's
+   * `env`, not by code — so this is how a service reaches one: `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in
+   * the descriptor, the same variable a process-hosted service's sidecar reads. Without it, a
+   * producing consumer or a topic-sourced view is still refused at startup.
+   */
+  def fromEnv(env: Map[String, String] = sys.env): ProjectionRuntime =
+    env.get(KafkaEnvVar).map(_.trim).filter(_.nonEmpty).fold(apply())(withKafka)
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 

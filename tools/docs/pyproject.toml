@@ -1,7 +1,7 @@
 [project]
 name = "ankka-docs"
 version = "0.0.0"
-description = "Checks and renders ankka's documentation: the site, llms.txt, the page index and the agent skill."
+description = "Checks and renders a documentation tree the way ankka's is written: the site, llms.txt, the page index and the agent skills. Any repository with a mkdocs.yml can use it."
 requires-python = ">=3.12"
 dependencies = [
     "mkdocs==1.6.1",
@@ -19,3 +19,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ankka_docs"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

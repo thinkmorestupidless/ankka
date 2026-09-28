@@ -106,6 +106,10 @@ docs-sync:
 docs-serve:
     uv run --project tools/docs docs serve
 
+# The documentation tool's own tests, against a repository that is not ankka.
+docs-test:
+    uv run --project tools/docs pytest tools/docs
+
 # Rewrite the reference pages the JVM generates: the CLI's commands and the control plane's routes.
 docs-reference:
     sbt -Dankka.docs.update=true -Dankka.template.tests=off 'cli/testOnly *CliReferenceSuite' 'controlPlane/testOnly *ControlPlaneRoutesReferenceSuite'

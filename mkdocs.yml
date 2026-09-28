@@ -73,6 +73,64 @@ markdown_extensions:
 
 extra:
   generator: false
+  # What tools/docs needs to know about this repository. The tool is written for any repository whose
+  # documentation follows docs/contributing/documentation.md and finds the repository by this file;
+  # everything that names a path, a vocabulary or a target in *this* one is here rather than in its
+  # code, so another repository can take the tool as a dependency and write its own block.
+  docs:
+    # Frontmatter keys beyond title, description, kind and related, with the values a page may use.
+    facets:
+      languages: [scala, python, typescript]
+      components:
+        - event-sourced-entity
+        - key-value-entity
+        - view
+        - consumer
+        - workflow
+        - timed-action
+        - agent
+        - http-endpoint
+    # The curated SKILL.md files, and where the rendered skills are written, committed and checked.
+    # Giter8 reads `$` as template syntax, so the template's copy escapes it.
+    skills:
+      source: tools/docs/skill
+      targets:
+        - path: marketplace/plugins/ankka/skills
+        - path: ankka.g8/src/main/g8/.claude/skills
+          escape: giter8
+    # Who owns each `generated:start <name>` block. `external` blocks are rewritten by Scala suites
+    # (CliReferenceSuite, ControlPlaneRoutesReferenceSuite) under -Dankka.docs.update=true.
+    generated:
+      configuration:
+        kind: hocon
+        files:
+          - { path: modules/runtime/src/main/resources/reference.conf, scope: every service }
+          - { path: modules/http/src/main/resources/reference.conf, scope: every service }
+          - { path: modules/runtime/src/main/resources/ankka-cluster-local.conf, scope: local mode }
+          - { path: modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf, scope: kubernetes mode }
+        prefix: ankka.
+        described-on: reference/configuration.md
+      protocol:
+        kind: protobuf
+        directory: protocol/src/main/protobuf/ankka/protocol/v1
+      cli:
+        kind: external
+      control-plane-routes:
+        kind: external
+    # Files outside docs/ that link to the site. The site's first home, GitHub Pages' project address,
+    # is dead; a link to it reads as correct and goes nowhere, so it is refused wherever the site is
+    # linked from.
+    site-links:
+      retired-hosts: [thinkmorestupidless.github.io]
+      files:
+        - README.md
+        - sdks/python/README.md
+        - sdks/python/pyproject.toml
+        - sdks/typescript/README.md
+        - sdks/typescript/package.json
+        - marketplace/plugins/ankka/.claude-plugin/plugin.json
+        - marketplace/.claude-plugin/marketplace.json
+        - marketplace/README.md
 
 nav:
   - Home: index.md

@@ -21,13 +21,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .pages import Page, Tree, fenced_lines, headings, mkdocs_config
+from .pages import Page, Tree, fenced_lines, headings
 
 COMMENT = re.compile(r"^<!--\s*(include|generated):.*-->\s*\n", re.MULTILINE)
 
 # Language tabs exist for the site only. A model receives a page as Markdown with no renderer, so the
-# tab markers are flattened back to the bold language label the pages used before tabs — which is what
-# `docs/contributing/documentation.md` still asks for off the site. `/// tab | Python` becomes
+# tab markers are flattened back to a bold language label above each block. `/// tab | Python` becomes
 # `**Python**`, and the closing `///` on a line of its own goes. Anything else beginning with `///` is
 # left alone: it is not a tab, and silently eating it would hide a mistake.
 # `[ \t]*`, never `\s*`: `\s` matches newlines, so a greedy trailing `\s*$` would swallow the blank line
@@ -67,14 +66,6 @@ def flatten_tabs(body: str) -> str:
     return "\n".join(out)
 
 
-SECTION_ORDER_FALLBACK = "Other"
-
-
-def site_url() -> str:
-    url = str(mkdocs_config().get("site_url", "")).rstrip("/")
-    return url + "/"
-
-
 def page_markdown(page: Page, base: str) -> str:
     """A page as a model should receive it: title, summary, where it lives, then the body — no tooling comments."""
     body = flatten_tabs(COMMENT.sub("", page.body.lstrip("\n")))
@@ -100,10 +91,10 @@ def sections(tree: Tree) -> list[tuple[str, list[Page]]]:
 
 
 def llms_txt(tree: Tree, base: str) -> str:
-    config = mkdocs_config()
+    config = tree.project.config
     home = tree.pages.get("index.md")
     lines = [
-        f"# {config.get('site_name', 'ankka')}",
+        f"# {tree.project.site_name}",
         "",
         f"> {config.get('site_description', '')}",
         "",
@@ -127,8 +118,8 @@ def llms_txt(tree: Tree, base: str) -> str:
 
 
 def llms_full(tree: Tree, base: str) -> str:
-    config = mkdocs_config()
-    parts = [f"# {config.get('site_name', 'ankka')} documentation\n\n> {config.get('site_description', '')}\n"]
+    config = tree.project.config
+    parts = [f"# {tree.project.site_name} documentation\n\n> {config.get('site_description', '')}\n"]
     for page in tree.ordered():
         parts.append(page_markdown(page, base))
     return "\n\n---\n\n".join(parts) + "\n"
@@ -136,6 +127,7 @@ def llms_full(tree: Tree, base: str) -> str:
 
 def index(tree: Tree, base: str) -> list[dict[str, Any]]:
     section_of: dict[str, list[str]] = {e.path: e.section for e in tree.nav}
+    facets = tree.project.settings.facets
     records = []
     for page in tree.ordered():
         records.append(
@@ -146,8 +138,7 @@ def index(tree: Tree, base: str) -> list[dict[str, Any]]:
                 "title": page.title,
                 "description": page.description,
                 "kind": page.kind,
-                "languages": page.meta.get("languages", []),
-                "components": page.meta.get("components", []),
+                **{facet: page.meta.get(facet, []) for facet in facets},
                 "related": page.meta.get("related", []),
                 "section": section_of.get(page.path, []),
                 "headings": [h.replace("`", "") for h in headings(page.body)[1:]],
@@ -157,7 +148,7 @@ def index(tree: Tree, base: str) -> list[dict[str, Any]]:
 
 
 def write(tree: Tree, site: Path) -> None:
-    base = site_url()
+    base = tree.project.site_url
     for page in tree.pages.values():
         target = site / page.markdown_path
         target.parent.mkdir(parents=True, exist_ok=True)

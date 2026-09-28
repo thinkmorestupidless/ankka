@@ -25,7 +25,7 @@ import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
-from .pages import DOCS, ROOT, fenced_lines
+from .pages import Tree, fenced_lines
 
 INCLUDE = re.compile(r"^<!--\s*include:\s*(?P<target>\S+?)\s*-->\s*$")
 START = re.compile(r"docs:start\s+(?P<name>[\w.-]+)")
@@ -35,18 +35,20 @@ OPEN_FENCE = re.compile(r"^(?P<fence>`{3,})(?P<info>.*)$")
 
 @dataclass
 class Problem:
-    page: str
+    page: str  # relative to docs/; a file outside it is named `../<path from the root>`
     line: int
     message: str
 
+    prefix = "docs/"  # set from the project's docs_dir by the CLI
+
     def __str__(self) -> str:
-        return f"docs/{self.page}:{self.line}: {self.message}"
+        return f"{self.prefix}{self.page}:{self.line}: {self.message}"
 
 
-def region(target: str) -> str:
+def region(root: Path, target: str) -> str:
     """The text a target names, dedented, with no trailing blank lines."""
     file, _, name = target.partition("#")
-    path = ROOT / file
+    path = root / file
     if not path.is_file():
         raise LookupError(f"include source {file} does not exist")
     lines = path.read_text(encoding="utf-8").splitlines()
@@ -73,7 +75,7 @@ def region(target: str) -> str:
     return text
 
 
-def process(page: str, text: str) -> tuple[str, list[Problem]]:
+def process(root: Path, page: str, text: str) -> tuple[str, list[Problem]]:
     """The page with every include refreshed, and the problems found doing it."""
     lines = text.split("\n")
     # An include comment shown inside a code block — on the page that documents the syntax — is an
@@ -103,7 +105,7 @@ def process(page: str, text: str) -> tuple[str, list[Problem]]:
             i += 1
             continue
         try:
-            content = region(target)
+            content = region(root, target)
         except LookupError as error:
             problems.append(Problem(page, i + 1, str(error)))
             out.extend(lines[i + 1 : close + 1])
@@ -116,37 +118,25 @@ def process(page: str, text: str) -> tuple[str, list[Problem]]:
     return "\n".join(out), problems
 
 
-def sync(pages: list[str]) -> tuple[list[str], list[Problem]]:
+def sync(tree: Tree) -> tuple[list[str], list[Problem]]:
     """Rewrites every page whose includes are stale; returns the pages changed and any problems."""
     changed, problems = [], []
-    for page in pages:
-        path = DOCS / page
-        text = path.read_text(encoding="utf-8")
-        updated, found = process(page, text)
+    for page in sorted(tree.pages):
+        text = tree.read(page)
+        updated, found = process(tree.project.root, page, text)
         problems.extend(found)
         if updated != text:
-            path.write_text(updated, encoding="utf-8")
+            tree.write(page, updated)
             changed.append(page)
     return changed, problems
 
 
-def check(pages: list[str]) -> list[Problem]:
+def check(tree: Tree) -> list[Problem]:
     problems = []
-    for page in pages:
-        text = (DOCS / page).read_text(encoding="utf-8")
-        updated, found = process(page, text)
+    for page in sorted(tree.pages):
+        text = tree.read(page)
+        updated, found = process(tree.project.root, page, text)
         problems.extend(found)
         if updated != text:
             problems.append(Problem(page, 1, "an included sample has drifted from its source; run `docs sync`"))
     return problems
-
-
-def sources() -> list[Path]:
-    """Every file a page includes from, for tooling that wants to watch them."""
-    found: set[Path] = set()
-    for path in DOCS.rglob("*.md"):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            match = INCLUDE.match(line)
-            if match:
-                found.add(ROOT / match.group("target").partition("#")[0])
-    return sorted(found)

@@ -71,6 +71,29 @@ today and to a later feature in the cluster; people are still added to the realm
 administration console, since the platform holds no administrative credential for it and this feature
 does not give it one.
 
+## Clarifications
+
+### Session 2026-09-28
+
+- Q: Where does a session live — a sealed cookie with the refresh token, a server-side store of the
+  console's own, or a cookie with both tokens? → A: A sealed cookie carrying only the refresh token;
+  each instance caches the access token in memory and re-derives it on a miss. The console has no
+  store.
+- Q: How does a service page stay current while a person watches a rollout? → A: The console
+  streams updates to the browser over server-sent events, polling the control plane on the person's
+  behalf while the stream is open. With scripts disabled the page shows the state as of its last
+  request.
+- Q: Do a service's logs follow live, or are they a bounded fetch as in the CLI? → A: They follow
+  live over the same stream mechanism: the console re-fetches the tail on an interval and sends
+  only the lines it has not sent. The bounded fetch with the CLI's choices remains the page's first
+  load and the scripts-off behaviour.
+- Q: What accessibility bar does the console meet? → A: WCAG 2.1 AA as checked by an automated
+  audit (axe) on every page in the Playwright suite, and every operation reachable by keyboard
+  alone. English only.
+- Q: Is the console a mandatory part of an installation? → A: It is a component both overlays and
+  the deploy script always apply and the end-to-end suite always proves; an operator who does not
+  want it removes the component line from their overlay, and the documentation says so.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Sign in through the identity provider, with nothing a script can steal (Priority: P1)
@@ -193,10 +216,16 @@ descriptor and read every problem the control plane names.
 4. **Given** a service, **When** a member pauses, resumes, restarts, exposes or unexposes it, **Then**
    the operation takes effect and the page reflects the new state without a full reload, and the
    state shown is the control plane's, not the console's guess.
+4a. **Given** a service page open in a browser with scripts running, **When** the control plane's
+   report of the service changes — an apply reaching `Ready`, a restart rolling, an operator report
+   of a failure — **Then** the page shows the change without the person doing anything, within the
+   budget in *Success Criteria*, and the same holds for a project's service listing.
 5. **Given** an exposed service, **When** the member reads its page, **Then** its hostname is a link
    that opens it.
 6. **Given** a service with instances, **When** a member asks for its logs, **Then** they can choose
-   an instance, the previous container, a number of lines and a window in seconds, as the CLI can.
+   an instance, the previous container, a number of lines and a window in seconds, as the CLI can;
+   and with scripts running, **Then** new lines the service writes appear on the page as they are
+   read, without the person doing anything, until they pause following or leave the page.
 7. **Given** a service, **When** a member deletes it, **Then** it is gone, and applying a descriptor
    to the same name later creates it again with its generation continuing.
 8. **Given** a service whose organization is disabled, **When** a member views it, **Then** it reads
@@ -390,7 +419,8 @@ name the console's address and placeholders.
    client is listed with what it is, and how to add it to an installation whose realm was imported
    before this feature.
 3. **Given** the installation pages, **When** an operator plans a cluster, **Then** the console's
-   hostname, secret and image are among what they must set.
+   hostname, secret and image are among what they must set, and they find that removing the
+   console is deleting one component from their overlay.
 4. **Given** the documentation tree, **When** it is built, **Then** every new page is in the
    navigation and in a skill, and every descriptor block in it is valid.
 5. **Given** the package's reference page, **When** a host's developer reads it, **Then** they find
@@ -454,6 +484,21 @@ name the console's address and placeholders.
 - **The package and the control plane disagree about a field.** A wire type the platform adds
   appears in a response before a host has upgraded; the client must ignore what it does not know and
   fail loudly only on what it needs and cannot find.
+- **A stream outlives the token that opened it.** An update stream may stay open for an hour; the
+  access token it reads with expires in five minutes and the session may end mid-stream. Each read
+  uses the session's current token, renewing as any page would, and a session the identity provider
+  no longer honours ends the stream with a message the page turns into "sign in again", not a silent
+  freeze.
+- **A stream across a rolling replacement.** An instance being replaced closes its streams; the
+  browser reconnects to whichever instance answers, with no state to carry over, since every stream
+  starts by sending the current state.
+- **Followed logs are re-fetched text, and a line carries no identity.** The logs route answers
+  each instance's recent output as one text; there is no cursor and no line id. Following is a
+  re-read of a window that overlaps the last, with the lines already sent dropped by matching the
+  tail the console holds. A line repeated identically within one overlap may be dropped or shown
+  twice, and the documentation says so; a service's own timestamps are what make following exact.
+- **A streamed payload is JSON-encoded.** A raw text field loses a leading space and splits on a
+  newline under the protocol's own rules; every event's data is a JSON document.
 - **Two hosts, one realm, one browser.** A person signed in to the product's site and to the
   installation's console holds two sessions from one Keycloak session; signing out of one must end
   the Keycloak session, and the other then sends them to sign in on its next page, as story 1 says.
@@ -474,9 +519,17 @@ name the console's address and placeholders.
   HTTPS in a cluster, MUST not be sent on cross-site requests that change state, MUST be integrity
   protected and encrypted with a secret the installation supplies, and MUST be valid on every instance
   of the console.
-- **FR-004**: The console MUST keep no session state of its own that a second instance cannot see: a
-  session is what the cookie carries plus what the identity provider holds, and an instance may cache
-  only what it can re-derive from those.
+- **FR-004**: The console MUST keep no session store of its own. A session is a sealed cookie
+  carrying the refresh token and nothing else that identifies the person, plus what the identity
+  provider holds; an instance MAY cache the current access token in memory for its lifetime and MUST
+  re-derive it from the refresh token when it has none, so any instance serves any session.
+- **FR-004a**: While a person has a service's page or a project's service listing open with scripts
+  running, the console MUST keep it current by streaming updates to the browser (server-sent events):
+  the console re-reads the control plane on the person's behalf, as the person, on an interval while
+  the stream is open, and sends a change when the state it reads differs from the last it sent. The
+  stream MUST be authenticated by the session cookie alone, MUST end when the session ends or the
+  page is closed, MUST cost the control plane no more than one read per open page per interval, and
+  with scripts disabled the page MUST still show the state as of its last request.
 - **FR-005**: The console MUST renew an expired access token on the server, invisibly, and MUST send a
   person whose session the identity provider no longer honours to sign in, returning them afterwards
   to the page they asked for.
@@ -513,6 +566,11 @@ name the console's address and placeholders.
 - **FR-017**: The console MUST let a member pause, resume, restart, expose, unexpose and delete a
   service, and read its logs with the instance, previous-container, line and window choices the CLI
   offers.
+- **FR-017a**: With scripts running, a service's logs page MUST follow live over the stream of
+  FR-004a: the console re-reads the chosen instances' recent output on the interval and sends only
+  lines it has not already sent, an instance's read error inline rather than as a failure of the
+  page, and the page MUST say whether it is following. The person MUST be able to pause following,
+  and the console MUST hold no more of a container's output than the window the person chose.
 - **FR-018**: The console MUST let an owner list members and pending invitations, invite by email,
   change a role, remove a member and withdraw an invitation, and MUST show a refusal to remove or
   demote the last owner.
@@ -535,15 +593,22 @@ name the console's address and placeholders.
   with scripts disabled.
 - **FR-027**: A submitted operation MUST NOT be performed twice by a second submission while the
   first is in flight.
+- **FR-027a**: Every page MUST meet WCAG 2.1 AA as an automated audit (axe) checks it, with zero
+  violations, and every operation MUST be reachable and completable by keyboard alone: focus is
+  visible, order follows the page, every control is labelled, and a state word such as `Failed` is
+  never conveyed by colour alone. The console's text is English; no localization is built, and no
+  string is written so that it could not be.
 
 **Deployment**
 
 - **FR-028**: The console MUST be a container image, `ankka-console`, built from the repository,
   built and loaded by the local deploy script, published by the release with the platform's other
   images, and named with a placeholder tag in the example cloud overlay.
-- **FR-029**: The console MUST be deployed by the same kustomize component set as the control plane,
-  in its own namespace, with its own ServiceAccount holding no grant, a Deployment of at least two
-  instances, a Service, and an `HTTPRoute` at `console.<base domain>` on the installation's gateway.
+- **FR-029**: The console MUST be a kustomize component of its own that both the local and the
+  example cloud overlay include, in its own namespace, with its own ServiceAccount holding no grant, a
+  Deployment of at least two instances, a Service, and an `HTTPRoute` at `console.<base domain>` on
+  the installation's gateway. Nothing else in the platform MUST depend on it, so an operator removes
+  it by deleting the component from their overlay, and the installation pages MUST say so.
 - **FR-030**: In a cluster the console MUST serve TLS with a certificate the service authority issues
   for it, MUST be reached by the gateway with that certificate verified, and MUST call the control
   plane over mutual TLS presenting a certificate carrying the platform identity `ankka://platform/console`,
@@ -656,12 +721,19 @@ name the console's address and placeholders.
 - **SC-011**: Every acceptance scenario in stories 1 to 4 and 7 is exercised by a named Playwright
   test, checked by a list in the suite that maps scenario to test and fails when a scenario has none,
   and the suite passes in continuous integration on every change to the console.
+- **SC-013**: The automated accessibility audit reports zero WCAG 2.1 AA violations on every page
+  the Playwright suite visits, and every operation in stories 2–4 is completed once by keyboard
+  alone in that suite.
 - **SC-006**: A rolling replacement of the console's two instances refuses zero requests from a
   signed-in session making one request a second throughout.
 - **SC-007**: The end-to-end cluster suite passes with the console deployed, and a connection to the
   console's port from another namespace is refused at the network.
 - **SC-008**: `just docs` passes with the limitations sentence removed, and the console's image is
   among those the release publishes and caches.
+- **SC-012**: A change the control plane reports for a service appears on an open service page
+  within 5 seconds, and a line a service writes appears on its followed logs page within 5 seconds,
+  measured by the Playwright suite against the compose stack; an open page costs the control plane
+  at most one read every 2 seconds; and a stream ends within one interval of its session ending.
 - **SC-009**: The second host fixture runs every operation in stories 2–4 with zero changes to the
   package, and the host in this repository is under 500 lines of its own source outside configuration
   and styling.
@@ -742,6 +814,8 @@ name the console's address and placeholders.
 - Calling a deployed service's own endpoints from the console.
 - A design system, theming, or a visual refresh of the local console.
 - Native or mobile applications; the console is a web page that works at a phone's width.
+- Localization: the console is English, and only its strings are kept in a form a later feature could
+  translate.
 - Changes to the control plane's API or its authorization rules.
 - `ankka-cloud`'s own host, and any change to its site: this feature publishes the package and proves
   it with a fixture host; taking it into the product is that repository's feature, and the choice of

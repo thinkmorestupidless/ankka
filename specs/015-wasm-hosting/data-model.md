@@ -75,10 +75,10 @@ Transitions, driven by `InstanceSession`:
 - `event(seq, payload)` — replay: stateless: `state ← fold(state, event)` through the command pool;
   stateful: the event is handed to the pinned guest, and `state ← the returned state` (a stateful
   guest also returns its state after a fold and a command, so the host is never behind).
-- `command(cmd)` — `HandleRequest(state?, cmd)` to a guest; on `HandleReply`, `state ← reply.state`,
-  `sequence` advances by the events' count once the runtime has persisted them (the host updates
-  `state` only after the runtime's own fold callback confirms persistence, so a refused persist does
-  not advance the held state).
+- `command(cmd)` — `HandleRequest(state?, cmd)` to a guest; on a successful `HandleReply`,
+  `state ← reply.state` and `sequence` advances by the events' count. A persist failure after the
+  reply restarts the entity's actor, which closes the session and re-opens from the journal, so
+  the entry is rebuilt from what was actually stored.
 - `runStep(id, step, input)` — `StepRequest(state?, step, input)` on the blocking pool; the reply's
   `new_state` updates the entry as a command's does.
 - `close()` — removes the entry; stateful: tells the pinned guest to drop it.

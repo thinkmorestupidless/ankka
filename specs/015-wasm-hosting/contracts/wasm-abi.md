@@ -50,6 +50,10 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 
 A module missing any required export is refused at start, naming it.
 
+The host sets two kinds of metadata entry on every request that carries `Metadata`: `ankka.now`, the
+runtime's clock as epoch milliseconds, and the trace entries it sets for a process. A module has no
+clock of its own; `ankka.now` is the one it reads.
+
 ## Imports the guest may use (module `ankka1`)
 
 | import | in | out | semantics |

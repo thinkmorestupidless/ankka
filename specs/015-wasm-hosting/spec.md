@@ -280,9 +280,10 @@ new pages.
 ### Edge Cases
 
 - A module that never returns from a call (a loop). The runtime does not interrupt a module, so the
-  call holds its instance until the process is restarted; the runtime's readiness is unaffected while
-  other instances serve, the affected command times out for its caller as any slow handler does, and
-  the limitation is documented as one the platform does not protect against in this feature.
+  call's instance is abandoned after the command timeout and replaced, at the cost of one carrier
+  thread until the process restarts; the runtime's readiness is unaffected while other instances
+  serve, the affected command times out for its caller as any slow handler does, and the limitation
+  is documented as one the platform does not protect against in this feature.
 - A module that exhausts its memory during a call. The call fails as a fault, the instance is
   discarded, the state the runtime holds is untouched, and the next call gets a fresh instance.
 - A stateless component whose state grows large. Each call carries the whole state both ways; the
@@ -347,8 +348,9 @@ new pages.
 - **FR-008**: The functions a module exports and the functions it may import MUST be written down as a
   versioned contract in the protocol artifact, carrying the major version in every name so that a
   module built for a version the runtime does not speak is refused by name.
-- **FR-009**: Every value crossing the boundary MUST be one of the protocol's existing messages, so
-  that the ABI adds no shape a guest library has to learn beyond the protocol it already carries.
+- **FR-009**: Every value crossing the boundary MUST be a message of the protocol, either an existing
+  one or one defined by the ABI's own envelope file, which adds messages and changes none, so that
+  the ABI adds no shape a guest library has to learn beyond the protocol it already carries.
 - **FR-010**: The contract MUST define the memory convention (how the runtime writes a request into the
   module and reads a reply out, and who frees what) so that a guest library in any language can
   implement it from the document alone.
@@ -405,9 +407,10 @@ new pages.
   carries, with the module delivered into it once at start by the descriptor's image and the module's
   path handed to the runtime. The delivery MUST work on every cluster the platform runs on today, with
   no dependency on the node's container runtime beyond running an image.
-- **FR-026**: The descriptor's environment MUST be split as it is for a process-hosted service: the
-  model's and the database's variables reach the runtime, everything else reaches the module, and the
-  module can read nothing the runtime keeps.
+- **FR-026**: The module MUST be able to read, through the runtime, only those descriptor variables
+  that are not reserved. The model's and the database's variables, the cluster's variables and the
+  runtime's own settings MUST never be readable from the module, whether or not they are in the
+  runtime container's environment.
 - **FR-027**: A WebAssembly service MUST scale, restart, pause, resume, expose and roll with no
   request refused, exactly as any service, with no new command and no new status word.
 - **FR-028**: The custom resource's schema MUST declare the new hosting value, and the schema suite
@@ -443,7 +446,7 @@ new pages.
   the SDK route.
 - **FR-037**: The limitations page MUST state what the hosting mode does not do: no interruption of a
   running module, no streaming routes from a module, no debugger attachment to a deployed module, and
-  the cluster version requirement.
+  no delivery of a module other than by an image that copies it into place.
 
 **What must not change**
 
@@ -495,8 +498,8 @@ new pages.
 - **SC-004**: A module that crashes during a command loses 0 events and 0 state: the next command to
   the same entity sees exactly the state before the crash, and every other entity is unaffected.
 - **SC-005**: Sixty-four handlers waiting concurrently on other components hold the runtime for no
-  longer than the longest single wait plus a tenth, and no entity command queued behind them is delayed
-  by their waiting.
+  longer than one and a half times the longest single wait, and no entity command queued behind
+  them is delayed by their waiting.
 - **SC-006**: The shopping cart example passes its own integration tests through the runtime, and a
   journal written by the Scala cart is recovered by the Rust cart with 0 differences in state, and the
   reverse.

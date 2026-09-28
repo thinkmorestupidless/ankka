@@ -56,8 +56,8 @@ caffeinate -i sbt -Dankka.benchmarks=true -Dankka.cluster.tests=off 'sidecar/tes
 ```
 
 Expected: the Rust guest's 1 KB `handle` under half the loopback hop's p50; the sixty-four-guest
-block within three holds. The spike is the benchmark the host's pools are measured against, not a
-test of the host; `WasmHostSuite` carries the assertion.
+block within one and a half holds. The spike is the benchmark; SC-003 is recorded from it by T056
+rather than asserted, and `WasmHostSuite` carries the SC-005 assertion.
 
 ## 6. Locally, as a developer would (P1, P5 — SC-007)
 

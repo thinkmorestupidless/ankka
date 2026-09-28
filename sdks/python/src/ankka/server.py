@@ -41,7 +41,7 @@ from ankka._proto.ankka.protocol.v1 import (
 )
 from ankka.agent import Agent
 from ankka.client import CommandError, ComponentClient
-from ankka.context import CommandContext, Metadata, Principal, RequestContext
+from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
 from ankka.effects import consumer as consumer_effects
 from ankka.effects import timed_action as timed_effects
@@ -538,6 +538,7 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
             headers=tuple((h.name, h.value) for h in request.headers),
             principal=principal,
             metadata=Metadata.from_pb(request.metadata),
+            caller=_caller(request),
         )
 
     async def Handle(self, request: endpoint_pb2.HttpRequest, context: Any) -> endpoint_pb2.HttpReply:
@@ -586,8 +587,17 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
 def _takes_client(cls: type) -> bool:
     import inspect
 
+    # A class that defines no constructor inherits object's, whose `*args, **kwargs` are not a
+    # parameter for the client: counting them handed a client to every such endpoint and failed
+    # its first request with "takes no arguments".
+    if cls.__init__ is object.__init__:  # type: ignore[misc]
+        return False
     try:
-        params = [p for p in inspect.signature(cls.__init__).parameters.values() if p.name != "self"]  # type: ignore[misc]
+        params = [
+            p
+            for p in inspect.signature(cls.__init__).parameters.values()  # type: ignore[misc]
+            if p.name != "self" and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)
+        ]
     except (TypeError, ValueError):
         return False
     return len(params) >= 1
@@ -633,3 +643,15 @@ class Server:
             await self._server.stop(grace)
             self._server = None
         await self.client.close()
+
+
+def _caller(request: endpoint_pb2.HttpRequest) -> Caller:
+    """The caller the sidecar established; a sidecar that predates protocol 1.1 sends none."""
+    if not request.HasField("caller"):
+        return LocalCaller()
+    which = request.caller.WhichOneof("kind")
+    if which == "gateway":
+        return Gateway()
+    if which == "service":
+        return ServiceCaller(request.caller.service.project, request.caller.service.name)
+    return LocalCaller()

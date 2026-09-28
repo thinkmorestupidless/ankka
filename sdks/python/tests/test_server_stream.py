@@ -10,6 +10,7 @@ from ankka import Ankka
 from ankka._proto.ankka.protocol.v1 import discovery_pb2, discovery_pb2_grpc, event_sourced_pb2, event_sourced_pb2_grpc, payload_pb2
 from ankka.testkit.unit import _NoClient
 from ankka.server import Server
+from ankka.service import PROTOCOL_VERSION
 from tests.counter import CounterEndpoint, CounterEntity
 
 
@@ -54,7 +55,7 @@ async def test_discovery_answers_the_spec() -> None:
         spec = await stub.Discover(discovery_pb2.SidecarInfo(protocol_version="1.0", runtime_version="test"))
         assert [c.id for c in spec.components] == ["counter"]
         assert [e.id for e in spec.endpoints] == ["CounterEndpoint"]
-        assert spec.protocol_version == "1.0"
+        assert spec.protocol_version == PROTOCOL_VERSION
     await server.stop()
 
 

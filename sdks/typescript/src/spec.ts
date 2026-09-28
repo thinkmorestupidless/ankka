@@ -1,28 +1,46 @@
 // Renders the discovery Spec from the registry: what the sidecar hosts is exactly what is registered.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
-import { Endpoint_Acl, SpecSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
+import { Endpoint_Acl, SpecSchema, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
 import type { Registry, RegisteredComponent, Source } from "./service.ts"
 import type { HandlerRef } from "./handlers.ts"
 import type { Recovery, WorkflowSettings } from "./effects/workflow.ts"
 import { kindToProto } from "./kinds.ts"
-import { Acl } from "./routes.ts"
+import type { Acl, CallerMatcher } from "./routes.ts"
 import { toJsonSchema } from "./schema.ts"
 import { isCodec } from "./codec.ts"
 import { VERSION } from "./version.ts"
 
-export const PROTOCOL_VERSION = "1.0"
+export const PROTOCOL_VERSION = "1.1"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
+  if (typeof acl === "object") return Endpoint_Acl.CALLERS
   switch (acl) {
-    case Acl.allowAll:
+    case "allow-all":
       return Endpoint_Acl.ALLOW_ALL
-    case Acl.denyAll:
+    case "deny-all":
       return Endpoint_Acl.DENY_ALL
-    case Acl.authenticated:
+    case "authenticated":
       return Endpoint_Acl.AUTHENTICATED
   }
+}
+
+/** The callers a CALLERS acl names, as discovery carries them; empty for every other rule. */
+export function callersToProto(acl: Acl): MessageInitShape<typeof CallerMatcherSchema>[] {
+  if (typeof acl !== "object") return []
+  return acl.callers.map((m: CallerMatcher): MessageInitShape<typeof CallerMatcherSchema> => {
+    switch (m.kind) {
+      case "internet":
+        return { kind: { case: "internet", value: {} } }
+      case "anyInProject":
+        return { kind: { case: "anyInProject", value: {} } }
+      case "self":
+        return { kind: { case: "self", value: {} } }
+      case "service":
+        return { kind: { case: "service", value: m.project !== undefined ? { name: m.name, project: m.project } : { name: m.name } } }
+    }
+  })
 }
 
 type ComponentInit = MessageInitShape<typeof ComponentSchema>
@@ -106,13 +124,14 @@ export function renderSpec(registry: Registry): Spec {
     id: e.id,
     prefix: e.prefix,
     acl: aclToProto(e.acl),
+    allowCallers: callersToProto(e.acl),
     routes: [...e.routes.entries()].map(([id, r]) => ({
       id,
       method: r.method,
       template: r.template,
       hasBody: r.body !== undefined,
       streaming: r.streaming,
-      ...(r.acl !== undefined ? { acl: aclToProto(r.acl) } : {}),
+      ...(r.acl !== undefined ? { acl: aclToProto(r.acl), allowCallers: callersToProto(r.acl) } : {}),
     })),
   }))
   return create(SpecSchema, {

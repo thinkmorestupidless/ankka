@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
+import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.agent.{ChatMessage, Json, TestModelProvider}
 import com.thinkmorestupidless.ankka.runtime.{
   Database,
@@ -137,7 +138,8 @@ class ConformanceSuite extends munit.FunSuite:
       "POST /carts/{cartId}/items",
       "GET /carts/awkward",
       "GET /conformance/echo",
-      "GET /private/"
+      "GET /private/",
+      "GET /callers/whoami"
     ).foreach { r =>
       assert(
         routes.exists(_.replaceAll("\\{[^}]+\\}", "{}") == r.replaceAll("\\{[^}]+\\}", "{}")),
@@ -434,6 +436,37 @@ class ConformanceSuite extends munit.FunSuite:
     // the process. Its siblings under the same prefix are unaffected.
     assertEquals(get("/conformance/closed").status, 403)
     assertEquals(get("/conformance/status/418").status, 418)
+  }
+
+  // ── Callers (feature 014) ─────────────────────────────────────────────────
+  // Every target runs outside a cluster, so callers are named through the local caller header and
+  // the service's own identity is local/local. What is being pinned is that all three SDKs declare
+  // the same ACLs and hand the handler the same caller.
+
+  private def as(caller: Caller) = LocalCallers.header(caller)
+
+  test("http.caller-local") {
+    assertEquals(get("/callers/whoami").body, "local")
+    assertEquals(get("/callers/self").status, 200)
+  }
+
+  test("http.caller-gateway") {
+    val r = get("/callers/whoami", as(Caller.Gateway))
+    assertEquals((r.status, r.body), (200, "gateway"))
+    assertEquals(get("/callers/self", as(Caller.Gateway)).status, 403)
+  }
+
+  test("http.caller-service") {
+    val admitted = get("/callers/whoami", as(Caller.Service("local", "orders")))
+    assertEquals((admitted.status, admitted.body), (200, "service:local/orders"))
+    assertEquals(get("/callers/whoami", as(Caller.Service("local", "payments"))).status, 403)
+    assertEquals(get("/callers/whoami", as(Caller.Service("billing", "orders"))).status, 403)
+    assertEquals(get("/callers/self", as(Caller.Service("local", "local"))).body, "self")
+  }
+
+  test("http.caller-in-stream") {
+    assertEquals(get("/callers/events", as(Caller.Gateway)).status, 403)
+    assertEquals(get("/callers/events", as(Caller.Service("local", "local"))).status, 200)
   }
 
   test("http.sse-frames-json-encoded") {

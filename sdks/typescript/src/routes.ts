@@ -14,13 +14,54 @@ import type { RequestContext } from "./context.ts"
 import { isCodec } from "./codec.ts"
 import type { Infer, Schema } from "./schema.ts"
 
-/** Who may call: everyone, no one, or authenticated callers only. There is no default. */
+/** One kind of caller an `Acl.allowCallers` admits; build one through `Callers`. */
+export type CallerMatcher =
+  | { readonly kind: "internet" }
+  | { readonly kind: "service"; readonly name: string; readonly project?: string }
+  | { readonly kind: "anyInProject" }
+  | { readonly kind: "self" }
+
+/**
+ * The callers an endpoint can name: `Acl.allowCallers(Callers.internet, Callers.service("orders"))`. A named
+ * service is in this service's own project unless `project` names another.
+ */
+export const Callers = Object.freeze({
+  internet: Object.freeze({ kind: "internet" }) as CallerMatcher,
+  anyInProject: Object.freeze({ kind: "anyInProject" }) as CallerMatcher,
+  self: Object.freeze({ kind: "self" }) as CallerMatcher,
+  service(name: string, options?: { readonly project?: string }): CallerMatcher {
+    return Object.freeze(options?.project !== undefined ? { kind: "service", name, project: options.project } : { kind: "service", name })
+  },
+})
+
+/** Only the callers named. In a cluster the caller is read from the certificate the platform issued. */
+export interface CallersAcl {
+  readonly kind: "callers"
+  readonly callers: readonly CallerMatcher[]
+}
+
+/**
+ * Who may call: everyone, no one, authenticated callers only, or only the callers named. There is no default.
+ *
+ * Outside a cluster every caller is `{ kind: "local" }`, and `allowCallers` admits it.
+ */
+export type Acl = "allow-all" | "deny-all" | "authenticated" | CallersAcl
 export const Acl = Object.freeze({
-  allowAll: "allow-all",
-  denyAll: "deny-all",
-  authenticated: "authenticated",
-} as const)
-export type Acl = (typeof Acl)[keyof typeof Acl]
+  allowAll: "allow-all" as Acl,
+  denyAll: "deny-all" as Acl,
+  authenticated: "authenticated" as Acl,
+  allowCallers(first: CallerMatcher, ...rest: CallerMatcher[]): Acl {
+    return Object.freeze({ kind: "callers", callers: Object.freeze([first, ...rest]) })
+  },
+})
+
+/** Whether `x` is an access rule: one of the three words, or a non-empty callers rule. */
+export function isAcl(x: unknown): x is Acl {
+  if (x === "allow-all" || x === "deny-all" || x === "authenticated") return true
+  if (typeof x !== "object" || x === null) return false
+  const rule = x as Partial<CallersAcl>
+  return rule.kind === "callers" && Array.isArray(rule.callers) && rule.callers.length > 0
+}
 
 /** Thrown from a route handler to answer a status other than 200 with a plain-text message. */
 export class HttpProblem extends Error {

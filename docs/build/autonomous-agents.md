@@ -35,7 +35,7 @@ back to the model.
 final case class Answer(answer: String, sources: List[String])
 
 object Answer:
-  given JsonValueCodec[Answer] = Codecs.make // how the result is read and stored
+  given JsonValueCodec[Answer] = Codecs.make        // how the result is read and stored
   given JsonSchema[Answer]     = JsonSchema.derived // how it is described to the model
 
 object CartTasks:

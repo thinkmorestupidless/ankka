@@ -478,7 +478,12 @@ lazy val sidecar = project
       val ddl = (runtime / Compile / resourceDirectory).value / "ankka" / "ddl"
       (ddl * "*.sql").get.map(f => f -> s"ddl/${f.getName}")
     },
-    libraryDependencies ++= Seq(logback, testcontainersK3s % Test),
+    libraryDependencies ++= Seq(
+      logback,
+      testcontainersK3s % Test,
+      chicoryRuntime    % Test,
+      chicoryCompiler   % Test
+    ),
     // SidecarClusterSuite deploys this project's own image by the build's version tag, so the
     // image has to come from this sbt session — as sampleImageForClusterTests for the operator's
     // suites. On both test and testOnly, for the same reason as there. A full `buildAll` found it

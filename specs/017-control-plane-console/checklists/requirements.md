@@ -47,5 +47,7 @@
   replacements reach a redirect address inside the realm import's JSON; whether the end-to-end
   cluster suite can complete Keycloak's sign-in form from the host with `curl`, or needs a browser;
   the package's registry name; how the platform emits wire-type fixtures for the package's client
-  (the existing fixture suites are the model); and which of React Router's mechanisms carries a
-  mountable route tree with a host-supplied layout.
+  (the existing fixture suites are the model); which of React Router's mechanisms carries a
+  mountable route tree with a host-supplied layout; and how the Playwright suite's two settings
+  (scripted control plane in CI, the compose stack locally) share one set of tests, and whether the
+  compose setting can also run in CI's Docker without the JVM build the control plane needs.

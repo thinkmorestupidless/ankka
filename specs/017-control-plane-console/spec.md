@@ -88,8 +88,8 @@ in, and brings them back to where they were.
 to put behind it, and a sign-in that is *unsafe* is worse than the CLI it replaces. Everything else
 in the feature is a page behind this one.
 
-**Independent Test**: With a browser driven by a test against a real Keycloak and the real control
-plane: open a deep link, complete Keycloak's form, land on the deep link signed in; inspect every
+**Independent Test**: With a real browser driven by Playwright against a real Keycloak and the real
+control plane: open a deep link, complete Keycloak's form, land on the deep link signed in; inspect every
 cookie and every byte of HTML, script and storage the browser holds and find no token; sign out and
 find the Keycloak session gone; let a session expire and find the next request redirected to sign in
 and then back.
@@ -570,6 +570,15 @@ name the console's address and placeholders.
 - **FR-037**: The console's source MUST live in this repository, in a directory of its own holding
   the package and the host as separate units with one dependency lock, type check, unit tests and
   browser tests, runnable with one command each.
+- **FR-037a**: The browser tests MUST be Playwright tests driving a real browser through the console
+  as a person would — following links, filling forms, reading what is on the page — and MUST cover
+  every acceptance scenario in stories 1 to 4 and 7, each once with scripts running and once with
+  scripts disabled. They MUST run in two settings: in continuous integration against a scripted
+  control plane and an in-process identity provider, on every change to the console; and against the
+  real control plane and the real Keycloak of the compose stack, runnable on a developer's machine
+  with one command and by the platform's full build. Inspection of cookies, storage and response
+  bodies for tokens (SC-003) and the timing measurements (SC-004) MUST be made from these tests, and a
+  failing test MUST leave a trace and a screenshot a person can read.
 - **FR-038**: Continuous integration MUST build, type-check and test the console when its directory or
   the manifests it depends on change, and the release MUST build its image from the tag.
 - **FR-039**: The end-to-end cluster suite MUST deploy the console into its cluster and prove a
@@ -636,14 +645,17 @@ name the console's address and placeholders.
 - **SC-002**: Every operation the CLI offers on an organization, project, service, member or deploy
   token — every route under those resources in the control plane's API reference except reading the
   identity discovery — is reachable from the console, checked by a test that walks the reference's
-  route table against the console's.
+  route table against the routes the Playwright suite exercised.
 - **SC-003**: A test that inspects every cookie, every response body and the browser's storage after a
   sign-in finds zero tokens, and the session cookie is under 2 kilobytes.
 - **SC-004**: On the local kind cluster, a signed-in page renders in under 500 milliseconds at the
   median, measured server-side from request to response, and a client-side navigation shows the next
   page in under 300 milliseconds at the median.
-- **SC-005**: Every operation in stories 2–4 completes with scripts disabled, checked by the browser
-  suite run twice, once with scripts and once without.
+- **SC-005**: Every operation in stories 2–4 completes with scripts disabled, checked by the
+  Playwright suite run twice, once with scripts and once without.
+- **SC-011**: Every acceptance scenario in stories 1 to 4 and 7 is exercised by a named Playwright
+  test, checked by a list in the suite that maps scenario to test and fails when a scenario has none,
+  and the suite passes in continuous integration on every change to the console.
 - **SC-006**: A rolling replacement of the console's two instances refuses zero requests from a
   signed-in session making one request a second throughout.
 - **SC-007**: The end-to-end cluster suite passes with the console deployed, and a connection to the
@@ -707,6 +719,13 @@ name the console's address and placeholders.
   workflow the way the TypeScript SDK does, at the tag's version, so a host pins it as `ankka-cloud`
   pins the platform's libraries. Its name is settled in planning, since the SDK holds `ankka` and a
   scoped name needs an organization on the registry.
+- **Playwright is the browser harness.** The console's correctness is what a person sees in a browser,
+  and only a real browser can check a cookie's flags, storage, a form with scripts off and a page
+  swapped without a reload. Playwright is chosen over a unit-level rendering of components because
+  the thing under test is the host, the package and the browser together; component-level tests
+  remain for the client and the session machinery, which need no browser. The scripted control plane
+  the suite runs against in continuous integration is a double the package's own tests already need,
+  and the in-process identity provider is the shape `ankka-cloud`'s tests already use.
 - **Sessions are the host's if it wants them.** The sealed-cookie session is the default because this
   repository's host has no database; `ankka-cloud` keeps its sessions in an entity, and the store
   interface is what lets it keep doing so if it adopts the package's sign-in.

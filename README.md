@@ -13,6 +13,8 @@ A serverless application platform for agentic AI, built on the actor model — a
 in Scala 3 on [Apache Pekko](https://pekko.apache.org/), with services in Scala, Python or
 TypeScript.
 
+![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](docs/assets/diagrams/components.svg)
+
 You write components; ankka supplies the runtime. Sharding, persistence, replay,
 projections, durable orchestration, timers, HTTP and the agent loop are the platform's
 problem, not yours. A control plane, an operator and a CLI deploy, expose, scale and observe
@@ -156,20 +158,13 @@ In Python and TypeScript the loop runs in the runtime beside your process, which
 a tool or check a guardrail — so your code never holds the model's key. [Agents](docs/build/agents.md)
 covers memory, structured replies, streaming and compaction.
 
-## How it fits together
+## The platform
 
-Inside a service, components never call each other directly. Calls go through the component client to
-wherever the target id lives in the cluster; changes are stored first and then followed by views and
-consumers; timers fire timed actions later; and Kafka topics connect a service to others.
-[Components](docs/concepts/components.md#how-components-communicate) describes each path.
-
-![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](docs/assets/diagrams/components.svg)
-
-Around services, the platform runs on Kubernetes. The CLI talks to a **control plane**, which records
-what you asked for and writes one `AnkkaService` resource per service into the project's namespace; an
-in-cluster **operator** watches those resources and creates everything each service needs — its
-instances, its own database, and a route when it is exposed. [How ankka works](docs/concepts/architecture.md)
-explains the split.
+The platform runs on Kubernetes. The CLI talks to a **control plane**, which records what you asked for
+and writes one `AnkkaService` resource per service into the project's namespace; an in-cluster
+**operator** watches those resources and creates everything each service needs — its instances, its own
+database, and a route when it is exposed. [How ankka works](docs/concepts/architecture.md) explains the
+split.
 
 ![The ankka platform on Kubernetes: the CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace; the operator watches those resources, creates and owns each service's Deployment, database and route, and writes status back. Callers reach an exposed service through the same gateway.](docs/assets/diagrams/platform.svg)
 

@@ -36,6 +36,13 @@ wherever the target instance lives in the cluster. Endpoints, workflow steps, co
 and agent loops all run on Java virtual threads, so waiting for a reply is ordinary sequential code and
 costs no platform thread.
 
+![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](../assets/diagrams/components.svg)
+
+Every arrow into an agent, workflow or entity goes through the component client, and every write lands in
+the service's own database. Views and consumers never receive a call from the component that changed:
+they follow its changes after they are stored, which is why they are
+[eventually consistent](consistency.md).
+
 ## A service is one cluster
 
 A service runs as one or more **instances**, and those instances form one Pekko cluster. Entities are
@@ -73,15 +80,7 @@ provisions a separate database per service for this reason.
 
 The platform deploys services to Kubernetes and reports how they are doing. It has three parts.
 
-```text
-  ankka CLI ──HTTPS──▶ control plane ──writes──▶ AnkkaService resource ◀──watches── operator
-  (your machine)       (an ankka app)            (one per service)                    │
-                            ▲                                                         │ creates
-                            └───────── status folded back from the resource ◀─────────┤
-                                                                                      ▼
-                                                    namespace, Deployment, Service, database,
-                                                    route, ServiceAccount — the running service
-```
+![The ankka platform on Kubernetes: the CLI and CI jobs reach the control plane through the installation's gateway at api.{base}, and sign in with Keycloak at auth.{base}. The control plane writes one AnkkaService resource per service into the project's namespace and reads its status. The operator watches those resources and creates and owns each service's Deployment, database in the project's Postgres cluster, and route; it writes status back. Callers reach an exposed service through the same gateway at {service}-{project}.{base}. A Scala service is a Deployment of JVM instances forming one Pekko cluster; a Python or TypeScript service is your process beside the runtime as a sidecar.](../assets/diagrams/platform.svg)
 
 - **The control plane** holds the platform's desired state: organizations, projects, members, and each
   service's descriptor. It is itself an ankka application — event sourced entities for tenancy, views for

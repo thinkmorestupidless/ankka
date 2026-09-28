@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 560" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" aria-labelledby="title desc">
+  <title id="title">Where an agent runs: Scala, and Python or TypeScript</title>
+  <desc id="desc">In Scala, the agent and the ankka runtime run in one JVM in one container: the agent's handler returns an effect describing the request, and the runtime runs the loop, calling the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the process's tool calls other components through the sidecar's Client Invoke. In both, only the runtime calls the model provider and writes to the service's Postgres.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .ink { fill: #1f2328; }
+    .muted { fill: #59636e; }
+    .accent-text { fill: #c2410c; }
+    .box { fill: #f6f8fa; stroke: #afb8c1; stroke-width: 1.2; }
+    .hot { fill: #fff4ec; stroke: #c2410c; stroke-width: 1.5; }
+    .cluster { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .ns { fill: none; stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .deploy { fill: none; stroke: #afb8c1; stroke-width: 1.2; stroke-dasharray: 3 3; }
+    .line { stroke: #1f2328; stroke-width: 1.4; fill: none; }
+    .dash { stroke: #59636e; stroke-width: 1.3; fill: none; stroke-dasharray: 4 3; }
+    .head { fill: #1f2328; }
+    .headmuted { fill: #59636e; }
+    text { font-size: 13px; }
+    .title { font-size: 14px; font-weight: 600; }
+    .small { font-size: 11.5px; }
+    .label { font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9198a1; }
+      .accent-text { fill: #ff9a5c; }
+      .box { fill: #161b22; stroke: #3d444d; }
+      .hot { fill: #2a1a10; stroke: #ff8a4c; }
+      .cluster { stroke: #9198a1; }
+      .ns { stroke: #656c76; }
+      .deploy { stroke: #3d444d; }
+      .line { stroke: #e6edf3; }
+      .dash { stroke: #9198a1; }
+      .head { fill: #e6edf3; }
+      .headmuted { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="headmuted"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1100" height="560" rx="12"/>
+  <text class="label muted" x="24" y="40" text-anchor="start">SCALA</text>
+  <text class="small muted" x="24" y="58" text-anchor="start">one container: your code and the runtime in one JVM</text>
+  <rect class="deploy" x="24" y="76" width="500" height="318" rx="12"/>
+  <text class="small muted" x="38" y="96" text-anchor="start">pod · container: cart (JVM)</text>
+  <rect class="hot" x="48" y="110" width="452" height="92" rx="8"/>
+  <text class="title ink" x="274" y="136" text-anchor="middle">Your code: CartAssistant</text>
+  <text class="small muted" x="274" y="156" text-anchor="middle">instructions · the lookup tool · the no-secrets guardrail</text>
+  <text class="small muted" x="274" y="174" text-anchor="middle">the tool calls the cart entity through the component client</text>
+  <rect class="box" x="48" y="272" width="452" height="104" rx="8"/>
+  <text class="title ink" x="274" y="298" text-anchor="middle">ankka runtime</text>
+  <text class="small muted" x="274" y="318" text-anchor="middle">agent loop · session memory · token counts · the model's key</text>
+  <text class="small muted" x="274" y="336" text-anchor="middle">component client · journal · cluster · HTTP</text>
+  <path class="line" d="M 194 204 L 194 270" marker-end="url(#a)"/>
+  <path class="line" d="M 354 270 L 354 204" marker-end="url(#a)"/>
+  <text class="small muted" x="186" y="232" text-anchor="end">returns the effect</text>
+  <text class="small muted" x="186" y="247" text-anchor="end">describing the request</text>
+  <text class="small muted" x="362" y="232" text-anchor="start">runs the tool,</text>
+  <text class="small muted" x="362" y="247" text-anchor="start">checks the guardrail</text>
+  <text class="small ink" x="274" y="226" text-anchor="middle">method</text>
+  <text class="small ink" x="274" y="241" text-anchor="middle">calls</text>
+  <text class="label muted" x="576" y="40" text-anchor="start">PYTHON OR TYPESCRIPT</text>
+  <text class="small muted" x="576" y="58" text-anchor="start">two containers in one pod: your process, and the runtime as a sidecar</text>
+  <rect class="deploy" x="576" y="76" width="500" height="318" rx="12"/>
+  <text class="small muted" x="590" y="96" text-anchor="start">pod</text>
+  <rect class="hot" x="600" y="110" width="452" height="92" rx="8"/>
+  <text class="title ink" x="826" y="136" text-anchor="middle">App container: your process</text>
+  <text class="small muted" x="826" y="156" text-anchor="middle">CartAssistant: instructions · lookup tool · no-secrets guardrail</text>
+  <text class="small muted" x="826" y="174" text-anchor="middle">no model key, no database credential</text>
+  <text class="small muted" x="826" y="191" text-anchor="middle">listens on 127.0.0.1:9010</text>
+  <rect class="box" x="600" y="272" width="452" height="104" rx="8"/>
+  <text class="title ink" x="826" y="298" text-anchor="middle">Sidecar container: the ankka runtime</text>
+  <text class="small muted" x="826" y="318" text-anchor="middle">agent loop · session memory · token counts · the model's key</text>
+  <text class="small muted" x="826" y="336" text-anchor="middle">component client · journal · cluster · HTTP</text>
+  <text class="small muted" x="826" y="354" text-anchor="middle">listens on 127.0.0.1:9011</text>
+  <path class="line" d="M 766 270 L 766 204" marker-end="url(#a)"/>
+  <path class="line" d="M 886 204 L 886 270" marker-end="url(#a)"/>
+  <text class="small ink" x="758" y="226" text-anchor="end">Agent:</text>
+  <text class="small ink" x="758" y="241" text-anchor="end">Plan, InvokeTool,</text>
+  <text class="small ink" x="758" y="256" text-anchor="end">CheckGuardrail</text>
+  <text class="small ink" x="894" y="226" text-anchor="start">Client:</text>
+  <text class="small ink" x="894" y="241" text-anchor="start">Invoke</text>
+  <text class="small muted" x="894" y="256" text-anchor="start">the tool's call</text>
+  <text class="small muted" x="826" y="226" text-anchor="middle">gRPC</text>
+  <text class="small muted" x="826" y="241" text-anchor="middle">protobuf</text>
+  <text class="small muted" x="826" y="256" text-anchor="middle">loopback</text>
+  <line class="dash" x1="550" y1="30" x2="550" y2="530"/>
+  <rect class="box" x="48" y="448" width="212" height="56" rx="8"/>
+  <text class="title ink" x="154" y="472" text-anchor="middle">Model provider</text>
+  <text class="small muted" x="154" y="490" text-anchor="middle">called only by the runtime</text>
+  <rect class="box" x="288" y="448" width="212" height="56" rx="8"/>
+  <text class="title ink" x="394" y="472" text-anchor="middle">Postgres</text>
+  <text class="small muted" x="394" y="490" text-anchor="middle">the service's own database</text>
+  <path class="line" d="M 154 378 L 154 446" marker-end="url(#a)"/>
+  <path class="line" d="M 394 378 L 394 446" marker-end="url(#a)"/>
+  <text class="small muted" x="162" y="420" text-anchor="start">model calls</text>
+  <text class="small muted" x="386" y="420" text-anchor="end">events, session memory</text>
+  <rect class="box" x="600" y="448" width="212" height="56" rx="8"/>
+  <text class="title ink" x="706" y="472" text-anchor="middle">Model provider</text>
+  <text class="small muted" x="706" y="490" text-anchor="middle">called only by the runtime</text>
+  <rect class="box" x="840" y="448" width="212" height="56" rx="8"/>
+  <text class="title ink" x="946" y="472" text-anchor="middle">Postgres</text>
+  <text class="small muted" x="946" y="490" text-anchor="middle">the service's own database</text>
+  <path class="line" d="M 706 378 L 706 446" marker-end="url(#a)"/>
+  <path class="line" d="M 946 378 L 946 446" marker-end="url(#a)"/>
+  <text class="small muted" x="714" y="420" text-anchor="start">model calls</text>
+  <text class="small muted" x="938" y="420" text-anchor="end">events, session memory</text>
+</svg>

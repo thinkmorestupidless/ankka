@@ -91,6 +91,29 @@ codes, which the endpoint turns into HTTP statuses without mapping them itself. 
 server-sent events, which is how agent responses reach a browser token by token.
 [HTTP endpoints](../build/http-endpoints.md) shows how.
 
+## How components communicate
+
+Components reach each other in only three ways: through the **component client**, through the changes
+another component has stored, and through a timer. None calls another directly.
+
+![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](../assets/diagrams/components.svg)
+
+- **Calls go through the component client.** An endpoint, a workflow step, an agent's tool, a consumer and
+  a timed action each call an entity, workflow or agent by its id, and the client routes the call to the
+  instance of the service where that id lives. The reply comes back the same way. Endpoints query views
+  through the view client beside it.
+- **Changes flow from the database.** Entities, workflows and agents write to the service's own Postgres:
+  events to the journal, or a key value entity's new value to durable state. A view or a consumer follows
+  those changes through a projection, which records how far it has read, so it sees every change at least
+  once and some time after it was stored.
+- **Timers fire later.** Anything that can call components can also schedule a timer by name; the runtime
+  stores it in the same database and calls the timed action when it is due. See [Timers](../build/timers.md).
+- **Brokers connect services.** A view or a consumer can read a Kafka topic instead of another
+  component's changes, and a consumer can publish to one. Topics are how services exchange messages with
+  other services and with systems outside ankka. See [Broker topics](../build/topics.md).
+- **Only agents call out to a model.** The runtime runs the agent loop against the model provider; the
+  tools the model asks for run in the service and call components through the client.
+
 ## Choosing a component
 
 | You need to | Use |

@@ -154,6 +154,8 @@ export class CartAssistant extends Agent {
 
 </details>
 
+## How your code is hosted
+
 In Python and TypeScript the loop runs in the runtime beside your process, which is only called back to run
 a tool or check a guardrail — so your code never holds the model's key. [Agents](docs/build/agents.md)
 covers memory, structured replies, streaming and compaction.

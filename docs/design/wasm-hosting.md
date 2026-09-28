@@ -1,6 +1,6 @@
 # Design treatment: a WebAssembly hosting mode
 
-**Status**: treatment, exploratory. Not yet fed to `speckit-specify`.
+**Status**: treatment, spike in progress. Not yet fed to `speckit-specify`.
 **Date**: 2026-09-28
 
 ## The proposition
@@ -263,14 +263,16 @@ The first feature refuses a streaming route in discovery for a WebAssembly servi
 route, and lists the gap in `docs/reference/limitations.md`. Component Model async, in WASI
 0.3, is the eventual answer and not one to reimplement on a core-module ABI.
 
-## The audience question
+## The audience, decided
 
 The Python SDK was chosen for the audience writing agents, and the TypeScript SDK for developers
 who run services on Node. A Rust-first hosting mode serves a third crowd: systems people, and
 teams whose services are already Rust or Go and who want durable entities and workflows without
-changing language. Whether that is an audience ankka wants is a product decision this treatment
-does not make. What it does say is that the decision is about the first PDK, not the host: the
-host is the same whoever the audience is.
+changing language. **Decided 2026-09-28: Rust is the first guest and Go the second.** Rust
+because its toolchain and serde make it the cheapest proof of the host; Go because it is the
+language the second guest has to be for the ABI to count as language-neutral, and because its
+protobuf story under TinyGo is the open risk the spike names. The host is the same whoever the
+guest is, so the decision costs nothing if the order later reverses.
 
 ## A caution from the lineage
 

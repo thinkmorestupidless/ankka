@@ -62,7 +62,7 @@ export const quotaSchema = z.object({
   services: optional(z.number().int()),
   instances: optional(z.number().int()),
 });
-export type Quota = z.infer<typeof quotaSchema>;
+export type Quota = z.input<typeof quotaSchema>;
 
 export const usageSchema = z.object({
   projects: z.number().int(),
@@ -222,38 +222,38 @@ export const ownerSchema = z.object({
   email: optional(z.string()),
   display: optional(z.string()),
 });
-export type Owner = z.infer<typeof ownerSchema>;
+export type Owner = z.input<typeof ownerSchema>;
 
 export const createOrganizationSchema = z.object({ name: z.string(), owner: optional(ownerSchema) });
-export type CreateOrganization = z.infer<typeof createOrganizationSchema>;
+export type CreateOrganization = z.input<typeof createOrganizationSchema>;
 
 export const createProjectSchema = z.object({ name: z.string(), organizationId: z.string() });
-export type CreateProject = z.infer<typeof createProjectSchema>;
+export type CreateProject = z.input<typeof createProjectSchema>;
 
 export const renameSchema = z.object({ name: z.string() });
-export type Rename = z.infer<typeof renameSchema>;
+export type Rename = z.input<typeof renameSchema>;
 
 export const inviteSchema = z.object({ email: z.string(), role: roleSchema.default("member") });
-export type Invite = z.infer<typeof inviteSchema>;
+export type Invite = z.input<typeof inviteSchema>;
 
 export const roleChangeSchema = z.object({ role: roleSchema });
-export type RoleChange = z.infer<typeof roleChangeSchema>;
+export type RoleChange = z.input<typeof roleChangeSchema>;
 
 export const repairSchema = z.object({ role: roleSchema.default("owner") });
-export type Repair = z.infer<typeof repairSchema>;
+export type Repair = z.input<typeof repairSchema>;
 
 export const createDeployTokenSchema = z.object({
   label: z.string(),
   expiresIn: optional(z.number().int()),
 });
-export type CreateDeployToken = z.infer<typeof createDeployTokenSchema>;
+export type CreateDeployToken = z.input<typeof createDeployTokenSchema>;
 
 export const setRegistrySchema = z.object({
   server: z.string(),
   username: z.string(),
   password: z.string(),
 });
-export type SetRegistry = z.infer<typeof setRegistrySchema>;
+export type SetRegistry = z.input<typeof setRegistrySchema>;
 
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {

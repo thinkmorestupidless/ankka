@@ -2,8 +2,13 @@
  * The signed-in person's access token for this request. The only thing a page's data ever needs
  * from a session, and the seam a host with its own sign-in replaces.
  */
-import type { Issuer, Tokens } from "../auth/oidc.ts";
+import type { Tokens } from "../auth/oidc.ts";
 import { SessionEnded } from "../auth/oidc.ts";
+
+/** The one thing a token source asks of the identity provider. */
+export interface Refresher {
+  refresh(refreshToken: string): Promise<Tokens>;
+}
 import type { SessionStore } from "./cookie-store.ts";
 import { digest, type TokenCache } from "./token-cache.ts";
 
@@ -25,10 +30,10 @@ export interface TokenSource {
 export class SessionTokenSource implements TokenSource {
   readonly #store: SessionStore;
   readonly #cache: TokenCache;
-  readonly #issuer: Issuer;
+  readonly #issuer: Refresher;
   readonly #inFlight = new Map<string, Promise<Tokens>>();
 
-  constructor(options: { store: SessionStore; cache: TokenCache; issuer: Issuer }) {
+  constructor(options: { store: SessionStore; cache: TokenCache; issuer: Refresher }) {
     this.#store = options.store;
     this.#cache = options.cache;
     this.#issuer = options.issuer;

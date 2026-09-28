@@ -10,6 +10,9 @@
   "files": [
     "dist"
   ],
+  "sideEffects": [
+    "*.css"
+  ],
   "exports": {
     ".": {
       "ankka-source": "./src/index.ts",

@@ -1,0 +1,5 @@
+/* The host's own frame around the package's pages: the page itself, nothing more. */
+html,
+body {
+  margin: 0;
+}

@@ -56,12 +56,19 @@ export function consoleRoutes(options: ConsoleRoutesOptions = {}): RouteConfigEn
   const auth = options.auth ?? true;
   return [
     page(undefined, "front"),
+    page("organizations/new", "organization-new"),
+    page("organizations/:organizationId", "organization"),
+    page("organizations/:organizationId/members", "members"),
+    page("organizations/:organizationId/tokens", "tokens"),
+    page("organizations/:organizationId/projects/new", "project-new"),
+    page("projects/:projectId", "project"),
+    page("projects/:projectId/services/apply", "service-apply"),
+    page("projects/:projectId/services/:name", "service"),
+    page("projects/:projectId/services/:name/logs", "logs"),
+    resource("stream/projects/:projectId", "stream.project"),
+    resource("stream/services/:projectId/:name", "stream.service"),
     ...(auth
-      ? [
-          resource("auth/sign-in", "auth.sign-in"),
-          resource("auth/callback", "auth.callback"),
-          resource("auth/sign-out", "auth.sign-out"),
-        ]
+      ? [page("auth/sign-in", "auth.sign-in"), page("auth/callback", "auth.callback"), page("auth/sign-out", "auth.sign-out")]
       : []),
   ];
 }

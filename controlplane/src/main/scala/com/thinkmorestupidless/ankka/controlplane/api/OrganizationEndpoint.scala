@@ -5,7 +5,9 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   DeployTokenEntity,
   DeployTokenRows,
   OrganizationEntity,
-  ProjectRows
+  ProjectRows,
+  ServiceEntity,
+  ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.{
   Authorization,
@@ -17,7 +19,9 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{
   ChangeRole,
   CreateForOwner,
   DeployToken,
-  RecordDeployToken
+  RecordDeployToken,
+  ServiceKey,
+  SetQuota
 }
 import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationCreation, OrganizationPolicy}
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
@@ -53,6 +57,7 @@ final class OrganizationEndpoint(
     with Attributing:
 
   private val projects = clients.viewClient.forView(ProjectRows)
+  private val services = clients.viewClient.forView(ServiceRows)
   private val tokens   = clients.viewClient.forView(DeployTokenRows)
   private val authz    = Authorization(clients, clock)
 
@@ -316,6 +321,59 @@ final class OrganizationEndpoint(
       .withMetadata(authz.metadata(access))
       .invoke(): Done
   }
+
+  // ── quotas (feature 015) ──────────────────────────────────────────────────
+
+  /**
+   * Sets the quota, whole, and makes the organization's usage what exists right now: an
+   * organization created before quotas existed has never been told about its projects and services,
+   * and its usage would otherwise read zero under a fresh quota — exactly when a wrong count
+   * matters. Read from the views and each service's own entity; the entity replaces its record.
+   * Never checked against usage: lowering a quota below what runs is accepted and refuses only what
+   * is asked for next.
+   */
+  putBody("/{organizationId}/quota") { (organizationId: String, quota: Quota) =>
+    val access   = authz.requireAdmin(principal, organizationId)
+    val problems = Quota.problems(quota)
+    if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+    val (projectIds, instances) = existing(organizationId)
+    entity(organizationId)
+      .call(OrganizationEntity.setQuota)
+      .withMetadata(authz.metadata(access))
+      .invoke(SetQuota(quota, projectIds, instances)): Done
+  }
+
+  delete("/{organizationId}/quota") { (organizationId: String) =>
+    val access = authz.requireAdmin(principal, organizationId)
+    entity(organizationId)
+      .call(OrganizationEntity.clearQuota)
+      .withMetadata(authz.metadata(access))
+      .invoke(): Done
+  }
+
+  /**
+   * What the organization holds: its project ids from the listing, and for every service listed in
+   * them the `minInstances` its own entity says it was applied with — the descriptor, not the
+   * cluster's report, since the quota counts what was asked for.
+   */
+  private def existing(organizationId: String): (Set[String], Map[String, Int]) =
+    val projectIds = projects
+      .ordered(jsonText("organizationId") ++ sql" = $organizationId", order = jsonText("id"))
+      .map(_.id)
+    val instances = projectIds.flatMap { projectId =>
+      services
+        .ordered(jsonText("projectId") ++ sql" = $projectId", order = jsonText("name"))
+        .flatMap { row =>
+          val key = ServiceKey(projectId, row.name)
+          clients.componentClient
+            .forEventSourcedEntity(EntityId(key.id))
+            .call(ServiceEntity.desiredState)
+            .invoke()
+            .flatMap(_.descriptor)
+            .map(descriptor => key.id -> descriptor.service.resources.autoscaling.minInstances)
+        }
+    }
+    (projectIds.toSet, instances.toMap)
 
   private def projectCount(organizationId: String): Int =
     projects.count(jsonText("organizationId") ++ sql" = $organizationId").toInt

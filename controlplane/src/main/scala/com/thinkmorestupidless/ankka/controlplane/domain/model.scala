@@ -97,9 +97,12 @@ final case class Organization(
     deleted: Boolean = false,
     members: Map[String, Member] = Map.empty,
     invitations: Map[String, Invitation] = Map.empty,
-    disabled: Boolean = false
+    disabled: Boolean = false,
+    quota: Option[Quota] = None,
+    record: UsageRecord = UsageRecord()
 ):
   def exists: Boolean = name.nonEmpty && !deleted
+  def usage: Usage    = record.usage
 
   /**
    * Whether this id has ever been used.
@@ -153,8 +156,18 @@ final case class Organization(
 
   def onRenamed(name: String): Organization = copy(name = name)
 
-  /** A tombstone that also lets go of its people: nobody is a member of nothing. */
-  def onDeleted: Organization = copy(deleted = true, members = Map.empty, invitations = Map.empty)
+  /**
+   * A tombstone that also lets go of its people: nobody is a member of nothing. Its usage goes the
+   * same way — the projects were required to be gone first, and a quota on nothing means nothing.
+   */
+  def onDeleted: Organization =
+    copy(
+      deleted = true,
+      members = Map.empty,
+      invitations = Map.empty,
+      quota = None,
+      record = UsageRecord()
+    )
 
   def onInvited(
       email: String,
@@ -217,11 +230,43 @@ final case class Organization(
   def onDisabled: Organization = copy(disabled = true)
   def onEnabled: Organization  = copy(disabled = false)
 
+  def onQuotaSet(quota: Quota): Organization = copy(quota = Some(quota))
+  def onQuotaCleared: Organization           = copy(quota = None)
+
+  /** The usage events, folded through the one function the listing row uses too. */
+  def onUsage(event: OrganizationEvent): Organization = copy(record = record.fold(event))
+
 object Organization:
   def empty(id: String): Organization = Organization(id, "")
 
   /** Emails compare case-insensitively and without surrounding space. */
   def key(email: String): String = email.trim.toLowerCase
+
+/**
+ * What an organization holds, exactly (feature 015): the ids of its projects and, for every service
+ * across them, the `minInstances` its descriptor asks for, by `projectId/name`.
+ *
+ * Folded from the organization's own events by *one* function, used by the entity's state and by
+ * the listing row alike, so a listing and an enforcement can never disagree about the count. The
+ * events are written by the endpoints — a reservation before a project is created or a service
+ * applied, a release after one is gone — so the record is true at the moment a quota is checked,
+ * which no listing can promise.
+ */
+final case class UsageRecord(
+    projects: Set[String] = Set.empty,
+    services: Map[String, Int] = Map.empty
+):
+  def usage: Usage = Usage(projects.size, services.size, services.values.sum)
+
+  def fold(event: OrganizationEvent): UsageRecord = event match
+    case OrganizationEvent.ProjectReserved(projectId, _, _) => copy(projects = projects + projectId)
+    case OrganizationEvent.ProjectReleased(projectId, _, _) => copy(projects = projects - projectId)
+    case OrganizationEvent.ServiceReserved(key, instances, _, _) =>
+      copy(services = services + (key -> instances))
+    case OrganizationEvent.ServiceReleased(key, _, _) => copy(services = services - key)
+    case OrganizationEvent.UsageReconciled(projects, services, _, _) =>
+      UsageRecord(projects, services)
+    case _ => this
 
 /**
  * A registry the cluster must authenticate to in order to pull a project's images.

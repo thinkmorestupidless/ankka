@@ -40,6 +40,11 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
     case MemberRoleChanged(subject, role, _, _) => currentState.onRoleChanged(subject, role)
     case _: OrganizationDisabled                => currentState.onDisabled
     case _: OrganizationEnabled                 => currentState.onEnabled
+    case QuotaSet(quota, _, _)                  => currentState.onQuotaSet(quota)
+    case _: QuotaCleared                        => currentState.onQuotaCleared
+    case usage @ (_: ProjectReserved | _: ProjectReleased | _: ServiceReserved |
+        _: ServiceReleased | _: UsageReconciled) =>
+      currentState.onUsage(usage)
 
   // ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -187,12 +192,138 @@ final class OrganizationEntity(context: EventSourcedEntityContext)
       effects.error(s"organization '${context.entityId}' is not disabled", ErrorCode.Conflict)
     else effects.persist(OrganizationEnabled(actor, at)).thenReply(_ => Done)
 
+  // ── quotas (feature 015) ──────────────────────────────────────────────────
+
+  /**
+   * Sets the quota, replacing any, and brings the usage record up to date with what the endpoint
+   * saw existing.
+   *
+   * The snapshot is *merged* in, never swapped in: it comes from listings, and a listing lags, so a
+   * project created a moment ago may be in the record and not yet in the snapshot — replacing would
+   * forget it and admit one too many. Projects are the union; a service the snapshot names takes
+   * the snapshot's instance count, since that is read from its own descriptor; a service only the
+   * record knows is kept. What this repairs is an organization from before quotas existed, which
+   * was never told about anything, and a count that drifted.
+   *
+   * Never checked against usage: lowering a quota below what an organization holds is accepted and
+   * refuses only what is asked for next — a plan downgrade must not be an outage. Allowed while
+   * disabled, as every administrative command is. The reconciliation is written only when it
+   * changes the record, so setting a quota on a young organization is one event.
+   */
+  def setQuota(request: SetQuota): Effect[Done] =
+    val problems = Quota.problems(request.quota)
+    if !currentState.exists then notFound
+    else if problems.nonEmpty then effects.error(problems.mkString("; "))
+    else
+      val record = currentState.record
+      val merged =
+        UsageRecord(record.projects ++ request.projects, record.services ++ request.services)
+      val set = QuotaSet(request.quota, actor, at)
+      if merged == record then effects.persist(set).thenReply(_ => Done)
+      else
+        effects
+          .persist(UsageReconciled(merged.projects, merged.services, actor, at), set)
+          .thenReply(_ => Done)
+
+  def clearQuota: Effect[Done] =
+    if !currentState.exists then notFound
+    else if currentState.quota.isEmpty then effects.reply(Done)
+    else effects.persist(QuotaCleared(actor, at)).thenReply(_ => Done)
+
+  /**
+   * Claims a project slot before the project is created. Replies whether it was *newly* claimed: a
+   * project already recorded is a retry, or a create that will fail as a duplicate, and either way
+   * there is nothing for the endpoint to give back if the create fails.
+   */
+  def reserveProject(projectId: String): Effect[Boolean] =
+    val record = currentState.record
+    if !currentState.exists then notFound
+    else if record.projects.contains(projectId) then effects.reply(false)
+    else
+      currentState.quota.flatMap(_.projects) match
+        case Some(limit) if record.projects.size >= limit =>
+          effects.error(
+            s"organization '${context.entityId}' has reached its quota of $limit project(s) " +
+              s"(${record.projects.size} in use)",
+            ErrorCode.Conflict
+          )
+        case _ => effects.persist(ProjectReserved(projectId, actor, at)).thenReply(_ => true)
+
+  def releaseProject(projectId: String): Effect[Done] =
+    if !currentState.exists then notFound
+    else if !currentState.record.projects.contains(projectId) then effects.reply(Done)
+    else effects.persist(ProjectReleased(projectId, actor, at)).thenReply(_ => Done)
+
+  /**
+   * Claims capacity for a service about to be applied. Replies the instance count previously
+   * recorded for it, `None` for a new service, so the endpoint can put it back if the apply fails.
+   *
+   * A re-apply at the same or a lower count is always accepted: it needs no new capacity, and a
+   * member over a lowered quota must be able to work their way down. Only the *increase* is checked
+   * against the instance quota, and the service quota only for a service not yet recorded.
+   */
+  def reserveService(request: ReserveService): Effect[Option[Int]] =
+    val record   = currentState.record
+    val previous = record.services.get(request.key)
+    val quota    = currentState.quota
+    val total    = record.services.values.sum
+    val after    = total - previous.getOrElse(0) + request.instances
+    if !currentState.exists then notFound
+    else if request.instances < 0 then effects.error("instances cannot be negative")
+    else if previous.contains(request.instances) then effects.reply(previous)
+    else if previous.exists(_ > request.instances) then reserved(request, previous)
+    else
+      (previous, quota.flatMap(_.services), quota.flatMap(_.instances)) match
+        case (None, Some(limit), _) if record.services.size >= limit =>
+          effects.error(
+            s"organization '${context.entityId}' has reached its quota of $limit service(s) " +
+              s"(${record.services.size} in use)",
+            ErrorCode.Conflict
+          )
+        case (_, _, Some(limit)) if after > limit =>
+          effects.error(
+            s"applying '${request.key}' with ${request.instances} instance(s) would take " +
+              s"organization '${context.entityId}' to $after instances, over its quota of " +
+              s"$limit ($total in use)",
+            ErrorCode.Conflict
+          )
+        case _ => reserved(request, previous)
+
+  private def reserved(request: ReserveService, previous: Option[Int]): Effect[Option[Int]] =
+    effects
+      .persist(ServiceReserved(request.key, request.instances, actor, at))
+      .thenReply(_ => previous)
+
+  /**
+   * The unchecked write: what exists, whatever the quota. After a delete, and to undo a
+   * reservation.
+   */
+  def recordService(request: RecordService): Effect[Done] =
+    val previous = currentState.record.services.get(request.key)
+    if !currentState.exists then notFound
+    else if previous == request.instances then effects.reply(Done)
+    else
+      request.instances match
+        case Some(instances) =>
+          effects
+            .persist(ServiceReserved(request.key, instances, actor, at))
+            .thenReply(_ => Done)
+        case None => effects.persist(ServiceReleased(request.key, actor, at)).thenReply(_ => Done)
+
   // ── queries ───────────────────────────────────────────────────────────────
 
   def get: ReadOnlyEffect[OrganizationDetail] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
     else
-      effects.reply(OrganizationDetail(currentState.id, currentState.name, currentState.disabled))
+      effects.reply(
+        OrganizationDetail(
+          currentState.id,
+          currentState.name,
+          currentState.disabled,
+          currentState.quota,
+          currentState.usage
+        )
+      )
 
   def exists: ReadOnlyEffect[Boolean] = effects.reply(currentState.exists)
 
@@ -258,6 +389,10 @@ object OrganizationEntity
   given Serializer[MembershipAnswer] = Codecs.serializer[MembershipAnswer]("membership-answer")
   given Serializer[Option[Role]]     = Codecs.serializer[Option[Role]]("role-option")
   given Serializer[MembersResponse]  = Codecs.serializer[MembersResponse]("members")
+  given Serializer[SetQuota]         = Codecs.serializer[SetQuota]("set-quota")
+  given Serializer[ReserveService]   = Codecs.serializer[ReserveService]("reserve-service")
+  given Serializer[RecordService]    = Codecs.serializer[RecordService]("record-service")
+  given intOption: Serializer[Option[Int]] = Codecs.serializer[Option[Int]]("int-option")
 
   def create(context: EventSourcedEntityContext) = new OrganizationEntity(context)
 
@@ -273,6 +408,12 @@ object OrganizationEntity
   val changeRole         = command("change-role")(_.changeRole)
   val disable            = command("disable")(_.disable)
   val enable             = command("enable")(_.enable)
+  val setQuota           = command("set-quota")(_.setQuota)
+  val clearQuota         = command("clear-quota")(_.clearQuota)
+  val reserveProject     = command("reserve-project")(_.reserveProject)
+  val releaseProject     = command("release-project")(_.releaseProject)
+  val reserveService     = command("reserve-service")(_.reserveService)
+  val recordService      = command("record-service")(_.recordService)
   val get                = query("get")(_.get)
   val exists             = query("exists")(_.exists)
   val roleOf             = query("role-of")(_.roleOf)

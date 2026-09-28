@@ -139,3 +139,42 @@ class EventCompatibilitySuite extends munit.FunSuite:
     assertEquals(state.registry, None)
     assertEquals(state.name, "Checkout")
   }
+
+  test("an organization's state from before quotas decodes with none and no usage (feature 015)") {
+    val old =
+      """{"id":"acme","name":"Acme Corp","deleted":false,"members":{},"invitations":{},""" +
+        """"disabled":false}"""
+    val state = OrganizationEntity.stateSerializer.fromBytes(old.getBytes("UTF-8"))
+    assertEquals(state.quota, None)
+    assertEquals(state.usage, com.thinkmorestupidless.ankka.controlplane.api.Usage.zero)
+    assertEquals(state.name, "Acme Corp")
+  }
+
+  test("the quota events have a pinned wire shape, and a null limit reads as unlimited") {
+    val set =
+      """{"type":"QuotaSet","quota":{"projects":2,"services":null},""" +
+        """"actor":{"subject":"carol","administrative":true}}"""
+    assertEquals(
+      OrganizationEntity.eventSerializer.fromBytes(set.getBytes("UTF-8")),
+      OrganizationEvent.QuotaSet(
+        com.thinkmorestupidless.ankka.controlplane.api.Quota(projects = Some(2)),
+        Some(Actor("carol", None, administrative = true))
+      )
+    )
+    val reserved = """{"type":"ServiceReserved","key":"checkout/cart","instances":2}"""
+    assertEquals(
+      OrganizationEntity.eventSerializer.fromBytes(reserved.getBytes("UTF-8")),
+      OrganizationEvent.ServiceReserved("checkout/cart", 2)
+    )
+    val reconciled =
+      """{"type":"UsageReconciled","projects":["checkout"],"services":{"checkout/cart":2}}"""
+    assertEquals(
+      OrganizationEntity.eventSerializer.fromBytes(reconciled.getBytes("UTF-8")),
+      OrganizationEvent.UsageReconciled(Set("checkout"), Map("checkout/cart" -> 2))
+    )
+    val written = String(
+      OrganizationEntity.eventSerializer.toBytes(OrganizationEvent.ProjectReserved("checkout")),
+      "UTF-8"
+    )
+    assertEquals(written, """{"type":"ProjectReserved","projectId":"checkout"}""")
+  }

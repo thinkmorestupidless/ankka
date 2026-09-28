@@ -216,3 +216,25 @@ class OutputSuite extends munit.FunSuite:
   test("an empty listing says so") {
     assertEquals(Output.deployTokens(Vector.empty, Format.Table), "no deploy tokens")
   }
+
+  test("an organization's quota is one column, a dash per limit not set (feature 015)") {
+    val capped = OrganizationSummary(
+      "acme",
+      "Acme",
+      projects = 2,
+      role = Some(Role.Owner),
+      quota = Some(Quota(services = Some(3))),
+      usage = Usage(2, 1, 4)
+    )
+    val free     = OrganizationSummary("ops", "Ops", projects = 0)
+    val rendered = Output.organizations(Vector(capped, free), Format.Table)
+    val lines    = rendered.linesIterator.toVector
+    assert(lines.head.contains("SERVICES"), rendered)
+    assert(lines.head.contains("INSTANCES"), rendered)
+    assert(lines.head.contains("QUOTA"), rendered)
+    assert(lines(1).contains("-/3/-"), rendered)
+    assert(lines(1).contains(" 4 "), rendered)
+    assertEquals(lines(2).split("\\s+").count(_ == "-"), 2, rendered)
+    assert(Output.organization(capped, Format.Json).contains("\"quota\":{\"services\":3}"))
+    assertEquals(Output.quota(Quota(Some(1), None, Some(3))), "projects 1, instances 3")
+  }

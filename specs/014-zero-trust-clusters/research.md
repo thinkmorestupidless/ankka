@@ -259,7 +259,7 @@ namespace as the Envoy proxy resource", which is `ankka-gateway`. No `ReferenceG
 **Decision**: The operator renders three `NetworkPolicy` objects: per service, one for the cluster
 ports (17355, 7626 from the service's own pods; 7627 from anywhere) and one for the HTTP port
 (from pods labelled `app.kubernetes.io/managed-by: ankka` in any namespace so labelled, and from
-the `ankka-gateway` namespace); per project, one for the database pods (`cnpg.io/cluster`
+the gateway's proxy pods, which Envoy Gateway runs in `envoy-gateway-system` labelled `gateway.envoyproxy.io/owning-gateway-{name,namespace}`, not in the `ankka-gateway` namespace); per project, one for the database pods (`cnpg.io/cluster`
 selector: 5432 from the project's ankka workloads; 8000 and 5432 from the CNPG operator's
 namespace and from the cluster's own pods). Selecting a pod with any policy makes every other
 ingress refused, which is the default-deny FR-011, FR-018 and FR-026 ask for.

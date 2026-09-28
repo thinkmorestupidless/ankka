@@ -23,7 +23,7 @@ import org.testcontainers.k3s.K3sContainer
 import org.testcontainers.utility.DockerImageName
 
 import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Path}
+import java.nio.file.Path
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
@@ -128,10 +128,12 @@ class ZeroTrustClusterSuite extends munit.FunSuite:
       .namespaces()
       .resource(
         new io.fabric8.kubernetes.api.model.NamespaceBuilder()
-          .withNewMetadata()
-          .withName(namespace)
-          .addToLabels("app.kubernetes.io/managed-by", "ankka")
-          .endMetadata()
+          .withMetadata(
+            new io.fabric8.kubernetes.api.model.ObjectMetaBuilder()
+              .withName(namespace)
+              .withLabels(java.util.Map.of("app.kubernetes.io/managed-by", "ankka"))
+              .build()
+          )
           .build()
       )
       .serverSideApply(): Unit
@@ -349,9 +351,40 @@ class ZeroTrustClusterSuite extends munit.FunSuite:
   }
 
   test("5. a request through the gateway reads as the internet") {
-    waitFor(120.seconds, "the route serves") {
-      throughGateway(s"carts-checkout.$BaseDomain", "/callers/whoami")._1 == 200
-    }
+    var last = (0, "")
+    val served =
+      try
+        waitFor(180.seconds, "the route serves") {
+          last = throughGateway(s"carts-checkout.$BaseDomain", "/callers/whoami")
+          last._1 == 200
+        }
+        true
+      catch case _: munit.FailException => false
+    if !served then
+      def get(args: String*) = k3s.execInContainer(("kubectl" +: args)*)
+      val route = get("get", "httproute", "-n", Checkout, "carts", "-o", "jsonpath={.status}")
+      val policy =
+        get("get", "backendtlspolicy", "-n", Checkout, "carts", "-o", "jsonpath={.status}")
+      val bundle = get("get", "configmap", "-n", Checkout, "ankka-service-ca", "-o", "name")
+      val envoy = get(
+        "logs",
+        "-n",
+        "envoy-gateway-system",
+        "-l",
+        "gateway.envoyproxy.io/owning-gateway-name=ankka",
+        "--all-containers",
+        "--tail=30"
+      )
+      val controller =
+        get("logs", "-n", "envoy-gateway-system", "deploy/envoy-gateway", "--tail=30")
+      fail(
+        s"""the route never served; last answer $last
+           |route: ${route.getStdout}${route.getStderr}
+           |backend TLS policy: ${policy.getStdout}${policy.getStderr}
+           |service CA bundle: ${bundle.getStdout}${bundle.getStderr}
+           |envoy: ${envoy.getStdout.takeRight(4000)}
+           |controller: ${controller.getStdout.takeRight(4000)}""".stripMargin
+      )
     assertEquals(
       throughGateway(s"carts-checkout.$BaseDomain", "/callers/whoami"),
       (200, "the internet, through the gateway")

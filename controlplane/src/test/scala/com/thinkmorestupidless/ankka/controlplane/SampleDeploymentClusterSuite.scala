@@ -210,10 +210,6 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
         )
         (if code / 100 == 2 then 0 else 1, body)
 
-  private def nodeExec(command: String*): (Int, String) =
-    val result = k3s.execInContainer(command*)
-    (result.getExitCode, result.getStdout + result.getStderr)
-
   private def psql(database: String, sql: String): (Int, String) =
     val result = k3s.execInContainer(
       "kubectl",

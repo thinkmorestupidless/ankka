@@ -142,10 +142,14 @@ Each workload also gets network policies, which refuse a connection before any T
 
 | Port | Admitted from |
 |---|---|
-| The service's HTTP port | the gateway's namespace, and any pod of an ankka workload in any ankka namespace |
+| The service's HTTP port | the installation gateway's proxy pods, and any pod of an ankka workload in any ankka namespace |
 | 17355 (remoting) and 7626 (management) | the service's own pods only |
 | 7627 (readiness) | anywhere |
 | 5432 on a project's database | that project's ankka workloads, the database's own instances and the database operator |
+
+Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-system`, not in the
+`Gateway`'s. The policy therefore names those pods by the labels Envoy Gateway gives them, for the gateway
+`ankka` in `ankka-gateway`. A proxy for any other gateway in the cluster is not admitted.
 
 A project is not a network boundary for HTTP: a service in one project can open a connection to a service
 in another. Whether the request is served is the callee's ACL's decision, from the caller's certificate.

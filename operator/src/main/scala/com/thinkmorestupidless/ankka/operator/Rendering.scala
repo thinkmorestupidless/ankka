@@ -445,6 +445,7 @@ object Rendering:
         case certificate                          => Action.EnsureCertificate(certificate)
       } ++ Vector(
         Action.EnsureCluster(CnpgRendering.projectCluster(spec.projectId, settings)),
+        Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
         Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
       )
     plan match

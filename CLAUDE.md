@@ -630,6 +630,13 @@ not a template engine, a session store or a cookie API: those belong to the appl
 - **A Gateway API `RequestRedirect` without `port` keeps the *request's* port in the Location.**
   `http://…:8080/x` → `https://…:8080/x`, which goes nowhere on kind, where HTTPS is on 8443. The
   redirect route names its port (443 in the component, the kind host port in the overlay).
+- **Envoy Gateway runs a Gateway's proxy in its own namespace, `envoy-gateway-system`, not the
+  Gateway's.** A network policy admitting `ankka-gateway` admits no pod that routes anything: the
+  route and its `BackendTLSPolicy` were both `Accepted` and `ResolvedRefs`, and every request was a
+  503 `remote_connection_failure … Connection_refused` from Envoy — k3s's policy enforcement
+  *rejects*, so a dropped connection reads as a closed port. The HTTP policies (operator-rendered
+  and the control plane's) name the proxy pods by `gateway.envoyproxy.io/owning-gateway-{name,
+  namespace}` in `envoy-gateway-system`.
 - **A route can be `Accepted` and still not serve.** A backend in another namespace is
   `ResolvedRefs: False / RefNotPermitted` and Envoy answers 500 for it; an unlabelled namespace is
   `Accepted: False / NotAllowedByListeners` and gets a 404. The resource's `status.route` folds

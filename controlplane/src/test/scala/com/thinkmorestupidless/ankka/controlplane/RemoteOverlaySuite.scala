@@ -203,7 +203,7 @@ final class RemoteOverlaySuite extends FunSuite:
     assert(!controlPlane.contains("ANKKA_AUTH_ISSUER"), "the issuer is derived, not rendered")
     assert(
       controlPlane.contains(
-        "ankka-keycloak-service.ankka-auth.svc:8080/realms/ankka/protocol/openid-connect/certs"
+        "https://ankka-keycloak-service.ankka-auth.svc:8443/realms/ankka/protocol/openid-connect/certs"
       )
     )
   }
@@ -229,8 +229,11 @@ final class RemoteOverlaySuite extends FunSuite:
   }
 
   test("no local-only address survives into the remote render") {
+    // 8443 is also the identity provider's own TLS port inside the cluster, which every overlay
+    // shares; what must not survive is kind's host port anywhere else.
+    val rendered = remote.replace("ankka-keycloak-service.ankka-auth.svc:8443", "")
     for leaked <- Vector("sslip.io", "127.0.0.1", ":8443", "\"8443\"") do
-      assert(!remote.contains(leaked), s"'$leaked' leaked into the remote overlay")
+      assert(!rendered.contains(leaked), s"'$leaked' leaked into the remote overlay")
   }
 
   test("the real domain reaches every place that must agree about it") {

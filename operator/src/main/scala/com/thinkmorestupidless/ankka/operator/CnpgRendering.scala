@@ -146,6 +146,64 @@ object CnpgRendering:
       )
     )
 
+  val databasePolicyName: String = s"$projectClusterName-database"
+
+  /**
+   * Who may connect to a project's database pods (feature 014): the project's own ankka workloads,
+   * on 5432; the database's own instances, and the database operator's namespace, on 5432 and on
+   * the instance manager's 8000. Another project's workload is refused before any TLS begins, so a
+   * stolen client certificate is worth nothing from outside the project. Unowned, like the cluster.
+   */
+  def databasePolicy(
+      namespace: String
+  ): io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicy =
+    import io.fabric8.kubernetes.api.model.{IntOrString, LabelSelectorBuilder}
+    import io.fabric8.kubernetes.api.model.networking.v1.*
+    def tcp(port: Int) =
+      new NetworkPolicyPortBuilder().withProtocol("TCP").withPort(new IntOrString(port)).build()
+    def selector(labels: (String, String)*) =
+      new LabelSelectorBuilder().withMatchLabels(labels.toMap.asJava).build()
+    val instances = "cnpg.io/cluster" -> projectClusterName
+    new NetworkPolicyBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(databasePolicyName)
+          .withNamespace(namespace)
+          .withLabels(Map(Labels.ManagedByKey -> Labels.ManagedByAnkka).asJava)
+          .build()
+      )
+      .withSpec(
+        new NetworkPolicySpecBuilder()
+          .withPodSelector(selector(instances))
+          .withPolicyTypes("Ingress")
+          .withIngress(
+            new NetworkPolicyIngressRuleBuilder()
+              .withPorts(tcp(5432))
+              .withFrom(
+                new NetworkPolicyPeerBuilder()
+                  .withPodSelector(selector(Labels.ManagedByKey -> Labels.ManagedByAnkka))
+                  .build()
+              )
+              .build(),
+            new NetworkPolicyIngressRuleBuilder()
+              .withPorts(tcp(5432), tcp(8000))
+              .withFrom(
+                new NetworkPolicyPeerBuilder().withPodSelector(selector(instances)).build(),
+                new NetworkPolicyPeerBuilder()
+                  .withNamespaceSelector(
+                    selector("kubernetes.io/metadata.name" -> CnpgNamespace)
+                  )
+                  .build()
+              )
+              .build()
+          )
+          .build()
+      )
+      .build()
+
+  /** Where the database operator runs; the platform's `cnpg` component installs it there. */
+  val CnpgNamespace: String = "cnpg-system"
+
   /**
    * The control plane's own cluster — the one case with `bootstrap.initdb`, since it hosts exactly
    * one well-known database rather than one per service.

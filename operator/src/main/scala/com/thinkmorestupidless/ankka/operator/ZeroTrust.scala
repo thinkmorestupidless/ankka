@@ -172,14 +172,24 @@ object ZeroTrust:
       )
       .build()
 
+  /** Where Envoy Gateway runs the proxy for every Gateway it implements. */
+  val GatewayProxyNamespace: String = "envoy-gateway-system"
+
+  /** The labels Envoy Gateway puts on the proxy pods of the installation's one Gateway. */
+  val GatewayProxyLabels: Map[String, String] = Map(
+    "gateway.envoyproxy.io/owning-gateway-name"      -> "ankka",
+    "gateway.envoyproxy.io/owning-gateway-namespace" -> Rendering.GatewayNamespace
+  )
+
   def clusterPolicyName(service: String): String = s"$service-cluster"
   def httpPolicyName(service: String): String    = s"$service-http"
 
   /**
-   * Who may connect to a service's HTTP port: the gateway, and any workload of this installation,
-   * in any project. The network does not decide which project may call which — the callee's ACL
-   * does, from the caller's certificate. What the network refuses is everything that carries no
-   * platform identity at all, which in a cluster shared with other workloads is most things.
+   * Who may connect to a service's HTTP port: the gateway's proxies, and any workload of this
+   * installation, in any project. The network does not decide which project may call which — the
+   * callee's ACL does, from the caller's certificate. What the network refuses is everything that
+   * carries no platform identity at all, which in a cluster shared with other workloads is most
+   * things.
    */
   def httpPolicy(
       resource: AnkkaService,
@@ -205,13 +215,18 @@ object ZeroTrust:
                   )
                   .withPodSelector(new LabelSelectorBuilder().withMatchLabels(managed).build())
                   .build(),
+                // The gateway's proxy pods, which Envoy Gateway runs in its own namespace rather
+                // than the Gateway's: admitting the Gateway's namespace admits nothing that routes.
                 new NetworkPolicyPeerBuilder()
                   .withNamespaceSelector(
                     new LabelSelectorBuilder()
                       .withMatchLabels(
-                        Map("kubernetes.io/metadata.name" -> Rendering.GatewayNamespace).asJava
+                        Map("kubernetes.io/metadata.name" -> GatewayProxyNamespace).asJava
                       )
                       .build()
+                  )
+                  .withPodSelector(
+                    new LabelSelectorBuilder().withMatchLabels(GatewayProxyLabels.asJava).build()
                   )
                   .build()
               )

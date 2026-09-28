@@ -74,7 +74,7 @@ Rendered objects and names: see `data-model.md` §5. Rendering rules the suites 
 8. `NetworkPolicy <service>-cluster` ingress: `{ports: [17355, 7626], from: [{podSelector:
    identity labels}]}` and `{ports: [7627]}` (no `from`). `<service>-http` ingress: `{ports:
    [<port>], from: [{namespaceSelector: managed-by ankka, podSelector: managed-by ankka},
-   {namespaceSelector: kubernetes.io/metadata.name = ankka-gateway}]}`.
+   {namespaceSelector: kubernetes.io/metadata.name = envoy-gateway-system, podSelector: gateway.envoyproxy.io/owning-gateway-name = ankka, owning-gateway-namespace = ankka-gateway}]}` — the proxy pods, which Envoy Gateway runs in its own namespace.
 9. `BackendTLSPolicy <service>`: `targetRefs: [{group: "", kind: Service, name: <service>,
    sectionName: http}]`, `validation: {caCertificateRefs: [{group: "", kind: ConfigMap, name:
    ankka-service-ca}], hostname: <service>.<ns>.svc.cluster.local}`.

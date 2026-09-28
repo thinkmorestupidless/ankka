@@ -147,11 +147,18 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
       ),
       peers.toString
     )
+    // The proxy pods, in Envoy Gateway's namespace: the Gateway's own namespace runs no proxy, so
+    // admitting it would admit nothing that routes, and every exposed request would be refused.
     assert(
       peers.exists(p =>
         Option(p.getNamespaceSelector).exists(
-          _.getMatchLabels.asScala.get("kubernetes.io/metadata.name").contains("ankka-gateway")
-        ) && p.getPodSelector == null
+          _.getMatchLabels.asScala
+            .get("kubernetes.io/metadata.name")
+            .contains("envoy-gateway-system")
+        ) && p.getPodSelector.getMatchLabels.asScala.toMap == Map(
+          "gateway.envoyproxy.io/owning-gateway-name"      -> "ankka",
+          "gateway.envoyproxy.io/owning-gateway-namespace" -> "ankka-gateway"
+        )
       ),
       peers.toString
     )
@@ -272,6 +279,41 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
       s("issuerRef").asInstanceOf[java.util.Map[String, String]].asScala.toMap,
       Map("name" -> "ankka-database", "kind" -> "Issuer", "group" -> "cert-manager.io")
     )
+  }
+
+  test("the database admits this project's workloads, its own instances and the operator only") {
+    for plan <- Vector(ready, ProvisioningPlan.Waiting(true, true, true, true, None)) do
+      val policy = rendered(plan)
+        .collectFirst {
+          case Action.EnsureNetworkPolicy(p) if p.getMetadata.getName == "ankka-db-database" => p
+        }
+        .getOrElse(fail(s"no database policy for $plan"))
+      val instances = Map("cnpg.io/cluster" -> "ankka-db")
+      assertEquals(policy.getSpec.getPodSelector.getMatchLabels.asScala.toMap, instances)
+      val rules = policy.getSpec.getIngress.asScala.toList
+      def ports(r: io.fabric8.kubernetes.api.model.networking.v1.NetworkPolicyIngressRule) =
+        r.getPorts.asScala.map(_.getPort.getIntVal.intValue).toSet
+      val workloads = rules.find(ports(_) == Set(5432)).getOrElse(fail(rules.toString))
+      // A pod selector with no namespace selector is this namespace only: the project boundary.
+      assertEquals(
+        workloads.getFrom.asScala.toList.map(p =>
+          (Option(p.getNamespaceSelector), p.getPodSelector.getMatchLabels.asScala.toMap)
+        ),
+        List((None, Map(Labels.ManagedByKey -> Labels.ManagedByAnkka)))
+      )
+      val platform = rules.find(ports(_) == Set(5432, 8000)).getOrElse(fail(rules.toString))
+      assert(
+        platform.getFrom.asScala.exists(p =>
+          Option(p.getNamespaceSelector).exists(
+            _.getMatchLabels.asScala.get("kubernetes.io/metadata.name").contains("cnpg-system")
+          )
+        ),
+        platform.toString
+      )
+    assert(!rendered(ProvisioningPlan.Supplied).exists {
+      case Action.EnsureNetworkPolicy(p) => p.getMetadata.getName == "ankka-db-database"
+      case _                             => false
+    })
   }
 
   test("the project's database authority and the cluster's TLS fields are ensured on every pass") {

@@ -16,6 +16,10 @@ deploys to the wrong one.
 
 - **Kubernetes 1.32 or later.** Envoy Gateway's custom resource definitions use a validation rule an
   older API server rejects.
+- **A network plugin that enforces `NetworkPolicy`.** The platform restricts who may connect to every
+  workload with network policies, and a network that stores them without enforcing them refuses nothing.
+  GKE Dataplane V2, Calico, Cilium and k3s's built-in controller enforce them. See
+  [Check that the network enforces policy](#check-that-the-network-enforces-policy).
 - **A domain you control, with DNS at a provider cert-manager can write to.** The platform serves every
   exposed service under one wildcard certificate, `*.<base domain>`, and a wildcard can only be issued
   over the ACME DNS-01 challenge, which writes a TXT record into your zone. HTTP-01 cannot issue
@@ -37,6 +41,16 @@ The overlay lists the same components as the local one, and patches or replaces 
 | Base domain and HTTPS port | `127.0.0.1.sslip.io`, port 8443 | your domain, port 443 |
 | Identity provider admin | a development secret, `admin`/`admin` | the secret deleted; you create one out of band |
 | Images | unqualified names loaded into the node | your registry, at a pinned release tag |
+
+Both overlays install the same two authorities the platform issues workload certificates from — one for
+traffic between a service's own instances, one for HTTP between services and from the gateway — as
+self-signed roots in cert-manager's namespace, and trust-manager to share the second one's root with every
+ankka namespace. They are private on purpose: no public authority issues an `ankka://` identity or a
+cluster-internal name, and nothing outside the cluster is asked to trust them. An installation that wants
+its authorities to come from elsewhere — a corporate PKI, a cloud certificate service — replaces the two
+`ClusterIssuer`s `ankka-cluster` and `ankka-service` in `kustomization/components/pki` and nothing else;
+the operator asks for them by name. The root must not be an intermediate, because cluster remoting
+refuses a certificate issued by one.
 
 ### The base domain
 
@@ -132,6 +146,8 @@ kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
 kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
 # wait for the three controllers to be ready; install a DNS-01 webhook solver here if yours needs one
+kubectl apply -k kustomization/components/trust-manager --server-side --force-conflicts
+kubectl -n cert-manager rollout status deployment/trust-manager
 kubectl apply -k kustomization/components/keycloak-operator --server-side --force-conflicts
 kubectl create namespace ankka-controlplane
 kubectl create namespace ankka-auth
@@ -156,6 +172,32 @@ Check the exit code, not the count of lines that say `applied`.
 The realm import is one-shot: it creates the `ankka` realm if it does not exist and never updates it,
 so a later change to `kustomization/components/keycloak/realm-import.json` is made in Keycloak's console
 on an installation that already has the realm. Create the first users there too; the realm holds none.
+
+## Check that the network enforces policy
+
+Prove it once per cluster, with a pod that a deny-all policy should cut off:
+
+```bash
+kubectl create namespace netpol-check
+kubectl -n netpol-check run server --image=busybox:1.36 --labels=probe=server --command -- httpd -f -p 8080
+kubectl -n netpol-check run client --image=busybox:1.36 --command -- sleep 600
+kubectl -n netpol-check wait --for=condition=Ready pod/server pod/client
+IP=\$(kubectl -n netpol-check get pod server -o jsonpath='{.status.podIP}')
+kubectl -n netpol-check exec client -- sh -c "echo | nc -w 3 \$IP 8080" && echo reachable
+kubectl -n netpol-check apply -f - <<'EOF'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: deny-all }
+spec: { podSelector: { matchLabels: { probe: server } }, policyTypes: [Ingress] }
+EOF
+kubectl -n netpol-check exec client -- sh -c "echo | nc -w 3 \$IP 8080" && echo "NOT ENFORCED"
+kubectl delete namespace netpol-check
+```
+
+The first connection must succeed and the second must fail. On a cluster that prints `NOT ENFORCED`,
+every connection is still mutual TLS and every caller still named, but nothing is refused before the
+handshake: a workload of another project can reach a service's cluster ports and its database's port, and
+is stopped only by lacking a certificate.
 
 ## After installing
 

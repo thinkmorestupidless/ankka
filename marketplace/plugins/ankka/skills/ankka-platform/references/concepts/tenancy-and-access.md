@@ -18,9 +18,11 @@ every project in it.
 
 **A project groups services and gives them a namespace.** Each project gets its own Kubernetes namespace,
 and a service is addressed within its project: two projects may each have a service called `cart`. A
-project's services each get their own database, provisioned by the platform. Projects separate names and
-data, but not network traffic: a service in one project can call a service in another by its in-cluster
-address.
+project's services each get their own database, provisioned by the platform. A project is an identity
+boundary rather than a network one: a service in one project can open a connection to a service in
+another, and the callee's ACL decides from the caller's certificate whether to serve it — a certificate
+names both the project and the service. A project's databases and its services' cluster ports are closed
+to every other project. See [Networking and TLS](../platform/networking.md#what-the-network-admits).
 
 **A service is a deployment target**, described by its descriptor.
 

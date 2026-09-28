@@ -196,7 +196,10 @@ The port is left out when it is 443. `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT` 
 the two parts, and an installation's overlay writes both once. `ANKKA_AUTH_ISSUER` names an issuer
 explicitly and takes precedence over the derivation. The control plane reads Keycloak's keys over the
 cluster's internal address, `ANKKA_AUTH_JWKS_URL`, and caches them, so verifying a token needs no call to
-Keycloak on the request path.
+Keycloak on the request path. That address is Keycloak's TLS port, and the fetch trusts only the authority
+named by `ANKKA_AUTH_JWKS_CA` — the installation's service authority, which issued Keycloak's in-cluster
+certificate. With no authority named, the fetch uses the JVM's own trust store, which is right for a public
+issuer and for the local development Keycloak's plain HTTP.
 
 An explicit issuer is also how one installation trusts another installation's realm. Set
 `ANKKA_AUTH_ISSUER` to the other realm's issuer and `ANKKA_AUTH_JWKS_URL` to its public key address, and

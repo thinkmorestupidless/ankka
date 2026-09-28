@@ -109,12 +109,14 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
   # Zero trust (feature 014). The operator *requests* each workload's certificates — cluster,
   # service, database — and a project's database authority, an Issuer over a self-signed root in
-  # the project's namespace. It never reads what cert-manager issues: `secrets` above is unchanged,
-  # with no list, so the private key of a certificate it asked for is as unreadable to it as any
-  # other Secret it was not told the name of. No clusterissuers: the installation's authorities are
-  # the installer's, and the operator cannot replace one. delete, because a certificate or policy
-  # belongs to its service and goes with it — and an owned object is only ever deleted after an
-  # owner check.
+  # the project's namespace. Its code never reads what cert-manager issues, and nothing here was
+  # added to let it: but `secrets: get` above predates this, works by name, and the name of an
+  # issued Secret is derivable, so the grant does not stop a compromised operator reading a key.
+  # Narrowing it means the credential Secret becoming a ConfigMap (it holds nothing secret since
+  # feature 014) — named as a limitation until it is done. No clusterissuers: the installation's
+  # authorities are the installer's, and the operator cannot replace one. delete, because a
+  # certificate or policy belongs to its service and goes with it — and an owned object is only
+  # ever deleted after an owner check.
   - apiGroups: ["cert-manager.io"]
     resources: ["certificates", "issuers"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]

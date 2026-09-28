@@ -284,6 +284,7 @@ compiled.
 | `Acl.AllowAll` | Any caller. Right for a public API; state it deliberately. |
 | `Acl.AllowIf(context => Boolean)` | A predicate over the request. A refusal is `403`. |
 | `Acl.Authenticate(context => AuthDecision)` | An authenticator that decides who the caller is. |
+| `Acl.allowCallers(callers*)` | Only the workloads named: the internet, a service, any service in the project, or this service. A refusal is `403`. |
 
 `AllowIf` inspects the same request the handler will see:
 
@@ -307,10 +308,67 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
 | `AuthDecision.Forbidden(reason)` | `403`: logged in, and not allowed. |
 | `AuthDecision.Unavailable(reason)` | `503` with `Retry-After`: the check could not be made, for example because signing keys could not be fetched. |
 
-ankka does not ship a check for a specific identity provider for your services, and deliberately has no
-"same service" principal: establishing who a caller is needs a verified token or a client certificate,
-and a check against a header the client sets is not security. Plug a real check into `Authenticate`. The
-platform establishes no caller identity of its own — see [Limitations](../reference/limitations.md).
+ankka does not ship a check for a specific identity provider for your services. To know which *user* a
+request is for, plug a verified token into `Authenticate`. To know which *workload* sent it, use
+`allowCallers`.
+
+### Name who may call
+
+`Acl.allowCallers` admits a request only from the workloads it names. In a cluster every connection to a
+service is mutual TLS, and the caller is read from the client certificate the platform issued the calling
+workload, so it cannot be forged by anything the request says about itself:
+
+| Caller | Admitted by |
+|---|---|
+| a request from outside the cluster, through the gateway | `Callers.internet` |
+| the `orders` service in this service's project | `Callers.service("orders")` |
+| the `invoices` service in the `billing` project | `Callers.service("billing", "invoices")` |
+| any service in this service's project | `Callers.anyInProject` |
+| another instance of this service | `Callers.self` |
+
+```scala
+// Only the internet and the orders service in this project; any other caller is refused 403.
+withAcl(Acl.allowCallers(Callers.internet, Callers.service("orders"))) {
+  get("/only-orders")(() => s"admitted: ${describe(caller)}")
+}
+
+// Another instance of this very service, and nothing else.
+withAcl(Acl.allowCallers(Callers.self)) {
+  get("/only-self")(() => "admitted: myself")
+}
+```
+
+A handler reads the caller as `caller`, which is always present:
+
+```scala
+get("/whoami") { () =>
+  caller match
+    case Caller.Gateway                => "the internet, through the gateway"
+    case Caller.Service(project, name) => s"the $name service in project $project"
+    case Caller.Local                  => "this machine"
+}
+```
+
+`caller` is set before any ACL runs, so an `AllowIf` predicate can read it too, and it is independent of
+`principal`: a request from the `orders` service on behalf of a signed-in user has both.
+
+The refusal body names no caller, so an unauthorised workload learns nothing about whose certificate it
+would need. A client certificate the installation issued that names no service is refused `403` before
+routing.
+
+**Outside a cluster every caller is the local machine**, `Caller.Local`, because there is no certificate to
+read, and every `allowCallers` admits it. The service logs once at startup that callers are not enforced.
+A test names a caller through the test kit, which shares a secret with the service in the same JVM:
+
+```scala
+test("the orders service is admitted and the payments service is not") {
+  assertEquals(get("/callers/only-orders", Some(Caller.Service("local", "orders")))._1, 200)
+  assertEquals(get("/callers/only-orders", Some(Caller.Service("local", "payments")))._1, 403)
+}
+```
+
+where the request carries the header `testKit.asCaller(caller)` returns. A service running locally is in
+project `local` and is itself `local/local`.
 
 ### A route with its own ACL
 
@@ -345,6 +403,41 @@ final class MixedAclEndpoint extends HttpEndpoint("/mixed"):
 Scopes nest, and the innermost one wins. A request whose path matches no route of the endpoint is judged
 by the endpoint's own ACL, so an endpoint that refuses answers the same way for a path that exists and one
 that does not, rather than disclosing which is which.
+
+## Call another service
+
+`clients.services` calls another service's endpoints as this service. It is addressed by name: a service
+in this project by its name, one in another project by project and name.
+
+```scala
+// Calls `/callers/whoami` on another service in this project, as this service: the answer is
+// how that service saw this one.
+get("/call/{service}") { (service: String) =>
+  try services(service).getText("/callers/whoami")
+  catch case e: ServiceUnresolvable => throw HttpProblem(503, e.getMessage)
+}
+```
+
+In a cluster the call is mutual TLS: it presents this service's certificate, so the callee's
+`allowCallers` sees who is calling, and it accepts the callee only if its certificate names the service
+asked for — a workload holding another service's certificate fails the handshake before anything is sent.
+The address is the callee's Kubernetes Service and its port is read from DNS, so a descriptor that changes
+the port changes nothing here.
+
+Outside a cluster the same call reaches the named service on this machine over plain HTTP: the address
+set as `ankka.local-services.<name>` if there is one, otherwise the address the service announced to the
+local console.
+
+| Method | Answers |
+|---|---|
+| `get[R](path)`, `post[B, R](path, body)`, `put[B, R](path, body)` | the JSON body decoded as `R`; any status other than 2xx throws `ServiceCallFailed` |
+| `getText(path)` | the body as text, what a route returning a `String` sends |
+| `delete(path)` | nothing; any 2xx succeeds |
+| `request(method, path, body, contentType, headers)` | the `ServiceResponse`, whatever its status |
+
+`ServiceUnresolvable` means nothing was found under the name and nothing was sent; `ServiceIdentityMismatch`
+means the service reached is not the one asked for. There are no retries and no redirects: whether a call
+is safe to repeat is the caller's to know. Components reach the same clients as `service.services`.
 
 ## Registering endpoints
 
@@ -398,8 +491,8 @@ Two endpoints may not share a prefix. The server also answers `/_ankka/health` o
 ## The request, outside Scala
 
 `self.request` in Python and `req` in TypeScript carry the query and the headers as sequences of pairs,
-with helpers for one or many, and the `principal` when the ACL established one. Every SDK answers with a
-status by raising or throwing an `HttpProblem(status, message)`:
+with helpers for one or many, the `principal` when the ACL established one, and the `caller` the platform
+established. Every SDK answers with a status by raising or throwing an `HttpProblem(status, message)`:
 
 **Scala**
 
@@ -453,6 +546,48 @@ class CartsEndpoint(Endpoint):
     @delete("/{cart_id}", acl=Acl.DENY_ALL)
     async def purge(self, cart_id: str) -> None: ...
 ```
+
+Both SDKs name callers as Scala does, with the same meaning; the sidecar applies the ACL before the process
+is asked anything, and hands the handler the caller:
+
+**Python**
+
+```python
+class CallersEndpoint(Endpoint):
+    prefix = "/callers"
+    acl = Acl.allow_callers(Callers.internet, Callers.service("orders"))
+
+    @get("/whoami")
+    def whoami(self) -> str:
+        c = self.request.caller
+        if isinstance(c, ServiceCaller):
+            return f"service:{c.project}/{c.name}"
+        return "gateway" if isinstance(c, Gateway) else "local"
+
+    @get("/self", acl=Acl.allow_callers(Callers.self_))
+    def only_self(self) -> str:
+        return "self"
+```
+
+**TypeScript**
+
+```ts
+export class CallersEndpoint extends Endpoint {
+  static readonly prefix = "/callers"
+  static readonly acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
+  static readonly routes = {
+    whoami: get("/whoami", s.string, (_ep: CallersEndpoint, req) => {
+      const c = req.caller
+      return c.kind === "service" ? `service:${c.project}/${c.name}` : c.kind
+    }),
+    onlySelf: get("/self", s.string, () => "self", { acl: Acl.allowCallers(Callers.self) }),
+  }
+}
+```
+
+In Python `Callers.self_` carries a trailing underscore so it does not shadow `self`. A Python or TypeScript
+service can be called as described in [Name who may call](#name-who-may-call), but has no service client
+of its own yet: calling another service as itself is Scala-only.
 
 A `str` return value is answered as `text/plain`, and a `str` body is read as raw text, not as a JSON
 string — the same encoding the Scala SDK uses.

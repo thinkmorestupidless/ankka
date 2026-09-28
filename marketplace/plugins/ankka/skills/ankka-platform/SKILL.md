@@ -99,7 +99,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/organizations.md` — Create organizations and projects, invite members by email, manage roles, and disable or delete an organization, with the rules the control plane enforces on each.
 - `references/platform/identity.md` — How people and machines authenticate to the ankka control plane through the installation's Keycloak — logging in with the CLI, adding users, platform administrators, machine accounts and the realm.
 - `references/platform/databases.md` — How the platform provisions a Postgres database for every service with CloudNativePG, why each service must have its own, how data survives deletion, and how to bring your own database instead.
-- `references/platform/networking.md` — How traffic reaches ankka services — the installation's single gateway and wildcard certificate, per-service routes, in-cluster addresses, the ports an instance uses, readiness, and what is not isolated.
+- `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 
 ### Reference
 

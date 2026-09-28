@@ -61,6 +61,11 @@ never mistake another service's pods for its own. A node refuses to start if any
 mode needs is missing, rather than binding loopback and quietly joining nothing. A descriptor cannot set
 these variables; they belong to the platform.
 
+In Kubernetes the instances talk to each other over mutual TLS with a certificate issued for the service,
+and a node accepts a peer only if its certificate names the same service. Bootstrap probes its contact
+points over the same TLS, so a node never learns of a cluster from a pod it could not verify. Locally
+there is no TLS: a laptop is its own perimeter.
+
 When several instances start from nothing, Bootstrap waits until it can see two of them (or one, for a
 single-instance service) before forming a cluster. Two pods starting together therefore find each other
 and form one cluster rather than two, and one pod that cannot be scheduled does not hold the others
@@ -70,7 +75,8 @@ down.
 
 An instance reports ready only when it has joined its service's cluster and every part of the runtime
 that has an opinion agrees; the HTTP server, for example, agrees once it has bound its port. The probe
-is `/ready` on the management port. Traffic, including traffic from an exposed hostname, reaches an
+is `/ready` on a plain port of its own, named `probe`, because the management port requires the service's
+certificate and the kubelet has none. Traffic, including traffic from an exposed hostname, reaches an
 instance only once it is ready, so a request never lands on a node that is still joining.
 
 Readiness does not call any of your routes. It says the node is a working member of the cluster, not
@@ -87,6 +93,11 @@ leaves. A caller reading an entity throughout a rollout sees no failed request.
 Before an instance begins shutting down, it waits five seconds while still serving. Kubernetes takes a
 moment to stop routing to a pod that is leaving, and the wait covers that moment so that no request is
 sent to a port that has already closed.
+
+The one deployment that is not rolling is a service's first under mutual TLS, when its running instances
+predate it. A TLS instance and a plain one cannot join each other, so the platform stops the old instances,
+waits until none is left, and starts the new ones: one short interruption, once, reported in the service's
+history. See [Upgrading](../deploy/upgrading.md#the-move-to-mutual-tls).
 
 Changing only the instance count does not roll anything: going from three instances to four adds one
 pod and leaves the three running. Only `ankka services restart` replaces running instances without a
@@ -107,8 +118,11 @@ majority, so both are shut down and the service is unavailable until Kubernetes 
 instances survive the loss of one. One instance has no partition to survive. Instance counts are set by
 `minInstances` in the [service descriptor](../reference/service-descriptor.md); the default is one.
 
-## What the cluster does not protect
+## What protects the cluster
 
-Cluster traffic between instances is neither encrypted nor restricted to the service's own namespace.
-Pod labels stop a node from choosing a stranger as a peer, but nothing stops a stranger connecting to
-the remoting or management port. See [Limitations](../reference/limitations.md).
+Three things, in order. A network policy admits a connection to the remoting and management ports only
+from the service's own pods. The TLS handshake admits only a peer presenting a certificate from the
+installation's cluster authority. And the peer's certificate must name the same service, so a workload of
+another service, issued by the same authority, is refused too. The certificate is renewed every eight hours
+and every instance picks up its successor without restarting or leaving the cluster. See
+[Networking and TLS](../platform/networking.md).

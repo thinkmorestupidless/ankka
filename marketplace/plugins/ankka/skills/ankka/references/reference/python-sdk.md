@@ -160,10 +160,11 @@ and returns `None` to pass or a reason to block. See [Agents](../build/agents.md
 | Part | API |
 |---|---|
 | Base class | `Endpoint` |
-| Class attributes | `prefix`, `acl` (required: `Acl.ALLOW_ALL`, `Acl.DENY_ALL` or `Acl.AUTHENTICATED`) |
+| Class attributes | `prefix`, `acl` (required: `Acl.ALLOW_ALL`, `Acl.DENY_ALL`, `Acl.AUTHENTICATED` or `Acl.allow_callers(...)`) |
 | Decorators | `@get`, `@post`, `@put`, `@patch`, `@delete`, `@sse`, each with a path template and an optional `acl=` for that route alone |
 | Handlers | `async` methods; path parameters bind by name, one further typed parameter is the body, the return value is encoded by its type |
-| In a handler | `self.request`: `query_param`, `query_params`, `header`, `principal`, `metadata` |
+| Callers | `Callers.internet`, `Callers.service(name, project=None)`, `Callers.any_in_project`, `Callers.self_` |
+| In a handler | `self.request`: `query_param`, `query_params`, `header`, `principal`, `metadata`, `caller` — a `Gateway`, `ServiceCaller(project, name)` or `LocalCaller` |
 | Errors | raise `HttpProblem(status, message)`; a `CommandError` from a call answers with its code's status |
 
 The constructor receives the component client when it takes one. The process never binds an HTTP port: the

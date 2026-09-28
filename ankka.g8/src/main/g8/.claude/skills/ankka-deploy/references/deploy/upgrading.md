@@ -67,19 +67,46 @@ version and a minor version equal to the platform's or one below it:
 | `0.3.0` | `0.2.x`, `0.3.x` |
 | `1.0.0` | `1.0.x` |
 
+From platform version 0.8.0 a runtime must also be 0.8.0 or later, because an older one cannot speak the
+mutual TLS every workload now uses: the "one minor below" rule does not reach across that line.
+
 A declaration outside the range is reported on `ankka services get` as `Unavailable`, with a detail that
 names both versions, and no instance starts. A descriptor with no `runtime` is not checked. The window
 means a platform can be upgraded one minor version ahead of its services, and each service then has until
 the platform's next minor release to follow.
 
+## The move to mutual TLS
+
+The first deployment of a service on a runtime that speaks mutual TLS, when its running instances do not,
+is not a rolling update. An instance that speaks TLS and one that does not cannot join each other, so the
+platform stops every old instance, waits until none is left, and then starts the new ones. The service is
+unavailable for as long as that takes — typically well under a minute — once, and `ankka services
+history` records it as an update with the detail `moving to mutual TLS: instances restart together,
+once`. Every deployment after it rolls as before.
+
+Nothing is asked of the deployer: the platform recognises the old instances and does it. A provisioned
+database moves to certificate authentication in the same deployment; see
+[Databases](../platform/databases.md#a-database-provisioned-before-certificates).
+
+The control plane is itself an ankka service and makes the same move. `deploy-local.sh` stops its old
+instances before applying the new manifest; an installation applied by other means should do the same,
+once:
+
+```bash
+kubectl -n ankka-controlplane delete deployment ankka-controlplane --wait=true
+kubectl apply -k <your overlay> --server-side
+```
+
 ## Check what an instance runs
 
 Each instance logs its runtime version when it starts. A deployed instance also serves it on its
-management port:
+management port, which answers only a caller holding the service's own certificate — so ask from inside
+one of its pods:
 
 ```bash
-kubectl -n ankka-checkout port-forward deploy/orders 7626:7626
-curl localhost:7626/ankka/version
+kubectl -n ankka-checkout exec deploy/orders -- curl -s --insecure \
+  --cert /var/run/secrets/ankka/cluster/tls.crt --key /var/run/secrets/ankka/cluster/tls.key \
+  https://localhost:7626/ankka/version
 ```
 
 Compare that with the declaration when the two might differ. See

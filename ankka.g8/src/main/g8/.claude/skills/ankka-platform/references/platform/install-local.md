@@ -15,7 +15,8 @@ inside the cluster, and the base domain resolves to `127.0.0.1`.
 ## Prerequisites
 
 - Docker, with enough memory for several JVMs; 8 GB for Docker is comfortable.
-- [kind](https://kind.sigs.k8s.io/) and `kubectl`.
+- [kind](https://kind.sigs.k8s.io/) 0.24 or later, and `kubectl`. Earlier versions of kind do not
+  enforce network policy, which the platform relies on.
 - A JDK 21 and sbt, because the script builds the platform's images from source.
 - A checkout of the ankka repository. Every command on this page runs from its root.
 - Optionally [just](https://github.com/casey/just), for the short forms of the commands.
@@ -31,6 +32,15 @@ The configuration file matters. It publishes the gateway's node ports on your ma
 cluster: they cannot be added later. The deploy script checks for them and refuses a cluster created
 without them, naming the fix, because such a cluster would deploy cleanly and then fail every request by
 hostname.
+
+Before it deploys anything, the script also proves the cluster enforces network policy: it starts two
+throwaway pods, puts a deny-all policy on one, and requires a connection to it to fail. On a cluster that
+stores the policy and ignores it, the script stops with:
+
+```text
+refusing to deploy: this cluster accepted a NetworkPolicy and did not enforce it; ankka needs a
+network that does (kind 0.24 or later does; see docs/platform/install-local.md).
+```
 
 ## Deploy the platform
 

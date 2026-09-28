@@ -17,20 +17,42 @@ Per project, in the project's namespace `ankka-<project>`:
 
 - **One Postgres cluster**, named `ankka-db`, created with the project's first service. It is a single
   Postgres instance with 1Gi of storage. Every service in the project has a database in it.
+- **A database authority**: a root certificate and the cert-manager `Issuer` `ankka-database` over it,
+  from which each service's client certificate is issued. The cluster accepts it as its client
+  authority, and its `pg_hba` admits the members of the role `ankka_tls` by certificate and nothing else.
 
 Per service:
 
-- **A database and a login role**, both named after the service, owned by that role.
-- **A credential Secret**, `<service>-db`, holding a generated password and the connection details as
-  `ANKKA_DB_HOST`, `ANKKA_DB_PORT`, `ANKKA_DB_NAME`, `ANKKA_DB_USER` and `ANKKA_DB_PASSWORD`. The
-  password is generated once, when the Secret does not exist, and never rotated by the platform.
+- **A database and a login role**, both named after the service, owned by that role. The role has no
+  password and is a member of `ankka_tls`.
+- **A client certificate**, `<service>-database`, whose common name is the role. Postgres's certificate
+  authentication matches the common name to the role, so the certificate logs in as this service and no
+  other. It is valid for a day and renewed every eight hours.
+- **A credential Secret**, `<service>-db`, holding where the database is — `ANKKA_DB_HOST`,
+  `ANKKA_DB_PORT`, `ANKKA_DB_NAME` and `ANKKA_DB_USER` — and nothing secret, because there is no password.
 - **A schema step** in every instance: an init container that applies the runtime's schema before the
   service starts. It is safe to repeat, and it runs under a lock so several instances starting together
   do not race.
 
 The service's container receives the credential Secret's variables, which are the same ones the runtime
-reads on a laptop. For a Python service they go to the sidecar, which owns the journal; your process
-never sees the database.
+reads on a laptop, and four more that tell it to connect over TLS with its certificate:
+
+| Variable | Value |
+|---|---|
+| `ANKKA_DB_SSL_MODE` | `verify-full`: the server's certificate and name are verified before anything is sent |
+| `ANKKA_DB_SSL_ROOT_CERT` | the cluster's server authority, `/var/run/secrets/ankka/database-ca/ca.crt` |
+| `ANKKA_DB_SSL_CERT` and `ANKKA_DB_SSL_KEY` | the service's client certificate, under `/var/run/secrets/ankka/database/` |
+
+The key is read when a connection is opened, so a renewed certificate reaches the next connection the pool
+opens without a restart. For a Python service all of this goes to the sidecar, which owns the journal; your
+process never sees the database.
+
+## A database accepts only its project
+
+A network policy admits connections to a project's Postgres only from that project's ankka workloads, the
+database's own instances and the database operator. A workload of another project cannot open a connection
+at all, and a workload of this project that is not the service cannot log in as it: it holds no certificate
+with the service's name.
 
 `ankka services get` reports what happened on its `database` line:
 
@@ -49,7 +71,7 @@ id it does not recognise, so two services sharing a database delete each other's
 projection offsets are named from component ids alone and collide in the same way.
 
 The platform enforces the separation. Each service's database revokes Postgres's default `CONNECT`
-privilege from `PUBLIC`, so one service's credential cannot connect to another service's database, even
+privilege from `PUBLIC`, so one service's certificate cannot connect to another service's database, even
 in the same project's Postgres cluster.
 
 ## Data is never destroyed by the platform
@@ -62,6 +84,14 @@ Re-applying the descriptor of a deleted service, under the same name in the same
 to its existing database, and `services get` reports `recovered existing data`. A service name is
 therefore a handle on its data. To start a service over with an empty database, the database has to be
 removed by someone with the rights to do so, outside ankka.
+
+## A database provisioned before certificates
+
+A service provisioned when the platform still generated passwords moves to certificate authentication on
+its next deployment, on its own: the operator issues its certificate, re-applies its role without a
+password and adds it to `ankka_tls`. Its old credential Secret is left in place, since nothing the platform
+does deletes a Secret, and the password in it no longer logs in. Services not yet redeployed keep logging
+in by password in the meantime, so a project moves one service at a time.
 
 ## Provisioning takes a minute
 
@@ -104,6 +134,12 @@ password from a Secret:
 The check is by variable name, so a value taken from a Secret counts. The supplied database must already
 hold the runtime's schema, from the `ankka/ddl` directory of the `ankka-runtime` artifact at the version
 the service runs. `sbt schema` in a service created from the template extracts it.
+
+To connect to a supplied database over TLS, declare `ANKKA_DB_SSL_MODE` (`require`, `verify-ca` or
+`verify-full`) and `ANKKA_DB_SSL_ROOT_CERT`, the path of the authority to verify the server with; add
+`ANKKA_DB_SSL_CERT` and `ANKKA_DB_SSL_KEY` to authenticate with a client certificate instead of a password.
+The files are yours to mount. With no `ANKKA_DB_SSL_MODE` the connection is plain, and its password
+crosses the network unencrypted.
 
 Use this for what a provisioned single-instance Postgres cannot yet provide: an existing database with
 data to keep, or a durability profile such as replicas or managed backups. Isolation between services is

@@ -148,6 +148,26 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     )
     (code, out.toString(StandardCharsets.UTF_8) + err.toString(StandardCharsets.UTF_8))
 
+  /** Retries `probe` until `ok` holds, failing with the last value it answered. */
+  private def waitForValue[A](timeout: FiniteDuration, what: String)(probe: => A)(
+      ok: A => Boolean
+  ): Unit =
+    val deadline  = System.nanoTime() + timeout.toNanos
+    var last: Any = "never answered"
+    var passed    = false
+    while !passed && System.nanoTime() < deadline do
+      passed =
+        try
+          val value = probe
+          last = value
+          ok(value)
+        catch
+          case e: Throwable =>
+            last = e.toString
+            false
+      if !passed then Thread.sleep(500)
+    if !passed then fail(s"$what did not hold within $timeout; last: $last")
+
   private def waitFor(timeout: FiniteDuration)(check: => Boolean): Unit =
     val deadline = System.nanoTime() + timeout.toNanos
     var passed   = false
@@ -192,24 +212,64 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     (result.getExitCode, result.getStdout + result.getStderr)
 
   /**
-   * Through the Service's name — never a port-forward, which would bypass the Service — from inside
-   * a ready pod of the service, presenting its certificate: every port is mutual TLS and admits
-   * only workloads with a platform identity. Answers 0 for a 2xx, as `wget` did, so callers read
-   * the same.
+   * A client that outlives every pod of the service: a curl pod in the project's namespace,
+   * labelled as a platform workload so the service's HTTP policy admits it, and holding the cart's
+   * own service certificate so its HTTP port accepts it. A request from inside one of the service's
+   * pods would stop measuring the platform the moment that pod rolls or crashes — the exec fails
+   * (`container not found`), not the service. The node itself cannot call: it holds no identity.
+   */
+  private lazy val prober: String =
+    val manifest =
+      s"""apiVersion: v1
+         |kind: Pod
+         |metadata:
+         |  name: prober
+         |  namespace: $Namespace
+         |  labels: { app.kubernetes.io/managed-by: ankka }
+         |spec:
+         |  containers:
+         |    - name: curl
+         |      image: curlimages/curl:8.11.1
+         |      command: ["sleep", "infinity"]
+         |      volumeMounts:
+         |        - { name: service, mountPath: /var/run/secrets/ankka/service, readOnly: true }
+         |  volumes:
+         |    - name: service
+         |      secret: { secretName: $Service-service-tls }
+         |""".stripMargin
+    k3s.copyFileToContainer(
+      org.testcontainers.images.builder.Transferable.of(manifest.getBytes(StandardCharsets.UTF_8)),
+      "/tmp/prober.yaml"
+    )
+    val (applied, out) = nodeExec("kubectl", "apply", "-f", "/tmp/prober.yaml")
+    assertEquals(applied, 0, out)
+    val (ready, waited) = nodeExec(
+      "kubectl",
+      "wait",
+      "-n",
+      Namespace,
+      "--for=condition=Ready",
+      "pod/prober",
+      "--timeout=180s"
+    )
+    assertEquals(ready, 0, waited)
+    "prober"
+
+  /**
+   * Through the Service's name — never a port-forward, which would bypass the Service — from the
+   * prober, presenting the service's certificate. Answers 0 for a 2xx, as `wget` did, so callers
+   * read the same.
    */
   private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
-    readyPods.headOption match
-      case None => (1, "no ready pod to call from")
-      case Some(from) =>
-        val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
-          k3s,
-          Namespace,
-          from.getMetadata.getName,
-          s"https://$Service.$Namespace.svc.cluster.local:9000$path",
-          method = if post.isDefined then "POST" else "GET",
-          body = post
-        )
-        (if code / 100 == 2 then 0 else 1, body)
+    val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$Service.$Namespace.svc.cluster.local:9000$path",
+      method = if post.isDefined then "POST" else "GET",
+      body = post
+    )
+    (if code / 100 == 2 then 0 else 1, s"$code $body")
 
   /** One pod, by its IP — which its certificate does not name, hence no host check. */
   private def podHttp(pod: Pod, path: String): (Int, String) =
@@ -220,7 +280,7 @@ class MultiNodeClusterSuite extends munit.FunSuite:
       s"https://${pod.getStatus.getPodIP}:9000$path",
       verifyHost = false
     )
-    (if code / 100 == 2 then 0 else 1, body)
+    (if code / 100 == 2 then 0 else 1, s"$code $body")
 
   private val MemberPattern = """\{"node":"([^"]+)"[^}]*?"status":"([A-Za-z]+)"""".r
 
@@ -374,6 +434,25 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     assertEquals(views.size, 3)
     assertEquals(Membership.disjointClusters(views), 1, views.toString)
     views.foreach(v => assertEquals(v.size, 3, v.toString))
+
+    // The cluster formed over TLS: management above answered only to the service's certificate,
+    // and remoting says which transport it bound.
+    for pod <- pods do
+      val (code, log) = nodeExec("kubectl", "logs", "-n", Namespace, pod.getMetadata.getName)
+      assertEquals(code, 0, log)
+      assert(
+        "(?i)artery tls-?tcp".r.findFirstIn(log).isDefined,
+        s"${pod.getMetadata.getName} did not start TLS remoting"
+      )
+    // Readiness answers the node, which holds no certificate; the HTTP port does not.
+    for pod <- pods do
+      val ip = pod.getStatus.getPodIP
+      assertEquals(nodeExec("wget", "-qO-", s"http://$ip:7627/ready")._1, 0, "readiness")
+      assertNotEquals(
+        nodeExec("wget", "-qO-", "-T", "5", s"http://$ip:9000/carts/c1")._1,
+        0,
+        "the HTTP port answered plain HTTP"
+      )
   }
 
   test("2. one entity, wherever the request lands — and one writer in the journal") {
@@ -442,7 +521,10 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     assert(replaced, "the rollout did not complete")
     assertEquals(mostClusters, 1)
     assert(fewestReady >= 1, s"dropped to $fewestReady ready pods — feature 003's outage is back")
-    assert(ok.toDouble / (ok + failed) >= 0.99, s"$ok ok, $failed failed")
+    assert(
+      ok.toDouble / (ok + failed) >= 0.99,
+      s"$ok ok, $failed failed: ${load.failures.asScala.mkString(" | ")}"
+    )
   }
 
   test("5. twenty simultaneous cold starts: one cluster every time, no init-container restarts") {
@@ -491,9 +573,9 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     val victim         = pods.head
     val restartsBefore = victim.getStatus.getContainerStatuses.get(0).getRestartCount.intValue
     sigkill(victim)
-    waitFor(60.seconds) {
-      (2 to 11).forall(i => nodeHttp(s"/carts/c$i")._2.contains("Widget"))
-    }
+    waitForValue(60.seconds, "every cart answers with its state")(
+      (2 to 11).map(i => i -> nodeHttp(s"/carts/c$i")._2).filterNot(_._2.contains("Widget"))
+    )(_.isEmpty)
     waitFor(120.seconds) {
       pods
         .find(_.getMetadata.getName == victim.getMetadata.getName)
@@ -517,9 +599,16 @@ class MultiNodeClusterSuite extends munit.FunSuite:
       waitFor(90.seconds)(!membership(peer).exists(_.contains(victim.getStatus.getPodIP)))
       val majority = pods.filterNot(_.getMetadata.getName == victim.getMetadata.getName)
       assertEquals(majority.size, 2)
-      for pod <- majority do waitFor(60.seconds)(podHttp(pod, "/carts/c1")._2.contains("Widget"))
+      for pod <- majority do
+        waitForValue(60.seconds, s"${pod.getMetadata.getName} serves c1")(
+          podHttp(pod, "/carts/c1")
+        )(
+          _._2.contains("Widget")
+        )
       // ...and once readiness catches up the Service routes only to them.
-      waitFor(90.seconds)(Iterator.fill(6)(nodeHttp("/carts/c1")._2).forall(_.contains("Widget")))
+      waitForValue(90.seconds, "the Service routes only to the majority")(
+        Iterator.fill(6)(nodeHttp("/carts/c1")._2).toVector
+      )(_.forall(_.contains("Widget")))
       // The minority downed itself and exited (exit-jvm), so its container restarted.
       waitFor(90.seconds) {
         pods

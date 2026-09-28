@@ -195,22 +195,22 @@ one behaviour deliberately and the suite names it.
 
 ### User Story 4 - Deployed to the platform as one container (Priority: P4)
 
-The developer packages their module as an image that holds the module and nothing else, writes a
+The developer packages their module as an image whose only job is to hand over the module, writes a
 descriptor that says the image is a WebAssembly module, and deploys it to a local ankka installation.
-The service runs as a single container, the platform's own runtime with the module mounted into it,
-and reaches `Ready`, scales, restarts, pauses and is exposed exactly as any other service. The
+The service runs as a single container, the platform's own runtime with the module delivered into it
+once at start, and reaches `Ready`, scales, restarts, pauses and is exposed exactly as any other service. The
 descriptor's environment reaches the module only where the platform allows, and the model's key and
 the database credential never do.
 
 **Why this priority**: This is the story that makes the hosting mode a platform feature rather than a
 local trick, and the one where the operator's rendering, the descriptor's rules, the readiness probe
-and the image volume are tested against a real cluster. It is after the conformance story because a
+and the module's delivery are tested against a real cluster. It is after the conformance story because a
 deployed module that is not conformant proves nothing.
 
 **Independent Test**: Build the shopping cart example's module image, apply its descriptor to the
 local installation, and command the cart through the platform's gateway. Scale it, restart it, pause
-and resume it, expose it. Apply the same descriptor to a cluster that cannot mount an image as a
-volume and read the refusal.
+and resume it, expose it. Apply a descriptor whose image hands over no module and read what the
+service reports.
 
 **Acceptance Scenarios**:
 
@@ -226,9 +226,9 @@ volume and read the refusal.
    any resource is written, naming the field.
 4. **Given** a descriptor whose variables include a model's key and a database's credentials,
    **When** the service runs, **Then** the runtime holds them and the module can read neither.
-5. **Given** a cluster whose nodes cannot mount an image as a volume, **When** a WebAssembly service
-   is applied, **Then** the service's status names that requirement rather than reporting a pod that
-   never starts.
+5. **Given** an image that hands over no module, or exits with an error doing so, **When** a
+   WebAssembly service naming it is applied, **Then** the service's status reports the delivery's
+   failure rather than a pod that silently never starts.
 6. **Given** a deployed service whose module has a valid ABI but crashes on discovery, **When** it is
    applied, **Then** the service reports `Failed` with the runtime's reason, and a later apply with a
    fixed image recovers it.
@@ -304,11 +304,10 @@ new pages.
   cannot return a stream; an agent's token stream is unaffected because the runtime produces it.
 - A module whose discovery answer is invalid (an unknown component kind, a handler with no name). The
   runtime reports every problem at once, as it does for a process.
-- The image named by the descriptor holds no module at the expected path, or holds two. Discovery
-  fails naming the path, and the service reports it.
-- An image volume that the cluster's node cannot mount. The pod never schedules or never starts; the
-  operator reports the condition it observes, and the platform's installation documentation names the
-  cluster version the feature needs.
+- The image named by the descriptor hands over no module, hands over two, or exits with an error.
+  The delivery fails before the runtime starts, the operator reports the condition it observes, and
+  the service's status shows it; the runtime container never sees a missing module as a discovery
+  failure.
 - A developer builds the module for the wrong target (one that imports facilities the runtime does not
   provide). The runtime refuses at load, naming the first unsatisfied import.
 - Two components in one module, one stateless and one stateful. Each is handled in its own shape;
@@ -401,10 +400,11 @@ new pages.
 - **FR-024**: The service descriptor MUST accept a hosting value naming a WebAssembly module, and the
   descriptor's validation MUST refuse, naming the field, a WebAssembly descriptor that sets a variable
   reserved for the runtime, names the runtime's image, or declares an HTTP port for the module.
-- **FR-025**: The operator MUST render a WebAssembly service as one container running the runtime
-  image, with the descriptor's image mounted as a read-only volume and the module's path handed to the
-  runtime, carrying every port, probe, cluster variable and credential a Scala service's container
-  carries.
+- **FR-025**: The operator MUST render a WebAssembly service as one running container, the runtime
+  image, carrying every port, probe, cluster variable and credential a Scala service's container
+  carries, with the module delivered into it once at start by the descriptor's image and the module's
+  path handed to the runtime. The delivery MUST work on every cluster the platform runs on today, with
+  no dependency on the node's container runtime beyond running an image.
 - **FR-026**: The descriptor's environment MUST be split as it is for a process-hosted service: the
   model's and the database's variables reach the runtime, everything else reaches the module, and the
   module can read nothing the runtime keeps.
@@ -412,9 +412,8 @@ new pages.
   request refused, exactly as any service, with no new command and no new status word.
 - **FR-028**: The custom resource's schema MUST declare the new hosting value, and the schema suite
   MUST prove it.
-- **FR-029**: On a cluster whose nodes cannot mount an image as a volume, the service's reported status
-  MUST name that requirement, and the installation documentation MUST state the minimum cluster
-  version.
+- **FR-029**: A module image that fails to deliver its module MUST be reported in the service's
+  status as that failure, and the documentation MUST state the contract a module image satisfies.
 
 **Local development, the template and publishing**
 
@@ -476,8 +475,8 @@ new pages.
   suite drives, in both shapes.
 - **Hosting value**: the descriptor field that says a service's image is a Scala node, a process
   speaking the protocol, or a WebAssembly module.
-- **Image volume**: the way the module reaches the runtime's container in a cluster: the descriptor's
-  image, mounted read-only.
+- **Module delivery**: the way the module reaches the runtime's container in a cluster: the
+  descriptor's image run once, handing the module over into a volume the runtime reads.
 - **Crate**: the published artifact, versioned as the tag that published it, carrying its own copy of
   the protocol.
 
@@ -510,9 +509,9 @@ new pages.
 - **SC-009**: The shopping cart example deploys to the local installation as one container, reaches
   `Ready`, scales, restarts, pauses, resumes and is exposed with the same commands and status words as
   any service, and a rolling replacement refuses 0 requests.
-- **SC-010**: A module built for an ABI version the runtime does not speak, or an image holding no
-  module, is reported in the service's status with the reason within one reconciliation, never as a
-  pod that silently never starts.
+- **SC-010**: A module built for an ABI version the runtime does not speak, or an image that hands
+  over no module, is reported in the service's status with the reason within one reconciliation,
+  never as a pod that silently never starts.
 - **SC-011**: A release tag publishes the crate at the tag's version with no credential in the
   repository, and the library's version reported in discovery equals the version on the registry.
 - **SC-012**: The Rust project the CLI renders builds, starts and passes its own tests with 0 skipped,
@@ -534,9 +533,11 @@ new pages.
   stateless.
 - **The runtime image is the sidecar image**, serving both hosting modes chosen by configuration, so the
   operator's one setting for that image serves both.
-- **The module reaches a pod through an image volume**, which the treatment records as on by default
-  from Kubernetes 1.35, the version the k3s test image and the local kind cluster run. An installation
-  on an older cluster is refused with the reason, not worked around.
+- **The module reaches a pod by its image running once as an init container** that copies the module
+  into a volume the runtime container mounts. The treatment first chose an image volume; planning
+  found the container runtime must support it too, which containerd does only from 2.3.2 and the k3s
+  test image does not, so a delivery that works on every cluster today is the one specified, and the
+  image volume is a later simplification that changes nothing on the runtime's side.
 - **The Rust library lives in `sdks/rust`** beside the Python and TypeScript SDKs, follows their layout,
   and carries its copy of the protocol as they do; the crate's name on the registry is `ankka`, which
   the plan confirms is unclaimed before anything depends on it.
@@ -565,7 +566,8 @@ new pages.
   module runs in that service's own runtime, as its process does today.
 - Attaching a debugger to a deployed module, and source-level debugging through the host.
 - A CLI command that hosts a module locally, and hot reloading a module without restarting the runtime.
-- Delivering a module other than as an image mounted as a volume: no init container copying, no
-  developer image built on the runtime's, no download at start.
+- Delivering a module other than by its image handing it over: no developer image built on the
+  runtime's, no download at start, and no image volume until every target cluster's container
+  runtime supports one.
 - Any change to the protocol's messages, the encoding, the fixtures or the conformance cases. A gap
   found in any of them is a separate defect against feature 009.

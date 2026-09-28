@@ -227,6 +227,15 @@ by hand, which is a fact for `docs/platform/` and a check the operator can make 
 registry credential and `imagePullSecret` doing exactly what they do today, and the platform's
 runtime version out of the developer's build.
 
+**Planning correction (2026-09-28):** the kubelet's default is not the whole story. The container
+runtime must support the CRI mount as well, and containerd does only from 2.3.2, which k3s ships
+from 1.36.2; the k3s test image (1.35.1) cannot mount one, and the local kind node and the
+production cluster were not verified. Feature 015 therefore delivers the module by running the
+descriptor's image once as an init container that copies the module into an `emptyDir` the runtime
+container mounts, which works on every cluster today at the cost of a `cp` in the developer's
+image, supplied by the template. The image volume stays the eventual simplification: the runtime
+container's side, `ANKKA_WASM_MODULE` naming a path, does not change when it arrives.
+
 The alternative, a developer's image built `FROM` the sidecar image with the module copied in,
 pins the runtime version in the developer's image. That is the coupling the sidecar model was
 built to remove, and it is refused for the same reason the descriptor cannot name the sidecar

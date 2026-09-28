@@ -94,6 +94,22 @@ enum Acl:
    */
   case Authenticate(decide: RequestContext => AuthDecision)
 
+  /**
+   * Only the callers named: the internet, a named service, any service in this project, this
+   * service itself. Admits a request whose caller any one of them matches.
+   *
+   * Trustworthy because in a cluster the caller is read from the client certificate the platform
+   * issued, never from anything the request says about itself. Outside a cluster there is no
+   * certificate, every caller is `Caller.Local`, and this admits it — the service logs once at
+   * startup that callers are not enforced there. Build one with `Acl.allowCallers`, which cannot be
+   * empty.
+   */
+  case AllowCallers(matchers: Vector[CallerMatcher])
+
+object Acl:
+  def allowCallers(first: CallerMatcher, rest: CallerMatcher*): Acl =
+    AllowCallers(first +: rest.toVector)
+
 private[ankka] final case class EncodedResponse(
     status: Int,
     contentType: String,
@@ -189,6 +205,9 @@ abstract class HttpEndpoint(val prefix: String):
         "request is only available inside a route handler, on the handler's own thread"
       )
     )
+
+  /** Which workload sent this request; see `Caller`. Always present. */
+  protected def caller: Caller = request.caller
 
   /** Shorthand for `request.query`. */
   protected def query: QueryParams = request.query

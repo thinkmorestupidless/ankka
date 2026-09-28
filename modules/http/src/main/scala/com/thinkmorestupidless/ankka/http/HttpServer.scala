@@ -4,7 +4,8 @@ import com.thinkmorestupidless.ankka.runtime.{Observability, ServedRoute, SpanOu
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, AnkkaService, RuntimeExtension}
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.http.scaladsl.Http
+import com.thinkmorestupidless.ankka.runtime.RotatingTls
+import org.apache.pekko.http.scaladsl.{ConnectionContext, Http}
 import org.apache.pekko.http.scaladsl.model.*
 import org.apache.pekko.http.scaladsl.model.sse.ServerSentEvent
 import org.apache.pekko.http.scaladsl.marshalling.sse.EventStreamMarshalling.*
@@ -30,12 +31,12 @@ final class HttpServer private (
 
   @volatile private var binding: Option[Http.ServerBinding] = None
   @volatile private var served: Vector[ServedRoute]         = Vector.empty
+  @volatile private var scheme: String                      = "http"
 
   def name: String = "http-server"
 
   def start(service: AnkkaService): Unit =
     given system: ActorSystem[?] = service.system
-    given ExecutionContext       = system.executionContext
 
     val config   = system.settings.config
     val host     = interface.getOrElse(config.getString("ankka.http.interface"))
@@ -45,8 +46,21 @@ final class HttpServer private (
       java.util.concurrent.TimeUnit.MILLISECONDS
     )
 
-    val clients   = EndpointClients(service.componentClient, service.viewClient)
-    val endpoints = factories.map(_(clients)).toVector
+    val clients = EndpointClients(service.componentClient, service.viewClient)
+    serve(factories.map(_(clients)).toVector, host, bindPort, bodyTimeout)
+
+  /**
+   * Validates, logs and binds `endpoints` — everything `start` does once the endpoints exist. Split
+   * out so a suite can serve real endpoints over real TLS without a whole service behind them.
+   */
+  private[http] def serve(
+      endpoints: Vector[HttpEndpoint],
+      host: String,
+      bindPort: Int,
+      bodyTimeout: FiniteDuration
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val config             = system.settings.config
     validate(endpoints)
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap { endpoint =>
@@ -77,18 +91,39 @@ final class HttpServer private (
         )
     }
 
-    val handler = Router(endpoints, bodyTimeout).handle
+    val tls     = serviceTls(config)
+    val callers = CallerSource(tls)
+    val handler = Router(endpoints, bodyTimeout, callers).handle
 
+    val server = Http()(using system).newServerAt(host, bindPort)
     val bound = Await.result(
-      Http()(using system).newServerAt(host, bindPort).bind(handler),
+      tls match
+        case Some(identity) =>
+          server
+            .enableHttps(ConnectionContext.httpsServer(() => identity.serverEngine()))
+            .bind(handler)
+        case None => server.bind(handler)
+      ,
       30.seconds
     )
     binding = Some(bound)
+    scheme = if tls.isDefined then "https" else "http"
     system.log.info(
-      "ankka http listening on http://{}:{}",
+      "ankka http listening on {}://{}:{}",
+      scheme,
       bound.localAddress.getHostString,
       bound.localAddress.getPort
     )
+    val namesCallers = endpoints.exists(e =>
+      (e.acl +: (e.routes.flatMap(_.acl) ++ e.streamRoutes.flatMap(_.acl))).exists {
+        case Acl.AllowCallers(_) => true
+        case _                   => false
+      }
+    )
+    if tls.isEmpty && namesCallers then
+      system.log.info(
+        "caller identity is not enforced outside a cluster: every request is Caller.Local"
+      )
 
   override def stop(): Unit =
     binding.foreach(b => Await.ready(b.terminate(5.seconds), 10.seconds))
@@ -109,7 +144,29 @@ final class HttpServer private (
   override def routes: Vector[ServedRoute] = served
 
   override def boundAddress: Option[String] =
-    binding.map(b => s"http://127.0.0.1:${b.localAddress.getPort}")
+    binding.map(b => s"$scheme://127.0.0.1:${b.localAddress.getPort}")
+
+  /**
+   * The service certificate when this process serves mutual TLS — the Kubernetes overlay's setting,
+   * never a local run's. A missing file fails startup naming it.
+   */
+  private def serviceTls(config: com.typesafe.config.Config): Option[RotatingTls] =
+    val enabled =
+      config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
+    Option.when(enabled) {
+      val directory = config.getString("ankka.tls.service-directory")
+      if directory.isEmpty then
+        throw IllegalStateException(
+          "ankka.http.tls.enabled is on but ankka.tls.service-directory is empty"
+        )
+      RotatingTls(
+        java.nio.file.Paths.get(directory),
+        FiniteDuration(
+          config.getDuration("ankka.tls.reload-interval").toMillis,
+          java.util.concurrent.TimeUnit.MILLISECONDS
+        )
+      )
+    }
 
   /**
    * Rejects two endpoints sharing a prefix, and duplicate routes within one endpoint.
@@ -168,7 +225,11 @@ private enum Matched:
     case Streaming(route, _) => route.acl
 
 /** Matches requests to routes and turns handler outcomes into responses. */
-private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteDuration):
+private final class Router(
+    endpoints: Vector[HttpEndpoint],
+    bodyTimeout: FiniteDuration,
+    callers: CallerSource = CallerSource.local
+):
 
   // Sorted once at startup: most specific template first, so a literal segment is never
   // shadowed by a parameter that happened to be declared earlier.
@@ -208,14 +269,27 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
           // answering 404 for some and 403 for the rest.
           val effective = found.flatMap(_.acl).getOrElse(endpoint.acl)
 
-          admit(effective, contextFor(request)) match
-            case Left(refused) => Future.successful(refused)
-            case Right(context) =>
-              found match
-                case Some(Matched.Plain(route, args)) => dispatch(route, request, context, args)
-                case Some(Matched.Streaming(route, args)) =>
-                  dispatchStream(route, request, context, args)
-                case None => unmatched(endpoint, request, remaining)
+          callers.callerOf(request) match
+            case Left(reason) => Future.successful(problem(HttpProblem.forbidden(reason)))
+            case Right(caller) =>
+              admitted(endpoint, request, remaining, found, effective, caller)
+
+  private def admitted(
+      endpoint: HttpEndpoint,
+      request: HttpRequest,
+      remaining: Vector[String],
+      found: Option[Matched],
+      effective: Acl,
+      caller: Caller
+  )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
+    admit(effective, contextFor(request, caller)) match
+      case Left(refused) => Future.successful(refused)
+      case Right(context) =>
+        found match
+          case Some(Matched.Plain(route, args)) => dispatch(route, request, context, args)
+          case Some(Matched.Streaming(route, args)) =>
+            dispatchStream(route, request, context, args)
+          case None => unmatched(endpoint, request, remaining)
 
   /**
    * The route this request selects, if any.
@@ -264,18 +338,27 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
    * Built once per request and shared: an ACL predicate that inspects a query parameter should be
    * looking at exactly what the handler will.
    */
-  private def contextFor(request: HttpRequest): SimpleRequestContext =
+  private def contextFor(request: HttpRequest, caller: Caller): SimpleRequestContext =
     SimpleRequestContext(
       method = request.method.value,
       path = request.uri.path.toString,
       query = QueryParams(request.uri.query().toVector),
       // Pekko models Content-Type on the entity, not among the headers; a handler asking
-      // `request.header("Content-Type")` should still get an answer.
-      headers = request.headers.map(header => header.name -> header.value).toVector ++
+      // `request.header("Content-Type")` should still get an answer. The local caller header is
+      // withheld, since its value is this process's secret, and so is the TLS session pekko-http
+      // attaches as a synthetic header: the caller it names is `caller`.
+      headers = request.headers
+        .filterNot(h =>
+          h.lowercaseName == LocalCallers.Header.toLowerCase || h
+            .isInstanceOf[headers.`Tls-Session-Info`]
+        )
+        .map(header => header.name -> header.value)
+        .toVector ++
         Option
           .when(!request.entity.isKnownEmpty)("Content-Type" -> request.entity.contentType.value)
           .toVector,
-      remoteAddress = None
+      remoteAddress = None,
+      caller = caller
     )
 
   /**
@@ -292,6 +375,11 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
       case Acl.AllowAll => Right(context)
       case Acl.AllowIf(predicate) =>
         if predicate(context) then Right(context)
+        else forbidden("not permitted by this endpoint's acl")
+      case Acl.AllowCallers(matchers) =>
+        // The same refusal text as every other ACL: naming the callers that would have been
+        // admitted tells an unauthorised caller whose certificate to go looking for.
+        if matchers.exists(_.admits(context.caller, callers.self)) then Right(context)
         else forbidden("not permitted by this endpoint's acl")
       case Acl.Authenticate(decide) =>
         decide(context) match
@@ -423,6 +511,51 @@ private final class Router(endpoints: Vector[HttpEndpoint], bodyTimeout: FiniteD
         s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}}"""
       )
     )
+
+/**
+ * Where a request's caller comes from: the client certificate under mutual TLS, the local
+ * impersonation header otherwise.
+ *
+ * Under TLS a connection without a client certificate never reaches here — the handshake requires
+ * one — so `Left` is a certificate the authority issued that names no caller the platform knows.
+ */
+private[http] final class CallerSource(val self: RotatingTls.Identity, tls: Boolean):
+  def callerOf(request: HttpRequest): Either[String, Caller] =
+    if tls then
+      request.header[headers.`Tls-Session-Info`] match
+        case Some(info) =>
+          info.peerCertificates.headOption match
+            case Some(certificate: java.security.cert.X509Certificate) =>
+              Caller.fromCertificate(certificate)
+            case _ => Left("no client certificate")
+        case None => Left("no client certificate")
+    else
+      Right(
+        request.headers
+          .find(_.lowercaseName == LocalCallers.Header.toLowerCase)
+          .map(h => LocalCallers.callerFrom(h.value))
+          .getOrElse(Caller.Local)
+      )
+
+private[http] object CallerSource:
+  /**
+   * Outside a cluster this service has no certificate and so no identity of its own; `local/local`
+   * is what `Callers.self` and `Callers.anyInProject` compare against, and only a test naming a
+   * caller through the local header can ever present it.
+   */
+  val LocalIdentity: RotatingTls.Identity = RotatingTls.Identity("local", "local")
+
+  val local: CallerSource = new CallerSource(LocalIdentity, tls = false)
+
+  def apply(tls: Option[RotatingTls]): CallerSource = tls match
+    case None => local
+    case Some(identity) =>
+      val self = identity.identity.getOrElse(
+        throw IllegalStateException(
+          s"the service certificate in ${identity.directory} names no ankka:// identity"
+        )
+      )
+      new CallerSource(self, tls = true)
 
 /**
  * The request's own span: the root every component invocation it causes hangs from.

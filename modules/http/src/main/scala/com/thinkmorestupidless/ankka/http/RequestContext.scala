@@ -34,6 +34,13 @@ trait RequestContext:
    */
   def principal: Option[Principal]
 
+  /**
+   * Which workload sent the request: the gateway, a named service, or — outside a cluster — the
+   * local machine. Set before any ACL runs, from the client certificate in a cluster, so an
+   * `Acl.AllowIf` predicate can read it as well as a handler.
+   */
+  def caller: Caller
+
 /**
  * A request's query string.
  *
@@ -100,7 +107,8 @@ private[ankka] final case class SimpleRequestContext(
     query: QueryParams,
     headers: Vector[(String, String)],
     remoteAddress: Option[String],
-    principal: Option[Principal] = None
+    principal: Option[Principal] = None,
+    caller: Caller = Caller.Local
 ) extends RequestContext
 
 /**

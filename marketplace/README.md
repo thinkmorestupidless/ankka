@@ -1,21 +1,30 @@
 # ankka marketplace
 
 Claude Code plugins for [ankka](https://docs.ankka.cloud/), a serverless platform for agentic AI on the
-actor model.
+actor model, and for what is built on it.
 
 ```text
 /plugin marketplace add thinkmorestupidless/ankka-marketplace
 /plugin install ankka@ankka
+/plugin install satisfactory@ankka
 ```
 
 The `ankka` plugin carries the platform's documentation as a set of Agent Skills, one per kind of task
 (`ankka`, `ankka-design`, `ankka-entities`, `ankka-views-consumers`, `ankka-workflows`, `ankka-agents`,
-`ankka-endpoints`, `ankka-python`, `ankka-deploy`, `ankka-platform`), and registers the `ankka mcp`
-server, which gives an agent the CLI's verbs, the services running on your machine and this version's
-documentation as tools. The `ankka` CLI must be on your `PATH` for the server to start:
+`ankka-endpoints`, `ankka-python`, `ankka-typescript`, `ankka-deploy`, `ankka-platform`), and registers
+the `ankka mcp` server, which gives an agent the CLI's verbs, the services running on your machine and
+this version's documentation as tools. The `ankka` CLI must be on your `PATH` for the server to start:
 `brew install thinkmorestupidless/tap/ankka`.
 
-This repository is generated. Its content is rendered from the documentation in
-[thinkmorestupidless/ankka](https://github.com/thinkmorestupidless/ankka) (`marketplace/` there) and
-pushed here by the release workflow on every tag, so each version of the plugin holds the documentation of
-that ankka version. Changes go to the ankka repository, not here.
+The `satisfactory` plugin carries the documentation of
+[satisfactory](https://satisfactory.ankka.cloud/), constraint solving as a service built on ankka, as
+four skills: the service and its API (`satisfactory`), the Scala client (`satisfactory-client`), using
+it from an ankka application (`satisfactory-ankka`), and writing a model (`satisfactory-models`).
+
+This repository is generated. Each plugin is rendered from its own project's documentation and pushed
+here by that project's release workflow on every tag, so a plugin's version is the release whose
+documentation it holds: `plugins/ankka/` from
+[thinkmorestupidless/ankka](https://github.com/thinkmorestupidless/ankka) (`marketplace/` there, which
+also owns this README and the manifest's name), `plugins/satisfactory/` from
+[thinkmorestupidless/satisfactory](https://github.com/thinkmorestupidless/satisfactory). Changes go to
+those repositories, not here.

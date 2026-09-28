@@ -32,6 +32,7 @@ HISTORY = re.compile(
 )
 
 LINK = re.compile(r"(?<!!)\[(?P<label>[^\]]*)\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
+IMAGE = re.compile(r"!\[(?P<alt>[^\]]*)\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 MAX_DESCRIPTION = 240
 
@@ -178,6 +179,30 @@ def links(tree: Tree) -> list[Problem]:
     return problems
 
 
+def images(tree: Tree) -> list[Problem]:
+    """An image is a file under docs/ and says in its alt text what it shows.
+
+    Everywhere but the site the picture is gone: a model reading the raw Markdown, `llms-full.txt` or a
+    skill gets the alt text and nothing else, so an image without it is a hole in the page."""
+    problems: list[Problem] = []
+    docs = tree.project.docs
+    for page in tree.pages.values():
+        text = strip_code(page.body)
+        for number, line in enumerate(text.splitlines(), start=1):
+            for match in IMAGE.finditer(line):
+                target = match.group("target")
+                if not match.group("alt").strip():
+                    problems.append(Problem(page.path, number, f"image '{target}' has no alt text; say what it shows"))
+                if re.match(r"^[a-z][a-z0-9+.-]*:", target):
+                    continue
+                resolved = _normalise(str(PurePosixPath(page.path).parent / target.partition("#")[0]))
+                if resolved is None:
+                    problems.append(Problem(page.path, number, f"image '{target}' leaves docs/; the site cannot serve it"))
+                elif not (docs / resolved).is_file():
+                    problems.append(Problem(page.path, number, f"image '{target}' points at a file that does not exist"))
+    return problems
+
+
 def _normalise(path: str) -> str | None:
     """The path with `.` and `..` resolved, or None when `..` climbs out of docs/."""
     parts: list[str] = []
@@ -305,6 +330,7 @@ def run(tree: Tree) -> list[Problem]:
         *prose(tree),
         *escapes(tree),
         *links(tree),
+        *images(tree),
         *navigation(tree),
         *examples(tree),
         *tabs(tree),

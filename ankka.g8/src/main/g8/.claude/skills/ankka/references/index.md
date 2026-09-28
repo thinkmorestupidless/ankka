@@ -29,6 +29,10 @@ A service is a set of components, registered explicitly and hosted by the runtim
 | Agent | A task carried out by talking to a model, with tools and memory | yes | yes | yes |
 | HTTP endpoint | The service's edge: routes, access control, request handling | yes | yes | yes |
 
+![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](assets/diagrams/components.svg)
+
+[Components](concepts/components.md#how-components-communicate) describes each path in the picture.
+
 A handler returns an effect, which is a description of what should happen. It performs no I/O itself:
 
 **Scala**

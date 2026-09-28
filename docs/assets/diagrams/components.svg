@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 930 790" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" aria-labelledby="title desc">
+  <title id="title">How the components of an ankka service fit together</title>
+  <desc id="desc">Callers reach an HTTP endpoint, which calls components through the component client. The client routes commands to agents, workflows and entities, each addressed by id; agents call the model provider, and agent tools and workflow steps call other components through the same client. Entities, workflows and agents write to the service's own Postgres: the event journal, or durable state for key value entities. Projections of every change feed views, which write rows to their tables, and consumers. Timers stored in the same database fire timed actions. Timed actions and consumers call components through the client. Views and consumers can also read Kafka topics, and consumers can publish to them.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .ink { fill: #1f2328; }
+    .muted { fill: #59636e; }
+    .accent-text { fill: #c2410c; }
+    .box { fill: #f6f8fa; stroke: #afb8c1; stroke-width: 1.2; }
+    .hot { fill: #fff4ec; stroke: #c2410c; stroke-width: 1.5; }
+    .cluster { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .ns { fill: none; stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .deploy { fill: none; stroke: #afb8c1; stroke-width: 1.2; stroke-dasharray: 3 3; }
+    .line { stroke: #1f2328; stroke-width: 1.4; fill: none; }
+    .dash { stroke: #59636e; stroke-width: 1.3; fill: none; stroke-dasharray: 4 3; }
+    .head { fill: #1f2328; }
+    .headmuted { fill: #59636e; }
+    text { font-size: 13px; }
+    .title { font-size: 14px; font-weight: 600; }
+    .small { font-size: 11.5px; }
+    .label { font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9198a1; }
+      .accent-text { fill: #ff9a5c; }
+      .box { fill: #161b22; stroke: #3d444d; }
+      .hot { fill: #2a1a10; stroke: #ff8a4c; }
+      .cluster { stroke: #9198a1; }
+      .ns { stroke: #656c76; }
+      .deploy { stroke: #3d444d; }
+      .line { stroke: #e6edf3; }
+      .dash { stroke: #9198a1; }
+      .head { fill: #e6edf3; }
+      .headmuted { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="headmuted"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="930" height="790" rx="12"/>
+  <rect class="box" x="24" y="74" width="152" height="60" rx="8"/>
+  <text class="title ink" x="100" y="99" text-anchor="middle">Callers</text>
+  <text class="small muted" x="100" y="118" text-anchor="middle">browsers, other services</text>
+  <rect class="box" x="24" y="258" width="152" height="60" rx="8"/>
+  <text class="title ink" x="100" y="283" text-anchor="middle">Model provider</text>
+  <text class="small muted" x="100" y="302" text-anchor="middle">Anthropic, or yours</text>
+  <rect class="cluster" x="226" y="40" width="680" height="652" rx="14"/>
+  <text class="label muted" x="244" y="62" text-anchor="start">ONE SERVICE · ITS INSTANCES FORM ONE CLUSTER</text>
+  <rect class="box" x="252" y="76" width="592" height="56" rx="8"/>
+  <text class="title ink" x="548" y="100" text-anchor="middle">HTTP endpoint</text>
+  <text class="small muted" x="548" y="119" text-anchor="middle">routes · ACL · server-sent events</text>
+  <path class="line" d="M 176 104 L 250 104" marker-end="url(#a)"/>
+  <text class="small muted" x="201" y="97" text-anchor="middle">HTTP</text>
+  <path class="line" d="M 548 132 L 548 160" marker-end="url(#a)"/>
+  <text class="small muted" x="556" y="150" text-anchor="start">calls</text>
+  <rect class="hot" x="252" y="162" width="638" height="34" rx="6"/>
+  <text class="small ink" x="571" y="184" text-anchor="middle">component client · view client — reaches a component by id, wherever in the cluster it lives</text>
+  <rect class="box" x="252" y="246" width="136" height="84" rx="8"/>
+  <text class="title ink" x="320" y="270" text-anchor="middle">Agent</text>
+  <text class="small muted" x="320" y="292" text-anchor="middle">one per session id</text>
+  <text class="small muted" x="320" y="308" text-anchor="middle">runs the model loop</text>
+  <rect class="box" x="404" y="246" width="136" height="84" rx="8"/>
+  <text class="title ink" x="472" y="270" text-anchor="middle">Workflow</text>
+  <text class="small muted" x="472" y="292" text-anchor="middle">one per workflow id</text>
+  <text class="small muted" x="472" y="308" text-anchor="middle">steps, retries</text>
+  <rect class="box" x="556" y="246" width="136" height="84" rx="8"/>
+  <text class="title ink" x="624" y="270" text-anchor="middle">Event sourced</text>
+  <text class="title ink" x="624" y="287" text-anchor="middle">entity</text>
+  <text class="small muted" x="624" y="310" text-anchor="middle">one per entity id</text>
+  <rect class="box" x="708" y="246" width="136" height="84" rx="8"/>
+  <text class="title ink" x="776" y="270" text-anchor="middle">Key value</text>
+  <text class="title ink" x="776" y="287" text-anchor="middle">entity</text>
+  <text class="small muted" x="776" y="310" text-anchor="middle">one per entity id</text>
+  <path class="line" d="M 296 196 L 296 244" marker-end="url(#a)"/>
+  <path class="line" d="M 448 196 L 448 244" marker-end="url(#a)"/>
+  <path class="line" d="M 600 196 L 600 244" marker-end="url(#a)"/>
+  <path class="line" d="M 752 196 L 752 244" marker-end="url(#a)"/>
+  <path class="line" d="M 344 244 L 344 198" marker-end="url(#a)"/>
+  <path class="line" d="M 496 244 L 496 198" marker-end="url(#a)"/>
+  <text class="small muted" x="608" y="226" text-anchor="start">commands</text>
+  <text class="small muted" x="350" y="226" text-anchor="start">tools call</text>
+  <text class="small muted" x="502" y="226" text-anchor="start">steps call</text>
+  <path class="line" d="M 250 280 L 178 280" marker-end="url(#a)"/>
+  <path class="dash" d="M 178 296 L 250 296" marker-end="url(#m)"/>
+  <text class="small muted" x="201" y="273" text-anchor="middle">asks</text>
+  <text class="small muted" x="222" y="312" text-anchor="end">answers</text>
+  <rect class="box" x="252" y="372" width="592" height="136" rx="8"/>
+  <path class="line" d="M 320 330 L 320 380" marker-end="url(#a)"/>
+  <text class="small muted" x="326" y="356" text-anchor="start">session memory</text>
+  <path class="line" d="M 472 330 L 472 380" marker-end="url(#a)"/>
+  <text class="small muted" x="478" y="356" text-anchor="start">transitions</text>
+  <path class="line" d="M 624 330 L 624 380" marker-end="url(#a)"/>
+  <text class="small muted" x="630" y="356" text-anchor="start">events</text>
+  <path class="line" d="M 776 330 L 776 380" marker-end="url(#a)"/>
+  <text class="small muted" x="782" y="356" text-anchor="start">current value</text>
+  <rect class="bg" x="260" y="382" width="424" height="36" rx="5"/>
+  <rect class="deploy" x="260" y="382" width="424" height="36" rx="5"/>
+  <text class="small ink" x="472" y="405" text-anchor="middle">event journal and snapshots</text>
+  <rect class="bg" x="716" y="382" width="120" height="36" rx="5"/>
+  <rect class="deploy" x="716" y="382" width="120" height="36" rx="5"/>
+  <text class="small ink" x="776" y="405" text-anchor="middle">durable state</text>
+  <rect class="bg" x="260" y="426" width="120" height="36" rx="5"/>
+  <rect class="deploy" x="260" y="426" width="120" height="36" rx="5"/>
+  <text class="small ink" x="320" y="449" text-anchor="middle">view tables</text>
+  <rect class="bg" x="412" y="426" width="120" height="36" rx="5"/>
+  <rect class="deploy" x="412" y="426" width="120" height="36" rx="5"/>
+  <text class="small ink" x="472" y="449" text-anchor="middle">projection offsets</text>
+  <rect class="bg" x="564" y="426" width="272" height="36" rx="5"/>
+  <rect class="deploy" x="564" y="426" width="272" height="36" rx="5"/>
+  <text class="small ink" x="700" y="449" text-anchor="middle">timers</text>
+  <text class="title ink" x="488" y="494" text-anchor="start">Postgres · the service's own database</text>
+  <rect class="box" x="252" y="556" width="136" height="84" rx="8"/>
+  <text class="title ink" x="320" y="580" text-anchor="middle">View</text>
+  <text class="small muted" x="320" y="600" text-anchor="middle">rows in its table,</text>
+  <text class="small muted" x="320" y="616" text-anchor="middle">queried with SQL</text>
+  <rect class="box" x="556" y="556" width="288" height="48" rx="8"/>
+  <text class="title ink" x="700" y="576" text-anchor="middle">Timed action</text>
+  <text class="small muted" x="700" y="594" text-anchor="middle">called when a timer is due</text>
+  <rect class="box" x="556" y="624" width="288" height="48" rx="8"/>
+  <text class="title ink" x="700" y="644" text-anchor="middle">Consumer</text>
+  <text class="small muted" x="700" y="662" text-anchor="middle">reacts, or publishes onward</text>
+  <path class="line" d="M 320 556 L 320 464" marker-end="url(#a)"/>
+  <text class="small muted" x="328" y="528" text-anchor="start">writes rows</text>
+  <path class="line" d="M 472 462 L 472 648 L 554 648" marker-end="url(#a)"/>
+  <path class="line" d="M 472 598 L 390 598" marker-end="url(#a)"/>
+  <text class="small muted" x="480" y="528" text-anchor="start">projections</text>
+  <text class="small muted" x="480" y="543" text-anchor="start">of every change</text>
+  <path class="line" d="M 776 462 L 776 554" marker-end="url(#a)"/>
+  <text class="small muted" x="784" y="528" text-anchor="start">due</text>
+  <path class="line" d="M 844 580 L 876 580"/>
+  <path class="line" d="M 844 648 L 876 648"/>
+  <path class="line" d="M 876 648 L 876 198" marker-end="url(#a)"/>
+  <text class="small muted" x="892" y="420" text-anchor="middle" transform="rotate(-90 892 420)">they call components through the client</text>
+  <rect class="box" x="252" y="712" width="592" height="56" rx="8"/>
+  <text class="title ink" x="548" y="736" text-anchor="middle">Kafka broker topics</text>
+  <text class="small muted" x="548" y="755" text-anchor="middle">between services, and to systems outside ankka · the platform runs none</text>
+  <path class="line" d="M 320 710 L 320 642" marker-end="url(#a)"/>
+  <text class="small muted" x="328" y="688" text-anchor="start">topic as a source</text>
+  <path class="line" d="M 740 674 L 740 710" marker-end="url(#a)"/>
+  <text class="small muted" x="732" y="688" text-anchor="end">publishes</text>
+  <path class="line" d="M 800 710 L 800 674" marker-end="url(#a)"/>
+  <text class="small muted" x="808" y="688" text-anchor="start">reads</text>
+</svg>

@@ -281,6 +281,17 @@ def test_a_literal_escape_is_refused_only_when_a_target_escapes(repo: Path) -> N
     assert not any("literal '\\$'" in p for p in problems(repo))
 
 
+def test_an_image_must_exist_under_docs_and_say_what_it_shows(repo: Path) -> None:
+    write(repo, "docs/assets/flow.svg", "<svg xmlns='http://www.w3.org/2000/svg'/>")
+    write(repo, "docs/build/make.md", MAKE + "\n![How a widget is made](../assets/flow.svg)\n")
+    assert not any("image" in p for p in problems(repo))
+    write(repo, "docs/build/make.md", MAKE + "\n![](../assets/flow.svg)\n![A lost picture](../assets/gone.svg)\n![Out](../../x.svg)\n")
+    found = problems(repo)
+    assert any("image '../assets/flow.svg' has no alt text" in p for p in found)
+    assert any("image '../assets/gone.svg' points at a file that does not exist" in p for p in found)
+    assert any("image '../../x.svg' leaves docs/" in p for p in found)
+
+
 def test_a_repository_with_no_skills_and_no_generators_is_fine(tmp_path: Path) -> None:
     write(tmp_path, "mkdocs.yml", "site_name: plain\nsite_url: https://plain.example/\nnav:\n  - Home: index.md\n")
     write(tmp_path, "docs/index.md", INDEX.replace("Read [Make a widget](build/make.md#the-recipe) next.", "That is all.").replace("widget", "plain"))

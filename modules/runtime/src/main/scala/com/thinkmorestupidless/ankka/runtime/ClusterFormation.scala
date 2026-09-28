@@ -4,7 +4,11 @@ import org.apache.pekko.actor.Address
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.cluster.typed.{Cluster, Join, JoinSeedNodes}
 import org.apache.pekko.management.cluster.bootstrap.ClusterBootstrap
+import org.apache.pekko.http.scaladsl.{ConnectionContext, Http}
 import org.apache.pekko.management.scaladsl.PekkoManagement
+
+import java.nio.file.Paths
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /**
  * How this node comes to be a cluster member — one code path, chosen by configuration.
@@ -30,6 +34,8 @@ object ClusterFormation:
   val FormationKey: String = "ankka.cluster.formation"
   val SeedNodesKey: String = "ankka.cluster.seed-nodes"
 
+  val ClusterTlsKey: String = "ankka.tls.cluster-directory"
+
   val JoinSelfOrSeeds: String = "join-self-or-seeds"
   val Bootstrap: String       = "bootstrap"
 
@@ -51,13 +57,47 @@ object ClusterFormation:
           cluster.manager ! Join(cluster.selfMember.address)
 
       case Bootstrap =>
-        PekkoManagement(system).start()
+        // Before management, so the kubelet can ask from the moment the pod starts; it says 503
+        // until membership and every extension agree, exactly as management's /ready did.
+        ProbeEndpoint.start(system): Unit
+        string(ClusterTlsKey, "") match
+          case "" =>
+            PekkoManagement(system).start(): Unit
+          case directory =>
+            val tls = clusterTls(system, directory)
+            // Before bootstrap: with no CA path configured, the contact-point probes go through
+            // pekko-http's default client context — this one, presenting the cluster certificate.
+            Http()(using system).setDefaultClientHttpsContext(
+              ConnectionContext.httpsClient((host, port) => tls.clientEngine(host, port))
+            )
+            PekkoManagement(system).start(
+              _.withHttpsConnectionContext(ConnectionContext.httpsServer(() => tls.serverEngine()))
+            ): Unit
         ClusterBootstrap(system).start()
 
       case other =>
         throw IllegalArgumentException(
           s"$FormationKey '$other' is not one of: $JoinSelfOrSeeds, $Bootstrap"
         )
+
+  /**
+   * The cluster identity for management and the probes of it: only a peer holding this very
+   * certificate may ask a management route, the same rule remoting's own engine applies after its
+   * handshake. A missing file fails startup naming it, rather than starting a node that nothing can
+   * reach and that reports nothing.
+   */
+  private def clusterTls(system: ActorSystem[?], directory: String): RotatingTls =
+    val config = system.settings.config
+    val interval =
+      if config.hasPath(ReloadKey) then
+        FiniteDuration(
+          config.getDuration(ReloadKey).toMillis,
+          java.util.concurrent.TimeUnit.MILLISECONDS
+        )
+      else 1.minute
+    RotatingTls(Paths.get(directory), interval, RotatingTls.Peers.SameIdentity)
+
+  private val ReloadKey = "ankka.tls.reload-interval"
 
   /** Comma-separated `pekko://system@host:port` addresses; blank entries ignored. */
   def seedNodes(value: String): List[Address] =

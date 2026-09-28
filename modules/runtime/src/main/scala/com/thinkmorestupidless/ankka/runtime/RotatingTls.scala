@@ -8,7 +8,15 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, NoSuchFileException, Path}
 import java.security.cert.{CertificateFactory, X509Certificate}
 import java.security.{KeyStore, SecureRandom}
-import javax.net.ssl.{KeyManagerFactory, SSLContext, SSLEngine, TrustManagerFactory}
+import java.net.Socket
+import java.security.cert.CertificateException
+import javax.net.ssl.{
+  KeyManagerFactory,
+  SSLContext,
+  SSLEngine,
+  TrustManagerFactory,
+  X509ExtendedTrustManager
+}
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters.*
 
@@ -32,7 +40,11 @@ import scala.jdk.CollectionConverters.*
  * context and tries again at the next interval. Serving with yesterday's still-valid certificate is
  * strictly better than refusing every connection because a file was caught mid-swap.
  */
-final class RotatingTls(val directory: Path, reloadInterval: FiniteDuration):
+final class RotatingTls(
+    val directory: Path,
+    reloadInterval: FiniteDuration,
+    peers: RotatingTls.Peers = RotatingTls.Peers.Authority
+):
 
   import RotatingTls.*
 
@@ -106,9 +118,21 @@ final class RotatingTls(val directory: Path, reloadInterval: FiniteDuration):
     authorities.zipWithIndex.foreach((ca, i) => trustStore.setCertificateEntry(s"ca-$i", ca))
     val trustManagers = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm)
     trustManagers.init(trustStore)
+    val trust = peers match
+      case Peers.Authority => trustManagers.getTrustManagers
+      case Peers.SameIdentity =>
+        val own = ankkaUris(chain.head)
+        if own.isEmpty then
+          throw IllegalStateException(
+            s"${directory.resolve("tls.crt")} names no ankka:// identity to require of its peers"
+          )
+        trustManagers.getTrustManagers.map {
+          case x: X509ExtendedTrustManager => SameIdentityTrustManager(x, own.toSet)
+          case other                       => other
+        }
 
     val context = SSLContext.getInstance("TLS")
-    context.init(keyManagers.getKeyManagers, trustManagers.getTrustManagers, new SecureRandom())
+    context.init(keyManagers.getKeyManagers, trust, new SecureRandom())
     Loaded(context, chain.head, mtimes, System.nanoTime())
 
   private def read(name: String): String =
@@ -121,6 +145,56 @@ final class RotatingTls(val directory: Path, reloadInterval: FiniteDuration):
         )
 
 object RotatingTls:
+
+  /** Which peers a context accepts, beyond "issued by the authority in `ca.crt`". */
+  enum Peers:
+    /** Any certificate the authority issued; the client also checks the server names its host. */
+    case Authority
+
+    /**
+     * Only a certificate carrying this process's own `ankka://` identity, in both directions. For
+     * cluster traffic, where every node of a service holds the same certificate and a node of any
+     * other service is not a peer — the rule Pekko's remoting applies to itself.
+     */
+    case SameIdentity
+
+  /**
+   * The authority's verdict, then one more: the peer's leaf must carry one of `required`'s URIs.
+   * Refusing in the trust manager means a foreign peer fails the handshake itself, before any byte
+   * of a request is read — which is what "refused" has to mean for a port that answers cluster
+   * questions.
+   */
+  private final class SameIdentityTrustManager(
+      delegate: X509ExtendedTrustManager,
+      required: Set[String]
+  ) extends X509ExtendedTrustManager:
+    private def same(chain: Array[X509Certificate]): Unit =
+      val presented = chain.headOption.map(ankkaUris).getOrElse(Vector.empty)
+      if !presented.exists(required.contains) then
+        throw CertificateException(
+          s"peer identity ${presented.mkString(", ").ifEmpty("(none)")} is not ${required.mkString(", ")}"
+        )
+
+    // Every overload delegates to the two-argument check, which validates the chain and nothing
+    // else. The socket and engine overloads would also check the peer's name against the host it was
+    // reached at — and Pekko's TLS stage turns that on for a client after the engine is built — but a
+    // cluster peer is reached by pod IP, which no certificate names. The identity check below is what
+    // replaces it, and it is the stronger of the two.
+    override def checkClientTrusted(chain: Array[X509Certificate], authType: String): Unit =
+      delegate.checkClientTrusted(chain, authType); same(chain)
+    override def checkServerTrusted(chain: Array[X509Certificate], authType: String): Unit =
+      delegate.checkServerTrusted(chain, authType); same(chain)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String, s: Socket): Unit =
+      checkClientTrusted(c, a)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String, s: Socket): Unit =
+      checkServerTrusted(c, a)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String, e: SSLEngine): Unit =
+      checkClientTrusted(c, a)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String, e: SSLEngine): Unit =
+      checkServerTrusted(c, a)
+    override def getAcceptedIssuers: Array[X509Certificate] = delegate.getAcceptedIssuers
+
+  extension (s: String) private def ifEmpty(other: String): String = if s.isEmpty then other else s
 
   /** Where a certificate's `ankka://<project>/<service>` URI says it belongs. */
   final case class Identity(project: String, service: String)
@@ -139,8 +213,12 @@ object RotatingTls:
   )
 
   /** Fails naming the directory and the missing file, so a pod that cannot start says why. */
-  def apply(directory: Path, reloadInterval: FiniteDuration): RotatingTls =
-    new RotatingTls(directory, reloadInterval)
+  def apply(
+      directory: Path,
+      reloadInterval: FiniteDuration,
+      peers: Peers = Peers.Authority
+  ): RotatingTls =
+    new RotatingTls(directory, reloadInterval, peers)
 
   /** The `ankka://` URIs among a certificate's subject alternative names. */
   def ankkaUris(certificate: X509Certificate): Vector[String] =

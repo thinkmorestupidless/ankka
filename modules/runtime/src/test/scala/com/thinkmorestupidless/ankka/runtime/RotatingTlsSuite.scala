@@ -144,3 +144,23 @@ class RotatingTlsSuite extends munit.FunSuite:
       "HTTPS"
     )
   }
+
+  test("under SameIdentity a peer from the same authority but another service is refused") {
+    val mine    = root.issue(uris = Seq("ankka://p/orders"))
+    val server  = RotatingTls(mine.writeTo(dir()), 1.minute, RotatingTls.Peers.SameIdentity)
+    val sibling = RotatingTls(mine.writeTo(dir()), 1.minute, RotatingTls.Peers.SameIdentity)
+    assert(handshake(server, Some(sibling)).isRight, "the same identity must be accepted")
+    val other = RotatingTls(
+      root.issue(uris = Seq("ankka://p/carts")).writeTo(dir()),
+      1.minute,
+      RotatingTls.Peers.SameIdentity
+    )
+    assert(handshake(server, Some(other)).isLeft, "another service's identity must be refused")
+  }
+
+  test("SameIdentity refuses to start from a certificate with no ankka identity") {
+    val directory = root.issue(dnsNames = Seq("x.svc")).writeTo(dir())
+    intercept[IllegalStateException](
+      RotatingTls(directory, 1.minute, RotatingTls.Peers.SameIdentity)
+    )
+  }

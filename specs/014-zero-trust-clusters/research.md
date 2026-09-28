@@ -66,6 +66,24 @@ contact point that is not this service's peer fails the handshake. `PekkoManagem
 contact-point URIs from that self contact point; **the spike in T1 proves the probe scheme is
 `https` when management is HTTPS**, since it is inferred from bytecode rather than documented.
 
+**Answered at implementation (T002, `TlsClusterFormationSuite`)**:
+
+- The probe scheme *is* derived from the self contact point: bootstrap logs `scheme [https]` and
+  probes `https://…/bootstrap/seed-nodes`. With `ca-path` empty it calls `Http().singleRequest` with
+  the default client context, so `setDefaultClientHttpsContext` before `ClusterBootstrap.start()` is
+  the whole mechanism. No override was needed.
+- Pekko's TLS stage re-enables endpoint identification on a client engine after the engine is built,
+  so a cluster peer reached by IP failed `No subject alternative names matching IP address`. Cluster
+  contexts therefore use `RotatingTls.Peers.SameIdentity`, whose trust manager validates the chain
+  with the two-argument check (no hostname) and then requires the peer to carry this process's own
+  `ankka://` URI — the rule Pekko's remoting applies to itself. A node of another service, same
+  authority, is refused in the handshake.
+- Pekko's `reference.conf` arrives already resolved, so overriding only
+  `rotating-keys-engine.secret-mount-point` leaves `key-file`, `cert-file` and `ca-cert-file` at
+  `/var/run/secrets/pekko-tls/…`. The overlay names all three files.
+- Bootstrap counts contact points per host; on one machine two nodes are told apart by host name
+  (`localhost` and `127.0.0.1`). In a cluster every pod has its own IP and this does not arise.
+
 **Alternatives considered**: `TLSClientAuth.Want` on the management port with route-level checks
 only for ankka's own routes — leaves `/bootstrap/seed-nodes` and `/cluster/members` reachable
 without identity; rejected because FR-010 says every route but readiness. A readiness `exec` probe

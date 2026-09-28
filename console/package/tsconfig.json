@@ -1,0 +1,23 @@
+{
+  // The check configuration. Sources and tests run directly under Node's type stripping where they
+  // are plain TypeScript, so the syntax is what erases and every local import names its extension.
+  // Route modules are .tsx and are compiled by the host's Vite, never run by Node directly.
+  "compilerOptions": {
+    "target": "es2024",
+    "module": "nodenext",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["node"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "customConditions": ["ankka-source"]
+  },
+  "include": ["src", "test", "scripts"]
+}

@@ -1,0 +1,2 @@
+/* The console's pages. Every class is prefixed `ac-`; every colour, font and space is a custom
+   property on .ac-root, so a host restyles the pages by overriding properties, not rules. */

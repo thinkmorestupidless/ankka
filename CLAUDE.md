@@ -61,6 +61,10 @@ sbt compile                       # should be warning-free; -Wunused is on
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
+just build-console                # the installation's console: the ankka-console package, then the host
+just test-console                 # its type check, unit tests and Playwright suite against in-process fakes
+just test-console-compose         # the Playwright suite against compose's Keycloak and a running control plane
+cd console && npm run dev         # the console on :3000 against compose's Keycloak and `sbt controlPlane/run`
 ```
 
 Running the samples needs the bundled Postgres:

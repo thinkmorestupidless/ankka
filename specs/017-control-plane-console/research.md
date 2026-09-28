@@ -38,6 +38,15 @@ support and no implementation. `relative()` exists precisely to build entries fr
 directory, and an absolute path is what it produces. This is the smallest mechanism that keeps the
 route *files* in the package.
 
+**Spike outcome (2026-09-29)**: the mechanism works on React Router 8.4 and Vite 8, in `react-router
+build`, the built server and `react-router dev`. Two adjustments: `consoleRoutes()` builds the entries
+as plain objects with explicit ids (`ankka-console/<name>`) rather than through `relative()`, so the
+package's runtime entry point never imports `@react-router/dev`; and the host consumes the package
+through `dist/` rather than a source condition, because the framework's route-config loader resolves
+`routes.ts` imports without the host's Vite `resolve.conditions` (`Failed to resolve entry for package
+"ankka-console"`). The in-repo host therefore sees exactly what an npm consumer sees; the workspace's
+`build` and `dev` scripts build the package first.
+
 **Risk and fallback**: The first task of implementation is a spike proving the mechanism in the
 fixture host — entries from `node_modules`, split route modules, HMR in dev, a production build. If
 the Vite plugin refuses files outside the app directory, the fallback is one-line re-export route

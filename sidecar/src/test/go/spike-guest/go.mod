@@ -1,6 +1,6 @@
 // The spike's Go guest: the same exports as the Rust one, built with TinyGo to answer whether a
 // small Go module can speak the protocol's messages without reflection. See
-// docs/design/wasm-hosting.md, "What the spike must answer", item 5. Not a PDK and not published.
+// ankka-deployments design/wasm-hosting.md, "What the spike must answer", item 5. Not a PDK and not published.
 module ankka-spike-guest
 
 go 1.26

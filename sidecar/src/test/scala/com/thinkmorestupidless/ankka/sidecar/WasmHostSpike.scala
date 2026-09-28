@@ -25,11 +25,12 @@ import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
 /**
- * The spike docs/design/wasm-hosting.md says a specification waits on: two guests speaking the
- * protocol's own messages over linear memory, loaded into this JVM through Chicory. One is Rust
- * (`src/test/rust/spike-guest`, built to `wasm32-unknown-unknown`), the other Go under TinyGo
- * (`src/test/go/spike-guest`, target `wasm-unknown`, protowire for the envelope); each `build.sh`
- * writes its module under `src/test/resources/wasm/`, and the modules are committed.
+ * The spike the design treatment (ankka-deployments, design/wasm-hosting.md) says a specification
+ * waits on: two guests speaking the protocol's own messages over linear memory, loaded into this
+ * JVM through Chicory. One is Rust (`src/test/rust/spike-guest`, built to
+ * `wasm32-unknown-unknown`), the other Go under TinyGo (`src/test/go/spike-guest`, target
+ * `wasm-unknown`, protowire for the envelope); each `build.sh` writes its module under
+ * `src/test/resources/wasm/`, and the modules are committed.
  *
  * The first case is a correctness test and always runs, against both guests: discovery, a command
  * from the empty state, and the state fed back in — the stateless shape, end to end, with the

@@ -35,8 +35,9 @@ object Dependencies {
     val bouncyCastle = "1.86"
 
     /**
-     * Test scope only, for now: the WebAssembly spike in `sidecar` (docs/design/wasm-hosting.md).
-     * Pure JVM, no native code, which is the property the treatment chose it for.
+     * Test scope only, for now: the WebAssembly spike in `sidecar` (ankka-deployments:
+     * design/wasm-hosting.md). Pure JVM, no native code, which is the property the treatment chose
+     * it for.
      */
     val chicory = "1.7.5"
 

@@ -58,9 +58,15 @@ if [[ -n "$KIND_VERSION" ]] && awk -v v="$KIND_VERSION" 'BEGIN { split(v, p, "."
 fi
 # shellcheck source=kustomization/netpol-probe.sh
 source kustomization/netpol-probe.sh
-if ! netpol_enforced; then
+probe_status=0
+netpol_enforced || probe_status=$?
+if [[ $probe_status -eq 1 ]]; then
   echo "refusing to deploy: this cluster accepted a NetworkPolicy and did not enforce it; ankka needs a" >&2
   echo "network that does (kind 0.24 or later does; see docs/platform/install-local.md)." >&2
+  exit 1
+elif [[ $probe_status -ne 0 ]]; then
+  echo "refusing to deploy: could not check that this cluster enforces network policy (the reason is" >&2
+  echo "above); run the script again once the cluster is healthy." >&2
   exit 1
 fi
 

@@ -88,16 +88,21 @@ kind create cluster --name ankka --config kustomization/kind.yaml
 ./kustomization/deploy-local.sh        # now proves network policy enforcement before deploying
 ankka config set url https://api.127.0.0.1.sslip.io:8443 && ankka config set ca ~/.ankka/local-ca.crt
 ankka login                            # dev / dev
-sbt shoppingCart/docker:publishLocal && kind load docker-image sample-shopping-cart:latest --name ankka
-ankka services apply -f samples/shopping-cart/service.json -p checkout
-ankka services get shopping-cart -p checkout          # Ready 1/1
+ankka organizations create acme --name Acme && ankka projects create checkout --name Checkout -O acme
+echo '{"name":"shopping-cart","service":{"image":"sample-shopping-cart:latest"}}' > cart.json
+ankka services apply -f cart.json -p checkout        # the deploy script already loaded the image
+ankka services get shopping-cart -p checkout          # Ready 1/1, database provisioned
+ankka services expose shopping-cart -p checkout
 kubectl -n ankka-checkout get certificate,networkpolicy,backendtlspolicy
 kubectl -n ankka-checkout exec deploy/shopping-cart -- ls /var/run/secrets/ankka/cluster   # ca.crt tls.crt tls.key
-curl --cacert ~/.ankka/local-ca.crt https://shopping-cart-checkout.127.0.0.1.sslip.io:8443/carts/1
+curl --cacert ~/.ankka/local-ca.crt https://shopping-cart-checkout.127.0.0.1.sslip.io:8443/callers/whoami
 ```
 
-Expected: the certificates are `Ready`, the service answers through the gateway, and `kubectl run
--n default probe --image=busybox -- wget -T3 http://shopping-cart.ankka-checkout.svc:9000` fails.
+Expected: five certificates `Ready` (the project's two database authorities and the service's
+cluster, service and database certificates), three network policies, and an accepted
+`BackendTLSPolicy`; `whoami` answers `the internet, through the gateway`; and `kubectl run -n
+default probe --image=busybox:1.36 --rm -i --restart=Never -- wget -T3 -qO-
+http://shopping-cart.ankka-checkout.svc:9000/carts/c1` times out.
 
 ## 6. Docs
 

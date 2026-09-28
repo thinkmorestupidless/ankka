@@ -54,10 +54,32 @@ class NetpolProbeSuite extends munit.FunSuite:
     assertEquals(probe(stub(enforces = true)), 0)
   }
 
-  test("a cluster that stores the policy and ignores it fails") {
+  test("a cluster that stores the policy and ignores it is the one verdict that refuses") {
     assertEquals(probe(stub(enforces = false)), 1)
   }
 
-  test("a network that connects nothing fails too, rather than passing for the wrong reason") {
-    assertEquals(probe(stub(enforces = true, connects = false)), 1)
+  test("a network that connects nothing is a probe that could not run, not a verdict") {
+    assertEquals(probe(stub(enforces = true, connects = false)), 2)
+  }
+
+  test("pods are created only once the namespace's service account exists") {
+    // The first two asks for the account find nothing, as on a namespace created a moment ago; a
+    // `run` before the account exists is refused by the API server, which the stub reproduces.
+    val dir     = stub(enforces = true)
+    val kubectl = dir.resolve("kubectl")
+    val asked   = dir.resolve("asked")
+    val script  = Files.readString(kubectl)
+    Files.writeString(
+      kubectl,
+      script.replace(
+        "case \"$*\" in",
+        s"""case "$$*" in
+           |  *" get serviceaccount default"*)
+           |    n=$$(cat "$asked" 2>/dev/null || echo 0); echo $$((n + 1)) > "$asked"
+           |    [[ $$n -ge 2 ]] && exit 0 || exit 1 ;;
+           |  *" run "*) [[ $$(cat "$asked" 2>/dev/null || echo 0) -ge 3 ]] && exit 0 || exit 1 ;;""".stripMargin
+      )
+    )
+    assertEquals(probe(dir), 0)
+    assertEquals(Files.readString(asked).trim, "3", "the probe did not wait for the account")
   }

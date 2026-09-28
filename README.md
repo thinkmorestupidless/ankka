@@ -158,6 +158,8 @@ In Python and TypeScript the loop runs in the runtime beside your process, which
 a tool or check a guardrail — so your code never holds the model's key. [Agents](docs/build/agents.md)
 covers memory, structured replies, streaming and compaction.
 
+![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In both, only the runtime calls the model provider and writes to the service's Postgres.](docs/assets/diagrams/agent-hosting.svg)
+
 ## The platform
 
 The platform runs on Kubernetes. The CLI talks to a **control plane**, which records what you asked for

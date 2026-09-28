@@ -24,6 +24,8 @@ the runtime makes it happen.
 | HTTP: binding the port, ACLs, routing | what each route does |
 | cluster formation, readiness and observability | nothing |
 
+![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In both, only the runtime calls the model provider and writes to the service's Postgres.](../assets/diagrams/agent-hosting.svg)
+
 Because the process holds no durable state, it can be restarted, redeployed or crash without losing
 anything. An entity whose process is briefly unavailable is re-opened when the process returns; callers
 waiting at that moment are told the service is unavailable and the component client retries such a

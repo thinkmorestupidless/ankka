@@ -88,9 +88,12 @@ private[ankka] object AutonomousAgentHost:
             () => self ! WorkerStopped
           )
 
-          emit(
-            Notification.Activated(descriptor.componentId, instanceId, System.currentTimeMillis())
-          )
+          // Announced on the first message, not here: sharding creates the actor before delivering
+          // the message that started it, and when that message is a subscription, an announcement
+          // made during setup is handled while nobody is subscribed, and lost. Queued behind the
+          // first message, it reaches whoever that message subscribed. An instance sharding restarts
+          // with no message still announces itself, since its worker reports in at once.
+          var announced = false
           worker.start()
 
           def running(
@@ -109,8 +112,8 @@ private[ankka] object AutonomousAgentHost:
                   timers.startSingleTimer(IdleTimerKey, IdleTimeout, settings.idlePassivationAfter)
               else timers.cancel(IdleTimerKey)
 
-            Behaviors
-              .receiveMessage[EntityProtocol.Command] {
+            def handle(message: EntityProtocol.Command): Behavior[EntityProtocol.Command] =
+              message match
                 case invoke: EntityProtocol.Invoke =>
                   if opBusy then
                     stash.stash(invoke)
@@ -176,6 +179,16 @@ private[ankka] object AutonomousAgentHost:
                   running(Set.empty, opBusy, idle, stopping = true)
 
                 case _ => Behaviors.same
+
+            Behaviors
+              .receiveMessage[EntityProtocol.Command] { message =>
+                if !announced then
+                  announced = true
+                  emit(
+                    Notification
+                      .Activated(descriptor.componentId, instanceId, System.currentTimeMillis())
+                  )
+                handle(message)
               }
               .receiveSignal { case (_, PostStop) =>
                 worker.stop()

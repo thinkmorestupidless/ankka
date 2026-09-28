@@ -261,10 +261,10 @@ object ZeroTrust:
 
   /** One volume per identity the node container mounts; the database pair only when provisioned. */
   def volumes(spec: AnkkaServiceSpec, provisioned: Boolean, clusterName: String): Vector[Volume] =
-    Vector(secretVolume("ankka-cluster-tls", clusterSecretName(spec.serviceName), None)) ++
-      spec.port.map(_ =>
-        secretVolume("ankka-service-tls", serviceSecretName(spec.serviceName), None)
-      ) ++
+    Vector(
+      secretVolume("ankka-cluster-tls", clusterSecretName(spec.serviceName), None),
+      secretVolume("ankka-service-tls", serviceSecretName(spec.serviceName), None)
+    ) ++
       Option.when(provisioned)(
         secretVolume(
           "ankka-database-tls",
@@ -280,8 +280,7 @@ object ZeroTrust:
       )
 
   def mounts(spec: AnkkaServiceSpec, provisioned: Boolean): Vector[VolumeMount] =
-    Vector(mount("ankka-cluster-tls", ClusterMount)) ++
-      spec.port.map(_ => mount("ankka-service-tls", ServiceMount)) ++
+    Vector(mount("ankka-cluster-tls", ClusterMount), mount("ankka-service-tls", ServiceMount)) ++
       Option.when(provisioned)(mount("ankka-database-tls", DatabaseMount)) ++
       Option.when(provisioned)(mount("ankka-database-ca", DatabaseCaMount))
 

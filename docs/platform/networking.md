@@ -110,7 +110,7 @@ writes. It never reads a private key itself.
 | Certificate | Identity | Mounted at | Issued when |
 |---|---|---|---|
 | `<service>-cluster` | `ankka://<project>/<service>` | `/var/run/secrets/ankka/cluster` | always |
-| `<service>-service` | `ankka://<project>/<service>`, and the Service's DNS names | `/var/run/secrets/ankka/service` | the service serves HTTP |
+| `<service>-service` | `ankka://<project>/<service>`, and the Service's DNS names | `/var/run/secrets/ankka/service` | always: it is also who the service is when it calls another |
 | `<service>-database` | common name `<service>`, the database role | `/var/run/secrets/ankka/database` | the platform provisions its database |
 
 Each directory holds `tls.key`, `tls.crt` and `ca.crt`. A certificate is valid for 24 hours and renewed

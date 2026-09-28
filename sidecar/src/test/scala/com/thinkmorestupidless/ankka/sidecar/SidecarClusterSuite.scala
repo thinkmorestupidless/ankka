@@ -88,6 +88,8 @@ class SidecarClusterSuite extends munit.FunSuite:
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
       k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      // The installation's authorities: the sidecar's certificates come from them.
+      com.thinkmorestupidless.ankka.operator.PkiStack.install(k3s, k8s)
       waitFor(60.seconds)(
         k8s
           .apiextensions()
@@ -237,25 +239,25 @@ spec:
       .map(_.intValue)
       .getOrElse(0)
 
+  /**
+   * From inside a ready pod's sidecar — which holds the service's certificate, as every port is
+   * mutual TLS and admits only workloads with a platform identity — to the Service's name, so the
+   * request still takes Service → endpoints → pod. 0 for a 2xx, as `wget` answered.
+   */
   private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
-    val service = k8s.services().inNamespace(Namespace).withName(Service).get()
-    val target =
-      s"http://${service.getSpec.getClusterIP}:${service.getSpec.getPorts.get(0).getPort}$path"
-    val command = post match
-      case None => Seq("wget", "-qO-", "-T", "5", target)
-      case Some(body) =>
-        Seq(
-          "wget",
-          "-qO-",
-          "-T",
-          "5",
-          "--header",
-          "Content-Type: application/json",
-          "--post-data",
-          body,
-          target
+    pods.find(readyOf) match
+      case None => (1, s"no ready pod to call from: ${podSummary()}")
+      case Some(from) =>
+        val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+          k3s,
+          Namespace,
+          from.getMetadata.getName,
+          s"https://$Service.$Namespace.svc.cluster.local:9000$path",
+          method = if post.isDefined then "POST" else "GET",
+          body = post,
+          container = Some(from.getSpec.getContainers.get(0).getName)
         )
-    nodeExec(command*)
+        (if code / 100 == 2 then 0 else 1, body)
 
   // ── the story ─────────────────────────────────────────────────────────────
 

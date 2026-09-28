@@ -89,10 +89,12 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
   }
 
   test(
-    "a service with no HTTP port gets no service certificate, no http policy and no backend TLS"
+    "a service with no HTTP port keeps its identity, and gets no http policy and no backend TLS"
   ) {
     val a = actions(spec.copy(port = None, exposed = true))
-    assertEquals(certificates(spec.copy(port = None)).keySet, Set("cart-cluster"))
+    // Its service certificate is still issued: it is who the service is when it calls another,
+    // and the runtime's HTTP server starts whether or not the port is published.
+    assertEquals(certificates(spec.copy(port = None)).keySet, Set("cart-cluster", "cart-service"))
     assert(
       a.contains(Action.RemoveNetworkPolicy("ankka-checkout", "cart-http", "uid-1")),
       a.toString

@@ -105,7 +105,15 @@ object KeycloakStack:
     val component = repoRoot.resolve("kustomization/components/keycloak")
     // The base domain and the port clients reach the gateway on, filled in as the overlay would:
     // the route forwards the port so Keycloak's issuer names it (research R3).
-    val combined = Vector("postgres.yaml", "admin-secret.yaml", "keycloak.yaml", "httproute.yaml")
+    // zero-trust.yaml first: Keycloak serves TLS from the certificate it asks for, and the gateway
+    // reaches it through the backend TLS policy beside it.
+    val combined = Vector(
+      "postgres.yaml",
+      "admin-secret.yaml",
+      "zero-trust.yaml",
+      "keycloak.yaml",
+      "httproute.yaml"
+    )
       .map(file =>
         Files
           .readString(component.resolve(file))

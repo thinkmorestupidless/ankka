@@ -179,15 +179,15 @@ object Rendering:
       namespace: String
   ): Vector[Action] =
     val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    // The service certificate always, not only with a port: it is the identity the service calls
+    // others with, and the runtime's HTTP server starts in every ankka service, exposed or not.
     Vector(
       Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
+      Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
       Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
     ) ++ (spec.port match
       case Some(port) =>
-        Vector(
-          Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
-          Action.EnsureNetworkPolicy(ZeroTrust.httpPolicy(resource, spec, namespace, port))
-        )
+        Vector(Action.EnsureNetworkPolicy(ZeroTrust.httpPolicy(resource, spec, namespace, port)))
       case None =>
         Vector(
           Action

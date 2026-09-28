@@ -82,6 +82,8 @@ class MultiNodeClusterSuite extends munit.FunSuite:
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
       k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      // The installation's authorities: every pod's certificates come from them.
+      com.thinkmorestupidless.ankka.operator.PkiStack.install(k3s, k8s)
       k8s
         .load(
           java.net.URI
@@ -189,36 +191,52 @@ class MultiNodeClusterSuite extends munit.FunSuite:
     val result = k3s.execInContainer(command*)
     (result.getExitCode, result.getStdout + result.getStderr)
 
-  /** From the node, by clusterIP — through the Service, never a port-forward (research R11). */
+  /**
+   * Through the Service's name — never a port-forward, which would bypass the Service — from inside
+   * a ready pod of the service, presenting its certificate: every port is mutual TLS and admits
+   * only workloads with a platform identity. Answers 0 for a 2xx, as `wget` did, so callers read
+   * the same.
+   */
   private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
-    val service = k8s.services().inNamespace(Namespace).withName(Service).get()
-    val target =
-      s"http://${service.getSpec.getClusterIP}:${service.getSpec.getPorts.get(0).getPort}$path"
-    post match
-      case None => nodeExec("wget", "-qO-", "-T", "5", target)
-      case Some(body) =>
-        nodeExec(
-          "wget",
-          "-qO-",
-          "-T",
-          "5",
-          "--header",
-          "Content-Type: application/json",
-          "--post-data",
-          body,
-          target
+    readyPods.headOption match
+      case None => (1, "no ready pod to call from")
+      case Some(from) =>
+        val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+          k3s,
+          Namespace,
+          from.getMetadata.getName,
+          s"https://$Service.$Namespace.svc.cluster.local:9000$path",
+          method = if post.isDefined then "POST" else "GET",
+          body = post
         )
+        (if code / 100 == 2 then 0 else 1, body)
 
+  /** One pod, by its IP — which its certificate does not name, hence no host check. */
   private def podHttp(pod: Pod, path: String): (Int, String) =
-    nodeExec("wget", "-qO-", "-T", "5", s"http://${pod.getStatus.getPodIP}:9000$path")
+    val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      pod.getMetadata.getName,
+      s"https://${pod.getStatus.getPodIP}:9000$path",
+      verifyHost = false
+    )
+    (if code / 100 == 2 then 0 else 1, body)
 
   private val MemberPattern = """\{"node":"([^"]+)"[^}]*?"status":"([A-Za-z]+)"""".r
 
   /** Up members as one pod sees them; empty if not yet joined or not answering. */
   private def membership(pod: Pod): Set[String] =
     Option(pod.getStatus.getPodIP).fold(Set.empty[String]) { ip =>
-      val (code, body) = nodeExec("wget", "-qO-", "-T", "3", s"http://$ip:7626/cluster/members")
-      if code != 0 then Set.empty
+      // Management admits only the service's own certificate, which the pod holds.
+      val (status, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+        k3s,
+        Namespace,
+        pod.getMetadata.getName,
+        s"https://$ip:7626/cluster/members",
+        identity = "cluster",
+        verifyHost = false
+      )
+      if status != 200 then Set.empty
       else
         MemberPattern
           .findAllMatchIn(body)

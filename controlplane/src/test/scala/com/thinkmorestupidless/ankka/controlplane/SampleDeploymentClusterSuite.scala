@@ -87,6 +87,8 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
         .build()
 
       k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      // The installation's authorities: every pod's certificates come from them.
+      com.thinkmorestupidless.ankka.operator.PkiStack.install(k3s, k8s)
       k8s
         .load(
           java.net.URI
@@ -181,25 +183,32 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
    * (it does not use CoreDNS). Both verified during planning, research R11.
    */
   private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
-    val service = k8s.services().inNamespace(Namespace).withName(Service).get()
-    val target =
-      s"http://${service.getSpec.getClusterIP}:${service.getSpec.getPorts.get(0).getPort}$path"
-    val command = post match
-      case None => Seq("wget", "-qO-", "-T", "10", target)
-      case Some(body) =>
-        Seq(
-          "wget",
-          "-qO-",
-          "-T",
-          "10",
-          "--header",
-          "Content-Type: application/json",
-          "--post-data",
-          body,
-          target
+    // Every port is mutual TLS and admits only workloads with a platform identity, so the request
+    // goes from inside one of the service's own ready pods, presenting its certificate, to the
+    // Service's name — still Service → endpoints → pod, never a port-forward. 0 for a 2xx, as
+    // `wget` answered, so every caller reads the same.
+    val ready = k8s
+      .pods()
+      .inNamespace(Namespace)
+      .withLabel("app.kubernetes.io/name", Service)
+      .list()
+      .getItems
+      .asScala
+      .find(p =>
+        Option(p.getStatus.getContainerStatuses).exists(_.asScala.headOption.exists(_.getReady))
+      )
+    ready match
+      case None => (1, "no ready pod to call from")
+      case Some(from) =>
+        val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+          k3s,
+          Namespace,
+          from.getMetadata.getName,
+          s"https://$Service.$Namespace.svc.cluster.local:9000$path",
+          method = if post.isDefined then "POST" else "GET",
+          body = post
         )
-    val result = k3s.execInContainer(command*)
-    (result.getExitCode, result.getStdout + result.getStderr)
+        (if code / 100 == 2 then 0 else 1, body)
 
   private def nodeExec(command: String*): (Int, String) =
     val result = k3s.execInContainer(command*)
@@ -329,9 +338,15 @@ class SampleDeploymentClusterSuite extends munit.FunSuite:
       Option(p.getStatus.getContainerStatuses).exists(_.asScala.headOption.exists(_.getReady))
     )
     def views = pods.map { p =>
-      val (code, body) =
-        nodeExec("wget", "-qO-", "-T", "3", s"http://${p.getStatus.getPodIP}:7626/cluster/members")
-      if code != 0 then Set.empty[String]
+      val (status, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+        k3s,
+        Namespace,
+        p.getMetadata.getName,
+        s"https://${p.getStatus.getPodIP}:7626/cluster/members",
+        identity = "cluster",
+        verifyHost = false
+      )
+      if status != 200 then Set.empty[String]
       else
         """\{"node":"([^"]+)"[^}]*?"status":"([A-Za-z]+)"""".r
           .findAllMatchIn(body)

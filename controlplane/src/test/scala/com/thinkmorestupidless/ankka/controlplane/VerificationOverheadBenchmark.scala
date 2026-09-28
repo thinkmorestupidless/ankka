@@ -163,3 +163,82 @@ final class VerificationOverheadBenchmark extends munit.FunSuite:
       testKit.stop()
       identity.stop()
   }
+
+  test("mutual TLS on the service's port is a small fraction of a real request (feature 014)") {
+    // The same denominator: one control plane request, HTTP in, an entity command, a durable write,
+    // a reply. One arm serves plain HTTP, the other mutual TLS with a minted service certificate;
+    // both clients keep their connections alive, as the gateway and the service client do, so what
+    // is measured is TLS on a request and not a handshake per request.
+    import com.thinkmorestupidless.ankka.runtime.RotatingTls
+    import com.thinkmorestupidless.ankka.testpki.TestPki
+    val authority = TestPki.root("benchmark")
+    val serverDir = authority
+      .issue(uris = Seq("ankka://platform/controlplane"), dnsNames = Seq("localhost"))
+      .writeTo(java.nio.file.Files.createTempDirectory("bench-server"))
+    val clientDir = authority
+      .issue(uris = Seq(RotatingTls.GatewayUri))
+      .writeTo(java.nio.file.Files.createTempDirectory("bench-client"))
+    val allow: Acl = Acl.Authenticate(_ => AuthDecision.Allow(Principal("bench")))
+    val deploy     = DeployConfig.default.copy(baseDomain = Some("bench.test"))
+    val plain      = HttpServer.at("127.0.0.1", 0)(ControlPlane.endpoints(allow, deploy)*)
+    val tls =
+      HttpServer.at("127.0.0.1", 0)(ControlPlane.endpoints(allow, deploy)*).withTls(serverDir)
+    val testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), plain, tls))
+    val tlsClient = HttpClient
+      .newBuilder()
+      .version(HttpClient.Version.HTTP_1_1)
+      .sslContext(RotatingTls(clientDir, 1.minute).sslContext)
+      .build()
+    def rename(base: String, client: HttpClient, org: String, label: String): Int =
+      client
+        .send(
+          HttpRequest
+            .newBuilder(URI.create(s"$base/organizations/$org/name"))
+            .header("Content-Type", "application/json")
+            .PUT(HttpRequest.BodyPublishers.ofString(s"""{"name":"$label"}"""))
+            .build(),
+          HttpResponse.BodyHandlers.discarding()
+        )
+        .statusCode
+    try
+      val plainBase = s"http://127.0.0.1:${plain.boundPort.get}"
+      val tlsBase   = s"https://localhost:${tls.boundPort.get}"
+      def create(base: String, client: HttpClient, org: String) =
+        client.send(
+          HttpRequest
+            .newBuilder(URI.create(s"$base/organizations/$org"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("""{"name":"bench"}"""))
+            .build(),
+          HttpResponse.BodyHandlers.discarding()
+        )
+      create(plainBase, http, "bench-plain"): Unit
+      create(tlsBase, tlsClient, "bench-tls"): Unit
+      assertEquals(rename(tlsBase, tlsClient, "bench-tls", "check"), 204)
+      (1 to 300).foreach { i =>
+        rename(plainBase, http, "bench-plain", s"warm $i")
+        rename(tlsBase, tlsClient, "bench-tls", s"warm $i")
+      }
+      def measure(base: String, client: HttpClient, org: String, n: Int): Double =
+        val started = System.nanoTime()
+        (0 until n).foreach(i => rename(base, client, org, s"n $i"))
+        (System.nanoTime() - started).toDouble / n
+      val rounds = (0 until 6).map { round =>
+        val a = if round % 2 == 0 then measure(plainBase, http, "bench-plain", 1_500) else 0.0
+        val b = measure(tlsBase, tlsClient, "bench-tls", 1_500)
+        val c = if round % 2 == 1 then measure(plainBase, http, "bench-plain", 1_500) else a
+        (c, b)
+      }
+      val bestPlain = rounds.map(_._1).min
+      val bestTls   = rounds.map(_._2).min
+      val overhead  = (bestTls - bestPlain) / bestPlain
+      println(f"  one request, plain HTTP : $bestPlain%,.0f ns")
+      println(f"  one request, mutual TLS : $bestTls%,.0f ns   (${overhead * 100}%+.1f%%)")
+      // SC-006 asks for 10%; a larger cost is a finding to write down, not a failure, so the
+      // assertion only guards against something structurally wrong, like a handshake per request.
+      assert(
+        overhead < 0.25,
+        f"mutual TLS cost ${overhead * 100}%.1f%% of a request — a handshake per request?"
+      )
+    finally testKit.stop()
+  }

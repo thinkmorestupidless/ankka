@@ -140,6 +140,17 @@ this exactly.
 user moved client-certificate authentication into scope. Patching the plugin — a fork to
 maintain for three config keys.
 
+**Answered at implementation (T004, `DatabaseTlsSuite`)**: the plugin hands the customizer the
+*whole* configuration, not the connection factory's block — the first run connected in the clear
+("no encryption") because the customizer read `ssl.mode` at the root. It now reads the block named
+by `use-connection-factory`. Rotation needed no delegating factory: a delegating
+`X509ExtendedKeyManager` that re-reads the key and certificate when their mtimes change is handed
+to the driver through `SSL_CONTEXT_BUILDER_CUSTOMIZER`, so however long the driver keeps its TLS
+context, each handshake asks for the current key. Proven against a real Postgres with `hostssl … cert
+clientcert=verify-full`: TLS on, another role's certificate refused, an unsigned server refused, a
+renewed certificate presented by the next connection. libpq in schema-init refuses a key readable by
+others, so the database volume is `0440` with a pod `fsGroup`.
+
 ## R5. Certificates and authorities: cert-manager, three CAs, RSA, 24h validity renewed every 8h
 
 **Decision**:
@@ -237,6 +248,11 @@ own namespace (`ankka-gateway`) without a `ReferenceGrant` — the upstream exam
 it would hold the service's private key in memory to do it. A `ClusterTrustBundle` — still needs a
 writer, and the API is beta. Terminating the gateway's TLS re-origination at a per-route client
 certificate (`Backend` resource) — per-installation is enough.
+
+**Answered at implementation (T003)**: Envoy Gateway v1.9.1's `install.yaml` bundles Gateway API
+v1.6.1, which serves `BackendTLSPolicy` at `v1` (fabric8 7.9 models it); the `EnvoyProxy` CRD's
+`backendTLS.clientCertificateRef` documents that the Secret "should be located within the same
+namespace as the Envoy proxy resource", which is `ankka-gateway`. No `ReferenceGrant` is needed.
 
 ## R8. Network policy: enforced on k3s and on kind, kubelet probes exempted by the CNIs in scope
 

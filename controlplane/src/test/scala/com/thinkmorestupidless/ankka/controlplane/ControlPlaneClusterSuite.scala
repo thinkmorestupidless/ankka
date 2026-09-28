@@ -158,6 +158,10 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
       )
       KeycloakStack.createServiceClient(k3s, "e2e-cli", "e2e-secret", platformAdmin = true)
 
+      // The control plane's own certificates, policies and backend TLS (feature 014), before the
+      // Deployment that mounts them.
+      applyManifest("kustomization/components/controlplane/zero-trust.yaml")
+
       // The base domain the overlay would have fanned out, filled in by hand here — and the HTTPS
       // port clients actually reach the gateway on, which the deploy script substitutes the same
       // way: the control plane derives the issuer it expects from both.
@@ -215,8 +219,16 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
 
   private def membership(pod: Pod): Set[String] =
     Option(pod.getStatus.getPodIP).fold(Set.empty[String]) { ip =>
-      val (code, body) = nodeExec("wget", "-qO-", "-T", "3", s"http://$ip:7626/cluster/members")
-      if code != 0 then Set.empty
+      // Management admits only the control plane's own cluster certificate, which its pods hold.
+      val (status, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+        k3s,
+        Namespace,
+        pod.getMetadata.getName,
+        s"https://$ip:7626/cluster/members",
+        identity = "cluster",
+        verifyHost = false
+      )
+      if status != 200 then Set.empty
       else
         MemberPattern
           .findAllMatchIn(body)
@@ -234,8 +246,9 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
    * deleting `pods.head` never pulls the client out from under itself.
    */
   private def api(method: String, path: String, body: Option[String] = None): (Int, String) =
-    val service = k8s.services().inNamespace(Namespace).withName("ankka-controlplane").get()
-    val target  = s"http://${service.getSpec.getClusterIP}:9000$path"
+    // By the Service's name, over mutual TLS with the pod's own service certificate (feature 014).
+    val target = s"https://ankka-controlplane.$Namespace.svc.cluster.local:9000$path"
+    val dir    = "/var/run/secrets/ankka/service"
     val from = readyPods
       .filter(_.getMetadata.getDeletionTimestamp == null)
       .lastOption
@@ -251,7 +264,13 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
       "-H",
       s"Authorization: Bearer $Token",
       "-H",
-      "Content-Type: application/json"
+      "Content-Type: application/json",
+      "--cert",
+      s"$dir/tls.crt",
+      "--key",
+      s"$dir/tls.key",
+      "--cacert",
+      s"$dir/ca.crt"
     ) ++ body.toVector.flatMap(b => Vector("-d", b)) :+ target
     nodeExec(
       (Vector("kubectl", "exec", "-n", Namespace, from.getMetadata.getName, "--") ++ curl)*
@@ -264,8 +283,21 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
     pods.iterator
       .map(_.getStatus.getPodIP)
       .filter(_ != null)
-      .map(ip => nodeExec("wget", "-qO-", "-T", "3", s"http://$ip:7626/cluster/members"))
-      .collectFirst { case (0, body) => body }
+      .flatMap(ip =>
+        pods
+          .find(_.getStatus.getPodIP == ip)
+          .map(p =>
+            com.thinkmorestupidless.ankka.operator.InPod.curl(
+              k3s,
+              Namespace,
+              p.getMetadata.getName,
+              s"https://$ip:7626/cluster/members",
+              identity = "cluster",
+              verifyHost = false
+            )
+          )
+      )
+      .collectFirst { case (200, body) => body }
       .flatMap(body => OldestPattern.findFirstMatchIn(body).map(_.group(1)))
       .flatMap(ip => pods.find(_.getStatus.getPodIP == ip))
 
@@ -363,16 +395,62 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
     views.foreach(v => assertEquals(v.size, 3, v.toString))
     // One cluster, and every instance answers.
     for pod <- pods do
-      val (code, out) = nodeExec(
-        "wget",
-        "-qO-",
-        "-T",
-        "5",
-        "--header",
-        s"Authorization: Bearer $Token",
-        s"http://${pod.getStatus.getPodIP}:9000/organizations/"
+      val (code, out) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+        k3s,
+        Namespace,
+        pod.getMetadata.getName,
+        s"https://${pod.getStatus.getPodIP}:9000/organizations/",
+        verifyHost = false,
+        headers = Seq(s"Authorization: Bearer $Token")
       )
-      assertEquals(code, 0, s"${pod.getMetadata.getName}: $out")
+      assertEquals(code, 200, s"${pod.getMetadata.getName}: $out")
+  }
+
+  test(
+    "1a. the control plane's own ports refuse a pod with no platform identity; readiness answers"
+  ) {
+    // Feature 014: the control plane is policed like every service it deploys.
+    com.thinkmorestupidless.ankka.operator.PkiStack.kubectl(
+      k3s,
+      "run",
+      "stranger",
+      "-n",
+      "default",
+      "--image=busybox:1.36",
+      "--restart=Never",
+      "--command",
+      "--",
+      "sleep",
+      "3600"
+    ): Unit
+    com.thinkmorestupidless.ankka.operator.PkiStack.kubectl(
+      k3s,
+      "wait",
+      "-n",
+      "default",
+      "--for=condition=Ready",
+      "pod/stranger",
+      "--timeout=120s"
+    ): Unit
+    val ip = readyPods.head.getStatus.getPodIP
+    def connects(port: Int) =
+      k3s
+        .execInContainer(
+          "kubectl",
+          "exec",
+          "-n",
+          "default",
+          "stranger",
+          "--",
+          "sh",
+          "-c",
+          s"echo | nc -w 3 $ip $port"
+        )
+        .getExitCode == 0
+    assert(!connects(17355), "remoting admitted a stranger")
+    assert(!connects(7626), "management admitted a stranger")
+    assert(!connects(9000), "the API admitted a pod with no platform identity")
+    assert(connects(7627), "readiness must admit anyone")
   }
 
   test("2. commands through the Service reach whichever instance, and land once") {

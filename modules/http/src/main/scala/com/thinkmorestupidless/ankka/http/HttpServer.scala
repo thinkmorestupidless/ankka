@@ -26,8 +26,16 @@ import scala.util.control.NonFatal
 final class HttpServer private (
     factories: Seq[EndpointClients => HttpEndpoint],
     interface: Option[String],
-    port: Option[Int]
+    port: Option[Int],
+    tlsDirectory: Option[java.nio.file.Path] = None
 ) extends RuntimeExtension:
+
+  /**
+   * This server alone serves mutual TLS from `directory`, whatever the configuration says — for a
+   * suite that measures one server with TLS beside one without, in one service.
+   */
+  private[ankka] def withTls(directory: java.nio.file.Path): HttpServer =
+    new HttpServer(factories, interface, port, Some(directory))
 
   @volatile private var binding: Option[Http.ServerBinding] = None
   @volatile private var served: Vector[ServedRoute]         = Vector.empty
@@ -153,20 +161,22 @@ final class HttpServer private (
   private def serviceTls(config: com.typesafe.config.Config): Option[RotatingTls] =
     val enabled =
       config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
-    Option.when(enabled) {
-      val directory = config.getString("ankka.tls.service-directory")
-      if directory.isEmpty then
-        throw IllegalStateException(
-          "ankka.http.tls.enabled is on but ankka.tls.service-directory is empty"
+    tlsDirectory
+      .map(RotatingTls(_, 1.minute))
+      .orElse(Option.when(enabled) {
+        val directory = config.getString("ankka.tls.service-directory")
+        if directory.isEmpty then
+          throw IllegalStateException(
+            "ankka.http.tls.enabled is on but ankka.tls.service-directory is empty"
+          )
+        RotatingTls(
+          java.nio.file.Paths.get(directory),
+          FiniteDuration(
+            config.getDuration("ankka.tls.reload-interval").toMillis,
+            java.util.concurrent.TimeUnit.MILLISECONDS
+          )
         )
-      RotatingTls(
-        java.nio.file.Paths.get(directory),
-        FiniteDuration(
-          config.getDuration("ankka.tls.reload-interval").toMillis,
-          java.util.concurrent.TimeUnit.MILLISECONDS
-        )
-      )
-    }
+      })
 
   /**
    * Rejects two endpoints sharing a prefix, and duplicate routes within one endpoint.

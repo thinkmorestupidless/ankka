@@ -7,11 +7,12 @@
 
 [![java 21+](https://img.shields.io/badge/java-21%2B-007396?logo=openjdk&logoColor=white)](docs/get-started/install.md) [![maven central](https://img.shields.io/maven-central/v/com.thinkmorestupidless/ankka-core_3?label=maven%20central&logo=apachemaven&logoColor=white)](https://central.sonatype.com/artifact/com.thinkmorestupidless/ankka-core_3)<br>
 [![python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](docs/get-started/install.md) [![pypi](https://img.shields.io/pypi/v/ankka?label=pypi&logo=pypi&logoColor=white)](https://pypi.org/project/ankka/)<br>
-[![node 22.22+](https://img.shields.io/badge/node-22.22%2B-5FA04E?logo=nodedotjs&logoColor=white)](docs/get-started/install.md) [![npm](https://img.shields.io/npm/v/ankka?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/ankka)
+[![node 22.22+](https://img.shields.io/badge/node-22.22%2B-5FA04E?logo=nodedotjs&logoColor=white)](docs/get-started/install.md) [![npm](https://img.shields.io/npm/v/ankka?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/ankka)<br>
+[![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-000000?logo=rust&logoColor=white)](docs/get-started/install.md) [![crates.io](https://img.shields.io/crates/v/ankka?label=crates.io&logo=rust&logoColor=white)](https://crates.io/crates/ankka)
 
 A serverless application platform for agentic AI, built on the actor model — a component model
-in Scala 3 on [Apache Pekko](https://pekko.apache.org/), with services in Scala, Python or
-TypeScript.
+in Scala 3 on [Apache Pekko](https://pekko.apache.org/), with services in Scala, Python,
+TypeScript or Rust.
 
 ![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](docs/assets/diagrams/components.svg)
 
@@ -24,7 +25,7 @@ An agent carries out a task by talking to a model. Its handler describes the int
 instructions, the user's message, the tools the model may call and the guardrails to apply — and the
 runtime runs the loop: it calls the model, runs the tools it asks for, keeps the conversation as session
 memory and counts the tokens. The shopping cart's assistant, whose one tool looks up a cart entity, in
-each of the three languages:
+each language:
 
 ```scala
 final class CartAssistant extends Agent:
@@ -154,6 +155,81 @@ export class CartAssistant extends Agent {
 
 </details>
 
+<details>
+<summary><b>The same agent in Rust</b></summary>
+
+```rust
+#[derive(Debug, Deserialize)]
+pub struct CartLookup {
+    #[serde(rename = "cartId")]
+    pub cart_id: String,
+}
+
+pub struct CartAssistant;
+
+impl CartAssistant {
+    fn ask(question: String, _: &Context) -> AgentEffect {
+        agent::system_message(
+            "You help shoppers with their carts. Use the lookup tool before answering about a cart.",
+        )
+        .user_message(question)
+        .tools(["lookup"])
+        .guardrails(["no-secrets"])
+        .then_reply()
+    }
+
+    fn lookup(args: CartLookup, ctx: &Context) -> Result<String, String> {
+        let cart: Cart = ctx
+            .client()
+            .invoke(ShoppingCart, &args.cart_id, "get-cart", ())
+            .map_err(|e| e.message)?;
+        if cart.items.is_empty() {
+            return Ok(format!("cart {} is empty", args.cart_id));
+        }
+        let lines: Vec<String> = cart
+            .items
+            .iter()
+            .map(|i| format!("{} x {}", i.quantity, i.name))
+            .collect();
+        Ok(lines.join(", "))
+    }
+
+    fn no_secrets(stage: Stage, text: &str, _: &Context) -> Result<(), String> {
+        if stage == Stage::Output && text.contains("sk-") {
+            Err("a key leaked".to_string())
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Agent for CartAssistant {
+    const COMPONENT_ID: &'static str = "assistant";
+
+    fn handlers() -> AgentHandlers<CartAssistant> {
+        AgentHandlers::new().command("ask", CartAssistant::ask)
+    }
+
+    fn tools() -> Tools<CartAssistant> {
+        Tools::new().tool(
+            "lookup",
+            "Looks up what is in a cart by its id.",
+            Schema::object().string("cartId", "the cart's id"),
+            CartAssistant::lookup,
+        )
+    }
+
+    fn guardrails() -> Guardrails<CartAssistant> {
+        Guardrails::new().guardrail("no-secrets", CartAssistant::no_secrets)
+    }
+}
+```
+
+A service in Rust is a WebAssembly module, and a module cannot stream a reply, so this agent has `ask`
+and no `chat`.
+
+</details>
+
 ## How your code is hosted
 
 In Python and TypeScript the loop runs in the runtime beside your process, and in Rust in the runtime your
@@ -213,6 +289,7 @@ both levels, a `docker-compose.yml`, a Dockerfile, the deployment descriptor and
 ankka init cart                          # Scala, and needs sbt on your PATH
 ankka init cart --language python        # or Python
 ankka init cart --language typescript    # or TypeScript
+ankka init cart --language rust          # or Rust
 cd cart
 ```
 
@@ -223,11 +300,13 @@ journal, the views, the timers and the offsets:
 sbt schema && docker compose up -d && sbt run                     # Scala
 uv sync && docker compose up -d && uv run python -m cart.main     # Python
 npm install && docker compose up -d && npm start                  # TypeScript
+cargo module && docker compose up -d runtime                      # Rust
 ```
 
 A Python or TypeScript service runs as its own process beside the **sidecar**, which owns everything
 stateful and distributed. That image is not on a public registry yet, so build it once from a
-checkout of this repository: `sbt sidecar/Docker/publishLocal`.
+checkout of this repository: `sbt sidecar/Docker/publishLocal`. A Rust service is a WebAssembly module
+the same image loads into itself: `cargo module` builds it, and the `runtime` service loads it.
 
 The service answers on port 9000:
 
@@ -274,8 +353,8 @@ about the installation to administer. See
 pages as Markdown in [`docs/`](docs/index.md):
 
 - **[Get started](docs/get-started/install.md)** — install the tools, write a first service in
-  [Scala](docs/get-started/first-service-scala.md), [Python](docs/get-started/first-service-python.md)
-  or [TypeScript](docs/get-started/first-service-typescript.md), and
+  [Scala](docs/get-started/first-service-scala.md), [Python](docs/get-started/first-service-python.md),
+  [TypeScript](docs/get-started/first-service-typescript.md) or [Rust](docs/get-started/first-service-rust.md), and
   [deploy it to a local platform](docs/get-started/deploy-locally.md).
 - **[Concepts](docs/concepts/architecture.md)** — how ankka works, the component model, and
   [designing a service](docs/concepts/designing-services.md).

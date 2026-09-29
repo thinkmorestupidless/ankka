@@ -78,6 +78,8 @@ export default function Organization() {
   const admin = page.principal?.platformAdmin ?? false;
   const owner = o.role === "owner" || admin;
   const renameRefusal = useRefusal("rename");
+  const deleteRefusal = useRefusal("delete");
+  const adminRefused = [useRefusal("disable"), useRefusal("enable"), useRefusal("quota-set"), useRefusal("quota-clear"), useRefusal("repair")].some(Boolean);
   const path = `organizations/${encodeURIComponent(o.id)}`;
   return (
     <section className="ac-page">
@@ -153,7 +155,7 @@ export default function Organization() {
       <Panels kind="organization" entity={o} loaded={panels} />
 
       {owner && (shows("organization.rename") || shows("organization.delete")) ? (
-        <details className="ac-more" open={renameRefusal !== undefined || undefined}>
+        <details className="ac-more" open={renameRefusal !== undefined || deleteRefusal !== undefined || undefined}>
           <summary>Rename or delete</summary>
           {shows("organization.rename") ? (
             <ConsoleForm intent="rename" className="ac-inline">
@@ -178,7 +180,7 @@ export default function Organization() {
       ) : null}
 
       {admin ? (
-        <details className="ac-more">
+        <details className="ac-more" open={adminRefused || undefined}>
           <summary>Platform administration</summary>
           <div className="ac-actions">
             {o.disabled

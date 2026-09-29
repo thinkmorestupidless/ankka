@@ -150,6 +150,8 @@ export interface FakeControlPlane {
   /** Advance every service in a transitional state by one step. */
   tick(): void;
   appendLog(projectId: string, name: string, line: string, instance?: string): void;
+  /** Who may create organizations from now on, and where the refusal sends people. */
+  policy(creation: "open" | "platform-admin", signupUrl?: string): void;
   /** From now on, created organizations and projects are missing from listings until `settle()`. */
   hideNewFromListings(): void;
   settle(): void;
@@ -346,7 +348,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const id = p.organizationId;
     if (!NameRule.test(id)) throw new HttpError(400, `organization id '${id}' is invalid: lowercase letters, digits and '-', starting with a letter`);
     if (!b.name) throw new HttpError(400, "organization name must not be empty");
-    if (tombstones.has(`org:${id}`)) throw new HttpError(409, `organization '${id}' was deleted and its id cannot be reused`);
+    if (tombstones.has(`org:${id}`)) throw new HttpError(409, `organization '${id}' was deleted; its id is not reused`);
     if (organizations.has(id)) throw new HttpError(409, `organization '${id}' already exists`);
     const owner = b.owner ?? { subject: c.subject, email: c.email, display: c.name };
     const org: Org = {
@@ -539,7 +541,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const id = p.projectId;
     if (!NameRule.test(id)) throw new HttpError(400, `project id '${id}' is invalid: lowercase letters, digits and '-', starting with a letter`);
     if (!b.name) throw new HttpError(400, "project name must not be empty");
-    if (tombstones.has(`project:${id}`)) throw new HttpError(409, `project '${id}' was deleted and its id cannot be reused`);
+    if (tombstones.has(`project:${id}`)) throw new HttpError(409, `project '${id}' was deleted; its id is not reused`);
     if (projects.has(id)) throw new HttpError(409, `project '${id}' already exists`);
     const count = [...projects.values()].filter((x) => x.organizationId === org.id).length;
     if (org.quota?.projects !== undefined && count >= org.quota.projects)
@@ -794,6 +796,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       if (!s) throw new Error(`no service ${projectId}/${name}`);
       const n = instance ?? `${name}-0`;
       s.logs.set(n, [...(s.logs.get(n) ?? []), line]);
+    },
+    policy(creation, signupUrl) {
+      options.organizationCreation = creation;
+      options.signupUrl = signupUrl;
     },
     hideNewFromListings() {
       hideNew = true;

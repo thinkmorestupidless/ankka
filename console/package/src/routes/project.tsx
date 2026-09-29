@@ -56,6 +56,7 @@ export default function Project() {
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
+  const deleteRefusal = useRefusal("delete");
   const registryRefusal = useRefusal("registry-set");
   const path = `projects/${encodeURIComponent(p.id)}`;
   return (
@@ -153,7 +154,7 @@ export default function Project() {
       <Panels kind="project" entity={p} loaded={panels} />
 
       {shows("project.rename") || shows("project.delete") ? (
-        <details className="ac-more" open={renameRefusal !== undefined || undefined}>
+        <details className="ac-more" open={renameRefusal !== undefined || deleteRefusal !== undefined || undefined}>
           <summary>Rename or delete</summary>
           {shows("project.rename") ? (
             <ConsoleForm intent="rename" className="ac-inline">

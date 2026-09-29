@@ -7,7 +7,7 @@ import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionAr
 import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { Breadcrumbs, ConsoleForm, ConsoleLink, Submit, useConsole, when } from "../ui/console.tsx";
-import { Refused } from "../ui/refused.tsx";
+import { Refused, useRefusal } from "../ui/refused.tsx";
 import { Lifecycle } from "../ui/status.tsx";
 import { useServiceStream } from "../ui/use-stream.ts";
 import { HostActions, loadPanels, Panels } from "../extensions/render.tsx";
@@ -74,6 +74,7 @@ export default function Service() {
   const data = useLoaderData<typeof loader>();
   const { project: p, organization: o, panels } = data;
   const { status: s, state } = useServiceStream(p.id, data.service.name, data.service);
+  const deleteRefused = useRefusal("delete") !== undefined;
   const path = `projects/${encodeURIComponent(p.id)}/services/${encodeURIComponent(s.name)}`;
   return (
     <section className="ac-page">
@@ -164,7 +165,7 @@ export default function Service() {
         </div>
       )}
 
-      <details className="ac-more">
+      <details className="ac-more" open={deleteRefused || undefined}>
         <summary>Delete</summary>
         <div className="ac-danger-zone">
           <p>Deleting {s.name} stops it and removes it from the project. Its database is kept: applying a descriptor with this name again brings the service back with its data.</p>

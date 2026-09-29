@@ -19,5 +19,7 @@
     "skipLibCheck": true,
     "customConditions": ["ankka-source"]
   },
-  "include": ["src", "test", "scripts"]
+  "include": ["src", "test", "scripts"],
+  // The fixture host is an application built by Vite, as any host is; its build is its check.
+  "exclude": ["test/fixture-host"]
 }

@@ -67,6 +67,18 @@ export const test = base.extend<Fixtures, { target: Target }>({
   },
 });
 
+/**
+ * Reloads until `check` passes. The control plane's listings are projections that lag a write by
+ * up to a second or two, so a listing read straight after a create or a delete may not show it yet;
+ * this is what a person does, and the fakes lag only when told to.
+ */
+export async function afterProjection(page: Page, check: () => Promise<void>, timeout = 20_000) {
+  await expect(async () => {
+    await page.reload();
+    await check();
+  }).toPass({ timeout, intervals: [250, 500, 1_000] });
+}
+
 /** Seeds the fake control plane with an organization owned by `owner` (and `member` as a member), a project and a service. */
 export function seedTenancy(target: Target, ids: { org: string; project: string; service?: string }) {
   if (!target.controlPlane) return;

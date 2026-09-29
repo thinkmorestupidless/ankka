@@ -17,7 +17,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   return guard(ctx, async () => {
     const [organization, tokens, page] = await Promise.all([ctx.client.getOrganization(id), ctx.client.tokens(id), pageData(ctx)]);
     const created = await ctx.runtime.tokenFlash.take(request, ctx.headers);
-    return { console: page, organization, tokens, created: created?.subject && tokens.some((t) => t.id === created.id) ? created : null };
+    // Shown from the one-time cookie alone: the listing is a projection and may not show the new token yet.
+    return { console: page, organization, tokens, created };
   });
 }
 

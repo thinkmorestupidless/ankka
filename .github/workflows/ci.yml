@@ -29,6 +29,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-python: ${{ steps.filter.outputs.sdk-python == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-typescript: ${{ steps.filter.outputs.sdk-typescript == 'true' || github.event_name == 'workflow_dispatch' }}
+      console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       # On a pull request the action lists the changed files through the API against the base
       # branch, so it needs no checkout; on a manual run there is no diff and every output is true.
@@ -61,6 +62,8 @@ jobs:
               - 'kustomization/**'
               - 'docs/**'
               - 'homebrew/**'
+              # The wire fixtures the console's client is held to are written by a controlplane-api suite.
+              - 'console/package/fixtures/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow
@@ -74,6 +77,7 @@ jobs:
               - 'cli/**'
               - 'marketplace/**'
               - 'ankka.g8/**'
+              - 'console/**'
             # What `ankka init --language` renders, and the suites that run the result: each SDK job
             # proves its language's template against the SDK and sidecar it has just built.
             templates: &templates
@@ -97,6 +101,14 @@ jobs:
               - 'sdks/typescript/**'
               - 'cli/src/main/templates/typescript/**'
               - 'cli/src/test/scala/**/cli/TypeScriptTemplateSuite.scala'
+            # The console: its workspace, the realm client it signs in as, and the route reference its
+            # parity check reads. Its fakes stand in for the control plane, so no Scala is built.
+            console:
+              - *workflow
+              - 'console/**'
+              - 'kustomization/components/console/**'
+              - 'kustomization/components/keycloak/realm-import.json'
+              - 'docs/reference/control-plane-api.md'
 
   build:
     needs: changes
@@ -248,3 +260,37 @@ jobs:
       # against this SDK (built above) and the sidecar image. See the Python job.
       - if: matrix.node == 24
         run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=typescript 'cli/testOnly *TypeScriptTemplateSuite'
+
+  # The installation's console: the package's unit tests, the host's build, and the Playwright suite
+  # with scripts on and off against the package's own fakes — every acceptance scenario, an axe audit
+  # of every page, and a check that the suite exercised every control plane route. Then the package
+  # as npm would receive it, and the image. The compose-stack run of the same suite is local
+  # (`just test-console-compose`), as the k3s suites are.
+  console:
+    needs: changes
+    if: needs.changes.outputs.console == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: console-e2e-report
+          path: |
+            console/e2e/report
+            console/e2e/test-results
+      - run: CONSOLE_PACK=1 npm test -w package -- --test-name-pattern pack
+      - run: docker build -t ankka-console:ci .

@@ -1,4 +1,4 @@
-import { test, expect } from "../fixtures.ts";
+import { test, expect, afterProjection } from "../fixtures.ts";
 
 test("US4-5 a deploy token's secret is shown once, and not after a reload", async ({ page, target, signIn, unique, audit }) => {
   await signIn(page, "owner");
@@ -18,9 +18,10 @@ test("US4-5 a deploy token's secret is shown once, and not after a reload", asyn
   await expect(page.getByText("It is shown this once")).toBeVisible();
   await audit(page);
 
-  await page.reload();
+  await afterProjection(page, async () => {
+    await expect(page.getByRole("cell", { name: "ci", exact: true })).toBeVisible({ timeout: 1_000 });
+  });
   await expect(page.locator("[data-secret]")).toHaveCount(0);
-  await expect(page.getByRole("cell", { name: "ci", exact: true })).toBeVisible();
   expect(await page.content()).not.toContain(value);
   // The reload re-sent nothing: one token exists, not two.
   await expect(page.locator("tr[data-token]")).toHaveCount(1);
@@ -41,7 +42,13 @@ test("US4-6 a revoked token is refused", async ({ page, target, signIn, unique }
 
   const call = () => fetch(`${target.controlPlaneUrl}/organizations/${org}`, { headers: { authorization: `Bearer ${secret}` } });
   await expect.poll(async () => (await call()).status, { timeout: 5_000 }).toBe(200);
-  await page.getByRole("button", { name: "Revoke" }).click();
-  await expect(page.locator("tr[data-token]")).toHaveCount(0);
+  await afterProjection(page, async () => {
+    await expect(page.getByRole("button", { name: "Revoke" })).toBeVisible({ timeout: 1_000 });
+  });
+  // The revoke must land before anything reloads the page, or the reload cancels it.
+  await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), page.getByRole("button", { name: "Revoke" }).click()]);
+  await afterProjection(page, async () => {
+    await expect(page.locator("tr[data-token]")).toHaveCount(0, { timeout: 1_000 });
+  });
   await expect.poll(async () => (await call()).status, { timeout: 5_000 }).toBe(401);
 });

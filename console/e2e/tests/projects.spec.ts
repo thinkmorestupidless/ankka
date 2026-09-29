@@ -1,4 +1,4 @@
-import { test, expect } from "../fixtures.ts";
+import { test, expect, afterProjection } from "../fixtures.ts";
 
 test("US2-7 projects are created, renamed and deleted; one with services cannot be deleted", async ({ page, target, signIn, unique, audit }) => {
   await signIn(page, "owner");
@@ -28,6 +28,9 @@ test("US2-7 projects are created, renamed and deleted; one with services cannot 
   await page.getByRole("button", { name: "Apply" }).click();
   await page.waitForURL(`${target.url}/projects/${project}/services/cart`);
   await page.goto(`${target.url}/projects/${project}`);
+  await afterProjection(page, async () => {
+    await expect(page.locator(`tr[data-service="cart"]`)).toBeVisible({ timeout: 1_000 });
+  });
   await page.getByText("Rename or delete").click();
   await page.getByRole("button", { name: "Delete project" }).click();
   await expect(page.getByRole("alert")).toContainText(`project '${project}' still has 1 service(s)`);
@@ -37,10 +40,15 @@ test("US2-7 projects are created, renamed and deleted; one with services cannot 
   await page.getByText("Delete", { exact: true }).click();
   await page.getByRole("button", { name: "Delete service" }).click();
   await page.waitForURL(`${target.url}/projects/${project}`);
+  await afterProjection(page, async () => {
+    await expect(page.locator(`tr[data-service="cart"]`)).toHaveCount(0, { timeout: 1_000 });
+  });
   await page.getByText("Rename or delete").click();
   await page.getByRole("button", { name: "Delete project" }).click();
   await page.waitForURL(`${target.url}/organizations/${org}`);
-  await expect(page.getByRole("link", { name: "Storefront" })).toHaveCount(0);
+  await afterProjection(page, async () => {
+    await expect(page.getByRole("link", { name: "Storefront" })).toHaveCount(0, { timeout: 1_000 });
+  });
 });
 
 test("a registry credential is set and cleared, and its password is never shown", async ({ page, target, signIn, unique }) => {

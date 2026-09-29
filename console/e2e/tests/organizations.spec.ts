@@ -1,4 +1,4 @@
-import { test, expect, seedTenancy } from "../fixtures.ts";
+import { test, expect, seedTenancy, afterProjection } from "../fixtures.ts";
 import type { Page } from "@playwright/test";
 
 async function createOrganization(page: Page, url: string, id: string, name: string) {
@@ -75,6 +75,12 @@ test("US2-5 an empty organization is deleted; a non-empty one is refused with th
   await page.getByRole("button", { name: "Create project" }).click();
   await page.waitForURL(/\/projects\/proj-/);
   await page.goto(`${target.url}/organizations/${full}`);
+  // The control plane counts projects from a projection; a delete that races it is allowed. Wait
+  // until the listing shows the project, as a person reading the page would.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("link", { name: "Something" })).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
   await page.getByText("Rename or delete").click();
   await page.getByRole("button", { name: "Delete organization" }).click();
   await expect(page.getByRole("alert")).toContainText(`organization '${full}' still has 1 project(s)`);
@@ -85,7 +91,9 @@ test("US2-5 an empty organization is deleted; a non-empty one is refused with th
   await page.getByText("Rename or delete").click();
   await page.getByRole("button", { name: "Delete organization" }).click();
   await page.waitForURL(`${target.url}/`);
-  await expect(page.getByRole("link", { name: "Empty", exact: true })).toHaveCount(0);
+  await afterProjection(page, async () => {
+    await expect(page.getByRole("link", { name: "Empty", exact: true })).toHaveCount(0, { timeout: 1_000 });
+  });
 });
 
 test("US2-6 a deleted id cannot be reused, and the page says so", async ({ page, target, signIn, unique }) => {

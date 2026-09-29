@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" aria-labelledby="title desc">
+  <title id="title">How the runtime hosts a WebAssembly module</title>
+  <desc id="desc">How the ankka runtime hosts a service built to a WebAssembly module. One container runs one JVM: the runtime, with the module read once and compiled once, and instances built from it. The runtime's entity and workflow hosts hold each loaded entity's encoded state, and call the exports ankka1_handle and ankka1_fold on a command pool of reused instances, sized by ANKKA_WASM_INSTANCES: a stateless command takes any free instance, a stateful component's entity is pinned to one, and a trapped instance is discarded and replaced while the held state survives, handed to whichever instance serves the next call. Everything that may wait on the runtime — workflow steps, views, consumers, timed actions, HTTP routes, an agent's plan, tools and guardrails, and an autonomous agent's result check — runs on a fresh instance built for the call and discarded after it, so a call blocked in an import holds no command instance. From inside an export the module calls back through the ankka1 imports: invoke, send and query for the component client, invoke_stream with a streaming reply collected whole, schedule and cancel for timers, config for descriptor variables with reserved names answered absent, and log to the logger ankka.module; the calling virtual thread parks while it waits, and the imports reach the rest of the runtime, the same code a process is served by. Every call crosses the instance's linear memory as protobuf: the runtime allocates with ankka1_alloc, writes the request, calls the export with its pointer and length, and reads the reply from the returned i64, the pointer shifted left 32 bits or'd with the length.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .ink { fill: #1f2328; }
+    .muted { fill: #59636e; }
+    .accent-text { fill: #c2410c; }
+    .box { fill: #f6f8fa; stroke: #afb8c1; stroke-width: 1.2; }
+    .hot { fill: #fff4ec; stroke: #c2410c; stroke-width: 1.5; }
+    .cluster { fill: none; stroke: #59636e; stroke-width: 1.5; }
+    .ns { fill: none; stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 5 4; }
+    .deploy { fill: none; stroke: #afb8c1; stroke-width: 1.2; stroke-dasharray: 3 3; }
+    .line { stroke: #1f2328; stroke-width: 1.4; fill: none; }
+    .dash { stroke: #59636e; stroke-width: 1.3; fill: none; stroke-dasharray: 4 3; }
+    .head { fill: #1f2328; }
+    .headmuted { fill: #59636e; }
+    text { font-size: 13px; }
+    .title { font-size: 14px; font-weight: 600; }
+    .small { font-size: 11.5px; }
+    .label { font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9198a1; }
+      .accent-text { fill: #ff9a5c; }
+      .box { fill: #161b22; stroke: #3d444d; }
+      .hot { fill: #2a1a10; stroke: #ff8a4c; }
+      .cluster { stroke: #9198a1; }
+      .ns { stroke: #656c76; }
+      .deploy { stroke: #3d444d; }
+      .line { stroke: #e6edf3; }
+      .dash { stroke: #9198a1; }
+      .head { fill: #e6edf3; }
+      .headmuted { fill: #9198a1; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="head"/>
+    </marker>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="headmuted"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1200" height="680" rx="12"/>
+
+  <text class="label muted" x="24" y="40">THE RUNTIME: ONE CONTAINER, ONE JVM, YOUR MODULE INSIDE IT</text>
+  <rect class="cluster" x="24" y="56" width="1152" height="600" rx="14"/>
+
+  <!-- the runtime's hosts -->
+  <rect class="box" x="48" y="96" width="260" height="190" rx="8"/>
+  <text class="title ink" x="178" y="122" text-anchor="middle">Entity and workflow hosts</text>
+  <text class="small muted" x="178" y="140" text-anchor="middle">sharding · journal · snapshots</text>
+  <rect class="bg" x="64" y="154" width="228" height="116" rx="6"/>
+  <rect class="deploy" x="64" y="154" width="228" height="116" rx="6"/>
+  <text class="small ink" x="178" y="174" text-anchor="middle">held state, per loaded entity</text>
+  <text class="small muted" x="178" y="196" text-anchor="middle">cart-1 → encoded state</text>
+  <text class="small muted" x="178" y="214" text-anchor="middle">cart-2 → encoded state</text>
+  <text class="small muted" x="178" y="232" text-anchor="middle">order-7 → encoded state</text>
+  <text class="small ink" x="178" y="256" text-anchor="middle">updated from every reply</text>
+  <rect class="box" x="48" y="318" width="260" height="130" rx="8"/>
+  <text class="title ink" x="178" y="344" text-anchor="middle">Everything that may wait</text>
+  <text class="small muted" x="178" y="366" text-anchor="middle">workflow steps · views · consumers</text>
+  <text class="small muted" x="178" y="384" text-anchor="middle">timed actions · HTTP routes</text>
+  <text class="small muted" x="178" y="402" text-anchor="middle">an agent's plan, tools, guardrails</text>
+  <text class="small muted" x="178" y="420" text-anchor="middle">an autonomous agent's result check</text>
+
+  <!-- the module -->
+  <rect class="hot" x="420" y="72" width="320" height="58" rx="8"/>
+  <text class="title ink" x="580" y="96" text-anchor="middle">service.wasm</text>
+  <text class="small muted" x="580" y="116" text-anchor="middle">read once · compiled once · instances built from it</text>
+  <line class="dash" x1="580" y1="132" x2="580" y2="158" marker-end="url(#m)"/>
+
+  <!-- command pool -->
+  <rect class="ns" x="380" y="160" width="400" height="180" rx="10"/>
+  <text class="title ink" x="396" y="184">Command pool</text>
+  <text class="small muted" x="396" y="202">ANKKA_WASM_INSTANCES reused instances</text>
+  <rect class="box" x="396" y="216" width="86" height="80" rx="6"/>
+  <text class="small ink" x="439" y="238" text-anchor="middle">instance</text>
+  <text class="small ink" x="439" y="258" text-anchor="middle">free</text>
+  <text class="small muted" x="439" y="278" text-anchor="middle">stateless</text>
+  <rect class="box" x="490" y="216" width="86" height="80" rx="6"/>
+  <text class="small ink" x="533" y="238" text-anchor="middle">instance</text>
+  <text class="small ink" x="533" y="258" text-anchor="middle">pinned</text>
+  <text class="small muted" x="533" y="278" text-anchor="middle">to order-7</text>
+  <rect class="box" x="584" y="216" width="86" height="80" rx="6"/>
+  <text class="small ink" x="627" y="238" text-anchor="middle">instance</text>
+  <text class="small ink" x="627" y="258" text-anchor="middle">busy</text>
+  <text class="small muted" x="627" y="278" text-anchor="middle">on cart-1</text>
+  <rect class="deploy" x="678" y="216" width="86" height="80" rx="6"/>
+  <text class="small accent-text" x="721" y="238" text-anchor="middle">trapped</text>
+  <text class="small muted" x="721" y="258" text-anchor="middle">discarded,</text>
+  <text class="small muted" x="721" y="278" text-anchor="middle">replaced</text>
+  <text class="small muted" x="580" y="322" text-anchor="middle">the held state survives a trap; the next call hands it over</text>
+
+  <!-- fresh instances -->
+  <rect class="ns" x="380" y="370" width="400" height="160" rx="10"/>
+  <text class="title ink" x="396" y="394">Fresh instances</text>
+  <text class="small muted" x="396" y="412">one built per call, discarded after it</text>
+  <rect class="box" x="396" y="426" width="86" height="60" rx="6"/>
+  <text class="small ink" x="439" y="450" text-anchor="middle">instance</text>
+  <text class="small muted" x="439" y="468" text-anchor="middle">a step</text>
+  <rect class="box" x="490" y="426" width="86" height="60" rx="6"/>
+  <text class="small ink" x="533" y="450" text-anchor="middle">instance</text>
+  <text class="small muted" x="533" y="468" text-anchor="middle">a tool call</text>
+  <rect class="box" x="584" y="426" width="86" height="60" rx="6"/>
+  <text class="small ink" x="627" y="450" text-anchor="middle">instance</text>
+  <text class="small muted" x="627" y="468" text-anchor="middle">an HTTP route</text>
+  <rect class="deploy" x="678" y="426" width="86" height="60" rx="6"/>
+  <text class="small muted" x="721" y="460" text-anchor="middle">…</text>
+  <text class="small muted" x="580" y="512" text-anchor="middle">a call blocked in an import holds no command instance</text>
+
+  <!-- exports: the runtime calls in -->
+  <line class="line" x1="310" y1="210" x2="378" y2="210" marker-end="url(#a)"/>
+  <text class="small ink" x="344" y="190" text-anchor="middle">handle</text>
+  <text class="small ink" x="344" y="203" text-anchor="middle">fold</text>
+  <line class="dash" x1="378" y1="250" x2="312" y2="250" marker-end="url(#m)"/>
+  <text class="small muted" x="344" y="266" text-anchor="middle">reply +</text>
+  <text class="small muted" x="344" y="279" text-anchor="middle">new state</text>
+  <line class="line" x1="310" y1="456" x2="378" y2="456" marker-end="url(#a)"/>
+  <text class="small ink" x="344" y="436" text-anchor="middle">step, plan,</text>
+  <text class="small ink" x="344" y="449" text-anchor="middle">tool, http…</text>
+
+  <!-- imports: the module calls back -->
+  <rect class="box" x="860" y="96" width="292" height="330" rx="8"/>
+  <text class="title ink" x="1006" y="122" text-anchor="middle">ankka1 imports</text>
+  <text class="small muted" x="1006" y="140" text-anchor="middle">called from inside an export;</text>
+  <text class="small muted" x="1006" y="156" text-anchor="middle">its virtual thread parks while it waits</text>
+  <rect class="bg" x="876" y="172" width="260" height="42" rx="5"/>
+  <rect class="deploy" x="876" y="172" width="260" height="42" rx="5"/>
+  <text class="small ink" x="1006" y="189" text-anchor="middle">invoke · send · query</text>
+  <text class="small muted" x="1006" y="205" text-anchor="middle">the component client</text>
+  <rect class="bg" x="876" y="220" width="260" height="42" rx="5"/>
+  <rect class="deploy" x="876" y="220" width="260" height="42" rx="5"/>
+  <text class="small ink" x="1006" y="237" text-anchor="middle">invoke_stream</text>
+  <text class="small muted" x="1006" y="253" text-anchor="middle">a streaming reply, collected whole</text>
+  <rect class="bg" x="876" y="268" width="260" height="42" rx="5"/>
+  <rect class="deploy" x="876" y="268" width="260" height="42" rx="5"/>
+  <text class="small ink" x="1006" y="285" text-anchor="middle">schedule · cancel</text>
+  <text class="small muted" x="1006" y="301" text-anchor="middle">timers</text>
+  <rect class="bg" x="876" y="316" width="260" height="42" rx="5"/>
+  <rect class="deploy" x="876" y="316" width="260" height="42" rx="5"/>
+  <text class="small ink" x="1006" y="333" text-anchor="middle">config</text>
+  <text class="small muted" x="1006" y="349" text-anchor="middle">descriptor variables; reserved names absent</text>
+  <rect class="bg" x="876" y="364" width="260" height="42" rx="5"/>
+  <rect class="deploy" x="876" y="364" width="260" height="42" rx="5"/>
+  <text class="small ink" x="1006" y="381" text-anchor="middle">log</text>
+  <text class="small muted" x="1006" y="397" text-anchor="middle">the logger ankka.module</text>
+  <line class="line" x1="782" y1="250" x2="858" y2="250" marker-end="url(#a)"/>
+  <path class="line" d="M 782 456 L 820 456 L 820 250"/>
+  <text class="small ink" x="820" y="240" text-anchor="middle">imports</text>
+  <rect class="box" x="860" y="452" width="292" height="78" rx="8"/>
+  <text class="title ink" x="1006" y="476" text-anchor="middle">The rest of the runtime</text>
+  <text class="small muted" x="1006" y="494" text-anchor="middle">other entities, timers, cluster, log</text>
+  <text class="small muted" x="1006" y="512" text-anchor="middle">the same code a process is served by</text>
+  <line class="line" x1="1006" y1="428" x2="1006" y2="450" marker-end="url(#a)"/>
+
+  <!-- the memory convention -->
+  <text class="small ink" x="48" y="592">one instance's</text>
+  <text class="small ink" x="48" y="607">linear memory</text>
+  <rect class="box" x="160" y="582" width="992" height="32" rx="4"/>
+  <rect class="hot" x="300" y="582" width="260" height="32" rx="4"/>
+  <text class="small ink" x="430" y="602" text-anchor="middle">a request: protobuf bytes</text>
+  <rect class="hot" x="780" y="582" width="240" height="32" rx="4"/>
+  <text class="small ink" x="900" y="602" text-anchor="middle">its reply: protobuf bytes</text>
+  <text class="small muted" x="430" y="570" text-anchor="middle">the runtime: ankka1_alloc, write, call export(ptr, len)</text>
+  <text class="small muted" x="900" y="570" text-anchor="middle">the guest returns ptr &lt;&lt; 32 | len; the runtime reads it</text>
+  <text class="small muted" x="600" y="636" text-anchor="middle">the same messages a process sends over gRPC · an import's request and reply cross the same way</text>
+</svg>

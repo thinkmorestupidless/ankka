@@ -143,7 +143,11 @@ guest does not use is not needed). A changed signature or memory rule is `ankka2
 ## How the runtime hosts a module
 
 The runtime reads the module once at start, compiles it once, and builds instances of it as it needs
-them. Two pools serve calls:
+them.
+
+![How the runtime hosts a WebAssembly module: one container runs one JVM, the runtime, with the module read once and compiled once. The entity and workflow hosts hold each loaded entity's encoded state and call ankka1_handle and ankka1_fold on a command pool of reused instances: a stateless command takes any free instance, a stateful entity is pinned to one, and a trapped instance is discarded and replaced while the held state survives for the next call. Workflow steps, views, consumers, timed actions, HTTP routes, an agent's plan, tools and guardrails, and an autonomous agent's result check each run on a fresh instance built for the call and discarded after it. From inside an export the module calls back through the ankka1 imports — invoke, send and query for the component client, invoke_stream, schedule and cancel, config with reserved names answered absent, and log — which reach the rest of the runtime while the calling virtual thread parks. Every call crosses the instance's linear memory as protobuf: the runtime writes the request through ankka1_alloc and calls the export with its pointer and length, and the guest returns the reply's pointer and length packed into one i64.](../assets/diagrams/wasm-hosting.svg)
+
+Two pools serve calls:
 
 - **Commands** — entity and workflow commands, and replay — run on a fixed number of reused instances.
   A stateless component's command takes any free one; a stateful component's instance is pinned to one by

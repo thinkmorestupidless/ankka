@@ -35,9 +35,8 @@ object Dependencies {
     val bouncyCastle = "1.86"
 
     /**
-     * Test scope only, for now: the WebAssembly spike in `sidecar` (ankka-deployments:
-     * design/wasm-hosting.md). Pure JVM, no native code, which is the property the treatment chose
-     * it for.
+     * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native
+     * code. In `sidecar` only, never `runtime`, so no published library carries it.
      */
     val chicory = "1.7.5"
 
@@ -145,6 +144,7 @@ object Dependencies {
   /** The WebAssembly runtime and its runtime compiler to JVM bytecode, for the spike only. */
   val chicoryRuntime  = "com.dylibso.chicory" % "runtime"  % V.chicory
   val chicoryCompiler = "com.dylibso.chicory" % "compiler" % V.chicory
+  val chicoryWabt     = "com.dylibso.chicory" % "wabt"     % V.chicory
 
   /**
    * Scala support for fabric8's serialisation.

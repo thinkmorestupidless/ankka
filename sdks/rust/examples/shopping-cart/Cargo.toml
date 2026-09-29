@@ -1,0 +1,27 @@
+# The shopping cart every ankka SDK carries, in Rust: built to a WebAssembly module the runtime
+# hosts. Its journal is the Scala and Python carts' — same manifests, same JSON.
+[package]
+name = "shopping-cart"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+# cdylib: the module; rlib: the tests, which run natively against the same code.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ankka = { path = "../../ankka" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+ankka = { path = "../../ankka", features = ["testkit"] }
+
+[features]
+# The tests that start Postgres and the runtime in Docker; compiled out unless asked for.
+slow = []
+# The module is the conformance reference (src/conformance.rs) rather than the example's service.
+conformance = []

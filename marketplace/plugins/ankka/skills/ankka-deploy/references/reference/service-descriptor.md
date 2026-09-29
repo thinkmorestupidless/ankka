@@ -50,6 +50,12 @@ A service written in Python declares process hosting and the sidecar protocol it
 { "name": "cart", "service": { "image": "registry.example.com/acme/cart-py:1.0.0", "hosting": "process", "protocol": "1.0" } }
 ```
 
+A service written in Rust is built to a WebAssembly module, and declares wasm hosting:
+
+```json title="service.json"
+{ "name": "cart", "service": { "image": "registry.example.com/acme/cart-module:1.0.0", "hosting": "wasm", "protocol": "1.1" } }
+```
+
 ## Top level
 
 | Field | Type | Required | Meaning |
@@ -71,8 +77,8 @@ settings, so one descriptor can be applied to several projects.
 |---|---|---|---|
 | `image` | string | required | The container image to run. |
 | `runtime` | string | none | The ankka version the image was built against, `MAJOR.MINOR.PATCH`. |
-| `hosting` | string | `"embedded"` | `embedded` for a Scala service; `process` for a service in another language, run beside the ankka sidecar. |
-| `protocol` | string | none | The sidecar protocol version the image's SDK speaks, `MAJOR.MINOR`. Required with `process` hosting. |
+| `hosting` | string | `"embedded"` | `embedded` for a Scala service; `process` for a service in another language, run beside the ankka sidecar; `wasm` for a service built to a WebAssembly module, loaded into the ankka runtime. |
+| `protocol` | string | none | The protocol version the image's SDK speaks, `MAJOR.MINOR`. Required with `process` or `wasm` hosting. |
 | `env` | array of [environment variables](#environment-variables) | `[]` | Environment for the service's containers. |
 | `labels` | object of strings | `{}` | Extra labels on the service's Kubernetes objects. |
 | `annotations` | object of strings | `{}` | Extra annotations on the service's Kubernetes objects. |
@@ -101,17 +107,23 @@ reports.
 
 ### hosting and protocol
 
-`hosting` is `embedded` or `process`; anything else is refused with
-`hosting must be "embedded" or "process", not "<value>"`.
+`hosting` is `embedded`, `process` or `wasm`; anything else is refused with
+`hosting must be "embedded", "process" or "wasm", not "<value>"`.
 
 - `embedded`: the image is an ankka service, and the JVM in it is a cluster node.
 - `process`: the image is a process in another language. The platform runs ankka's sidecar in the same
   pod, and the two talk over loopback. The descriptor never names the sidecar's image or version; those
   belong to the platform.
+- `wasm`: the image carries a WebAssembly module. The platform runs the image once, as an init
+  container, to copy the module into a volume the pod shares, and then runs its own runtime image with
+  the module loaded into it — one container. The image's contract is exactly that: run with
+  `/ankka/module` mounted, write `service.wasm` there, and exit 0; any other exit fails the pod's start,
+  and the service reports it. A wasm service always serves HTTP, since the runtime serves the module's
+  routes, so `"http": false` is refused with `a wasm service's runtime serves HTTP`.
 
-`protocol` is the sidecar protocol version, `MAJOR.MINOR`. It is required with `process` hosting
-(`protocol must be declared for process hosting`) and refused with `embedded` hosting
-(`protocol is meaningful only for process hosting`). The platform accepts a declaration with the same
+`protocol` is the protocol version, `MAJOR.MINOR`. It is required with `process` or `wasm` hosting
+(`protocol must be declared for process hosting`, and the same for `wasm`) and refused with `embedded`
+hosting (`protocol is meaningful only for process or wasm hosting`). The platform accepts a declaration with the same
 major as its own and a minor no later than its own. It currently speaks protocol `1.0`.
 
 ### http and port
@@ -165,6 +177,7 @@ one fact is how an address ends up pointing at a port nothing listens on.
 | `ANKKA_CLUSTER_CONTACT_POINTS` | How many peers must be found before a new cluster forms. |
 | `ANKKA_PROCESS_PORT`, `ANKKA_PROCESS_ADDRESS` | Where the sidecar finds a process-hosted service. |
 | `ANKKA_SIDECAR_PORT`, `ANKKA_SIDECAR_ADDRESS`, `ANKKA_SIDECAR_BIND` | Where a process-hosted service finds its sidecar. |
+| `ANKKA_WASM_MODULE`, `ANKKA_WASM_INSTANCES`, `ANKKA_WASM_MAX_MEMORY_PAGES` | Where the runtime finds a wasm service's module, and how it sizes the instances that run it. |
 
 ### Supplying your own database
 
@@ -185,6 +198,13 @@ name:
 | `ANKKA_MODEL_` | the sidecar | Model configuration, including a scripted model for tests. |
 | `ANKKA_DB_` | the sidecar | The sidecar owns the journal; the process never sees the database. |
 | anything else | the process | Your own configuration. |
+
+### Variables in a wasm-hosted service
+
+With `"hosting": "wasm"` the pod has one container, so every variable in `env` is in the runtime's
+environment. The module reads them through the runtime, which answers a name that starts `ANTHROPIC_`,
+`ANKKA_MODEL_` or `ANKKA_DB_` — or is one of the platform's own — as unset. A model key supplied in the
+descriptor therefore reaches the runtime, which runs the agent loop, and never the module.
 
 ## Resources
 

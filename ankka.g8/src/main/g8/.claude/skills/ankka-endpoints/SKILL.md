@@ -1,6 +1,6 @@
 ---
 name: ankka-endpoints
-description: Write, change or test an ankka HTTP endpoint in Scala, Python or TypeScript — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, and calling entities, workflows, agents and views from a handler. Use when the task names an endpoint, a route, a REST API, an ACL, authentication of callers, a 4xx status, SSE, HttpServer, or EndpointClients.
+description: Write, change or test an ankka HTTP endpoint in Scala, Python, TypeScript or Rust — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, and calling entities, workflows, agents and views from a handler. Use when the task names an endpoint, a route, a REST API, an ACL, authentication of callers, a 4xx status, SSE, HttpServer, or EndpointClients.
 ---
 
 # ankka HTTP endpoints
@@ -64,6 +64,17 @@ an ACL. Exposing a service changes who can *reach* an endpoint, never who is *al
   `ErrorCode` in the entity, not the endpoint.
 - Is any input structural (path, body) or per-call (query, header)? Structural inputs are typed
   arguments; per-call inputs are read from the request.
+
+## Rust differences
+
+An endpoint implements `Endpoint` (`ENDPOINT_ID`, `PREFIX`, a required `acl()` — `Acl::AllowAll`,
+`DenyAll`, `Authenticated` or `Callers(vec![..])` — and `routes()`). Routes are
+`Routes::new().get("/{cartId}", Self::get_cart).post("/{cartId}/items", Self::add_item)`; `get`/`delete`
+handlers take `&Request`, `post`/`put`/`patch` handlers also the decoded body (`()` for none); `.with_acl(..)`
+after a route replaces the endpoint's for it. A handler answers `Result<R, HttpProblem>`: any serializable
+value (`Done` and `()` answer 204) or a `Response`; a `CommandError` from `request.client()` becomes its
+status with `?`. The module never binds a port, and no route streams: a module answers every request whole.
+`EndpointTestKit::<E>::with_service(build())` tests the routes against the service's entities in memory.
 
 ## Testing
 

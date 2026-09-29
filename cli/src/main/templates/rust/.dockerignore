@@ -1,0 +1,3 @@
+# Only the module goes into the image.
+*
+!target/wasm32-unknown-unknown/release/{{module_snake}}.wasm

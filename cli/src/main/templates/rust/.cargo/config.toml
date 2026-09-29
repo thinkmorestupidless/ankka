@@ -1,0 +1,10 @@
+# `cargo module` builds the module: target/wasm32-unknown-unknown/release/{{module_snake}}.wasm.
+# The target is named here rather than as the build's default, so a plain `cargo test` runs the tests
+# natively.
+[alias]
+module = "build --release --target wasm32-unknown-unknown"
+
+# A 256 KiB stack rather than Rust's default 1 MiB: the runtime zero-fills it for every instance it
+# builds, so a smaller one makes each instance cheaper.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=262144"]

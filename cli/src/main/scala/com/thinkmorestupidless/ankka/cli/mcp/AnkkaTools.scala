@@ -277,7 +277,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "list_local_services",
       "List local services",
-      "Every ankka service running on this machine (started with `sbt run` or as a Python or TypeScript process beside a local sidecar), with where its observability endpoint listens. Nothing here is deployed.",
+      "Every ankka service running on this machine (started with `sbt run`, as a Python or TypeScript process beside a local sidecar, or as a Rust service's WebAssembly module loaded by a local runtime), with where its observability endpoint listens. Nothing here is deployed.",
       schema(Nil),
       readOnly = true,
       idempotent = true
@@ -444,6 +444,6 @@ private[cli] final class AnkkaTools(
 private[cli] object AnkkaTools:
 
   val Instructions: String =
-    """Tools for ankka, a platform for services built from entities, views, consumers, workflows, timers, agents and HTTP endpoints, in Scala, Python or TypeScript.
+    """Tools for ankka, a platform for services built from entities, views, consumers, workflows, timers, agents and HTTP endpoints, in Scala, Python, TypeScript or Rust.
       |
       |Control plane tools act on deployed services in a project, as the logged-in user (`ankka login`). Local tools act on services running on this machine. `search_docs` and `read_doc` read the documentation of this ankka version; read the relevant page before writing ankka code or a descriptor, because its samples are compiled and tested.""".stripMargin

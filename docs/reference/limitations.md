@@ -99,14 +99,25 @@ feature also says what that feature does not do.
   what was published after it started, must tolerate duplicates, and skips a message with no `ce-subject`.
   Only Kafka is supported; another broker needs its own implementation of the two-method broker interface.
 - **Only agents stream.** Entities and workflows refuse a streaming request.
+- **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
+  timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is
+  discarded, but the thread running it is not reclaimed until the module returns.
+- **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
+  cannot stream; a module declaring one is refused at start.
+- **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime
+  has loaded; its `log` calls go to the runtime's log, and its unit tests run natively.
+- **The module image must copy.** A wasm service's image is run once to copy `service.wasm` into
+  `/ankka/module`; an image that does anything else fails the pod's start. The platform does not yet mount
+  the image as a volume, which would need a container runtime newer than every cluster it targets.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.
 
 ## SDKs and releases
 
-- **Three languages.** Services are written in Scala, Python or TypeScript. Another language needs an SDK that passes the
-  conformance suite; see [Adding a language SDK](../contributing/language-sdks.md).
+- **Four languages.** Services are written in Scala, Python, TypeScript or Rust. Another language needs an SDK, or a
+  guest library for the WebAssembly mode, that passes the conformance suite; see
+  [Adding a language SDK](../contributing/language-sdks.md).
 - **The CLI has native builds for macOS and Linux only.** There is no Windows executable, no Linux
   package, and the Linux builds need glibc, so they do not run on musl (Alpine); the release's zip runs
   anywhere with a JDK 21. The macOS executables are not signed by Apple. `ankka init` needs `sbt` on

@@ -1,0 +1,24 @@
+// One bidirectional stream per loaded key value entity instance.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service KeyValue { rpc Handle (stream KeyValueIn) returns (stream KeyValueOut); }
+
+message KeyValueIn {
+  oneof message { Init init = 1; Command command = 2; }
+  message Init    { string component_id = 1; string entity_id = 2; optional Payload state = 3; }
+  message Command { int64 id = 1; string name = 2; Payload payload = 3; Metadata metadata = 4; }
+}
+
+message KeyValueOut {
+  oneof message { Reply reply = 1; Failure failure = 2; }
+  message Reply {
+    int64 command_id = 1;
+    optional Payload new_state = 2;             // absent: unchanged
+    optional Retention retention = 3;
+    Outcome outcome = 4;
+  }
+}

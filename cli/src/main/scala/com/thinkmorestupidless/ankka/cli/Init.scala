@@ -10,20 +10,22 @@ enum Language(val id: String):
   case Scala      extends Language("scala")
   case Python     extends Language("python")
   case TypeScript extends Language("typescript")
+  case Rust       extends Language("rust")
 
 object Language:
   def parse(text: String): Either[String, Language] = text.toLowerCase match
     case "scala"             => Right(Scala)
     case "python" | "py"     => Right(Python)
     case "typescript" | "ts" => Right(TypeScript)
-    case other               => Left(s"unknown language '$other'; one of scala, python, typescript")
+    case "rust" | "rs"       => Right(Rust)
+    case other => Left(s"unknown language '$other'; one of scala, python, typescript, rust")
 
 /**
  * `ankka init <name>`: a new service from the platform's template.
  *
  * For Scala it runs `sbt new` — Giter8, the way every Scala framework's template is expanded — with
  * the same template `sbt new thinkmorestupidless/ankka.g8` uses; the CLI carries no Scala template
- * and no template engine, so the two front doors cannot drift. For Python and TypeScript the
+ * and no template engine, so the two front doors cannot drift. For Python, TypeScript and Rust the
  * template is this CLI's own and `Scaffold` renders it (see there for why). Either way the version
  * handed to the template is this CLI's own: the CLI you run is the version you get.
  */
@@ -71,6 +73,10 @@ object Init:
         template(request) ++ request.pkg
           .map(_ => "--package applies to scala and python only")
           .toVector
+      case Language.Rust =>
+        template(request) ++ request.pkg
+          .map(_ => "--package applies to scala and python only")
+          .toVector ++ Scaffold.crateProblems(request.name)
     name ++ occupied ++ options
 
   private def template(request: Request): Vector[String] =

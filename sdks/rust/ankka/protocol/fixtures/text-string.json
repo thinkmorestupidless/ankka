@@ -1,0 +1,6 @@
+{
+  "manifest": "string",
+  "content_type": "text/plain",
+  "bytes_base64": "aGVsbG8sIHdvcmxk",
+  "value": "hello, world"
+}

@@ -1,0 +1,6 @@
+{
+  "manifest": "plan",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0aXRsZSI6IndlZWtlbmQiLCJzdGVwcyI6W3sibmFtZSI6InBhY2siLCJvcmRlciI6MX0seyJuYW1lIjoiZ28iLCJvcmRlciI6Mn1dLCJsYWJlbHMiOnsidGllciI6ImdvbGQifX0=",
+  "value": {"title":"weekend","steps":[{"name":"pack","order":1},{"name":"go","order":2}],"labels":{"tier":"gold"}}
+}

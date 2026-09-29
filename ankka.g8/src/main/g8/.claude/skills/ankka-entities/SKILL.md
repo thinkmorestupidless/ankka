@@ -1,6 +1,6 @@
 ---
 name: ankka-entities
-description: Write, change or test an ankka entity in Scala, Python or TypeScript — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
+description: Write, change or test an ankka entity in Scala, Python, TypeScript or Rust — an event sourced entity (events, event handler, commands, queries, snapshots, deletion, expiry) or a key value entity (updateState) — including its serializers and manifests, the wire names of its handlers, how it is called through the component client, and how to change a stored event or state type without breaking the journal. Use when the task names an entity, an event, a command handler, currentState, applyEvent, a Codecs.serializer, or a manifest.
 ---
 
 # ankka entities
@@ -76,6 +76,19 @@ From an endpoint, workflow step, consumer, timed action or agent tool, through t
 a `CommandError` carrying the code, never as a default value. A `Timeout` says the reply did not arrive,
 not that the command did not happen, so a retried command must be safe to receive twice. An entity that
 has never been written exists with its empty state, so a read is never "not found" at the client.
+
+## Rust differences
+
+An entity is a unit struct implementing `EventSourcedEntity` (associated `State`, `Event`, `COMPONENT_ID`,
+optional `STATE_MANIFEST`/`EVENT_MANIFEST`; `empty_state(entity_id)`, `apply(state, &event)`,
+`handlers()`) or `KeyValueEntity` (`State`, `empty_state`, `handlers()`). Handlers are functions
+`fn(&State, Input, &Context)`: a command returns `Effect<E, R>` (`effects::persist(e).then_reply_value(r)`,
+`.then_reply(|s| ..)`, `.delete_entity()`, `.expire_after(d)`), a query `ReadOnlyEffect<R>`
+(`effects::reply`), and `query` accepts only the latter, so a persisting query does not compile. Events are
+an enum with `#[serde(tag = "type")]` and camelCase fields renamed to the stored spelling. A key value
+entity's deletion is `effects::delete_state()`. `const SHAPE: Shape = Shape::Stateful` keeps the decoded
+state in the module between commands. Register by value (`.register(ShoppingCart)`); test with
+`EventSourcedTestKit::<C>::new(id).command(name, input)` and `KeyValueEntityTestKit`.
 
 ## Testing
 

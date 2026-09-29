@@ -31,7 +31,8 @@ final case class Settings(
      */
     baseDomain: Option[String] = None,
     /**
-     * The image the operator runs beside a `hosting: process` service (feature 009). Not in the
+     * The runtime image: run beside a `hosting: process` service (feature 009), and as the one
+     * container of a `hosting: wasm` service with its module loaded (feature 016). Not in the
      * resource, by design: a descriptor cannot name it. `ANKKA_SIDECAR_IMAGE` on the operator's own
      * Deployment, set by the manifests to the tag the same build produced; the operator has no
      * version of its own to derive one from.

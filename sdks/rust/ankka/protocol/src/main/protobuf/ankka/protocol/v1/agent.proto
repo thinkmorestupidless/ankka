@@ -1,0 +1,53 @@
+// Agents: the process plans (an AgentEffect as data) and runs tools; the sidecar runs the loop.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Agent {
+  rpc Plan           (PlanRequest)      returns (PlanReply);
+  rpc InvokeTool     (ToolRequest)      returns (ToolResult);
+  rpc CheckGuardrail (GuardrailRequest) returns (GuardrailResult);
+}
+
+message PlanRequest {
+  string component_id = 1;
+  string session_id = 2;
+  string name = 3;
+  Payload payload = 4;
+  Metadata metadata = 5;
+}
+
+message PlanReply { oneof message { AgentPlan plan = 1; Failure failure = 2; } }
+
+message AgentPlan {                             // AgentEffect, as data
+  optional string model = 1;                    // a name in the sidecar's configuration
+  optional string system = 2;
+  optional string user = 3;
+  repeated string context = 4;
+  Memory memory = 5;
+  repeated string tools = 6;                    // names declared in discovery
+  ResponseShape response_shape = 7;
+  repeated string guardrails = 8;               // names declared in discovery
+  optional Error failure = 9;                   // effects.error(...): a refusal before any model call
+  enum Memory { SESSION = 0; NONE = 1; }
+  message ResponseShape {
+    oneof shape { Empty text = 1; Json json = 2; }
+    message Json { string schema_hint = 1; }
+  }
+}
+
+message ToolRequest  { string component_id = 1; string session_id = 2; string tool = 3; string arguments_json = 4; }
+message ToolResult   { oneof result { string ok = 1; string error = 2; } }   // FunctionTool.invoke's Either
+
+message GuardrailRequest {
+  string component_id = 1;
+  string session_id = 2;
+  string guardrail = 3;
+  Stage stage = 4;
+  string text = 5;
+  enum Stage { INPUT = 0; OUTPUT = 1; }
+}
+
+message GuardrailResult { oneof result { Empty pass = 1; string block = 2; } }

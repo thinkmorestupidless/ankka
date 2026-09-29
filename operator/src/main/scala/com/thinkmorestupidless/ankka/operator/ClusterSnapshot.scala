@@ -38,21 +38,103 @@ object PodProblem:
       .map(_.asScala.toVector)
       .exists(cs => cs.nonEmpty && cs.forall(c => Boolean.box(true) == c.getReady))
 
+  /**
+   * The first actionable problem: an init container's first, since nothing else starts until they
+   * have — a wasm service's module image that cannot be pulled, or that exits non-zero rather than
+   * copying its module, is the whole story of that pod.
+   */
   def of(pod: Pod): Option[PodProblem] =
-    for
-      status   <- Option(pod.getStatus)
-      statuses <- Option(status.getContainerStatuses).map(_.asScala.toVector)
-      container <- statuses.find(cs =>
-        Option(cs.getState).flatMap(s => Option(s.getWaiting)).exists { waiting =>
-          Actionable.contains(Option(waiting.getReason).getOrElse(""))
+    val name = Option(pod.getMetadata).map(_.getName).getOrElse("")
+    Option(pod.getStatus).flatMap { status =>
+      def list(xs: java.util.List[io.fabric8.kubernetes.api.model.ContainerStatus]) =
+        Option(xs).map(_.asScala.toVector).getOrElse(Vector.empty)
+      val init       = list(status.getInitContainerStatuses)
+      val containers = list(status.getContainerStatuses)
+      initFailure(name, init)
+        .orElse(waiting(name, init))
+        .orElse(waiting(name, containers))
+        .orElse(exited(name, containers))
+    }
+
+  /**
+   * A container waiting for an actionable reason. For one that keeps exiting, the message is what
+   * it said as it last exited, when it said anything — which is where a refusal names itself —
+   * rather than the kubelet's "back-off restarting" line.
+   */
+  private def waiting(
+      pod: String,
+      statuses: Vector[io.fabric8.kubernetes.api.model.ContainerStatus]
+  ): Option[PodProblem] =
+    statuses.iterator
+      .flatMap { cs =>
+        Option(cs.getState)
+          .flatMap(s => Option(s.getWaiting))
+          .filter(w => Actionable.contains(Option(w.getReason).getOrElse("")))
+          .map { w =>
+            val lastWords = Option(cs.getLastState)
+              .flatMap(s => Option(s.getTerminated))
+              .flatMap(t => Option(t.getMessage))
+              .map(_.trim)
+              .filter(_.nonEmpty)
+            PodProblem(
+              pod,
+              Option(w.getReason).getOrElse(""),
+              lastWords.getOrElse(Option(w.getMessage).getOrElse(""))
+            )
+          }
+      }
+      .nextOption()
+
+  /**
+   * A container that has just exited non-zero, between the kubelet's restarts: neither waiting in
+   * back-off yet nor running, it is otherwise invisible here, and a failed readiness probe would be
+   * all the service reported. What it said as it exited is the reason — which is where a runtime
+   * that refused its module names why.
+   */
+  private def exited(
+      pod: String,
+      statuses: Vector[io.fabric8.kubernetes.api.model.ContainerStatus]
+  ): Option[PodProblem] =
+    statuses.iterator
+      .flatMap { cs =>
+        Option(cs.getState)
+          .flatMap(s => Option(s.getTerminated))
+          .filter(t => Option(t.getExitCode).exists(_ != 0))
+          .map { t =>
+            val said = Option(t.getMessage).map(_.trim).filter(_.nonEmpty)
+            PodProblem(
+              pod,
+              Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"),
+              said.getOrElse(s"container '${cs.getName}' exited ${t.getExitCode}")
+            )
+          }
+      }
+      .nextOption()
+
+  /** An init container that ran and failed, now or the last time it ran. */
+  private def initFailure(
+      pod: String,
+      statuses: Vector[io.fabric8.kubernetes.api.model.ContainerStatus]
+  ): Option[PodProblem] =
+    statuses.iterator
+      .flatMap { cs =>
+        val terminated =
+          Option(cs.getState)
+            .flatMap(s => Option(s.getTerminated))
+            .orElse(
+              Option(cs.getLastState).flatMap(s => Option(s.getTerminated))
+            )
+        terminated.filter(t => Option(t.getExitCode).exists(_ != 0)).map { t =>
+          val why = Option(t.getMessage).orElse(Option(t.getReason)).getOrElse("")
+          PodProblem(
+            pod,
+            "InitContainerFailed",
+            s"init container '${cs.getName}' exited ${t.getExitCode}" + (if why.isEmpty then ""
+                                                                         else s": $why")
+          )
         }
-      )
-      waiting = container.getState.getWaiting
-    yield PodProblem(
-      pod = Option(pod.getMetadata).map(_.getName).getOrElse(""),
-      reason = Option(waiting.getReason).getOrElse(""),
-      message = Option(waiting.getMessage).getOrElse("")
-    )
+      }
+      .nextOption()
 
 /**
  * What one read of the cluster saw for one service.

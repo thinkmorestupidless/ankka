@@ -52,10 +52,12 @@ sbt 'sidecar/testOnly *ConformanceSuite'                                       #
 sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:9010   # a process speaking the protocol
 cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
 cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end
+cd sdks/rust && cargo test --workspace && cargo test -p shopping-cart --features slow && ./conformance.sh   # the Rust crate, end to end
+sbt 'sidecar/testOnly *WasmHostSuite'   # the module mode's host; its end-to-end case builds the Rust cart, so needs cargo on PATH
 sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
 sbt 'cli/testOnly *ActionSuite'   # the GitHub Action's install and configure steps, run as bash
 sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka init --language python`, run
-                                   # against sdks/python (and typescript likewise); needs uv, or node and npm
+                                   # against sdks/python (and typescript and rust likewise); needs uv, node and npm, or cargo
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
@@ -304,6 +306,23 @@ request says is trusted. Readiness has its own plain port, 7627 `probe`. The one
 deployment — a template without `ankka.thinkmorestupidless.com/transport=tls` — is `Transition`:
 delete, wait for no pods, apply.
 
+### A service can be a WebAssembly module the runtime loads
+
+The sidecar image has a second mode (feature 016). Given `ANKKA_WASM_MODULE`, it loads that module
+into its own JVM through Chicory's compiler, discovers what the module declares from its
+`ankka1_discover` export, and hosts it with the same remote hosts a process gets: `sidecar/wasm` is
+a second `Conversation` (`WasmConversation`), and nothing in `runtime` changes. The ABI is
+`protocol/WASM-ABI.md` — `ankka1_`-prefixed exports, one `ankka1` import module, the protocol's own
+messages across linear memory, and the envelopes in `wasm.proto`. The runtime holds each instance's
+encoded state (`HeldState`) in both guest shapes, so a trapped guest instance is discarded and
+replaced and loses nothing; commands run on a pool of reused instances (`CommandPool`, a stateful
+component pinned to one by its key) and anything that may wait on a fresh instance per call
+(`BlockingPool`), so a step blocked in an import never holds an instance a command needs. The
+`config` import answers the descriptor's variables and withholds the platform's own — the read-time
+version of the split the operator makes for a process. On the platform a wasm service is one
+container, the runtime's image, with the module copied into an `emptyDir` by the service's own image
+run as an init container. `sdks/rust` is the first guest library, the crate `ankka`.
+
 ### Virtual threads
 
 Endpoints, workflow steps, consumers, timers and agent loops all run on
@@ -522,6 +541,26 @@ not a template engine, a session store or a cookie API: those belong to the appl
   `object.__init__`'s `*args` counted as a parameter. The private endpoint never reached its handler,
   so nothing noticed until the conformance suite's caller cases.
 
+- **A `val` that lists functions defined below it lists nulls.** `HostImports.values` was an eager
+  `val` naming the `log` import declared after it, so the `ImportValues` held `null` for `log` and
+  Chicory failed building any instance of a module that imported it — with a
+  `NullPointerException` in `mapHostImports` that names nothing of ankka's. The spike guest never
+  imported `log`, so every host test passed until the first real crate module arrived. It is a
+  `lazy val`.
+- **`export` is a keyword in Scala 3**, and the ABI is all exports. A parameter or a helper named
+  `export` is a syntax error that scalafmt reports before the compiler does; the host says
+  `function` and `fn`.
+- **cargo reads `.cargo/config.toml` from the directory it is run in, upward — not from the package
+  it builds.** The Rust example's config sets its target; run from `sdks/rust`, `cargo build -p
+  shopping-cart --release` ignores it and builds for the host. Every build of a module from the
+  workspace says `--target wasm32-unknown-unknown`, and the stack size a module needs lives in the
+  *workspace's* `.cargo/config.toml`, where both directories see it.
+- **A bind mount of a file that does not exist yet makes Docker create a directory in its place.**
+  Starting the `wasm` compose profile before `cargo module` had built the module left a directory
+  named `….wasm` where the module goes, and the next build failed `Operation not permitted`; OrbStack
+  then kept that path's directory view even after the file existed. Both compose files mount the
+  module with `bind.create_host_path: false`, so a missing module is refused (or, on OrbStack, the
+  runtime refuses `no module at /module/service.wasm`) and nothing is created on the host.
 - **A Deployment's `spec.selector` is immutable.** It must never contain ankka's
   generation, or the second apply is rejected permanently and the service is bricked at
   generation 2. The generation lives on the Deployment's own annotations.
@@ -1251,8 +1290,10 @@ named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
 new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
 
-**The Python and TypeScript templates are the CLI's own**, in `cli/src/main/templates/{python,
-typescript,common}`, rendered by `ankka init --language` (`Scaffold`). Neither language has a template
+**The Python, TypeScript and Rust templates are the CLI's own**, in `cli/src/main/templates/{python,
+typescript,rust,common}`, rendered by `ankka init --language` (`Scaffold`). The Rust template's
+`.cargo/config.toml` defines `cargo module` (the release build for `wasm32-unknown-unknown`) rather
+than setting a build target, so a plain `cargo test` in the project still runs natively. Neither language has a template
 tool its developers all have, so there is no second front door to drift from, and the template is
 always the CLI's version. The build copies each language's files, `common/` (the compose file) and the
 rendered skills from `marketplace/` onto the classpath with an `index.txt` — walked by hand, because
@@ -1361,6 +1402,27 @@ From the next tag the job publishes, and its `npm view` guard makes a re-run of 
 run left without a second upload. The `npm` environment on the repository is where a required reviewer would
 go, as `pypi` is for the Python SDK. The `ci` workflow's `sdk-typescript` job runs the fast tests on Node 22
 and 24 (the floor and the documented line) and the Docker-backed tests and the conformance suite on 24.
+
+**The Rust crate ships through crates.io**, as `ankka`, from the release workflow's `sdk-rust` job. Its
+version is `version` in `sdks/rust/ankka/Cargo.toml` — `0.0.0` in the tree, like the other placeholders —
+and the crate reports `env!("CARGO_PKG_VERSION")` in discovery, so the version a module declares is the
+one on crates.io. The job writes the tag's version with `sed`, diffs the crate's protocol copy against
+`protocol/`, tests, packages, builds the package alone for `wasm32-unknown-unknown`, and publishes under
+**trusted publishing** (`rust-lang/crates-io-auth-action` exchanges the OIDC token for a short-lived one),
+environment `crates-io`, beside `npm` and `pypi`. **crates.io, like npm, attaches a trusted publisher only
+to a crate that exists**, so the first release that carries the crate publishes it once by hand, after
+that tag's `publish` job is green:
+
+```bash
+git checkout vX.Y.Z && cd sdks/rust
+sed -i '' 's/^version = "0.0.0"/version = "X.Y.Z"/' ankka/Cargo.toml
+cargo publish -p ankka --allow-dirty          # a crates.io token with the publish-new scope
+git checkout -- ankka/Cargo.toml Cargo.lock
+```
+
+Then on crates.io, the crate's settings → Trusted Publishing → GitHub: owner `thinkmorestupidless`,
+repository `ankka`, workflow `release.yml`, environment `crates-io`. From the next tag the job publishes,
+and its `cargo info` guard makes a re-run of a tag finish what a cancelled run left.
 
 **Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,

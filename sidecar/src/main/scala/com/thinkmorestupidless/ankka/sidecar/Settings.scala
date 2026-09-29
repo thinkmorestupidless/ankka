@@ -8,6 +8,12 @@ import scala.jdk.DurationConverters.*
 /**
  * What the sidecar reads from its environment and configuration.
  *
+ * Two modes. Given `ANKKA_WASM_MODULE`, the runtime hosts that WebAssembly module in its own
+ * process and there is no process to dial: `ANKKA_WASM_INSTANCES` sizes the pool of reused
+ * instances that serves commands (default the carrier count), and `ANKKA_WASM_MAX_MEMORY_PAGES`
+ * caps each instance's linear memory in 64 KiB pages (default 4096, 256 MiB). Otherwise it is a
+ * sidecar, and dials the developer's process at `ANKKA_PROCESS_ADDRESS`.
+ *
  * The callback server's bind address is deliberately not a setting: it is loopback, always, so a
  * process in another pod cannot reach it (FR-009). The process address defaults to loopback for the
  * same reason and is overridden only by compose and the Python testkit, where the process is on the
@@ -27,15 +33,22 @@ final case class Settings(
     discoveryTimeout: FiniteDuration,
     discoveryBackoffMax: FiniteDuration,
     commandTimeout: FiniteDuration,
-    requestTimeout: FiniteDuration
+    requestTimeout: FiniteDuration,
+    wasmModule: Option[java.nio.file.Path] = None,
+    wasmInstances: Int = Runtime.getRuntime.availableProcessors,
+    wasmMaxMemoryPages: Int = Settings.DefaultWasmMaxMemoryPages
 ):
   def processHost: String = processAddress.split(':').head
   def processPort: Int    = processAddress.split(':').last.toInt
+
+  /** Whether the runtime hosts a module in-process rather than a process beside it. */
+  def isModuleMode: Boolean = wasmModule.isDefined
 
 object Settings:
   val CallbackBindAddress: String = "127.0.0.1"
   val DefaultProcessAddress       = "127.0.0.1:9010"
   val DefaultCallbackPort         = 9011
+  val DefaultWasmMaxMemoryPages   = 4096
 
   def load(config: Config): Settings =
     val env = sys.env
@@ -50,7 +63,15 @@ object Settings:
       requestTimeout =
         if config.hasPath("ankka.http.body-timeout") then
           config.getDuration("ankka.http.body-timeout").toScala
-        else config.getDuration("ankka.ask-timeout").toScala
+        else config.getDuration("ankka.ask-timeout").toScala,
+      wasmModule = env.get("ANKKA_WASM_MODULE").filter(_.nonEmpty).map(java.nio.file.Path.of(_)),
+      wasmInstances = env
+        .get("ANKKA_WASM_INSTANCES")
+        .map(_.toInt)
+        .getOrElse(Runtime.getRuntime.availableProcessors)
+        .max(1),
+      wasmMaxMemoryPages =
+        env.get("ANKKA_WASM_MAX_MEMORY_PAGES").map(_.toInt).getOrElse(DefaultWasmMaxMemoryPages)
     )
 
   private def parse(text: String): FiniteDuration =

@@ -117,12 +117,14 @@ final case class ServiceSpec(
      * the JVM in it is the node. `process`: the image is a process in another language, and the
      * platform runs the sidecar — ankka's own runtime — beside it; the descriptor cannot name the
      * sidecar's image or set its variables, by the same rule that refuses the cluster's variables.
+     * `wasm`: the image carries a WebAssembly module, and the platform runs its own runtime with
+     * the module loaded into it — one container, the module delivered by running the image once.
      */
     hosting: String = ServiceSpec.Embedded,
     /**
-     * The sidecar protocol version the image's SDK speaks — `"1.0"`. Required with `process`
-     * hosting, meaningless with `embedded`. Checked against the platform's own when the service is
-     * projected (`Compatibility.supportsProtocol`): same major, minor not above.
+     * The sidecar protocol version the image's SDK speaks — `"1.0"`. Required with `process` or
+     * `wasm` hosting, meaningless with `embedded`. Checked against the platform's own when the
+     * service is projected (`Compatibility.supportsProtocol`): same major, minor not above.
      */
     protocol: Option[String] = None
 ):
@@ -131,6 +133,12 @@ final case class ServiceSpec(
   def declaredRuntime: Option[Either[String, Version]] = runtime.map(Version.parse)
 
   def isProcessHosted: Boolean = hosting == ServiceSpec.Process
+
+  /** A WebAssembly module the platform's runtime loads, rather than an image that is the node. */
+  def isModuleHosted: Boolean = hosting == ServiceSpec.Wasm
+
+  /** Written in another language: a process beside the runtime, or a module inside it. */
+  def isPolyglot: Boolean = isProcessHosted || isModuleHosted
 
   /** The declared protocol, parsed; `None` when undeclared; the problem text when malformed. */
   def declaredProtocol: Option[Either[String, ProtocolVersion]] =
@@ -174,22 +182,30 @@ final case class ServiceSpec(
       env
         .filter(e =>
           ServiceSpec.PlatformEnvVars.contains(e.name) || ServiceSpec.SidecarEnvVars
-            .contains(e.name)
+            .contains(e.name) || ServiceSpec.WasmEnvVars.contains(e.name)
         )
         .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
     val hostingProblems =
-      if hosting != ServiceSpec.Embedded && hosting != ServiceSpec.Process then
+      if !ServiceSpec.Hostings.contains(hosting) then
         Vector(
-          s"hosting must be \"${ServiceSpec.Embedded}\" or \"${ServiceSpec.Process}\", not \"$hosting\""
+          s"hosting must be \"${ServiceSpec.Embedded}\", \"${ServiceSpec.Process}\" or " +
+            s"\"${ServiceSpec.Wasm}\", not \"$hosting\""
         )
-      else if isProcessHosted && protocol.isEmpty then
-        Vector("protocol must be declared for process hosting")
-      else if !isProcessHosted && protocol.nonEmpty then
-        Vector("protocol is meaningful only for process hosting")
+      else if isPolyglot && protocol.isEmpty then
+        Vector(s"protocol must be declared for $hosting hosting")
+      else if !isPolyglot && protocol.nonEmpty then
+        Vector("protocol is meaningful only for process or wasm hosting")
       else Vector.empty
+    // The runtime a module is loaded into is the platform's, and it serves the module's routes.
+    val moduleProblems =
+      Option
+        .when(isModuleHosted && !http)(
+          "a wasm service's runtime serves HTTP; remove \"http\": false"
+        )
+        .toVector
     val protocolProblems = declaredProtocol.flatMap(_.left.toOption).map("protocol " + _).toVector
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
-      hostingProblems ++ protocolProblems ++ resources.problems
+      hostingProblems ++ moduleProblems ++ protocolProblems ++ resources.problems
 
 object ServiceSpec:
   /**
@@ -220,6 +236,16 @@ object ServiceSpec:
 
   val Embedded: String = "embedded"
   val Process: String  = "process"
+  val Wasm: String     = "wasm"
+
+  val Hostings: Vector[String] = Vector(Embedded, Process, Wasm)
+
+  /**
+   * How the runtime finds and sizes a module (feature 016). The operator sets the module's path;
+   * the other two are the runtime's own tuning, not a descriptor's to set.
+   */
+  val WasmEnvVars: Set[String] =
+    Set("ANKKA_WASM_MODULE", "ANKKA_WASM_INSTANCES", "ANKKA_WASM_MAX_MEMORY_PAGES")
 
   /**
    * How the sidecar and the process find each other (feature 009). The operator sets them on the
@@ -403,9 +429,12 @@ final case class ServiceStatus(
      * resume otherwise leaves the listing saying Paused while the entity says Ready.
      */
     paused: Boolean = false,
-    /** `embedded` or `process` (feature 009): where the developer's code runs. Display only. */
+    /**
+     * `embedded`, `process` (feature 009) or `wasm` (feature 016): where the developer's code runs.
+     * Display only.
+     */
     hosting: String = "embedded",
-    /** The sidecar protocol the service declared, for a process-hosted one. Display only. */
+    /** The protocol the service declared, for a process- or module-hosted one. Display only. */
     protocol: Option[String] = None
 )
 

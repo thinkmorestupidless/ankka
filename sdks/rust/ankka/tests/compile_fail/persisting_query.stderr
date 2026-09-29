@@ -1,0 +1,18 @@
+error[E0271]: expected `get` to return `ReadOnlyEffect<_>`, but it returns `Effect<Counted, Done>`
+  --> tests/compile_fail/persisting_query.rs:37:38
+   |
+37 |         Handlers::new().query("get", Counter::get)
+   |                         -----        ^^^^^^^^^^^^ expected `ReadOnlyEffect<_>`, found `Effect<Counted, Done>`
+   |                         |
+   |                         required by a bound introduced by this call
+   |
+   = note: expected struct `ReadOnlyEffect<_>`
+              found struct `ankka::effects::Effect<Counted, ankka::Done>`
+note: required by a bound in `ankka::components::Handlers::<C>::query`
+  --> src/components/event_sourced.rs
+   |
+   |     pub fn query<In, R, F>(self, name: &str, handler: F) -> Handlers<C>
+   |            ----- required by a bound in this associated function
+...
+   |         F: Fn(&C::State, In, &Context) -> ReadOnlyEffect<R> + 'static,
+   |                                           ^^^^^^^^^^^^^^^^^ required by this bound in `Handlers::<C>::query`

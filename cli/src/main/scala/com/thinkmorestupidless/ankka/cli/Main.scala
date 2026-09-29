@@ -642,7 +642,7 @@ object Main:
     (
       Opts.argument[String]("name"),
       Opts
-        .option[String]("language", "scala (the default), python or typescript.", "l")
+        .option[String]("language", "scala (the default), python, typescript or rust.", "l")
         .mapValidated(text => Validated.fromEither(Language.parse(text)).toValidatedNel)
         .withDefault(Language.Scala),
       Opts
@@ -685,6 +685,9 @@ object Main:
         case Language.TypeScript =>
           Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
           s"created $where\n\n  cd $name\n  npm install\n  npm test\n  docker compose up -d && npm start\n\nsee README.md for the rest"
+        case Language.Rust =>
+          Scaffold.render(request, com.thinkmorestupidless.ankka.core.BuildInfo.version): Unit
+          s"created $where\n\n  cd $name\n  cargo test\n  cargo module && docker compose up -d runtime\n\nsee README.md for the rest"
     }
   }
 

@@ -1,6 +1,8 @@
-// The Go spike guest. Exports the `ankka1_` functions the treatment sketches, over the protocol's
-// own messages, hand-encoded with protowire (the wire-level package under
-// google.golang.org/protobuf, which reflects on nothing) and the cart the Rust guest carries.
+// The Go spike guest. Exports the `ankka1_` functions of protocol/WASM-ABI.md, over the protocol's
+// own messages and the envelopes in wasm.proto, hand-encoded with protowire (the wire-level package
+// under google.golang.org/protobuf, which reflects on nothing), and the cart the Rust guest carries.
+// Like the Rust guest it has a `panic` handler that panics and a `config` handler answering what the
+// `ankka1::config` import returns, so the host's tests run against a module in two languages.
 //
 // Bytes cross the boundary as (pointer, length) in linear memory, and a function that returns
 // bytes packs pointer and length into one u64, pointer high. TinyGo's collector does not move
@@ -210,6 +212,8 @@ func discover(p uint32, n uint32) uint64 {
 	component = protowire.AppendString(component, "cart")
 	component = append(component, message(3, handler("add-item", false))...)
 	component = append(component, message(3, handler("get-cart", true))...)
+	component = append(component, message(3, handler("panic", true))...)
+	component = append(component, message(3, handler("config", true))...)
 	var detail []byte
 	detail = protowire.AppendTag(detail, 1, protowire.VarintType)
 	detail = protowire.AppendVarint(detail, 100)
@@ -226,7 +230,12 @@ func discover(p uint32, n uint32) uint64 {
 	spec = protowire.AppendString(spec, protocolVersion)
 	spec = append(spec, message(2, sdk)...)
 	spec = append(spec, message(3, component)...)
-	return give(spec)
+
+	// WasmSpec: the spec, no stateful components, ABI version 1.
+	wasm := message(1, spec)
+	wasm = protowire.AppendTag(wasm, 3, protowire.BytesType)
+	wasm = protowire.AppendString(wasm, "1")
+	return give(wasm)
 }
 
 func boolVarint(b bool) uint64 {
@@ -240,11 +249,12 @@ func boolVarint(b bool) uint64 {
 func handle(p uint32, n uint32) uint64 {
 	var state []byte
 	var cmd command
+	// HandleRequest: state is field 4, an event sourced command field 10.
 	fields(take(p, n), func(num protowire.Number, _ uint64, bytes []byte) {
 		switch num {
-		case 1:
+		case 4:
 			state = decodePayload(bytes).data
-		case 2:
+		case 10:
 			cmd = decodeCommand(bytes)
 		}
 	})
@@ -265,13 +275,18 @@ func handle(p uint32, n uint32) uint64 {
 		outcome = message(1, message(1, done.encode()))
 	case "get-cart":
 		outcome = message(1, message(1, jsonPayload("Cart", cart).encode()))
+	case "panic":
+		panic("the panic handler panicked, as asked")
+	case "config":
+		name := string(cmd.payload.data)
+		if value, ok := config(name); ok {
+			text := payload{contentType: "text/plain", manifest: "string", data: []byte(value)}
+			outcome = message(1, message(1, text.encode()))
+		} else {
+			outcome = message(3, errorMessage("no variable "+name, 4)) // NOT_FOUND
+		}
 	default:
-		var e []byte
-		e = protowire.AppendTag(e, 1, protowire.BytesType)
-		e = protowire.AppendString(e, "no handler "+cmd.name)
-		e = protowire.AppendTag(e, 2, protowire.VarintType)
-		e = protowire.AppendVarint(e, 4) // NOT_FOUND
-		outcome = message(3, e)
+		outcome = message(3, errorMessage("no handler "+cmd.name, 4)) // NOT_FOUND
 	}
 
 	var reply []byte
@@ -282,19 +297,29 @@ func handle(p uint32, n uint32) uint64 {
 	}
 	reply = append(reply, message(4, outcome)...)
 
-	out := message(1, reply)
+	// HandleReply: the event sourced reply is field 10, the state after it field 2.
+	out := message(10, reply)
 	out = append(out, message(2, jsonPayload("Cart", cart).encode())...)
 	return give(out)
 }
 
+func errorMessage(text string, code uint64) []byte {
+	var e []byte
+	e = protowire.AppendTag(e, 1, protowire.BytesType)
+	e = protowire.AppendString(e, text)
+	e = protowire.AppendTag(e, 2, protowire.VarintType)
+	return protowire.AppendVarint(e, code)
+}
+
 //go:wasmexport ankka1_fold
 func foldExport(p uint32, n uint32) uint64 {
+	// FoldRequest: state is field 3, the event field 4.
 	var state, eventBytes []byte
 	fields(take(p, n), func(num protowire.Number, _ uint64, bytes []byte) {
 		switch num {
-		case 1:
+		case 3:
 			state = decodePayload(bytes).data
-		case 2:
+		case 4:
 			eventBytes = decodePayload(bytes).data
 		}
 	})
@@ -302,13 +327,112 @@ func foldExport(p uint32, n uint32) uint64 {
 	if err := json.Unmarshal(eventBytes, &event); err != nil {
 		panic(err)
 	}
-	return give(jsonPayload("Cart", fold(decodeCart(state), event)).encode())
+	// FoldReply: the state is field 1.
+	return give(message(1, jsonPayload("Cart", fold(decodeCart(state), event)).encode()))
+}
+
+// ---- the other exports: fixed answers, so the host's dispatch of each is exercised ------------
+
+//go:wasmexport ankka1_close
+func closeExport(p uint32, n uint32) {
+	take(p, n) // stateless: there is nothing kept to drop
+}
+
+//go:wasmexport ankka1_run_step
+func runStep(p uint32, n uint32) uint64 {
+	// StepRequest: state is field 3, run_step field 4, whose id is field 1.
+	var state []byte
+	var id uint64
+	fields(take(p, n), func(num protowire.Number, _ uint64, bytes []byte) {
+		switch num {
+		case 3:
+			state = bytes
+		case 4:
+			fields(bytes, func(num protowire.Number, varint uint64, _ []byte) {
+				if num == 1 {
+					id = varint
+				}
+			})
+		}
+	})
+	// WorkflowOut.StepReply: command_id (1), next (3) = StepOutcome{end (3)}.
+	var step []byte
+	step = protowire.AppendTag(step, 1, protowire.VarintType)
+	step = protowire.AppendVarint(step, id)
+	step = append(step, message(3, message(3, nil))...)
+	// StepReply: reply (1), the state handed over, unchanged (2).
+	out := message(1, step)
+	if state != nil {
+		out = append(out, message(2, state)...)
+	}
+	return give(out)
+}
+
+func fixed(p uint32, n uint32, reply []byte) uint64 {
+	take(p, n)
+	return give(reply)
+}
+
+func text(num protowire.Number, value string) []byte {
+	b := protowire.AppendTag(nil, num, protowire.BytesType)
+	return protowire.AppendString(b, value)
+}
+
+//go:wasmexport ankka1_view
+func view(p uint32, n uint32) uint64 { return fixed(p, n, message(3, nil)) } // ViewEffect.ignore
+
+//go:wasmexport ankka1_consumer
+func consumer(p uint32, n uint32) uint64 { return fixed(p, n, message(2, nil)) } // ConsumerEffect.done
+
+//go:wasmexport ankka1_timed_action
+func timedAction(p uint32, n uint32) uint64 { return fixed(p, n, message(1, nil)) } // TimedActionEffect.done
+
+//go:wasmexport ankka1_plan
+func plan(p uint32, n uint32) uint64 { return fixed(p, n, message(1, text(3, "hello"))) } // PlanReply.plan{user}
+
+//go:wasmexport ankka1_invoke_tool
+func invokeTool(p uint32, n uint32) uint64 { return fixed(p, n, text(1, "tool ran")) } // ToolResult.ok
+
+//go:wasmexport ankka1_check_guardrail
+func checkGuardrail(p uint32, n uint32) uint64 { return fixed(p, n, message(1, nil)) } // GuardrailResult.pass
+
+//go:wasmexport ankka1_http
+func http(p uint32, n uint32) uint64 {
+	// HttpReply.response: status (1), content_type (2), body (3).
+	var r []byte
+	r = protowire.AppendTag(r, 1, protowire.VarintType)
+	r = protowire.AppendVarint(r, 200)
+	r = append(r, text(2, "text/plain")...)
+	r = append(r, text(3, "hello")...)
+	return fixed(p, n, message(1, r))
 }
 
 // ---- a host call, for the blocking measurement -----------------------------------------------
 
 //go:wasmimport ankka1 invoke
 func invoke(p uint32, n uint32) uint64
+
+//go:wasmimport ankka1 config
+func configImport(p uint32, n uint32) uint64
+
+// config asks the host for one of the descriptor's variables: ConfigRequest's name is field 1,
+// ConfigReply's optional value field 1, absent when the host withholds or lacks it.
+func config(name string) (string, bool) {
+	request := protowire.AppendTag(nil, 1, protowire.BytesType)
+	request = protowire.AppendString(request, name)
+	packed := configImport(uint32(uintptr(unsafe.Pointer(unsafe.SliceData(request)))), uint32(len(request)))
+	if packed == 0 {
+		return "", false
+	}
+	var value string
+	found := false
+	fields(take(uint32(packed>>32), uint32(packed&0xffffffff)), func(num protowire.Number, _ uint64, bytes []byte) {
+		if num == 1 {
+			value, found = string(bytes), true
+		}
+	})
+	return value, found
+}
 
 //go:wasmexport ankka1_call_out
 func callOut(p uint32, n uint32) uint64 {

@@ -1,0 +1,8 @@
+{
+  "name": "{{name}}",
+  "service": {
+    "image": "{{name}}:latest",
+    "hosting": "wasm",
+    "protocol": "{{protocol_version}}"
+  }
+}

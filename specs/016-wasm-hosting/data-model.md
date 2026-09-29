@@ -128,4 +128,4 @@ the reserved variables, the runtime's image and an HTTP port refused as with `pr
 | features | `testkit` (adds the Docker integration kit and its dependencies) |
 | targets | builds for `wasm32-unknown-unknown` (the service) and the host target (tests, the unit kit) |
 | carries | its copy of `protocol/` (messages, `ENCODING.md`, `WASM-ABI.md`, fixtures), generated at build |
-| reports | `SdkInfo { name: "ankka-rust", version }` and `protocol_version: "1.0"` in discovery |
+| reports | `SdkInfo { name: "ankka-rust", version }` and the protocol version its copy of `protocol/` carries in discovery |

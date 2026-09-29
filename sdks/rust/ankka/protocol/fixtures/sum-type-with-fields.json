@@ -1,0 +1,6 @@
+{
+  "manifest": "shopping-cart-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiSXRlbUFkZGVkIiwiaXRlbSI6eyJwcm9kdWN0SWQiOiJwMSIsIm5hbWUiOiJQZW4iLCJxdWFudGl0eSI6Mn19",
+  "value": {"type":"ItemAdded","item":{"productId":"p1","name":"Pen","quantity":2}}
+}

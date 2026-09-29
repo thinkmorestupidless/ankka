@@ -481,8 +481,10 @@ lazy val sidecar = project
     libraryDependencies ++= Seq(
       logback,
       testcontainersK3s % Test,
-      chicoryRuntime    % Test,
-      chicoryCompiler   % Test
+      chicoryRuntime,
+      chicoryCompiler,
+      // Assembles the small text modules WasmHostSuite needs to show each refusal.
+      chicoryWabt % Test
     ),
     // SidecarClusterSuite deploys this project's own image by the build's version tag, so the
     // image has to come from this sbt session — as sampleImageForClusterTests for the operator's
@@ -541,7 +543,7 @@ lazy val cli = project
       IO.write(index, pages.map(_._1).mkString("", "\n", "\n"))
       index +: copied
     }.taskValue,
-    // The Python and TypeScript templates `ankka init --language` renders (Scaffold): each language's
+    // The Python, TypeScript and Rust templates `ankka init --language` renders (Scaffold): each language's
     // own files from cli/src/main/templates/<language>, the files every language shares from
     // common/, and the agent skills a project carries, from the rendered copy in marketplace/ — the
     // same skills the Scala template carries. Onto the classpath at ankka/templates/<language>/ with
@@ -562,7 +564,7 @@ lazy val cli = project
           .filter(f => f.isFile && !litter(f))
           .flatMap(f => IO.relativize(dir, f).map(_ -> f))
       IO.delete(out)
-      Seq("python", "typescript").flatMap { language =>
+      Seq("python", "typescript", "rust").flatMap { language =>
         val files = (
           filesUnder(templates / "common") ++
             filesUnder(templates / language) ++

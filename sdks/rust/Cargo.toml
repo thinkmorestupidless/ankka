@@ -1,0 +1,20 @@
+# The Rust guest library for ankka's WebAssembly hosting mode, and its example. A cargo workspace
+# outside sbt: the crate is built and tested with cargo, and published to crates.io as `ankka`.
+[workspace]
+members = ["ankka", "examples/shopping-cart"]
+resolver = "3"
+
+[workspace.lints.rust]
+rust_2024_compatibility = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# What a module is built with: small and fast, and a panic is a trap the runtime reports rather
+# than an unwind a module has no use for.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,263 @@
+//! Calling other components: an entity's command, a workflow's, an agent's; a view's query; a
+//! timer. Every call blocks the calling handler until the runtime answers it, which in a module is
+//! free — the runtime parks the thread it runs the module on, and nothing else waits.
+//!
+//! A component is named by its value, so its kind and id come from its declaration:
+//!
+//! ```ignore
+//! let cart: Cart = ctx.client().invoke(ShoppingCart, "cart-1", "get-cart", ())?;
+//! ```
+
+use prost::Message;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+
+use crate::abi::imports::{Import, call};
+use crate::codec::time::Duration;
+use crate::codec::{EncodingError, decode_payload, encode_payload};
+use crate::components::ComponentOf;
+use crate::context::Metadata;
+use crate::effects::{CommandError, ErrorCode};
+use crate::proto::{self, Kind};
+
+/// A client for calling other components. A handler gets one from its `Context`, carrying the
+/// call's metadata on.
+#[derive(Debug, Clone, Default)]
+pub struct Client {
+    metadata: Metadata,
+}
+
+fn encoding(e: EncodingError) -> CommandError {
+    CommandError::new(ErrorCode::BadRequest, e.0)
+}
+
+fn answer<T: Message + Default>(import: Import, request: impl Message) -> T {
+    let reply = call(import, &request.encode_to_vec());
+    T::decode(reply.as_slice())
+        .unwrap_or_else(|e| panic!("the runtime's answer to {import:?} does not decode: {e}"))
+}
+
+impl Client {
+    /// A client that carries `metadata` on every call.
+    pub fn with_metadata(metadata: Metadata) -> Client {
+        Client { metadata }
+    }
+
+    /// Calls handler `name` of `entity_id` of `component`, answering its reply as `R`.
+    pub fn invoke<C, M, R, P>(
+        &self,
+        component: C,
+        entity_id: &str,
+        name: &str,
+        payload: P,
+    ) -> Result<R, CommandError>
+    where
+        C: ComponentOf<M>,
+        R: DeserializeOwned + 'static,
+        P: Serialize + 'static,
+    {
+        let _ = component;
+        self.invoke_by_name(C::kind(), C::component_id(), entity_id, name, payload)
+    }
+
+    /// Sends handler `name` of `entity_id` of `component` its payload and carries on, without
+    /// waiting for an answer: the way to call a handler that never replies. Nothing it answers,
+    /// a refusal included, comes back; the `Err` is only for a payload that cannot be encoded.
+    pub fn send<C, M, P>(
+        &self,
+        component: C,
+        entity_id: &str,
+        name: &str,
+        payload: P,
+    ) -> Result<(), CommandError>
+    where
+        C: ComponentOf<M>,
+        P: Serialize + 'static,
+    {
+        let _ = component;
+        let request = self.request(C::kind(), C::component_id(), entity_id, name, &payload)?;
+        let _ = call(Import::Send, &request.encode_to_vec());
+        Ok(())
+    }
+
+    /// Calls a component named by its kind and id, for one this service does not declare.
+    pub fn invoke_by_name<R, P>(
+        &self,
+        kind: Kind,
+        component_id: &str,
+        entity_id: &str,
+        name: &str,
+        payload: P,
+    ) -> Result<R, CommandError>
+    where
+        R: DeserializeOwned + 'static,
+        P: Serialize + 'static,
+    {
+        let request = self.request(kind, component_id, entity_id, name, &payload)?;
+        let reply: proto::InvokeReply = answer(Import::Invoke, request);
+        match reply.result {
+            Some(proto::invoke_reply::Result::Reply(reply)) => {
+                let payload = reply.payload.unwrap_or_default();
+                decode_payload(&payload).map_err(|e| CommandError::new(ErrorCode::Internal, e.0))
+            }
+            Some(proto::invoke_reply::Result::Error(error)) => {
+                Err(CommandError::from_proto(&error))
+            }
+            None => Err(CommandError::new(
+                ErrorCode::Internal,
+                "the runtime answered an invoke with nothing",
+            )),
+        }
+    }
+
+    /// Calls a streaming handler, answering its tokens once the stream has ended: a module is
+    /// handed a streaming reply whole.
+    pub fn invoke_stream<C, M, P>(
+        &self,
+        component: C,
+        entity_id: &str,
+        name: &str,
+        payload: P,
+    ) -> Result<Vec<String>, CommandError>
+    where
+        C: ComponentOf<M>,
+        P: Serialize + 'static,
+    {
+        let _ = component;
+        let request = self.request(C::kind(), C::component_id(), entity_id, name, &payload)?;
+        let reply: proto::StreamTokens = answer(Import::InvokeStream, request);
+        let mut tokens = Vec::new();
+        for token in reply.tokens {
+            match token.token {
+                Some(proto::stream_token::Token::Text(text)) => tokens.push(text),
+                Some(proto::stream_token::Token::Completed(_)) | None => {}
+                Some(proto::stream_token::Token::Failed(error)) => {
+                    return Err(CommandError::from_proto(&error));
+                }
+            }
+        }
+        Ok(tokens)
+    }
+
+    /// Asks view `view` its query `name`, answering the rows as `R`.
+    pub fn query<V, M, R, P>(&self, view: V, name: &str, payload: P) -> Result<R, CommandError>
+    where
+        V: ComponentOf<M>,
+        R: DeserializeOwned + 'static,
+        P: Serialize + 'static,
+    {
+        let _ = view;
+        self.query_by_name(V::component_id(), name, payload)
+    }
+
+    /// Asks a view named by its id.
+    pub fn query_by_name<R, P>(
+        &self,
+        view_id: &str,
+        name: &str,
+        payload: P,
+    ) -> Result<R, CommandError>
+    where
+        R: DeserializeOwned + 'static,
+        P: Serialize + 'static,
+    {
+        let request = proto::QueryRequest {
+            view_id: view_id.to_string(),
+            name: name.to_string(),
+            payload: Some(encode_payload(&payload).map_err(encoding)?),
+        };
+        let reply: proto::QueryReply = answer(Import::Query, request);
+        match reply.result {
+            Some(proto::query_reply::Result::Rows(rows)) => {
+                decode_payload(&rows).map_err(|e| CommandError::new(ErrorCode::Internal, e.0))
+            }
+            Some(proto::query_reply::Result::Error(error)) => Err(CommandError::from_proto(&error)),
+            None => Err(CommandError::new(
+                ErrorCode::Internal,
+                "the runtime answered a query with nothing",
+            )),
+        }
+    }
+
+    /// Schedules a call to handler `name` of `component` — of `entity_id` for a kind that has
+    /// instances — after `delay`, under `timer_id`. Scheduling the same id again replaces the timer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn schedule<C, M, P>(
+        &self,
+        timer_id: &str,
+        delay: Duration,
+        component: C,
+        entity_id: Option<&str>,
+        name: &str,
+        payload: P,
+    ) -> Result<(), CommandError>
+    where
+        C: ComponentOf<M>,
+        P: Serialize + 'static,
+    {
+        let _ = component;
+        self.schedule_by_name(
+            timer_id,
+            delay,
+            C::kind(),
+            C::component_id(),
+            entity_id,
+            name,
+            payload,
+        )
+    }
+
+    /// Schedules a call to a component named by its kind and id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn schedule_by_name<P: Serialize + 'static>(
+        &self,
+        timer_id: &str,
+        delay: Duration,
+        kind: Kind,
+        component_id: &str,
+        entity_id: Option<&str>,
+        name: &str,
+        payload: P,
+    ) -> Result<(), CommandError> {
+        let request = proto::ScheduleRequest {
+            timer_id: timer_id.to_string(),
+            delay_millis: delay.to_millis(),
+            kind: kind as i32,
+            component_id: component_id.to_string(),
+            entity_id: entity_id.map(str::to_string),
+            name: name.to_string(),
+            payload: Some(encode_payload(&payload).map_err(encoding)?),
+        };
+        let _: proto::Empty = answer(Import::Schedule, request);
+        Ok(())
+    }
+
+    /// Cancels the timer `timer_id`, if it has not fired.
+    pub fn cancel(&self, timer_id: &str) -> Result<(), CommandError> {
+        let _: proto::Empty = answer(
+            Import::Cancel,
+            proto::CancelRequest {
+                timer_id: timer_id.to_string(),
+            },
+        );
+        Ok(())
+    }
+
+    fn request<P: Serialize + 'static>(
+        &self,
+        kind: Kind,
+        component_id: &str,
+        entity_id: &str,
+        name: &str,
+        payload: &P,
+    ) -> Result<proto::InvokeRequest, CommandError> {
+        Ok(proto::InvokeRequest {
+            kind: kind as i32,
+            component_id: component_id.to_string(),
+            entity_id: entity_id.to_string(),
+            name: name.to_string(),
+            payload: Some(encode_payload(payload).map_err(encoding)?),
+            metadata: Some(self.metadata.to_proto()),
+        })
+    }
+}

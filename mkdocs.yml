@@ -80,7 +80,7 @@ extra:
   docs:
     # Frontmatter keys beyond title, description, kind and related, with the values a page may use.
     facets:
-      languages: [scala, python, typescript]
+      languages: [scala, python, typescript, rust]
       components:
         - event-sourced-entity
         - key-value-entity
@@ -139,6 +139,7 @@ nav:
       - Your first service in Scala: get-started/first-service-scala.md
       - Your first service in Python: get-started/first-service-python.md
       - Your first service in TypeScript: get-started/first-service-typescript.md
+      - Your first service in Rust: get-started/first-service-rust.md
       - Deploy to a local platform: get-started/deploy-locally.md
       - Work with a coding agent: get-started/coding-agents.md
   - Concepts:
@@ -202,7 +203,9 @@ nav:
       - Scala SDK: reference/scala-sdk.md
       - Python SDK: reference/python-sdk.md
       - TypeScript SDK: reference/typescript-sdk.md
+      - Rust SDK: reference/rust-sdk.md
       - Sidecar protocol: reference/sidecar-protocol.md
+      - WebAssembly ABI: reference/wasm-abi.md
       - Divergences from Akka: reference/akka-divergences.md
       - Limitations: reference/limitations.md
       - Glossary: reference/glossary.md

@@ -36,7 +36,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_free(ptr: i32, len: i32)` | | | |
 | `ankka1_discover(ptr, len) -> i64` | `SidecarInfo` | `WasmSpec` | once, at start |
 | `ankka1_handle(ptr, len) -> i64` | `HandleRequest` | `HandleReply` | entity and workflow commands |
-| `ankka1_fold(ptr, len) -> i64` | `FoldRequest` | `FoldReply` | replay and the runtime's post-persist fold |
+| `ankka1_fold(ptr, len) -> i64` | `FoldRequest` | `FoldReply` | replay: one journaled event applied to the state |
 | `ankka1_run_step(ptr, len) -> i64` | `StepRequest` | `StepReply` | workflow steps |
 | `ankka1_close(ptr, len)` | `Passivate` | | stateful only; the guest drops the instance's state |
 | `ankka1_view(ptr, len) -> i64` | `ViewRequest` | `ViewEffect` | |
@@ -48,23 +48,31 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_http(ptr, len) -> i64` | `HttpRequest` | `HttpReply` | non-streaming routes only |
 | `_initialize()` | | | optional; called once per instance before any other export |
 
-A module missing any required export is refused at start, naming it.
+`ankka1_alloc`, `ankka1_free`, `ankka1_discover` and the `memory` export are required of every
+module. The rest are required by what the module declares: `ankka1_handle` for any entity or
+workflow, `ankka1_fold` for an event sourced entity, `ankka1_run_step` for a workflow, `ankka1_close`
+for a component declared stateful, `ankka1_view`, `ankka1_consumer` and `ankka1_timed_action` for
+those kinds, `ankka1_plan` for an agent (with `ankka1_invoke_tool` when it declares tools and
+`ankka1_check_guardrail` when it declares guardrails), and `ankka1_http` for an endpoint. A module
+missing one it needs is refused at start, naming the export and what needs it.
 
 The host sets two kinds of metadata entry on every request that carries `Metadata`: `ankka.now`, the
 runtime's clock as epoch milliseconds, and the trace entries it sets for a process. A module has no
-clock of its own; `ankka.now` is the one it reads.
+clock of its own; `ankka.now` is the one it reads. An entity or workflow command's metadata also
+carries `ankka.sequence`, the journal sequence the state it is handed reflects.
 
 ## Imports the guest may use (module `ankka1`)
 
 | import | in | out | semantics |
 |---|---|---|---|
 | `invoke(ptr, len) -> i64` | `InvokeRequest` | `InvokeReply` | `Client.Invoke`; blocks the calling instance until answered |
+| `send(ptr, len) -> i64` | `InvokeRequest` | `Empty` | the same call without waiting: dispatched, and answered at once; its reply, or a refusal, is not delivered. The way to call a handler that never replies |
 | `invoke_stream(ptr, len) -> i64` | `InvokeRequest` | `StreamTokens` (the tokens collected; a streaming reply is delivered whole) | |
 | `query(ptr, len) -> i64` | `QueryRequest` | `QueryReply` | |
 | `schedule(ptr, len) -> i64` | `ScheduleRequest` | `Empty` | |
 | `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent |
-| `log(level: i32, ptr, len)` | UTF-8 text | | to the runtime's log under the module's logger |
+| `log(level: i32, ptr, len)` | UTF-8 text | | to the runtime's log under the logger `ankka.module`; `level` is 0 trace, 1 debug, 2 info, 3 warn, 4 error (anything else is error) |
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

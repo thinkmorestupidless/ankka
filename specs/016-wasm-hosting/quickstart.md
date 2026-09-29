@@ -62,14 +62,19 @@ rather than asserted, and `WasmHostSuite` carries the SC-005 assertion.
 ## 6. Locally, as a developer would (P1, P5 — SC-007)
 
 ```bash
-ankka init --language rust orders && cd orders
-cargo build --release
-docker compose up -d
-curl -X POST localhost:9000/items/o-1 -H 'content-type: application/json' -d '{"name":"pen","quantity":2}'
+ankka init orders --language rust && cd orders
+cargo test                                   # natively: the entity, the view, the API
+cargo module                                 # the module: target/wasm32-unknown-unknown/release/orders.wasm
+docker compose up -d runtime                 # Postgres and the runtime with the module mounted
+curl -X POST localhost:9000/items/o-1 -H 'content-type: application/json' -d '{"name":"pen","count":2}'
+curl localhost:9000/items/o-1
 ```
 
 Expected: an entity commanded through the runtime with no JVM installed, inside the page's fifteen
-minutes; `docker compose restart runtime` and the item is still there.
+minutes; `docker compose restart runtime` and the item is still there. Before the first release
+carrying the crate, point the project at this tree's crate (`ankka = { path = "…/sdks/rust/ankka" }`)
+and the runtime at this tree's image (`ANKKA_SIDECAR_IMAGE=ankka-sidecar:latest`), as
+`RustTemplateSuite` does.
 
 ## 7. On the platform (P4 — SC-009, SC-010)
 
@@ -85,9 +90,10 @@ variable invisible from inside the module while a descriptor variable is visible
 By hand, on the local installation:
 
 ```bash
-cd sdks/rust/examples/shopping-cart && docker build -t sample-shopping-cart-rust:latest .
+cd sdks/rust && cargo build -p shopping-cart --release --target wasm32-unknown-unknown
+docker build -f examples/shopping-cart/Dockerfile -t sample-shopping-cart-rust:latest .
 kind load docker-image sample-shopping-cart-rust:latest --name ankka
-ankka services apply -f service.json -p checkout && ankka services get cart -p checkout
+ankka services apply -f examples/shopping-cart/service.json -p checkout && ankka services get cart -p checkout
 ```
 
 ## 8. The template and the release plumbing (P5 — SC-011, SC-012)

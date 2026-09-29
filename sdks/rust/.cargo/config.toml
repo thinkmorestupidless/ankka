@@ -1,0 +1,4 @@
+# Every module this workspace builds: a 256 KiB stack rather than Rust's default 1 MiB, which the
+# runtime zero-fills for every instance it builds — a quarter of the cost of each one.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=262144"]

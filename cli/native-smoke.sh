@@ -44,11 +44,11 @@ for file in / /app.js /style.css; do
 done
 echo "console    serves its files"
 
-for language in python typescript; do
+for language in python typescript rust; do
   "$bin" init smoke --language "$language" --dir "$work/$language" > /dev/null \
     || fail "ankka init --language $language failed"
   for file in service.json .gitignore .github/workflows/deploy.yml .claude/skills/ankka/SKILL.md; do
     [ -f "$work/$language/smoke/$file" ] || fail "ankka init --language $language wrote no $file: the image is missing ankka/templates"
   done
 done
-echo "init       renders the python and typescript templates"
+echo "init       renders the python, typescript and rust templates"

@@ -1,0 +1,510 @@
+//! The reference service: the cart, and what the platform's conformance suite drives beside it.
+//! Every component, wire name and route is the Scala reference's (`ConformanceReference` in the
+//! sidecar's tests) and the Python one's — except the streaming routes and the streaming agent
+//! handler, which a module cannot have: it answers every call whole.
+//!
+//! Built with the `conformance` feature, the module is this service rather than the example's;
+//! `conformance.sh` builds it and runs the suite against it in both guest shapes, which it reads
+//! from `ANKKA_CONFORMANCE_SHAPE`.
+
+use std::collections::BTreeMap;
+
+use ankka::effects::{agent, consumer};
+use ankka::prelude::*;
+
+use crate::cart_rows::CartRows;
+use crate::checkout_workflow::{Checkout, CheckoutWorkflow};
+use crate::domain::ShoppingCartEvent;
+use crate::endpoint::CartApi;
+use crate::entity::ShoppingCart;
+
+// ── conformance: an entity whose handlers are the protocol's edge cases ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recorded {
+    pub input: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Recordings {
+    pub items: Vec<String>,
+}
+
+pub struct Conformance;
+
+impl Conformance {
+    fn record(_: &Recordings, input: String, _: &Context) -> Effect<Recorded, String> {
+        effects::persist(Recorded { input }).then_reply_value("done".to_string())
+    }
+
+    fn record_many(_: &Recordings, n: i32, _: &Context) -> Effect<Recorded, String> {
+        let events = (0..n).map(|i| Recorded {
+            input: format!("many-{i}"),
+        });
+        effects::persist_all(events).then_reply_value("done".to_string())
+    }
+
+    fn refuse(_: &Recordings, _: (), _: &Context) -> Effect<Recorded, String> {
+        effects::error(ErrorCode::Conflict, "refused on purpose").into()
+    }
+
+    fn no_reply(_: &Recordings, _: (), _: &Context) -> Effect<Recorded, String> {
+        effects::persist(Recorded {
+            input: "silent".into(),
+        })
+        .then_no_reply()
+    }
+
+    fn delete(_: &Recordings, _: (), _: &Context) -> Effect<Recorded, String> {
+        effects::delete_entity().then_reply_value("done".to_string())
+    }
+
+    fn expire(_: &Recordings, millis: i64, _: &Context) -> Effect<Recorded, String> {
+        effects::persist(Recorded {
+            input: "expiring".into(),
+        })
+        .expire_after(Duration::of_millis(millis))
+        .then_reply_value("done".to_string())
+    }
+
+    fn count(recordings: &Recordings, _: (), _: &Context) -> ReadOnlyEffect<i32> {
+        effects::reply(recordings.items.len() as i32)
+    }
+
+    fn misbehave(_: &Recordings, _: (), _: &Context) -> Effect<Recorded, String> {
+        panic!("boom")
+    }
+}
+
+impl EventSourcedEntity for Conformance {
+    type State = Recordings;
+    type Event = Recorded;
+    const COMPONENT_ID: &'static str = "conformance";
+    const STATE_MANIFEST: Option<&'static str> = Some("conformance-state");
+    const EVENT_MANIFEST: Option<&'static str> = Some("conformance-event");
+
+    fn empty_state(_: &str) -> Recordings {
+        Recordings::default()
+    }
+
+    fn apply(mut recordings: Recordings, event: &Recorded) -> Recordings {
+        recordings.items.push(event.input.clone());
+        recordings
+    }
+
+    fn handlers() -> Handlers<Conformance> {
+        Handlers::new()
+            .command("record", Conformance::record)
+            .command("record-many", Conformance::record_many)
+            .command("refuse", Conformance::refuse)
+            .command("no-reply", Conformance::no_reply)
+            .command("delete", Conformance::delete)
+            .command("expire", Conformance::expire)
+            .query("count", Conformance::count)
+            .command("misbehave", Conformance::misbehave)
+    }
+
+    fn snapshot_every() -> u32 {
+        3
+    }
+}
+
+// ── profile: a key value entity ──
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProfileState {
+    pub name: String,
+}
+
+pub struct Profile;
+
+impl Profile {
+    fn set(_: &ProfileState, name: String, _: &Context) -> KeyValueEffect<ProfileState, String> {
+        if name.is_empty() {
+            return effects::error(ErrorCode::BadRequest, "a name is needed").into();
+        }
+        effects::update_state(ProfileState { name }).then_reply_value("done".to_string())
+    }
+
+    fn get(profile: &ProfileState, _: (), _: &Context) -> ReadOnlyEffect<String> {
+        let name = if profile.name.is_empty() {
+            "none".to_string()
+        } else {
+            profile.name.clone()
+        };
+        effects::reply(name)
+    }
+
+    fn delete(_: &ProfileState, _: (), _: &Context) -> KeyValueEffect<ProfileState, String> {
+        effects::delete_state().then_reply_value("done".to_string())
+    }
+}
+
+impl KeyValueEntity for Profile {
+    type State = ProfileState;
+    const COMPONENT_ID: &'static str = "profile";
+    const STATE_MANIFEST: Option<&'static str> = Some("profile");
+
+    fn empty_state(_: &str) -> ProfileState {
+        ProfileState::default()
+    }
+
+    fn handlers() -> KeyValueHandlers<Profile> {
+        KeyValueHandlers::new()
+            .command("set", Profile::set)
+            .query("get", Profile::get)
+            .command("delete", Profile::delete)
+    }
+}
+
+// ── checkout-recorder: a consumer that acts through the client ──
+
+pub struct CheckoutRecorder;
+
+impl Consumer for CheckoutRecorder {
+    type Message = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "checkout-recorder";
+
+    fn source() -> Source {
+        Source::of(ShoppingCart)
+    }
+
+    fn on_message(event: ShoppingCartEvent, ctx: &Context) -> ConsumerEffect {
+        let ShoppingCartEvent::CheckedOut = event else {
+            return consumer::ignore();
+        };
+        let cart_id = ctx.metadata().subject().unwrap_or_default();
+        let recorded: Result<String, CommandError> =
+            ctx.client()
+                .invoke(Conformance, cart_id, "record", "checkout".to_string());
+        recorded.expect("the conformance entity records the checkout");
+        consumer::done()
+    }
+}
+
+// ── reminder: a timed action ──
+
+pub struct Reminder;
+
+impl TimedAction for Reminder {
+    const COMPONENT_ID: &'static str = "reminder";
+
+    fn actions() -> Actions<Reminder> {
+        Actions::new().action("remind", |id: String, ctx: &Context| {
+            let _: String =
+                ctx.client()
+                    .invoke(Conformance, &id, "record", "reminded".to_string())?;
+            Ok(())
+        })
+    }
+}
+
+// ── assistant: an agent whose tool acts through the client ──
+
+#[derive(Debug, Deserialize)]
+pub struct LookupArguments {
+    pub id: String,
+}
+
+pub struct ConformanceAssistant;
+
+impl ConformanceAssistant {
+    fn ask(question: String, _: &Context) -> AgentEffect {
+        agent::system_message("You are helpful.")
+            .user_message(question)
+            .tools(["lookup"])
+            .guardrails(["no-secrets"])
+            .then_reply()
+    }
+
+    fn lookup(args: LookupArguments, ctx: &Context) -> Result<String, String> {
+        if args.id.is_empty() {
+            return Err("an id is needed".to_string());
+        }
+        let client = ctx.client();
+        let _: String = client
+            .invoke(Conformance, &args.id, "record", "looked-up".to_string())
+            .map_err(|e| e.message)?;
+        let count: i32 = client
+            .invoke(Conformance, &args.id, "count", ())
+            .map_err(|e| e.message)?;
+        Ok(format!("count for {} is {count}", args.id))
+    }
+
+    fn no_secrets(stage: Stage, text: &str, _: &Context) -> Result<(), String> {
+        if text.contains("sk-") {
+            let stage = if stage == Stage::Input {
+                "input"
+            } else {
+                "output"
+            };
+            Err(format!("{stage} rejected by no-secrets"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Agent for ConformanceAssistant {
+    const COMPONENT_ID: &'static str = "assistant";
+
+    fn handlers() -> AgentHandlers<ConformanceAssistant> {
+        AgentHandlers::new().command("ask", ConformanceAssistant::ask)
+    }
+
+    fn tools() -> Tools<ConformanceAssistant> {
+        Tools::new().tool(
+            "lookup",
+            "Looks up how many things were recorded under an id.",
+            Schema::object().string("id", "the id things were recorded under"),
+            ConformanceAssistant::lookup,
+        )
+    }
+
+    fn guardrails() -> Guardrails<ConformanceAssistant> {
+        Guardrails::new().guardrail("no-secrets", ConformanceAssistant::no_secrets)
+    }
+}
+
+// ── Endpoints ──
+
+#[derive(Debug, Serialize)]
+pub struct Echo {
+    pub a: Vec<String>,
+    pub b: Option<String>,
+    pub headers: BTreeMap<String, String>,
+}
+
+pub struct ConformanceEndpoint;
+
+impl ConformanceEndpoint {
+    fn problems(_: &Request) -> Result<Vec<String>, HttpProblem> {
+        // A module reports its problems in the runtime's log at start; one that started has none.
+        Ok(Vec::new())
+    }
+
+    fn echo(request: &Request) -> Result<Echo, HttpProblem> {
+        let a = request
+            .query_pairs()
+            .iter()
+            .filter(|(k, _)| k == "a")
+            .map(|(_, v)| v.clone())
+            .collect();
+        let header = |name: &str| request.header(name).unwrap_or_default().to_string();
+        let headers = BTreeMap::from([
+            ("x-one".to_string(), header("x-one")),
+            ("x-two".to_string(), header("x-two")),
+        ]);
+        Ok(Echo {
+            a,
+            b: request.query("b").map(str::to_string),
+            headers,
+        })
+    }
+
+    fn status(request: &Request) -> Result<String, HttpProblem> {
+        let code: u16 = request
+            .path("code")
+            .parse()
+            .map_err(|_| HttpProblem::new(400, "a status code is a number"))?;
+        Err(HttpProblem::new(code, format!("status {code} as asked")))
+    }
+
+    fn boom(_: &Request) -> Result<String, HttpProblem> {
+        panic!("boom from the handler")
+    }
+
+    fn closed(_: &Request) -> Result<String, HttpProblem> {
+        Ok("never reached".to_string())
+    }
+
+    fn set_profile(request: &Request, name: String) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Profile, request.path("id"), "set", name)?)
+    }
+
+    fn get_profile(request: &Request) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Profile, request.path("id"), "get", ())?)
+    }
+
+    fn delete_profile(request: &Request) -> Result<String, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Profile, request.path("id"), "delete", ())?)
+    }
+
+    fn start_checkout(request: &Request, mode: String) -> Result<String, HttpProblem> {
+        let _: Done =
+            request
+                .client()
+                .invoke(CheckoutWorkflow, request.path("id"), "start", mode)?;
+        Ok("started".to_string())
+    }
+
+    fn checkout_status(request: &Request) -> Result<String, HttpProblem> {
+        let checkout: Checkout =
+            request
+                .client()
+                .invoke(CheckoutWorkflow, request.path("id"), "status", ())?;
+        Ok(checkout.status)
+    }
+
+    fn remind(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        let id = request.path("id");
+        request.client().schedule(
+            &format!("remind-{id}"),
+            Duration::of_seconds(1),
+            Reminder,
+            None,
+            "remind",
+            id.to_string(),
+        )?;
+        Ok(Done)
+    }
+
+    fn ask(request: &Request, question: String) -> Result<String, HttpProblem> {
+        Ok(request.client().invoke(
+            ConformanceAssistant,
+            request.path("session"),
+            "ask",
+            question,
+        )?)
+    }
+
+    fn count(request: &Request) -> Result<i32, HttpProblem> {
+        Ok(request
+            .client()
+            .invoke(Conformance, request.path("id"), "count", ())?)
+    }
+
+    /// A handler that answers nothing, so it is sent and not waited for; the route says so with
+    /// 204.
+    fn no_reply(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        request
+            .client()
+            .send(Conformance, request.path("id"), "no-reply", ())?;
+        Ok(Done)
+    }
+
+    /// The generic forwarder: the body is the handler's input as text; the reply comes back as text.
+    fn forward(request: &Request, body: String) -> Result<String, HttpProblem> {
+        let (id, handler) = (request.path("id"), request.path("handler"));
+        Ok(request.client().invoke(Conformance, id, handler, body)?)
+    }
+
+    /// What the `config` import answers for `name`: a descriptor's variable, or 404 for one that is
+    /// unset or that the platform keeps from the module.
+    fn config(request: &Request) -> Result<String, HttpProblem> {
+        let name = request.path("name");
+        ankka::config(name).ok_or_else(|| HttpProblem::new(404, format!("{name} is not set")))
+    }
+}
+
+impl Endpoint for ConformanceEndpoint {
+    const ENDPOINT_ID: &'static str = "ConformanceEndpoint";
+    const PREFIX: &'static str = "/conformance";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<ConformanceEndpoint> {
+        Routes::new()
+            .get("/problems", ConformanceEndpoint::problems)
+            .get("/echo", ConformanceEndpoint::echo)
+            .get("/status/{code}", ConformanceEndpoint::status)
+            .get("/boom", ConformanceEndpoint::boom)
+            // A route whose acl differs from its endpoint's: /conformance admits everyone, this one
+            // admits nobody, and the routes declared around it are unaffected.
+            .get("/closed", ConformanceEndpoint::closed)
+            .with_acl(Acl::DenyAll)
+            .post("/profile/{id}", ConformanceEndpoint::set_profile)
+            .get("/profile/{id}", ConformanceEndpoint::get_profile)
+            .delete("/profile/{id}", ConformanceEndpoint::delete_profile)
+            .post("/checkout/{id}", ConformanceEndpoint::start_checkout)
+            .get("/checkout/{id}", ConformanceEndpoint::checkout_status)
+            .post("/remind/{id}", ConformanceEndpoint::remind)
+            .post("/ask/{session}", ConformanceEndpoint::ask)
+            .get("/config/{name}", ConformanceEndpoint::config)
+            .get("/{id}/count", ConformanceEndpoint::count)
+            .post("/{id}/no-reply", ConformanceEndpoint::no_reply)
+            .post("/{id}/{handler}", ConformanceEndpoint::forward)
+    }
+}
+
+/// Caller-naming ACLs: the suite names callers through the local caller header.
+pub struct CallersEndpoint;
+
+impl CallersEndpoint {
+    fn whoami(request: &Request) -> Result<String, HttpProblem> {
+        Ok(match request.caller() {
+            Caller::Service { project, name } => format!("service:{project}/{name}"),
+            Caller::Gateway => "gateway".to_string(),
+            Caller::Local => "local".to_string(),
+        })
+    }
+}
+
+impl Endpoint for CallersEndpoint {
+    const ENDPOINT_ID: &'static str = "CallersEndpoint";
+    const PREFIX: &'static str = "/callers";
+
+    fn acl() -> Acl {
+        Acl::Callers(vec![
+            CallerMatcher::Internet,
+            CallerMatcher::service("orders"),
+        ])
+    }
+
+    fn routes() -> Routes<CallersEndpoint> {
+        Routes::new()
+            .get("/whoami", CallersEndpoint::whoami)
+            .get("/self", |_: &Request| Ok("self".to_string()))
+            .with_acl(Acl::Callers(vec![CallerMatcher::SelfService]))
+    }
+}
+
+pub struct PrivateEndpoint;
+
+impl Endpoint for PrivateEndpoint {
+    const ENDPOINT_ID: &'static str = "PrivateEndpoint";
+    const PREFIX: &'static str = "/private";
+
+    fn acl() -> Acl {
+        Acl::Authenticated
+    }
+
+    fn routes() -> Routes<PrivateEndpoint> {
+        Routes::new().get("/", |_: &Request| Ok("private".to_string()))
+    }
+}
+
+/// The guest shape the suite asks for, through the `config` import.
+pub fn shape() -> Shape {
+    match ankka::config("ANKKA_CONFORMANCE_SHAPE").as_deref() {
+        Some("stateful") => Shape::Stateful,
+        _ => Shape::Stateless,
+    }
+}
+
+/// The cart sample plus the conformance extras: what `conformance.sh` builds and runs the suite
+/// against, in the shape `ANKKA_CONFORMANCE_SHAPE` names.
+pub fn build() -> Service {
+    let shape = shape();
+    Service::new("ankka-rust")
+        .register_as(ShoppingCart, shape)
+        .register(CartRows)
+        .register_as(CheckoutWorkflow, shape)
+        .register_as(Conformance, shape)
+        .register_as(Profile, shape)
+        .register(CheckoutRecorder)
+        .register(Reminder)
+        .register(ConformanceAssistant)
+        .endpoint(CartApi)
+        .endpoint(ConformanceEndpoint)
+        .endpoint(PrivateEndpoint)
+        .endpoint(CallersEndpoint)
+}

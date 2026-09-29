@@ -45,11 +45,22 @@ class InitSuite extends munit.FunSuite:
     assert(!Init.sbtOnPath(Map("PATH" -> Files.createTempDirectory("nopath").toString)))
   }
 
-  test("a language is scala, python or typescript, with short forms, and nothing else") {
+  test("a language is scala, python, typescript or rust, with short forms, and nothing else") {
     assertEquals(Language.parse("Python"), Right(Language.Python))
     assertEquals(Language.parse("ts"), Right(Language.TypeScript))
     assertEquals(Language.parse("scala"), Right(Language.Scala))
-    assert(Language.parse("rust").left.exists(_.contains("one of scala, python, typescript")))
+    assertEquals(Language.parse("Rust"), Right(Language.Rust))
+    assertEquals(Language.parse("rs"), Right(Language.Rust))
+    assert(Language.parse("go").left.exists(_.contains("one of scala, python, typescript, rust")))
+  }
+
+  test("a rust crate keeps the name's hyphens, and is refused when cargo could not name it") {
+    val dir                   = Files.createTempDirectory("init")
+    def request(name: String) = Init.Request(name, directory = dir, language = Language.Rust)
+    assertEquals(Scaffold.module(request("order-service")), "order-service")
+    assertEquals(Init.problems(request("order-service")), Vector.empty)
+    assertEquals(Scaffold.crateProblems("1cart").size, 1)
+    assert(Init.problems(request("cart").copy(pkg = Some("x"))).exists(_.contains("--package")))
   }
 
   test("a python package is derived from the name, and refused when Python could not import it") {

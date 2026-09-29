@@ -1,47 +1,16 @@
 package com.thinkmorestupidless.ankka.sidecar
 
-import ankka.protocol.v1.agent.{
-  AgentGrpc,
-  AgentPlan,
-  GuardrailRequest,
-  GuardrailResult,
-  PlanReply,
-  PlanRequest as PbPlanRequest,
-  ToolRequest,
-  ToolResult
-}
+import ankka.protocol.v1.agent.{AgentGrpc, GuardrailResult, PlanReply, ToolRequest, ToolResult}
 import ankka.protocol.v1.discovery.{DiscoveryGrpc, SidecarInfo}
-import ankka.protocol.v1.consumer.{
-  ConsumerEffect,
-  ConsumerGrpc,
-  ConsumerRequest as PbConsumerRequest
-}
-import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, HttpRequest as PbHttpRequest, StreamFrame}
+import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc}
+import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, StreamFrame}
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
 import ankka.protocol.v1.key_value.{KeyValueGrpc, KeyValueIn, KeyValueOut}
 import ankka.protocol.v1.payload as pb
-import ankka.protocol.v1.timed_action.{
-  TimedActionEffect,
-  TimedActionGrpc,
-  TimedActionRequest as PbTimedActionRequest
-}
-import ankka.protocol.v1.view.{ViewEffect, ViewGrpc, ViewRequest as PbViewRequest}
-import ankka.protocol.v1.workflow.{
-  StepOutcome as PbStepOutcome,
-  StepRef as PbStepRef,
-  WorkflowGrpc,
-  WorkflowIn,
-  WorkflowOut
-}
-import com.google.protobuf.ByteString
-import com.thinkmorestupidless.ankka.core.effect.{Retention, StepOutcome, StepRef}
-import com.thinkmorestupidless.ankka.core.{
-  CommandError,
-  ComponentId,
-  ComponentKind,
-  ErrorCode,
-  Metadata
-}
+import ankka.protocol.v1.timed_action.{TimedActionEffect, TimedActionGrpc}
+import ankka.protocol.v1.view.{ViewEffect, ViewGrpc}
+import ankka.protocol.v1.workflow.{WorkflowGrpc, WorkflowIn, WorkflowOut}
+import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ComponentKind, ErrorCode}
 import com.thinkmorestupidless.ankka.runtime.remote.*
 import io.grpc.stub.StreamObserver
 import io.grpc.ManagedChannel
@@ -421,96 +390,18 @@ final class GrpcConversation(
   // ── Stateless conversations ─────────────────────────────────────────────────
 
   def handleView(request: ViewRequest): Future[ViewOutcome] =
-    view
-      .handle(
-        PbViewRequest(
-          componentId = request.componentId,
-          event = request.event.map(toPayload),
-          metadata = Some(toMetadata(request.metadata)),
-          row = request.row.map(toPayload),
-          deleted = request.event.isEmpty
-        )
-      )
-      .map { effect =>
-        effect.effect match
-          case ViewEffect.Effect.UpdateRow(row) => ViewOutcome.UpdateRow(fromPayload(row))
-          case ViewEffect.Effect.DeleteRow(_)   => ViewOutcome.DeleteRow
-          case ViewEffect.Effect.Ignore(_)      => ViewOutcome.Ignore
-          case ViewEffect.Effect.Empty          => ViewOutcome.Ignore
-      }
+    view.handle(toViewRequest(request)).map(fromViewEffect)
 
   def handleConsumer(request: ConsumerRequest): Future[ConsumerOutcome] =
-    consumer
-      .handle(
-        PbConsumerRequest(
-          componentId = request.componentId,
-          message = request.message.map(toPayload),
-          metadata = Some(toMetadata(request.metadata)),
-          deleted = request.message.isEmpty
-        )
-      )
-      .map { effect =>
-        effect.effect match
-          case ConsumerEffect.Effect.Produce(p) =>
-            ConsumerOutcome.Produce(fromPayload(p.getPayload), fromMetadata(p.metadata))
-          case ConsumerEffect.Effect.Done(_)   => ConsumerOutcome.Done
-          case ConsumerEffect.Effect.Ignore(_) => ConsumerOutcome.Ignore
-          case ConsumerEffect.Effect.Empty     => ConsumerOutcome.Ignore
-      }
+    consumer.handle(toConsumerRequest(request)).map(fromConsumerEffect)
 
   def invokeTimedAction(request: TimedActionRequest): Future[Either[CommandError, Unit]] =
-    timedAction
-      .invoke(
-        PbTimedActionRequest(
-          request.componentId,
-          request.name,
-          Some(
-            if request.payload.isEmpty then pb.Payload() else pb.Payload.parseFrom(request.payload)
-          ),
-          Some(toMetadata(request.metadata))
-        )
-      )
-      .map { effect =>
-        effect.effect match
-          case TimedActionEffect.Effect.Fail(e) => Left(fromError(e))
-          case _                                => Right(())
-      }
+    timedAction.invoke(toTimedActionRequest(request)).map(fromTimedActionEffect)
 
   // ── Agents ──────────────────────────────────────────────────────────────────
 
   def plan(request: PlanRequest): Future[Either[ProcessFailure, RemotePlan]] =
-    agent
-      .plan(
-        PbPlanRequest(
-          request.componentId,
-          request.sessionId,
-          request.name,
-          Some(toPayload(request.payload)),
-          Some(toMetadata(request.metadata))
-        )
-      )
-      .map { reply =>
-        reply.message match
-          case PlanReply.Message.Plan(p)    => Right(fromPlan(p))
-          case PlanReply.Message.Failure(f) => Left(fromFailure(f))
-          case PlanReply.Message.Empty =>
-            Left(
-              ProcessFailure(0L, CommandError("the process answered no plan", ErrorCode.Internal))
-            )
-      }
-
-  private def fromPlan(p: AgentPlan): RemotePlan =
-    RemotePlan(
-      model = p.model,
-      system = p.system,
-      user = p.user,
-      context = p.context.toVector,
-      sessionMemory = p.memory == AgentPlan.Memory.SESSION,
-      tools = p.tools.toVector,
-      jsonShape = p.responseShape.flatMap(_.shape.json).map(_.schemaHint),
-      guardrails = p.guardrails.toVector,
-      failure = p.failure.map(fromError)
-    )
+    agent.plan(toPlanRequest(request)).map(fromPlanReply)
 
   def invokeTool(
       componentId: ComponentId,
@@ -518,12 +409,7 @@ final class GrpcConversation(
       tool: String,
       argumentsJson: String
   ): Future[Either[String, String]] =
-    agent.invokeTool(ToolRequest(componentId, sessionId, tool, argumentsJson)).map { result =>
-      result.result match
-        case ToolResult.Result.Ok(text)    => Right(text)
-        case ToolResult.Result.Error(text) => Left(text)
-        case ToolResult.Result.Empty       => Right("")
-    }
+    agent.invokeTool(ToolRequest(componentId, sessionId, tool, argumentsJson)).map(fromToolResult)
 
   def checkGuardrail(
       componentId: ComponentId,
@@ -533,45 +419,11 @@ final class GrpcConversation(
       text: String
   ): Future[Either[String, Unit]] =
     agent
-      .checkGuardrail(
-        GuardrailRequest(
-          componentId,
-          sessionId,
-          guardrail,
-          stage match
-            case GuardrailStage.Input  => GuardrailRequest.Stage.INPUT
-            case GuardrailStage.Output => GuardrailRequest.Stage.OUTPUT
-          ,
-          text
-        )
-      )
-      .map { result =>
-        result.result match
-          case GuardrailResult.Result.Block(reason) => Left(reason)
-          case _                                    => Right(())
-      }
+      .checkGuardrail(toGuardrailRequest(componentId, sessionId, guardrail, stage, text))
+      .map(fromGuardrailResult)
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
-    http.handle(toHttpRequest(request)).map { reply =>
-      reply.message match
-        case HttpReply.Message.Response(r) =>
-          Right(
-            HttpResult(
-              r.status,
-              r.contentType,
-              r.body.toByteArray,
-              r.headers.map(p => p.name -> p.value).toVector
-            )
-          )
-        case HttpReply.Message.Failure(f) => Left(fromFailure(f))
-        case HttpReply.Message.Empty =>
-          Left(
-            ProcessFailure(
-              0L,
-              CommandError("empty HTTP reply from the process", ErrorCode.Internal)
-            )
-          )
-    }
+    http.handle(toHttpRequest(request)).map(fromHttpReply)
 
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
     // The gRPC call starts when the stream is materialized, so no materializer is needed here and
@@ -623,119 +475,4 @@ final class GrpcConversation(
       true
     catch case NonFatal(_) => false
 
-  // ── Translation ─────────────────────────────────────────────────────────────
-
-  private object Translate:
-    def toPayload(p: Payload): pb.Payload =
-      pb.Payload(p.contentType, p.manifest, ByteString.copyFrom(p.data))
-    def fromPayload(p: pb.Payload): Payload = Payload(p.contentType, p.manifest, p.data.toByteArray)
-    def toMetadata(m: Metadata): pb.Metadata =
-      pb.Metadata(m.toSeq.map((k, v) => pb.Metadata.Entry(k, v)))
-    def fromMetadata(m: Option[pb.Metadata]): Metadata =
-      Metadata(m.toSeq.flatMap(_.entries).map(e => e.key -> e.value).toVector)
-    def fromCode(code: pb.ErrorCode): ErrorCode = code match
-      case pb.ErrorCode.BAD_REQUEST  => ErrorCode.BadRequest
-      case pb.ErrorCode.UNAUTHORIZED => ErrorCode.Unauthorized
-      case pb.ErrorCode.FORBIDDEN    => ErrorCode.Forbidden
-      case pb.ErrorCode.NOT_FOUND    => ErrorCode.NotFound
-      case pb.ErrorCode.CONFLICT     => ErrorCode.Conflict
-      case pb.ErrorCode.TIMEOUT      => ErrorCode.Timeout
-      case pb.ErrorCode.UNAVAILABLE  => ErrorCode.Unavailable
-      case _                         => ErrorCode.Internal
-    def fromError(e: pb.Error): CommandError = CommandError(e.message, fromCode(e.code))
-    def fromFailure(f: pb.Failure): ProcessFailure =
-      ProcessFailure(
-        f.commandId,
-        f.error.map(fromError).getOrElse(CommandError("unspecified failure", ErrorCode.Internal))
-      )
-    def fromRetention(r: Option[pb.Retention]): Option[Retention] = r.flatMap { r =>
-      r.retention match
-        case pb.Retention.Retention.DeleteNow(_)   => Some(Retention.DeleteNow)
-        case pb.Retention.Retention.ExpireAfter(e) => Some(Retention.ExpireAfter(e.millis.millis))
-        case pb.Retention.Retention.Empty          => None
-    }
-    def fromOutcome(o: Option[pb.Outcome]): RemoteOutcome = o.map(_.outcome) match
-      case Some(pb.Outcome.Outcome.Reply(r)) =>
-        RemoteOutcome.Reply(
-          r.payload
-            .map(fromPayload)
-            .getOrElse(Payload(Payload.Binary, "unit", Array.emptyByteArray)),
-          fromMetadata(r.metadata)
-        )
-      case Some(pb.Outcome.Outcome.Error(e)) => RemoteOutcome.Error(fromError(e))
-      case _                                 => RemoteOutcome.NoReply
-    def fromStepRef(s: PbStepRef): StepOutcome.TransitionTo =
-      StepOutcome.TransitionTo(StepRef(s.step, s.input.map(_.toByteArray)))
-    def fromStepOutcome(o: Option[PbStepOutcome]): StepOutcome = o.map(_.outcome) match
-      case Some(PbStepOutcome.Outcome.TransitionTo(s)) => fromStepRef(s)
-      case Some(PbStepOutcome.Outcome.Pause(p)) =>
-        StepOutcome.Pause(
-          p.afterMillis.map(_.millis),
-          p.onTimeout.map(s => StepRef(s.step, s.input.map(_.toByteArray)))
-        )
-      case Some(PbStepOutcome.Outcome.Fail(e)) => StepOutcome.Fail(fromError(e))
-      case _                                   => StepOutcome.End
-    def fromEventSourcedReply(r: EventSourcedOut.Reply): Reply =
-      Reply(
-        r.commandId,
-        r.events.map(fromPayload).toVector,
-        None,
-        None,
-        fromRetention(r.retention),
-        fromOutcome(r.outcome),
-        r.snapshot.map(fromPayload)
-      )
-    def fromKeyValueReply(r: KeyValueOut.Reply): Reply =
-      Reply(
-        r.commandId,
-        Vector.empty,
-        r.newState.map(fromPayload),
-        None,
-        fromRetention(r.retention),
-        fromOutcome(r.outcome),
-        None
-      )
-    def fromWorkflowReply(r: WorkflowOut.Reply): Reply =
-      Reply(
-        r.commandId,
-        Vector.empty,
-        r.newState.map(fromPayload),
-        r.transition.map(fromStepRef),
-        None,
-        fromOutcome(r.outcome),
-        None
-      )
-    def fromStepReply(r: WorkflowOut.StepReply): StepReply =
-      StepReply(r.commandId, r.newState.map(fromPayload), fromStepOutcome(r.next))
-    def toHttpRequest(r: HttpForward): PbHttpRequest =
-      PbHttpRequest(
-        r.endpointId,
-        r.routeId,
-        r.pathArgs,
-        r.query.map((n, v) => PbHttpRequest.Pair(n, v)),
-        r.headers.map((n, v) => PbHttpRequest.Pair(n, v)),
-        r.contentType,
-        ByteString.copyFrom(r.body),
-        r.principal.map(p =>
-          ankka.protocol.v1.endpoint
-            .Principal(p.subject, p.name, p.email, p.emailVerified, p.roles.toSeq)
-        ),
-        Some(toMetadata(r.metadata)),
-        Some(toCaller(r.caller))
-      )
-    private def toCaller(c: RemoteCaller): ankka.protocol.v1.endpoint.Caller =
-      import ankka.protocol.v1.endpoint.{Caller as PbCaller, ServiceCaller}
-      import ankka.protocol.v1.payload.Empty
-      c match
-        case RemoteCaller.Gateway => PbCaller(PbCaller.Kind.Gateway(Empty()))
-        case RemoteCaller.Service(p, name) =>
-          PbCaller(PbCaller.Kind.Service(ServiceCaller(p, name)))
-        case RemoteCaller.Local => PbCaller(PbCaller.Kind.Local(Empty()))
-  end Translate
-
-  /**
-   * The step input a workflow journals is the whole `Payload`, so manifest and content type
-   * survive.
-   */
-  private def toPayload(p: Payload): pb.Payload = Translate.toPayload(p)
 end GrpcConversation

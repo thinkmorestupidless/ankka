@@ -243,10 +243,12 @@ controlplane      the control plane, built as an ankka application
 crd               the AnkkaService custom resource — the contract, no ankka dependencies
 operator          the Kubernetes operator: watches resources, owns the workloads
 cli               the `ankka` command, over HTTP; `ankka mcp` for agents
-protocol          the sidecar protocol: .proto files, ENCODING.md, the encoding fixtures
-sidecar           the runtime booted from a discovery handshake, for a service in another language
+protocol          the sidecar protocol: .proto files, ENCODING.md, WASM-ABI.md, the encoding fixtures
+sidecar           the runtime booted from a discovery handshake, for a service in another language —
+                  a process beside it, or a WebAssembly module loaded into it
 sdks/python       the Python SDK, its testkits, and the sample cart ported to it
 sdks/typescript   the TypeScript SDK, its testkits, and the sample cart ported to it
+sdks/rust         the Rust crate for services built to WebAssembly modules, and the sample cart
 samples/          the shopping cart and the multi-agent planner
 ankka.g8          the service template
 action            the GitHub Action that installs and authenticates the CLI; pushed to ankka-action on release
@@ -263,6 +265,8 @@ already cost debugging time — and, for the documentation,
 ```bash
 sbt -Dankka.cluster.tests=off test   # everything but the Kubernetes suites; Docker required
 just docs                            # check and build the documentation
+(cd sdks/rust && cargo build -p shopping-cart --release --target wasm32-unknown-unknown)   # the Rust cart, as a module
+docker compose --profile wasm up -d  # the runtime hosting that module on :9000
 ```
 
 ## Licence

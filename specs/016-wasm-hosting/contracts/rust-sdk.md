@@ -22,7 +22,7 @@ impl EventSourcedEntity for ShoppingCart {
     const COMPONENT_ID: &'static str = "shopping-cart";
     const SHAPE: Shape = Shape::Stateless;               // or Shape::Stateful
 
-    fn empty_state() -> Cart { Cart::default() }
+    fn empty_state(entity_id: &str) -> Cart { Cart::new(entity_id) }
 
     fn apply(state: Cart, event: &CartEvent) -> Cart { /* the fold */ }
 
@@ -38,9 +38,16 @@ impl EventSourcedEntity for ShoppingCart {
   A query returning `Effect` does not compile.
 - `Handlers::new()` refuses a duplicate wire name at registration, reported with every other
   problem by `Service::build`.
+- `empty_state` is given the entity id, since a state commonly carries it (the cart's `cartId`).
 - `KeyValueEntity`, `Workflow` (with `steps()` and `step("name", f)`), `View`, `Consumer`,
-  `TimedAction`, `Agent` (with `tools()` and `guardrails()`) and `Endpoint` (with `routes()`:
-  `get`, `post`, … each with an `Acl`) follow the same pattern.
+  `TimedAction`, `Agent` (with `tools()` and `guardrails()`) and `Endpoint` follow the same
+  pattern. An endpoint's `routes()` declares `get`, `post`, … with a template and a handler; a
+  `post`, `put` or `patch` handler takes the decoded body as its second argument (`()` for none),
+  and `.with_acl(Acl::…)` after a route sets that route's own ACL — the protocol's `AllowAll`,
+  `DenyAll`, `Authenticated` or `Callers(…)` — which otherwise is the endpoint's. A route's id is
+  `"METHOD template"`. A handler answers a `Response` or any serializable value (`Done` and `()`
+  answer 204); `HttpProblem` is a refusal, and a component's `CommandError` becomes its status
+  with `?`.
 - `Shape` applies to `EventSourcedEntity`, `KeyValueEntity` and `Workflow`; the default is
   `Stateless`.
 
@@ -54,18 +61,53 @@ input)`, `.then_pause()`, `.then_end()`, `.fail(...)`; agent: `effects::system_m
 types. The library's own reduction (`materialise`) is what the unit testkit shows and what the
 `HandleReply` carries, so the two cannot disagree.
 
+### The other kinds, as built
+
+- **Key value**: `effects::update_state(s).then_reply(..)`, and `effects::delete_state()` for a
+  deletion (the event sourced `effects::delete_entity()` persists; a key value entity has nothing to
+  persist). Handlers are `KeyValueHandlers::new().command(..).query(..)`.
+- **Workflow**: command effects are `effects::workflow::update_state(s).transition_to("step")`
+  (or `transition_to_with("step", input)`), step effects `step_effects::update_state(s)` then
+  `.then_transition_to(..)`, `.then_pause()`, `.then_pause_for(duration, "on-timeout-step")`,
+  `.then_end()`, or `step_effects::fail(error)`. A step is `Steps::new().step("name", fn(&S, In,
+  &Context) -> StepEffect<S>)`, `In` being `()` for a step handed nothing. Timeouts and recovery are
+  `WorkflowSettings::new().default_step_timeout(..).step_recovery("step", Recovery::retries(n)
+  .failover_to("step"))`. A step that panics is a failed step, retried and failed over as declared.
+- **View**: `on_event(row: Option<Row>, event, &Context) -> ViewEffect<Row>` and `on_deleted(row,
+  &Context)` (dropping the row unless overridden), `effects::view::{update_row, delete_row, ignore}`;
+  the source is `Source::of(Component)` or `Source::topic(..)`; `queries()` names the queries.
+- **Consumer**: `on_message(message, &Context) -> ConsumerEffect`, `effects::consumer::{done,
+  ignore, produce}`, `produces_to()` for a publishing consumer.
+- **Timed action**: `Actions::new().action("name", fn(In, &Context) -> Result<(), CommandError>)`.
+- **Agent**: a tool's argument schema is declared with `Schema::object().string(..).integer(..)`
+  rather than derived — a Rust type carries no description of its fields at run time — and the
+  arguments are decoded into the tool's own type; `Err` is a message for the model. Guardrails are
+  `Guardrails::new().guardrail("name", fn(Stage, &str, &Context) -> Result<(), String>)`. There
+  are no streaming handlers: a module answers every call whole.
+- **Shape chosen at start**: `Service::register_as(component, shape)` registers a stateful kind
+  with a shape its declaration does not fix, for a service that reads it from configuration, as
+  the conformance reference does.
+- **Unit testkits** beside `EventSourcedTestKit`: `KeyValueEntityTestKit`, `WorkflowTestKit`
+  (`command`, `run_step`, `run_until_pause`, `run_to_end`, `resume`), `ViewTestKit`,
+  `ConsumerTestKit`, `TimedActionTestKit` (`fire`) and `AgentTestKit` over a `ScriptedModel`; each
+  that calls other components takes `with_service(build())` to answer them in memory.
+
 ## The service and the exports
 
 ```rust
 // lib.rs of the service crate
 fn build() -> Service {
     Service::new("ankka-rust")
-        .register::<ShoppingCart>()
-        .register::<CartRows>()
-        .endpoint::<CartApi>()
+        .register(ShoppingCart)
+        .register(CartRows)
+        .endpoint(CartApi)
 }
 ankka::service!(build);                    // emits every ankka1_ export and the panic hook
 ```
+
+A component is a unit struct and is registered, and named to the client, by value: Rust's coherence
+rules allow one blanket implementation per trait, so the kind is inferred from a marker type
+parameter, which needs a value to infer from.
 
 `Service::build` validates the whole registry (duplicate ids and wire names, an endpoint without an
 ACL, a streaming route) and reports every problem in the discovery reply; the runtime refuses to start
@@ -74,8 +116,8 @@ and logs them.
 ## The client and configuration
 
 ```rust
-let cart: Cart = ctx.client().invoke::<ShoppingCart, _>("cart-1", "get-cart", ())?;
-let rows: Vec<Row> = ctx.client().query::<CartRows, _>("by-owner", owner)?;
+let cart: Cart = ctx.client().invoke(ShoppingCart, "cart-1", "get-cart", ())?;
+let rows: Vec<Row> = ctx.client().query(CartRows, "by-owner", owner)?;
 ctx.client().schedule("reminder-1", Duration::minutes(5), Notify::COMPONENT_ID, "remind", payload)?;
 let key = ankka::config("MY_SETTING");      // None for a reserved or unset name
 ```
@@ -94,9 +136,9 @@ booleans. `ankka::Instant` and `ankka::Duration` render as the encoding requires
 ```rust
 // unit (native, no module, no Docker)
 let kit = EventSourcedTestKit::<ShoppingCart>::new("cart-1");
-let outcome = kit.command("add-item", item.clone());
+let outcome = kit.command("add-item", item.clone());       // a CommandOutcome
 assert_eq!(outcome.events, vec![CartEvent::ItemAdded { item }]);
-assert_eq!(outcome.reply::<Done>()?, Done);
+assert_eq!(outcome.reply::<Done>(), Ok(Done));            // Result<R, CommandError>: a refusal is the Err
 assert_eq!(kit.state().items.len(), 1);
 
 // integration (feature "testkit"; Docker)
@@ -105,6 +147,11 @@ let r = rt.http().post("/carts/cart-1/items").json(&item).send()?;
 rt.restart()?;                                          // a new runtime on the same database
 ```
 
+`EndpointTestKit::with_service(build())` answers an endpoint's calls to its event sourced entities
+in memory; `EndpointTestKit::new()` refuses them as unavailable. `AnkkaTestKit` can also stop and
+start its runtime and start another image on its database (`stop_runtime`, `start_runtime`,
+`start_beside`), for tests that share a journal between services, which must never run at once.
+
 `Module::build()` runs `cargo build --release --target wasm32-unknown-unknown` for the current
 package; `Module::at(path)` takes a built one. The kit takes the sidecar image from
 `ANKKA_SIDECAR_IMAGE`, else `ghcr.io/thinkmorestupidless/ankka-sidecar:<the crate's version>`, else
@@ -112,8 +159,9 @@ package; `Module::at(path)` takes a built one. The kit takes the sidecar image f
 
 ## Conformance
 
-`examples/shopping-cart` carries the reference components under `src/conformance.rs`, declared in
-the example's `build()`; their shape is read from `ankka::config("ANKKA_CONFORMANCE_SHAPE")`.
+`examples/shopping-cart` carries the reference components under `src/conformance.rs`, with a
+`build()` of their own — a module is one service, so the example builds as the reference with its
+`conformance` cargo feature; their shape is read from `ankka::config("ANKKA_CONFORMANCE_SHAPE")`.
 `sdks/rust/conformance.sh` builds the module and runs:
 
 ```bash

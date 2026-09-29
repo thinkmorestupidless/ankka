@@ -284,8 +284,63 @@ the k3s image (R5).
 
 ## Assumptions settled by tasks
 
-- The `testcontainers` crate's release and its bind-mount, port and stdout APIs (R8).
+- The `testcontainers` crate's release and its bind-mount, port and stdout APIs (R8). **Settled
+  (T030)**: `testcontainers` 0.28 with its `blocking` feature (`SyncRunner`): `Mount::bind_mount` with
+  `AccessMode::ReadOnly` for the module and the schema, `with_exposed_port` / `get_host_port_ipv4`
+  for HTTP, `stdout_to_vec` / `stderr_to_vec` to wait for Postgres's second "ready" (the image starts
+  once to run the schema, then again to serve) and to attach the runtime's log to a failure. Networks
+  are created by name on first use. The HTTP client is `ureq` 3.4, blocking, with every status an
+  answer. The schema is copied out of the runtime image with `docker create` and `docker cp`, as the
+  Python kit does; readiness is `GET /_ankka/health` answering 200 on the runtime's HTTP port.
 - Whether `serde_json`'s double rendering matches every fixture, or the library needs its own writer
-  for the exponent form (R6).
+  for the exponent form (R6). **Settled (T019)**: it does not match — Rust's shortest form is not
+  Java's `Double.toString` layout. No separate writer was needed: a custom `serde_json` formatter
+  (`codec/float.rs`) turns Rust's shortest `{:e}` digits into Java's layout (plain decimal from 1e-3
+  to 1e7, `d.dddE±n` outside it); `f32` uses its own shortest digits. All 23 fixtures round-trip
+  byte-identically.
 - The kind node image's containerd version, recorded in `install-local.md` only as "not needed" (R5).
+  **Settled (T052)**: `install-local.md` says a wasm service needs nothing more of the cluster, since
+  the module arrives by an init container on any container runtime kind ships; no version is named.
 - The stack size that keeps an instance per call under 50 µs for the example's module (R4, R6).
+  **Measured (T056)**, with the example as a third guest in `WasmHostSpike`, on 2026-09-29 at a load
+  average near 20 (other sessions' clusters on the same machine), so absolute times are inflated
+  several-fold and the comparisons within one run are what hold:
+  - the 256 KiB stack brings an idle instance to **464 KiB** (5 pages), against the spike's Rust
+    guest's 1,246 KiB with Rust's default 1 MiB stack;
+  - building an instance: **175 µs** p50 against the spike guest's 310 µs in the same run (the spike
+    measured the latter at 37 µs on a quiet machine, which puts the example near 21 µs there — under
+    50 µs, but by proportion rather than by a quiet measurement);
+  - **SC-003 holds for the crate's real codec**: a command with a 1 KB state, handle p50 **40 µs**
+    (the spike's hand-written guest 78 µs in the same run), under half the 94 µs loopback hop even at
+    that load; 10 KB, 250 µs.
+  **Re-measured on a quiet machine (T058, 2026-09-29, load ~4)**, the same run holding every number:
+  the loopback hop, one message each way with no work, is **48 µs** p50 (not the 94 µs of the
+  first spike run, which was taken on a busier machine); the SDK example's 1 KB `handle` is **32 µs**
+  p50 (p99 41 µs), 10 KB 214 µs; an instance from the compiled module **122 µs** p50 (the spike's
+  Rust guest 24 µs — the example's module is larger, 474 KB against 201 KB, and its data segment
+  is what an instance copies, not its stack); 466 KiB idle. So **SC-003 holds narrowly and by
+  inference, not by a direct measurement**: the criterion compares against the same command
+  through a process, which is at least the 48 µs hop plus the process's own ~20 µs of the same
+  work at Rust's speed (~68 µs, half of it 34 µs); against the bare hop alone it does not hold, and
+  against the Python or Go processes the platform hosts today — whose codecs take hundreds of
+  microseconds for the same kilobyte — it holds by a wide margin. A direct measurement would time a
+  1 KB command through a process target end to end. The 50 µs per-instance goal (R4) is not met
+  by the example's module on a quiet machine; it is by the smaller spike guest.
+
+## Decisions made during implementation
+
+- **Which exports are required** (T008): the ABI said a module missing "any required export" is
+  refused without saying which. `ankka1_alloc`, `ankka1_free`, `ankka1_discover` and `memory` are
+  required of every module; the rest by what it declares, checked at discovery (`WasmDiscovery`),
+  which also refuses a module declaring a view it cannot answer. `WASM-ABI.md` says so.
+- **`log`'s levels** (T010): 0 trace, 1 debug, 2 info, 3 warn, 4 error, to the logger `ankka.module`.
+- **`ankka.sequence` on a command** (T013): the crate's `Context::sequence()` needed the journal
+  sequence and `HandleRequest` carries none, so the host sets it in the command's metadata.
+- **Replay is folded on the next call's thread** (T013): the remote event sourced host delivers
+  replayed events from a Pekko stream; `WasmConversation` queues them and folds before the next
+  command, on its virtual thread, rather than calling the guest from a stream thread.
+- **Registration by value** (T022): Rust's coherence rules allow one blanket implementation per
+  trait, so the kind is inferred from a marker type parameter, which needs a value: components are
+  unit structs, registered and named to the client by value.
+- **Discovery's protocol version** is the one the crate's protocol copy carries (1.1 on this branch),
+  as the Python SDK sends; the descriptor's `protocol` may say 1.0 — only the major is checked.

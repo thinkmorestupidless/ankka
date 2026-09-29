@@ -1,0 +1,6 @@
+{
+  "manifest": "service-event",
+  "content_type": "application/json",
+  "bytes_base64": "eyJ0eXBlIjoiQXBwbGllZCIsImdlbmVyYXRpb24iOjQsImF0IjpudWxsfQ==",
+  "value": {"type":"Applied","generation":4,"at":null}
+}

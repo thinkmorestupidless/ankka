@@ -1,0 +1,4 @@
+# From this directory, `cargo build --release` builds the module. The stack size is set for the
+# whole workspace in ../../.cargo/config.toml, so a build from there gets it too.
+[build]
+target = "wasm32-unknown-unknown"

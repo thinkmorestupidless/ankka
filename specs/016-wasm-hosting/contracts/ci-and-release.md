@@ -67,11 +67,13 @@ publishes. Recorded in `CLAUDE.md` beside npm's.
 ## The template: `ankka init --language rust`
 
 `cli/src/main/templates/rust/` renders with `{{name}}`, `{{module}}` (the crate name, `-` kept),
-`{{ankka_version}}` and `{{protocol_version}}`:
+`{{module_snake}}` (the same with `_`, which is the module's file name), `{{ankka_version}}` and
+`{{protocol_version}}`:
 
 ```text
 Cargo.toml                      # [package] name = "{{module}}"; ankka = "{{ankka_version}}"; crate-type cdylib; features slow
-.cargo/config.toml              # [build] target = "wasm32-unknown-unknown"; rustflags stack size
+.cargo/config.toml              # alias `cargo module` (the release build for wasm32); the wasm32 target's stack size.
+                                # Not `[build] target`: that would make a plain `cargo test` build for wasm32 and fail
 rust-toolchain.toml
 src/lib.rs, domain.rs, item_entity.rs, item_rows.rs, api.rs
 tests/item.rs                   # unit; and integration behind `slow`, which the suite insists runs
@@ -84,8 +86,8 @@ README.md, .gitignore, .dockerignore
 `common/docker-compose.yml` gains a `wasm` profile: the runtime with the bind-mounted module, no
 process port. `RustTemplateSuite extends PolyglotTemplateSuite(Language.Rust, "cargo")`: renders
 through `Main.run`, asserts the pin names `Version`, points the dependency at `sdks/rust/ankka` by
-path, and runs `cargo clippy`, `cargo build --target wasm32-unknown-unknown` and
-`cargo test --features slow`, insisting nothing skipped. `-Dankka.template.tests=rust` selects it.
+path, and runs `cargo clippy`, `cargo module` and `cargo test --features slow`, insisting nothing
+ignored. `-Dankka.template.tests=rust` selects it.
 `native-smoke.sh` renders the Rust template too.
 
 ## Documentation and skills

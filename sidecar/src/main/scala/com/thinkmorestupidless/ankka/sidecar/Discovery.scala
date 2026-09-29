@@ -17,7 +17,9 @@ import scala.concurrent.Await
 import scala.util.control.NonFatal
 
 /**
- * The first conversation: the process describes what it hosts, the sidecar validates it.
+ * The first conversation: the process describes what it hosts, the sidecar validates it. A module
+ * describes itself through its `ankka1_discover` export instead (`wasm.WasmDiscovery`), and is held
+ * to the same `validate`.
  *
  * Every problem is collected and reported at once — through `ReportError` so it lands in the
  * developer's own log, and in the sidecar's — because a service with four problems should take one
@@ -33,15 +35,30 @@ object Discovery:
    */
   val ProtocolVersion: String = "1.1"
 
-  /** What discovery hands the rest of the sidecar: validated descriptors plus the raw spec. */
+  /**
+   * What discovery hands the rest of the sidecar: validated descriptors plus the raw spec. `shapes`
+   * is a module's per-component guest shape; a process has none, and a component absent from it is
+   * stateless.
+   */
   final case class Discovered(
       spec: Spec,
       descriptors: Vector[RemoteDescriptor],
       agents: Vector[Component],
-      endpoints: Vector[Endpoint]
-  )
+      endpoints: Vector[Endpoint],
+      shapes: Map[ComponentId, Shape] = Map.empty
+  ):
+    def shapeOf(id: ComponentId): Shape = shapes.getOrElse(id, Shape.Stateless)
 
-  /** Dials until the process answers; refuses with every problem or returns the discovered spec. */
+  /**
+   * How a module's guest keeps a stateful component's state: handed it on every call, or once per
+   * loaded instance and kept until closed. The runtime holds the state in both.
+   */
+  enum Shape:
+    case Stateless, Stateful
+
+  /**
+   * Dials the process until it answers; refuses with every problem or returns the discovered spec.
+   */
   def discover(
       channel: ManagedChannel,
       settings: Settings,
@@ -92,7 +109,10 @@ object Discovery:
           backoff = (backoff * 2).min(settings.discoveryBackoffMax)
     result.get
 
-  /** Pure: what is wrong with a spec, all of it. Exposed for the protocol suite. */
+  /**
+   * Pure: what is wrong with a spec, all of it. The rules every spec is held to, whether a process
+   * or a module declared it; a module's own rules are added by `wasm.WasmDiscovery`.
+   */
   def validate(
       spec: Spec,
       protocolVersion: String = ProtocolVersion

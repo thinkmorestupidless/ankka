@@ -1,0 +1,23 @@
+# Lint, build the module and test on every push and pull request. Needs no secrets, so it is green
+# from the first push — before anything about a control plane has been configured.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --features slow -- -D warnings
+      - run: cargo module
+      # The slow tests start Postgres and the published runtime through testcontainers, which a
+      # GitHub-hosted runner can do: Docker is already there.
+      - run: cargo test --features slow

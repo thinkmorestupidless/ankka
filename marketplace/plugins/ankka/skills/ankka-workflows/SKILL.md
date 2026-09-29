@@ -1,6 +1,6 @@
 ---
 name: ankka-workflows
-description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Python or TypeScript. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, TimerScheduler, a timed action, or a deadline such as "cancel after thirty minutes".
+description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, TimerScheduler, a timed action, or a deadline such as "cancel after thirty minutes".
 ---
 
 # ankka workflows and timers
@@ -73,6 +73,19 @@ agents, collected with one `await` per result, so the step takes as long as the 
 agent with `MemoryProvider.none` for dynamic routing, with the workflow validating the names it returns.
 All agents on one session, the workflow's id. Let a workflow finish before a test ends, or it keeps
 consuming the scripted model and starves the next test.
+
+## Rust differences
+
+A workflow implements `Workflow`: `handlers()` (`WorkflowHandlers::new().command(..).query(..)`), `steps()`
+(`Steps::new().step("reserve", Self::reserve)`, each `fn(&State, Input, &Context) -> StepEffect<State>`) and
+optionally `settings()` (`WorkflowSettings::new().default_step_timeout(d).step_recovery("charge",
+Recovery::retries(1).failover_to("compensate"))`). Commands use `workflow::update_state(s)
+.transition_to("step").then_reply_value(r)`; steps `step_effects::update_state(s).then_transition_to(..)`,
+`.then_pause_for(d, "step")`, `.then_end()`, or `step_effects::fail(CommandError::new(..))`. A step that
+panics is retried and failed over; a step runs on an instance of the module of its own, so blocking on
+`ctx.client()` there is fine. A timed action implements `TimedAction` with
+`Actions::new().action(name, f)`; timers are `ctx.client().schedule(id, Duration::of_seconds(n), Component,
+None, "name", input)` and `cancel(id)`. `WorkflowTestKit` and `TimedActionTestKit` run them natively.
 
 ## Testing
 

@@ -2,7 +2,7 @@
 title: Adding a language SDK
 description: What an SDK for a new language must do to host services on ankka, and how the encoding fixtures and the conformance suite prove it compatible without the platform knowing the language exists.
 kind: contributing
-related: [reference/sidecar-protocol.md, reference/python-sdk.md, reference/typescript-sdk.md, concepts/polyglot.md]
+related: [reference/sidecar-protocol.md, reference/wasm-abi.md, reference/python-sdk.md, reference/typescript-sdk.md, reference/rust-sdk.md, concepts/polyglot.md]
 ---
 
 # Adding a language SDK
@@ -14,6 +14,13 @@ passes two things: the encoding fixtures and the conformance suite. The Python S
 [`sdks/python`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/python) and the TypeScript SDK in
 [`sdks/typescript`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript) are the working
 examples.
+
+There is a second route for a language that compiles to WebAssembly: a **guest library**, which builds a
+service to a module the runtime loads into its own process instead of running a process beside it. It
+answers the same discovery and the same messages, across the module's linear memory rather than over gRPC,
+and passes the same fixtures and the same suite. The Rust crate in
+[`sdks/rust`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/rust) is the working example; see
+[A guest library](#a-guest-library).
 
 ## What an SDK does
 
@@ -92,6 +99,33 @@ status. The TypeScript reference is the same shape, in
 [`examples/shopping-cart`](https://github.com/thinkmorestupidless/ankka/blob/main/sdks/typescript/examples/shopping-cart),
 served by `npm run conformance` in `sdks/typescript`. `ANKKA_CONFORMANCE_ONLY` narrows either run to matching
 behaviours, as a glob over the full case name (`'*es.*'`).
+
+## A guest library
+
+A guest library does what an SDK does, with the ABI in place of the gRPC services. Where an SDK serves the
+protocol on a port, a guest library exports the `ankka1_` functions and calls the `ankka1` imports that
+[WebAssembly ABI](../reference/wasm-abi.md) lists, and the language must compile to a WebAssembly core
+module with no imports but those — no WASI. The rest is the same list: discovery (returned as a `WasmSpec`),
+the component model in the language's idiom, the encoding, and testkits. The differences to design for:
+
+- **The protocol artifact includes `WASM-ABI.md` and `wasm.proto`.** Copy them with the rest; the Rust
+  crate's `scripts/proto.sh` does, and continuous integration diffs its copy as it does the SDKs'.
+- **Both guest shapes.** A component is stateless unless the module lists it as stateful in `WasmSpec`;
+  a stateful component keeps its decoded state between calls until `ankka1_close`. The reference service
+  reads its shape from the `ANKKA_CONFORMANCE_SHAPE` variable through the `config` import, so the suite runs
+  it in each.
+- **No streaming.** A module answers every call whole, so the library offers no streaming handler or route.
+- **Faults are traps.** A panic or an exception in a handler should be logged through the `log` import and
+  then trap; the runtime discards the instance and answers the caller with a fault.
+
+The suite runs against a module with a `wasm:` target, in either shape:
+
+```bash
+sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=wasm:/path/to/service.wasm
+sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=wasm:/path/to/service.wasm -Dankka.conformance.shape=stateful
+```
+
+The Rust crate's `conformance.sh` builds its reference module and runs both.
 
 ## Declaring a service
 

@@ -5,8 +5,8 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceP
 import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
 
 /**
- * A process-hosted service's projection (feature 009): the protocol is checked before any resource
- * is written.
+ * A process- or module-hosted service's projection (features 009 and 016): the protocol is checked
+ * before any resource is written, and the hosting reaches the resource untouched.
  */
 class ServiceProjectionHostingSuite extends munit.FunSuite:
 
@@ -24,6 +24,13 @@ class ServiceProjectionHostingSuite extends munit.FunSuite:
     val Right(spec) = ServiceProjection.project(service("process", Some("1.0")), config): @unchecked
     assertEquals(spec.hosting, "process")
     assertEquals(spec.image, "cart:1.0")
+  }
+
+  test("a wasm service projects with its hosting on the resource, and its protocol checked") {
+    val Right(spec) = ServiceProjection.project(service("wasm", Some("1.0")), config): @unchecked
+    assertEquals(spec.hosting, "wasm")
+    assertEquals(spec.image, "cart:1.0")
+    assert(ServiceProjection.project(service("wasm", Some("2.0")), config).isLeft)
   }
 
   test("an embedded service projects as before, with no hosting change") {

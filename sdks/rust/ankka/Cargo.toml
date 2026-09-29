@@ -1,0 +1,32 @@
+[package]
+name = "ankka"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/thinkmorestupidless/ankka/tree/main/sdks/rust/ankka"
+description = "Build ankka services in Rust, hosted as WebAssembly modules by the ankka runtime"
+include = ["src/**", "build.rs", "protocol/**", "Cargo.toml", "README.md"]
+
+[lints]
+workspace = true
+
+[dependencies]
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The integration testkit: Postgres and the runtime image in Docker. Only with `testkit`, so a
+# service's dependencies never include Docker tooling unless it asks.
+testcontainers = { version = "0.28", optional = true, features = ["blocking"] }
+# The integration testkit's HTTP client: blocking, small, and only with `testkit`.
+ureq = { version = "3.4", optional = true }
+
+[dev-dependencies]
+# The compile-fail cases: a query that tries to persist must not compile.
+trybuild = "1.0.121"
+
+[build-dependencies]
+prost-build = "0.14"
+protox = "0.9"
+
+[features]
+testkit = ["dep:testcontainers", "dep:ureq"]

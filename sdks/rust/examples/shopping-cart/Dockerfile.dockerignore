@@ -1,0 +1,4 @@
+# BuildKit reads this for the Dockerfile beside it, whatever the context; the context is sdks/rust, so
+# that the module under target/ is in it, and only the module goes in.
+*
+!target/wasm32-unknown-unknown/release/shopping_cart.wasm

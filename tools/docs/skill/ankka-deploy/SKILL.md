@@ -38,8 +38,8 @@ pausing and restarting are commands, not descriptor fields.
 
 1. **The descriptor says what to run, never how the platform runs it.** `name` (a DNS label) and
    `service.image` are required; `runtime` (the ankka version the image was built against, checked to
-   the platform's major and one minor below), `hosting` (`embedded` or `process`, the latter with
-   `protocol`), `env`, `labels`, `annotations`, `http` (default `true`), `port` (default `9000`),
+   the platform's major and one minor below), `hosting` (`embedded`, `process` or `wasm`, the latter two
+   with `protocol`), `env`, `labels`, `annotations`, `http` (default `true`), `port` (default `9000`),
    `resources.instanceType` (`small`/`medium`/`large`) and `resources.autoscaling.minInstances` (a fixed
    count; there is no autoscaler). No database, hostname, paused flag or YAML: those are provisioned or
    commands. It is validated by the CLI and again by the control plane with the same rules, every problem
@@ -69,7 +69,10 @@ pausing and restarting are commands, not descriptor fields.
 8. **Images are plain.** A Scala service's image comes from `sbt docker:publishLocal` (a `+` in a
    snapshot version becomes `-` in the tag); a kind cluster takes it with `kind load docker-image`, and
    the platform renders `imagePullPolicy: IfNotPresent` so a loaded image is used. A registry is needed
-   anywhere else. A process-hosted image holds only the process; the platform adds the sidecar.
+   anywhere else. A process-hosted image holds only the process; the platform adds the sidecar. A
+   wasm-hosted image holds only a Rust service's module and a command copying it to
+   `/ankka/module/service.wasm`; the platform runs it as an init container and its own runtime as the one
+   container.
 9. **Settings resolve per command.** `--url`, `--token`, `--project`, then `ANKKA_URL`/`ANKKA_TOKEN`/
    `ANKKA_PROJECT`, then `~/.ankka/config.json` (`ANKKA_CONFIG` overrides the file; `HOME` does not).
    `ankka login` opens the browser; CI uses a machine account's token. `ankka mcp` exposes the same verbs
@@ -80,7 +83,8 @@ pausing and restarting are commands, not descriptor fields.
 ## Before deploying
 
 - Is the ACL on every endpoint the one you want on the internet?
-- Does the descriptor declare `runtime`, and for Python or TypeScript `hosting: "process"` with `protocol`?
+- Does the descriptor declare `runtime`, and for Python or TypeScript `hosting: "process"` with `protocol`,
+  for Rust `hosting: "wasm"` with `protocol` (and no `"http": false`)?
 - Do model keys and other secrets come from a `secretKeyRef`, not a literal `value` in a committed file?
 - For a Python or TypeScript service, do `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` belong to the sidecar and
   everything else to the process, as intended?

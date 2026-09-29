@@ -1,0 +1,6 @@
+{
+  "manifest": "shopping-cart",
+  "content_type": "application/json",
+  "bytes_base64": "eyJpdGVtcyI6W3sicHJvZHVjdElkIjoicDEiLCJuYW1lIjoiUGVuIiwicXVhbnRpdHkiOjJ9LHsicHJvZHVjdElkIjoicDIiLCJuYW1lIjoiSW5rIiwicXVhbnRpdHkiOjF9XSwiY2hlY2tlZE91dCI6dHJ1ZX0=",
+  "value": {"items":[{"productId":"p1","name":"Pen","quantity":2},{"productId":"p2","name":"Ink","quantity":1}],"checkedOut":true}
+}

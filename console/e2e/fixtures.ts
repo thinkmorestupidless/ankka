@@ -5,7 +5,11 @@
  */
 import { test as base, expect, type Page } from "@playwright/test";
 import { AxeBuilder } from "@axe-core/playwright";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { startTarget, type Target } from "./target.ts";
+
+const here = fileURLToPath(new URL(".", import.meta.url));
 
 export { expect };
 
@@ -20,9 +24,14 @@ export interface Fixtures {
 
 export const test = base.extend<Fixtures, { target: Target }>({
   target: [
-    async ({}, use) => {
+    async ({}, use, workerInfo) => {
       const target = await startTarget();
       await use(target);
+      if (target.controlPlane) {
+        // What this worker exercised, for the suite's route parity check.
+        mkdirSync(`${here}test-results`, { recursive: true });
+        writeFileSync(`${here}test-results/visited-${workerInfo.project.name}-${workerInfo.workerIndex}.json`, JSON.stringify([...target.controlPlane.visited]));
+      }
       await target.close();
     },
     { scope: "worker", timeout: 120_000 },

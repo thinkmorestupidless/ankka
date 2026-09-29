@@ -3,7 +3,7 @@
  * restart, how many lines, how far back. With scripts running the page follows new lines as they are
  * written, until the person pauses it; without, it shows what was there when the page was asked for.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Form, useLoaderData, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { guard, pageData, useConsoleContext } from "../context.ts";
 import { ControlPlaneError } from "../client/errors.ts";
@@ -46,7 +46,7 @@ export default function Logs() {
   const { service, project: p, organization: o, instances, none, query, known } = useLoaderData<typeof loader>();
   const { mount } = useConsole();
   const [follow, setFollow] = useState(true);
-  const initial = Object.fromEntries(instances.map((i) => [i.instance, { lines: i.lines, error: i.error }]));
+  const initial = useMemo(() => Object.fromEntries(instances.map((i) => [i.instance, { lines: i.lines, error: i.error }])), [instances]);
   const params = new URLSearchParams();
   if (query.instance) params.set("instance", query.instance);
   if (query.previous) params.set("previous", "true");

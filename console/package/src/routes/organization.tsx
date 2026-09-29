@@ -70,7 +70,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
   });
 }
 
-const limit = (n: number | undefined) => (n === undefined ? "no limit" : String(n));
+const limit = (n: number | undefined, what: string) => (n === undefined ? `any number of ${what}` : `${n} ${what}`);
 
 export default function Organization() {
   const { organization: o, projects, ownerless, panels, console: page } = useLoaderData<typeof loader>();
@@ -100,7 +100,7 @@ export default function Organization() {
           <>
             <dt>Quota</dt>
             <dd>
-              {limit(o.quota.projects)} projects, {limit(o.quota.services)} services, {limit(o.quota.instances)} instances
+              {limit(o.quota.projects, "projects")}, {limit(o.quota.services, "services")}, {limit(o.quota.instances, "instances")}
             </dd>
           </>
         ) : null}

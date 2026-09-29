@@ -188,6 +188,13 @@ export interface ConsolePageData {
   hidden: Operation[];
 }
 
+/**
+ * The page data every package page returns. It is also what makes a page require a session: nobody
+ * signed in is `SignInRequired`, which `guard` turns into the trip to sign in, even for a page whose
+ * loader asks the control plane nothing.
+ */
 export async function pageData(ctx: ConsoleContext): Promise<ConsolePageData> {
-  return { mount: ctx.mount, principal: await ctx.principal(), hidden: ctx.extensions.hidden ?? [] };
+  const principal = await ctx.principal();
+  if (!principal) throw new SignInRequired();
+  return { mount: ctx.mount, principal, hidden: ctx.extensions.hidden ?? [] };
 }

@@ -11,7 +11,7 @@ import type { ServiceStatus } from "../client/schemas.ts";
 export type StreamState = "connecting" | "live" | "gone" | "off";
 
 function useEvents(path: string | null, handlers: Record<string, (data: unknown) => void>): StreamState {
-  const { href } = useConsole();
+  const { mount } = useConsole();
   const [state, setState] = useState<StreamState>(path ? "connecting" : "off");
   const ref = useRef(handlers);
   ref.current = handlers;
@@ -21,6 +21,7 @@ function useEvents(path: string | null, handlers: Record<string, (data: unknown)
       setState("off");
       return;
     }
+    const href = (p: string) => mount + p.replace(/^\/+/, "");
     const source = new EventSource(href(path));
     setState("connecting");
     source.onopen = () => setState("live");
@@ -38,7 +39,7 @@ function useEvents(path: string | null, handlers: Record<string, (data: unknown)
     on("server-closing", () => setState("connecting"));
     source.onerror = () => setState(source.readyState === EventSource.CLOSED ? "off" : "connecting");
     return () => source.close();
-  }, [path, href]);
+  }, [path, mount]);
 
   return state;
 }

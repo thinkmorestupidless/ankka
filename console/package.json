@@ -15,7 +15,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test -w package",
-    "e2e": "npm run build && npm test -w e2e --",
+    "e2e": "npm run build && CONSOLE_E2E_PARITY=1 npm test -w e2e --",
     "build": "npm run build -w package && npm run build -w host",
     "dev": "npm run build -w package && npm run dev -w host"
   }

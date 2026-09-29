@@ -57,6 +57,15 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
   private val Namespace = "ankka-controlplane"
   private val Project   = "checkout"
 
+  // The console (feature 017): deployed beside the control plane, signed in to through the gateway
+  // as a person with a password, the way a browser does it.
+  private val ConsoleImage     = "ankka-console:latest"
+  private val ConsoleNamespace = "ankka-console"
+  private val ConsoleUser      = "consoleuser"
+  private val ConsolePassword  = "console-password"
+  private def consoleAuthority =
+    s"console.$BaseDomain:${k3s.getMappedPort(GatewayStack.HttpsNodePort)}"
+
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
   private var operator: Operator    = null
@@ -175,6 +184,27 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
           .replaceAll("(?<!ANKKA_)BASE_DOMAIN", BaseDomain)
           .replace("""value: "443"""", s"""value: "$httpsPort"""")
         k8s.load(new java.io.ByteArrayInputStream(yaml.getBytes("UTF-8"))).serverSideApply(): Unit
+
+      // The console (feature 017), from its component's own files, with what the overlay's
+      // replacements would fill in: its hostname and its authority, host and port together.
+      ClusterImages.importInto(k3s, ConsoleImage)
+      for name <- Vector(
+          "namespace.yaml",
+          "serviceaccount.yaml",
+          "secrets.yaml",
+          "zero-trust.yaml",
+          "service.yaml",
+          "deployment.yaml",
+          "httproute.yaml"
+        )
+      do
+        val yaml = Files
+          .readString(repoRoot.resolve(s"kustomization/components/console/$name"))
+          // The placeholders only, not the variable names that contain them (`ANKKA_CONSOLE_AUTHORITY`).
+          .replaceAll("(?<!ANKKA_)CONSOLE_AUTHORITY", consoleAuthority)
+          .replaceAll("(?<!ANKKA_)BASE_DOMAIN", BaseDomain)
+        k8s.load(new java.io.ByteArrayInputStream(yaml.getBytes("UTF-8"))).serverSideApply(): Unit
+      KeycloakStack.createUser(k3s, ConsoleUser, ConsolePassword, platformAdmin = true)
 
       // The operator, in-process on admin credentials: not what this suite is about.
       val operatorSettings = OperatorSettings.default.copy(resyncInterval = 2.seconds)
@@ -774,4 +804,233 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
           s"expected the API server to refuse to $what: ${ex.getMessage}"
         )
     finally restricted.close()
+  }
+
+  // ── The console (feature 017) ─────────────────────────────────────────────
+
+  /**
+   * A browser without scripts, played by `curl` on the host: a cookie jar, the gateway's
+   * certificate verified against the exported root, and `--resolve` standing in for DNS — the same
+   * route a developer's browser takes, gateway and all.
+   */
+  private final class Browser:
+    private val jar  = Files.createTempFile("ankka-console-cookies", ".txt")
+    private val port = k3s.getMappedPort(GatewayStack.HttpsNodePort)
+    private val ca   = GatewayStack.exportCa(k8s)
+    val origin       = s"https://$consoleAuthority"
+
+    /** The final status, URL and body, having followed redirects unless told not to. */
+    def request(
+        url: String,
+        form: Seq[(String, String)] = Nil,
+        follow: Boolean = true
+    ): (Int, String, String) =
+      val args = Vector(
+        "curl",
+        "-sS",
+        "-m",
+        "30",
+        "--cacert",
+        ca.toString,
+        "--resolve",
+        s"console.$BaseDomain:$port:127.0.0.1",
+        "--resolve",
+        s"auth.$BaseDomain:$port:127.0.0.1",
+        "-c",
+        jar.toString,
+        "-b",
+        jar.toString,
+        "-w",
+        "\n%{http_code} %{url_effective}"
+      ) ++ (if follow then Vector("-L") else Vector.empty) ++
+        (if form.nonEmpty then Vector("-H", s"Origin: $origin") else Vector.empty) ++
+        form.flatMap((k, v) => Vector("--data-urlencode", s"$k=$v")) :+ url
+      val process = new ProcessBuilder(args*).redirectErrorStream(true).start()
+      val output =
+        new String(process.getInputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      process.waitFor()
+      val lastLine                 = output.lastIndexOf('\n')
+      val Array(status, effective) = output.substring(lastLine + 1).split(" ", 2)
+      (status.toIntOption.getOrElse(0), effective, output.substring(0, math.max(lastLine, 0)))
+
+    def signIn(): Unit =
+      val (_, _, form) = request(s"$origin/")
+      val action = """action="([^"]+)"""".r
+        .findFirstMatchIn(form)
+        .map(_.group(1).replace("&amp;", "&"))
+        .getOrElse(fail(s"no login form in: ${form.take(300)}\n${consoleLogs()}"))
+      val (status, url, page) = request(
+        action,
+        Seq("username" -> ConsoleUser, "password" -> ConsolePassword, "credentialId" -> "")
+      )
+      assertEquals(status, 200, page.take(500))
+      assertEquals(url, s"$origin/")
+      assert(page.contains("Signed in as"), page.take(1000))
+
+  /** The console's own logs, for a failure message: what it said when it answered as it did. */
+  private def consoleLogs(): String =
+    nodeExec(
+      "kubectl",
+      "-n",
+      ConsoleNamespace,
+      "logs",
+      "-l",
+      "app.kubernetes.io/name=ankka-console",
+      "--tail=60",
+      "--prefix"
+    )._2
+
+  /**
+   * The console and a control plane that answers: the console cases can run without case 1 before
+   * them.
+   */
+  private def consoleAndControlPlaneReady: Boolean =
+    consoleReady && readyPods.nonEmpty && api("GET", "/organizations")._1 == 0
+
+  private def consoleReady: Boolean =
+    Option(k8s.apps().deployments().inNamespace(ConsoleNamespace).withName("ankka-console").get())
+      .flatMap(d => Option(d.getStatus))
+      .flatMap(s => Option(s.getReadyReplicas))
+      .exists(_ >= 2)
+
+  test("9. the console signs a person in through the gateway and acts as them") {
+    waitFor(420.seconds)(consoleAndControlPlaneReady)
+    val browser = Browser()
+
+    // A stranger is sent to the identity provider's own form, through the gateway.
+    val (formStatus, formUrl, form) = browser.request(s"${browser.origin}/")
+    assertEquals(formStatus, 200, s"${form.take(300)}\n${consoleLogs()}")
+    assert(formUrl.startsWith(s"https://auth.$BaseDomain:"), formUrl)
+
+    // Signed in, and back on the page asked for: the console exchanged the code over the identity
+    // provider's in-cluster address and read who this is from the control plane.
+    browser.signIn()
+
+    // A form posted as a page with no scripts posts it: an organization, then a project, then a
+    // service, each read back from the control plane the console called as this person.
+    val (_, orgUrl, org) = browser.request(
+      s"${browser.origin}/organizations/new",
+      Seq("intent" -> "create", "id" -> "console-org", "name" -> "Console Org")
+    )
+    assertEquals(orgUrl, s"${browser.origin}/organizations/console-org")
+    assert(org.contains("<h1>Console Org</h1>"), org.take(1000))
+    assertEquals(api("GET", "/organizations/console-org")._1, 0)
+
+    val (_, projectUrl, _) = browser.request(
+      s"${browser.origin}/organizations/console-org/projects/new",
+      Seq("intent" -> "create", "id" -> "console-proj", "name" -> "Console Project")
+    )
+    assertEquals(projectUrl, s"${browser.origin}/projects/console-proj")
+    val (_, serviceUrl, _) = browser.request(
+      s"${browser.origin}/projects/console-proj/services/apply",
+      Seq("intent" -> "apply", "descriptor" -> descriptor("console-svc"))
+    )
+    assertEquals(serviceUrl, s"${browser.origin}/projects/console-proj/services/console-svc")
+    // The listing is a projection; it shows the service within moments, or a minute or two on a
+    // k3s node shared with a control plane cluster, Keycloak and Postgres.
+    waitFor(120.seconds)(
+      browser
+        .request(s"${browser.origin}/projects/console-proj")
+        ._3
+        .contains("data-service=\"console-svc\"")
+    )
+  }
+
+  test("10. the console is reachable only through the gateway, and holds no grant") {
+    waitFor(420.seconds)(consoleAndControlPlaneReady)
+    // From a pod in another namespace, the console's serving port is closed by the network.
+    val from = readyPods.headOption.getOrElse(fail("no control plane pod to try from"))
+    val (code, out) = nodeExec(
+      "kubectl",
+      "exec",
+      "-n",
+      Namespace,
+      from.getMetadata.getName,
+      "--",
+      "curl",
+      "-sk",
+      "-m",
+      "5",
+      s"https://ankka-console.$ConsoleNamespace.svc:9000/"
+    )
+    assertNotEquals(code, 0, s"the console answered a pod outside the gateway: $out")
+
+    // The console's own ServiceAccount can do nothing with the API server.
+    val tokenResult =
+      k3s.execInContainer(
+        "kubectl",
+        "create",
+        "token",
+        "ankka-console",
+        "-n",
+        ConsoleNamespace,
+        "--duration=10m"
+      )
+    assertEquals(tokenResult.getExitCode, 0, tokenResult.getStderr)
+    val restricted = new KubernetesClientBuilder()
+      .withConfig(
+        new io.fabric8.kubernetes.client.ConfigBuilder()
+          .withMasterUrl(k8s.getConfiguration.getMasterUrl)
+          .withTrustCerts(true)
+          .withOauthToken(tokenResult.getStdout.trim)
+          .build()
+      )
+      .build()
+    try
+      val ex = intercept[io.fabric8.kubernetes.client.KubernetesClientException](
+        restricted.pods().inNamespace(ConsoleNamespace).list(): Unit
+      )
+      assertEquals(ex.getCode, 403, ex.getMessage)
+    finally restricted.close()
+  }
+
+  test(
+    "11. a signed-in session survives the console's instances being replaced, refusing nothing"
+  ) {
+    waitFor(420.seconds)(consoleAndControlPlaneReady)
+    val browser = Browser()
+    browser.signIn()
+
+    // One request a second, throughout a rolling restart of both instances, to a page a signed-in
+    // console serves from its session alone: the control plane's availability is not this case's.
+    val statuses          = java.util.concurrent.ConcurrentLinkedQueue[Int]()
+    @volatile var running = true
+    val poller = new Thread(() =>
+      while running do
+        statuses.add(browser.request(s"${browser.origin}/auth/sign-out", follow = false)._1)
+        Thread.sleep(1000)
+    )
+    poller.start()
+    try
+      val (restart, restartOut) =
+        nodeExec(
+          "kubectl",
+          "-n",
+          ConsoleNamespace,
+          "rollout",
+          "restart",
+          "deployment/ankka-console"
+        )
+      assertEquals(restart, 0, restartOut)
+      val (rolled, rolledOut) = nodeExec(
+        "kubectl",
+        "-n",
+        ConsoleNamespace,
+        "rollout",
+        "status",
+        "deployment/ankka-console",
+        "--timeout=300s"
+      )
+      assertEquals(rolled, 0, rolledOut)
+      Thread.sleep(3000)
+    finally
+      running = false
+      poller.join()
+    val seen = statuses.asScala.toVector
+    assert(seen.size >= 10, s"too few requests to say anything: $seen")
+    assertEquals(
+      seen.filterNot(_ == 200),
+      Vector.empty,
+      s"requests refused or redirected during the roll: $seen"
+    )
   }

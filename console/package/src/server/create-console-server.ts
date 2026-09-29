@@ -111,6 +111,9 @@ export async function createConsoleServer(options: ConsoleServerOptions): Promis
   const clientRoot = resolve(typeof options.clientDir === "string" ? options.clientDir : fileURLToPath(options.clientDir));
   const cpUrl = env.ANKKA_CONSOLE_CONTROL_PLANE_URL ?? "http://localhost:9000";
   const files = tlsDir ? { ca: `${tlsDir}/ca.crt`, cert: `${tlsDir}/tls.crt`, key: `${tlsDir}/tls.key` } : undefined;
+  if (tlsDir && !env.ANKKA_CONSOLE_AUTHORITY?.trim() && !options.requestListener) {
+    throw new Error("ANKKA_CONSOLE_AUTHORITY is not set: in a cluster the console must be told its own address");
+  }
 
   let bound = false;
   let controlPlaneAnswered = false;

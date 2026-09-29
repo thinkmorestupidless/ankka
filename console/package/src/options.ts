@@ -52,7 +52,12 @@ function required(env: Env, name: string): string {
  */
 export function consoleOptionsFromEnv(env: Env = process.env, extensions?: ConsoleExtensions): ConsoleOptions {
   const tlsDir = env.ANKKA_CONSOLE_TLS_DIR?.trim();
-  const authority = env.ANKKA_CONSOLE_AUTHORITY?.trim() || `localhost:${env.ANKKA_CONSOLE_PORT?.trim() || "3000"}`;
+  // In a cluster the console's own address is not guessable, and a wrong one is a sign-in the
+  // identity provider refuses to return from; only a laptop's console defaults to localhost.
+  const authority = tlsDir
+    ? required(env, "ANKKA_CONSOLE_AUTHORITY")
+    : env.ANKKA_CONSOLE_AUTHORITY?.trim() || `localhost:${env.ANKKA_CONSOLE_PORT?.trim() || "3000"}`;
+  if (/[A-Z_]{6,}/.test(authority)) throw new Error(`ANKKA_CONSOLE_AUTHORITY is '${authority}', an unfilled placeholder`);
   return {
     controlPlane: {
       url: env.ANKKA_CONSOLE_CONTROL_PLANE_URL?.trim() || "http://localhost:9000",

@@ -403,6 +403,12 @@ lazy val controlPlane = project
           // ControlPlaneClusterSuite (feature 004) deploys the control plane itself into k3s.
           (shoppingCart / Docker / publishLocal).value
           (Docker / publishLocal).value // this project's own image, unscoped to avoid self-reference
+          // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
+          val console = (ThisBuild / baseDirectory).value / "console"
+          val built = scala.sys.process
+            .Process(Seq("docker", "build", "-q", "-t", "ankka-console:latest", console.getPath))
+            .!
+          if (built != 0) sys.error(s"docker build of $console failed ($built)")
           ()
         }
     }.value,

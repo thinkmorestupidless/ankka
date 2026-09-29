@@ -1014,6 +1014,13 @@ the package and `package/test/fixture-host/` proves a second host works with no 
 - **The control plane answers `Done` as 204 with no body**, including for creating an organization or a
   project, and an omitted deploy-token lifetime is the 90-day default, not "never" (`0` is never). The fake
   had both wrong until the compose run found them; `ControlPlaneFixturesSuite` covers bodies, not statuses.
+- **Keycloak's issuer depends on who asks, so the console's backchannel pretends to be the gateway.**
+  Configured with a host name only, Keycloak takes its issuer's scheme and port from each request's
+  forwarded headers, else from how it was reached. The control plane only reads keys over the in-cluster
+  address, which carry no issuer; the console also runs discovery and the token grants there, and
+  unadorned they answered `https://auth.<base>:8443` — refused at discovery (a 500 at sign-in, found only
+  by the k3s suite) and wrong in every token. `Issuer` sends `X-Forwarded-Proto/Host/Port` for the public
+  issuer on every backchannel call; `fakeIssuer({ hostOnly })` reproduces Keycloak's behaviour for the test.
 - **A React effect depending on a function from a hook re-runs on every render.** The stream hook depended
   on `useConsole().href`, a fresh closure each render, so every event it delivered re-rendered the page and
   reopened the stream, which never left "connecting". Depend on the stable value (the mount path) instead.

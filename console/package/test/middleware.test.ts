@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { crossSite } from "../src/middleware.ts";
 import { safeReturnTo } from "../src/context.ts";
 import { createRuntime } from "../src/runtime.ts";
+import { consoleOptionsFromEnv } from "../src/options.ts";
 
 const origin = "https://console.example.com";
 const req = (method: string, headers: Record<string, string> = {}) =>
@@ -22,6 +23,21 @@ describe("crossSite", () => {
 
   test("a POST with no Origin at all, as some clients send, is left to SameSite", () => {
     assert.equal(crossSite(req("POST"), origin), false);
+  });
+});
+
+describe("consoleOptionsFromEnv", () => {
+  const base = { ANKKA_CONSOLE_CLIENT_SECRET: "s", ANKKA_CONSOLE_SESSION_SECRET: "x" };
+
+  test("a laptop's console defaults to localhost over plain HTTP", () => {
+    assert.equal(consoleOptionsFromEnv(base).publicOrigin, "http://localhost:3000");
+  });
+
+  test("a cluster's console must be told its address, and refuses a placeholder", () => {
+    assert.throws(() => consoleOptionsFromEnv({ ...base, ANKKA_CONSOLE_TLS_DIR: "/tls" }), /ANKKA_CONSOLE_AUTHORITY is not set/);
+    assert.throws(() => consoleOptionsFromEnv({ ...base, ANKKA_CONSOLE_TLS_DIR: "/tls", ANKKA_CONSOLE_AUTHORITY: "CONSOLE_AUTHORITY" }), /placeholder/);
+    const options = consoleOptionsFromEnv({ ...base, ANKKA_CONSOLE_TLS_DIR: "/tls", ANKKA_CONSOLE_AUTHORITY: "console.example.com" });
+    assert.equal(options.publicOrigin, "https://console.example.com");
   });
 });
 

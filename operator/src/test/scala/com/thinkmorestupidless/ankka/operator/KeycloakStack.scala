@@ -145,7 +145,10 @@ object KeycloakStack:
       ) == "True"
     }
 
-    val realm = KeycloakStack.realm(repoRoot)
+    // The console's redirect address, as an overlay's `consoleAuthority` replacement fills it in.
+    val realm = KeycloakStack
+      .realm(repoRoot)
+      .replace("CONSOLE_AUTHORITY", s"console.$baseDomain:$httpsPort")
     val realmImport =
       s"""apiVersion: k8s.keycloak.org/v2alpha1
          |kind: KeycloakRealmImport
@@ -236,6 +239,87 @@ object KeycloakStack:
           "platform-admin"
         ))*
       )
+
+  /**
+   * A person who signs in with a password, created as deploy-local.sh creates `dev`: a verified
+   * email and both names set, without which Keycloak holds the account at "not fully set up".
+   */
+  def createUser(
+      k3s: K3sContainer,
+      username: String,
+      password: String,
+      platformAdmin: Boolean
+  ): Unit =
+    val kcadm = Vector(
+      "kubectl",
+      "-n",
+      Namespace,
+      "exec",
+      "statefulset/ankka-keycloak",
+      "--",
+      "/opt/keycloak/bin/kcadm.sh"
+    )
+    exec(
+      k3s,
+      (kcadm ++ Vector(
+        "config",
+        "credentials",
+        "--server",
+        "http://localhost:8080",
+        "--realm",
+        "master",
+        "--user",
+        "admin",
+        "--password",
+        "admin"
+      ))*
+    )
+    exec(
+      k3s,
+      (kcadm ++ Vector(
+        "create",
+        "users",
+        "-r",
+        "ankka",
+        "-s",
+        s"username=$username",
+        "-s",
+        s"email=$username@example.test",
+        "-s",
+        "emailVerified=true",
+        "-s",
+        "firstName=Test",
+        "-s",
+        "lastName=User",
+        "-s",
+        "enabled=true"
+      ))*
+    )
+    exec(
+      k3s,
+      (kcadm ++ Vector(
+        "set-password",
+        "-r",
+        "ankka",
+        "--username",
+        username,
+        "--new-password",
+        password
+      ))*
+    )
+    if platformAdmin then
+      exec(
+        k3s,
+        (kcadm ++ Vector(
+          "add-roles",
+          "-r",
+          "ankka",
+          "--uusername",
+          username,
+          "--rolename",
+          "platform-admin"
+        ))*
+      ): Unit
 
   /**
    * Keycloak's plain HTTP port on the host, the way the control plane reaches it inside a cluster:

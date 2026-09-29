@@ -36,12 +36,23 @@ is the only client for a deployed installation.
 | Status change / new log line shown (fake target) | within 5 s |
 | `ControlPlaneFixturesSuite` + package decode | 24 wire types, full and minimal, all decode |
 | `RemoteOverlaySuite` | 19 pass |
-| `ControlPlaneClusterSuite` (k3s) | K3S_RESULT |
+| `ControlPlaneClusterSuite` (k3s), console cases | isolation and no-grant passed twice; the rolling restart passed once; sign-in, create and apply passed, with the final listing wait not yet green in the same run (see below) |
+| Scala build as CI runs it (`-Dankka.cluster.tests=off`) | all modules pass |
 | `just docs` | 71 pages, no problems |
 
 The compose run found three real disagreements the fake had hidden, all fixed: creates answer 204 with no
 body, an omitted token lifetime is the 90-day default, and a new token's secret was hidden until the
 listing's projection caught up.
+
+### Not yet proven
+
+- **The k3s console cases have not passed together in one run.** They were run on a laptop whose Docker VM
+  was also carrying a busy kind cluster (about six cores and 10 GB of 15.7 GB); runs lost setup to Keycloak
+  timeouts and the control plane's projections lagged by minutes. Those runs did find and fix two real
+  problems: the Keycloak backchannel issuer and the missing-authority fallback. Run
+  `caffeinate -i sbt 'controlPlane/testOnly *ControlPlaneClusterSuite'` on a quiet machine before merging.
+- **The local kind deployment was not exercised.** The kind cluster on the development machine was in use,
+  and redeploying it would have replaced its control plane. `./kustomization/deploy-local.sh` is the check.
 
 ### Before merging, and after the first release
 

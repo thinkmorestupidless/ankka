@@ -228,9 +228,9 @@ host skeleton. No page in a later phase works without these.
 
 - [X] T086 [P] Add `ankka-console` to the local development section of `docker-compose.yml`'s header comment and to `CLAUDE.md` *Commands* (`cd console && npm run dev`) and *Architecture* (a short "The console" paragraph: package and host, sealed cookie, streams by polling, `ankka://platform/console`)
 - [X] T087 [P] Add the traps found during T061 and T062 to `CLAUDE.md` *Traps* (client-certificate SAN inspection in Node, Keycloak discovery through the backchannel, SSE through Envoy, the realm's redirect replacement) — only the ones that cost time
-- [ ] T088 Run the whole thing once as CI would: `just test-console`, `sbt -Dankka.cluster.tests=off test`, `just docs`; then `caffeinate -i sbt 'controlPlane/testOnly *EndToEndClusterSuite'`; fix anything red
+- [X] T088 Run the whole thing once as CI would: `just test-console`, `sbt -Dankka.cluster.tests=off test`, `just docs`; then `caffeinate -i sbt 'controlPlane/testOnly *EndToEndClusterSuite'`; fix anything red
 - [X] T089 Review the diff for tokens or cookies in any log line, any `console.log` left in the package, any absolute link in a page, and any `localhost` surviving in the cloud render; run `git grep -n "localhost" kustomization/overlays/cloud` expecting nothing
-- [ ] T090 Write the pull request description as `specs/017-control-plane-console/pr.md` (used verbatim by `gh pr create --body-file`): the architecture in five bullets, the SC-004 and SC-012 numbers from T048 and T079, the first-publish-by-hand step for the package, and the `kcadm` step for existing installations
+- [X] T090 Write the pull request description as `specs/017-control-plane-console/pr.md` (used verbatim by `gh pr create --body-file`): the architecture in five bullets, the SC-004 and SC-012 numbers from T048 and T079, the first-publish-by-hand step for the package, and the `kcadm` step for existing installations
 
 ---
 

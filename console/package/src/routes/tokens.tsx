@@ -113,7 +113,15 @@ export default function Tokens() {
           <h2>Create a deploy token</h2>
           <ConsoleForm intent="create" className="ac-inline">
             <Field label="Label" name="label" required hint="What uses it, such as a repository's CI." defaultValue={refusal?.values.label} autoComplete="off" />
-            <Field label="Expires after days" name="expiresInDays" type="number" min={1} hint="Empty for never." defaultValue={refusal?.values.expiresInDays} />
+            <Field
+              label="Expires after days"
+              name="expiresInDays"
+              type="number"
+              min={0}
+              max={365}
+              hint="Empty for the platform's default of 90 days; 0 for never; at most 365."
+              defaultValue={refusal?.values.expiresInDays}
+            />
             <Submit intent="create">Create token</Submit>
           </ConsoleForm>
           <Refused intent="create" />

@@ -7,7 +7,6 @@ import {
   historyEntrySchema,
   logsResponseSchema,
   membersResponseSchema,
-  organizationDetailSchema,
   organizationSummarySchema,
   projectDetailSchema,
   projectSummarySchema,
@@ -21,7 +20,6 @@ import {
   type HistoryEntry,
   type LogsResponse,
   type MembersResponse,
-  type OrganizationDetail,
   type OrganizationSummary,
   type ProjectDetail,
   type ProjectSummary,
@@ -101,8 +99,8 @@ export class ControlPlaneClient {
     return this.#call("GET", `/organizations/${segment(id)}`, { schema: organizationSummarySchema });
   }
 
-  createOrganization(id: string, body: CreateOrganization): Promise<OrganizationDetail> {
-    return this.#call("POST", `/organizations/${segment(id)}`, { body, schema: organizationDetailSchema });
+  createOrganization(id: string, body: CreateOrganization): Promise<void> {
+    return this.#call("POST", `/organizations/${segment(id)}`, { body });
   }
 
   renameOrganization(id: string, name: string): Promise<void> {
@@ -188,11 +186,8 @@ export class ControlPlaneClient {
     return this.#call("GET", `/projects/${segment(id)}`, { schema: projectDetailSchema });
   }
 
-  createProject(id: string, name: string, organizationId: string): Promise<ProjectDetail> {
-    return this.#call("POST", `/projects/${segment(id)}`, {
-      body: { name, organizationId },
-      schema: projectDetailSchema,
-    });
+  createProject(id: string, name: string, organizationId: string): Promise<void> {
+    return this.#call("POST", `/projects/${segment(id)}`, { body: { name, organizationId } });
   }
 
   renameProject(id: string, name: string): Promise<void> {

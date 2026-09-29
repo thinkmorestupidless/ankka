@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/dist-pack
+**/build
+**/.react-router
+e2e/report
+e2e/test-results
+**/.env*
+Dockerfile
+.dockerignore

@@ -59,6 +59,11 @@
     "react-dom": "^19.2.7",
     "react-router": "^8.4.0"
   },
+  "peerDependenciesMeta": {
+    "@react-router/dev": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@react-router/dev": "^8.4.0",
     "@react-router/node": "^8.4.0",

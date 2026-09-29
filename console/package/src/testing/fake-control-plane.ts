@@ -360,7 +360,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       hidden: hideNew,
     };
     organizations.set(id, org);
-    return { id, name: org.name, disabled: false, quota: null, usage: { projects: 0, services: 0, instances: 0 } };
+    return "done";
   });
 
   route("PUT", "/organizations/{organizationId}/name", (c, p, body) => {
@@ -459,7 +459,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       secret,
       createdBy: c.name ?? c.subject,
       createdAt: now(),
-      expiresAt: b.expiresIn ? new Date(Date.now() + b.expiresIn * 1000).toISOString() : undefined,
+      // Absent is the platform's 90-day default; 0 is never.
+      expiresAt: b.expiresIn === 0 ? undefined : new Date(Date.now() + (b.expiresIn ?? 90 * 86_400) * 1000).toISOString(),
       revoked: false,
     };
     tokens.set(id, t);
@@ -547,7 +548,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     if (org.quota?.projects !== undefined && count >= org.quota.projects)
       throw new HttpError(409, `organization '${org.id}' is at its quota of ${org.quota.projects} project(s)`);
     projects.set(id, { id, name: b.name, organizationId: org.id, hidden: hideNew });
-    return { id, name: b.name, organizationId: org.id, registry: null };
+    return "done";
   });
 
   route("PUT", "/projects/{projectId}/name", (c, p, body) => {
@@ -706,7 +707,10 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   }
 
   function send(res: ServerResponse, status: number, body: unknown) {
-    if (typeof body === "string") {
+    // The control plane answers `Done` as 204 with no body.
+    if (body === "done" && status === 200) {
+      res.writeHead(204).end();
+    } else if (typeof body === "string") {
       res.writeHead(status, { "content-type": "text/plain" }).end(body);
     } else {
       res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));

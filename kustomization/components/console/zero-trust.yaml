@@ -1,0 +1,61 @@
+# The console under the same guarantees as every workload: a certificate from the service authority
+# naming it as the platform's console, served to the gateway and presented to the control plane; a
+# network that admits the gateway and nothing else to its serving port; and the gateway's instruction
+# to reach it over TLS.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-console-service
+  namespace: ankka-console
+spec:
+  secretName: ankka-console-service-tls
+  uris:
+    - ankka://platform/console
+  dnsNames:
+    - ankka-console
+    - ankka-console.ankka-console.svc
+    - ankka-console.ankka-console.svc.cluster.local
+  usages: [server auth, client auth]
+  duration: 24h
+  renewBefore: 16h
+  privateKey: { algorithm: RSA, size: 2048, encoding: PKCS8, rotationPolicy: Always }
+  issuerRef: { name: ankka-service, kind: ClusterIssuer, group: cert-manager.io }
+---
+# The serving port: the gateway's proxy pods, which Envoy Gateway runs in its own namespace. Readiness: anyone.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ankka-console
+  namespace: ankka-console
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: ankka-console }
+  policyTypes: [Ingress]
+  ingress:
+    - ports: [{ protocol: TCP, port: 9000 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: envoy-gateway-system }
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-name: ankka
+              gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+    - ports: [{ protocol: TCP, port: 7627 }]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: BackendTLSPolicy
+metadata:
+  name: ankka-console
+  namespace: ankka-console
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: ankka-console
+      sectionName: http
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: ConfigMap
+        name: ankka-service-ca
+    hostname: ankka-console.ankka-console.svc.cluster.local

@@ -1,0 +1,17 @@
+# The installation's console (feature 017): a web application at console.<base domain> that signs
+# people in through the realm and drives the control plane's API as them.
+#
+# It holds no Kubernetes grant, no database and no state of its own — a session is a sealed cookie
+# plus the identity provider's session — so its instances are interchangeable and nothing else in the
+# platform depends on it. An installation that does not want it deletes this component from its
+# overlay, and the overlay's `consoleAuthority` replacements with it.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - secrets.yaml
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml
+  - zero-trust.yaml

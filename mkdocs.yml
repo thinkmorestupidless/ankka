@@ -89,6 +89,7 @@ extra:
         - workflow
         - timed-action
         - agent
+        - autonomous-agent
         - http-endpoint
     # The curated SKILL.md files, and where the rendered skills are written, committed and checked.
     # Giter8 reads `$` as template syntax, so the template's copy escapes it.
@@ -151,6 +152,7 @@ nav:
       - Consistency and delivery: concepts/consistency.md
       - Agents and sessions: concepts/agents.md
       - Designing with agents: concepts/designing-agents.md
+      - Autonomous agents and tasks: concepts/autonomous-agents.md
       - Clusters and instances: concepts/clustering.md
       - Services in other languages: concepts/polyglot.md
       - Desired and observed state: concepts/control-plane.md
@@ -166,6 +168,7 @@ nav:
       - Agents: build/agents.md
       - Streaming responses: build/streaming.md
       - Multi-agent orchestration: build/multi-agent-orchestration.md
+      - Autonomous agents: build/autonomous-agents.md
       - HTTP endpoints: build/http-endpoints.md
       - Calling components: build/component-client.md
       - Broker topics: build/topics.md
@@ -181,6 +184,7 @@ nav:
       - Upgrade ankka: deploy/upgrading.md
   - Observe and operate:
       - The local console: operate/local-console.md
+      - The console: operate/console.md
       - Status and history: operate/status-and-history.md
       - Logs: operate/logs.md
       - Pause, resume, restart and delete: operate/service-lifecycle.md
@@ -190,6 +194,7 @@ nav:
       - Install on a cloud cluster: platform/install-cloud.md
       - Organizations, projects and members: platform/organizations.md
       - Identity and machine accounts: platform/identity.md
+      - The console: platform/console.md
       - Databases: platform/databases.md
       - Networking and TLS: platform/networking.md
   - Reference:
@@ -204,6 +209,7 @@ nav:
       - Python SDK: reference/python-sdk.md
       - TypeScript SDK: reference/typescript-sdk.md
       - Rust SDK: reference/rust-sdk.md
+      - Console package: reference/console-package.md
       - Sidecar protocol: reference/sidecar-protocol.md
       - WebAssembly ABI: reference/wasm-abi.md
       - Divergences from Akka: reference/akka-divergences.md

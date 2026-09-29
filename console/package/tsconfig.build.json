@@ -1,0 +1,12 @@
+{
+  // Emits dist/: JavaScript with JSX compiled and declarations, imports rewritten from .ts/.tsx to .js.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "customConditions": []
+  },
+  "include": ["src"]
+}

@@ -169,6 +169,15 @@ class WasmHostSuite extends munit.FunSuite:
     assert(found.exists(p => p.contains("'watch'") && p.contains("streams")), found.toString)
   }
 
+  test("an autonomous agent is refused: the ABI has no export to check a task's result") {
+    val agent = Component(kind = Kind.AUTONOMOUS_AGENT, id = "answerer")
+    val found = problems(WasmSpec(Some(cartSpec().addComponents(agent)), Seq.empty, "1"))
+    assert(
+      found.exists(p => p.contains("'answerer'") && p.contains("autonomous agent")),
+      found.toString
+    )
+  }
+
   test("a declaration is refused for another ABI version, a bad stateful id, or a missing export") {
     val view = Component(
       kind = Kind.VIEW,

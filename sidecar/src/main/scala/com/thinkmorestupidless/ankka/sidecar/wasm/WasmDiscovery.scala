@@ -15,8 +15,9 @@ import scala.util.Try
  * The spec is held to exactly the rules a process's is (`Discovery.validate`), and to the few a
  * module adds: the ABI version it declares must be the one its exports carry; a stateful component
  * must be declared, and of a kind that has state; nothing may stream, since a module answers a call
- * whole; and the module must export what each declared component needs. There is no `ReportError`
- * into a module, so every problem goes to the runtime's log, all at once.
+ * whole; no autonomous agent, whose task results the ABI cannot yet check; and the module must
+ * export what each declared component needs. There is no `ReportError` into a module, so every
+ * problem goes to the runtime's log, all at once.
  */
 object WasmDiscovery:
 
@@ -68,6 +69,9 @@ object WasmDiscovery:
     }
 
     spec.components.foreach { c =>
+      if c.kind == Kind.AUTONOMOUS_AGENT then
+        problems += s"component '${c.id}' is an autonomous agent, which a module cannot declare: " +
+          "the ABI has no export to check a task's result yet"
       c.handlers.filter(_.streaming).foreach { h =>
         problems += s"component '${c.id}': handler '${h.name}' streams, and a module answers a " +
           "call whole; declare it without streaming"

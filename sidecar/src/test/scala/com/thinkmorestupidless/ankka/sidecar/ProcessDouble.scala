@@ -5,6 +5,8 @@ import ankka.protocol.v1.agent.{
   AgentPlan,
   GuardrailRequest,
   GuardrailResult,
+  TaskResultRequest,
+  TaskResultVerdict,
   PlanReply,
   PlanRequest,
   ToolRequest,
@@ -208,6 +210,42 @@ object ProcessDouble:
       maxToolCallSteps: Int = 0
   )
 
+  /**
+   * An autonomous agent the double declares: its whole definition goes into discovery, and the
+   * double answers only the tools, guardrails and task rules the sidecar asks it to run. A rule
+   * answers `Left(reason)` to reject; one that throws is answered as a gRPC error.
+   */
+  final case class AutonomousOf(
+      id: String,
+      description: String,
+      taskTypes: Vector[AutonomousAgentDetail.TaskType],
+      accepts: Vector[(String, Int)],
+      tools: Map[String, (String, String) => Either[String, String]] = Map.empty,
+      toolSchemas: Map[String, String] = Map.empty,
+      guardrails: Map[String, (GuardrailRequest.Stage, String) => Option[String]] = Map.empty,
+      rules: Map[String, String => Either[String, Unit]] = Map.empty,
+      instructions: Option[String] = None,
+      malformed: String => Option[String] = _ => None
+  ):
+    def toComponent: Component =
+      Component(
+        Kind.AUTONOMOUS_AGENT,
+        id,
+        Vector.empty,
+        Component.Detail.AutonomousAgent(
+          AutonomousAgentDetail(
+            description = description,
+            instructions = instructions,
+            tools = tools.keys.toVector.sorted.map(n =>
+              Tool(n, s"the $n tool", toolSchemas.getOrElse(n, """{"type":"object"}"""))
+            ),
+            guardrails = guardrails.keys.toVector.sorted,
+            taskTypes = taskTypes,
+            accepts = accepts.map((t, n) => AutonomousAgentDetail.TaskAcceptance(t, n))
+          )
+        )
+      )
+
   /** A plan naming the sidecar's default model. */
   def plan(
       system: String,
@@ -246,7 +284,8 @@ object ProcessDouble:
       views: Vector[ViewOf] = Vector.empty,
       consumers: Vector[ConsumerOf] = Vector.empty,
       actions: Vector[Action] = Vector.empty,
-      agents: Vector[AgentOf] = Vector.empty
+      agents: Vector[AgentOf] = Vector.empty,
+      autonomous: Vector[AutonomousOf] = Vector.empty
   )
 
   /** The misbehaviours a test can switch on. */
@@ -257,6 +296,10 @@ object ProcessDouble:
     @volatile var neverReply: Boolean          = false
     @volatile var failInsteadOfReply: Boolean  = false
     @volatile var neverReplyStep: Boolean      = false
+
+    /** Task rule checks that fail — as a process whose rule threw — before they answer. */
+    val failRules: java.util.concurrent.atomic.AtomicInteger =
+      java.util.concurrent.atomic.AtomicInteger(0)
 
   /** The conformance-style entity every suite can start from. */
   def recorder(id: String = "conformance", snapshotEvery: Int = 0): Entity =
@@ -443,7 +486,7 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
             )
           )
         )
-      } ++ spec.extraComponents,
+      } ++ spec.autonomous.map(_.toComponent) ++ spec.extraComponents,
       spec.endpoints.map { e =>
         ankka.protocol.v1.discovery.Endpoint(
           e.id,
@@ -922,7 +965,12 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
 
     def invokeTool(request: ToolRequest): Future[ToolResult] =
       received.add(Received(0, request))
-      spec.agents.find(_.id == request.componentId).flatMap(_.tools.get(request.tool)) match
+      spec.agents
+        .find(_.id == request.componentId)
+        .flatMap(_.tools.get(request.tool))
+        .orElse(
+          spec.autonomous.find(_.id == request.componentId).flatMap(_.tools.get(request.tool))
+        ) match
         case None => Future.failed(notFound(s"unknown tool ${request.tool}"))
         case Some(t) =>
           Future.successful(
@@ -937,7 +985,12 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
       received.add(Received(0, request))
       spec.agents
         .find(_.id == request.componentId)
-        .flatMap(_.guardrails.get(request.guardrail)) match
+        .flatMap(_.guardrails.get(request.guardrail))
+        .orElse(
+          spec.autonomous
+            .find(_.id == request.componentId)
+            .flatMap(_.guardrails.get(request.guardrail))
+        ) match
         case None => Future.failed(notFound(s"unknown guardrail ${request.guardrail}"))
         case Some(g) =>
           Future.successful(
@@ -945,6 +998,31 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
               case Some(reason) => GuardrailResult(GuardrailResult.Result.Block(reason))
               case None         => GuardrailResult(GuardrailResult.Result.Pass(pb.Empty()))
           )
+
+    /** Decodes (by `malformed`) and runs the type's declared rules in order, as an SDK would. */
+    def checkTaskResult(request: TaskResultRequest): Future[TaskResultVerdict] =
+      received.add(Received(0, request))
+      val agent    = spec.autonomous.find(_.id == request.componentId)
+      val declared = agent.flatMap(_.taskTypes.find(_.name == request.taskType))
+      if knobs.failRules.getAndUpdate(n => (n - 1).max(0)) > 0 then
+        Future.failed(
+          io.grpc.Status.INTERNAL.withDescription("the rule threw").asRuntimeException()
+        )
+      else
+        (agent, declared) match
+          case (Some(a), Some(t)) =>
+            val verdict = a.malformed(request.resultJson) match
+              case Some(problem) => TaskResultVerdict.Verdict.Malformed(problem)
+              case None =>
+                t.rules.iterator
+                  .flatMap(name => a.rules.get(name).map(name -> _))
+                  .map((name, rule) => name -> rule(request.resultJson))
+                  .collectFirst { case (name, Left(reason)) =>
+                    TaskResultVerdict.Verdict.Reject(TaskResultVerdict.Rejection(name, reason))
+                  }
+                  .getOrElse(TaskResultVerdict.Verdict.Accept(pb.Empty()))
+            Future.successful(TaskResultVerdict(verdict))
+          case _ => Future.failed(notFound(s"unknown task type ${request.taskType}"))
 
   // ── HTTP ───────────────────────────────────────────────────────────────────
 

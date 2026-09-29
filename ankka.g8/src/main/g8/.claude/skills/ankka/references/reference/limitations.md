@@ -60,6 +60,9 @@ feature also says what that feature does not do.
   its namespace.
 - **Roles are per organization.** A member is an owner or a member of an organization. There are no
   per-project roles and no read-only role.
+- **Quotas count projects, services and instances, and nothing else.** An organization's quota does not
+  cover memory, CPU or storage, there is no per-project quota, and a quota lowered below what an
+  organization holds refuses new things but stops nothing that runs.
 - **Nothing at the gateway but routing.** There is no authentication, rate limiting or header policy at the
   gateway. HTTP/1.1 only through it, with no gRPC or HTTP/2 to services, and one gateway per installation.
 - **One port, HTTP only.** A service has a single HTTP port and no other protocol.
@@ -68,8 +71,10 @@ feature also says what that feature does not do.
 
 ## Observability
 
-- **The console is local only.** `ankka local console` shows the services running on your own machine. There
-  is no console for a deployed installation; the CLI is the only client for anything in a cluster.
+- **The installation's console shows the control plane's records only.** [The console](../operate/console.md)
+  at `console.<base domain>` manages organizations, projects, members, deploy tokens and services, and shows
+  a service's status, history and logs. It does not show a deployed service's traces, sessions or entity
+  state; [the local console](../operate/local-console.md) shows those for services on your own machine.
 - **Traces are a window, not a history.** Each instance records every component invocation into a fixed ring
   of recent spans, 4096 by default, and overwrites the oldest. Nothing is persisted, there is no sampling and
   no query language, and a trace whose older spans are gone is reported as partial.
@@ -98,6 +103,9 @@ feature also says what that feature does not do.
 - **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
   timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is
   discarded, but the thread running it is not reclaimed until the module returns.
+- **A module cannot declare an autonomous agent.** The WebAssembly ABI has no way yet to check a task's
+  result against its rules, so a module declaring one is refused at start; write an autonomous agent in
+  Scala, Python or TypeScript.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
   cannot stream; a module declaring one is refused at start.
 - **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime
@@ -105,12 +113,22 @@ feature also says what that feature does not do.
 - **The module image must copy.** A wasm service's image is run once to copy `service.wasm` into
   `/ankka/module`; an image that does anything else fails the pod's start. The platform does not yet mount
   the image as a volume, which would need a container runtime newer than every cluster it targets.
+- **Autonomous agents do not coordinate yet.** There is no delegating a subtask to another agent, handing a
+  task on, leading a team over a shared backlog, or moderating a conversation between agents; coordinate
+  several from a workflow instead. There are no MCP tools and no per-instance overrides of a definition.
+- **An autonomous agent's tools run at least once.** A tool whose result had not been recorded when a task's
+  process stopped runs again when the task resumes. Write tools with side effects to tolerate a repeat.
+- **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
+- **The local console does not show autonomous agents.** Read a task's record, or watch an instance's
+  notifications.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.
 
 ## SDKs and releases
 
+- **The TypeScript SDK declares and calls autonomous agents but cannot script one in its unit testkit.**
+  Test one through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's integration testkit does.
 - **Four languages.** Services are written in Scala, Python, TypeScript or Rust. Another language needs an SDK, or a
   guest library for the WebAssembly mode, that passes the conformance suite; see
   [Adding a language SDK](../contributing/language-sdks.md).

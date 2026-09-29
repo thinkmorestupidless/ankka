@@ -173,6 +173,10 @@ creates the import, and the Keycloak operator imports the realm once Keycloak is
 `docker-compose.yml` reads the realm out of the same file for a local Keycloak. It contains:
 
 - the public `ankka-cli` client, with the device authorization grant, used by `ankka login`;
+- the confidential `ankka-console` client, with the authorization code flow and PKCE, used by
+  [the console](../operate/console.md) to sign people in; see
+  [Install and configure the console](console.md#the-realm-client-and-the-secrets) for its secret, and for
+  adding it to a realm imported before it existed;
 - the `ankka-controlplane` client scope, which puts the control plane's audience and the claims it reads
   on every token;
 - the `platform-admin` realm role;

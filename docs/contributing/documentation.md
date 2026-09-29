@@ -52,10 +52,11 @@ are written to (`skills`); which generator owns each generated block (`generated
 outside `docs/` link to the site, with the hosts the site no longer lives on (`site-links`). A new
 frontmatter vocabulary, a new skill target or a new configuration file is a line in that block.
 
-The same tool documents [satisfactory](https://github.com/thinkmorestupidless/satisfactory), and any
-repository whose pages follow this page can use it. Its `tools/docs/pyproject.toml` depends on
-`ankka-docs` from this repository's `tools/docs` directory, its `mkdocs.yml` carries its own
-`extra.docs`, and the commands are the same:
+The same tool documents [satisfactory](https://github.com/thinkmorestupidless/satisfactory) and
+[ankka-flow](https://github.com/thinkmorestupidless/ankka-flow), and any repository whose pages follow
+this page can use it. Each one's `tools/docs/pyproject.toml` depends on `ankka-docs` from this
+repository's `tools/docs` directory, its `mkdocs.yml` carries its own `extra.docs`, and the commands
+are the same:
 
 ```toml
 [project]
@@ -197,6 +198,13 @@ blocks stay flush left and a reader with no renderer still sees ordinary Markdow
 A tab set that shows the same *idea* in each language must show the same *example* in each: one domain,
 one set of names. Three languages solving three different problems under one set of tabs reads as a
 translation and is not one.
+
+**A diagram is an SVG whose alt text says everything it shows.** Diagrams live in `docs/assets/diagrams/`
+as hand-written SVG, each with its own background and a `prefers-color-scheme` rule for dark mode, so one
+file reads correctly on the site, on GitHub and in either theme. Only the site shows the picture: a model
+reading the raw Markdown, `llms-full.txt` or a skill gets the alt text and nothing else, so the alt text
+names every part and every path the diagram draws, and the prose beside it still stands on its own. The
+check refuses an image with no alt text, and one whose file does not exist under `docs/`.
 
 **Link to repository files by GitHub URL.** Links between pages are relative (`../build/views.md`) and
 the check verifies both the page and the anchor. A link to a source file uses its full URL on

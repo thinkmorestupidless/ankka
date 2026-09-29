@@ -107,8 +107,9 @@ Declared per component in `WasmSpec.stateful`.
 
 `ankka1_discover` receives `SidecarInfo` and answers `WasmSpec`. The runtime validates
 `WasmSpec.spec` with the rules a process's `Spec` is held to and additionally refuses: a handler with `streaming`, a
-streaming endpoint route, a stateful id that is not a declared stateful-kind component, and an
-`abi_version` other than the exports' prefix. Every problem is reported at once in the runtime's
+streaming endpoint route, a stateful id that is not a declared stateful-kind component, an
+autonomous agent (ABI version 1 has no export to check a task's result), and an `abi_version` other
+than the exports' prefix. Every problem is reported at once in the runtime's
 log; there is no `ReportError` call into a module.
 
 ## The envelopes (`wasm.proto`)

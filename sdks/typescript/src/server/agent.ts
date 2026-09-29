@@ -2,7 +2,7 @@
 // with the model's arguments, and to check a guardrail. The loop, the memory and the model's key are
 // the sidecar's.
 
-import type { ConnectRouter } from "@connectrpc/connect"
+import { Code, ConnectError, type ConnectRouter } from "@connectrpc/connect"
 import { create } from "@bufbuild/protobuf"
 import {
   Agent as AgentService,
@@ -10,11 +10,14 @@ import {
   GuardrailRequest_Stage,
   GuardrailResultSchema,
   PlanReplySchema,
+  TaskResultVerdictSchema,
   ToolResultSchema,
   type GuardrailRequest,
   type GuardrailResult,
   type PlanReply,
   type PlanRequest,
+  type TaskResultRequest,
+  type TaskResultVerdict,
   type ToolRequest,
   type ToolResult,
 } from "../_proto/ankka/protocol/v1/agent_pb.ts"
@@ -26,7 +29,8 @@ import type { Agent } from "../agent.ts"
 import { decodeJsonValue, reviver } from "../json.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import type { Schema } from "../schema.ts"
-import type { RegisteredAgent } from "../service.ts"
+import type { RegisteredAgent, RegisteredAutonomousAgent } from "../service.ts"
+import { decodeResult, type AutonomousAgent } from "../autonomous.ts"
 import { decodePayload } from "./payloads.ts"
 import type { ServerContext } from "./server.ts"
 
@@ -93,6 +97,8 @@ export async function runTool(registered: RegisteredAgent, agent: Agent, name: s
 }
 
 export async function handleTool(req: ToolRequest, ctx: ServerContext): Promise<ToolResult> {
+  const autonomous = ctx.registry.of("autonomous-agent", req.componentId)
+  if (autonomous) return handleAutonomousTool(autonomous, req, ctx)
   const registered = ctx.registry.of("agent", req.componentId)
   if (!registered) return create(ToolResultSchema, { result: { case: "error", value: `no agent ${JSON.stringify(req.componentId)} is registered` } })
   const agent = new registered.cls() as Agent
@@ -106,7 +112,7 @@ export async function handleTool(req: ToolRequest, ctx: ServerContext): Promise<
 }
 
 export async function handleGuardrail(req: GuardrailRequest, ctx: ServerContext): Promise<GuardrailResult> {
-  const registered = ctx.registry.of("agent", req.componentId)
+  const registered = ctx.registry.of("agent", req.componentId) ?? ctx.registry.of("autonomous-agent", req.componentId)
   const guardrail = registered?.guardrails.get(req.guardrail)
   if (!registered || !guardrail) return create(GuardrailResultSchema, { result: { case: "block", value: `no guardrail ${JSON.stringify(req.guardrail)} on ${req.componentId}` } })
   try {
@@ -120,10 +126,56 @@ export async function handleGuardrail(req: GuardrailRequest, ctx: ServerContext)
   }
 }
 
+async function handleAutonomousTool(registered: RegisteredAutonomousAgent, req: ToolRequest, ctx: ServerContext): Promise<ToolResult> {
+  const tool = registered.tools.get(req.tool)
+  if (!tool) return create(ToolResultSchema, { result: { case: "error", value: `no tool ${JSON.stringify(req.tool)} on ${registered.id}` } })
+  const agent = new registered.cls() as AutonomousAgent
+  agent._bind(req.sessionId, ctx.client)
+  try {
+    let input: unknown
+    if (isCodec(tool.input)) input = (tool.input as Codec<unknown>).decode(new TextEncoder().encode(req.argumentsJson))
+    else input = decodeJsonValue(tool.input as Schema<unknown>, JSON.parse(req.argumentsJson || "{}", reviver))
+    const result = await tool.run(agent, input)
+    const text = typeof result === "string" ? result : JSON.stringify(result, (_k, v) => (typeof v === "bigint" ? v.toString() : v))
+    return create(ToolResultSchema, { result: { case: "ok", value: text } })
+  } catch (e) {
+    return create(ToolResultSchema, { result: { case: "error", value: messageOf(e) } })
+  }
+}
+
+/**
+ * An autonomous agent's result: decoded as its task type's, then put through its rules in order. A
+ * rule that throws is answered as an error, which the sidecar takes as a failed iteration and tries
+ * again — never as a verdict, since nothing was decided.
+ */
+export async function handleTaskResult(req: TaskResultRequest, ctx: ServerContext): Promise<TaskResultVerdict> {
+  const registered = ctx.registry.of("autonomous-agent", req.componentId)
+  const type = registered?.taskTypes.get(req.taskType)
+  if (!registered || !type) throw new ConnectError(`no task type ${JSON.stringify(req.taskType)} on ${req.componentId}`, Code.NotFound)
+  let result: unknown
+  try {
+    result = decodeResult(type, req.resultJson)
+  } catch (e) {
+    return create(TaskResultVerdictSchema, { verdict: { case: "malformed", value: messageOf(e) } })
+  }
+  for (const rule of type.rules) {
+    let verdict
+    try {
+      verdict = await rule.check(result)
+    } catch (e) {
+      ctx.log(`ankka: rule ${registered.id}/${req.taskType}/${rule.name} threw: ${messageOf(e)}`)
+      throw new ConnectError(`rule ${rule.name} threw: ${messageOf(e)}`, Code.Internal)
+    }
+    if (verdict.verdict === "rejected") return create(TaskResultVerdictSchema, { verdict: { case: "reject", value: { rule: rule.name, reason: verdict.reason } } })
+  }
+  return create(TaskResultVerdictSchema, { verdict: { case: "accept", value: {} } })
+}
+
 export function agentRoutes(router: ConnectRouter, ctx: ServerContext): void {
   router.service(AgentService, {
     plan: (req) => handlePlan(req, ctx),
     invokeTool: (req) => handleTool(req, ctx),
     checkGuardrail: (req) => handleGuardrail(req, ctx),
+    checkTaskResult: (req) => handleTaskResult(req, ctx),
   })
 }

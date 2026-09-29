@@ -126,6 +126,13 @@ class ConformanceSuite extends munit.FunSuite:
 
   private def onlyForProcesses(): Unit = assume(target.isProcess, "process targets only")
 
+  /** A module cannot declare an autonomous agent (WASM-ABI.md): the `auto.*` cases are not its. */
+  private def onlyWithAutonomousAgents(): Unit =
+    assume(
+      !target.isModule,
+      "a module cannot declare an autonomous agent; refused at its discovery"
+    )
+
   /** A module answers every call whole: its handlers and routes cannot stream (WASM-ABI.md). */
   private def onlyWhereStreaming(): Unit =
     assume(!target.isModule, "a module cannot stream; refused at its discovery")
@@ -136,15 +143,23 @@ class ConformanceSuite extends munit.FunSuite:
   // ── Discovery ──────────────────────────────────────────────────────────────
 
   test("discovery.lists-every-component") {
-    assertEquals(target.componentIds, ConformanceReference.ComponentIds)
+    // A module cannot declare an autonomous agent; every other component is the reference's.
+    val expected =
+      if target.isModule then ConformanceReference.ComponentIds - "answerer"
+      else ConformanceReference.ComponentIds
+    assertEquals(target.componentIds, expected)
     val routes = target.endpointRoutes
-    Seq(
+    // The autonomous routes are the agent's, which a module does not declare.
+    (Seq(
       "POST /carts/{cartId}/items",
       "GET /carts/awkward",
       "GET /conformance/echo",
       "GET /private/",
       "GET /callers/whoami"
-    ).foreach { r =>
+    ) ++ Option
+      .unless(target.isModule)(Seq("POST /autonomous/tasks/{type}", "GET /autonomous/tasks/{id}"))
+      .toSeq
+      .flatten).foreach { r =>
       assert(
         routes.exists(_.replaceAll("\\{[^}]+\\}", "{}") == r.replaceAll("\\{[^}]+\\}", "{}")),
         s"$r not in $routes"
@@ -556,6 +571,316 @@ class ConformanceSuite extends munit.FunSuite:
 
   test("agent.session-survives-process-restart") {
     assume(false, "needs a process the suite controls; proven by RemoteAgentSuite")
+  }
+
+  // ── Autonomous agents ──────────────────────────────────────────────────────
+
+  /** Runs a task of type `answer` and answers its id and instance. */
+  private def runTask(instructions: String): (String, String) =
+    val r = post("/autonomous/tasks/answer", instructions)
+    assertEquals(r.status, 200, r.body)
+    val j = r.json
+    (j("taskId").flatMap(_.asString).get, j("instanceId").flatMap(_.asString).getOrElse(""))
+
+  private def task(id: String): Json = get(s"/autonomous/tasks/$id").json
+
+  private def status(t: Json): String = t("status").flatMap(_.asString).getOrElse("")
+
+  /** Waits for the task to end, and answers its record. */
+  private def ended(id: String): Json =
+    eventually(20.seconds)(
+      Some(task(id)).filter(t => Set("completed", "failed", "cancelled")(status(t)))
+    )
+
+  test("auto.completes-with-typed-result") {
+    onlyWithAutonomousAgents()
+    model
+      .expectToolCall("lookup", Json.obj("id" -> Json.str("auto1")))
+      .expectCompleteTaskJson("""{"answer":"one","sources":["lookup"]}""")
+    val (id, _) = runTask("How many under auto1?")
+    val t       = ended(id)
+    assertEquals(status(t), "completed", t.render)
+    assertEquals(
+      t("result").flatMap(_.asString).flatMap(Json.parse(_).toOption),
+      Json.parse("""{"answer":"one","sources":["lookup"]}""").toOption
+    )
+    assertEquals(t("iterations").flatMap(_.asDouble), Some(2.0))
+    assertEquals(count("auto1"), 1)
+  }
+
+  test("auto.fails-on-request") {
+    onlyWithAutonomousAgents()
+    model.expectFailTask("cannot be known")
+    val t = ended(runTask("What happens next year?")._1)
+    assertEquals(status(t), "failed")
+    assertEquals(t("reason").flatMap(_.asString), Some("cannot be known"))
+    assertEquals(model.callCount, 1)
+  }
+
+  test("auto.malformed-result-is-tool-error") {
+    onlyWithAutonomousAgents()
+    model
+      .expectCompleteTaskJson("""{"answer":1}""")
+      .expectCompleteTaskJson("""{"answer":"fixed","sources":["memory"]}""")
+    val t = ended(runTask("Answer")._1)
+    assertEquals(status(t), "completed", t.render)
+    val errors =
+      model.requests(1).messages.collect { case ChatMessage.ToolResults(rs) => rs }.flatten
+    assert(errors.exists(r => r.isError && r.content.contains("does not match")), errors.toString)
+  }
+
+  test("auto.tool-error-continues") {
+    onlyWithAutonomousAgents()
+    model
+      .expectToolCall("lookup", Json.obj("id" -> Json.str("")))
+      .expectCompleteTaskJson("""{"answer":"none","sources":["lookup"]}""")
+    val t = ended(runTask("Look nothing up")._1)
+    assertEquals(status(t), "completed", t.render)
+    val results =
+      model.requests(1).messages.collect { case ChatMessage.ToolResults(rs) => rs }.flatten
+    assertEquals(results.map(_.isError), Vector(true))
+  }
+
+  test("auto.guardrail-fails-task") {
+    onlyWithAutonomousAgents()
+    val t = ended(runTask("the key is sk-123")._1)
+    assertEquals(status(t), "failed")
+    assert(t("reason").flatMap(_.asString).exists(_.contains("no-secrets")), t.render)
+    assertEquals(model.callCount, 0)
+  }
+
+  test("auto.budget-fails-task") {
+    onlyWithAutonomousAgents()
+    (1 to 6).foreach(i => model.expectToolCall("lookup", Json.obj("id" -> Json.str(s"budget$i"))))
+    val t = ended(runTask("Never finish")._1)
+    assertEquals(status(t), "failed")
+    assertEquals(t("reason").flatMap(_.asString), Some("iteration budget of 4 exhausted"))
+    assertEquals(model.callCount, 4)
+    val last = model.requests(3).systemMessage.getOrElse("")
+    assert(last.contains("iteration 4 of 4") && last.contains("last iteration"), last)
+  }
+
+  test("auto.rule-check-fault-is-iteration-failure") {
+    onlyWithAutonomousAgents()
+    // The rule throws the first time: that is no verdict, so the check is made again rather than
+    // the result being rejected, and the model is not asked again.
+    model.expectCompleteTaskJson("""{"answer":"flaky-once","sources":["memory"]}""")
+    val t = ended(runTask("Answer, eventually")._1)
+    assertEquals(status(t), "completed", t.render)
+    assertEquals(model.callCount, 1)
+  }
+
+  test("auto.rule-rejects-then-accepts") {
+    onlyWithAutonomousAgents()
+    model
+      .expectCompleteTaskJson("""{"answer":"three","sources":[]}""")
+      .expectCompleteTaskJson("""{"answer":"three","sources":["memory"]}""")
+    val t = ended(runTask("How many?")._1)
+    assertEquals(status(t), "completed", t.render)
+    assertEquals(t("iterations").flatMap(_.asDouble), Some(2.0))
+    val second =
+      model.requests(1).messages.collect { case ChatMessage.ToolResults(rs) => rs }.flatten
+    assert(
+      second.exists(r => r.isError && r.content.contains("sources must not be empty")),
+      second.toString
+    )
+  }
+
+  private def createTask(instructions: String, dependsOn: String*): String =
+    val deps = dependsOn.map(d => s"\"$d\"").mkString(",")
+    val r = postJson(
+      "/autonomous/tasks/answer/create",
+      s"""{"instructions":"$instructions","dependsOn":[$deps]}"""
+    )
+    assertEquals(r.status, 200, r.body)
+    r.json("taskId").flatMap(_.asString).get
+
+  private def assign(instance: String, ids: String*): Reply =
+    postJson(
+      s"/autonomous/instances/$instance/assign",
+      ids.map(i => s"\"$i\"").mkString("[", ",", "]")
+    )
+
+  private def op(instance: String, name: String): Unit =
+    val r = post(s"/autonomous/instances/$instance/$name")
+    assert(r.status == 204 || r.status == 200, r.toString)
+
+  private def state(instance: String): Json = get(s"/autonomous/instances/$instance/state").json
+
+  test("auto.queue-runs-in-order") {
+    onlyWithAutonomousAgents()
+    val ids = Vector("first", "second", "third").map(createTask(_))
+    ids.foreach(_ => model.expectCompleteTaskJson("""{"answer":"x","sources":["memory"]}"""))
+    assertEquals(assign("r1", ids*).status, 200)
+    val ends = ids.map(id => ended(id)("endedAt").flatMap(_.asDouble).get)
+    assertEquals(ends, ends.sorted)
+  }
+
+  test("auto.suspend-resume") {
+    onlyWithAutonomousAgents()
+    val warm = createTask("warm up")
+    model.expectCompleteTaskJson("""{"answer":"warm","sources":["memory"]}""")
+    assign("r-pause", warm): Unit
+    ended(warm): Unit
+    op("r-pause", "suspend")
+    val id = createTask("wait")
+    model.expectCompleteTaskJson("""{"answer":"waited","sources":["memory"]}""")
+    assign("r-pause", id): Unit
+    Thread.sleep(2000)
+    assertEquals(status(task(id)), "assigned")
+    assertEquals(state("r-pause")("phase").flatMap(_.asString), Some("suspended"))
+    op("r-pause", "resume")
+    assertEquals(status(ended(id)), "completed")
+  }
+
+  test("auto.terminate-unassigns") {
+    onlyWithAutonomousAgents()
+    val warm = createTask("warm up")
+    model.expectCompleteTaskJson("""{"answer":"warm","sources":["memory"]}""")
+    assign("r2", warm): Unit
+    ended(warm): Unit
+    op("r2", "suspend")
+    val ids = Vector(createTask("one"), createTask("two"))
+    assign("r2", ids*): Unit
+    op("r2", "terminate")
+    ids.foreach { id =>
+      val t = task(id)
+      assertEquals(status(t), "pending", t.render)
+      assert(t("assignee").forall(_.isNull), t.render)
+    }
+    assertEquals(assign("r2", createTask("too late")).status, 409)
+  }
+
+  test("auto.cancel-queued") {
+    onlyWithAutonomousAgents()
+    val warm = createTask("warm up")
+    model.expectCompleteTaskJson("""{"answer":"warm","sources":["memory"]}""")
+    assign("r3", warm): Unit
+    ended(warm): Unit
+    op("r3", "suspend")
+    val ids = Vector(createTask("keep"), createTask("cancel"))
+    assign("r3", ids*): Unit
+    assertEquals(post(s"/autonomous/tasks/${ids(1)}/cancel").status, 204)
+    assertEquals(status(task(ids(1))), "cancelled")
+    assertEquals(
+      state("r3")("queued").flatMap(_.asArray).map(_.flatMap(_.asString)),
+      Some(Vector(ids(0)))
+    )
+  }
+
+  test("auto.dependency-result-in-context") {
+    onlyWithAutonomousAgents()
+    val a = createTask("the dependency")
+    val b = createTask("the dependent", a)
+    model
+      .expectCompleteTaskJson("""{"answer":"forty-two","sources":["memory"]}""")
+      .expectCompleteTaskJson("""{"answer":"used it","sources":["dependency"]}""")
+    assign("r-deps", b, a): Unit
+    assertEquals(status(ended(b)), "completed")
+    val first = model.requests(1).messages.head.toString
+    assert(first.contains(s"Result of task '$a'") && first.contains("forty-two"), first)
+  }
+
+  test("auto.dependency-failure-cascades") {
+    onlyWithAutonomousAgents()
+    val a = createTask("will fail")
+    val b = createTask("depends on it", a)
+    model.expectFailTask("could not")
+    assign("r-cascade", a): Unit
+    val t = ended(b)
+    assertEquals(status(t), "cancelled")
+    assertEquals(t("reason").flatMap(_.asString), Some(s"dependency '$a' failed"))
+  }
+
+  /**
+   * Reads an instance's notifications as server-sent events, on a thread of its own, into a queue
+   * of notification JSON: each event's data is a JSON string holding the notification's JSON.
+   */
+  private def subscribe(
+      instance: String
+  ): (java.util.concurrent.LinkedBlockingQueue[Json], () => Unit) =
+    val queue = java.util.concurrent.LinkedBlockingQueue[Json]()
+    val request = HttpRequest
+      .newBuilder(URI.create(s"${target.baseUrl}/autonomous/instances/$instance/notifications"))
+      .GET()
+      .build()
+    val response = http.sendAsync(request, HttpResponse.BodyHandlers.ofLines())
+    val reader = Thread.ofVirtual().start { () =>
+      try
+        response.get().body().forEach { line =>
+          if line.startsWith("data:") then
+            val field = Json.parse(line.drop("data:".length).trim).toOption.flatMap(_.asString)
+            field.flatMap(Json.parse(_).toOption).foreach(queue.add(_): Unit)
+        }
+      catch case _: Throwable => ()
+    }
+    (queue, () => { response.cancel(true): Unit; reader.interrupt() })
+
+  private def typesUntil(
+      queue: java.util.concurrent.LinkedBlockingQueue[Json],
+      last: String
+  ): Vector[String] =
+    val out  = Vector.newBuilder[String]
+    var name = ""
+    while name != last do
+      val next = Option(queue.poll(20, java.util.concurrent.TimeUnit.SECONDS))
+        .getOrElse(fail(s"no $last after ${out.result()}"))
+      name = next("type").flatMap(_.asString).getOrElse("")
+      out += name
+    out.result()
+
+  test("auto.notifications-in-order") {
+    onlyWithAutonomousAgents()
+    val instance        = s"watch-${java.util.UUID.randomUUID()}"
+    val (queue, cancel) = subscribe(instance)
+    try
+      assertEquals(typesUntil(queue, "Activated"), Vector("Activated"))
+      model
+        .expectCompleteTaskJson("""{"answer":"x","sources":[]}""")
+        .expectCompleteTaskJson("""{"answer":"x","sources":["memory"]}""")
+      val id = createTask("Watch me")
+      assign(instance, id): Unit
+      assertEquals(
+        typesUntil(queue, "TaskCompleted"),
+        Vector(
+          "TaskAssigned",
+          "TaskStarted",
+          "IterationStarted",
+          "IterationCompleted",
+          "TaskResultRejected",
+          "IterationStarted",
+          "IterationCompleted",
+          "TaskCompleted"
+        )
+      )
+    finally cancel()
+  }
+
+  test("auto.notifications-no-replay") {
+    onlyWithAutonomousAgents()
+    val instance = s"late-${java.util.UUID.randomUUID()}"
+    model.expectCompleteTaskJson("""{"answer":"x","sources":["memory"]}""")
+    val id = createTask("Before anyone watched")
+    assign(instance, id): Unit
+    ended(id): Unit
+    val (queue, cancel) = subscribe(instance)
+    try
+      Thread.sleep(1500)
+      val seen = Iterator
+        .continually(queue.poll())
+        .takeWhile(_ != null)
+        .flatMap(_("type").flatMap(_.asString))
+        .toVector
+      assert(!seen.exists(_.startsWith("Task")), seen.toString)
+    finally cancel()
+  }
+
+  test("auto.state-of-idle-instance") {
+    onlyWithAutonomousAgents()
+    val r = get("/autonomous/instances/never-used/state")
+    assertEquals(r.status, 200, r.body)
+    assertEquals(r.json("phase").flatMap(_.asString), Some("idle"))
+    assertEquals(r.json("queued").flatMap(_.asArray), Some(Vector.empty))
   }
 
   // ── Client ─────────────────────────────────────────────────────────────────

@@ -29,6 +29,7 @@ services:
   #   ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run
   #   ankka config set url http://localhost:9000
   #   ankka login                       # user dev, password dev (created by keycloak-init below)
+  #   cd console && npm run dev         # the console on :3000, signed in to as dev / dev
   #
   # The version is build.sbt's keycloakVersion; RemoteOverlaySuite checks the two agree.
   # Takes the realm out of the import resource for Keycloak's import directory. Alpine plus jq

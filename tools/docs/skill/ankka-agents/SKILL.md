@@ -1,12 +1,14 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, and several agents coordinated from a workflow. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, or streaming tokens.
+description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
 pages:
   - concepts/agents.md
   - concepts/designing-agents.md
   - build/agents.md
   - build/streaming.md
   - build/multi-agent-orchestration.md
+  - concepts/autonomous-agents.md
+  - build/autonomous-agents.md
   - build/workflows.md
   - build/component-client.md
   - build/testing.md

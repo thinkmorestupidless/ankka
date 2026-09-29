@@ -11,10 +11,13 @@ enum ComponentKind:
   case Endpoint
   case Agent
 
+  /** An agent that works tasks to a typed result on its own, instance by instance. */
+  case AutonomousAgent
+
   /** Whether instances of this kind are hosted by cluster sharding. */
   def sharded: Boolean = this match
-    case EventSourcedEntity | KeyValueEntity | Workflow | Agent => true
-    case View | Consumer | TimedAction | Endpoint               => false
+    case EventSourcedEntity | KeyValueEntity | Workflow | Agent | AutonomousAgent => true
+    case View | Consumer | TimedAction | Endpoint                                 => false
 
 /**
  * Everything the runtime needs to host one component, produced by that component's companion.
@@ -80,7 +83,24 @@ object ComponentRegistry:
       .toVector
       .sorted
 
-    if duplicates.nonEmpty then Left(duplicates)
+    // Every sharded kind is keyed by its component id alone, so two sharded components of
+    // different kinds sharing an id would share one sharding region: the second to start would
+    // receive the first's messages. An entity and its view may share a name; two sharded ones may
+    // not.
+    val shardedClashes = components
+      .filter(_.kind.sharded)
+      .distinctBy(d => (d.kind, d.componentId))
+      .groupBy(_.componentId)
+      .collect {
+        case (id, ds) if ds.sizeIs > 1 =>
+          s"component id '$id' is used by ${ds.map(_.kind).sortBy(_.ordinal).mkString(" and ")}; " +
+            "sharded components need distinct ids"
+      }
+      .toVector
+      .sorted
+
+    val problems = duplicates ++ shardedClashes
+    if problems.nonEmpty then Left(problems)
     else Right(new ComponentRegistry(components.toVector))
 
   /** As `from`, but throws — for the service bootstrap, where there is no recovery. */

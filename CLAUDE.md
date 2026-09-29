@@ -63,6 +63,10 @@ sbt compile                       # should be warning-free; -Wunused is on
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
+just build-console                # the installation's console: the ankka-console package, then the host
+just test-console                 # its type check, unit tests and Playwright suite against in-process fakes
+just test-console-compose         # the Playwright suite against compose's Keycloak and a running control plane
+cd console && npm run dev         # the console on :3000 against compose's Keycloak and `sbt controlPlane/run`
 ```
 
 Running the samples needs the bundled Postgres:
@@ -213,6 +217,7 @@ companion and anything it needs arrives that way.
 | Workflow | `EventSourcedBehavior` whose events *are* step transitions |
 | Timer | Postgres table + cluster-singleton sweeper |
 | Agent | Sharded per **session id**, serialized per conversation via a stash |
+| Autonomous agent | Sharded per **instance id**, `remember-entities`; its state an `ankka-agent-instance` entity, its tasks `ankka-task` entities |
 | HTTP Endpoint | pekko-http route tree |
 
 Entity and workflow hosts pre-serialize domain values into `JournalRecord` /
@@ -344,6 +349,21 @@ SDK as transport only.
 Session memory is an event-sourced entity, which is what makes multi-agent collaboration,
 compaction hooks and durability fall out rather than being features.
 
+An **autonomous agent** (feature 015, `agent/autonomous`) is the second kind: handed a task, it iterates
+until the model calls the built-in `complete_task` or `fail_task`, or the budget runs out. Three
+platform components carry it, all in `AgentRuntime.descriptors`: `ankka-task` (the task's record),
+`ankka-agent-instance` (the instance's record, written only by its host, through one `record(event)`
+command) and `ankka-task-cascade` (a consumer that cancels a failed task's dependents — so it needs a
+`ProjectionRuntime`). The host is an actor shell (subscribers, operations one at a time, passivation) plus
+one worker virtual thread running `IterationLoop`, which re-reads both records at every boundary. What an
+instance did on a task is session memory, session `task:<id>`. Each iteration records its start, the
+model's response, its completion, then the tool results; `IterationLoop.resumePoint` reads the instance
+record and only the session's last message to pick up exactly — a recorded model call is never repeated,
+a tool is run at least once. The entity type uses `remember-entities` with the event-sourced store, so a
+working instance comes back after a crash with nothing sent to it (proven by `RememberEntitiesSpike`). In
+the sidecar the definition arrives whole in discovery; the process runs tools, guardrails and
+`CheckTaskResult` (decode as the type, then every rule, in one call).
+
 ### Reconciliation is split across two processes
 
 The control plane projects a service's desired state into an `AnkkaService` custom resource
@@ -439,6 +459,16 @@ Two invariants carry most of the weight:
   goes false but `known` stays true, so the id cannot be recreated. A service is
   deliberately the opposite — a name is a deployment target, not a tenancy boundary.
 
+- **Quotas are reserve-first.** An organization keeps an exact record of its projects and
+  services (`UsageRecord`, one fold shared by the entity and the listing row), and the project
+  and service endpoints ask it to *reserve* before creating or applying, then give the slot back
+  if the second step fails — only if this request was the one that took it, which is what the
+  reservation's reply says. `quota set` merges a snapshot from the views into the record, never
+  replaces it: a listing lags, and a replace forgot a project created a moment earlier on the
+  suite's first run. The shared codec omits a field at its default, so `usage` is absent from
+  the wire when every count is zero; `Usage`'s own fields have no defaults so a written one is
+  whole.
+
 Cross-entity checks live in the endpoint, never a handler. An entity cannot see another
 entity's state, and calling out to fetch it would be a check that does not hold anyway.
 
@@ -463,6 +493,30 @@ headers of the handler's choosing, `Respond.redirect` is a 303 with a `Location`
 page and `Bytes` names its own content type. That is the whole of what a website (`ankka-cloud`)
 needs from the module beyond a JSON API — `Set-Cookie` and `Location` — and it is deliberately
 not a template engine, a session store or a cookie API: those belong to the application.
+
+### The console is a package and a thin host
+
+`console/` is an npm workspace (feature 017): `package/` is `ankka-console` — the control plane client
+with zod mirrors of `controlplane-api`'s wire types, sign-in through the realm, sessions, and the pages
+as React Router 8 route modules — and `host/` is the image, 73 lines that mount the package at `/`.
+`ankka-cloud` is meant to be a second host, which is why everything a host would otherwise copy is in
+the package and `package/test/fixture-host/` proves a second host works with no package change.
+
+- **No token reaches the browser.** The session is a sealed (AES-GCM) cookie carrying only the refresh
+  token; each instance caches access tokens in memory and refreshes on a miss, so any instance serves
+  any session and there is no store. Sign-out ends the Keycloak session server to server (a confidential
+  client posting the refresh token to the logout endpoint), so no identity token is kept either.
+- **The control plane is the only authority.** The console calls its API as the person and shows its
+  refusals verbatim; it reads the issuer from `GET /auth` so the two cannot disagree. Pages call the
+  API; no route was added to the control plane for the console.
+- **Live updates are polling, streamed.** Service pages and listings open a server-sent event stream the
+  console feeds by reading the control plane every two seconds as the person; logs follow by
+  overlapping re-reads (the logs route has no cursor).
+- **`ankka-console` is browser-safe; `ankka-console/server` is not.** A host's layout imports the
+  former, its root and `routes.ts` the latter, and the browser bundle must resolve no Node module.
+- **The fake control plane is a second implementation of the API's observable rules**, so it drifts:
+  `ControlPlaneFixturesSuite` holds the client's schemas to the codecs, and the Playwright suite runs
+  against the compose stack too (`just test-console-compose`), which is what found the drift so far.
 
 ## Traps that have already cost debugging time
 
@@ -953,6 +1007,62 @@ not a template engine, a session store or a cookie API: those belong to the appl
   ClusterIssuer (`letsencrypt-production`) for exactly this, and `RemoteOverlaySuite` checks that
   the Certificate names an issuer that exists.
 
+- **Nothing wakes a passivated entity, and idle passivation stops a working one.** A workflow mid-step
+  survives a restart only because something polls it. Autonomous agents are the one entity type with
+  `remember-entities` (event-sourced store — the coordinator's list of shards is journaled too, so no LMDB
+  on a pod's disk); remembering turns automatic passivation off, so the host passivates itself when it is
+  idle and unwatched. A subscription keeps an instance alive.
+- **A host that stops under an operation loses the reply.** Sharding's default stop message stopped the
+  autonomous host while an `assign` it had started was in flight, and the caller timed out instead of
+  hearing `Conflict`. The entity has its own `Stop` (`withStopMessage`): the host finishes the operation
+  and everything stashed behind it first.
+- **Work done for a task outside its iterations needs the task too.** A remote guardrail names the task's
+  session, and the input guardrails run when a task *starts*, before any iteration. The current task is set
+  around all work on a task (`AutonomousAgent.CurrentTask.within`), not per iteration.
+- **Only the process can decode a remote result.** A per-rule check sent a malformed result to a Python
+  rule, which raised, which is a failed iteration, retried forever — and a remote type with no rules would
+  have accepted anything. `CheckTaskResult` decodes and runs every rule in one call, answering `malformed`
+  as the Scala agent's decode failure is answered: a tool error the model corrects.
+- **`protocol/fixtures/` belongs to `core`'s `EncodingFixturesSuite`**, which refuses any file it did not
+  generate. The autonomous agent's fixtures live in `protocol/fixtures/autonomous/`, written by
+  `AutonomousFixturesSuite` in `testkit`.
+- **`testkit` depends on `agent`,** so a suite that needs `EventSourcedTestKit`, `TestTransport` or
+  `AnkkaTestKit` for an agent-module type lives in `testkit/src/test`. `EntityRouter` there routes real
+  calls to real entity test kits by id, which is how client-side orderings are tested without a runtime.
+- **Two sharded kinds may not share a component id.** Sharding keys by the id alone, so an agent and an
+  autonomous agent both named `helper` would share one region; `ComponentRegistry` refuses it.
+- **React Router's route-config loader ignores the host's Vite `resolve.conditions`.** `routes.ts` is
+  evaluated by the framework's own loader, so `import "ankka-console/server"` there fails to resolve under a
+  source-only condition that works everywhere else in the app (`Failed to resolve entry for package`). The
+  console's host therefore consumes the package through its built `dist/`, exactly as an npm consumer does,
+  and the workspace's `build`, `dev` and `e2e` scripts build the package first.
+- **`react-router build` with no `app/entry.server.tsx` installs `isbot` into the nearest `package.json`.**
+  Run in `console/package/test/fixture-host/`, that was the package's own manifest, and the reinstall that
+  followed pruned `@react-router/dev` out of `node_modules`. The fixture host has its own server entry for
+  this reason; check `git status` after a build that printed anything about installing.
+- **A Playwright test that reloads straight after a click cancels the click's submission.** With scripts on,
+  a form posts through `fetch`; `page.reload()` or `page.goto()` right after the click aborts it, and the
+  write never happens — the test then fails on a state that is correct. Wait for the page the action lands
+  on, or for the `POST`'s response, before navigating. It cost four "failures" of correct behaviour.
+- **The control plane's listings are projections; the fake's are not unless asked.** Organizations,
+  projects, services and tokens are listed from views that trail a write by up to a second or two, and the
+  delete checks ("still has N projects") count from them too. A test that reads a listing after a write
+  must reload until it shows (`afterProjection` in the e2e fixtures); a page must go to what it created by
+  id rather than to a list. The token page hid a new token's secret until the listing caught up, a bug only
+  the compose run could see.
+- **The control plane answers `Done` as 204 with no body**, including for creating an organization or a
+  project, and an omitted deploy-token lifetime is the 90-day default, not "never" (`0` is never). The fake
+  had both wrong until the compose run found them; `ControlPlaneFixturesSuite` covers bodies, not statuses.
+- **Keycloak's issuer depends on who asks, so the console's backchannel pretends to be the gateway.**
+  Configured with a host name only, Keycloak takes its issuer's scheme and port from each request's
+  forwarded headers, else from how it was reached. The control plane only reads keys over the in-cluster
+  address, which carry no issuer; the console also runs discovery and the token grants there, and
+  unadorned they answered `https://auth.<base>:8443` — refused at discovery (a 500 at sign-in, found only
+  by the k3s suite) and wrong in every token. `Issuer` sends `X-Forwarded-Proto/Host/Port` for the public
+  issuer on every backchannel call; `fakeIssuer({ hostOnly })` reproduces Keycloak's behaviour for the test.
+- **A React effect depending on a function from a hook re-runs on every render.** The stream hook depended
+  on `useConsole().href`, a fresh closure each render, so every event it delivered re-rendered the page and
+  reopened the stream, which never left "connecting". Depend on the stable value (the mount path) instead.
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.
@@ -1181,8 +1291,8 @@ bite:
 - **The tool is not ankka's alone.** Everything ankka-specific — the frontmatter vocabularies, the
   skill targets, which generator owns which block, the files that link to the site — is `extra.docs`
   in `mkdocs.yml`, and the tool finds the repository by the nearest `mkdocs.yml` above its working
-  directory. satisfactory (`../satisfactory`) depends on `ankka-docs` from `tools/docs` and writes its
-  own block, so a rule changed here changes there. `uv run --project tools/docs pytest tools/docs` runs the tool
+  directory. satisfactory (`../satisfactory`) and ankka-flow (`../ankka-flow`) depend on `ankka-docs`
+  from `tools/docs` and write their own blocks, so a rule changed here changes there. `uv run --project tools/docs pytest tools/docs` runs the tool
   against a fixture repository that is not ankka; a new ankka-specific constant in the Python is wrong,
   it goes in the block.
 
@@ -1204,7 +1314,7 @@ bite:
   `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
 - **A new page goes in `mkdocs.yml`'s `nav` and in at least one skill's `pages:` list**, or `docs check`
   fails. `marketplace/` is ankka's part of the Claude Code marketplace, `thinkmorestupidless/ankka-marketplace`,
-  which holds one plugin per project (ankka's, satisfactory's). The release workflow's `marketplace` job
+  which holds one plugin per project (ankka's, satisfactory's, ankka-flow's). The release workflow's `marketplace` job
   clones that repository, replaces `plugins/ankka/` and ankka's manifest entry only, and pushes an
   ordinary commit — never a subtree split or a force push, which would erase the other projects' plugins;
   the plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control
@@ -1423,6 +1533,20 @@ git checkout -- ankka/Cargo.toml Cargo.lock
 Then on crates.io, the crate's settings → Trusted Publishing → GitHub: owner `thinkmorestupidless`,
 repository `ankka`, workflow `release.yml`, environment `crates-io`. From the next tag the job publishes,
 and its `cargo info` guard makes a re-run of a tag finish what a cancelled run left.
+
+**The console ships twice**: as the `ankka-console` image, beside the other images from the `images` job, and
+as the `ankka-console` npm package from the `console-package` job, which a product builds its own host on. The
+package's version is `0.0.0` in `console/package/package.json`, written from the tag like the SDK's, and its
+first publish is by hand for the same reason, after that tag's `publish` job is green:
+
+```bash
+git checkout vX.Y.Z && cd console
+npm version X.Y.Z --no-git-tag-version -w package && npm ci && npm run build -w package
+cd package && mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-console-X.Y.Z.tgz --access public
+git checkout -- package.json ../package-lock.json
+```
+
+Then attach the trusted publisher to `ankka-console` exactly as for `ankka`.
 
 **Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,

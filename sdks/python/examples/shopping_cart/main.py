@@ -8,6 +8,7 @@ from typing import Any
 
 from ankka import Ankka
 
+from examples.shopping_cart.answerer import CartAnswerer
 from examples.shopping_cart.assistant import CartAssistant
 from examples.shopping_cart.cart_rows import CartRows
 from examples.shopping_cart.checkout_log import CheckoutLog
@@ -15,6 +16,7 @@ from examples.shopping_cart.checkout_notifier import CheckoutNotifier
 from examples.shopping_cart.checkout_workflow import CheckoutWorkflow
 from examples.shopping_cart.endpoint import ShoppingCartEndpoint
 from examples.shopping_cart.entity import ShoppingCartEntity
+from examples.shopping_cart.questions import QuestionsEndpoint
 
 
 def service() -> Any:
@@ -27,7 +29,9 @@ def service() -> Any:
         .register(CheckoutLog)
         .register(CheckoutWorkflow)
         .register(CartAssistant)
+        .register(CartAnswerer)
         .register(ShoppingCartEndpoint)
+        .register(QuestionsEndpoint)
     )
 
 

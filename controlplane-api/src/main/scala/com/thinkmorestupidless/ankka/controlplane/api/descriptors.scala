@@ -531,9 +531,58 @@ final case class Rename(name: String)
  * Split from `OrganizationSummary` because the count in a summary is not the entity's to state — it
  * comes from counting projects, which only a view can do. A type with a field its producer has to
  * fill with a placeholder zero is a type that will eventually be read as if the zero meant
- * something.
+ * something. `usage` is different: it is the organization's own record of what it holds, kept as
+ * things are created and deleted, and it is what a `quota` is checked against.
  */
-final case class OrganizationDetail(id: String, name: String, disabled: Boolean = false)
+final case class OrganizationDetail(
+    id: String,
+    name: String,
+    disabled: Boolean = false,
+    quota: Option[Quota] = None,
+    usage: Usage = Usage.zero
+)
+
+/**
+ * The most an organization may hold: projects, services across its projects, and instances — the
+ * sum of every service's `minInstances`, which is what an installation runs for it. Each limit is
+ * optional and one left out (or `null`) is unlimited; `0` is a limit that allows none. There is no
+ * quota by default, and an organization with none behaves exactly as if this type did not exist.
+ *
+ * Set, replaced whole and cleared by a platform administrator; enforced by the control plane at the
+ * moment a project is created or a service applied, never against what already runs.
+ */
+final case class Quota(
+    projects: Option[Int] = None,
+    services: Option[Int] = None,
+    instances: Option[Int] = None
+)
+
+object Quota:
+  /** Empty when the quota can be set: every named limit is non-negative, and one is named. */
+  def problems(quota: Quota): Vector[String] =
+    val negative = Vector(
+      "projects"  -> quota.projects,
+      "services"  -> quota.services,
+      "instances" -> quota.instances
+    ).collect { case (name, Some(limit)) if limit < 0 => s"a quota's $name cannot be negative" }
+    val empty = Option.when(
+      quota.projects.isEmpty && quota.services.isEmpty && quota.instances.isEmpty
+    )("a quota names at least one limit; to lift every limit, clear the quota instead")
+    negative ++ empty
+
+/**
+ * What an organization records as existing: its projects, its services, and their instances. Kept
+ * by the organization itself as things are created and deleted, so it is exact rather than a
+ * listing's count — the number a quota is checked against.
+ *
+ * No field has a default, so a usage that is written is written whole; the summaries default the
+ * whole value to [[Usage.zero]], which the codec then leaves out — a summary with no `usage` means
+ * nothing is held, and decodes as such from a control plane that predates quotas.
+ */
+final case class Usage(projects: Int, services: Int, instances: Int)
+
+object Usage:
+  val zero: Usage = Usage(0, 0, 0)
 
 final case class ProjectDetail(
     id: String,
@@ -552,7 +601,9 @@ final case class OrganizationSummary(
     name: String,
     projects: Int,
     disabled: Boolean = false,
-    role: Option[Role] = None
+    role: Option[Role] = None,
+    quota: Option[Quota] = None,
+    usage: Usage = Usage.zero
 )
 
 final case class ProjectSummary(
@@ -569,7 +620,15 @@ object OrganizationSummary:
       projects: Int,
       role: Option[Role] = None
   ): OrganizationSummary =
-    OrganizationSummary(detail.id, detail.name, projects, detail.disabled, role)
+    OrganizationSummary(
+      detail.id,
+      detail.name,
+      projects,
+      detail.disabled,
+      role,
+      detail.quota,
+      detail.usage
+    )
 
 // ── Membership (feature 008) ───────────────────────────────────────────────
 
@@ -744,6 +803,7 @@ object Wire:
   given projectCodec: JsonValueCodec[ProjectSummary]       = Codecs.make[ProjectSummary]
   given renameCodec: JsonValueCodec[Rename]                = Codecs.make[Rename]
   given orgDetailCodec: JsonValueCodec[OrganizationDetail] = Codecs.make[OrganizationDetail]
+  given quotaCodec: JsonValueCodec[Quota]                  = Codecs.make[Quota]
   given projectDetailCodec: JsonValueCodec[ProjectDetail]  = Codecs.make[ProjectDetail]
 
   given createOrgCodec: JsonValueCodec[CreateOrganization] = Codecs.make[CreateOrganization]

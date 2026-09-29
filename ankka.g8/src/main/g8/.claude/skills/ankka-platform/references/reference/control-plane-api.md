@@ -73,7 +73,7 @@ A caller's permissions come from their role in an organization, which the contro
 - An **owner** can also rename and delete the organization and manage its members and invitations. The
   last owner cannot be removed or demoted.
 - A **platform administrator** holds the `platform-admin` role in the identity provider. They can read
-  every organization, disable and enable one, and add a member to one directly.
+  every organization, disable and enable one, set and clear its quota, and add a member to one directly.
 
 Anyone logged in may create an organization, and becomes its first owner.
 
@@ -99,6 +99,8 @@ The table is generated from the control plane's own route declarations.
 | `DELETE` | `/organizations/{organizationId}/tokens/{tokenId}` | |
 | `POST` | `/organizations/{organizationId}/disable` | |
 | `POST` | `/organizations/{organizationId}/enable` | |
+| `PUT` | `/organizations/{organizationId}/quota` | |
+| `DELETE` | `/organizations/{organizationId}/quota` | |
 | `GET` | `/projects` | |
 | `GET` | `/projects/{projectId}` | |
 | `POST` | `/projects/{projectId}` | |
@@ -151,11 +153,19 @@ Calling it also claims any pending invitation addressed to the caller's verified
 An organization summary is:
 
 ```json
-{ "id": "acme", "name": "Acme Corp", "projects": 2, "disabled": false, "role": "owner" }
+{
+  "id": "acme", "name": "Acme Corp", "projects": 2, "disabled": false, "role": "owner",
+  "quota": { "projects": 2, "services": 5, "instances": 8 },
+  "usage": { "projects": 2, "services": 3, "instances": 5 }
+}
 ```
 
 `role` is the caller's role, `owner` or `member`, and is absent for a platform administrator looking at
-an organization they do not belong to.
+an organization they do not belong to. `quota` is the organization's quota and is absent when none is set;
+a limit absent from it is unlimited. `usage` is what the organization records as holding, counting every
+service's `minInstances` as its instances, and is absent when every count is zero. `projects` is the
+listing's count of the organization's projects; `usage.projects` is the organization's own record, and the
+two differ only for an organization created before the installation had quotas and not yet given one.
 
 ### `GET /organizations`
 
@@ -277,6 +287,32 @@ change nothing. Platform administrators only. Answers `204`.
 
 Re-enables a disabled organization. Each service returns to the state it was in; one its members had
 paused stays paused. Platform administrators only. Answers `204`.
+
+### `PUT /organizations/{organizationId}/quota`
+
+Sets the organization's quota, replacing any. Platform administrators only, allowed on a disabled
+organization. The body names up to three limits:
+
+```json
+{ "projects": 2, "services": 5, "instances": 8 }
+```
+
+A limit left out or `null` is unlimited; `0` allows none. Refused `400` when a limit is negative or when
+no limit is named. Accepted whatever the organization already holds: nothing running is stopped, and a
+quota below usage refuses only what is asked for next. Setting a quota also brings the organization's
+usage record up to date with what exists, for an organization created before the installation had
+quotas. Answers `204`.
+
+From then on, `POST /projects/{projectId}` is refused `409` when the organization's project count is at
+its quota, and `PUT /services/{projectId}/{name}` is refused `409` when a new service would exceed the
+service quota or when the descriptor's `minInstances` would take the organization's instances past the
+instance quota; each refusal names the quota and the count in use. A re-apply with the same or fewer
+instances is never refused for quota.
+
+### `DELETE /organizations/{organizationId}/quota`
+
+Clears the quota; the organization is unlimited again. Platform administrators only. Answers `204`, also
+when there was no quota.
 
 ## Projects
 

@@ -23,6 +23,7 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  - ../../components/console
 
 resources:
   - platform-configmap.yaml
@@ -89,6 +90,34 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+      - select:
+          kind: HTTPRoute
+          name: ankka-console
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+  # The console's own address, host and port together, which the realm client's redirect address
+  # and the console's origin check both need whole. RemoteOverlaySuite holds it to its derivation.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.consoleAuthority
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-console
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-console].env.[name=ANKKA_CONSOLE_AUTHORITY].value
+      - select:
+          kind: KeycloakRealmImport
+          name: ankka-realm
+        fieldPaths:
+          - spec.realm.clients.[clientId=ankka-console].redirectUris.0
+        options:
+          delimiter: "/"
+          index: 2
   - source:
       kind: ConfigMap
       name: ankka-platform

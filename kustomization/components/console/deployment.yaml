@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-console
+  namespace: ankka-console
+  labels:
+    app.kubernetes.io/managed-by: ankka
+    app.kubernetes.io/name: ankka-console
+spec:
+  # Two, so a replacement is never an outage: a session is a sealed cookie any instance can open.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ankka-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: ankka
+        app.kubernetes.io/name: ankka-console
+    spec:
+      serviceAccountName: ankka-console
+      automountServiceAccountToken: false
+      # Streams are drained on SIGTERM: each is told to reconnect, and the server exits within ten
+      # seconds, inside this.
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # The certificate volume is 0440 and the key must not be readable by anyone else.
+        fsGroup: 1000
+      containers:
+        - name: ankka-console
+          image: ankka-console:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9000
+            # Readiness, on a plain listener: the serving port requires the gateway's certificate,
+            # which the kubelet does not hold.
+            - name: probe
+              containerPort: 7627
+          env:
+            - name: ANKKA_CONSOLE_HOST
+              value: "0.0.0.0"
+            - name: ANKKA_CONSOLE_PORT
+              value: "9000"
+            - name: ANKKA_CONSOLE_PROBE_PORT
+              value: "7627"
+            # TLS on the serving port, the gateway's certificate required of every caller, and this
+            # certificate presented to the control plane.
+            - name: ANKKA_CONSOLE_TLS_DIR
+              value: /var/run/secrets/ankka/service
+            - name: ANKKA_CONSOLE_CONTROL_PLANE_URL
+              value: "https://ankka-controlplane.ankka-controlplane.svc:9000"
+            # The console's own address as a browser reaches it; replaced by the overlay from
+            # ankka-platform.consoleAuthority, and the realm client's redirect address with it.
+            - name: ANKKA_CONSOLE_AUTHORITY
+              value: "CONSOLE_AUTHORITY"
+            # The identity provider's TLS port inside the cluster, for everything the console asks
+            # it server to server; the browser still goes to https://auth.<base domain>.
+            - name: ANKKA_CONSOLE_AUTH_BACKCHANNEL_URL
+              value: "https://ankka-keycloak-service.ankka-auth.svc:8443"
+            - name: ANKKA_CONSOLE_AUTH_CA
+              value: /var/run/secrets/ankka/service/ca.crt
+            - name: ANKKA_CONSOLE_CLIENT_ID
+              value: ankka-console
+            - name: ANKKA_CONSOLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: ankka-console-secrets, key: clientSecret }
+            - name: ANKKA_CONSOLE_SESSION_SECRET
+              valueFrom:
+                secretKeyRef: { name: ankka-console-secrets, key: sessionSecret }
+          # Ready once the certificate is loaded, the port bound and the control plane has answered.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: probe
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probe
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: ankka-service-tls
+              mountPath: /var/run/secrets/ankka/service
+              readOnly: true
+          # Serve for a moment after the decision to stop, while the gateway learns the pod is gone;
+          # every ankka workload renders the same hook.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      # A whole Secret, never subPath: a renewed certificate reaches the pod only through a volume.
+      volumes:
+        - name: ankka-service-tls
+          secret:
+            secretName: ankka-console-service-tls
+            defaultMode: 0440

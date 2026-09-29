@@ -66,6 +66,7 @@ components:
   - ../../components/keycloak-operator
   - ../../components/keycloak
   - ../../components/controlplane
+  - ../../components/console
 
 resources:
   - platform-configmap.yaml
@@ -88,6 +89,9 @@ images:
   # name from ANKKA_SIDECAR_IMAGE, set by the patch below to the same registry and tag.
   - name: ankka-sidecar
     newName: ghcr.io/thinkmorestupidless/ankka-sidecar
+    newTag: "0.0.0" # SET
+  - name: ankka-console
+    newName: ghcr.io/thinkmorestupidless/ankka-console
     newTag: "0.0.0" # SET
 
 patches:
@@ -126,6 +130,37 @@ patches:
       metadata:
         name: ankka-keycloak-admin
         namespace: ankka-auth
+
+  # The console's development secrets go the same way, for the same reason. Create the Secret out of
+  # band once the realm exists (docs/platform/console.md gives the commands):
+  #
+  #   kubectl -n ankka-console create secret generic ankka-console-secrets \
+  #     --from-literal=clientSecret="<the ankka-console client's secret, from Keycloak>" \
+  #     --from-literal=sessionSecret="$(openssl rand -base64 48)"
+  - patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ankka-console-secrets
+        namespace: ankka-console
+
+  # The console's realm client, without the development secret and without the address a laptop's
+  # console signs in from. With no secret in the import, Keycloak generates one; nothing secret is
+  # ever written into this overlay. The client is the second in realm-import.json's list, which
+  # RemoteOverlaySuite checks.
+  - target:
+      kind: KeycloakRealmImport
+      name: ankka-realm
+    patch: |-
+      - op: test
+        path: /spec/realm/clients/1/clientId
+        value: ankka-console
+      - op: remove
+        path: /spec/realm/clients/1/secret
+      - op: replace
+        path: /spec/realm/clients/1/redirectUris
+        value: ["https://CONSOLE_AUTHORITY/*"]
 
 # Identical in mechanism to overlays/local: the base domain and HTTPS port are each written once,
 # above, and copied into every place that must agree. Where the target holds a prefixed form
@@ -189,6 +224,32 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_BASE_DOMAIN].value
+      - select:
+          kind: HTTPRoute
+          name: ankka-console
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.consoleAuthority
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-console
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-console].env.[name=ANKKA_CONSOLE_AUTHORITY].value
+      - select:
+          kind: KeycloakRealmImport
+          name: ankka-realm
+        fieldPaths:
+          - spec.realm.clients.[clientId=ankka-console].redirectUris.0
+        options:
+          delimiter: "/"
+          index: 2
   - source:
       kind: ConfigMap
       name: ankka-platform

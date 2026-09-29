@@ -5,6 +5,7 @@ pages:
   - concepts/polyglot.md
   - get-started/first-service-python.md
   - reference/python-sdk.md
+  - build/autonomous-agents.md
   - reference/sidecar-protocol.md
   - build/serialization.md
   - build/testing.md

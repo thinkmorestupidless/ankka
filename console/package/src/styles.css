@@ -1,0 +1,481 @@
+/* The console's pages. Every class is prefixed `ac-`; every colour, face and space is a custom
+   property on .ac-root, so a host restyles the pages by overriding properties, not rules.
+
+   Birch paper and lake ink by day, the lake at night after dark. One accent, duckbill amber, is kept
+   for focus and for what is live; red is kept for failure. No web fonts: a console inside a cluster
+   must not fetch anything from outside it. */
+
+.ac-root {
+  --ac-paper: #f1f4f1;
+  --ac-surface: #fbfcfb;
+  --ac-ink: #13343b;
+  --ac-reed: #4f6b56;
+  --ac-water: #d5e2de;
+  --ac-amber: #e0a526;
+  --ac-amber-ink: #6b4a00;
+  --ac-red: #a8231b;
+  --ac-red-wash: #fbe9e7;
+  --ac-green: #1f6b3a;
+  --ac-serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --ac-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ac-step: 1rem;
+  --ac-measure: 72rem;
+  --ac-radius-control: 6px;
+
+  color: var(--ac-ink);
+  background: var(--ac-paper);
+  font-family: var(--ac-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  min-height: 100vh;
+}
+
+@media (prefers-color-scheme: dark) {
+  .ac-root {
+    --ac-paper: #0f2226;
+    --ac-surface: #142b30;
+    --ac-ink: #e3ecea;
+    --ac-reed: #9fbcaa;
+    --ac-water: #26434a;
+    --ac-amber: #f0b83c;
+    --ac-amber-ink: #f0b83c;
+    --ac-red: #ff8a80;
+    --ac-red-wash: #3a1b19;
+    --ac-green: #7fd4a0;
+  }
+}
+
+.ac-root *,
+.ac-root *::before,
+.ac-root *::after {
+  box-sizing: border-box;
+}
+
+/* ── Frame ───────────────────────────────────────────────────────────────── */
+
+.ac-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ac-step);
+  flex-wrap: wrap;
+  padding: calc(var(--ac-step) * 0.75) var(--ac-step);
+  border-bottom: 1px solid var(--ac-water);
+}
+
+.ac-wordmark {
+  font-family: var(--ac-serif);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ac-ink);
+  text-decoration: none;
+}
+
+.ac-wordmark-sub {
+  font-family: var(--ac-serif);
+  font-style: italic;
+  color: var(--ac-reed);
+}
+
+.ac-bar-person {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--ac-step) * 0.75);
+  color: var(--ac-reed);
+}
+
+.ac-bar-person form {
+  display: inline;
+}
+
+.ac-main {
+  max-width: var(--ac-measure);
+  padding: var(--ac-step);
+  margin: 0 auto;
+}
+
+.ac-page > * + * {
+  margin-top: calc(var(--ac-step) * 1.5);
+}
+
+.ac-root h1,
+.ac-root h2 {
+  font-family: var(--ac-serif);
+  line-height: 1.2;
+  margin: 0;
+  font-weight: 700;
+}
+
+.ac-root h1 {
+  font-size: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
+  letter-spacing: -0.015em;
+}
+
+.ac-root h2 {
+  font-size: 1.35rem;
+  margin-top: calc(var(--ac-step) * 2.5);
+}
+
+.ac-root p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+.ac-lede {
+  color: var(--ac-reed);
+}
+
+.ac-root a {
+  color: inherit;
+  text-decoration-color: var(--ac-reed);
+  text-underline-offset: 0.2em;
+}
+
+.ac-root a:hover {
+  text-decoration-color: var(--ac-amber);
+  text-decoration-thickness: 2px;
+}
+
+.ac-root :focus-visible {
+  outline: 3px solid var(--ac-amber);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ── Breadcrumbs ─────────────────────────────────────────────────────────── */
+
+.ac-crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: var(--ac-reed);
+}
+
+.ac-crumbs li + li::before {
+  content: "›";
+  margin-right: 0.25rem;
+}
+
+/* ── Tables: every listing is one ───────────────────────────────────────── */
+
+.ac-table-wrap {
+  overflow-x: auto;
+}
+
+.ac-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ac-table th,
+.ac-table td {
+  text-align: left;
+  padding: 0.6rem 0.75rem 0.6rem 0;
+  border-bottom: 1px solid var(--ac-water);
+  vertical-align: top;
+}
+
+.ac-table th {
+  font-weight: 600;
+  color: var(--ac-reed);
+  font-size: 0.9rem;
+}
+
+.ac-table td.ac-num,
+.ac-table th.ac-num {
+  text-align: right;
+}
+
+.ac-empty {
+  padding: var(--ac-step) 0;
+  color: var(--ac-reed);
+}
+
+/* ── Facts: a detail page's fields ──────────────────────────────────────── */
+
+.ac-facts {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: 0.4rem var(--ac-step);
+  margin: 0;
+}
+
+.ac-facts dt {
+  color: var(--ac-reed);
+}
+
+.ac-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── Status ─────────────────────────────────────────────────────────────── */
+
+.ac-status {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ac-status-mark {
+  font-size: 0.85em;
+  letter-spacing: -0.15em;
+}
+
+.ac-status-ready .ac-status-mark {
+  color: var(--ac-green);
+}
+
+.ac-status-moving .ac-status-mark,
+.ac-status-partial .ac-status-mark {
+  color: var(--ac-amber-ink);
+}
+
+.ac-status-trouble {
+  color: var(--ac-red);
+}
+
+.ac-status-stopped .ac-status-mark,
+.ac-status-idle .ac-status-mark {
+  color: var(--ac-reed);
+}
+
+.ac-status-note {
+  font-weight: 400;
+  color: var(--ac-reed);
+}
+
+.ac-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  color: var(--ac-reed);
+  font-size: 0.9rem;
+}
+
+.ac-live::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ac-amber);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ac-live::before {
+    animation: ac-ripple 2.4s ease-out infinite;
+  }
+}
+
+@keyframes ac-ripple {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ac-amber) 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0.6rem transparent;
+  }
+}
+
+/* ── Forms ──────────────────────────────────────────────────────────────── */
+
+.ac-field {
+  display: grid;
+  gap: 0.25rem;
+  max-width: 32rem;
+}
+
+.ac-field label {
+  font-weight: 600;
+}
+
+.ac-root input,
+.ac-root select,
+.ac-root textarea {
+  font: inherit;
+  color: var(--ac-ink);
+  background: var(--ac-surface);
+  border: 1px solid var(--ac-reed);
+  border-radius: var(--ac-radius-control);
+  padding: 0.5rem 0.6rem;
+  width: 100%;
+}
+
+.ac-root textarea {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9rem;
+  min-height: 16rem;
+}
+
+.ac-root input[type="checkbox"] {
+  width: auto;
+}
+
+.ac-root [aria-invalid="true"] {
+  border-color: var(--ac-red);
+}
+
+.ac-hint {
+  color: var(--ac-reed);
+  font-size: 0.9rem;
+}
+
+.ac-field-error {
+  color: var(--ac-red);
+}
+
+.ac-form {
+  display: grid;
+  gap: var(--ac-step);
+}
+
+.ac-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.ac-inline .ac-field {
+  flex: 1 1 12rem;
+}
+
+.ac-button {
+  font: inherit;
+  font-weight: 600;
+  display: inline-block;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--ac-radius-control);
+  border: 1px solid var(--ac-ink);
+  background: var(--ac-ink);
+  color: var(--ac-paper);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ac-button-quiet {
+  background: transparent;
+  color: var(--ac-ink);
+}
+
+.ac-button-danger {
+  background: var(--ac-red);
+  border-color: var(--ac-red);
+  color: #fff;
+}
+
+.ac-button[disabled] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.ac-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.ac-actions form {
+  display: inline;
+}
+
+/* Secondary and destructive operations wait behind a disclosure, so a page shows its state first. */
+.ac-more {
+  border-top: 1px solid var(--ac-water);
+  padding-top: var(--ac-step);
+}
+
+.ac-more summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.ac-more[open] > * + * {
+  margin-top: var(--ac-step);
+}
+
+.ac-danger-zone {
+  border-left: 3px solid var(--ac-red);
+  padding-left: var(--ac-step);
+}
+
+/* ── Messages ───────────────────────────────────────────────────────────── */
+
+.ac-refusal {
+  border-left: 3px solid var(--ac-red);
+  background: var(--ac-red-wash);
+  padding: 0.6rem 0.8rem;
+}
+
+.ac-refusal ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.ac-notice {
+  border-left: 3px solid var(--ac-amber);
+  padding: 0.6rem 0.8rem;
+  background: var(--ac-surface);
+}
+
+.ac-secret {
+  display: block;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--ac-surface);
+  border: 1px dashed var(--ac-reed);
+  padding: 0.6rem;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* ── Logs ───────────────────────────────────────────────────────────────── */
+
+.ac-log {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  background: var(--ac-surface);
+  border: 1px solid var(--ac-water);
+  padding: 0.75rem;
+  max-height: 32rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+
+/* ── Panels a host adds ─────────────────────────────────────────────────── */
+
+.ac-panel {
+  border-top: 1px solid var(--ac-water);
+  padding-top: var(--ac-step);
+}
+
+.ac-panel-failed {
+  color: var(--ac-red);
+}
+
+.ac-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .ac-facts {
+    grid-template-columns: 1fr;
+  }
+  .ac-facts dd {
+    margin-bottom: 0.5rem;
+  }
+}

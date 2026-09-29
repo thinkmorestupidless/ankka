@@ -325,6 +325,19 @@ final class WasmConversation(
       case Right(reply) => fromHttpReply(reply)
     }
 
+  /**
+   * Refused at discovery: a module cannot declare an autonomous agent, so no task is its to check.
+   */
+  def checkTaskResult(
+      componentId: ComponentId,
+      taskId: String,
+      taskType: String,
+      resultJson: String
+  ): Future[TaskResultVerdict] =
+    Future.failed(
+      ProtocolViolation(s"'$componentId' is not a module's: a module declares no autonomous agents")
+    )
+
   /** Refused at discovery: a module answers a request whole, so no route of one streams. */
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
     Source.failed(ProtocolViolation("a module has no streaming routes"))

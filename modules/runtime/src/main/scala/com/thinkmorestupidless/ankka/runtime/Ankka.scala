@@ -192,8 +192,9 @@ final class ServiceBuilder private[ankka] (
           }
         )
       case _ =>
-        // Views, consumers, workflows, timers, endpoints and agents are hosted by their
-        // own phases; an unrecognised descriptor is simply not sharded.
+        // Views, consumers, timers and endpoints are hosted by their own phases, and both kinds
+        // of agent by AgentRuntime, an extension, because runtime cannot depend on the agent
+        // module. An unrecognised descriptor is simply not sharded here.
         ()
     }
 
@@ -323,6 +324,12 @@ final class AnkkaService private[ankka] (
    */
   lazy val services: com.thinkmorestupidless.ankka.sdk.ServiceClients =
     HttpServiceClients(system.settings.config, None)
+
+  /**
+   * The names of the extensions this service runs — so one extension can say when another it relies
+   * on is missing, rather than failing quietly.
+   */
+  def extensionNames: Vector[String] = extensions.map(_.name)
 
   /**
    * Blocks until this node is a cluster member.

@@ -194,6 +194,20 @@ arguments decoded by the tool's input shape, and checks guardrails. A tool's inp
 Schema the model sees. A guardrail's `check(stage, text)` returns `null` to pass or a reason to block.
 See [Agents](../build/agents.md).
 
+## Autonomous agent
+
+| Part | API |
+|---|---|
+| Task type | `taskType(name, description, { result: Schema, rules: [taskRule(name, check)] })`; a check returns `accepted()` or `rejected(reason)` |
+| Base class | `AutonomousAgent` |
+| Statics | `componentId`, `description`, `accepts: [taskAcceptance(type, { maxIterations })]`, optionally `instructions`, `tools`, `guardrails`, `model`, `settings` |
+| In a tool | `this.client`, `this.taskId` |
+| Calling | `client.tasks.create(type, instructions, { id, attachments, dependsOn })`; `client.forTask(id).get(type)`, `.wait(type)`, `.cancel()`; `client.forAutonomousAgent(Agent, instanceId).assign(...)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()`; `client.forAutonomousAgent(Agent).runSingleTask(type, instructions)` |
+
+The TypeScript SDK declares autonomous agents and calls them. Its unit testkit does not yet script one:
+test an autonomous agent's behaviour end to end, through a sidecar with `ANKKA_MODEL_SCRIPT`. See
+[Autonomous agents](../build/autonomous-agents.md).
+
 ## HTTP endpoint
 
 | Part | API |

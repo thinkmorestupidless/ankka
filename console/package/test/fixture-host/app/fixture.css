@@ -1,0 +1,5 @@
+/* A host restyles the pages by overriding the package's properties, not its rules. */
+.product {
+  --ac-ink: #20124d;
+  --ac-amber: #ff5a36;
+}

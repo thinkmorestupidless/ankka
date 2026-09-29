@@ -207,6 +207,7 @@ Usage:
     ankka organizations invitations
     ankka organizations disable
     ankka organizations enable
+    ankka organizations quota
 
 Manage organizations.
 
@@ -235,6 +236,8 @@ Subcommands:
         Stop every service in the organization and refuse changes (platform administrators only).
     enable
         Re-enable a disabled organization (platform administrators only).
+    quota
+        The most an organization may hold (platform administrators only).
 ```
 
 ### `ankka organizations list`
@@ -637,6 +640,72 @@ Options and flags:
 Usage: ankka organizations enable [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
 
 Re-enable a disabled organization (platform administrators only).
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations quota`
+
+```text
+Usage:
+    ankka organizations quota set
+    ankka organizations quota clear
+
+The most an organization may hold (platform administrators only).
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    set
+        Set the quota, replacing any. Nothing running is stopped, whatever the usage.
+    clear
+        Lift every limit.
+```
+
+### `ankka organizations quota set`
+
+```text
+Usage: ankka organizations quota set [--projects <integer>] [--services <integer>] [--instances <integer>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Set the quota, replacing any. Nothing running is stopped, whatever the usage.
+
+Options and flags:
+    --help
+        Display this help text.
+    --projects <integer>
+        At most this many projects; 0 allows none; omit for no limit.
+    --services <integer>
+        At most this many services across the organization; 0 allows none; omit for no limit.
+    --instances <integer>
+        At most this many instances across the organization (the sum of minInstances); 0 allows none; omit for no limit.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka organizations quota clear`
+
+```text
+Usage: ankka organizations quota clear [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
+
+Lift every limit.
 
 Options and flags:
     --help

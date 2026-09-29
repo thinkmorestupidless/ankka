@@ -1,13 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer as JdkHttpServer}
-import com.thinkmorestupidless.ankka.core.{
-  ComponentId,
-  ComponentKind,
-  EntityId,
-  Metadata,
-  MethodName
-}
+import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId, Metadata, MethodName}
 
 import com.thinkmorestupidless.ankka.sdk.{
   EventSourcedEntityDescriptor,

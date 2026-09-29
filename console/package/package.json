@@ -1,0 +1,79 @@
+{
+  "name": "ankka-console",
+  "version": "0.0.0",
+  "description": "The ankka console as a package: the control plane client, sign-in and sessions, and the pages as routes a React Router host mounts.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "*.css"
+  ],
+  "exports": {
+    ".": {
+      "ankka-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "ankka-source": "./src/client/index.ts",
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
+    "./server": {
+      "ankka-source": "./src/server/index.ts",
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./testing": {
+      "ankka-source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thinkmorestupidless/ankka.git",
+    "directory": "console/package"
+  },
+  "homepage": "https://docs.ankka.cloud/",
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --conditions=ankka-source --test 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "jose": "^6.2.12",
+    "openid-client": "^6.8.8",
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "@react-router/dev": "^8.4.0",
+    "@react-router/node": "^8.4.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "^8.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-router/dev": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@react-router/dev": "^8.4.0",
+    "@react-router/node": "^8.4.0",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

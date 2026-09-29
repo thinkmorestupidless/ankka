@@ -17,6 +17,7 @@ import { metadataToProto } from "./context.ts"
 import { encodePayload, decodePayload, EMPTY_PAYLOAD } from "./server/payloads.ts"
 import type { Schema } from "./schema.ts"
 import type { Duration } from "./time.ts"
+import { AutonomousAgentCalls, TaskCalls, Tasks } from "./autonomous.ts"
 
 /** A component class as the typed client sees it: an id and, on its prototype, its kind. */
 export interface ComponentRef {
@@ -271,6 +272,59 @@ export class ComponentClient {
 
   forAgent(componentId: string, sessionId: string): Calls {
     return new Calls(this.#connection, this.#metadata, "agent", componentId, sessionId)
+  }
+
+  /** Creates tasks for autonomous agents. */
+  get tasks(): Tasks {
+    return new Tasks(this)
+  }
+
+  /** Calls about one task. */
+  forTask(taskId: string): TaskCalls {
+    return new TaskCalls(this, taskId)
+  }
+
+  /** One instance of an autonomous agent, by the id the caller chose; without one, only `runSingleTask`, on an instance the platform names. */
+  forAutonomousAgent(agent: { readonly componentId: string } | string, instanceId?: string): AutonomousAgentCalls {
+    return new AutonomousAgentCalls(this, typeof agent === "string" ? agent : agent.componentId, instanceId)
+  }
+
+  /** @internal A call with a JSON body and a JSON reply, as the platform's own components take them. */
+  async _raw(kind: ComponentKind, componentId: string, entityId: string, name: string, body?: unknown): Promise<unknown> {
+    const answer = await stubOf(this.#connection).invoke({
+      kind: kindToProto(kind),
+      componentId,
+      entityId,
+      name,
+      payload: { contentType: "application/json", manifest: "", data: body === undefined ? new Uint8Array() : new TextEncoder().encode(JSON.stringify(body)) },
+      metadata: metadataToProto(this.#metadata),
+    })
+    switch (answer.result.case) {
+      case "reply": {
+        const data = answer.result.value.payload?.data
+        return data && data.length > 0 ? JSON.parse(new TextDecoder().decode(data), reviver) : undefined
+      }
+      case "error":
+        throw new CommandError(errorOf(answer.result.value))
+      default:
+        throw new CommandError({ message: "the sidecar answered nothing", code: "INTERNAL" })
+    }
+  }
+
+  /** @internal A streaming call whose tokens are text. */
+  async *_rawStream(kind: ComponentKind, componentId: string, entityId: string, name: string): AsyncIterable<string> {
+    const request = { kind: kindToProto(kind), componentId, entityId, name, payload: EMPTY_PAYLOAD, metadata: metadataToProto(this.#metadata) }
+    for await (const token of stubOf(this.#connection).invokeStream(request)) {
+      switch (token.token.case) {
+        case "text":
+          yield token.token.value
+          break
+        case "completed":
+          return
+        case "failed":
+          throw new CommandError(errorOf(token.token.value))
+      }
+    }
   }
 
   /** Typed calls through a component class's handler table: `client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.addItem).invoke(item)`. */

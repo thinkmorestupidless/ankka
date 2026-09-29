@@ -11,6 +11,7 @@ pages:
   - deploy/run-locally.md
   - deploy/images.md
   - deploy/deploy-a-service.md
+  - operate/console.md
   - deploy/expose.md
   - deploy/scaling-and-rollouts.md
   - deploy/ci.md

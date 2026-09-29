@@ -174,6 +174,25 @@ Scheduling twice under one name replaces the earlier timer. See [Timers](../buil
 See [Agents](../build/agents.md), [Streaming responses](../build/streaming.md) and
 [Multi-agent orchestration](../build/multi-agent-orchestration.md).
 
+## Autonomous agent
+
+| Part | API |
+|---|---|
+| Task type | `Task.named(wireName).describedAs(d)` (a text result), `.resultConformsTo[R]` (needs a `JsonValueCodec[R]` and a `JsonSchema[R]`), `.rule(name)(r => TaskRule.Accepted \| TaskRule.Rejected(reason))` |
+| Result schema | `given JsonSchema[R] = JsonSchema.derived` for a case class |
+| Base class | `AutonomousAgent(context)`; override `tools: Seq[FunctionTool]` |
+| Companion | `AutonomousAgent.Companion[A](componentId)`; define `create(context)` and `definition` |
+| Definition | `define.describedAs(d).instructions(t).guardrails(g*).model(p).capability(TaskAcceptance.of(task).maxIterationsPerTask(n)).settings(AutonomousAgentSettings(…))` |
+| In a tool | `context.componentClient`, `context.instanceId`, `AutonomousAgent.currentTask` |
+| Tasks | `componentClient.tasks.create(task, instructions).withId(id).attach(…).attachReference(…).dependsOn(ids*).create()` |
+| A task | `componentClient.forTask(id).get()`, `.get(task)`, `.await(task, timeout)`, `.cancel(reason)` |
+| An instance | `componentClient.forAutonomousAgent(Companion)(instanceId).assign(ids*)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()` |
+| One task | `componentClient.forAutonomousAgent(Companion).runSingleTask(task, instructions)` |
+| Runtime | the `AgentRuntime` hosts them; register `AgentRuntime.descriptors` and a `ProjectionRuntime()` |
+| Testing | `TestModelProvider().expectCompleteTask(result)`, `.expectCompleteTaskJson(json)`, `.expectCompleteTaskText(t)`, `.expectFailTask(reason)`, `.whenToolResult(s)(r)`, `.whenUserAsks(s)(r)`; `AnkkaTestKit.awaitTask(id, task)` |
+
+See [Autonomous agents](../build/autonomous-agents.md).
+
 ## HTTP endpoint
 
 | Part | API |

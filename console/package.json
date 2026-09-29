@@ -1,0 +1,22 @@
+{
+  "name": "ankka-console-workspace",
+  "private": true,
+  "description": "The installation's console: the ankka-console package, the host that is the image, and the browser suite.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "package",
+    "host",
+    "e2e"
+  ],
+  "scripts": {
+    "typecheck": "npm run build -w package && npm run typecheck --workspaces --if-present",
+    "test": "npm test -w package",
+    "e2e": "npm run build && CONSOLE_E2E_PARITY=1 npm test -w e2e --",
+    "build": "npm run build -w package && npm run build -w host",
+    "dev": "npm run build -w package && npm run dev -w host"
+  }
+}

@@ -9,6 +9,14 @@ three ways to coordinate them — sequential, parallel and dynamic — using the
 which uses all three in one workflow. The whole sample is in
 [samples/multi-agent-planner](https://github.com/thinkmorestupidless/ankka/tree/main/samples/multi-agent-planner).
 
+## A workflow, or an autonomous agent
+
+A workflow is the answer when the steps are known in advance — select, consult, summarise — and each step
+asks an agent for a decision. When the model should decide what to do next, for as many iterations as it
+takes, and the result is read later rather than awaited, an [autonomous agent](autonomous-agents.md) is the
+shape instead: it records every iteration, resumes after a crash and stops at its budget, with no workflow
+to write.
+
 ## Why a workflow, not a chain of calls
 
 An agent can call another agent through the component client; that is just a method call, and it is fine

@@ -269,6 +269,39 @@ object Main:
       }
     }
 
+    val quota = Opts.subcommand(
+      "quota",
+      "The most an organization may hold (platform administrators only)."
+    ) {
+      def limit(name: String, of: String) =
+        Opts.option[Int](name, s"At most this many $of; 0 allows none; omit for no limit.").orNone
+      val set = Opts.subcommand(
+        "set",
+        "Set the quota, replacing any. Nothing running is stopped, whatever the usage."
+      ) {
+        (
+          Opts.argument[String]("id"),
+          limit("projects", "projects"),
+          limit("services", "services across the organization"),
+          limit("instances", "instances across the organization (the sum of minInstances)"),
+          contextOpt
+        ).mapN { (id, projects, services, instances, ctx) => () =>
+          val quota    = Quota(projects, services, instances)
+          val problems = Quota.problems(quota)
+          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+          ctx.client.setQuota(id, quota)
+          s"quota set on '$id': ${Output.quota(quota)}"
+        }
+      }
+      val clear = Opts.subcommand("clear", "Lift every limit.") {
+        (Opts.argument[String]("id"), contextOpt).mapN { (id, ctx) => () =>
+          ctx.client.clearQuota(id)
+          s"quota cleared on '$id'"
+        }
+      }
+      set.orElse(clear)
+    }
+
     list
       .orElse(get)
       .orElse(create)
@@ -279,6 +312,7 @@ object Main:
       .orElse(invitations)
       .orElse(disable)
       .orElse(enable)
+      .orElse(quota)
   }
 
   // ── projects ──────────────────────────────────────────────────────────────

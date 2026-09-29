@@ -30,6 +30,7 @@ enum Kind {
   CONSUMER = 4;
   TIMED_ACTION = 5;
   AGENT = 6;
+  AUTONOMOUS_AGENT = 7;           // protocol 1.2
 }
 
 message Component {
@@ -44,6 +45,7 @@ message Component {
     ConsumerDetail     consumer      = 14;
     TimedActionDetail  timed_action  = 15;
     AgentDetail        agent         = 16;
+    AutonomousAgentDetail autonomous_agent = 17;   // protocol 1.2
   }
 }
 
@@ -81,6 +83,38 @@ message AgentDetail {
 }
 
 message Tool { string name = 1; string description = 2; string input_schema_json = 3; }
+
+// An autonomous agent's whole definition (protocol 1.2). There is nothing to plan per task: the
+// sidecar runs the loop from this and asks the process only to run a tool (Agent.InvokeTool), check
+// a guardrail (Agent.CheckGuardrail) and check a task rule (Agent.CheckTaskRule), each with the
+// session id "task:<task id>".
+message AutonomousAgentDetail {
+  string description = 1;                   // required
+  optional string instructions = 2;
+  repeated Tool tools = 3;                  // never complete_task or fail_task, which are the sidecar's
+  repeated string guardrails = 4;
+  repeated TaskType task_types = 5;         // every type this agent accepts, declared once
+  repeated TaskAcceptance accepts = 6;
+  optional AutonomousSettings settings = 7;
+  optional string model = 8;                // a name in the sidecar's configuration; absent: its default
+
+  message TaskType {
+    string name = 1;                        // the wire name, written into every task of this type
+    string description = 2;
+    optional string result_schema_json = 3; // absent: the result is text
+    repeated string rules = 4;              // names, checked in order
+  }
+  message TaskAcceptance {
+    string task_type = 1;                   // a name in task_types
+    int32 max_iterations = 2;               // at least 1
+  }
+  message AutonomousSettings {
+    optional double approaching_budget_at = 1;          // 0.8
+    optional int32 repeated_failure_at = 2;             // 3
+    optional int32 max_consecutive_failures = 3;        // 5
+    optional int64 dependency_stuck_after_millis = 4;   // 300000
+  }
+}
 
 message Endpoint {
   string id = 1;                 // for log lines and the console; unique within the Spec

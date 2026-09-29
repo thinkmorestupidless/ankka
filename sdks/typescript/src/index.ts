@@ -33,6 +33,28 @@ export { Consumer, type ConsumerClass } from "./consumer.ts"
 export { TimedAction, type TimedActionClass } from "./timedAction.ts"
 export { AgentEffects, type AgentEffect } from "./effects/agent.ts"
 export { Agent, type AgentClass } from "./agent.ts"
+export {
+  AutonomousAgent,
+  AutonomousAgentCalls,
+  TaskCalls,
+  Tasks,
+  accepted,
+  rejected,
+  taskAcceptance,
+  taskRule,
+  taskType,
+  type Accepted,
+  type AgentState,
+  type Attachment,
+  type AutonomousAgentClass,
+  type AutonomousSettings,
+  type Notification,
+  type Rejected,
+  type TaskAcceptance,
+  type TaskRule,
+  type TaskSnapshot,
+  type TaskType,
+} from "./autonomous.ts"
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
 export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"

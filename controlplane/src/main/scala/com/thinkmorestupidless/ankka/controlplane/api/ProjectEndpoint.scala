@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
 import com.thinkmorestupidless.ankka.controlplane.deploy.RegistryWriter
 import com.thinkmorestupidless.ankka.controlplane.domain.ConfigureRegistry
+import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlFragment
@@ -35,6 +36,7 @@ final class ProjectEndpoint(
   private val projects = clients.viewClient.forView(ProjectRows)
   private val services = clients.viewClient.forView(ServiceRows)
   private val authz    = Authorization(clients, clock)
+  private val usage    = OrganizationUsage(clients)
 
   /**
    * `GET /projects?organization=acme` — the filter is optional, and one outside the caller's
@@ -73,10 +75,18 @@ final class ProjectEndpoint(
     val idProblems = ProjectId.problems(projectId)
     if idProblems.nonEmpty then throw CommandError(idProblems.mkString("; "), ErrorCode.BadRequest)
     val access = authz.requireMember(principal, request.organizationId, write = true)
-    entity(projectId)
-      .call(ProjectEntity.createProject)
-      .withMetadata(authz.metadata(access))
-      .invoke(request): Done
+    val by     = authz.metadata(access)
+    // The organization is asked first (feature 015): a refusal for quota creates nothing, and a
+    // create that then fails gives the slot back — only if this request was the one that took it.
+    val reserved = usage.reserveProject(request.organizationId, projectId, by)
+    try entity(projectId).call(ProjectEntity.createProject).withMetadata(by).invoke(request): Done
+    catch
+      case NonFatal(failure) =>
+        if reserved then
+          usage.undo(s"release project '$projectId'") {
+            usage.releaseProject(request.organizationId, projectId, by)
+          }
+        throw failure
   }
 
   putBody("/{projectId}/name") { (projectId: String, request: Rename) =>
@@ -95,7 +105,10 @@ final class ProjectEndpoint(
         s"project '$projectId' still has $remaining service(s)",
         ErrorCode.Conflict
       )
-    entity(projectId).call(ProjectEntity.delete).withMetadata(authz.metadata(access)).invoke(): Done
+    val by = authz.metadata(access)
+    entity(projectId).call(ProjectEntity.delete).withMetadata(by).invoke(): Done
+    usage.releaseProject(access.organizationId, projectId, by)
+    Done: Done
   }
 
   /**

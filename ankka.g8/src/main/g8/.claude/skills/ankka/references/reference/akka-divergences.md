@@ -21,6 +21,8 @@ will recognise every component. The differences below are deliberate, and each h
 | `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
+| `AutonomousAgent` declared by a `definition()` on the instance | a `definition` on the companion, tools on the instance | The definition is checked at registration; the tools need the instance's component client. |
+| A task type's name is the Java field's | `Task.named("wire-name")` | A task type's name is written into every task of it: renaming code must not orphan stored tasks. |
 | Four service lifecycle states | eight | `NotDeployed`, `Paused`, `Failed` and `Suspended` are distinctions four states cannot express. |
 
 ## Registration is explicit
@@ -131,7 +133,24 @@ Akka reports `Ready`, `UpdateInProgress`, `PartiallyReady` and `Unavailable`. an
 `Suspended` for a service stopped because its organization was disabled. See
 [Service lifecycle states](lifecycle-states.md).
 
+## Autonomous agents
+
+An autonomous agent's definition — its description, instructions, guardrails, model, the task types it
+accepts and their budgets — is declared on its companion and checked when it is registered, so a missing
+description or a type accepted twice fails the service at startup. Its tools are declared on the instance,
+which is what holds the component client a tool calls other components through.
+
+Three behaviours are stated rather than left to be discovered:
+
+- **Tools run at least once.** A recorded model response is never asked for again, but a tool whose result
+  had not been recorded when the process stopped runs again when the task resumes.
+- **A task can be cancelled from outside**, and one being worked stops at the end of the iteration in
+  progress.
+- **Terminating an instance hands its tasks back.** They return to pending, unassigned, for another
+  instance to take, rather than failing.
+
 ## What Akka has that ankka does not
 
 Multi-region replication, multi-table views, view rebuild on deploy, and autoscaling are among the
-capabilities ankka does not have. See [Limitations](limitations.md).
+capabilities ankka does not have. Autonomous agents do not yet delegate subtasks, hand tasks on, lead teams
+or moderate conversations, and have no MCP tools. See [Limitations](limitations.md).

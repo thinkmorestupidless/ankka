@@ -255,7 +255,29 @@ trait Conversation:
       text: String
   ): Future[Either[String, Unit]]
 
+  /**
+   * Asks the process to check an autonomous agent's result: decode it as the task type's result and
+   * run the type's rules. A rule that threw fails the future, which the agent treats as a failed
+   * iteration rather than as a verdict — the process did not decide anything.
+   */
+  def checkTaskResult(
+      componentId: ComponentId,
+      taskId: String,
+      taskType: String,
+      resultJson: String
+  ): Future[TaskResultVerdict]
+
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]]
   def handleHttpStream(request: HttpForward): Source[String, NotUsed]
 
   def reachable(): Boolean
+
+/** What a process said about an autonomous agent's result. */
+enum TaskResultVerdict:
+  case Accept
+
+  /** It does not decode as the task type's result; the model is told why. */
+  case Malformed(problem: String)
+
+  /** `rule` refused it, for `reason`. */
+  case Reject(rule: String, reason: String)

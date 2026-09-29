@@ -6,12 +6,15 @@ where the two disagree."""
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import timedelta
+from typing import Any
 
 from ankka import DONE, Acl, Callers, Done, Gateway, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
 from ankka.agent import Agent, Guardrail, Tool, stream
+from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import ComponentClient
 from ankka.consumer import Consumer
 from ankka.effects.agent import AgentEffect
@@ -180,6 +183,46 @@ class ConformanceAssistant(Agent):
         return self._describe(question)
 
 
+# ── answerer: an autonomous agent, whose tool acts through the client ──
+
+
+@dataclass
+class Answer:
+    answer: str
+    sources: list[str]
+
+
+def _cites_sources(a: Answer) -> Accepted | Rejected:
+    return Rejected("sources must not be empty") if not a.sources else Accepted()
+
+
+_flaky_seen: set[str] = set()
+
+
+def _steady(a: Answer) -> Accepted | Rejected:
+    """Raises the first time it sees "flaky-once": a rule that fails once, then decides."""
+    if a.answer == "flaky-once" and a.answer not in _flaky_seen:
+        _flaky_seen.add(a.answer)
+        raise RuntimeError("the rule threw")
+    return Accepted()
+
+
+ANSWER: TaskType[Answer] = TaskType(
+    "answer",
+    "Answer a question, citing what you looked up",
+    result=Answer,
+    rules=(TaskRule("cites-sources", _cites_sources), TaskRule("steady", _steady)),
+)
+
+
+class ConformanceAnswerer(AutonomousAgent):
+    component_id = "answerer"
+    description = "Answers questions"
+    tools = {"lookup": Tool("Looks up how many things were recorded under an id.", _lookup, LookupArguments)}
+    guardrails = {"no-secrets": Guardrail(lambda stage, text: f"{stage} rejected by no-secrets" if "sk-" in text else None)}
+    accepts = [TaskAcceptance(ANSWER, max_iterations=4)]
+
+
 # ── Endpoints ──
 
 
@@ -317,6 +360,74 @@ class CallersEndpoint(Endpoint):
         yield "tick"
 
 
+class AutonomousEndpoint(Endpoint):
+    """Autonomous agents: tasks run, read and cancelled; instances driven and watched."""
+
+    prefix = "/autonomous"
+    acl = Acl.ALLOW_ALL
+
+    def __init__(self, client: ComponentClient) -> None:
+        self.client = client
+
+    def _scoped(self) -> ComponentClient:
+        return self.client.with_metadata(self.request.metadata)
+
+    @post("/tasks/{taskType}")
+    async def run_task(self, taskType: str, instructions: str) -> str:
+        if taskType != ANSWER.name:
+            raise HttpProblem(400, f"no task type '{taskType}'")
+        client = self._scoped()
+        task_id = await client.for_autonomous_agent(ConformanceAnswerer).run_single_task(ANSWER, instructions)
+        task: TaskSnapshot[Any] = await client.for_task(task_id).get()
+        return json.dumps({"taskId": task_id, "instanceId": task.assignee[1] if task.assignee else ""})
+
+    @get("/tasks/{id}")
+    async def read_task(self, id: str) -> str:
+        return json.dumps((await self._scoped().for_task(id).get()).record)
+
+    @post("/tasks/{id}/cancel")
+    async def cancel_task(self, id: str) -> Done:
+        await self._scoped().for_task(id).cancel()
+        return DONE
+
+    @post("/tasks/{taskType}/create")
+    async def create_task(self, taskType: str, body: str) -> str:
+        """{"instructions": "...", "dependsOn": ["..."]} — creates without running."""
+        if taskType != ANSWER.name:
+            raise HttpProblem(400, f"no task type '{taskType}'")
+        request = json.loads(body)
+        task_id = await self._scoped().tasks.create(ANSWER, request.get("instructions", ""), depends_on=request.get("dependsOn", []))
+        return json.dumps({"taskId": task_id})
+
+    @post("/instances/{instance}/assign")
+    async def assign(self, instance: str, body: str) -> str:
+        answer = await self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).assign(*json.loads(body))
+        return json.dumps({"accepted": answer["accepted"]})
+
+    @post("/instances/{instance}/{op}")
+    async def operate(self, instance: str, op: str) -> Done:
+        calls = self._scoped().for_autonomous_agent(ConformanceAnswerer, instance)
+        if op == "suspend":
+            await calls.suspend()
+        elif op == "resume":
+            await calls.resume()
+        elif op == "terminate":
+            await calls.terminate()
+        else:
+            raise HttpProblem(404, f"no operation '{op}'")
+        return DONE
+
+    @sse("/instances/{instance}/notifications")
+    async def notifications(self, instance: str) -> AsyncIterator[str]:
+        async for n in self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).notifications():
+            yield n.to_json()
+
+    @get("/instances/{instance}/state")
+    async def state(self, instance: str) -> str:
+        s = await self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).state()
+        return json.dumps({"phase": s.phase, "queued": s.queued, "currentTask": s.current_task})
+
+
 class PrivateEndpoint(Endpoint):
     prefix = "/private"
     acl = Acl.AUTHENTICATED
@@ -338,8 +449,10 @@ def reference_service() -> ServiceBuilder:
         .register(CheckoutRecorder)
         .register(Reminder)
         .register(ConformanceAssistant)
+        .register(ConformanceAnswerer)
         .register(ShoppingCartEndpoint)
         .register(ConformanceEndpoint)
         .register(PrivateEndpoint)
         .register(CallersEndpoint)
+        .register(AutonomousEndpoint)
     )

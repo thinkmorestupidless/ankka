@@ -124,9 +124,14 @@ class ProtocolSuite extends munit.FunSuite:
   }
 
   test("discovery: an SDK on an earlier minor is admitted, since a minor only adds") {
-    // The double declares 1.0; the sidecar speaks 1.1, which added the caller.
+    // The double declares 1.0; the sidecar speaks 1.2 (1.1 added the caller, 1.2 the autonomous
+    // agent). Both earlier minors are admitted.
     assertEquals(spec.protocolVersion, "1.0")
     withDouble(spec)((double, _, _) => assert(Discovery.validate(double.toSpec).isRight))
+    withDouble(spec.copy(protocolVersion = "1.1"))((double, _, _) =>
+      assert(Discovery.validate(double.toSpec).isRight)
+    )
+    assertEquals(Discovery.ProtocolVersion, "1.2")
   }
 
   test(

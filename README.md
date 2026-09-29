@@ -13,98 +13,164 @@ A serverless application platform for agentic AI, built on the actor model — a
 in Scala 3 on [Apache Pekko](https://pekko.apache.org/), with services in Scala, Python or
 TypeScript.
 
+![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](docs/assets/diagrams/components.svg)
+
 You write components; ankka supplies the runtime. Sharding, persistence, replay,
 projections, durable orchestration, timers, HTTP and the agent loop are the platform's
 problem, not yours. A control plane, an operator and a CLI deploy, expose, scale and observe
 the result on Kubernetes.
 
-An event sourced entity keeps its state as the fold of the events it persisted. The same cart, in
+An agent carries out a task by talking to a model. Its handler describes the interaction — the
+instructions, the user's message, the tools the model may call and the guardrails to apply — and the
+runtime runs the loop: it calls the model, runs the tools it asks for, keeps the conversation as session
+memory and counts the tokens. The shopping cart's assistant, whose one tool looks up a cart entity, in
 each of the three languages:
 
 ```scala
-final class ShoppingCartEntity(context: EventSourcedEntityContext)
-    extends EventSourcedEntity[ShoppingCart, ShoppingCartEvent]:
+final class CartAssistant extends Agent:
 
-  def emptyState: ShoppingCart = ShoppingCart.empty(context.entityId)
+  private def describe(question: String) =
+    val client = componentClient
 
-  def applyEvent(event: ShoppingCartEvent): ShoppingCart = event match
-    case ItemAdded(item)        => currentState.addItem(item)
-    case ItemRemoved(productId) => currentState.removeItem(productId)
-    case CheckedOut             => currentState.onCheckedOut
+    val lookup = FunctionTool
+      .named("lookup")
+      .describedAs("Looks up what is in a cart by its id.")
+      .param[String]("cartId", "The id of the cart to look up.")
+      .handle { cartId =>
+        val cart = client
+          .forEventSourcedEntity(EntityId(cartId))
+          .call(ShoppingCartEntity.getCart)
+          .invoke()
+        if cart.items.isEmpty then s"cart $cartId is empty"
+        else cart.items.map(item => s"${item.quantity} x ${item.name}").mkString(", ")
+      }
 
-  def addItem(item: LineItem): Effect[Done] =
-    if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
-    else effects.persist(ItemAdded(item)).thenReply(_ => Done)
+    effects
+      .systemMessage(
+        "You help shoppers with their carts. Use the lookup tool before answering about a cart."
+      )
+      .userMessage(question)
+      .tools(lookup)
+      .guardrails(CartAssistant.noSecrets)
+
+  def ask(question: String): Effect[String] = describe(question).thenReply()
+
+  def chat(question: String): StreamEffect = describe(question).thenStream()
+
+object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assistant")):
+
+  val noSecrets: Guardrail = new Guardrail:
+    val name = "no-secrets"
+    override def checkOutput(text: String): Either[String, Unit] =
+      if text.contains("sk-") then Left("a key leaked") else Right(())
+
+  def create(context: AgentContext) = new CartAssistant
+
+  val ask  = command("ask")(_.ask)
+  val chat = stream("chat")(_.chat)
 ```
 
 <details>
-<summary><b>The same entity in Python</b></summary>
+<summary><b>The same agent in Python</b></summary>
 
 ```python
-class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
-    component_id = "shopping-cart"
-    state_codec = json_codec(ShoppingCart, "shopping-cart")
-    event_codec = json_codec(ShoppingCartEvent, "shopping-cart-event")
+@dataclass(frozen=True)
+class CartLookup:
+    cartId: str
 
-    def empty_state(self) -> ShoppingCart:
-        return ShoppingCart.empty(self.entity_id)
 
-    def apply_event(self, state: ShoppingCart, event: ShoppingCartEvent) -> ShoppingCart:
-        match event:
-            case ItemAdded(item):
-                return state.add_item(item)
-            case ItemRemoved(product_id):
-                return state.remove_item(product_id)
-            case CheckedOut():
-                return state.on_checked_out()
-        raise AssertionError(event)
+async def _lookup(agent: Agent, arguments: CartLookup) -> str:
+    assert agent.client is not None
+    cart = await agent.client.for_event_sourced_entity("shopping-cart", arguments.cartId).call("get-cart").invoke(reply=ShoppingCart)
+    if not cart.items:
+        return f"cart {arguments.cartId} is empty"
+    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items)
 
-    @command("add-item")
-    def add_item(self, item: LineItem) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
-        if self.state.checkedOut:
-            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
-        return self.effects.persist(ItemAdded(item)).then_reply(lambda _: DONE)
+
+class CartAssistant(Agent):
+    component_id = "assistant"
+    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
+    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
+
+    def _describe(self, question: str) -> AgentEffect[str]:
+        return (
+            self.effects.system_message("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
+            .user_message(question)
+            .tools("lookup")
+            .guardrails("no-secrets")
+            .then_reply()
+        )
+
+    @command("ask")
+    def ask(self, question: str) -> AgentEffect[str]:
+        return self._describe(question)
+
+    @stream("chat")
+    def chat(self, question: str) -> AgentEffect[str]:
+        return self._describe(question)
 ```
 
 </details>
 
 <details>
-<summary><b>The same entity in TypeScript</b></summary>
+<summary><b>The same agent in TypeScript</b></summary>
 
 ```ts
-export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, ShoppingCartEvent> {
-  static readonly componentId = "shopping-cart"
-  static readonly state = jsonCodec(ShoppingCart, "shopping-cart")
-  static readonly events = jsonCodec(ShoppingCartEvent, "shopping-cart-event")
+const CartLookup = s.record("CartLookup", { cartId: s.string })
+
+export class CartAssistant extends Agent {
+  static readonly componentId = "assistant"
+  static readonly role = "helps shoppers with their carts"
+
+  static readonly tools = {
+    lookup: tool("lookup", "Looks up what is in a cart by its id.", CartLookup, (a: CartAssistant, input) => a.lookup(input.cartId)),
+  }
+
+  static readonly guardrails = {
+    noSecrets: guardrail("no-secrets", (stage, text) => (stage === "output" && text.includes("sk-") ? "a key leaked" : null)),
+  }
 
   static readonly handlers = {
-    addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
-    getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
+    ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
+    chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
   }
 
-  emptyState(): ShoppingCart {
-    return emptyCart(this.entityId)
+  describe(question: string) {
+    return this.effects
+      .systemMessage("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
+      .userMessage(question)
+      .tools("lookup")
+      .guardrails("no-secrets")
+      .thenReply()
   }
 
-  applyEvent(cart: ShoppingCart, event: ShoppingCartEvent): ShoppingCart {
-    switch (event.type) {
-      case "ItemAdded":
-        return addItem(cart, event.item)
-      case "ItemRemoved":
-        return removeItem(cart, event.productId)
-      case "CheckedOut":
-        return { ...cart, checkedOut: true }
-    }
-  }
-
-  addItem(item: LineItem) {
-    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
-    return this.effects.persist({ type: "ItemAdded", item }).thenReply(() => done)
+  async lookup(cartId: string): Promise<string> {
+    const cart = await this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
+    if (cart.items.length === 0) return `cart ${cartId} is empty`
+    return cart.items.map((i) => `${i.quantity} x ${i.name}`).join(", ")
   }
 }
 ```
 
 </details>
+
+## How your code is hosted
+
+In Python and TypeScript the loop runs in the runtime beside your process, which is only called back to run
+a tool or check a guardrail — so your code never holds the model's key. [Agents](docs/build/agents.md)
+covers memory, structured replies, streaming and compaction.
+
+![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In both, only the runtime calls the model provider and writes to the service's Postgres.](docs/assets/diagrams/agent-hosting.svg)
+
+## The platform
+
+The platform runs on Kubernetes. The CLI talks to a **control plane**, which records what you asked for
+and writes one `AnkkaService` resource per service into the project's namespace; an in-cluster
+**operator** watches those resources and creates everything each service needs — its instances, its own
+database, and a route when it is exposed. [How ankka works](docs/concepts/architecture.md) explains the
+split.
+
+![The ankka platform on Kubernetes: the CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace; the operator watches those resources, creates and owns each service's Deployment, database and route, and writes status back. Callers reach an exposed service through the same gateway.](docs/assets/diagrams/platform.svg)
 
 ## Get started
 

@@ -1,6 +1,14 @@
 package com.thinkmorestupidless.ankka.sidecar
 
-import ankka.protocol.v1.agent.{AgentGrpc, GuardrailResult, PlanReply, ToolRequest, ToolResult}
+import ankka.protocol.v1.agent.{
+  AgentGrpc,
+  GuardrailResult,
+  PlanReply,
+  TaskResultRequest,
+  TaskResultVerdict as PbVerdict,
+  ToolRequest,
+  ToolResult
+}
 import ankka.protocol.v1.discovery.{DiscoveryGrpc, SidecarInfo}
 import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc}
 import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, StreamFrame}
@@ -421,6 +429,21 @@ final class GrpcConversation(
     agent
       .checkGuardrail(toGuardrailRequest(componentId, sessionId, guardrail, stage, text))
       .map(fromGuardrailResult)
+
+  def checkTaskResult(
+      componentId: ComponentId,
+      taskId: String,
+      taskType: String,
+      resultJson: String
+  ): Future[TaskResultVerdict] =
+    agent
+      .checkTaskResult(TaskResultRequest(componentId, taskId, taskType, resultJson))
+      .map { answer =>
+        answer.verdict match
+          case PbVerdict.Verdict.Malformed(problem) => TaskResultVerdict.Malformed(problem)
+          case PbVerdict.Verdict.Reject(r)          => TaskResultVerdict.Reject(r.rule, r.reason)
+          case _                                    => TaskResultVerdict.Accept
+      }
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
     http.handle(toHttpRequest(request)).map(fromHttpReply)

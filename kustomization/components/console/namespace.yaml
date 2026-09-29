@@ -1,0 +1,8 @@
+# `managed-by: ankka` is what the control plane's HTTP network policy admits: the console reaches the
+# control plane as a platform workload, presenting its own certificate.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ankka-console
+  labels:
+    app.kubernetes.io/managed-by: ankka

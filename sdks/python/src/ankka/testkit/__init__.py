@@ -3,6 +3,7 @@
 from ankka.testkit.unit import (
     AgentReply,
     AgentTestKit,
+    AutonomousAgentTestKit,
     ConsumerTestKit,
     EndpointTestKit,
     EventSourcedTestKit,
@@ -18,6 +19,7 @@ from ankka.testkit.unit import (
 __all__ = [
     "AgentReply",
     "AgentTestKit",
+    "AutonomousAgentTestKit",
     "ConsumerTestKit",
     "EndpointTestKit",
     "EventSourcedTestKit",

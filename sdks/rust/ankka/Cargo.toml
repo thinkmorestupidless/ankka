@@ -2,13 +2,23 @@
 name = "ankka"
 version = "0.0.0"
 edition = "2024"
+# 1.88, not edition 2024's 1.85: the testkit's container dependencies (time, darling) require it.
+rust-version = "1.88"
 license = "Apache-2.0"
-repository = "https://github.com/thinkmorestupidless/ankka/tree/main/sdks/rust/ankka"
+repository = "https://github.com/thinkmorestupidless/ankka"
+homepage = "https://github.com/thinkmorestupidless/ankka/tree/main/sdks/rust"
+documentation = "https://docs.rs/ankka"
 description = "Build ankka services in Rust, hosted as WebAssembly modules by the ankka runtime"
+keywords = ["ankka", "wasm", "event-sourcing", "agents", "serverless"]
+categories = ["wasm", "web-programming"]
 include = ["src/**", "build.rs", "protocol/**", "Cargo.toml", "README.md"]
 
 [lints]
 workspace = true
+
+# docs.rs builds default features only unless told otherwise, and the integration testkit is a feature.
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 prost = "0.14"

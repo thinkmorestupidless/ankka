@@ -1,6 +1,13 @@
 package com.thinkmorestupidless.ankka.sidecar.wasm
 
-import ankka.protocol.v1.agent.{GuardrailResult, PlanReply, ToolRequest, ToolResult}
+import ankka.protocol.v1.agent.{
+  GuardrailResult,
+  PlanReply,
+  TaskResultRequest,
+  TaskResultVerdict as PbTaskResultVerdict,
+  ToolRequest,
+  ToolResult
+}
 import ankka.protocol.v1.consumer.ConsumerEffect
 import ankka.protocol.v1.discovery.Kind
 import ankka.protocol.v1.endpoint.HttpReply
@@ -326,7 +333,9 @@ final class WasmConversation(
     }
 
   /**
-   * Refused at discovery: a module cannot declare an autonomous agent, so no task is its to check.
+   * An autonomous agent's result, decoded as its task type's and held to the type's rules, by the
+   * module on a fresh instance. A rule that traps fails the future: that decided nothing, and the
+   * agent treats it as a failed iteration rather than a verdict.
    */
   def checkTaskResult(
       componentId: ComponentId,
@@ -334,9 +343,13 @@ final class WasmConversation(
       taskType: String,
       resultJson: String
   ): Future[TaskResultVerdict] =
-    Future.failed(
-      ProtocolViolation(s"'$componentId' is not a module's: a module declares no autonomous agents")
-    )
+    orFail(
+      fresh(
+        "check_task_result",
+        TaskResultRequest(componentId, taskId, taskType, resultJson),
+        settings.commandTimeout
+      )(PbTaskResultVerdict.parseFrom)
+    ).map(fromTaskResultVerdict)
 
   /** Refused at discovery: a module answers a request whole, so no route of one streams. */
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =

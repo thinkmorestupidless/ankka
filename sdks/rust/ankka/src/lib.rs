@@ -38,3 +38,5 @@ pub use service::{Problem, Service};
 
 /// serde, as this library uses it: the derives a service's types need.
 pub use serde;
+/// serde_json, as this library uses it: the JSON a task's record is read as.
+pub use serde_json;

@@ -1,8 +1,8 @@
 //! Testing a service at two levels, as every ankka SDK does.
 //!
-//! [`unit`] runs one component natively — no module, no runtime, no Docker — driving it through the
+//! [`unit`](mod@unit) runs one component natively — no module, no runtime, no Docker — driving it through the
 //! same dispatch its exports use, so every input, event, state and reply crosses its codec as it
-//! would on the wire. [`integration`] (feature `testkit`) builds the service's module and runs it in
+//! would on the wire. `integration` (feature `testkit`) builds the service's module and runs it in
 //! the real runtime image against a throwaway Postgres.
 
 #[cfg(all(feature = "testkit", not(target_arch = "wasm32")))]
@@ -16,8 +16,9 @@ pub mod unit;
 pub use integration::{AnkkaTestKit, Http, Module, TestkitError};
 #[cfg(not(target_arch = "wasm32"))]
 pub use kinds::{
-    AgentReply, AgentTestKit, Answered, ConsumerTestKit, KeyValueEntityTestKit, KeyValueOutcome,
-    ScriptedModel, StepNext, TimedActionTestKit, ViewTestKit, WorkflowTestKit,
+    AgentReply, AgentTestKit, Answered, AutonomousAgentTestKit, ConsumerTestKit,
+    KeyValueEntityTestKit, KeyValueOutcome, ScriptedModel, StepNext, TimedActionTestKit,
+    ViewTestKit, WorkflowTestKit,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use unit::{CommandOutcome, EndpointTestKit, EventSourcedTestKit};

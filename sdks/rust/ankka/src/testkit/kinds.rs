@@ -16,9 +16,10 @@ use serde_json::Value;
 use super::unit::{InMemory, hosted, in_memory};
 use crate::codec::{decode_payload, encode_payload};
 use crate::components::agent::Stage;
+use crate::components::autonomous::Registration as AutonomousRegistration;
 use crate::components::{
-    Agent, ComponentOf, Consumer, HeldState, KeyValueEntity, Registered, TimedAction, View,
-    Workflow, kinds,
+    Agent, AutonomousAgent, ComponentOf, Consumer, HeldState, KeyValueEntity, Registered,
+    ResultCheck, TaskType, TimedAction, Verdict, View, Workflow, kinds,
 };
 use crate::context::Metadata;
 use crate::effects::consumer::ConsumerEffect;
@@ -727,5 +728,114 @@ impl<C: Agent> AgentTestKit<C> {
                 }
             }
         }
+    }
+}
+
+// ── Autonomous agents ────────────────────────────────────────────────────────
+
+/// Runs an autonomous agent's parts for one task — its tools, its guardrails and its task types'
+/// rules — as the runtime calls them. There is no loop here and no model: the runtime runs those,
+/// and what a module decides is only ever one of these three calls.
+pub struct AutonomousAgentTestKit<C: AutonomousAgent> {
+    task_id: String,
+    registration: AutonomousRegistration<C>,
+    runtime: Option<Rc<InMemory>>,
+}
+
+impl<C: AutonomousAgent> AutonomousAgentTestKit<C> {
+    /// Calls made for task `task_id`, which a tool reads as `ctx.task_id()`.
+    pub fn new(task_id: &str) -> AutonomousAgentTestKit<C> {
+        AutonomousAgentTestKit {
+            task_id: task_id.to_string(),
+            registration: AutonomousRegistration::new(),
+            runtime: None,
+        }
+    }
+
+    /// Tools' and rules' calls to the service's event sourced entities are answered in memory.
+    pub fn with_service(mut self, service: Service) -> AutonomousAgentTestKit<C> {
+        self.runtime = Some(in_memory(service));
+        self
+    }
+
+    fn session(&self) -> String {
+        format!("task:{}", self.task_id)
+    }
+
+    /// Runs tool `name` with `arguments`: `Ok` is what the model is told, `Err` the error it is
+    /// told instead.
+    pub fn run_tool(&self, name: &str, arguments: Value) -> Result<String, String> {
+        let request = proto::ToolRequest {
+            component_id: C::COMPONENT_ID.to_string(),
+            session_id: self.session(),
+            tool: name.to_string(),
+            arguments_json: arguments.to_string(),
+        };
+        let registration = &self.registration;
+        match hosted(&self.runtime, || registration.invoke_tool(request)).and_then(|r| r.result) {
+            Some(proto::tool_result::Result::Ok(text)) => Ok(text),
+            Some(proto::tool_result::Result::Error(text)) => Err(text),
+            None => Err(String::new()),
+        }
+    }
+
+    /// Checks guardrail `name` at `stage`: `Err` is the reason the task fails.
+    pub fn check_guardrail(&self, name: &str, stage: Stage, text: &str) -> Result<(), String> {
+        let request = proto::GuardrailRequest {
+            component_id: C::COMPONENT_ID.to_string(),
+            session_id: self.session(),
+            guardrail: name.to_string(),
+            stage: match stage {
+                Stage::Input => proto::guardrail_request::Stage::Input as i32,
+                Stage::Output => proto::guardrail_request::Stage::Output as i32,
+            },
+            text: text.to_string(),
+        };
+        let registration = &self.registration;
+        match hosted(&self.runtime, || registration.check_guardrail(request)).and_then(|r| r.result)
+        {
+            Some(proto::guardrail_result::Result::Block(reason)) => Err(reason),
+            _ => Ok(()),
+        }
+    }
+
+    /// Runs rule `rule` of `task_type` alone on `result`, which crosses JSON as the model's would.
+    pub fn check_rule<R>(&self, task_type: &TaskType<R>, rule: &str, result: &R) -> Verdict
+    where
+        R: Serialize + DeserializeOwned + 'static,
+    {
+        let json = serde_json::to_string(result)
+            .unwrap_or_else(|e| panic!("the result does not encode: {e}"));
+        let registration = &self.registration;
+        let checked = hosted(&self.runtime, || {
+            registration.rule(task_type.name(), rule, &json, &self.task_id)
+        });
+        match checked {
+            Some(Ok(verdict)) => verdict,
+            Some(Err(problem)) => panic!("the result does not decode: {problem}"),
+            None => panic!(
+                "task type '{}' of '{}' has no rule '{rule}'",
+                task_type.name(),
+                C::COMPONENT_ID
+            ),
+        }
+    }
+
+    /// Checks `result` as the runtime asks the module to: decoded, then every rule in order.
+    pub fn check_result<R>(&self, task_type: &TaskType<R>, result: &R) -> ResultCheck
+    where
+        R: Serialize + DeserializeOwned + 'static,
+    {
+        let json = serde_json::to_string(result)
+            .unwrap_or_else(|e| panic!("the result does not encode: {e}"));
+        self.check_result_json(task_type.name(), &json)
+    }
+
+    /// Checks a result as the model wrote it, JSON that may not decode.
+    pub fn check_result_json(&self, task_type: &str, result_json: &str) -> ResultCheck {
+        let registration = &self.registration;
+        hosted(&self.runtime, || {
+            registration.check(task_type, result_json, &self.task_id)
+        })
     }
 }

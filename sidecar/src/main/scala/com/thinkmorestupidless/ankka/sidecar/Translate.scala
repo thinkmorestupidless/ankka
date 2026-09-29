@@ -6,6 +6,7 @@ import ankka.protocol.v1.agent.{
   GuardrailResult,
   PlanReply,
   PlanRequest as PbPlanRequest,
+  TaskResultVerdict as PbVerdict,
   ToolResult
 }
 import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerRequest as PbConsumerRequest}
@@ -246,6 +247,12 @@ private[sidecar] object Translate:
   def fromGuardrailResult(result: GuardrailResult): Either[String, Unit] = result.result match
     case GuardrailResult.Result.Block(reason) => Left(reason)
     case _                                    => Right(())
+
+  /** What a process or a module answered about a task's result: decoded, then held to its rules. */
+  def fromTaskResultVerdict(answer: PbVerdict): TaskResultVerdict = answer.verdict match
+    case PbVerdict.Verdict.Malformed(problem) => TaskResultVerdict.Malformed(problem)
+    case PbVerdict.Verdict.Reject(r)          => TaskResultVerdict.Reject(r.rule, r.reason)
+    case _                                    => TaskResultVerdict.Accept
 
   def fromHttpReply(reply: HttpReply): Either[ProcessFailure, HttpResult] = reply.message match
     case HttpReply.Message.Response(r) =>

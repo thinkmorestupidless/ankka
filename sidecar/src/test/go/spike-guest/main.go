@@ -396,6 +396,9 @@ func invokeTool(p uint32, n uint32) uint64 { return fixed(p, n, text(1, "tool ra
 //go:wasmexport ankka1_check_guardrail
 func checkGuardrail(p uint32, n uint32) uint64 { return fixed(p, n, message(1, nil)) } // GuardrailResult.pass
 
+//go:wasmexport ankka1_check_task_result
+func checkTaskResult(p uint32, n uint32) uint64 { return fixed(p, n, message(1, nil)) } // TaskResultVerdict.accept
+
 //go:wasmexport ankka1_http
 func http(p uint32, n uint32) uint64 {
 	// HttpReply.response: status (1), content_type (2), body (3).

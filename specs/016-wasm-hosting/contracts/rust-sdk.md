@@ -84,6 +84,30 @@ types. The library's own reduction (`materialise`) is what the unit testkit show
   arguments are decoded into the tool's own type; `Err` is a message for the model. Guardrails are
   `Guardrails::new().guardrail("name", fn(Stage, &str, &Context) -> Result<(), String>)`. There
   are no streaming handlers: a module answers every call whole.
+- **Autonomous agent** (amended): `impl AutonomousAgent` with `COMPONENT_ID`, `DESCRIPTION`, optional
+  `INSTRUCTIONS` and `MODEL`, `accepts() -> Vec<TaskAcceptance>`, and optional `tools()`,
+  `guardrails()` (the agent's own `Tools` and `Guardrails`, no longer bound to `Agent`) and
+  `settings() -> Option<AutonomousSettings>`; registered by value like every kind, rendered into
+  `AutonomousAgentDetail`. A task type is a value, `TaskType::<R>::new(name, description, Schema)`
+  (the result's schema written out, as a tool's is) or `TaskType::text(name, description)` (no schema:
+  the model gives `{"result": "..."}` and the result is a JSON string), with `.rule(name, fn(&R, &Context)
+  -> Verdict)`; `TaskAcceptance::new(type, max_iterations)` erases `R`. `ankka1_check_task_result`
+  decodes the result as `R` (`malformed` with serde's message when it does not), runs the rules in
+  order (`reject{rule, reason}` for the first refusal, else `accept`), and a rule that panics traps.
+  Rules take a `&Context` where Python's take only the result: a module instance keeps nothing between
+  calls (a check runs on a fresh instance), so a rule that must remember something — the conformance
+  reference's `steady`, which faults once — does it through the client. A tool, guardrail or rule reads
+  its task as `ctx.task_id()`. Validation mirrors Python's refusals, one problem each, prefixed
+  `autonomous agent '<id>': `. The client adds `tasks().create(&type, task)`, `task(id).get()`,
+  `.get_as(&type)`, `.wait(reads)`, `.cancel()`, and `autonomous_agent(A).run_single_task(&type, task)` and
+  `.instance(id).{assign, suspend, resume, terminate, state}`, in the order and with the payloads Python
+  sends. Two departures follow from a module having no clock and no randomness: `wait` is bounded by a
+  number of reads rather than a timeout, and an id nobody named is derived from `ankka.now`, the call's
+  metadata and a per-instance count, made again when it names an existing task. Notifications are not
+  offered — a module answers every call whole — and the conformance suite's two notification cases are
+  skipped for a module, as its streaming cases are. `AutonomousAgentTestKit::<C>::new(task_id)` offers
+  `run_tool`, `check_rule`, `check_guardrail` and `check_result`, with no loop. The protocol version the
+  crate declares is 1.2.
 - **Shape chosen at start**: `Service::register_as(component, shape)` registers a stateful kind
   with a shape its declaration does not fix, for a service that reads it from configuration, as
   the conformance reference does.

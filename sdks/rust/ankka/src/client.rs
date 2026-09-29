@@ -7,6 +7,11 @@
 //! ```ignore
 //! let cart: Cart = ctx.client().invoke(ShoppingCart, "cart-1", "get-cart", ())?;
 //! ```
+//!
+//! Autonomous agents and their tasks have calls of their own, in [`autonomous`]:
+//! `ctx.client().tasks()`, `.task(id)` and `.autonomous_agent(Answerer)`.
+
+pub mod autonomous;
 
 use prost::Message;
 use serde::Serialize;
@@ -19,6 +24,11 @@ use crate::components::ComponentOf;
 use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode};
 use crate::proto::{self, Kind};
+
+pub use autonomous::{
+    AgentState, Assignment, Attachment, AutonomousAgentCalls, InstanceCalls, NewTask, TaskCalls,
+    TaskSnapshot, Tasks,
+};
 
 /// A client for calling other components. A handler gets one from its `Context`, carrying the
 /// call's metadata on.

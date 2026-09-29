@@ -4,6 +4,7 @@
 //! by being registered.
 
 pub mod agent;
+pub mod autonomous;
 pub mod consumer;
 pub mod endpoint;
 pub mod event_sourced;
@@ -21,6 +22,9 @@ use crate::codec::Auto;
 use crate::proto::{self, Kind, Payload};
 
 pub use agent::{Agent, AgentHandlers, Guardrails, Schema, Stage, Tools};
+pub use autonomous::{
+    AutonomousAgent, AutonomousSettings, ResultCheck, TaskAcceptance, TaskType, Verdict,
+};
 pub use consumer::Consumer;
 pub use endpoint::{Acl, Caller, CallerMatcher, Endpoint, Principal, Request, Routes};
 pub use event_sourced::{EventSourcedEntity, Handlers};
@@ -68,6 +72,9 @@ pub mod kinds {
     /// An agent.
     #[derive(Debug)]
     pub struct Agent;
+    /// An autonomous agent.
+    #[derive(Debug)]
+    pub struct AutonomousAgent;
 }
 
 /// A type that is a component of some kind: what `Service::register` and the client take. It is
@@ -168,6 +175,16 @@ pub trait Registered {
 
     /// One of an agent's guardrails, checked. `None`: this component is not an agent.
     fn check_guardrail(&self, request: proto::GuardrailRequest) -> Option<proto::GuardrailResult> {
+        let _ = request;
+        None
+    }
+
+    /// An autonomous agent's result, decoded and held to its task type's rules. `None`: this
+    /// component is not an autonomous agent.
+    fn check_task_result(
+        &self,
+        request: proto::TaskResultRequest,
+    ) -> Option<proto::TaskResultVerdict> {
         let _ = request;
         None
     }

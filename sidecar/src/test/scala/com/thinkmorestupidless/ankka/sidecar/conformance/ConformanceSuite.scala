@@ -126,13 +126,6 @@ class ConformanceSuite extends munit.FunSuite:
 
   private def onlyForProcesses(): Unit = assume(target.isProcess, "process targets only")
 
-  /** A module cannot declare an autonomous agent (WASM-ABI.md): the `auto.*` cases are not its. */
-  private def onlyWithAutonomousAgents(): Unit =
-    assume(
-      !target.isModule,
-      "a module cannot declare an autonomous agent; refused at its discovery"
-    )
-
   /** A module answers every call whole: its handlers and routes cannot stream (WASM-ABI.md). */
   private def onlyWhereStreaming(): Unit =
     assume(!target.isModule, "a module cannot stream; refused at its discovery")
@@ -143,23 +136,17 @@ class ConformanceSuite extends munit.FunSuite:
   // ── Discovery ──────────────────────────────────────────────────────────────
 
   test("discovery.lists-every-component") {
-    // A module cannot declare an autonomous agent; every other component is the reference's.
-    val expected =
-      if target.isModule then ConformanceReference.ComponentIds - "answerer"
-      else ConformanceReference.ComponentIds
-    assertEquals(target.componentIds, expected)
+    assertEquals(target.componentIds, ConformanceReference.ComponentIds)
     val routes = target.endpointRoutes
-    // The autonomous routes are the agent's, which a module does not declare.
-    (Seq(
+    Seq(
       "POST /carts/{cartId}/items",
       "GET /carts/awkward",
       "GET /conformance/echo",
       "GET /private/",
-      "GET /callers/whoami"
-    ) ++ Option
-      .unless(target.isModule)(Seq("POST /autonomous/tasks/{type}", "GET /autonomous/tasks/{id}"))
-      .toSeq
-      .flatten).foreach { r =>
+      "GET /callers/whoami",
+      "POST /autonomous/tasks/{type}",
+      "GET /autonomous/tasks/{id}"
+    ).foreach { r =>
       assert(
         routes.exists(_.replaceAll("\\{[^}]+\\}", "{}") == r.replaceAll("\\{[^}]+\\}", "{}")),
         s"$r not in $routes"
@@ -593,7 +580,6 @@ class ConformanceSuite extends munit.FunSuite:
     )
 
   test("auto.completes-with-typed-result") {
-    onlyWithAutonomousAgents()
     model
       .expectToolCall("lookup", Json.obj("id" -> Json.str("auto1")))
       .expectCompleteTaskJson("""{"answer":"one","sources":["lookup"]}""")
@@ -609,7 +595,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.fails-on-request") {
-    onlyWithAutonomousAgents()
     model.expectFailTask("cannot be known")
     val t = ended(runTask("What happens next year?")._1)
     assertEquals(status(t), "failed")
@@ -618,7 +603,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.malformed-result-is-tool-error") {
-    onlyWithAutonomousAgents()
     model
       .expectCompleteTaskJson("""{"answer":1}""")
       .expectCompleteTaskJson("""{"answer":"fixed","sources":["memory"]}""")
@@ -630,7 +614,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.tool-error-continues") {
-    onlyWithAutonomousAgents()
     model
       .expectToolCall("lookup", Json.obj("id" -> Json.str("")))
       .expectCompleteTaskJson("""{"answer":"none","sources":["lookup"]}""")
@@ -642,7 +625,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.guardrail-fails-task") {
-    onlyWithAutonomousAgents()
     val t = ended(runTask("the key is sk-123")._1)
     assertEquals(status(t), "failed")
     assert(t("reason").flatMap(_.asString).exists(_.contains("no-secrets")), t.render)
@@ -650,7 +632,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.budget-fails-task") {
-    onlyWithAutonomousAgents()
     (1 to 6).foreach(i => model.expectToolCall("lookup", Json.obj("id" -> Json.str(s"budget$i"))))
     val t = ended(runTask("Never finish")._1)
     assertEquals(status(t), "failed")
@@ -661,7 +642,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.rule-check-fault-is-iteration-failure") {
-    onlyWithAutonomousAgents()
     // The rule throws the first time: that is no verdict, so the check is made again rather than
     // the result being rejected, and the model is not asked again.
     model.expectCompleteTaskJson("""{"answer":"flaky-once","sources":["memory"]}""")
@@ -671,7 +651,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.rule-rejects-then-accepts") {
-    onlyWithAutonomousAgents()
     model
       .expectCompleteTaskJson("""{"answer":"three","sources":[]}""")
       .expectCompleteTaskJson("""{"answer":"three","sources":["memory"]}""")
@@ -708,7 +687,6 @@ class ConformanceSuite extends munit.FunSuite:
   private def state(instance: String): Json = get(s"/autonomous/instances/$instance/state").json
 
   test("auto.queue-runs-in-order") {
-    onlyWithAutonomousAgents()
     val ids = Vector("first", "second", "third").map(createTask(_))
     ids.foreach(_ => model.expectCompleteTaskJson("""{"answer":"x","sources":["memory"]}"""))
     assertEquals(assign("r1", ids*).status, 200)
@@ -717,7 +695,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.suspend-resume") {
-    onlyWithAutonomousAgents()
     val warm = createTask("warm up")
     model.expectCompleteTaskJson("""{"answer":"warm","sources":["memory"]}""")
     assign("r-pause", warm): Unit
@@ -734,7 +711,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.terminate-unassigns") {
-    onlyWithAutonomousAgents()
     val warm = createTask("warm up")
     model.expectCompleteTaskJson("""{"answer":"warm","sources":["memory"]}""")
     assign("r2", warm): Unit
@@ -752,7 +728,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.cancel-queued") {
-    onlyWithAutonomousAgents()
     val warm = createTask("warm up")
     model.expectCompleteTaskJson("""{"answer":"warm","sources":["memory"]}""")
     assign("r3", warm): Unit
@@ -769,7 +744,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.dependency-result-in-context") {
-    onlyWithAutonomousAgents()
     val a = createTask("the dependency")
     val b = createTask("the dependent", a)
     model
@@ -782,7 +756,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.dependency-failure-cascades") {
-    onlyWithAutonomousAgents()
     val a = createTask("will fail")
     val b = createTask("depends on it", a)
     model.expectFailTask("could not")
@@ -830,7 +803,7 @@ class ConformanceSuite extends munit.FunSuite:
     out.result()
 
   test("auto.notifications-in-order") {
-    onlyWithAutonomousAgents()
+    onlyWhereStreaming()
     val instance        = s"watch-${java.util.UUID.randomUUID()}"
     val (queue, cancel) = subscribe(instance)
     try
@@ -857,7 +830,7 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.notifications-no-replay") {
-    onlyWithAutonomousAgents()
+    onlyWhereStreaming()
     val instance = s"late-${java.util.UUID.randomUUID()}"
     model.expectCompleteTaskJson("""{"answer":"x","sources":["memory"]}""")
     val id = createTask("Before anyone watched")
@@ -876,7 +849,6 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.state-of-idle-instance") {
-    onlyWithAutonomousAgents()
     val r = get("/autonomous/instances/never-used/state")
     assertEquals(r.status, 200, r.body)
     assertEquals(r.json("phase").flatMap(_.asString), Some("idle"))

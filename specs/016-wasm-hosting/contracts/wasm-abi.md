@@ -45,6 +45,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_plan(ptr, len) -> i64` | `PlanRequest` | `PlanReply` | |
 | `ankka1_invoke_tool(ptr, len) -> i64` | `ToolRequest` | `ToolResult` | |
 | `ankka1_check_guardrail(ptr, len) -> i64` | `GuardrailRequest` | `GuardrailResult` | |
+| `ankka1_check_task_result(ptr, len) -> i64` | `TaskResultRequest` | `TaskResultVerdict` | an autonomous agent's result: decoded as its task type's, then held to the type's rules |
 | `ankka1_http(ptr, len) -> i64` | `HttpRequest` | `HttpReply` | non-streaming routes only |
 | `_initialize()` | | | optional; called once per instance before any other export |
 
@@ -53,7 +54,8 @@ module. The rest are required by what the module declares: `ankka1_handle` for a
 workflow, `ankka1_fold` for an event sourced entity, `ankka1_run_step` for a workflow, `ankka1_close`
 for a component declared stateful, `ankka1_view`, `ankka1_consumer` and `ankka1_timed_action` for
 those kinds, `ankka1_plan` for an agent (with `ankka1_invoke_tool` when it declares tools and
-`ankka1_check_guardrail` when it declares guardrails), and `ankka1_http` for an endpoint. A module
+`ankka1_check_guardrail` when it declares guardrails), `ankka1_check_task_result` for an autonomous
+agent (with the same two when it declares tools or guardrails), and `ankka1_http` for an endpoint. A module
 missing one it needs is refused at start, naming the export and what needs it.
 
 The host sets two kinds of metadata entry on every request that carries `Metadata`: `ankka.now`, the
@@ -103,9 +105,8 @@ Declared per component in `WasmSpec.stateful`.
 
 `ankka1_discover` receives `SidecarInfo` and answers `WasmSpec`. The runtime validates
 `WasmSpec.spec` with the process rules and additionally refuses: a handler with `streaming`, a
-streaming endpoint route, a stateful id that is not a declared stateful-kind component, an
-autonomous agent (ABI version 1 has no export to check a task's result), and an `abi_version` other
-than the exports' prefix. Every problem is reported at once in the runtime's
+streaming endpoint route, a stateful id that is not a declared stateful-kind component, and an
+`abi_version` other than the exports' prefix. Every problem is reported at once in the runtime's
 log; there is no `ReportError` call into a module.
 
 ## `wasm.proto`

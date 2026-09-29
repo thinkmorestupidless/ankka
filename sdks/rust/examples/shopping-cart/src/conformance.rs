@@ -1,7 +1,7 @@
 //! The reference service: the cart, and what the platform's conformance suite drives beside it.
 //! Every component, wire name and route is the Scala reference's (`ConformanceReference` in the
-//! sidecar's tests) and the Python one's — except the streaming routes and the streaming agent
-//! handler, which a module cannot have: it answers every call whole.
+//! sidecar's tests) and the Python one's — except the streaming routes, the streaming agent handler
+//! and an autonomous agent's notifications, which a module cannot have: it answers every call whole.
 //!
 //! Built with the `conformance` feature, the module is this service rather than the example's;
 //! `conformance.sh` builds it and runs the suite against it in both guest shapes, which it reads
@@ -9,8 +9,10 @@
 
 use std::collections::BTreeMap;
 
+use ankka::client::NewTask;
 use ankka::effects::{agent, consumer};
 use ankka::prelude::*;
+use ankka::serde_json::Value;
 
 use crate::cart_rows::CartRows;
 use crate::checkout_workflow::{Checkout, CheckoutWorkflow};
@@ -266,6 +268,84 @@ impl Agent for ConformanceAssistant {
     }
 }
 
+// ── answerer: an autonomous agent, whose tool acts through the client ──
+
+// docs:start autonomous-task-type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Answer {
+    pub answer: String,
+    pub sources: Vec<String>,
+}
+
+/// The one task type the answerer takes: an answer, and what it was drawn from.
+pub fn answer() -> TaskType<Answer> {
+    TaskType::new(
+        "answer",
+        "Answer a question, citing what you looked up",
+        Schema::object()
+            .string("answer", "the answer")
+            .string_array("sources", "what the answer was drawn from"),
+    )
+    .rule("cites-sources", |a: &Answer, _: &Context| {
+        if a.sources.is_empty() {
+            Verdict::rejected("sources must not be empty")
+        } else {
+            Verdict::Accepted
+        }
+    })
+    .rule("steady", steady)
+}
+// docs:end autonomous-task-type
+
+/// Panics the first time it sees "flaky-once": a rule that fails once, then decides. A module
+/// instance keeps nothing between calls, so the first time is remembered by the conformance entity.
+fn steady(a: &Answer, ctx: &Context) -> Verdict {
+    if a.answer == "flaky-once" {
+        let client = ctx.client();
+        let seen: i32 = client
+            .invoke(Conformance, "steady-flaky-once", "count", ())
+            .expect("the conformance entity counts");
+        if seen == 0 {
+            let _: String = client
+                .invoke(
+                    Conformance,
+                    "steady-flaky-once",
+                    "record",
+                    "seen".to_string(),
+                )
+                .expect("the conformance entity records");
+            panic!("the rule threw");
+        }
+    }
+    Verdict::Accepted
+}
+
+// docs:start autonomous-agent
+pub struct ConformanceAnswerer;
+
+impl AutonomousAgent for ConformanceAnswerer {
+    const COMPONENT_ID: &'static str = "answerer";
+    const DESCRIPTION: &'static str = "Answers questions";
+
+    fn accepts() -> Vec<TaskAcceptance> {
+        vec![TaskAcceptance::new(answer(), 4)]
+    }
+
+    fn tools() -> Tools<ConformanceAnswerer> {
+        Tools::new().tool(
+            "lookup",
+            "Looks up how many things were recorded under an id.",
+            Schema::object().string("id", "the id things were recorded under"),
+            ConformanceAssistant::lookup,
+        )
+    }
+
+    fn guardrails() -> Guardrails<ConformanceAnswerer> {
+        Guardrails::new().guardrail("no-secrets", ConformanceAssistant::no_secrets)
+    }
+}
+// docs:end autonomous-agent
+
 // ── Endpoints ──
 
 #[derive(Debug, Serialize)]
@@ -467,6 +547,151 @@ impl Endpoint for CallersEndpoint {
     }
 }
 
+/// Autonomous agents: tasks run, read and cancelled; instances driven and read.
+pub struct AutonomousEndpoint;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ran {
+    pub task_id: String,
+    pub instance_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Created {
+    pub task_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Create {
+    #[serde(default)]
+    pub instructions: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Accepted {
+    pub accepted: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceState {
+    pub phase: String,
+    pub queued: Vec<String>,
+    pub current_task: Option<String>,
+}
+
+impl AutonomousEndpoint {
+    fn only_answer(request: &Request) -> Result<(), HttpProblem> {
+        let task_type = request.path("taskType");
+        if task_type == answer().name() {
+            Ok(())
+        } else {
+            Err(HttpProblem::new(400, format!("no task type '{task_type}'")))
+        }
+    }
+
+    // docs:start autonomous-run
+    fn run_task(request: &Request, instructions: String) -> Result<Ran, HttpProblem> {
+        AutonomousEndpoint::only_answer(request)?;
+        let client = request.client();
+        let task_id = client
+            .autonomous_agent(ConformanceAnswerer)
+            .run_single_task(&answer(), instructions)?;
+        let task = client.task(&task_id).get_as(&answer())?;
+        let instance_id = task
+            .assignee
+            .map(|(_, instance)| instance)
+            .unwrap_or_default();
+        Ok(Ran {
+            task_id,
+            instance_id,
+        })
+    }
+    // docs:end autonomous-run
+
+    fn read_task(request: &Request) -> Result<Value, HttpProblem> {
+        Ok(request.client().task(request.path("id")).get()?.record)
+    }
+
+    fn cancel_task(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        request.client().task(request.path("id")).cancel()?;
+        Ok(Done)
+    }
+
+    /// `{"instructions": "...", "dependsOn": ["..."]}`: creates without running.
+    fn create_task(request: &Request, body: Create) -> Result<Created, HttpProblem> {
+        AutonomousEndpoint::only_answer(request)?;
+        let task = NewTask::new(body.instructions).depends_on(body.depends_on);
+        let task_id = request.client().tasks().create(&answer(), task)?;
+        Ok(Created { task_id })
+    }
+
+    // docs:start autonomous-instance
+    fn assign(request: &Request, task_ids: Vec<String>) -> Result<Accepted, HttpProblem> {
+        let instance = request
+            .client()
+            .autonomous_agent(ConformanceAnswerer)
+            .instance(request.path("instance"));
+        let assignment = instance.assign(task_ids)?;
+        Ok(Accepted {
+            accepted: assignment.accepted,
+        })
+    }
+    // docs:end autonomous-instance
+
+    fn operate(request: &Request, (): ()) -> Result<Done, HttpProblem> {
+        let instance = request
+            .client()
+            .autonomous_agent(ConformanceAnswerer)
+            .instance(request.path("instance"));
+        match request.path("op") {
+            "suspend" => instance.suspend()?,
+            "resume" => instance.resume()?,
+            "terminate" => instance.terminate()?,
+            op => return Err(HttpProblem::new(404, format!("no operation '{op}'"))),
+        }
+        Ok(Done)
+    }
+
+    fn state(request: &Request) -> Result<InstanceState, HttpProblem> {
+        let state = request
+            .client()
+            .autonomous_agent(ConformanceAnswerer)
+            .instance(request.path("instance"))
+            .state()?;
+        Ok(InstanceState {
+            phase: state.phase,
+            queued: state.queued,
+            current_task: state.current_task,
+        })
+    }
+}
+
+impl Endpoint for AutonomousEndpoint {
+    const ENDPOINT_ID: &'static str = "AutonomousEndpoint";
+    const PREFIX: &'static str = "/autonomous";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<AutonomousEndpoint> {
+        Routes::new()
+            .post("/tasks/{taskType}", AutonomousEndpoint::run_task)
+            .get("/tasks/{id}", AutonomousEndpoint::read_task)
+            .post("/tasks/{id}/cancel", AutonomousEndpoint::cancel_task)
+            .post("/tasks/{taskType}/create", AutonomousEndpoint::create_task)
+            .post("/instances/{instance}/assign", AutonomousEndpoint::assign)
+            .post("/instances/{instance}/{op}", AutonomousEndpoint::operate)
+            .get("/instances/{instance}/state", AutonomousEndpoint::state)
+    }
+}
+
 pub struct PrivateEndpoint;
 
 impl Endpoint for PrivateEndpoint {
@@ -503,8 +728,10 @@ pub fn build() -> Service {
         .register(CheckoutRecorder)
         .register(Reminder)
         .register(ConformanceAssistant)
+        .register(ConformanceAnswerer)
         .endpoint(CartApi)
         .endpoint(ConformanceEndpoint)
         .endpoint(PrivateEndpoint)
         .endpoint(CallersEndpoint)
+        .endpoint(AutonomousEndpoint)
 }

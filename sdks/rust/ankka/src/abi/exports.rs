@@ -1,4 +1,4 @@
-//! The `ankka1_` exports, emitted once per service by [`service!`](crate::service): each takes its
+//! The `ankka1_` exports, emitted once per service by [`service!`](crate::service!): each takes its
 //! request, hands it to the [`Service`] the service's `build` function made, and gives back the
 //! reply.
 //!
@@ -35,6 +35,8 @@ pub enum Export {
     InvokeTool,
     /// `ankka1_check_guardrail`: `GuardrailRequest` in, `GuardrailResult` out.
     CheckGuardrail,
+    /// `ankka1_check_task_result`: `TaskResultRequest` in, `TaskResultVerdict` out.
+    CheckTaskResult,
     /// `ankka1_http`: `HttpRequest` in, `HttpReply` out.
     Http,
 }
@@ -160,6 +162,12 @@ macro_rules! service {
             pub unsafe extern "C" fn ankka1_check_guardrail(ptr: i32, len: i32) -> i64 {
                 // SAFETY: as above.
                 unsafe { run(Export::CheckGuardrail, ptr, len, $build) }
+            }
+
+            #[unsafe(no_mangle)]
+            pub unsafe extern "C" fn ankka1_check_task_result(ptr: i32, len: i32) -> i64 {
+                // SAFETY: as above.
+                unsafe { run(Export::CheckTaskResult, ptr, len, $build) }
             }
 
             #[unsafe(no_mangle)]

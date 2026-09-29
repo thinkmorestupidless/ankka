@@ -18,7 +18,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.1";
+pub const PROTOCOL_VERSION: &str = "1.2";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -331,6 +331,12 @@ impl Service {
                 let request: proto::GuardrailRequest = decode(export, request);
                 let id = request.component_id.clone();
                 self.answer(&id, "guardrails", |c| c.check_guardrail(request))
+                    .encode_to_vec()
+            }
+            Export::CheckTaskResult => {
+                let request: proto::TaskResultRequest = decode(export, request);
+                let id = request.component_id.clone();
+                self.answer(&id, "task results", |c| c.check_task_result(request))
                     .encode_to_vec()
             }
         }

@@ -3,10 +3,10 @@
 pub use crate::codec::time::{Duration, Instant, LocalDate, LocalDateTime};
 pub use crate::codec::{Bytes, Done};
 pub use crate::components::{
-    Acl, Actions, Agent, AgentHandlers, Caller, CallerMatcher, Consumer, Endpoint,
-    EventSourcedEntity, Guardrails, Handlers, KeyValueEntity, KeyValueHandlers, Principal,
-    Recovery, Request, Routes, Schema, Shape, Source, Stage, Steps, TimedAction, Tools, View,
-    Workflow, WorkflowHandlers, WorkflowSettings,
+    Acl, Actions, Agent, AgentHandlers, AutonomousAgent, AutonomousSettings, Caller, CallerMatcher,
+    Consumer, Endpoint, EventSourcedEntity, Guardrails, Handlers, KeyValueEntity, KeyValueHandlers,
+    Principal, Recovery, Request, Routes, Schema, Shape, Source, Stage, Steps, TaskAcceptance,
+    TaskType, TimedAction, Tools, Verdict, View, Workflow, WorkflowHandlers, WorkflowSettings,
 };
 pub use crate::config::config;
 pub use crate::context::{Context, Metadata};

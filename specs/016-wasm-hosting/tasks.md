@@ -199,6 +199,19 @@ the crate by the manual step, then the job.
 
 ---
 
+## Phase 9: Autonomous agents in a module (after merging feature 015)
+
+**Purpose**: feature 015 (autonomous agents) reached `main` while this feature was in review; a
+module must declare and drive them as a process can. The loop, the task records and the tools are
+the runtime's already; what a module lacks is the one call a process answers for them.
+
+- [X] T060 The ABI gains an optional export `ankka1_check_task_result(TaskResultRequest) -> TaskResultVerdict` (`protocol/WASM-ABI.md`, the contract, `docs/reference/wasm-abi.md`); `WasmDiscovery` requires it of a module declaring an autonomous agent (with `invoke_tool` and `check_guardrail` when declared); `WasmConversation.checkTaskResult` calls it on a fresh instance; the verdict's translation moves to `Translate`; `ConformanceTarget.ModuleTarget` registers autonomous agents; the spike guests in both languages answer the export and `WasmHostSuite` asserts it.
+- [X] T061 The crate: the `AutonomousAgent` kind and its declaration rendered into `AutonomousAgentDetail`, `ankka1_check_task_result` dispatch, the client for tasks and instances over the imports, `AutonomousAgentTestKit`, and the conformance reference's `answerer` and `/autonomous` routes — mirroring `sdks/python/src/ankka/autonomous.py`.
+- [X] T062 `sdks/rust/conformance.sh` passes every `auto.*` case in both shapes, except the two notification cases, which need a stream a module cannot serve.
+- [X] T063 Documentation: the Rust SDK page's autonomous agents section, the agents skill's Rust differences, and `limitations.md` (a module cannot forward notifications).
+
+---
+
 ## Dependencies
 
 - **Phase 1 → Phase 2 → every story.** T001 (the envelopes) gates T004, T006, T013 and every crate

@@ -15,9 +15,8 @@ import scala.util.Try
  * The spec is held to exactly the rules a process's is (`Discovery.validate`), and to the few a
  * module adds: the ABI version it declares must be the one its exports carry; a stateful component
  * must be declared, and of a kind that has state; nothing may stream, since a module answers a call
- * whole; no autonomous agent, whose task results the ABI cannot yet check; and the module must
- * export what each declared component needs. There is no `ReportError` into a module, so every
- * problem goes to the runtime's log, all at once.
+ * whole; and the module must export what each declared component needs. There is no `ReportError`
+ * into a module, so every problem goes to the runtime's log, all at once.
  */
 object WasmDiscovery:
 
@@ -69,9 +68,6 @@ object WasmDiscovery:
     }
 
     spec.components.foreach { c =>
-      if c.kind == Kind.AUTONOMOUS_AGENT then
-        problems += s"component '${c.id}' is an autonomous agent, which a module cannot declare: " +
-          "the ABI has no export to check a task's result yet"
       c.handlers.filter(_.streaming).foreach { h =>
         problems += s"component '${c.id}': handler '${h.name}' streams, and a module answers a " +
           "call whole; declare it without streaming"
@@ -111,6 +107,13 @@ object WasmDiscovery:
       case Kind.AGENT =>
         val agent = c.getAgent
         Vector("plan") ++
+          Option.when(agent.tools.nonEmpty)("invoke_tool") ++
+          Option.when(agent.guardrails.nonEmpty)("check_guardrail")
+      case Kind.AUTONOMOUS_AGENT =>
+        // Every result is decoded and checked by the module, rules or none; tools and guardrails
+        // only when declared.
+        val agent = c.getAutonomousAgent
+        Vector("check_task_result") ++
           Option.when(agent.tools.nonEmpty)("invoke_tool") ++
           Option.when(agent.guardrails.nonEmpty)("check_guardrail")
       case _ => Vector.empty

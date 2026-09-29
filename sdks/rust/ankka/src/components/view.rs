@@ -1,7 +1,7 @@
 //! Views: a queryable row per source entity, kept up to date from the source's changes by the
 //! runtime, which stores the rows and answers the queries.
 //!
-//! ```ignore
+//! ```text
 //! impl View for CartRows {
 //!     type Row = CartRow;
 //!     type Event = ShoppingCartEvent;

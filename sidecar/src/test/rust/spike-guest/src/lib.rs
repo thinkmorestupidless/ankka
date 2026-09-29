@@ -30,12 +30,13 @@ pub mod ankka {
 
 use ankka::protocol::v1::{
     component, consumer_effect, event_sourced_out, guardrail_result, handle_reply, handle_request,
-    http_reply, metadata, outcome, plan_reply, step_outcome, timed_action_effect, tool_result,
-    view_effect, workflow_out, AgentPlan, Component, ConfigReply, ConfigRequest, ConsumerEffect,
-    Empty, Error, ErrorCode, EventSourcedDetail, FoldReply, FoldRequest, GuardrailResult,
-    HandleReply, HandleRequest, Handler, HttpReply, HttpResponse, Kind, Metadata, Outcome,
-    Passivate, Payload, PlanReply, SdkInfo, SidecarInfo, Spec, StepOutcome, StepReply, StepRequest,
-    TimedActionEffect, ToolResult, ViewEffect, WasmSpec,
+    http_reply, metadata, outcome, plan_reply, step_outcome, task_result_verdict,
+    timed_action_effect, tool_result, view_effect, workflow_out, AgentPlan, Component, ConfigReply,
+    ConfigRequest, ConsumerEffect, Empty, Error, ErrorCode, EventSourcedDetail, FoldReply,
+    FoldRequest, GuardrailResult, HandleReply, HandleRequest, Handler, HttpReply, HttpResponse,
+    Kind, Metadata, Outcome, Passivate, Payload, PlanReply, SdkInfo, SidecarInfo, Spec,
+    StepOutcome, StepReply, StepRequest, TaskResultVerdict, TimedActionEffect, ToolResult,
+    ViewEffect, WasmSpec,
 };
 
 // ---- the shape --------------------------------------------------------------------------------
@@ -420,6 +421,14 @@ pub extern "C" fn ankka1_check_guardrail(ptr: u32, len: u32) -> u64 {
         result: Some(guardrail_result::Result::Pass(Empty {})),
     };
     ignoring(ptr, len, pass)
+}
+
+#[no_mangle]
+pub extern "C" fn ankka1_check_task_result(ptr: u32, len: u32) -> u64 {
+    let accept = TaskResultVerdict {
+        verdict: Some(task_result_verdict::Verdict::Accept(Empty {})),
+    };
+    ignoring(ptr, len, accept)
 }
 
 #[no_mangle]

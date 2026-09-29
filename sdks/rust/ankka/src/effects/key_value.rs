@@ -1,6 +1,6 @@
 //! Effects for key value entities: replace the state, or delete it, then decide what to reply.
 //!
-//! A query answers a [`ReadOnlyEffect`](super::ReadOnlyEffect), shared with the event sourced
+//! A query answers a [`ReadOnlyEffect`], shared with the event sourced
 //! entity, so a key value query that tried to change the state would not compile either.
 
 use super::common::{Outcome, Retention, constant, from_state};

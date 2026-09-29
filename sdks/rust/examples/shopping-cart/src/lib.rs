@@ -84,6 +84,7 @@ mod tests {
         assert_eq!(
             ids,
             vec![
+                "answerer",
                 "assistant",
                 "cart-rows",
                 "checkout",

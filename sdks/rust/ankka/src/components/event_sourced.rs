@@ -1,6 +1,6 @@
 //! Event sourced entities: state derived by folding persisted events.
 //!
-//! ```ignore
+//! ```text
 //! pub struct ShoppingCart;
 //!
 //! impl EventSourcedEntity for ShoppingCart {

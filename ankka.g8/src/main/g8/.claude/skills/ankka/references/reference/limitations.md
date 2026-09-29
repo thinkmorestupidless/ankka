@@ -103,9 +103,8 @@ feature also says what that feature does not do.
 - **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
   timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is
   discarded, but the thread running it is not reclaimed until the module returns.
-- **A module cannot declare an autonomous agent.** The WebAssembly ABI has no way yet to check a task's
-  result against its rules, so a module declaring one is refused at start; write an autonomous agent in
-  Scala, Python or TypeScript.
+- **A module cannot forward an autonomous agent's notifications.** They are a live stream, and a module's
+  routes cannot stream; read a task's record, or await it, instead.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
   cannot stream; a module declaring one is refused at start.
 - **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime

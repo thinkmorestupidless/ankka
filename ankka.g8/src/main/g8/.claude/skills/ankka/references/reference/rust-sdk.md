@@ -184,12 +184,152 @@ See [Timers](../build/timers.md).
 | Must define | `handlers() -> AgentHandlers<Self>` |
 | May define | `tools() -> Tools<Self>`, `guardrails() -> Guardrails<Self>`, `max_tool_call_steps()` |
 | Declarations | `AgentHandlers::new().command(name, f)`; `Tools::new().tool(name, description, schema, f)`, `f: fn(Args, &Context) -> Result<String, String>`; `Guardrails::new().guardrail(name, f)`, `f: fn(Stage, &str, &Context) -> Result<(), String>` |
-| Tool schemas | `Schema::object().string(name, description).integer(...).number(...).boolean(...).optional_string(...)`: the JSON Schema the model sees, with a description per field |
+| Tool schemas | `Schema::object().string(name, description).integer(...).number(...).boolean(...).string_array(...).optional_string(...)`: the JSON Schema the model sees, with a description per field |
 | Effects | `agent::system_message(t)`, `agent::user_message(t)`, then `.context(t)`, `.model(name)`, `.tools([...])`, `.guardrails([...])`, `.session_memory(bool)`, `.json_shape(hint)`, `.then_reply()`; `agent::error(code, message)` |
 
 A handler returns a plan; the runtime runs the model loop, calls the module back for each tool with the
 model's arguments decoded as `Args`, and checks guardrails. A tool's `Err` is a message for the model, not a
 failure. Agents answer whole: a module cannot stream a reply. See [Agents](../build/agents.md).
+
+## Autonomous agent
+
+| Part | API |
+|---|---|
+| Trait | `AutonomousAgent` |
+| Associated items | `COMPONENT_ID`, `DESCRIPTION`; optionally `INSTRUCTIONS`, `MODEL` (a model named in the runtime's configuration) |
+| Must define | `accepts() -> Vec<TaskAcceptance>` |
+| May define | `tools() -> Tools<Self>`, `guardrails() -> Guardrails<Self>`, `settings() -> Option<AutonomousSettings>` |
+| Task types | `TaskType::<R>::new(name, description, schema)` for a result decoded as `R`; `TaskType::text(name, description)` for a result that is text, which the model gives as `{"result": "..."}`; `.rule(name, f)`, `f: fn(&R, &Context) -> Verdict` |
+| Verdicts | `Verdict::Accepted`, `Verdict::rejected(reason)` |
+| Acceptance | `TaskAcceptance::new(task_type, max_iterations)`, or `TaskAcceptance::of(task_type)` for a budget of ten |
+| Settings | `AutonomousSettings::new().approaching_budget_at(0.8).repeated_failure_at(3).max_consecutive_failures(5).dependency_stuck_after_millis(300_000)`; each left unset keeps the runtime's default |
+
+The runtime runs the whole loop: the model, the task records and the instance's own record. It calls the
+module for three things only — a tool, a guardrail, and a result the model completed a task with — each for
+one task, which `ctx.task_id()` names. A result is decoded as its type's `R`; one that does not decode goes
+back to the model as a mistake to correct, and so does the first rule's rejection. A rule that panics has
+decided nothing: the module traps and the runtime checks the result again, so a rule must not rely on
+anything the module kept, since a module keeps nothing between calls. A tool can run more than once for one
+request of the model after a crash, so a tool with a side effect should tolerate that.
+
+A task type is a value built by a function, so the agent's declaration and every caller share one:
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Answer {
+    pub answer: String,
+    pub sources: Vec<String>,
+}
+
+/// The one task type the answerer takes: an answer, and what it was drawn from.
+pub fn answer() -> TaskType<Answer> {
+    TaskType::new(
+        "answer",
+        "Answer a question, citing what you looked up",
+        Schema::object()
+            .string("answer", "the answer")
+            .string_array("sources", "what the answer was drawn from"),
+    )
+    .rule("cites-sources", |a: &Answer, _: &Context| {
+        if a.sources.is_empty() {
+            Verdict::rejected("sources must not be empty")
+        } else {
+            Verdict::Accepted
+        }
+    })
+    .rule("steady", steady)
+}
+```
+
+`steady` is a second rule, which panics the first time it sees one particular answer and records that it
+has, to show a rule's fault being checked again.
+
+The agent names what it accepts, its tools and its guardrails; `Tools` and `Guardrails` are an agent's:
+
+```rust
+pub struct ConformanceAnswerer;
+
+impl AutonomousAgent for ConformanceAnswerer {
+    const COMPONENT_ID: &'static str = "answerer";
+    const DESCRIPTION: &'static str = "Answers questions";
+
+    fn accepts() -> Vec<TaskAcceptance> {
+        vec![TaskAcceptance::new(answer(), 4)]
+    }
+
+    fn tools() -> Tools<ConformanceAnswerer> {
+        Tools::new().tool(
+            "lookup",
+            "Looks up how many things were recorded under an id.",
+            Schema::object().string("id", "the id things were recorded under"),
+            ConformanceAssistant::lookup,
+        )
+    }
+
+    fn guardrails() -> Guardrails<ConformanceAnswerer> {
+        Guardrails::new().guardrail("no-secrets", ConformanceAssistant::no_secrets)
+    }
+}
+```
+
+A caller creates tasks and drives instances through the client. `run_single_task` creates the task and
+starts an instance of its own on it; `task(id)` reads and cancels one:
+
+```rust
+fn run_task(request: &Request, instructions: String) -> Result<Ran, HttpProblem> {
+    AutonomousEndpoint::only_answer(request)?;
+    let client = request.client();
+    let task_id = client
+        .autonomous_agent(ConformanceAnswerer)
+        .run_single_task(&answer(), instructions)?;
+    let task = client.task(&task_id).get_as(&answer())?;
+    let instance_id = task
+        .assignee
+        .map(|(_, instance)| instance)
+        .unwrap_or_default();
+    Ok(Ran {
+        task_id,
+        instance_id,
+    })
+}
+```
+
+An instance the caller names takes queued work with `assign`, and is suspended, resumed, terminated and
+read the same way:
+
+```rust
+fn assign(request: &Request, task_ids: Vec<String>) -> Result<Accepted, HttpProblem> {
+    let instance = request
+        .client()
+        .autonomous_agent(ConformanceAnswerer)
+        .instance(request.path("instance"));
+    let assignment = instance.assign(task_ids)?;
+    Ok(Accepted {
+        accepted: assignment.accepted,
+    })
+}
+```
+
+| Call | Does |
+|---|---|
+| `client.tasks().create(&task_type, instructions)` | creates a pending task and answers its id; `NewTask::new(instructions).id(..).depends_on([..]).attachment(..)` in place of the instructions sets the rest. A dependency that does not exist is refused before anything is written, and one that has already failed or been cancelled cancels the new task at once |
+| `client.task(id).get()`, `.get_as(&task_type)` | the task's record as a `TaskSnapshot`: `status`, `result` (as JSON, or decoded as the type's `R`), `reason`, `iterations`, `assignee`, the whole `record` |
+| `client.task(id).wait(reads)` | reads the record until the task has ended, at most `reads` times; `Timeout` naming its status otherwise |
+| `client.task(id).cancel()`, `.cancel_because(reason)` | cancels it, and takes it off the instance it was assigned to |
+| `client.autonomous_agent(Agent).run_single_task(&task_type, task)` | creates the task and starts it on an instance the platform names; answers the task's id at once |
+| `client.autonomous_agent(Agent).instance(id)` | `.assign(ids)` (an `Assignment` of accepted and refused ids), `.suspend()`, `.resume()`, `.terminate()`, `.state()` (an `AgentState`: `phase`, `current_task`, `iteration`, `queued`) |
+
+A module has no clock to sleep on, so `wait` reads the record as fast as the runtime answers: it suits a task
+that is nearly done, and a longer wait belongs to a workflow step retried on a timer, or to the caller. A
+module cannot subscribe to an instance's notifications, since a module answers every call whole; read the
+task's record instead. An id the caller does not choose is made from the runtime's clock and the call's
+trace, a module having no source of randomness, and one that names an existing task is made again.
+
+`AutonomousAgentTestKit::<C>::new(task_id)` runs the parts a module decides, with no loop and no model:
+`run_tool(name, arguments)`, `check_guardrail(name, stage, text)`, `check_rule(&task_type, rule, &result)`,
+and `check_result(&task_type, &result)` or `check_result_json(type_name, json)` for the whole check the runtime
+asks for. `with_service(build())` answers their calls to the service's entities in memory. See
+[Autonomous agents](../build/autonomous-agents.md).
 
 ## HTTP endpoint
 
@@ -283,6 +423,7 @@ runtime refuses a module with problems, logging each. Locally, the ankka reposit
 | `ConsumerTestKit::<C>::new()` | A consumer's `on_message` and `on_deleted`. |
 | `TimedActionTestKit::<C>::new()` | A timed action's `fire(name, input)`. |
 | `AgentTestKit::<C>::new(session, ScriptedModel::new())` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out. |
+| `AutonomousAgentTestKit::<C>::new(task_id)` | An autonomous agent's tools, guardrails and task rules for one task, with no loop. |
 | `EndpointTestKit::<E>::new()` | An endpoint's routes by method and path, with no runtime; `with_service(build())` answers its calls to the service's entities in memory. |
 | `AnkkaTestKit::start(Module::build()?)` | The whole module in the real runtime image and a throwaway Postgres (feature `testkit`, Docker). `restart()` starts a new runtime on the same database. |
 

@@ -59,6 +59,7 @@ Bytes cross as a pointer and a length into the guest's linear memory.
 | `ankka1_plan(ptr, len) -> i64` | `PlanRequest` | `PlanReply` | |
 | `ankka1_invoke_tool(ptr, len) -> i64` | `ToolRequest` | `ToolResult` | |
 | `ankka1_check_guardrail(ptr, len) -> i64` | `GuardrailRequest` | `GuardrailResult` | |
+| `ankka1_check_task_result(ptr, len) -> i64` | `TaskResultRequest` | `TaskResultVerdict` | an autonomous agent's result: decoded as its task type's, then held to the type's rules |
 | `ankka1_http(ptr, len) -> i64` | `HttpRequest` | `HttpReply` | non-streaming routes only |
 | `_initialize()` | | | optional; called once per instance before any other export |
 
@@ -67,7 +68,8 @@ module. The rest are required by what the module declares: `ankka1_handle` for a
 workflow, `ankka1_fold` for an event sourced entity, `ankka1_run_step` for a workflow, `ankka1_close`
 for a component declared stateful, `ankka1_view`, `ankka1_consumer` and `ankka1_timed_action` for
 those kinds, `ankka1_plan` for an agent (with `ankka1_invoke_tool` when it declares tools and
-`ankka1_check_guardrail` when it declares guardrails), and `ankka1_http` for an endpoint. A module
+`ankka1_check_guardrail` when it declares guardrails), `ankka1_check_task_result` for an autonomous
+agent (with the same two when it declares tools or guardrails), and `ankka1_http` for an endpoint. A module
 missing one it needs is refused at start, naming the export and what needs it.
 
 The host sets two kinds of metadata entry on every request that carries `Metadata`: `ankka.now`, the
@@ -147,7 +149,7 @@ them. Two pools serve calls:
   A stateless component's command takes any free one; a stateful component's instance is pinned to one by
   its entity id, since that guest instance holds its state.
 - **Everything that may wait on the runtime** — a workflow step, a view, a consumer, a timed action, an
-  agent's plan, tool or guardrail, an HTTP route — runs on a fresh instance built for the call and
+  agent's plan, tool or guardrail, an autonomous agent's result check, an HTTP route — runs on a fresh instance built for the call and
   discarded after it, so a call blocked inside an import never holds an instance a command needs.
 
 Every call runs on a virtual thread, so a guest blocked in an import parks that thread and nothing else.

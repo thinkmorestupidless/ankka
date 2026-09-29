@@ -169,11 +169,14 @@ class WasmHostSuite extends munit.FunSuite:
     assert(found.exists(p => p.contains("'watch'") && p.contains("streams")), found.toString)
   }
 
-  test("an autonomous agent is refused: the ABI has no export to check a task's result") {
+  test("an autonomous agent needs the export that checks its task results") {
     val agent = Component(kind = Kind.AUTONOMOUS_AGENT, id = "answerer")
-    val found = problems(WasmSpec(Some(cartSpec().addComponents(agent)), Seq.empty, "1"))
+    val found = problems(
+      WasmSpec(Some(cartSpec().addComponents(agent)), Seq.empty, "1"),
+      everyExport - "ankka1_check_task_result"
+    )
     assert(
-      found.exists(p => p.contains("'answerer'") && p.contains("autonomous agent")),
+      found.exists(p => p.contains("'answerer'") && p.contains("ankka1_check_task_result")),
       found.toString
     )
   }
@@ -617,6 +620,10 @@ class WasmHostSuite extends munit.FunSuite:
       assertEquals(
         await(talk.checkGuardrail(cartId, "session", "polite", GuardrailStage.Input, "hi")),
         Right(())
+      )
+      assertEquals(
+        await(talk.checkTaskResult(cartId, "t-1", "answer", "{}")),
+        TaskResultVerdict.Accept
       )
       val http = await(
         talk.handleHttp(

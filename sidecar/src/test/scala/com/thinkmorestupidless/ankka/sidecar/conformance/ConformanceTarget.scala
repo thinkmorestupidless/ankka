@@ -261,11 +261,19 @@ object ConformanceTarget:
         settings.commandTimeout
       )
     }
+    private val autonomous = discovered.autonomousAgents.map(c =>
+      RemoteAutonomousAgent.descriptor(
+        c,
+        conversation,
+        Models.only(Models.Scripted, model),
+        settings.commandTimeout
+      )
+    )
     private val endpoints =
       discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
     private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
     private val kit = AnkkaTestKit.start(
-      discovered.descriptors ++ agents ++ AgentRuntime.descriptors,
+      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
         ProjectionRuntime(),
         timers,

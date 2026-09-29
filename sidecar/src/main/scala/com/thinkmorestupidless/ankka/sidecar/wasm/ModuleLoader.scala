@@ -47,6 +47,7 @@ object ModuleLoader:
     "plan",
     "invoke_tool",
     "check_guardrail",
+    "check_task_result",
     "http"
   ).map(Abi.Prefix + _)
 

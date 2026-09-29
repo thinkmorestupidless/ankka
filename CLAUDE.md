@@ -326,7 +326,11 @@ component pinned to one by its key) and anything that may wait on a fresh instan
 `config` import answers the descriptor's variables and withholds the platform's own — the read-time
 version of the split the operator makes for a process. On the platform a wasm service is one
 container, the runtime's image, with the module copied into an `emptyDir` by the service's own image
-run as an init container. `sdks/rust` is the first guest library, the crate `ankka`.
+run as an init container. `sdks/rust` is the first guest library, the crate `ankka`. An autonomous
+agent in a module is the runtime's loop as for a process; the module answers only its tools,
+guardrails and `ankka1_check_task_result`, on fresh instances — which is why a Rust rule takes a
+`&Context`: a fresh instance remembers nothing between checks. Notifications are a stream, so a
+module cannot forward them.
 
 ### Virtual threads
 

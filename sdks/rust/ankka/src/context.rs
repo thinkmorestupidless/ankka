@@ -130,6 +130,12 @@ impl Context {
         &self.entity_id
     }
 
+    /// The task an autonomous agent's tool, guardrail or rule is running for; `None` anywhere else.
+    /// It is the agent's session, `task:<id>`, without its prefix.
+    pub fn task_id(&self) -> Option<&str> {
+        self.entity_id.strip_prefix("task:")
+    }
+
     /// How many events the instance had persisted before this call.
     pub fn sequence(&self) -> i64 {
         self.sequence

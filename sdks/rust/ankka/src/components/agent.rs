@@ -102,6 +102,16 @@ impl Schema {
         self.property(name, "boolean", description, true)
     }
 
+    /// A required property that is an array of strings.
+    pub fn string_array(mut self, name: &str, description: &str) -> Schema {
+        self.properties.insert(
+            name.to_string(),
+            json!({ "type": "array", "items": { "type": "string" }, "description": description }),
+        );
+        self.required.push(name.to_string());
+        self
+    }
+
     /// An optional string property.
     pub fn optional_string(self, name: &str, description: &str) -> Schema {
         self.property(name, "string", description, false)
@@ -182,20 +192,42 @@ impl<C: Agent> AgentHandlers<C> {
     }
 }
 
-/// An agent's tools, by name.
-pub struct Tools<C: Agent> {
-    entries: Vec<(String, String, Schema, ToolRun)>,
-    problems: Vec<String>,
+/// An agent's tools, by name: an [`Agent`]'s or an
+/// [`AutonomousAgent`](super::AutonomousAgent)'s.
+pub struct Tools<C> {
+    pub(super) entries: Vec<(String, String, Schema, ToolRun)>,
+    problems: Vec<Declared>,
     marker: PhantomData<fn() -> C>,
 }
 
-impl<C: Agent> Default for Tools<C> {
+/// Something wrong with a tool or a guardrail, said once its owner is known.
+#[derive(Debug, Clone)]
+enum Declared {
+    NoName(&'static str),
+    Twice(&'static str, String),
+    NoDescription(String),
+}
+
+fn render(problems: &[Declared], owner: &str) -> Vec<String> {
+    problems
+        .iter()
+        .map(|p| match p {
+            Declared::NoName(what) => format!("{owner} declares {what} '' with no name"),
+            Declared::Twice(what, name) => format!("{owner} declares {what} '{name}' twice"),
+            Declared::NoDescription(name) => {
+                format!("{owner}: tool '{name}' has no description; the model decides by it")
+            }
+        })
+        .collect()
+}
+
+impl<C> Default for Tools<C> {
     fn default() -> Tools<C> {
         Tools::new()
     }
 }
 
-impl<C: Agent> Tools<C> {
+impl<C> Tools<C> {
     /// No tools yet.
     pub fn new() -> Tools<C> {
         Tools {
@@ -218,23 +250,18 @@ impl<C: Agent> Tools<C> {
         Args: DeserializeOwned + 'static,
         F: Fn(Args, &Context) -> Result<String, String> + 'static,
     {
-        if name.is_empty() || self.entries.iter().any(|(n, ..)| n == name) {
-            self.problems.push(format!(
-                "agent '{}' declares tool '{name}' {}",
-                C::COMPONENT_ID,
-                if name.is_empty() {
-                    "with no name"
-                } else {
-                    "twice"
-                }
-            ));
+        if name.is_empty() {
+            self.problems.push(Declared::NoName("tool"));
+            return self;
+        }
+        if self.entries.iter().any(|(n, ..)| n == name) {
+            self.problems
+                .push(Declared::Twice("tool", name.to_string()));
             return self;
         }
         if description.is_empty() {
-            self.problems.push(format!(
-                "agent '{}': tool '{name}' has no description; the model decides by it",
-                C::COMPONENT_ID
-            ));
+            self.problems
+                .push(Declared::NoDescription(name.to_string()));
         }
         let run: ToolRun = Box::new(move |arguments, ctx| {
             let arguments = if arguments.trim().is_empty() {
@@ -250,22 +277,56 @@ impl<C: Agent> Tools<C> {
             .push((name.to_string(), description.to_string(), schema, run));
         self
     }
+
+    /// What is wrong with the tools, each naming `owner` (`agent 'assistant'`).
+    pub(super) fn problems(&self, owner: &str) -> Vec<String> {
+        render(&self.problems, owner)
+    }
+
+    /// The tools as discovery describes them.
+    pub(super) fn to_proto(&self) -> Vec<proto::Tool> {
+        self.entries
+            .iter()
+            .map(|(name, description, schema, _)| proto::Tool {
+                name: name.clone(),
+                description: description.clone(),
+                input_schema_json: schema.to_json(),
+            })
+            .collect()
+    }
+
+    /// Runs one tool for `owner`, answering what the model is told.
+    pub(super) fn invoke(&self, owner: &str, request: &proto::ToolRequest) -> proto::ToolResult {
+        use proto::tool_result::Result as R;
+        let ctx = session_context(&request.component_id, &request.session_id, None);
+        let result = match self.entries.iter().find(|(n, ..)| *n == request.tool) {
+            None => R::Error(format!("{owner} has no tool '{}'", request.tool)),
+            Some((.., run)) => match run(&request.arguments_json, &ctx) {
+                Ok(text) => R::Ok(text),
+                Err(text) => R::Error(text),
+            },
+        };
+        proto::ToolResult {
+            result: Some(result),
+        }
+    }
 }
 
-/// An agent's guardrails, by name.
-pub struct Guardrails<C: Agent> {
-    entries: Vec<(String, Check)>,
-    problems: Vec<String>,
+/// An agent's guardrails, by name: an [`Agent`]'s or an
+/// [`AutonomousAgent`](super::AutonomousAgent)'s.
+pub struct Guardrails<C> {
+    pub(super) entries: Vec<(String, Check)>,
+    problems: Vec<Declared>,
     marker: PhantomData<fn() -> C>,
 }
 
-impl<C: Agent> Default for Guardrails<C> {
+impl<C> Default for Guardrails<C> {
     fn default() -> Guardrails<C> {
         Guardrails::new()
     }
 }
 
-impl<C: Agent> Guardrails<C> {
+impl<C> Guardrails<C> {
     /// No guardrails yet.
     pub fn new() -> Guardrails<C> {
         Guardrails {
@@ -280,20 +341,52 @@ impl<C: Agent> Guardrails<C> {
     where
         F: Fn(Stage, &str, &Context) -> Result<(), String> + 'static,
     {
-        if name.is_empty() || self.entries.iter().any(|(n, _)| n == name) {
-            self.problems.push(format!(
-                "agent '{}' declares guardrail '{name}' {}",
-                C::COMPONENT_ID,
-                if name.is_empty() {
-                    "with no name"
-                } else {
-                    "twice"
-                }
-            ));
+        if name.is_empty() {
+            self.problems.push(Declared::NoName("guardrail"));
+            return self;
+        }
+        if self.entries.iter().any(|(n, _)| n == name) {
+            self.problems
+                .push(Declared::Twice("guardrail", name.to_string()));
             return self;
         }
         self.entries.push((name.to_string(), Box::new(check)));
         self
+    }
+
+    /// What is wrong with the guardrails, each naming `owner`.
+    pub(super) fn problems(&self, owner: &str) -> Vec<String> {
+        render(&self.problems, owner)
+    }
+
+    /// The guardrails' names, as discovery lists them.
+    pub(super) fn names(&self) -> Vec<String> {
+        self.entries.iter().map(|(n, _)| n.clone()).collect()
+    }
+
+    /// Checks one guardrail for `owner`.
+    pub(super) fn check(
+        &self,
+        owner: &str,
+        request: &proto::GuardrailRequest,
+    ) -> proto::GuardrailResult {
+        use proto::guardrail_result::Result as R;
+        let ctx = session_context(&request.component_id, &request.session_id, None);
+        let stage = if request.stage == proto::guardrail_request::Stage::Output as i32 {
+            Stage::Output
+        } else {
+            Stage::Input
+        };
+        let result = match self.entries.iter().find(|(n, _)| *n == request.guardrail) {
+            None => R::Block(format!("{owner} has no guardrail '{}'", request.guardrail)),
+            Some((_, check)) => match check(stage, &request.text, &ctx) {
+                Ok(()) => R::Pass(proto::Empty {}),
+                Err(reason) => R::Block(reason),
+            },
+        };
+        proto::GuardrailResult {
+            result: Some(result),
+        }
     }
 }
 
@@ -321,7 +414,7 @@ impl<C: Agent> ComponentOf<kinds::Agent> for C {
     }
 }
 
-fn session_context(
+pub(super) fn session_context(
     component_id: &str,
     session_id: &str,
     metadata: Option<&proto::Metadata>,
@@ -361,30 +454,17 @@ impl<C: Agent> Registered for Registration<C> {
             detail: Some(proto::component::Detail::Agent(proto::AgentDetail {
                 role: C::ROLE.to_string(),
                 max_tool_call_steps: C::max_tool_call_steps() as i32,
-                tools: self
-                    .tools
-                    .entries
-                    .iter()
-                    .map(|(name, description, schema, _)| proto::Tool {
-                        name: name.clone(),
-                        description: description.clone(),
-                        input_schema_json: schema.to_json(),
-                    })
-                    .collect(),
-                guardrails: self
-                    .guardrails
-                    .entries
-                    .iter()
-                    .map(|(n, _)| n.clone())
-                    .collect(),
+                tools: self.tools.to_proto(),
+                guardrails: self.guardrails.names(),
             })),
         }
     }
 
     fn problems(&self) -> Vec<String> {
+        let owner = format!("agent '{}'", C::COMPONENT_ID);
         let mut problems = self.handlers.problems.clone();
-        problems.extend(self.tools.problems.clone());
-        problems.extend(self.guardrails.problems.clone());
+        problems.extend(self.tools.problems(&owner));
+        problems.extend(self.guardrails.problems(&owner));
         if C::COMPONENT_ID.is_empty() {
             problems.push("an agent has an empty component id".to_string());
         }
@@ -430,50 +510,16 @@ impl<C: Agent> Registered for Registration<C> {
     }
 
     fn invoke_tool(&self, request: proto::ToolRequest) -> Option<proto::ToolResult> {
-        use proto::tool_result::Result as R;
-        let ctx = session_context(C::COMPONENT_ID, &request.session_id, None);
-        let result = match self.tools.entries.iter().find(|(n, ..)| *n == request.tool) {
-            None => R::Error(format!(
-                "agent '{}' has no tool '{}'",
-                C::COMPONENT_ID,
-                request.tool
-            )),
-            Some((.., run)) => match run(&request.arguments_json, &ctx) {
-                Ok(text) => R::Ok(text),
-                Err(text) => R::Error(text),
-            },
-        };
-        Some(proto::ToolResult {
-            result: Some(result),
-        })
+        Some(
+            self.tools
+                .invoke(&format!("agent '{}'", C::COMPONENT_ID), &request),
+        )
     }
 
     fn check_guardrail(&self, request: proto::GuardrailRequest) -> Option<proto::GuardrailResult> {
-        use proto::guardrail_result::Result as R;
-        let ctx = session_context(C::COMPONENT_ID, &request.session_id, None);
-        let stage = if request.stage == proto::guardrail_request::Stage::Output as i32 {
-            Stage::Output
-        } else {
-            Stage::Input
-        };
-        let result = match self
-            .guardrails
-            .entries
-            .iter()
-            .find(|(n, _)| *n == request.guardrail)
-        {
-            None => R::Block(format!(
-                "agent '{}' has no guardrail '{}'",
-                C::COMPONENT_ID,
-                request.guardrail
-            )),
-            Some((_, check)) => match check(stage, &request.text, &ctx) {
-                Ok(()) => R::Pass(proto::Empty {}),
-                Err(reason) => R::Block(reason),
-            },
-        };
-        Some(proto::GuardrailResult {
-            result: Some(result),
-        })
+        Some(
+            self.guardrails
+                .check(&format!("agent '{}'", C::COMPONENT_ID), &request),
+        )
     }
 }

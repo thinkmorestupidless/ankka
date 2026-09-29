@@ -1022,7 +1022,11 @@ class ControlPlaneClusterSuite extends munit.FunSuite:
         "--timeout=300s"
       )
       assertEquals(rolled, 0, rolledOut)
+      // A quiet node rolls both instances in seconds; keep asking until there are enough answers to
+      // judge, a few of them from the instances that replaced the old ones.
+      val deadline = System.nanoTime() + 60.seconds.toNanos
       Thread.sleep(3000)
+      while statuses.size < 12 && System.nanoTime() < deadline do Thread.sleep(500)
     finally
       running = false
       poller.join()

@@ -1,0 +1,290 @@
+/**
+ * The control plane's wire types, mirrored from `controlplane-api`'s `descriptors.scala`.
+ *
+ * Mapping rules, the same everywhere: a Scala `Option` is an optional field (absent or `null`), an
+ * `Instant` is an ISO-8601 string, a `LocalDate` is `YYYY-MM-DD`, an enum is its word, and a key this
+ * side does not know is dropped on decode, so a newer control plane answers an older console.
+ * `console/package/fixtures/control-plane/` holds what the platform's own codecs write for each type,
+ * and the package's tests decode every one of them.
+ */
+import { z } from "zod";
+
+const optional = <T extends z.ZodType>(schema: T) => schema.nullish().transform((v) => v ?? undefined);
+
+/** `Role`'s codec writes the lowercase word. */
+export const roleSchema = z.enum(["owner", "member"]);
+export type Role = z.infer<typeof roleSchema>;
+
+/**
+ * The words `ServiceLifecycle`'s codec writes today. The schema accepts any string, so a word a newer
+ * control plane adds is shown as it is rather than failing the page.
+ */
+export const serviceLifecycles = [
+  "NotDeployed",
+  "UpdateInProgress",
+  "Ready",
+  "PartiallyReady",
+  "Unavailable",
+  "Paused",
+  "Failed",
+  "Suspended",
+] as const;
+export type KnownServiceLifecycle = (typeof serviceLifecycles)[number];
+export const serviceLifecycleSchema = z.string();
+export type ServiceLifecycle = KnownServiceLifecycle | (string & {});
+
+export const authDiscoverySchema = z.object({
+  issuer: z.string(),
+  clientId: z.string(),
+  audience: z.string(),
+});
+export type AuthDiscovery = z.infer<typeof authDiscoverySchema>;
+
+export const organizationMembershipSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  role: roleSchema,
+});
+export type OrganizationMembership = z.infer<typeof organizationMembershipSchema>;
+
+export const whoamiSchema = z.object({
+  subject: z.string(),
+  name: optional(z.string()),
+  email: optional(z.string()),
+  emailVerified: z.boolean().default(false),
+  platformAdmin: z.boolean().default(false),
+  organizations: z.array(organizationMembershipSchema).default([]),
+});
+export type Whoami = z.infer<typeof whoamiSchema>;
+
+export const quotaSchema = z.object({
+  projects: optional(z.number().int()),
+  services: optional(z.number().int()),
+  instances: optional(z.number().int()),
+});
+export type Quota = z.input<typeof quotaSchema>;
+
+export const usageSchema = z.object({
+  projects: z.number().int(),
+  services: z.number().int(),
+  instances: z.number().int(),
+});
+export type Usage = z.infer<typeof usageSchema>;
+
+const zeroUsage: Usage = { projects: 0, services: 0, instances: 0 };
+
+export const organizationDetailSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  disabled: z.boolean().default(false),
+  quota: optional(quotaSchema),
+  usage: usageSchema.default(zeroUsage),
+});
+export type OrganizationDetail = z.infer<typeof organizationDetailSchema>;
+
+export const organizationSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  projects: z.number().int(),
+  disabled: z.boolean().default(false),
+  role: optional(roleSchema),
+  quota: optional(quotaSchema),
+  usage: usageSchema.default(zeroUsage),
+});
+export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
+
+export const registrySummarySchema = z.object({
+  server: z.string(),
+  username: z.string(),
+  setAt: optional(z.string()),
+  setBy: optional(z.string()),
+});
+export type RegistrySummary = z.infer<typeof registrySummarySchema>;
+
+export const projectDetailSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  organizationId: z.string(),
+  registry: optional(registrySummarySchema),
+});
+export type ProjectDetail = z.infer<typeof projectDetailSchema>;
+
+export const projectSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  organizationId: z.string(),
+  services: z.number().int(),
+  registry: optional(registrySummarySchema),
+});
+export type ProjectSummary = z.infer<typeof projectSummarySchema>;
+
+export const serviceStatusSchema = z.object({
+  name: z.string(),
+  projectId: z.string(),
+  lifecycle: serviceLifecycleSchema,
+  generation: z.number().int(),
+  image: z.string(),
+  readyInstances: z.number().int(),
+  desiredInstances: z.number().int(),
+  detail: optional(z.string()),
+  confirmed: z.boolean().default(true),
+  database: optional(z.string()),
+  hostname: optional(z.string()),
+  exposed: z.boolean().default(false),
+  suspended: z.boolean().default(false),
+  paused: z.boolean().default(false),
+  hosting: z.string().default("embedded"),
+  protocol: optional(z.string()),
+});
+export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
+
+export const historyActorSchema = z.object({
+  subject: z.string(),
+  display: optional(z.string()),
+  administrative: z.boolean().default(false),
+});
+export type HistoryActor = z.infer<typeof historyActorSchema>;
+
+export const historyEntrySchema = z.object({
+  kind: z.string(),
+  generation: z.number().int(),
+  actor: optional(historyActorSchema),
+  at: optional(z.string()),
+});
+export type HistoryEntry = z.infer<typeof historyEntrySchema>;
+
+export const instanceLogsSchema = z.object({
+  instance: z.string(),
+  output: z.string(),
+  error: optional(z.string()),
+});
+export type InstanceLogs = z.infer<typeof instanceLogsSchema>;
+
+export const logsResponseSchema = z.object({
+  instances: z.array(instanceLogsSchema),
+});
+export type LogsResponse = z.infer<typeof logsResponseSchema>;
+
+export const memberSummarySchema = z.object({
+  subject: z.string(),
+  role: roleSchema,
+  email: optional(z.string()),
+  display: optional(z.string()),
+  since: optional(z.string()),
+  addedBy: optional(z.string()),
+});
+export type MemberSummary = z.infer<typeof memberSummarySchema>;
+
+export const invitationSummarySchema = z.object({
+  email: z.string(),
+  role: roleSchema,
+  invitedAt: optional(z.string()),
+  invitedBy: optional(z.string()),
+});
+export type InvitationSummary = z.infer<typeof invitationSummarySchema>;
+
+export const membersResponseSchema = z.object({
+  members: z.array(memberSummarySchema).default([]),
+  invitations: z.array(invitationSummarySchema).default([]),
+});
+export type MembersResponse = z.infer<typeof membersResponseSchema>;
+
+export const deployTokenSummarySchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  subject: z.string(),
+  createdBy: optional(z.string()),
+  createdAt: optional(z.string()),
+  expiresAt: optional(z.string()),
+  lastUsed: optional(z.string()),
+});
+export type DeployTokenSummary = z.infer<typeof deployTokenSummarySchema>;
+
+export const deployTokenCreatedSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  secret: z.string(),
+  subject: z.string(),
+  expiresAt: optional(z.string()),
+});
+export type DeployTokenCreated = z.infer<typeof deployTokenCreatedSchema>;
+
+export const errorBodySchema = z.object({
+  status: z.number().int(),
+  error: z.string(),
+});
+export type ErrorBody = z.infer<typeof errorBodySchema>;
+
+// ── Request bodies ──────────────────────────────────────────────────────────
+
+export const ownerSchema = z.object({
+  subject: z.string(),
+  email: optional(z.string()),
+  display: optional(z.string()),
+});
+export type Owner = z.input<typeof ownerSchema>;
+
+export const createOrganizationSchema = z.object({ name: z.string(), owner: optional(ownerSchema) });
+export type CreateOrganization = z.input<typeof createOrganizationSchema>;
+
+export const createProjectSchema = z.object({ name: z.string(), organizationId: z.string() });
+export type CreateProject = z.input<typeof createProjectSchema>;
+
+export const renameSchema = z.object({ name: z.string() });
+export type Rename = z.input<typeof renameSchema>;
+
+export const inviteSchema = z.object({ email: z.string(), role: roleSchema.default("member") });
+export type Invite = z.input<typeof inviteSchema>;
+
+export const roleChangeSchema = z.object({ role: roleSchema });
+export type RoleChange = z.input<typeof roleChangeSchema>;
+
+export const repairSchema = z.object({ role: roleSchema.default("owner") });
+export type Repair = z.input<typeof repairSchema>;
+
+export const createDeployTokenSchema = z.object({
+  label: z.string(),
+  expiresIn: optional(z.number().int()),
+});
+export type CreateDeployToken = z.input<typeof createDeployTokenSchema>;
+
+export const setRegistrySchema = z.object({
+  server: z.string(),
+  username: z.string(),
+  password: z.string(),
+});
+export type SetRegistry = z.input<typeof setRegistrySchema>;
+
+/** Every schema by the Scala type's name, as the fixture files name them. */
+export const schemasByType: Record<string, z.ZodType> = {
+  AuthDiscovery: authDiscoverySchema,
+  OrganizationMembership: organizationMembershipSchema,
+  Whoami: whoamiSchema,
+  Quota: quotaSchema,
+  Usage: usageSchema,
+  OrganizationDetail: organizationDetailSchema,
+  OrganizationSummary: organizationSummarySchema,
+  RegistrySummary: registrySummarySchema,
+  ProjectDetail: projectDetailSchema,
+  ProjectSummary: projectSummarySchema,
+  ServiceStatus: serviceStatusSchema,
+  HistoryActor: historyActorSchema,
+  HistoryEntry: historyEntrySchema,
+  InstanceLogs: instanceLogsSchema,
+  LogsResponse: logsResponseSchema,
+  MemberSummary: memberSummarySchema,
+  InvitationSummary: invitationSummarySchema,
+  MembersResponse: membersResponseSchema,
+  DeployTokenSummary: deployTokenSummarySchema,
+  DeployTokenCreated: deployTokenCreatedSchema,
+  ErrorBody: errorBodySchema,
+  Owner: ownerSchema,
+  CreateOrganization: createOrganizationSchema,
+  CreateProject: createProjectSchema,
+  Rename: renameSchema,
+  Invite: inviteSchema,
+  RoleChange: roleChangeSchema,
+  Repair: repairSchema,
+  CreateDeployToken: createDeployTokenSchema,
+  SetRegistry: setRegistrySchema,
+};

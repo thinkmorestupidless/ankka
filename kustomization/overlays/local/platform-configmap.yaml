@@ -15,3 +15,7 @@ data:
   # The host port kind publishes the HTTPS NodePort on (kustomization/kind.yaml); the http→https
   # redirect must name it. A real installation serving on 443 leaves this at 443.
   httpsPort: "8443"
+  # The console's address as a browser reaches it: console.<baseDomain>, with the port when it is not
+  # 443. Derivable from the two above, and written out because a replacement cannot join them;
+  # RemoteOverlaySuite fails if it ever disagrees with them.
+  consoleAuthority: console.127.0.0.1.sslip.io:8443

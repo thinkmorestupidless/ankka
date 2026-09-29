@@ -112,6 +112,7 @@ echo "==> building images"
 # `sbt compile` and `sbt test` already do. Nothing here has to change if a third image is
 # ever added.
 sbt -batch "docker:publishLocal"
+docker build -t ankka-console:latest console
 
 echo "==> loading images into $CONTEXT"
 kind load docker-image ankka-operator:latest --name "$CLUSTER_NAME"
@@ -123,6 +124,8 @@ kind load docker-image ankka-controlplane:latest --name "$CLUSTER_NAME"
 kind load docker-image sample-shopping-cart:latest --name "$CLUSTER_NAME"
 # The sidecar for services in another language (feature 009), the operator's to inject.
 kind load docker-image ankka-sidecar:latest --name "$CLUSTER_NAME"
+# The installation's console (feature 017): a Node image, built by Docker rather than sbt.
+kind load docker-image ankka-console:latest --name "$CLUSTER_NAME"
 
 echo "==> applying the CRD (must exist before anything references it)"
 kubectl apply -f kustomization/components/crd/ankkaservice.yaml
@@ -165,6 +168,7 @@ kubectl kustomize kustomization/overlays/local \
         -e "s|^\(  httpsPort: \)\"8443\"|\1\"${HTTPS_HOST_PORT}\"|" \
         -e "s|^\(        port: \)8443$|\1${HTTPS_HOST_PORT}|" \
         -e "s|^\(          value: \)\"8443\"$|\1\"${HTTPS_HOST_PORT}\"|" \
+        -e "s|console\.${BASE_DOMAIN}:8443|console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}|g" \
   | kubectl apply -f - --server-side --force-conflicts
 
 echo "==> restarting the operator and control plane onto the images just loaded"
@@ -175,6 +179,7 @@ echo "==> restarting the operator and control plane onto the images just loaded"
 # Harmless on a first run, where it merely restarts pods that have just started.
 kubectl -n ankka-operator rollout restart deployment/ankka-operator
 kubectl -n ankka-controlplane rollout restart deployment/ankka-controlplane
+kubectl -n ankka-console rollout restart deployment/ankka-console
 
 echo "==> waiting for the control plane's database"
 kubectl -n ankka-controlplane wait --for=jsonpath='{.status.readyInstances}'=1 cluster/ankka-controlplane-db --timeout=180s
@@ -186,6 +191,9 @@ echo "==> waiting for the control plane"
 # Three instances rolled one at a time (feature 004), each a JVM that has to join the cluster
 # before it counts — so a longer wait than one pod needed.
 kubectl -n ankka-controlplane rollout status deployment/ankka-controlplane --timeout=420s
+
+echo "==> waiting for the console"
+kubectl -n ankka-console rollout status deployment/ankka-console --timeout=300s
 
 echo "==> waiting for the gateway and its certificate"
 kubectl -n ankka-gateway wait --for=condition=Ready certificate/ankka-wildcard --timeout=120s
@@ -236,6 +244,19 @@ else
   $KCADM add-roles -r ankka --uusername service-account-ankka-local-smoke --rolename platform-admin
   echo "created client ankka-local-smoke (service account, platform-admin)"
 fi
+# The console's client (feature 017). A realm imported before the console existed does not have it,
+# and an import never updates a realm, so it is added the way docs/platform/console.md tells an older
+# installation to add it — with the same values realm-import.json gives a new one.
+if $KCADM get clients -r ankka -q clientId=ankka-console | grep -q '"clientId" : "ankka-console"'; then
+  echo "client ankka-console already exists"
+else
+  $KCADM create clients -r ankka -s clientId=ankka-console -s 'name=ankka console' -s secret=dev \
+    -s publicClient=false -s standardFlowEnabled=true -s directAccessGrantsEnabled=false \
+    -s "redirectUris=[\"https://console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}/*\",\"http://localhost:3000/*\"]" \
+    -s 'webOrigins=["+"]' -s 'attributes."pkce.code.challenge.method"=S256' \
+    -s 'defaultClientScopes=["ankka-controlplane"]' >/dev/null
+  echo "created client ankka-console"
+fi
 
 echo "==> exporting the local certificate authority"
 # The root that signed the wildcard the gateway serves. Nothing on this machine trusts it, and
@@ -245,6 +266,7 @@ mkdir -p "$HOME/.ankka"
 kubectl -n ankka-gateway get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > "$HOME/.ankka/local-ca.crt"
 
 API_URL="https://api.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
+CONSOLE_URL="https://console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
 
 # A real request to a real route, and the status is checked.
 #
@@ -300,7 +322,9 @@ esac
 
 cat <<MSG
 
-Deployed. The control plane is at $API_URL — no port-forward needed. The identity provider's
+Deployed. The control plane is at $API_URL — no port-forward needed. The console is at
+$CONSOLE_URL — sign in as dev / dev, in a browser that trusts ~/.ankka/local-ca.crt
+(on macOS: open it in Keychain Access and mark it trusted for SSL). The identity provider's
 console is at $AUTH_URL/admin/ (admin / admin); users are created there.
 
   ankka config set url $API_URL

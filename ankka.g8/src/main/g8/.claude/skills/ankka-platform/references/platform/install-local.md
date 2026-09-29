@@ -101,6 +101,15 @@ Nothing on your machine is asked to trust the local certificate authority. The C
 with `config set ca`, and `curl` with `--cacert`. There is no option anywhere to skip certificate
 verification.
 
+## Open the console
+
+[The console](../operate/console.md) is at `https://console.127.0.0.1.sslip.io:8443`; sign in as `dev`
+with password `dev`. A browser shows it only once it trusts the local certificate authority, which the
+deploy script exported to `~/.ankka/local-ca.crt`. On macOS, open that file in Keychain Access and mark it
+trusted for SSL; remove it from the keychain when you tear the platform down.
+
+## The identity provider
+
 The identity provider's console is at `https://auth.127.0.0.1.sslip.io:8443/admin/`, as `admin` with
 password `admin`. Those credentials are public and belong to the local platform only; a cloud
 installation removes them. Add users there. See [Identity and machine accounts](identity.md).

@@ -92,12 +92,17 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/concepts/control-plane.md` — How the control plane records what you asked for, how the operator makes the cluster match it, and how the status you read is kept honest with generations and confirmation.
 - `references/concepts/tenancy-and-access.md` — How organizations, projects and services divide an installation, who may operate each of them, and how the identity provider and the control plane share the work of authentication and authorization.
 
+### Observe and operate
+
+- `references/operate/console.md` — Use an installation's web console at console.<base domain> to sign in, manage organizations, projects, members and deploy tokens, and deploy, operate and watch services without the CLI.
+
 ### Run the platform
 
 - `references/platform/install-local.md` — Run the whole ankka platform on your own machine in a kind cluster — operator, control plane, identity provider, databases, gateway and TLS — with one script, and point the CLI at it.
 - `references/platform/install-cloud.md` — Install ankka on a real Kubernetes cluster with a production kustomize overlay — a load balancer, a public wildcard certificate over DNS-01, a real base domain, images from a registry and an identity provider with no default credentials.
 - `references/platform/organizations.md` — Create organizations and projects, invite members by email, manage roles, and disable or delete an organization, with the rules the control plane enforces on each.
 - `references/platform/identity.md` — How people and machines authenticate to the ankka control plane through the installation's Keycloak — logging in with the CLI, adding users, platform administrators, machine accounts and the realm.
+- `references/platform/console.md` — Install the web console at console.<base domain>, give it its realm client and secrets, add it to an installation whose realm predates it, run it locally, or leave it out.
 - `references/platform/databases.md` — How the platform provisions a Postgres database for every service with CloudNativePG, why each service must have its own, how data survives deletion, and how to bring your own database instead.
 - `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 
@@ -107,3 +112,4 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/reference/lifecycle-states.md` — What each of a deployed service's eight lifecycle states means, what usually causes it, what to do about it, and what an unconfirmed status is.
 - `references/reference/control-plane-api.md` — Every route the control plane serves, with its parameters, request body, response and who may call it, plus how requests are authenticated and how errors are reported.
 - `references/reference/error-codes.md` — The eight error codes a component can refuse with, the HTTP status each becomes, how a refusal travels from a handler to a caller, and how it differs from a failure.
+- `references/reference/console-package.md` — Build a web application of your own on the ankka-console npm package — mount its pages under your prefix and layout, keep sessions your way, and add panels and actions.

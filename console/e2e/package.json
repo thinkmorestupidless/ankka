@@ -1,0 +1,18 @@
+{
+  "name": "ankka-console-e2e",
+  "private": true,
+  "description": "The console's browser suite: every acceptance scenario, with scripts on and off, against fakes or the compose stack.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.3",
+    "ankka-console": "*",
+    "typescript": "^7.0.2"
+  }
+}

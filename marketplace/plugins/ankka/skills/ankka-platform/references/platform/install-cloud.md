@@ -27,8 +27,8 @@ deploys to the wrong one.
   DNS, DigitalOcean, Akamai, ACME-DNS and RFC-2136 servers; other providers need a webhook solver.
 - **A load balancer** your cluster can provision for a `Service` of type `LoadBalancer`, and a DNS
   record pointing `*.<base domain>` at its address.
-- **A container registry** the cluster can pull from, holding the platform's four images: the operator,
-  the control plane, the sidecar and, if you want the sample, the shopping cart.
+- **A container registry** the cluster can pull from, holding the platform's images: the operator, the
+  control plane, the sidecar, the console and, if you want the sample, the shopping cart.
 
 ## What a production overlay changes
 
@@ -102,13 +102,23 @@ An identity provider that refuses to start is a loud and immediate failure. One 
 published administrator password is neither. The realm contains no users at all; add them in the
 console. See [Identity and machine accounts](identity.md).
 
+### The console
+
+The overlay's `ankka-platform` ConfigMap names [the console's](../operate/console.md) address as
+`consoleAuthority`: `console.<base domain>`, with `:<port>` when HTTPS is not on 443. The overlay deletes the
+console's development Secret and removes the development secret from its realm client, so Keycloak generates
+one. Once Keycloak is up, create the Secret from that client secret and a session secret of your own; see
+[Install and configure the console](console.md#the-realm-client-and-the-secrets). Until the Secret exists
+the console does not start, and nothing else waits on it. An installation that does not want a console
+leaves the component out; see [Install and configure the console](console.md#leave-it-out).
+
 ### Images
 
 Every platform manifest names an unqualified image, such as `ankka-controlplane:latest`, with
 `imagePullPolicy: IfNotPresent`. That suits a node the image was loaded onto and is useless for a
 cluster that pulls. Every release publishes the images publicly on GitHub Container Registry, tagged with
 the release's version: `ghcr.io/thinkmorestupidless/ankka-operator`, `ankka-controlplane`,
-`ankka-sidecar` and `sample-shopping-cart`. A cluster can pull those directly, through a pull-through
+`ankka-sidecar`, `ankka-console` and `sample-shopping-cart`. A cluster can pull those directly, through a pull-through
 cache of `ghcr.io` in its own cloud, or from a registry of your own that you build them into by setting
 `DOCKER_REPOSITORY`:
 
@@ -206,12 +216,12 @@ ankka config set url https://api.example.com
 ankka login
 ```
 
-A publicly trusted certificate needs no `config set ca`. Grant the first administrator the
+The console is at `https://console.example.com`. A publicly trusted certificate needs no `config set ca`. Grant the first administrator the
 `platform-admin` realm role in Keycloak's console, then create organizations and projects. See
 [Organizations, projects and members](organizations.md).
 
-Upgrading the installation is the same apply with new image tags. The operator, control plane, sidecar
-and CLI are released together as one version.
+Upgrading the installation is the same apply with new image tags. The operator, control plane, sidecar,
+console and CLI are released together as one version.
 
 ## A spoke installation
 

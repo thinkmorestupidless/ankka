@@ -77,7 +77,8 @@ as free.
 |---|---|---|
 | Your machine | services, components, traces, sessions, entity state through declared queries | `ankka local console` |
 | A cluster | invocation counts and time by component, handler and outcome | `GET /ankka/metrics` on each instance's management port, in Prometheus text format |
-| A cluster | what the service printed | `ankka services logs` |
+| A cluster | what the service printed | `ankka services logs`, or a service's logs page in [the console](../operate/console.md) |
+| A cluster | a service's state, history and instances | `ankka services get` and `history`, or [the console](../operate/console.md) |
 
 Locally, each service serves its records on a loopback address with a random port and announces itself
 in `~/.ankka/running`, which is how the console finds every service on the machine. In a cluster, the
@@ -87,8 +88,9 @@ not compute rates by differencing them across scrapes. The platform ships no das
 
 ## What is not there
 
-- **No console for a deployed installation.** The console reads services on your own machine only. For
-  a deployed service you have its logs and its metrics.
+- **No traces or sessions of a deployed service.** The local console reads services on your own machine
+  only, and the installation's console shows a deployed service's status, history and logs but not its
+  traces, sessions or entity state. For those in a cluster you have its metrics.
 - **No trace history.** Traces live only in each instance's window.
 - **No cross-instance traces in a cluster.** A request whose components ran on several instances has
   its spans in several windows.

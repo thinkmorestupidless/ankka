@@ -380,3 +380,88 @@ final class RemoteOverlaySuite extends FunSuite:
       assert(certificate.contains("ankka://gateway"), certificate)
       assert(certificate.contains("name: ankka-service"), certificate)
   }
+
+  // ── The console (feature 017) ─────────────────────────────────────────────
+
+  private def platformValue(render: String, key: String): String =
+    val configMap = documentsOfKind(render, "ConfigMap")
+      .find(_.contains("name: ankka-platform"))
+      .getOrElse(fail("no ankka-platform ConfigMap"))
+    s"""(?m)^  $key: "?([^"\\s#]+)"?""".r
+      .findFirstMatchIn(configMap)
+      .map(_.group(1))
+      .getOrElse(fail(s"ankka-platform has no $key"))
+
+  private def consoleClient(render: String): String =
+    val realm =
+      documentsOfKind(render, "KeycloakRealmImport").headOption.getOrElse(fail("no realm import"))
+    val start = realm.indexOf("clientId: ankka-console")
+    assert(start >= 0, "the realm has no ankka-console client")
+    // The client's own block: from the item that opens it to the next client, or the list's end.
+    val itemStart = realm.lastIndexOf("\n    - ", start)
+    val next      = realm.indexOf("\n    - ", start)
+    realm.substring(itemStart, if next < 0 then realm.length else next)
+
+  test("the console's authority is console.<base domain>, with the port unless it is 443") {
+    // Derivable from the other two keys and written out only because a replacement cannot join
+    // them; this is what keeps the three from disagreeing.
+    for (name, render) <- Vector("local" -> local, "cloud" -> remote) do
+      val base     = platformValue(render, "baseDomain")
+      val port     = platformValue(render, "httpsPort")
+      val expected = if port == "443" then s"console.$base" else s"console.$base:$port"
+      assertEquals(platformValue(render, "consoleAuthority"), expected, name)
+      val deployment = documentsOfKind(render, "Deployment")
+        .find(_.contains("name: ankka-console"))
+        .getOrElse(fail(s"$name: no console"))
+      assert(
+        deployment.contains(s"value: $expected"),
+        s"$name: the console is not told its own address"
+      )
+      assert(
+        consoleClient(render).contains(s"https://$expected/*"),
+        s"$name: the realm client cannot redirect to the console"
+      )
+      val route = documentsOfKind(render, "HTTPRoute")
+        .find(_.contains("name: ankka-console"))
+        .getOrElse(fail(s"$name: no route"))
+      assert(route.contains(s"- console.$base"), s"$name: the route is not at console.$base")
+  }
+
+  test("the console's development secrets reach only the local render") {
+    val local_ = consoleClient(local)
+    assert(local_.contains("secret: dev"), "the local realm client keeps the development secret")
+    assert(local_.contains("http://localhost:3000/*"), "a laptop's console signs in locally")
+    assert(documentsOfKind(local, "Secret").exists(_.contains("name: ankka-console-secrets")))
+
+    val cloud = consoleClient(remote)
+    assert(
+      !cloud.linesIterator.exists(_.trim.startsWith("secret:")),
+      s"the remote realm client carries a secret: $cloud"
+    )
+    assert(!cloud.contains("localhost"), s"the remote realm client redirects to localhost: $cloud")
+    assert(
+      !documentsOfKind(remote, "Secret").exists(_.contains("name: ankka-console-secrets")),
+      "the console's development Secret reached the remote render"
+    )
+  }
+
+  test("the console is a platform workload: registry image, probe port, preStop, no grant") {
+    val deployment = documentsOfKind(remote, "Deployment")
+      .find(_.contains("name: ankka-console"))
+      .getOrElse(fail("no console"))
+    assert(deployment.contains("image: ghcr.io/thinkmorestupidless/ankka-console:"), deployment)
+    assert(deployment.contains("imagePullPolicy: IfNotPresent"), deployment)
+    assert(deployment.contains("name: probe"), deployment)
+    assert(!deployment.contains("name: management"), "the console is not an ankka cluster")
+    assert(deployment.contains("preStop"), deployment)
+    assert(deployment.contains("automountServiceAccountToken: false"), deployment)
+    for kind <- Vector("RoleBinding", "ClusterRoleBinding") do
+      assert(
+        !documentsOfKind(remote, kind).exists(_.contains("name: ankka-console")),
+        s"the console must hold no $kind"
+      )
+    val certificate = documentsOfKind(remote, "Certificate")
+      .find(_.contains("name: ankka-console-service"))
+      .getOrElse(fail("no console certificate"))
+    assert(certificate.contains("ankka://platform/console"), certificate)
+  }

@@ -1,0 +1,1 @@
+{"type":"AuthDiscovery","json":{"issuer":"https://auth.example.com/realms/ankka","clientId":"ankka-cli","audience":"ankka-controlplane"}}

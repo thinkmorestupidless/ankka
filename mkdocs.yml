@@ -183,6 +183,7 @@ nav:
       - Upgrade ankka: deploy/upgrading.md
   - Observe and operate:
       - The local console: operate/local-console.md
+      - The console: operate/console.md
       - Status and history: operate/status-and-history.md
       - Logs: operate/logs.md
       - Pause, resume, restart and delete: operate/service-lifecycle.md
@@ -192,6 +193,7 @@ nav:
       - Install on a cloud cluster: platform/install-cloud.md
       - Organizations, projects and members: platform/organizations.md
       - Identity and machine accounts: platform/identity.md
+      - The console: platform/console.md
       - Databases: platform/databases.md
       - Networking and TLS: platform/networking.md
   - Reference:
@@ -205,6 +207,7 @@ nav:
       - Scala SDK: reference/scala-sdk.md
       - Python SDK: reference/python-sdk.md
       - TypeScript SDK: reference/typescript-sdk.md
+      - Console package: reference/console-package.md
       - Sidecar protocol: reference/sidecar-protocol.md
       - Divergences from Akka: reference/akka-divergences.md
       - Limitations: reference/limitations.md

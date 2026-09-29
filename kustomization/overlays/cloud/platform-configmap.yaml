@@ -24,3 +24,7 @@ data:
   # listens on the real one. This is what the http->https redirect puts in its Location header, so
   # a wrong value sends every plain-HTTP caller somewhere that does not answer.
   httpsPort: "443"
+  # The console's address as a browser reaches it: console.<baseDomain>, with :<httpsPort> unless it
+  # is 443. Written out because a replacement cannot join the two above; RemoteOverlaySuite fails if
+  # it disagrees with them.
+  consoleAuthority: console.example.com # SET

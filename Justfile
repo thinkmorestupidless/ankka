@@ -77,9 +77,23 @@ console: cli
 test:
     sbt -Dankka.cluster.tests=off test
 
-# Everything, including the k3s suites. An hour, so hold the machine awake.
-test-all:
+# Everything, including the k3s suites and the console. An hour, so hold the machine awake.
+test-all: test-console
     caffeinate -i sbt test
+
+# The installation's console: install, build the package and the host.
+build-console:
+    cd console && npm ci && npm run build
+
+# The console's type check, unit tests and Playwright suite against in-process fakes. Needs
+# Playwright's Chromium once: `cd console && npx playwright install chromium`.
+test-console:
+    cd console && npm ci && npm run typecheck && npm test && npm run e2e
+
+# The console's Playwright suite against the real stack: needs `docker compose up -d` and
+# `ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run` already running.
+test-console-compose:
+    cd console && CONSOLE_E2E_TARGET=compose npm run e2e
 
 fmt:
     sbt scalafmtAll scalafmtSbt

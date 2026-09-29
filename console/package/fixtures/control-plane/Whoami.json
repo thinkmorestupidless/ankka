@@ -1,0 +1,1 @@
+{"type":"Whoami","json":{"subject":"sub-1","name":"Olive Owner","email":"owner@example.com","emailVerified":true,"platformAdmin":true,"organizations":[{"id":"acme","name":"Acme","role":"owner"}]}}

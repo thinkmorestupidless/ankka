@@ -6,12 +6,15 @@ pages:
   - platform/install-cloud.md
   - platform/organizations.md
   - platform/identity.md
+  - platform/console.md
+  - operate/console.md
   - platform/databases.md
   - platform/networking.md
   - concepts/tenancy-and-access.md
   - concepts/control-plane.md
   - reference/control-plane-api.md
   - reference/cli.md
+  - reference/console-package.md
   - reference/lifecycle-states.md
   - reference/error-codes.md
 ---

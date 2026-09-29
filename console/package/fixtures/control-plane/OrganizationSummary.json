@@ -1,0 +1,1 @@
+{"type":"OrganizationSummary","json":{"id":"acme","name":"Acme","projects":2,"disabled":true,"role":"member","quota":{"projects":3,"services":10,"instances":20},"usage":{"projects":1,"services":2,"instances":3}}}

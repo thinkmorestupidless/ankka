@@ -1,0 +1,29 @@
+{
+  "name": "ankka-console-host",
+  "private": true,
+  "description": "The installation's console: the ankka-console package in a layout, built into the ankka-console image.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env.development ../node_modules/@react-router/dev/bin.cjs dev --port 3000",
+    "build": "react-router build",
+    "start": "node --env-file-if-exists=.env.development server.ts",
+    "typecheck": "react-router typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-router/node": "^8.4.0",
+    "ankka-console": "*",
+    "isbot": "^5.2.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^8.4.0"
+  },
+  "devDependencies": {
+    "@react-router/dev": "^8.4.0",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}

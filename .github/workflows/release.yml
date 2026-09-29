@@ -657,7 +657,7 @@ jobs:
     #
     # It waits for the publish job for the reason the other SDK jobs do. A version can never be re-uploaded
     # to crates.io, only yanked, so the isolated build below is the last point at which a release can be
-    # withdrawn; the `cargo info` guard lets a re-run of the tag finish what a cancelled run left.
+    # withdrawn; the crates.io guard lets a re-run of the tag finish what a cancelled run left.
     needs: publish
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
@@ -694,15 +694,20 @@ jobs:
           (cd "$RUNNER_TEMP/crate/ankka-$version" && cargo build --target wasm32-unknown-unknown)
       - name: Is this version already on crates.io?
         id: published
-        working-directory: sdks/rust
+        # crates.io's API, not `cargo info`: inside the workspace `cargo info` answers from the local
+        # package, which the first step has just given this very version, so it reported every release
+        # as already published and nothing was ever uploaded. Anything but a 200 or a 404 fails the job
+        # rather than guessing.
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if cargo info "ankka@$version" >/dev/null 2>&1; then
-            echo "ankka@$version is already on crates.io; nothing to publish"
-            echo "already=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "already=false" >> "$GITHUB_OUTPUT"
-          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' -A 'ankka release (github.com/thinkmorestupidless/ankka)' \
+            "https://crates.io/api/v1/crates/ankka/$version" || true)
+          case "$code" in
+            200) echo "ankka@$version is already on crates.io; nothing to publish"
+                 echo "already=true" >> "$GITHUB_OUTPUT" ;;
+            404) echo "already=false" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "::error::crates.io answered $code for ankka@$version"; exit 1 ;;
+          esac
       - uses: rust-lang/crates-io-auth-action@v1
         if: steps.published.outputs.already == 'false'
         id: auth

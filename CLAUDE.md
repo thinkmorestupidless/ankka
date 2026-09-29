@@ -1536,7 +1536,7 @@ git checkout -- ankka/Cargo.toml Cargo.lock
 
 Then on crates.io, the crate's settings → Trusted Publishing → GitHub: owner `thinkmorestupidless`,
 repository `ankka`, workflow `release.yml`, environment `crates-io`. From the next tag the job publishes,
-and its `cargo info` guard makes a re-run of a tag finish what a cancelled run left.
+and its guard, which asks crates.io's API (`cargo info` inside the workspace answers from the local package, so it reported every version as published and v0.9.0 uploaded nothing), makes a re-run of a tag finish what a cancelled run left.
 
 **The console ships twice**: as the `ankka-console` image, beside the other images from the `images` job, and
 as the `ankka-console` npm package from the `console-package` job, which a product builds its own host on. The

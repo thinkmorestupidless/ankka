@@ -8,6 +8,7 @@ import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { Breadcrumbs, ConsoleForm, Field, Submit, useConsole, when } from "../ui/console.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
+import { HostActions } from "../extensions/render.tsx";
 
 export const meta: MetaFunction = () => [{ title: "Deploy tokens · ankka" }];
 
@@ -126,6 +127,9 @@ export default function Tokens() {
             <Submit intent="create">Create token</Submit>
           </ConsoleForm>
           <Refused intent="create" />
+          <div className="ac-actions">
+            <HostActions operation="token.create" entity={o} />
+          </div>
         </>
       ) : null}
     </section>

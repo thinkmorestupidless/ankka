@@ -9,6 +9,7 @@ import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { Breadcrumbs, ConsoleForm, Field, Submit, useConsole, when } from "../ui/console.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import type { Role } from "../client/schemas.ts";
+import { HostActions } from "../extensions/render.tsx";
 
 export const meta: MetaFunction = () => [{ title: "Members · ankka" }];
 
@@ -180,6 +181,9 @@ export default function Members() {
             <Submit intent="invite">Invite</Submit>
           </ConsoleForm>
           <Refused intent="invite" />
+          <div className="ac-actions">
+            <HostActions operation="member.invite" entity={o} />
+          </div>
         </>
       ) : null}
     </section>

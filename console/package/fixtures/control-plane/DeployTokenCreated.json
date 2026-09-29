@@ -1,0 +1,1 @@
+{"type":"DeployTokenCreated","json":{"id":"abc123","label":"ci","secret":"ankka_abc123_secret","subject":"token:abc123","expiresAt":"2026-12-27T10:00:00Z"}}

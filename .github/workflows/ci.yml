@@ -282,7 +282,10 @@ jobs:
           cache-dependency-path: console/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      # With the package packed and installed into an empty directory, as npm would receive it.
       - run: npm test
+        env:
+          CONSOLE_PACK: "1"
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
       - if: failure()
@@ -292,5 +295,4 @@ jobs:
           path: |
             console/e2e/report
             console/e2e/test-results
-      - run: CONSOLE_PACK=1 npm test -w package -- --test-name-pattern pack
       - run: docker build -t ankka-console:ci .

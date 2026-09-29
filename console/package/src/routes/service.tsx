@@ -58,15 +58,19 @@ const history = {
   deleted: "Deleted",
 } as Record<string, string>;
 
-function Operation({ intent, label, operation, danger }: { intent: string; label: string; operation: Operation; danger?: boolean }) {
+function Operation({ intent, label, operation, danger, entity }: { intent: string; label: string; operation: Operation; danger?: boolean; entity?: unknown }) {
   const { shows } = useConsole();
-  if (!shows(operation)) return null;
   return (
-    <ConsoleForm intent={intent}>
-      <Submit intent={intent} danger={danger}>
-        {label}
-      </Submit>
-    </ConsoleForm>
+    <>
+      {shows(operation) ? (
+        <ConsoleForm intent={intent}>
+          <Submit intent={intent} danger={danger}>
+            {label}
+          </Submit>
+        </ConsoleForm>
+      ) : null}
+      <HostActions operation={operation} entity={entity} />
+    </>
   );
 }
 
@@ -115,16 +119,15 @@ export default function Service() {
       </dl>
 
       <div className="ac-actions" aria-label="Operations">
-        {s.paused ? <Operation intent="resume" label="Resume" operation="service.resume" /> : <Operation intent="pause" label="Pause" operation="service.pause" />}
-        <Operation intent="restart" label="Restart" operation="service.restart" />
-        {s.exposed ? <Operation intent="unexpose" label="Unexpose" operation="service.unexpose" /> : <Operation intent="expose" label="Expose" operation="service.expose" />}
+        {s.paused ? <Operation intent="resume" label="Resume" operation="service.resume" entity={s} /> : <Operation intent="pause" label="Pause" operation="service.pause" entity={s} />}
+        <Operation intent="restart" label="Restart" operation="service.restart" entity={s} />
+        {s.exposed ? <Operation intent="unexpose" label="Unexpose" operation="service.unexpose" entity={s} /> : <Operation intent="expose" label="Expose" operation="service.expose" entity={s} />}
         <ConsoleLink to={`${path}/logs`} className="ac-button ac-button-quiet">
           Logs
         </ConsoleLink>
         <ConsoleLink to={`projects/${encodeURIComponent(p.id)}/services/apply?name=${encodeURIComponent(s.name)}`} className="ac-button ac-button-quiet">
           Apply a new descriptor
         </ConsoleLink>
-        <HostActions operation="service.restart" entity={s} />
       </div>
       {serviceOperations.map((op) => (
         <Refused key={op} intent={op} />
@@ -169,7 +172,7 @@ export default function Service() {
         <summary>Delete</summary>
         <div className="ac-danger-zone">
           <p>Deleting {s.name} stops it and removes it from the project. Its database is kept: applying a descriptor with this name again brings the service back with its data.</p>
-          <Operation intent="delete" label="Delete service" operation="service.delete" danger />
+          <Operation intent="delete" label="Delete service" operation="service.delete" danger entity={s} />
           <Refused intent="delete" />
         </div>
       </details>

@@ -1416,6 +1416,20 @@ run left without a second upload. The `npm` environment on the repository is whe
 go, as `pypi` is for the Python SDK. The `ci` workflow's `sdk-typescript` job runs the fast tests on Node 22
 and 24 (the floor and the documented line) and the Docker-backed tests and the conformance suite on 24.
 
+**The console ships twice**: as the `ankka-console` image, beside the other images from the `images` job, and
+as the `ankka-console` npm package from the `console-package` job, which a product builds its own host on. The
+package's version is `0.0.0` in `console/package/package.json`, written from the tag like the SDK's, and its
+first publish is by hand for the same reason, after that tag's `publish` job is green:
+
+```bash
+git checkout vX.Y.Z && cd console
+npm version X.Y.Z --no-git-tag-version -w package && npm ci && npm run build -w package
+cd package && mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-console-X.Y.Z.tgz --access public
+git checkout -- package.json ../package-lock.json
+```
+
+Then attach the trusted publisher to `ankka-console` exactly as for `ankka`.
+
 **Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
 checked against `BuildInfo.version` when the control plane *projects* the service — same major,
 minor equal or one below — and an unsupported one takes the existing "cannot project" path as

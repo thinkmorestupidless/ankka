@@ -86,6 +86,27 @@ describe("Issuer", () => {
     await assert.rejects(issuer.refresh(tokens.refreshToken), SessionEnded);
   });
 
+  test("a Keycloak named by host only answers the backchannel with the public issuer, and issues tokens for it", async () => {
+    // Keycloak configured with a host name only takes its issuer's scheme and port from each request.
+    // Reached directly on another port, it would name another issuer — unless the console sends the
+    // forwarded headers the gateway would have.
+    const keycloak = await fakeIssuer({ hostOnly: "auth.invalid" });
+    try {
+      const publicIssuer = "https://auth.invalid:8443/realms/ankka";
+      const direct = await (await fetch(`${keycloak.url}/realms/ankka/.well-known/openid-configuration`)).json();
+      assert.notEqual(direct.issuer, publicIssuer, "the direct answer names another issuer, as Keycloak's would");
+
+      const console_ = new Issuer({ issuer: publicIssuer, clientId: "ankka-console", clientSecret: "dev", backchannelUrl: keycloak.url, allowInsecure: true });
+      await console_.configuration();
+      const tokens = await keycloak.mint("owner");
+      const refreshed = await console_.refresh(tokens.refreshToken);
+      const claims = JSON.parse(Buffer.from(refreshed.accessToken.split(".")[1], "base64url").toString());
+      assert.equal(claims.iss, publicIssuer, "a token issued over the backchannel names the public issuer");
+    } finally {
+      await keycloak.close();
+    }
+  });
+
   test("refuses an issuer that is not the one the control plane expects", async () => {
     const wrong = new Issuer({
       issuer: "http://auth.invalid/realms/ankka",

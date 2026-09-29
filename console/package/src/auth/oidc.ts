@@ -79,8 +79,28 @@ export class Issuer {
     this.#options = options;
   }
 
+  /**
+   * Server-side calls, carrying the public address as forwarded headers when they go to the
+   * backchannel. Keycloak keeps only a host name and takes the scheme and port of its issuer from
+   * each request, trusting the forwarded headers the gateway adds; asked directly on its in-cluster
+   * TLS port, it would name itself `https://auth.<base>:8443` — a different issuer from the one every
+   * browser-obtained token carries, so discovery would be refused and every token it issued here
+   * would be refused by the control plane. The headers make the backchannel look, to Keycloak, like
+   * the front door.
+   */
   #fetch(): FetchLike {
-    return this.#options.fetch ?? ((url, init) => fetch(url, init));
+    const base = this.#options.fetch ?? ((url, init) => fetch(url, init));
+    if (!this.#options.backchannelUrl) return base;
+    const issuer = new URL(this.#options.issuer);
+    const proto = issuer.protocol.replace(":", "");
+    const port = issuer.port || (proto === "https" ? "443" : "80");
+    return (url, init = {}) => {
+      const headers = new Headers(init.headers);
+      headers.set("x-forwarded-proto", proto);
+      headers.set("x-forwarded-host", issuer.host);
+      headers.set("x-forwarded-port", port);
+      return base(url, { ...init, headers });
+    };
   }
 
   /** The configuration, discovered on first use and kept; a failed discovery is tried again next time. */

@@ -41,6 +41,12 @@ export interface FakeIssuerOptions {
    * listens on — the cluster's situation, where Keycloak is reached in-cluster and named externally.
    */
   publicUrl?: string;
+  /**
+   * Keycloak's own behaviour when it is configured with a host name only: the scheme and port of the
+   * issuer come from each request, from its forwarded headers when it has them and from the address
+   * it was reached on when it does not. Set, discovery and tokens name the issuer of the request.
+   */
+  hostOnly?: string;
 }
 
 interface Session {
@@ -122,25 +128,35 @@ export async function fakeIssuer(options: FakeIssuerOptions = {}): Promise<FakeI
   let failures = 0;
   let issuer = "";
 
-  const sign = (claims: Record<string, unknown>, seconds: number, key: CryptoKey = privateKey) =>
+  let listeningPort = 0;
+  /** The issuer as this request would make Keycloak name it; the configured one unless `hostOnly`. */
+  const issuerOf = (req: IncomingMessage): string => {
+    if (!options.hostOnly) return issuer;
+    const proto = String(req.headers["x-forwarded-proto"] ?? "http");
+    const port = String(req.headers["x-forwarded-port"] ?? listeningPort);
+    const shown = (proto === "https" && port === "443") || (proto === "http" && port === "80") ? "" : `:${port}`;
+    return `${proto}://${options.hostOnly}${shown}/realms/ankka`;
+  };
+
+  const sign = (claims: Record<string, unknown>, seconds: number, iss: string = issuer, key: CryptoKey = privateKey) =>
     new SignJWT(claims)
       .setProtectedHeader({ alg: "RS256", kid: "fake-1", typ: "JWT" })
-      .setIssuer(issuer)
+      .setIssuer(iss)
       .setIssuedAt()
       .setExpirationTime(Math.floor(Date.now() / 1000) + seconds)
       .sign(key);
 
-  async function tokensFor(sub: string, sessionId: string, nonce?: string) {
+  async function tokensFor(sub: string, sessionId: string, nonce?: string, iss: string = issuer) {
     const user = fakeUsers[sub];
     const identity = { name: user.name, email: user.email, email_verified: true, preferred_username: user.username };
     const accessToken = await sign(
       { ...identity, sub, aud: [audience], azp: clientId, sid: sessionId, realm_access: { roles: user.roles }, typ: "Bearer" },
-      accessSeconds,
+      accessSeconds, iss
     );
-    const idToken = await sign({ ...identity, sub, aud: clientId, azp: clientId, sid: sessionId, ...(nonce ? { nonce } : {}) }, accessSeconds);
+    const idToken = await sign({ ...identity, sub, aud: clientId, azp: clientId, sid: sessionId, ...(nonce ? { nonce } : {}) }, accessSeconds, iss);
     // Keycloak's refresh tokens are signed JWTs of several hundred bytes; so are these, so a cookie
     // that carries one is measured at a realistic size.
-    const refreshToken = await sign({ sub, sid: sessionId, typ: "Refresh", aud: issuer, jti: randomBytes(16).toString("hex") }, idleSeconds);
+    const refreshToken = await sign({ sub, sid: sessionId, typ: "Refresh", aud: issuer, jti: randomBytes(16).toString("hex") }, idleSeconds, iss);
     refreshes.set(refreshToken, { sessionId, sub, exp: Date.now() + idleSeconds * 1000, revoked: false });
     return { accessToken, idToken, refreshToken };
   }
@@ -207,12 +223,12 @@ export async function fakeIssuer(options: FakeIssuerOptions = {}): Promise<FakeI
       if (path === `${realm}/.well-known/openid-configuration`) {
         if (failures > 0) return (failures--, void req.socket.destroy());
         return json(res, 200, {
-          issuer,
-          authorization_endpoint: `${issuer}/protocol/openid-connect/auth`,
-          token_endpoint: `${issuer}/protocol/openid-connect/token`,
-          jwks_uri: `${issuer}/protocol/openid-connect/certs`,
-          revocation_endpoint: `${issuer}/protocol/openid-connect/revoke`,
-          end_session_endpoint: `${issuer}/protocol/openid-connect/logout`,
+          issuer: issuerOf(req),
+          authorization_endpoint: `${issuerOf(req)}/protocol/openid-connect/auth`,
+          token_endpoint: `${issuerOf(req)}/protocol/openid-connect/token`,
+          jwks_uri: `${issuerOf(req)}/protocol/openid-connect/certs`,
+          revocation_endpoint: `${issuerOf(req)}/protocol/openid-connect/revoke`,
+          end_session_endpoint: `${issuerOf(req)}/protocol/openid-connect/logout`,
           response_types_supported: ["code"],
           subject_types_supported: ["public"],
           id_token_signing_alg_values_supported: ["RS256"],
@@ -257,7 +273,7 @@ export async function fakeIssuer(options: FakeIssuerOptions = {}): Promise<FakeI
             return json(res, 400, { error: "invalid_grant", error_description: "PKCE verification failed" });
           const session = sessions.get(code.sessionId);
           if (!session || session.ended) return json(res, 400, { error: "invalid_grant", error_description: "Session not active" });
-          return json(res, 200, tokenResponse(await tokensFor(code.sub, code.sessionId, code.nonce)));
+          return json(res, 200, tokenResponse(await tokensFor(code.sub, code.sessionId, code.nonce, issuerOf(req))));
         }
         if (grant === "refresh_token") {
           const token = form.get("refresh_token") ?? "";
@@ -265,7 +281,7 @@ export async function fakeIssuer(options: FakeIssuerOptions = {}): Promise<FakeI
           const session = record ? sessions.get(record.sessionId) : undefined;
           if (!record || record.revoked || record.exp < Date.now() || !session || session.ended)
             return json(res, 400, { error: "invalid_grant", error_description: "Session not active" });
-          return json(res, 200, tokenResponse(await tokensFor(record.sub, record.sessionId)));
+          return json(res, 200, tokenResponse(await tokensFor(record.sub, record.sessionId, undefined, issuerOf(req))));
         }
         return json(res, 400, { error: "unsupported_grant_type" });
       }
@@ -320,6 +336,7 @@ export async function fakeIssuer(options: FakeIssuerOptions = {}): Promise<FakeI
 
   await new Promise<void>((resolve) => server.listen(options.port ?? 0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  listeningPort = (server.address() as AddressInfo).port;
   issuer = `${options.publicUrl ?? base}${realm}`;
 
   return {

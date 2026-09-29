@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python or TypeScript — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, and several agents coordinated from a workflow. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, or streaming tokens.
+description: Design, write, change or test an ankka agent in Scala, Python or TypeScript — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
 ---
 
 # ankka agents
@@ -118,6 +118,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/concepts/agents.md` — How an ankka agent works — sharded by session, one request at a time, with session memory kept as an event sourced entity and the model loop, tools and guardrails run by the platform.
 - `references/concepts/designing-agents.md` — Decide when an agent is the right component, design its tools, sessions, guardrails and model choice, plan for failure and cost, put a person in the loop, and combine agents with workflows and entities.
+- `references/concepts/autonomous-agents.md` — How an autonomous agent works — handed a typed task, iterating on its own until it completes, fails or spends its budget, with every iteration recorded so a crash resumes where it stopped.
 
 ### Build
 
@@ -125,5 +126,6 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/build/agents.md` — Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
+- `references/build/autonomous-agents.md` — Write an autonomous agent in Scala or Python — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
 - `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.

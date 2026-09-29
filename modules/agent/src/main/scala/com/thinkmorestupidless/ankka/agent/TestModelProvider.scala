@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString}
+
 import java.util.concurrent.{ConcurrentLinkedQueue, CopyOnWriteArrayList}
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
@@ -62,6 +64,45 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
     ): Unit
     this
 
+  /**
+   * Queues a reply that completes an autonomous agent's task with `result`, encoded as the task
+   * type's result is.
+   */
+  def expectCompleteTask[R](result: R, callId: String = "complete")(using
+      codec: JsonValueCodec[R]
+  ): TestModelProvider =
+    expectCompleteTaskJson(writeToString(result), callId)
+
+  /** Completes a task whose type has no result shape, with text. */
+  def expectCompleteTaskText(text: String, callId: String = "complete"): TestModelProvider =
+    expectCompletion(Json.obj("result" -> Json.str(text)), callId)
+
+  /**
+   * Completes a task with raw JSON — for a result that does not decode, to see what the agent does
+   * with one.
+   */
+  def expectCompleteTaskJson(json: String, callId: String = "complete"): TestModelProvider =
+    expectCompletion(
+      Json.parse(json).fold(e => throw IllegalArgumentException(e), identity),
+      callId
+    )
+
+  /** Queues a reply in which the model gives up on its task, with `reason`. */
+  def expectFailTask(reason: String, callId: String = "fail"): TestModelProvider =
+    expectToolCall("fail_task", Json.obj("reason" -> Json.str(reason)), callId)
+
+  private def expectCompletion(arguments: Json, callId: String): TestModelProvider =
+    expectToolCall("complete_task", arguments, callId)
+
+  /**
+   * A standing rule keyed on the results of the latest tool calls: the response is used, once the
+   * script has run out, when any of them contains `substring`.
+   */
+  def whenToolResult(substring: String)(response: ModelResponse): TestModelProvider =
+    whenRequest(request => latestToolResults(request).exists(_.content.contains(substring)))(
+      response
+    )
+
   def expect(response: ModelResponse): TestModelProvider =
     scripted.add(response): Unit
     this
@@ -76,6 +117,13 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
     whenRequest(request => latestUserText(request).exists(_.contains(substring)))(
       ModelResponse(reply)
     )
+
+  /**
+   * A standing rule keyed on the latest user message, answering with any response — a tool call as
+   * well as text. For an autonomous agent the user message is the task's instructions.
+   */
+  def whenUserAsks(substring: String)(response: ModelResponse): TestModelProvider =
+    whenRequest(request => latestUserText(request).exists(_.contains(substring)))(response)
 
   /** Every request the agent made, in order — the main thing tests assert on. */
   def requests: Seq[ModelRequest] = seen.asScala.toSeq
@@ -137,6 +185,11 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
             Vector(ModelChunk.Completed(response))
         )
       }
+
+  private def latestToolResults(request: ModelRequest): Vector[ToolResult] =
+    request.messages.reverseIterator
+      .collectFirst { case ChatMessage.ToolResults(results) => results }
+      .getOrElse(Vector.empty)
 
   private def latestUserText(request: ModelRequest): Option[String] =
     request.messages.reverseIterator

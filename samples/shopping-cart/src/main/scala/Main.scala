@@ -1,7 +1,7 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
-import shoppingcart.api.{CallersEndpoint, ShoppingCartEndpoint}
+import shoppingcart.api.{CallersEndpoint, QuestionsEndpoint, ShoppingCartEndpoint}
 import shoppingcart.application.*
 
 /**
@@ -10,7 +10,8 @@ import shoppingcart.application.*
  * Registration is explicit, so this is also the complete inventory of what the service hosts —
  * there is nothing discovered by scanning at startup.
  *
- * Needs Postgres: `docker compose up -d`. A model key is optional, and only the assistant needs it.
+ * Needs Postgres: `docker compose up -d`. A model key is optional, and only the assistant and the
+ * answerer need it; without one, `/questions` answers not found.
  */
 @main def runShoppingCart(): Unit =
   // docs:start registration
@@ -49,13 +50,15 @@ import shoppingcart.application.*
     .fold(withNotices) { key =>
       withNotices
         .register(CartAssistant.descriptor)
+        .register(CartAnswerer.descriptor)
         .registerAll(AgentRuntime.descriptors)
         .withExtension(AgentRuntime.withDefaultModel(AnthropicProvider.withApiKey(key)))
     }
     .withExtension(
       HttpServer.of(
         clients => ShoppingCartEndpoint(clients.componentClient),
-        clients => CallersEndpoint(clients.services)
+        clients => CallersEndpoint(clients.services),
+        clients => QuestionsEndpoint(clients.componentClient)
       )
     )
     .start()

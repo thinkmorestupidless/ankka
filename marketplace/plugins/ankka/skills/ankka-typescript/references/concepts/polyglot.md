@@ -69,7 +69,7 @@ samples use the stored spelling.
 A descriptor says a service is process-hosted in two fields:
 
 ```json title="service.json"
-{ "name": "cart", "service": { "image": "my-cart:1.0.0", "hosting": "process", "protocol": "1.0" } }
+{ "name": "cart", "service": { "image": "my-cart:1.0.0", "hosting": "process", "protocol": "1.2" } }
 ```
 
 The image holds only your process. The platform adds the sidecar, at the version that matches the

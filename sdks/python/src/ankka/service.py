@@ -14,6 +14,7 @@ from typing import Any
 from ankka import __version__
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.agent import Agent
+from ankka.autonomous import AutonomousAgent
 from ankka.consumer import Consumer
 from ankka.endpoint import Endpoint
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
@@ -22,7 +23,7 @@ from ankka.timed_action import TimedAction
 from ankka.view import View
 from ankka.workflow import Workflow
 
-PROTOCOL_VERSION = "1.1"
+PROTOCOL_VERSION = "1.2"
 DEFAULT_PROCESS_PORT = 9010
 
 
@@ -37,12 +38,13 @@ class Registry:
     consumers: dict[str, type[Consumer[Any, Any]]] = field(default_factory=dict)
     timed_actions: dict[str, type[TimedAction]] = field(default_factory=dict)
     agents: dict[str, type[Agent]] = field(default_factory=dict)
+    autonomous: dict[str, type[AutonomousAgent]] = field(default_factory=dict)
     endpoints: dict[str, type[Endpoint]] = field(default_factory=dict)
     others: list[Any] = field(default_factory=list)
 
     def spec(self) -> discovery_pb2.Spec:
         components = [cls.to_component() for cls in self.entities.values()]
-        for registry in (self.key_values, self.workflows, self.views, self.consumers, self.timed_actions, self.agents):
+        for registry in (self.key_values, self.workflows, self.views, self.consumers, self.timed_actions, self.agents, self.autonomous):
             components.extend(cls.to_component() for cls in registry.values())
         for other in self.others:
             components.append(other.to_component())
@@ -81,6 +83,8 @@ class ServiceBuilder:
             self._add(self._registry.timed_actions, "timed action", component)
         elif isinstance(component, type) and issubclass(component, Agent):
             self._add(self._registry.agents, "agent", component)
+        elif isinstance(component, type) and issubclass(component, AutonomousAgent):
+            self._add(self._registry.autonomous, "autonomous agent", component)
         elif isinstance(component, type) and issubclass(component, Endpoint):
             eid = component.endpoint_id()
             if eid in self._registry.endpoints:

@@ -94,6 +94,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
+- `references/build/autonomous-agents.md` — Write an autonomous agent in Scala or Python — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 - `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
 

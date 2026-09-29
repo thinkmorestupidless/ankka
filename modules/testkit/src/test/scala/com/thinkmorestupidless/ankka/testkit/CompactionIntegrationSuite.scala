@@ -229,5 +229,9 @@ class CompactionIntegrationSuite extends munit.FunSuite:
 
     // An explicit one works without a default model.
     val runtime = AgentRuntime().withCompaction(CompactionSettings(), Some(_ => "summary"))
-    assertEquals(runtime.descriptors.size, 2)
+    // Compaction adds exactly the compactor to what every agent runtime registers.
+    assertEquals(
+      runtime.descriptors.map(_.componentId).toSet -- AgentRuntime.descriptors.map(_.componentId),
+      Set(SessionCompactor.ComponentId)
+    )
   }

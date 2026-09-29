@@ -288,6 +288,54 @@ object ConformanceReference:
     val ask                           = command("ask")(_.ask)
     val streamAsk                     = stream("stream")(_.stream)
 
+  // ── answerer: an autonomous agent, whose tool acts through the client ──
+
+  final case class Answer(answer: String, sources: List[String])
+  object Answer:
+    given JsonValueCodec[Answer]        = Codecs.make
+    given autonomous.JsonSchema[Answer] = autonomous.JsonSchema.derived
+
+  val AnswerType: autonomous.TaskType[Answer] = autonomous.Task
+    .named("answer")
+    .describedAs("Answer a question, citing what you looked up")
+    .resultConformsTo[Answer]
+    .rule("cites-sources")(a =>
+      if a.sources.isEmpty then autonomous.TaskRule.Rejected("sources must not be empty")
+      else autonomous.TaskRule.Accepted
+    )
+    // Throws the first time it sees "flaky-once": a rule that fails once, then decides.
+    .rule("steady")(a =>
+      if a.answer == "flaky-once" && FlakyRule.seen.add(a.answer) then
+        throw IllegalStateException("the rule threw")
+      else autonomous.TaskRule.Accepted
+    )
+
+  object FlakyRule:
+    val seen: java.util.Set[String] = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
+  final class Answerer(context: autonomous.AutonomousAgentContext)
+      extends autonomous.AutonomousAgent(context):
+    override def tools: Seq[FunctionTool] = Seq(
+      FunctionTool
+        .named("lookup")
+        .describedAs("Looks up how many things were recorded under an id.")
+        .param[String]("id", "The id to look up.")
+        .handle { id =>
+          if id.isEmpty then throw IllegalArgumentException("an id is needed")
+          val entity = context.componentClient.forEventSourcedEntity(EntityId(id))
+          val _      = entity.call(Conformance.record).invoke("looked-up")
+          s"count for $id is ${entity.call(Conformance.count).invoke()}"
+        }
+    )
+
+  object Answerer extends autonomous.AutonomousAgent.Companion[Answerer](ComponentId("answerer")):
+    def create(context: autonomous.AutonomousAgentContext) = new Answerer(context)
+    def definition =
+      define
+        .describedAs("Answers questions")
+        .guardrails(Guardrail.forbidding("no-secrets", "sk-".r))
+        .capability(autonomous.TaskAcceptance.of(AnswerType).maxIterationsPerTask(4))
+
   // ── Endpoints ──
 
   given JsonValueCodec[ShoppingCart] = Codecs.make[ShoppingCart]
@@ -404,6 +452,60 @@ object ConformanceReference:
       String(bytes, "UTF-8")
     }
 
+  /** Autonomous agents: tasks run, read and cancelled; instances driven and watched. */
+  final class AutonomousEndpoint(clients: EndpointClients) extends HttpEndpoint("/autonomous"):
+    import autonomous.*
+    val acl: Acl       = Acl.AllowAll
+    private def client = clients.componentClient
+    private def record(id: String): String =
+      String(TaskEntity.stateSerializer.toBytes(client.forTask(id).get()), "UTF-8")
+
+    postBody("/tasks/{type}") { (taskType: String, instructions: String) =>
+      if taskType != AnswerType.name then throw HttpProblem.badRequest(s"no task type '$taskType'")
+      val id       = client.forAutonomousAgent(Answerer).runSingleTask(AnswerType, instructions)
+      val instance = client.forTask(id).get().assignee.map(_.instanceId).getOrElse("")
+      s"""{"taskId":"$id","instanceId":"$instance"}"""
+    }
+    get("/tasks/{id}")((id: String) => record(id))
+    post[String, Done]("/tasks/{id}/cancel")((id: String) => client.forTask(id).cancel())
+    postBody("/tasks/{type}/create") { (taskType: String, body: String) =>
+      // {"instructions": "...", "dependsOn": ["..."]} — creates without running.
+      if taskType != AnswerType.name then throw HttpProblem.badRequest(s"no task type '$taskType'")
+      val json = Json.parse(body).fold(p => throw HttpProblem.badRequest(p), identity)
+      val deps = json("dependsOn").flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
+      val id = client.tasks
+        .create(AnswerType, json("instructions").flatMap(_.asString).getOrElse(""))
+        .dependsOn(deps*)
+        .create()
+      s"""{"taskId":"$id"}"""
+    }
+    postBody("/instances/{instance}/assign") { (instance: String, body: String) =>
+      val ids =
+        Json.parse(body).toOption.flatMap(_.asArray).getOrElse(Vector.empty).flatMap(_.asString)
+      val r = client.forAutonomousAgent(Answerer)(instance).assign(ids*)
+      s"""{"accepted":[${r.accepted.map(i => s"\"$i\"").mkString(",")}]}"""
+    }
+    post[String, String, Done]("/instances/{instance}/{op}") { (instance: String, op: String) =>
+      val calls = client.forAutonomousAgent(Answerer)(instance)
+      op match
+        case "suspend"   => calls.suspend()
+        case "resume"    => calls.resume()
+        case "terminate" => calls.terminate()
+        case other       => throw HttpProblem.notFound(s"no operation '$other'")
+    }
+    sse("/instances/{instance}/notifications") { (instance: String) =>
+      client
+        .forAutonomousAgent(Answerer)(instance)
+        .notifications()
+        .map(n => String(Notification.serializer.toBytes(n), "UTF-8"))
+    }
+    get("/instances/{instance}/state") { (instance: String) =>
+      String(
+        AgentState.serializer.toBytes(client.forAutonomousAgent(Answerer)(instance).state()),
+        "UTF-8"
+      )
+    }
+
   /**
    * Caller-naming ACLs (feature 014). The suite names callers through the local caller header,
    * since every target runs outside a cluster, where this service's own identity is `local/local`.
@@ -435,7 +537,8 @@ object ConformanceReference:
     "cart-rows",
     "checkout-recorder",
     "reminder",
-    "assistant"
+    "assistant",
+    "answerer"
   )
 
   def descriptors: Seq[ComponentDescriptor] = Seq(
@@ -446,7 +549,8 @@ object ConformanceReference:
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
     Reminder.descriptor,
-    Assistant.descriptor
+    Assistant.descriptor,
+    Answerer.descriptor
   )
 
   def endpoints(
@@ -456,5 +560,6 @@ object ConformanceReference:
     clients => CartsEndpoint(clients),
     clients => ConformanceEndpoint(clients, timers, problems),
     _ => PrivateEndpoint(),
-    _ => CallersEndpoint()
+    _ => CallersEndpoint(),
+    clients => AutonomousEndpoint(clients)
   )

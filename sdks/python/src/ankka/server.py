@@ -40,6 +40,7 @@ from ankka._proto.ankka.protocol.v1 import (
     workflow_pb2_grpc,
 )
 from ankka.agent import Agent
+from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient
 from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
@@ -467,8 +468,8 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
         self.registry = registry
         self.client = client
 
-    def _agent(self, component_id: str, session_id: str, metadata: Metadata | None = None) -> Agent | None:
-        cls = self.registry.agents.get(component_id)
+    def _agent(self, component_id: str, session_id: str, metadata: Metadata | None = None) -> Agent | AutonomousAgent | None:
+        cls: type[Agent] | type[AutonomousAgent] | None = self.registry.agents.get(component_id) or self.registry.autonomous.get(component_id)
         if cls is None:
             return None
         scoped = self.client.with_metadata(metadata) if metadata is not None else self.client
@@ -477,9 +478,10 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
     async def Plan(self, request: agent_pb2.PlanRequest, context: Any) -> agent_pb2.PlanReply:
         metadata = Metadata.from_pb(request.metadata)
         agent = self._agent(request.component_id, request.session_id, metadata)
-        spec = type(agent).handlers().get(request.name) if agent is not None else None
+        spec = type(agent).handlers().get(request.name) if isinstance(agent, Agent) else None
         if agent is None or spec is None:
             return agent_pb2.PlanReply(failure=_failure(0, f"unknown agent handler {request.component_id}/{request.name}", payload_pb2.NOT_FOUND))
+        assert isinstance(agent, Agent)
         try:
             effect = await agent._plan(spec, request.payload.data, request.session_id, metadata)
         except Exception as e:
@@ -508,6 +510,32 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
             getattr(passed, "pass").SetInParent()  # `pass` is a keyword, so the field is reached by name
             return passed
         return agent_pb2.GuardrailResult(block=reason)
+
+    async def CheckTaskResult(self, request: agent_pb2.TaskResultRequest, context: Any) -> agent_pb2.TaskResultVerdict:
+        """An autonomous agent's result: decoded as its task type's, then put through its rules. A
+        rule that raises is answered as an error, which the sidecar takes as a failed iteration and
+        tries again — never as a verdict, since nothing was decided."""
+        cls = self.registry.autonomous.get(request.component_id)
+        if cls is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown autonomous agent {request.component_id}")
+        assert cls is not None
+        try:
+            verdict = await cls(self.client)._check_result(request.task_type, request.result_json, request.task_id)
+        except LookupError as e:
+            await context.abort(grpc.StatusCode.NOT_FOUND, str(e))
+            raise
+        except Exception as e:
+            log.warning("%s result check on task %s raised: %s", request.component_id, request.task_id, e)
+            await context.abort(grpc.StatusCode.INTERNAL, f"a rule raised: {e}")
+            raise
+        if verdict is None:
+            accepted = agent_pb2.TaskResultVerdict()
+            accepted.accept.SetInParent()
+            return accepted
+        if isinstance(verdict, Malformed):
+            return agent_pb2.TaskResultVerdict(malformed=verdict.problem)
+        rule, reason = verdict
+        return agent_pb2.TaskResultVerdict(reject=agent_pb2.TaskResultVerdict.Rejection(rule=rule, reason=reason))
 
 
 class HttpServicer(endpoint_pb2_grpc.HttpServicer):

@@ -14,6 +14,8 @@ repository) uses ``ankka-sidecar:latest``, the image ``sbt sidecar/Docker/publis
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import asyncio
 import os
 import shutil
@@ -29,6 +31,7 @@ from testcontainers.core.container import DockerContainer
 from testcontainers.core.network import Network
 from testcontainers.community.postgres import PostgresContainer
 
+from ankka.autonomous import Notification, TaskSnapshot, TaskType
 from ankka.client import ComponentClient
 from ankka.server import Server
 from ankka.service import ServiceBuilder
@@ -269,6 +272,19 @@ class AnkkaTestKit:
         raise TimeoutError("the service was not healthy in time")
 
     # ── what a test reads ─────────────────────────────────────────────────
+
+    async def await_task(self, task_id: str, task_type: TaskType[Any] | None = None, timeout: float = 30.0) -> TaskSnapshot[Any]:
+        """Waits until an autonomous agent's task has ended, answering its record with the result
+        decoded as ``task_type``'s. Fails naming where the task had got to, and with the sidecar's
+        recent log, when it has not ended in time."""
+        try:
+            return await self.client.for_task(task_id).wait(task_type, timeout)
+        except TimeoutError as e:
+            raise AssertionError(f"{e}\n{self.sidecar_logs()[-3000:]}") from e
+
+    def notifications(self, component_id: str, instance_id: str) -> AsyncIterator[Notification]:
+        """What an autonomous agent instance does from now on, as it happens."""
+        return self.client.for_autonomous_agent(component_id, instance_id).notifications()
 
     def sidecar_logs(self) -> str:
         if self._sidecar is None:

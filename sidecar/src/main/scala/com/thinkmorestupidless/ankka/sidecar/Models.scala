@@ -2,8 +2,11 @@ package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.agent.{
   AnthropicProvider,
+  ChatMessage,
   Json,
+  MessageContent,
   ModelProvider,
+  ModelRequest,
   ModelResponse,
   StopReason,
   TestModelProvider,
@@ -54,9 +57,11 @@ object Models:
 
   /**
    * A scripted model from JSON — the text itself, or the path of a file holding it. An array of
-   * turns, consumed in order: `{"text": "..."}`, `{"tool": "name", "arguments": {...}}` (several
-   * tools: `{"tools": [...]}`), `{"refusal": "..."}`; and standing rules used once the script runs
-   * out, `{"when": "<substring of the user's message>", "text": "..."}`.
+   * turns: `{"text": "..."}`, `{"tool": "name", "arguments": {...}}` (several tools:
+   * `{"tools": [...]}`), `{"refusal": "..."}`. A plain turn is consumed in order. A turn with
+   * `"when": "<substring of the user's message>"` or `"when_tool_result": "<substring of the latest
+   * tool result>"` is a standing rule instead, answered whenever it matches once the ordered turns
+   * have run out — which is what lets a script survive the sidecar being replaced mid-task.
    */
   def scriptedFrom(script: String): Either[String, TestModelProvider] =
     val text =
@@ -75,6 +80,15 @@ object Models:
     }
 
   private def scriptTurn(model: TestModelProvider, turn: Json): Either[String, Unit] =
+    responseOf(turn).map { response =>
+      (turn("when").flatMap(_.asString), turn("when_tool_result").flatMap(_.asString)) match
+        case (Some(substring), _) =>
+          model.whenRequest(r => latestUser(r).exists(_.contains(substring)))(response): Unit
+        case (None, Some(substring)) => model.whenToolResult(substring)(response): Unit
+        case (None, None)            => model.expect(response): Unit
+    }
+
+  private def responseOf(turn: Json): Either[String, ModelResponse] =
     def call(t: Json, i: Int): Either[String, ToolCall] =
       t("tool").flatMap(_.asString) match
         case None => Left("a tool call needs a \"tool\" name")
@@ -86,26 +100,27 @@ object Models:
               t("arguments").getOrElse(Json.obj())
             )
           )
-    (turn("when").flatMap(_.asString), turn("text").flatMap(_.asString)) match
-      case (Some(substring), Some(text)) =>
-        model.whenUserSays(substring)(text): Unit
-        Right(())
-      case (Some(_), None) => Left("a \"when\" rule needs a \"text\"")
-      case (None, _) =>
-        turn("tools").flatMap(_.asArray) match
-          case Some(calls) =>
-            calls.zipWithIndex
-              .foldLeft[Either[String, Vector[ToolCall]]](Right(Vector.empty)) {
-                case (acc, (c, i)) => acc.flatMap(v => call(c, i).map(v :+ _))
-              }
-              .map(cs => model.expectParallelToolCalls(cs*): Unit)
-          case None if turn("tool").isDefined =>
-            call(turn, 0).map(c => model.expectParallelToolCalls(c): Unit)
-          case None =>
-            (turn("text").flatMap(_.asString), turn("refusal").flatMap(_.asString)) match
-              case (Some(text), _)   => Right(model.expectText(text): Unit)
-              case (None, Some(why)) => Right(model.expectRefusal(why): Unit)
-              case (None, None)      => Left("a turn is a text, a tool call, or a refusal")
+    def calls(cs: Vector[ToolCall]) =
+      ModelResponse("", cs, StopReason.ToolUse, TokenUsage.zero, None)
+    turn("tools").flatMap(_.asArray) match
+      case Some(list) =>
+        list.zipWithIndex
+          .foldLeft[Either[String, Vector[ToolCall]]](Right(Vector.empty)) { case (acc, (c, i)) =>
+            acc.flatMap(v => call(c, i).map(v :+ _))
+          }
+          .map(calls)
+      case None if turn("tool").isDefined => call(turn, 0).map(c => calls(Vector(c)))
+      case None =>
+        (turn("text").flatMap(_.asString), turn("refusal").flatMap(_.asString)) match
+          case (Some(text), _) => Right(response(text))
+          case (None, Some(why)) =>
+            Right(ModelResponse("", Vector.empty, StopReason.Refusal, TokenUsage.zero, Some(why)))
+          case (None, None) => Left("a turn is a text, a tool call, or a refusal")
+
+  private def latestUser(request: ModelRequest): Option[String] =
+    request.messages.reverseIterator
+      .collectFirst { case u: ChatMessage.User => u }
+      .map(_.content.collect { case MessageContent.Text(t) => t }.mkString("\n"))
 
   /** A response the scripted model can be handed directly, for tests that build their own. */
   def response(text: String): ModelResponse =

@@ -11,7 +11,7 @@ import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 import grpc
 import grpc.aio
@@ -20,6 +20,9 @@ from ankka._proto.ankka.protocol.v1 import client_pb2, client_pb2_grpc, discover
 from ankka.codec import DONE_CODEC, UNIT, Codec, Done, default_codec_for
 from ankka.context import Metadata
 from ankka.effects.common import Error, ErrorCode
+
+if TYPE_CHECKING:
+    from ankka.autonomous import AutonomousAgent, AutonomousAgentCalls, TaskCalls, Tasks
 
 R = TypeVar("R")
 
@@ -227,6 +230,26 @@ class ComponentClient:
 
     def for_agent(self, component_id: str, session_id: str) -> Calls:
         return Calls(self._stub, discovery_pb2.AGENT, component_id, session_id, self._metadata)
+
+    @property
+    def tasks(self) -> Tasks:
+        """Creates tasks for autonomous agents."""
+        from ankka.autonomous import Tasks
+
+        return Tasks(self)
+
+    def for_task(self, task_id: str) -> TaskCalls:
+        from ankka.autonomous import TaskCalls
+
+        return TaskCalls(self, task_id)
+
+    def for_autonomous_agent(self, agent: type[AutonomousAgent] | str, instance_id: str | None = None) -> AutonomousAgentCalls:
+        """One instance of an autonomous agent, by the id the caller chose; without an id, only
+        ``run_single_task``, on an instance the platform names."""
+        from ankka.autonomous import AutonomousAgentCalls
+
+        component_id = agent if isinstance(agent, str) else agent.component_id
+        return AutonomousAgentCalls(self, component_id, instance_id)
 
     async def close(self) -> None:
         if self._channel is not None:

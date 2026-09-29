@@ -15,6 +15,7 @@ import org.apache.pekko.stream.OverflowStrategy
 import org.apache.pekko.stream.scaladsl.Source
 import org.apache.pekko.stream.typed.scaladsl.ActorSource
 import org.apache.pekko.actor.typed.{ActorRef, Behavior}
+import org.apache.pekko.cluster.sharding.typed.ClusterShardingSettings
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -64,11 +65,13 @@ final class AgentRuntime private (
    * configured — enabling compaction adds a component.
    */
   def descriptors: Seq[ComponentDescriptor] =
-    Seq(SessionMemoryEntity.descriptor) ++
+    AgentRuntime.descriptors ++
       compaction.map((settings, summariser) => SessionCompactor.descriptor(settings, summariser))
 
   def start(service: AnkkaService): Unit =
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = service.system
+
+    startAutonomous(service)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
     if agents.isEmpty then system.log.debug("no agents registered")
@@ -121,6 +124,96 @@ final class AgentRuntime private (
           )
       }
 
+  /**
+   * Hosts every autonomous agent, one sharded instance per instance id.
+   *
+   * The entity type remembers its entities: an instance working a task has no caller to wake it
+   * after a crash or a move between nodes, and a remembered entity is started again by sharding
+   * itself, from the journal. Remembering also turns automatic passivation off for the type, so an
+   * instance leaves memory only when it passivates itself, which it does when it has nothing to do
+   * and nobody is watching.
+   */
+  private def startAutonomous(service: AnkkaService)(using system: ActorSystem[?]): Unit =
+    val autonomousAgents = service.registry.components.collect {
+      case a: autonomous.AutonomousAgentDescriptor[?] => a
+    }
+    if autonomousAgents.nonEmpty then
+      val sharding = ClusterSharding(system)
+      val client   = service.componentClient
+      autonomousAgents.foreach { d =>
+        val descriptor =
+          d.asInstanceOf[autonomous.AutonomousAgentDescriptor[autonomous.AutonomousAgent]]
+        // The tools are declared on the instance, so they are checked on one, here, rather than
+        // failing the first task an instance is given.
+        val probe = descriptor.create(
+          autonomous.SimpleAutonomousAgentContext(
+            descriptor.componentId,
+            "(startup)",
+            client,
+            defaultModel
+          )
+        )
+        val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools)
+        if problems.nonEmpty then
+          throw IllegalArgumentException(
+            problems.mkString(
+              s"invalid autonomous agent '${descriptor.componentId}':\n  - ",
+              "\n  - ",
+              ""
+            )
+          )
+        // As for a request agent, a missing model refuses the work that needs one, not the service:
+        // a task given to this agent fails at once, saying why.
+        if descriptor.definition.model.orElse(defaultModel).isEmpty then
+          system.log.warn(
+            "autonomous agent '{}' has no model: its tasks will fail until one is set with model(...) " +
+              "on its definition, or a default provider is configured on the AgentRuntime",
+            descriptor.componentId
+          )
+
+        val _ = sharding.init(
+          Entity(EntityTypeKey[EntityProtocol.Command](descriptor.componentId)) { ctx =>
+            autonomous.AutonomousAgentHost.behavior(
+              descriptor,
+              ctx.entityId,
+              ctx.shard,
+              client,
+              defaultModel,
+              modelTimeout
+            )
+          }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
+            .withSettings(
+              ClusterShardingSettings(system)
+                .withRememberEntities(true)
+                .withRememberEntitiesStoreMode(
+                  ClusterShardingSettings.RememberEntitiesStoreModeEventSourced
+                )
+            )
+        )
+        system.log.info(
+          "autonomous agent '{}' hosted, accepting {}",
+          descriptor.componentId,
+          descriptor.definition.acceptances
+            .map(a => s"'${a.taskType.name}' (up to ${a.budget} iterations)")
+            .mkString(", ")
+        )
+      }
+
+      val registered = service.registry.components.map(_.componentId).toSet
+      val missing    = AgentRuntime.descriptors.map(_.componentId).filterNot(registered)
+      if missing.nonEmpty then
+        system.log.warn(
+          "autonomous agents are registered but {} are not; use registerAll(AgentRuntime.descriptors)",
+          missing.mkString(", ")
+        )
+      // A dependency that fails cancels its dependents through a consumer, and a consumer runs
+      // only under a projection runtime. Without one, the cascade silently never happens.
+      if !service.extensionNames.contains("projections") then
+        system.log.warn(
+          "autonomous agents are registered without a ProjectionRuntime; a task whose dependency " +
+            "fails will wait forever instead of being cancelled. Register ProjectionRuntime()."
+        )
+
 object AgentRuntime:
 
   /** Agents must each name a model via `effects.model(...)`. */
@@ -145,7 +238,13 @@ object AgentRuntime:
    * With compaction, use the runtime's own `descriptors` instead — the set depends on its
    * configuration.
    */
-  def descriptors: Seq[ComponentDescriptor] = Seq(SessionMemoryEntity.descriptor)
+  def descriptors: Seq[ComponentDescriptor] =
+    Seq(
+      SessionMemoryEntity.descriptor,
+      autonomous.TaskEntity.descriptor,
+      autonomous.InstanceEntity.descriptor,
+      autonomous.TaskCascade.descriptor
+    )
 
 /**
  * One agent instance, sharded by session id.

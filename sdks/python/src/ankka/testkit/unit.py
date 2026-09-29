@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 from ankka.agent import Agent
+from ankka.autonomous import AutonomousAgent, Malformed, TaskType
 from ankka.client import ComponentClient
 from ankka.context import Caller, CommandContext, LocalCaller, Metadata, Principal, RequestContext
 from ankka.effects.agent import AgentEffect
@@ -558,3 +559,45 @@ class TimedActionTestKit:
         input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
         action = self.action_cls(_NoClient())
         return typing.cast(TimedActionEffect, _run(action._run(spec, input_bytes, Metadata())))
+
+
+class AutonomousAgentTestKit:
+    """Runs an autonomous agent's pieces directly: its tools, the check of a result against a task
+    type, and its guardrails. The loop itself is the sidecar's, and is tested there — through the
+    integration testkit's scripted sidecar — rather than re-implemented here.
+
+    ``client`` is what a tool calls other components through; the default refuses every call, so a
+    tool that reaches for one says so."""
+
+    def __init__(self, agent_cls: type[AutonomousAgent], client: ComponentClient | None = None) -> None:
+        self.agent_cls = agent_cls
+        self.client = client
+
+    @classmethod
+    def of(cls, agent_cls: type[AutonomousAgent], client: ComponentClient | None = None) -> AutonomousAgentTestKit:
+        return cls(agent_cls, client)
+
+    async def run_tool(self, name: str, arguments: dict[str, Any], task_id: str = "test-task") -> str:
+        """Runs the tool with the model's arguments, as the sidecar would, and answers its text."""
+        import json
+
+        agent = self.agent_cls(self.client)
+        return await agent._invoke_tool(name, json.dumps(arguments), f"task:{task_id}")
+
+    async def check_result(self, task_type: TaskType[Any], result: Any, task_id: str = "test-task") -> Malformed | tuple[str, str] | None:
+        """What the sidecar would be told about ``result`` for ``task_type``: ``None`` when it stands,
+        ``(rule, reason)`` for the first rule that rejects it, ``Malformed`` when it does not decode."""
+        import dataclasses
+        import json
+
+        text = result if isinstance(result, str) and task_type.result is not None else json.dumps(
+            dataclasses.asdict(result) if dataclasses.is_dataclass(result) and not isinstance(result, type) else result
+        )
+        agent = self.agent_cls(self.client)
+        return await agent._check_result(task_type.name, text, task_id)
+
+    async def check_guardrail(self, name: str, stage: str, text: str, task_id: str = "test-task") -> str | None:
+        """The reason the guardrail blocks ``text`` at ``stage`` ("input" or "output"), or ``None``."""
+        agent = self.agent_cls(self.client)
+        return await agent._check_guardrail(name, stage, text, f"task:{task_id}")
+

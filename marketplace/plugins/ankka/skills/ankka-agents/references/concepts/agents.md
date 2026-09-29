@@ -12,6 +12,10 @@ records the conversation and counts tokens.
 This page explains how that works and why it is built this way. [Agents](../build/agents.md) shows how
 to write one.
 
+ankka has a second kind of agent. An [autonomous agent](autonomous-agents.md) is handed a task rather than
+a request, works it over as many iterations as it needs with nobody waiting, and ends it with a typed
+result; this page is about the request agent, which answers while its caller waits.
+
 ## An agent is addressed by session
 
 An agent instance is identified by a **session id**, not by an entity id. A session is one
@@ -30,7 +34,9 @@ one request.
 ## Session memory is an event sourced entity
 
 A session's conversation is stored by an [event sourced entity](../build/event-sourced-entities.md) that
-the platform registers for you, with the component id `ankka-session-memory`. Each user message,
+the platform registers for you, with the component id `ankka-session-memory`. (`AgentRuntime.descriptors`
+also registers the three components autonomous agents use — `ankka-task`, `ankka-agent-instance` and the
+consumer `ankka-task-cascade` — which cost nothing in a service that has none.) Each user message,
 model reply and tool result is an event in its journal, and the conversation is the fold of those
 events. Several properties follow from that, rather than being features built separately:
 

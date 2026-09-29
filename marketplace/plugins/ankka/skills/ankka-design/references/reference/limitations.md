@@ -98,12 +98,22 @@ feature also says what that feature does not do.
   what was published after it started, must tolerate duplicates, and skips a message with no `ce-subject`.
   Only Kafka is supported; another broker needs its own implementation of the two-method broker interface.
 - **Only agents stream.** Entities and workflows refuse a streaming request.
+- **Autonomous agents do not coordinate yet.** There is no delegating a subtask to another agent, handing a
+  task on, leading a team over a shared backlog, or moderating a conversation between agents; coordinate
+  several from a workflow instead. There are no MCP tools and no per-instance overrides of a definition.
+- **An autonomous agent's tools run at least once.** A tool whose result had not been recorded when a task's
+  process stopped runs again when the task resumes. Write tools with side effects to tolerate a repeat.
+- **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
+- **The local console does not show autonomous agents.** Read a task's record, or watch an instance's
+  notifications.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.
 
 ## SDKs and releases
 
+- **The TypeScript SDK declares and calls autonomous agents but cannot script one in its unit testkit.**
+  Test one through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's integration testkit does.
 - **Three languages.** Services are written in Scala, Python or TypeScript. Another language needs an SDK that passes the
   conformance suite; see [Adding a language SDK](../contributing/language-sdks.md).
 - **The CLI has native builds for macOS and Linux only.** There is no Windows executable, no Linux

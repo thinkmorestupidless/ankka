@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.sidecar.{
   GrpcConversation,
   Models,
   RemoteAgent,
+  RemoteAutonomousAgent,
   RemoteEndpoint,
   Settings,
   SidecarExtension
@@ -84,9 +85,10 @@ object ConformanceTarget:
     def restart(): Unit          = kit.restartService()
     def isProcess: Boolean       = false
     def problems: Vector[String] = Vector.empty
-    // Minus the agent runtime's own session memory, which a process target never declares.
+    // Minus the agent runtime's own components, which a process target never declares.
     def componentIds: Set[String] =
-      kit.service.registry.components.map(_.componentId.toString).toSet - "ankka-session-memory"
+      kit.service.registry.components.map(_.componentId.toString).toSet --
+        AgentRuntime.descriptors.map(_.componentId.toString)
     def readOnlyHandlers: Set[(String, String)] =
       Set(
         ("shopping-cart", "get-cart"),
@@ -134,11 +136,19 @@ object ConformanceTarget:
         settings.commandTimeout
       )
     }
+    private val autonomous = discovered.autonomousAgents.map(c =>
+      RemoteAutonomousAgent.descriptor(
+        c,
+        conversation,
+        Models.only(Models.Scripted, model),
+        settings.commandTimeout
+      )
+    )
     private val endpoints =
       discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
     private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
     private val kit = AnkkaTestKit.start(
-      discovered.descriptors ++ agents ++ AgentRuntime.descriptors,
+      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
         ProjectionRuntime(),
         timers,

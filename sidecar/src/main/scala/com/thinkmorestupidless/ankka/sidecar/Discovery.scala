@@ -31,14 +31,15 @@ object Discovery:
   /**
    * 1.1: the caller on every forwarded request and caller-naming ACLs in discovery (feature 014).
    */
-  val ProtocolVersion: String = "1.1"
+  val ProtocolVersion: String = "1.2"
 
   /** What discovery hands the rest of the sidecar: validated descriptors plus the raw spec. */
   final case class Discovered(
       spec: Spec,
       descriptors: Vector[RemoteDescriptor],
       agents: Vector[Component],
-      endpoints: Vector[Endpoint]
+      endpoints: Vector[Endpoint],
+      autonomousAgents: Vector[Component] = Vector.empty
   )
 
   /** Dials until the process answers; refuses with every problem or returns the discovered spec. */
@@ -107,6 +108,7 @@ object Discovery:
 
     val descriptors = Vector.newBuilder[RemoteDescriptor]
     val agents      = Vector.newBuilder[Component]
+    val autonomous  = Vector.newBuilder[Component]
 
     spec.components.foreach { c =>
       ComponentId.parse(c.id) match
@@ -180,6 +182,9 @@ object Discovery:
               if d.maxToolCallSteps < 0 then
                 problems += s"agent '${c.id}': max_tool_call_steps must not be negative"
               agents += c
+            case (Kind.AUTONOMOUS_AGENT, Component.Detail.AutonomousAgent(d)) =>
+              problems ++= RemoteAutonomousAgent.problems(c.id, d)
+              autonomous += c
             case (kind, detail) =>
               problems += s"component '${c.id}': kind $kind does not match its detail " +
                 s"(${detail.getClass.getSimpleName}); this sidecar cannot host it"
@@ -239,7 +244,8 @@ object Discovery:
 
     val found = problems.result()
     if found.nonEmpty then Left(found)
-    else Right(Discovered(spec, built, agents.result(), spec.endpoints.toVector))
+    else
+      Right(Discovered(spec, built, agents.result(), spec.endpoints.toVector, autonomous.result()))
 
   /**
    * The engine's settings, as the process declared them. A failover target must be a declared step:
@@ -310,6 +316,7 @@ object Discovery:
     case Kind.VIEW                 => ComponentKind.View
     case Kind.CONSUMER             => ComponentKind.Consumer
     case Kind.TIMED_ACTION         => ComponentKind.TimedAction
+    case Kind.AUTONOMOUS_AGENT     => ComponentKind.AutonomousAgent
     case _                         => ComponentKind.Agent
 
   /** Not used by `validate`; the callback service maps the other way. */
@@ -320,4 +327,5 @@ object Discovery:
     case ComponentKind.View               => Kind.VIEW
     case ComponentKind.Consumer           => Kind.CONSUMER
     case ComponentKind.TimedAction        => Kind.TIMED_ACTION
+    case ComponentKind.AutonomousAgent    => Kind.AUTONOMOUS_AGENT
     case _                                => Kind.AGENT

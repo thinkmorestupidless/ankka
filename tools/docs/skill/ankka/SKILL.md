@@ -1,12 +1,13 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python and TypeScript via a sidecar). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Python and TypeScript SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-typescript, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python and TypeScript via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Python, TypeScript and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-typescript, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
 pages:
   - index.md
   - get-started/install.md
   - get-started/first-service-scala.md
   - get-started/first-service-python.md
   - get-started/first-service-typescript.md
+  - get-started/first-service-rust.md
   - get-started/deploy-locally.md
   - get-started/coding-agents.md
   - concepts/architecture.md
@@ -15,6 +16,7 @@ pages:
   - reference/scala-sdk.md
   - reference/python-sdk.md
   - reference/typescript-sdk.md
+  - reference/rust-sdk.md
   - reference/akka-divergences.md
   - reference/limitations.md
   - reference/glossary.md
@@ -24,8 +26,8 @@ pages:
 
 ankka hosts services built from a fixed set of components. The developer writes the components; the
 runtime supplies sharding, persistence, replay, projections, durable orchestration, timers, HTTP and the
-agent loop. A service is written in Scala (compiled into one JVM with the runtime) or in Python or TypeScript (a
-process beside a runtime sidecar), and is deployed to a Kubernetes-based platform with the `ankka` CLI.
+agent loop. A service is written in Scala (compiled into one JVM with the runtime), in Python or TypeScript (a
+process beside a runtime sidecar), or in Rust (a WebAssembly module the runtime loads), and is deployed to a Kubernetes-based platform with the `ankka` CLI.
 
 ## Rules that hold everywhere
 
@@ -67,6 +69,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | An HTTP endpoint, its routes, ACL, errors and server-sent events | `ankka-endpoints` |
 | A service in Python beside the sidecar | `ankka-python` |
 | A service in TypeScript on Node.js beside the sidecar | `ankka-typescript` |
+| A service in Rust, built to a WebAssembly module the runtime loads | `ankka-rust` |
 | A service descriptor, the `ankka` CLI, images, deploying, exposing, logs, troubleshooting | `ankka-deploy` |
 | Installing or operating the platform itself, organizations, identity, databases, networking | `ankka-platform` |
 

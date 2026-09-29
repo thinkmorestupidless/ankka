@@ -94,8 +94,9 @@ services:
           echo "created user dev (password dev, platform-admin)"
         fi
 
-  # The sidecar for a service written in another language (feature 009), under a profile so
-  # `docker compose up` alone is unchanged:
+  # The sidecar for a service written in another language as its own process, under a profile so
+  # `docker compose up` alone is unchanged (a service built to a WebAssembly module uses the `wasm`
+  # profile below instead):
   #
   #   docker compose --profile polyglot up -d
   #   uv run --directory sdks/python python -m examples.shopping_cart.main   # or any process on 9010
@@ -127,6 +128,40 @@ services:
     ports:
       - "9000:9000"
       - "127.0.0.1:9011:9011"
+
+  # The same image hosting a WebAssembly module in its own process instead of dialling one: the
+  # module mode. The Rust example's module is bind-mounted read-only where ANKKA_WASM_MODULE says;
+  # ANKKA_WASM_MODULE_PATH points it at another build.
+  #
+  #   (cd sdks/rust && cargo build -p shopping-cart --release --target wasm32-unknown-unknown)
+  #   docker compose --profile wasm up -d
+  #   curl localhost:9000/carts/c1
+  runtime:
+    profiles: ["wasm"]
+    image: ankka-sidecar:latest
+    container_name: ankka-runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ANKKA_WASM_MODULE: /module/service.wasm
+      ANKKA_HTTP_PORT: "9000"
+      ANKKA_DB_HOST: postgres
+      ANKKA_DB_PORT: "5432"
+      ANKKA_DB_NAME: ankka
+      ANKKA_DB_USER: ankka
+      ANKKA_DB_PASSWORD: ankka
+    ports:
+      - "127.0.0.1:9000:9000"
+    # Refused, naming the file, until the module is built: otherwise Docker would create a directory
+    # where the module goes, and the next build could not write the module there.
+    volumes:
+      - type: bind
+        source: ${ANKKA_WASM_MODULE_PATH:-./sdks/rust/target/wasm32-unknown-unknown/release/shopping_cart.wasm}
+        target: /module/service.wasm
+        read_only: true
+        bind:
+          create_host_path: false
 
 volumes:
   ankka-pgdata:

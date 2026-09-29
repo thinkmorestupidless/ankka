@@ -1,0 +1,29 @@
+# {{name}}: an ankka service in Rust, built to a WebAssembly module the ankka runtime loads and hosts.
+[package]
+name = "{{module}}"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+# cdylib: the module (`cargo module`); rlib: the tests, which run natively against the same code.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ankka = { version = "{{ankka_version}}" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+ankka = { version = "{{ankka_version}}", features = ["testkit"] }
+
+[features]
+# The tests that start Postgres and the runtime in Docker: `cargo test --features slow`.
+slow = []
+
+# What the module is built with: small and fast, and a panic is a trap the runtime reports.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -6,18 +6,18 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 
 /**
- * The Python and TypeScript templates, carried by the CLI and rendered by it.
+ * The Python, TypeScript and Rust templates, carried by the CLI and rendered by it.
  *
  * Scala's template is expanded by `sbt new`, because every Scala developer has sbt and Giter8 is
  * how Scala templates are expanded. Neither Python nor Node has a standard template tool, and a
- * developer in either language should not need one to start — so these templates are resources of
- * this CLI, at this CLI's version, and `ankka init` is their only front door. The build copies them
- * from `cli/src/main/templates/<language>` (plus `common/`, and the rendered agent skills) with an
+ * developer in any of them should not need one to start — so these templates are resources of this
+ * CLI, at this CLI's version, and `ankka init` is their only front door. The build copies them from
+ * `cli/src/main/templates/<language>` (plus `common/`, and the rendered agent skills) with an
  * `index.txt` per language, because a directory inside a jar or a native image cannot be listed.
  *
- * Rendering replaces exact tokens and nothing else — `{{name}}`, `{{module}}`, `{{ankka_version}}`,
- * `{{protocol_version}}`, in paths and contents — so a GitHub expression such as
- * `${{ secrets.ANKKA_TOKEN }}` passes through untouched and no template file needs escaping.
+ * Rendering replaces exact tokens and nothing else — `{{name}}`, `{{module}}`, `{{module_snake}}`,
+ * `{{ankka_version}}`, `{{protocol_version}}`, in paths and contents — so a GitHub expression such
+ * as `${{ secrets.ANKKA_TOKEN }}` passes through untouched and no template file needs escaping.
  */
 object Scaffold:
 
@@ -30,9 +30,22 @@ object Scaffold:
       .split(' ')
       .toSet
 
-  /** The Python package a service is written in: the name with `-` as `_`, unless one is given. */
+  /**
+   * The module a service is written in: for Python the package, the name with `-` as `_` unless one
+   * is given; for Rust the crate, which keeps the name's `-` (cargo turns it into `_` itself, in
+   * the module's file name, which is `{{module_snake}}`).
+   */
   def module(request: Init.Request): String =
-    request.pkg.getOrElse(request.name.replace('-', '_'))
+    if request.language == Language.Rust then request.name
+    else request.pkg.getOrElse(request.name.replace('-', '_'))
+
+  /** A crate's name: lowercase letters, digits and `-`, starting with a letter. */
+  def crateProblems(name: String): Vector[String] =
+    if name.matches("[a-z][a-z0-9-]*") then Vector.empty
+    else
+      Vector(
+        s"crate name '$name' is invalid: lowercase letters, digits and '-', starting with a letter"
+      )
 
   def moduleProblems(module: String): Vector[String] =
     if !module.matches("[a-z_][a-z0-9_]*") then
@@ -46,6 +59,7 @@ object Scaffold:
   def tokens(request: Init.Request, version: String): Map[String, String] = Map(
     "{{name}}"             -> request.name,
     "{{module}}"           -> module(request),
+    "{{module_snake}}"     -> module(request).replace('-', '_'),
     "{{ankka_version}}"    -> version,
     "{{protocol_version}}" -> Protocol.version.toString
   )

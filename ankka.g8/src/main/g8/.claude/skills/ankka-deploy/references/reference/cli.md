@@ -1320,7 +1320,7 @@ Options and flags:
     --help
         Display this help text.
     --language <string>, -l <string>
-        scala (the default), python or typescript.
+        scala (the default), python, typescript or rust.
     --template <string>
         Scala only: a Giter8 template, e.g. file:///path/to/ankka.g8.
     --package <string>

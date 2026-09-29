@@ -1,0 +1,6 @@
+{
+  "manifest": "shopping-cart",
+  "content_type": "application/json",
+  "bytes_base64": "eyJpdGVtcyI6W10sImNoZWNrZWRPdXQiOmZhbHNlfQ==",
+  "value": {"items":[],"checkedOut":false}
+}

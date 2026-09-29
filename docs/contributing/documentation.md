@@ -120,7 +120,7 @@ related: [concepts/consistency.md, build/topics.md]
 | `title` | yes | The page's name. The body's first line is `# ` and exactly this. |
 | `description` | yes | One sentence, under 240 characters, ending with a full stop. It is what `llms.txt` and the skill show beside the link, so it says what the reader will be able to do or will understand, not what the page "covers". |
 | `kind` | yes | `tutorial`, `concept`, `guide`, `reference` or `contributing`. |
-| `languages` | no | Any of `scala`, `python`, `typescript`. Leave it out for a page that is not about writing code. |
+| `languages` | no | Any of `scala`, `python`, `typescript`, `rust`. Leave it out for a page that is not about writing code. |
 | `components` | no | The component kinds the page is about: `event-sourced-entity`, `key-value-entity`, `view`, `consumer`, `workflow`, `timed-action`, `agent`, `http-endpoint`. |
 | `related` | no | Paths under `docs/` of the pages a reader of this one most often needs next. |
 

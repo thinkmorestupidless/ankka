@@ -1,8 +1,8 @@
 ---
 title: Build an image
-description: Package a Scala, Python or TypeScript ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
+description: Package a Scala, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, python, typescript, rust]
 related: [deploy/deploy-a-service.md, deploy/run-locally.md, platform/install-local.md]
 ---
 
@@ -10,7 +10,9 @@ related: [deploy/deploy-a-service.md, deploy/run-locally.md, platform/install-lo
 
 A service is deployed as a container image, and the descriptor names that image. A Scala service's image
 holds the service and the ankka runtime in one JVM. A Python or TypeScript service's image holds only your
-process and the SDK; the platform supplies the runtime as a sidecar container beside it.
+process and the SDK; the platform supplies the runtime as a sidecar container beside it. A Rust service's
+image holds only its WebAssembly module; the platform copies the module out of it and runs its own runtime
+with the module loaded.
 
 ## A Scala service
 
@@ -100,6 +102,37 @@ listens on port 9010 for the sidecar and declares no HTTP port. Build it with pl
 ```bash
 docker build -t my-cart:1.0.0 .
 ```
+
+## A Rust service
+
+A Rust service's image carries its WebAssembly module and one command that copies it. The platform runs
+the image once per pod, as an init container with a shared volume mounted at `/ankka/module`, and then
+starts its own runtime image with the module loaded; the image never runs as the service. Build the module
+first, then an image from `busybox` that copies it. The example cart's Dockerfile, built with its cargo
+workspace as the context; in your own project the module under `target/` is named after your crate, with
+`-` as `_`:
+
+<!-- include: sdks/rust/examples/shopping-cart/Dockerfile -->
+```text
+# The module image for a wasm-hosted service: the module and one command that copies it where the
+# platform's runtime loads it from. The platform runs this once per pod, as an init container with
+# /ankka/module mounted; the runtime image is the platform's own. Build the module first, from
+# sdks/rust: cargo build -p shopping-cart --release --target wasm32-unknown-unknown
+FROM busybox:1.37
+COPY target/wasm32-unknown-unknown/release/shopping_cart.wasm /service.wasm
+CMD ["cp", "/service.wasm", "/ankka/module/service.wasm"]
+```
+
+```bash
+cargo build --release --target wasm32-unknown-unknown
+docker build -t my-cart-module:1.0.0 .
+```
+
+**The image's contract is exactly that copy.** Run with `/ankka/module` mounted, it writes one file,
+`service.wasm`, there and exits 0. An image that exits non-zero, or cannot be pulled, fails the pod's start,
+and `ankka services get` reports the reason. The image can be any base with a `cp`; `busybox` keeps it a
+few hundred kilobytes more than the module. The descriptor says `"hosting": "wasm"` and the protocol the
+crate speaks. See [Deploy a service](deploy-a-service.md#services-in-another-language).
 
 ## Get the image onto the cluster
 

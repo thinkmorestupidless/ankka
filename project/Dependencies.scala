@@ -35,6 +35,12 @@ object Dependencies {
     val bouncyCastle = "1.86"
 
     /**
+     * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native
+     * code. In `sidecar` only, never `runtime`, so no published library carries it.
+     */
+    val chicory = "1.7.5"
+
+    /**
      * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.
      *
      * The Scala module refuses to load against a databind outside its own minor range, so a
@@ -134,6 +140,11 @@ object Dependencies {
   val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt
 
   val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle
+
+  /** The WebAssembly runtime and its runtime compiler to JVM bytecode, for the spike only. */
+  val chicoryRuntime  = "com.dylibso.chicory" % "runtime"  % V.chicory
+  val chicoryCompiler = "com.dylibso.chicory" % "compiler" % V.chicory
+  val chicoryWabt     = "com.dylibso.chicory" % "wabt"     % V.chicory
 
   /**
    * Scala support for fabric8's serialisation.

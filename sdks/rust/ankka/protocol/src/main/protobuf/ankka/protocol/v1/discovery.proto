@@ -1,0 +1,155 @@
+// Discovery: the first conversation. The developer's process describes its components and
+// endpoints; the sidecar validates them and hosts exactly what it was told about.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Discovery {
+  rpc Discover (SidecarInfo) returns (Spec);
+  rpc ReportError (Problem) returns (Empty);   // why the sidecar refused; lands in the process's log
+}
+
+message SidecarInfo { string protocol_version = 1; string runtime_version = 2; }
+
+message Spec {
+  string protocol_version = 1;             // "1.0"
+  SdkInfo sdk = 2;
+  repeated Component components = 3;
+  repeated Endpoint endpoints = 4;
+}
+
+message SdkInfo { string name = 1; string version = 2; }
+
+enum Kind {
+  EVENT_SOURCED_ENTITY = 0;
+  KEY_VALUE_ENTITY = 1;
+  WORKFLOW = 2;
+  VIEW = 3;
+  CONSUMER = 4;
+  TIMED_ACTION = 5;
+  AGENT = 6;
+  AUTONOMOUS_AGENT = 7;           // protocol 1.2
+}
+
+message Component {
+  Kind   kind = 1;
+  string id = 2;
+  repeated Handler handlers = 3;
+  oneof detail {
+    EventSourcedDetail event_sourced = 10;
+    KeyValueDetail     key_value     = 11;
+    WorkflowDetail     workflow      = 12;
+    ViewDetail         view          = 13;
+    ConsumerDetail     consumer      = 14;
+    TimedActionDetail  timed_action  = 15;
+    AgentDetail        agent         = 16;
+    AutonomousAgentDetail autonomous_agent = 17;   // protocol 1.2
+  }
+}
+
+message Handler { string name = 1; bool read_only = 2; bool streaming = 3; }
+
+message EventSourcedDetail { int32 snapshot_every = 1; }          // 0: never
+message KeyValueDetail {}
+message WorkflowDetail {
+  repeated string steps = 1;
+  optional Settings settings = 2;              // absent: no overall limit, 30s a step, a failed step fails the workflow
+  message Settings {
+    optional int64 timeout_millis = 1;         // a ceiling on the whole workflow
+    optional int64 default_step_timeout_millis = 2;
+    optional Recovery default_recovery = 3;
+    repeated StepSettings steps = 4;
+  }
+  message StepSettings { string step = 1; optional int64 timeout_millis = 2; optional Recovery recovery = 3; }
+  message Recovery { int32 max_retries = 1; optional string failover_to = 2; }   // failover_to: a declared step, run with no input
+}
+
+message Source {
+  oneof source { ComponentRef component = 1; string topic = 2; }
+  message ComponentRef { Kind kind = 1; string id = 2; }
+}
+
+message ViewDetail { Source source = 1; string row_manifest = 2; repeated string queries = 3; }
+message ConsumerDetail { Source source = 1; optional string produces_to = 2; }
+message TimedActionDetail {}
+
+message AgentDetail {
+  string role = 1;
+  int32 max_tool_call_steps = 2;
+  repeated Tool tools = 3;
+  repeated string guardrails = 4;
+}
+
+message Tool { string name = 1; string description = 2; string input_schema_json = 3; }
+
+// An autonomous agent's whole definition (protocol 1.2). There is nothing to plan per task: the
+// sidecar runs the loop from this and asks the process only to run a tool (Agent.InvokeTool), check
+// a guardrail (Agent.CheckGuardrail) and check a task rule (Agent.CheckTaskRule), each with the
+// session id "task:<task id>".
+message AutonomousAgentDetail {
+  string description = 1;                   // required
+  optional string instructions = 2;
+  repeated Tool tools = 3;                  // never complete_task or fail_task, which are the sidecar's
+  repeated string guardrails = 4;
+  repeated TaskType task_types = 5;         // every type this agent accepts, declared once
+  repeated TaskAcceptance accepts = 6;
+  optional AutonomousSettings settings = 7;
+  optional string model = 8;                // a name in the sidecar's configuration; absent: its default
+
+  message TaskType {
+    string name = 1;                        // the wire name, written into every task of this type
+    string description = 2;
+    optional string result_schema_json = 3; // absent: the result is text
+    repeated string rules = 4;              // names, checked in order
+  }
+  message TaskAcceptance {
+    string task_type = 1;                   // a name in task_types
+    int32 max_iterations = 2;               // at least 1
+  }
+  message AutonomousSettings {
+    optional double approaching_budget_at = 1;          // 0.8
+    optional int32 repeated_failure_at = 2;             // 3
+    optional int32 max_consecutive_failures = 3;        // 5
+    optional int64 dependency_stuck_after_millis = 4;   // 300000
+  }
+}
+
+message Endpoint {
+  string id = 1;                 // for log lines and the console; unique within the Spec
+  string prefix = 2;             // as HttpEndpoint's prefix: "/carts"
+  Acl    acl = 3;
+  repeated Route routes = 4;
+  // Read only when `acl` is CALLERS: the callers admitted, any one of which suffices (protocol 1.1).
+  repeated CallerMatcher allow_callers = 5;
+  enum Acl { ALLOW_ALL = 0; DENY_ALL = 1; AUTHENTICATED = 2; CALLERS = 3; }
+}
+
+// One kind of caller a CALLERS acl admits. A named service with no project means this service's own.
+message CallerMatcher {
+  oneof kind {
+    Empty internet = 1;
+    NamedService service = 2;
+    Empty any_in_project = 3;
+    Empty self = 4;
+  }
+}
+
+message NamedService { optional string project = 1; string name = 2; }
+
+message Route {
+  string id = 1;                 // unique within the endpoint; the sidecar sends it back on each request
+  string method = 2;             // GET, POST, PUT, DELETE, PATCH
+  string template = 3;           // HttpEndpoint's syntax: "/{cartId}/items"; relative to prefix
+  bool   has_body = 4;
+  bool   streaming = 5;          // served as SSE via Endpoint.HandleStream
+  // This route's own acl, replacing the endpoint's for this route alone. `optional` so that
+  // absent means "the endpoint's" rather than ALLOW_ALL, which is what lets a process built
+  // against an earlier protocol keep the endpoint-wide behaviour it expects.
+  optional Endpoint.Acl acl = 6;
+  // The route's own callers, read only when its `acl` is CALLERS.
+  repeated CallerMatcher allow_callers = 7;
+}
+
+message Problem { string message = 1; }

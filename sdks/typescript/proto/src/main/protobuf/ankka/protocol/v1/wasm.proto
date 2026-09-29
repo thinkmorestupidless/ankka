@@ -1,0 +1,87 @@
+// The module mode's envelope. A WebAssembly module speaks the protocol's own messages across its
+// linear memory rather than over gRPC streams, and these are the few messages that mode needs on
+// top of them: the spec a module declares, and the requests and replies that carry the state the
+// runtime holds for it. WASM-ABI.md says how they cross and which export takes which.
+//
+// Additive: no message in the other files changes for this one, and a process never sees these.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+import "ankka/protocol/v1/discovery.proto";
+import "ankka/protocol/v1/event_sourced.proto";
+import "ankka/protocol/v1/key_value.proto";
+import "ankka/protocol/v1/workflow.proto";
+import "ankka/protocol/v1/client.proto";
+
+// What ankka1_discover answers.
+message WasmSpec {
+  Spec spec = 1;
+  repeated string stateful = 2;                 // component ids that keep their state between calls
+  string abi_version = 3;                       // "1": must match the exports' prefix
+}
+
+// An entity or workflow command, with the state the runtime holds for it.
+message HandleRequest {
+  Kind kind = 1;
+  string component_id = 2;
+  string entity_id = 3;
+  optional Payload state = 4;                   // stateless: always, absent when fresh; stateful: first call after open
+  oneof command {
+    EventSourcedIn.Command event_sourced = 10;
+    KeyValueIn.Command key_value = 11;
+    WorkflowIn.Command workflow = 12;
+  }
+}
+
+message HandleReply {
+  oneof reply {
+    EventSourcedOut.Reply event_sourced = 10;
+    KeyValueOut.Reply key_value = 11;
+    WorkflowOut.Reply workflow = 12;
+  }
+  optional Payload state = 2;                   // the state after the command, in both shapes
+  optional Failure failure = 3;                 // a fault: nothing in the reply applies
+}
+
+// One journaled event applied to an event sourced entity's state, on replay. (A command's reply
+// already carries the state after its events, so nothing else is folded.)
+message FoldRequest {
+  string component_id = 1;
+  string entity_id = 2;
+  optional Payload state = 3;
+  Payload event = 4;
+  int64 sequence = 5;
+}
+
+message FoldReply {
+  Payload state = 1;
+  optional Failure failure = 2;
+}
+
+message StepRequest {
+  string component_id = 1;
+  string entity_id = 2;
+  optional Payload state = 3;
+  WorkflowIn.RunStep run_step = 4;
+}
+
+message StepReply {
+  WorkflowOut.StepReply reply = 1;
+  optional Payload state = 2;
+  optional Failure failure = 3;
+}
+
+// ankka1_close: a stateful guest drops what it holds for the instance.
+message Passivate {
+  string component_id = 1;
+  string entity_id = 2;
+}
+
+// The config import: one of the descriptor's variables. A reserved name answers absent.
+message ConfigRequest { string name = 1; }
+message ConfigReply { optional string value = 1; }
+
+// The invoke_stream import: a streaming reply, delivered whole.
+message StreamTokens { repeated StreamToken tokens = 1; }

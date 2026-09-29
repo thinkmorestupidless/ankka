@@ -1,0 +1,39 @@
+// One bidirectional stream per loaded workflow instance. Commands and steps share it; the sidecar's
+// engine journals every transition and runs a step only after its transition is journaled.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+import "ankka/protocol/v1/payload.proto";
+
+service Workflow { rpc Handle (stream WorkflowIn) returns (stream WorkflowOut); }
+
+message WorkflowIn {
+  oneof message { Init init = 1; Command command = 2; RunStep run_step = 3; }
+  message Init    { string component_id = 1; string entity_id = 2; optional Payload state = 3; }
+  message Command { int64 id = 1; string name = 2; Payload payload = 3; Metadata metadata = 4; }
+  message RunStep { int64 id = 1; string step = 2; optional Payload input = 3; }
+}
+
+message WorkflowOut {
+  oneof message { Reply reply = 1; StepReply step_reply = 2; Failure failure = 3; }
+  message Reply {                               // a command handler's WorkflowEffect
+    int64 command_id = 1;
+    optional Payload new_state = 2;
+    optional StepRef transition = 3;
+    Outcome outcome = 4;
+  }
+  message StepReply {                           // a step's WorkflowStepEffect
+    int64 command_id = 1;
+    optional Payload new_state = 2;
+    StepOutcome next = 3;
+  }
+}
+
+message StepRef { string step = 1; optional Payload input = 2; }
+
+message StepOutcome {
+  oneof outcome { StepRef transition_to = 1; Pause pause = 2; End end = 3; Error fail = 4; }
+  message Pause { optional int64 after_millis = 1; optional StepRef on_timeout = 2; }
+  message End {}
+}

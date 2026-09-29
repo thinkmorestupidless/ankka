@@ -1,9 +1,11 @@
 # The sidecar protocol
 
 This directory is the artifact an SDK consumes: the `.proto` files under `src/main/protobuf`,
-`ENCODING.md` (what the bytes inside a `Payload` mean) and `fixtures/` (documents every SDK's
-default codec must encode and decode exactly). An SDK copies the whole directory in — the Python
-SDK's `uv run python scripts/proto.py` and the TypeScript SDK's `npm run proto` do — and CI checks the copies are identical.
+`ENCODING.md` (what the bytes inside a `Payload` mean), `WASM-ABI.md` (how a WebAssembly module
+speaks the same messages without a network) and `fixtures/` (documents every SDK's default codec
+must encode and decode exactly). An SDK copies the whole directory in — the Python
+SDK's `uv run python scripts/proto.py`, the TypeScript SDK's `npm run proto` and the Rust crate's
+`scripts/proto.sh` do — and CI checks the copies are identical.
 
 The sbt project here (`ankka-protocol`) only generates Scala for the sidecar; it is never
 published. Nothing of ankka's depends on it except `sidecar`, and it depends on nothing of
@@ -33,6 +35,7 @@ It is written once for code in `controlplane-api` (`Protocol.version`) and once 
 | `endpoint.proto` | `Http.Handle` / `HandleStream`: HTTP requests the sidecar forwards for declared routes |
 | `agent.proto` | `Agent.Plan` / `InvokeTool` / `CheckGuardrail`: the process plans and runs tools, the sidecar runs the loop |
 | `client.proto` | `Client`: the callback service the sidecar serves — component calls, view queries, timers |
+| `wasm.proto` | the module mode's envelopes: `WasmSpec`, and the requests and replies that carry held state (`WASM-ABI.md`) |
 
 Every service but `Client` is implemented by the developer's process on loopback at
 `ANKKA_PROCESS_PORT` (9010) and dialled by the sidecar; `Client` is served by the sidecar on
@@ -62,3 +65,23 @@ loopback at `ANKKA_SIDECAR_PORT` (9011). Neither ever binds another interface.
   stage and the text; the loop, the memory and the model key are the sidecar's.
 - **The sidecar's `ReportError`** is delivered before it refuses to start, once, with every
   problem; a process should log it and may expose it, as the conformance reference does.
+
+## The module mode
+
+A service can instead be a WebAssembly module the runtime loads into its own process
+(`ANKKA_WASM_MODULE`). It declares and handles exactly what a process does, through the exports and
+imports `WASM-ABI.md` lists, and nothing above changes for it. The rules the messages do not state:
+
+- **One call in flight per instance.** A guest instance runs one export at a time; the runtime keeps
+  a pool of instances for commands and builds a fresh one for anything that may block (a workflow
+  step, an agent's tools, a view, a consumer, a timed action, an HTTP route), so a slow call never
+  holds up a command.
+- **The runtime owns the state in both shapes.** A stateless guest is handed it on every call; a
+  stateful one on the first call after `open`, and it keeps the decoded value until `ankka1_close`.
+  Every reply carries the encoded state either way, so a trap loses nothing: the instance is
+  replaced and the state handed again.
+- **A stateful component is pinned** to one guest instance for its loaded life, since that instance
+  is what holds its state.
+- **There is no `ReportError` into a module.** A module the runtime refuses — a missing export,
+  another ABI version, a streaming handler or route, an import from anywhere but `ankka1` — is
+  refused at start with every problem in the runtime's log, and the runtime exits.

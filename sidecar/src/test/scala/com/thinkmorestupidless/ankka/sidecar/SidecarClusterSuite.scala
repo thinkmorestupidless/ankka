@@ -29,6 +29,10 @@ import scala.jdk.CollectionConverters.*
  * Postgres in the namespace as the supplied database (no CNPG: what this suite proves is the
  * two-container pod, not provisioning, which the operator's own suites cover).
  *
+ * And a wasm-hosted service beside it: the Rust cart's conformance reference built to a module and
+ * shipped in a module image, run by the platform's runtime image with the module copied in by an
+ * init container — plus two images that must fail, and say why.
+ *
  * Every assertion that matters takes the real path: requests from the node to the Service's
  * clusterIP, never a port-forward; the app container killed from inside the pod; a probe pod in the
  * namespace trying the loopback ports.
@@ -42,10 +46,19 @@ class SidecarClusterSuite extends munit.FunSuite:
   private val SidecarImage = s"ankka-sidecar:${BuildInfo.imageTag}"
   private val PythonImage =
     sys.props.getOrElse("ankka.python.image", s"sample-shopping-cart-python:${BuildInfo.imageTag}")
-  private val Prefix    = "ankka"
-  private val Project   = "checkout"
-  private val Namespace = s"$Prefix-$Project"
-  private val Service   = "cart"
+
+  /**
+   * The Rust reference module's image, built here when cargo is present; its cases skip otherwise.
+   */
+  private val RustImage     = s"sample-shopping-cart-rust:${BuildInfo.imageTag}"
+  private val WrongAbiImage = s"ankka-wasm-wrong-abi:${BuildInfo.imageTag}"
+  private val NoCopyImage   = s"ankka-wasm-no-copy:${BuildInfo.imageTag}"
+  private val RustService   = "rust-cart"
+  private var rustBuilt     = false
+  private val Prefix        = "ankka"
+  private val Project       = "checkout"
+  private val Namespace     = s"$Prefix-$Project"
+  private val Service       = "cart"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
@@ -78,10 +91,14 @@ class SidecarClusterSuite extends munit.FunSuite:
       val output = new String(build.getInputStream.readAllBytes())
       assertEquals(build.waitFor(), 0, s"docker build failed:\n$output")
 
+      buildModuleImages()
+
       k3s = new K3sContainer(DockerImageName.parse(K3sImage))
       k3s.start()
       ClusterImages.importInto(k3s, SidecarImage)
       ClusterImages.importInto(k3s, PythonImage)
+      (Vector(WrongAbiImage, NoCopyImage) ++ Option.when(rustBuilt)(RustImage))
+        .foreach(ClusterImages.importInto(k3s, _))
 
       k8s = new KubernetesClientBuilder()
         .withConfig(Config.fromKubeconfig(k3s.getKubeConfigYaml))
@@ -108,6 +125,8 @@ class SidecarClusterSuite extends munit.FunSuite:
         )
         .serverSideApply(): Unit
       deployPostgres()
+      // Two services never share a database; the wasm one has its own.
+      deployPostgres("postgres-rust")
 
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
@@ -135,14 +154,67 @@ class SidecarClusterSuite extends munit.FunSuite:
 
   private def kubectl(args: String*): (Int, String) = nodeExec(("kubectl" +: args)*)
 
+  private def docker(dir: Path, args: String*): Unit =
+    val process = new ProcessBuilder(("docker" +: args)*)
+      .directory(dir.toFile)
+      .redirectErrorStream(true)
+      .start()
+    val output = new String(process.getInputStream.readAllBytes())
+    assertEquals(process.waitFor(), 0, s"docker ${args.mkString(" ")} failed:\n$output")
+
+  /**
+   * The module images: the Rust conformance reference (cargo, then the example's Dockerfile), a
+   * module exporting ABI version 2, and an image whose copy fails. The last two are assembled here,
+   * from WebAssembly text and a one-line Dockerfile, so they need no toolchain.
+   */
+  private def buildModuleImages(): Unit =
+    val rust = repositoryRoot.resolve("sdks/rust")
+    rustBuilt =
+      try
+        new ProcessBuilder(
+          "cargo",
+          "build",
+          "-p",
+          "shopping-cart",
+          "--release",
+          "--target",
+          "wasm32-unknown-unknown",
+          "--features",
+          "conformance"
+        ).directory(rust.toFile).inheritIO().start().waitFor() == 0
+      catch case _: java.io.IOException => false
+    if rustBuilt then
+      docker(rust, "build", "-q", "-f", "examples/shopping-cart/Dockerfile", "-t", RustImage, ".")
+    else println("SidecarClusterSuite: `cargo` is not on PATH; the wasm service's cases skip")
+
+    val wrong = Files.createTempDirectory("wrong-abi")
+    Files.write(
+      wrong.resolve("service.wasm"),
+      com.dylibso.chicory.wabt.Wat2Wasm.parse(
+        """(module (memory (export "memory") 1)
+          |  (func (export "ankka1_alloc") (param i32) (result i32) i32.const 0)
+          |  (func (export "ankka1_free") (param i32 i32))
+          |  (func (export "ankka1_discover") (param i32 i32) (result i64) i64.const 0)
+          |  (func (export "ankka2_discover") (param i32 i32) (result i64) i64.const 0))""".stripMargin
+      )
+    )
+    Files.writeString(
+      wrong.resolve("Dockerfile"),
+      "FROM busybox:1.37\nCOPY service.wasm /service.wasm\nCMD [\"cp\", \"/service.wasm\", \"/ankka/module/service.wasm\"]\n"
+    )
+    docker(wrong, "build", "-q", "-t", WrongAbiImage, ".")
+    val noCopy = Files.createTempDirectory("no-copy")
+    Files.writeString(noCopy.resolve("Dockerfile"), "FROM busybox:1.37\nCMD [\"false\"]\n")
+    docker(noCopy, "build", "-q", "-t", NoCopyImage, ".")
+
   /** A plain Postgres with the platform's DDL, as the service's supplied database. */
-  private def deployPostgres(): Unit =
+  private def deployPostgres(name: String = "postgres"): Unit =
     val ddl =
       Vector("10-journal-postgres.sql", "20-projection-postgres.sql", "30-timers-postgres.sql")
         .map(n => n -> new String(getClass.getResourceAsStream(s"/ankka/ddl/$n").readAllBytes()))
     val configMap = new io.fabric8.kubernetes.api.model.ConfigMapBuilder()
       .withMetadata(
-        new ObjectMetaBuilder().withName("postgres-ddl").withNamespace(Namespace).build()
+        new ObjectMetaBuilder().withName(s"$name-ddl").withNamespace(Namespace).build()
       )
       .withData(ddl.toMap.asJava)
       .build()
@@ -150,12 +222,12 @@ class SidecarClusterSuite extends munit.FunSuite:
     val manifest = s"""
 apiVersion: apps/v1
 kind: Deployment
-metadata: { name: postgres, namespace: $Namespace }
+metadata: { name: $name, namespace: $Namespace }
 spec:
   replicas: 1
-  selector: { matchLabels: { app: postgres } }
+  selector: { matchLabels: { app: $name } }
   template:
-    metadata: { labels: { app: postgres } }
+    metadata: { labels: { app: $name } }
     spec:
       containers:
         - name: postgres
@@ -167,18 +239,18 @@ spec:
           ports: [ { containerPort: 5432 } ]
           volumeMounts: [ { name: ddl, mountPath: /docker-entrypoint-initdb.d } ]
           readinessProbe: { exec: { command: [ pg_isready, -U, ankka, -d, ankka ] }, periodSeconds: 2 }
-      volumes: [ { name: ddl, configMap: { name: postgres-ddl } } ]
+      volumes: [ { name: ddl, configMap: { name: $name-ddl } } ]
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: postgres, namespace: $Namespace }
+metadata: { name: $name, namespace: $Namespace }
 spec:
-  selector: { app: postgres }
+  selector: { app: $name }
   ports: [ { port: 5432, targetPort: 5432 } ]
 """
     k8s.load(new java.io.ByteArrayInputStream(manifest.getBytes)).serverSideApply(): Unit
     waitFor(180.seconds) {
-      val d = k8s.apps().deployments().inNamespace(Namespace).withName("postgres").get()
+      val d = k8s.apps().deployments().inNamespace(Namespace).withName(name).get()
       d != null && Option(d.getStatus).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
     }
 
@@ -416,4 +488,150 @@ spec:
     assert(process != 0, "the process's port answered from another pod")
     assert(sidecar != 0, "the sidecar's callback port answered from another pod")
     assertEquals(http, 0, "the HTTP port should answer; nc is not the problem")
+  }
+
+  // ── a wasm service ─────────────────────────────────────────────────────────
+
+  private def wasmSpec(
+      name: String,
+      image: String,
+      instances: Int = 1,
+      restarts: Int = 0,
+      deadline: Int = 600
+  ): AnkkaServiceSpec =
+    AnkkaServiceSpec(
+      projectId = Project,
+      serviceName = name,
+      generation = 1L,
+      image = image,
+      hosting = "wasm",
+      port = Some(9000),
+      env = List(
+        EnvEntry("ANKKA_DB_HOST", Some(s"postgres-rust.$Namespace.svc"), None, None),
+        EnvEntry("ANKKA_DB_PORT", Some("5432"), None, None),
+        EnvEntry("ANKKA_DB_NAME", Some("ankka"), None, None),
+        EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
+        EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
+        EnvEntry("GREETING", Some("hello from the descriptor"), None, None)
+      ),
+      provisionDatabase = false,
+      autoscaling = AutoscalingSpec(minInstances = instances, maxInstances = instances),
+      restarts = restarts,
+      progressDeadlineSeconds = deadline
+    )
+
+  private def applyAs(name: String, s: AnkkaServiceSpec): Unit =
+    val r = new AnkkaService
+    r.setMetadata(new ObjectMetaBuilder().withName(name).withNamespace(Namespace).build())
+    r.setSpec(s)
+    resources.resource(r).serverSideApply(): Unit
+
+  private def statusOf(name: String) =
+    Option(resources.withName(name).get()).flatMap(r => Option(r.getStatus))
+
+  private def podsOf(name: String) =
+    k8s
+      .pods()
+      .inNamespace(Namespace)
+      .withLabel("ankka.thinkmorestupidless.com/service", name)
+      .list()
+      .getItems
+      .asScala
+      .toVector
+
+  private def readyReplicasOf(name: String): Int =
+    Option(k8s.apps().deployments().inNamespace(Namespace).withName(name).get())
+      .flatMap(d => Option(d.getStatus))
+      .flatMap(s => Option(s.getReadyReplicas))
+      .map(_.intValue)
+      .getOrElse(0)
+
+  private def rustHttp(path: String, post: Option[String] = None): (Int, String) =
+    val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$RustService.$Namespace.svc.cluster.local:9000$path",
+      method = if post.isDefined then "POST" else "GET",
+      body = post
+    )
+    (code, body)
+
+  private def onlyWithRust(): Unit = assume(rustBuilt, "cargo is not on PATH")
+
+  test("wasm: the descriptor becomes one container with the module copied in, Ready, and serving") {
+    onlyWithRust()
+    // The process-hosted cases are done: their service leaves the node, which runs every JVM of
+    // both services otherwise, and answers in seconds rather than milliseconds when it does.
+    resources.withName(Service).delete(): Unit
+    waitFor(180.seconds)(pods.isEmpty)
+    applyAs(RustService, wasmSpec(RustService, RustImage))
+    waitFor(300.seconds)(readyReplicasOf(RustService) >= 1)
+    val pod = podsOf(RustService).head.getSpec
+    assertEquals(pod.getContainers.asScala.map(_.getImage).toVector, Vector(SidecarImage))
+    assert(
+      pod.getInitContainers.asScala.map(_.getImage).contains(RustImage),
+      pod.getInitContainers.toString
+    )
+    waitFor(60.seconds)(statusOf(RustService).exists(_.lifecycle == "Ready"))
+    val (added, addBody) =
+      rustHttp("/carts/r1/items", Some("""{"productId":"p1","name":"Pen","quantity":2}"""))
+    assertEquals(added / 100, 2, addBody)
+    val (code, body) = rustHttp("/carts/r1")
+    assertEquals(code, 200, body)
+    assert(body.contains("\"productId\":\"p1\""), body)
+  }
+
+  test("wasm: the module reads the descriptor's variables, and none of the platform's") {
+    onlyWithRust()
+    val (secret, secretBody) = rustHttp("/conformance/config/ANKKA_DB_PASSWORD")
+    assertEquals(secret, 404, s"a reserved variable reached the module: $secretBody")
+    val (greeting, greetingBody) = rustHttp("/conformance/config/GREETING")
+    assertEquals(greeting, 200, greetingBody)
+    assert(greetingBody.contains("hello from the descriptor"), greetingBody)
+  }
+
+  test("wasm: scaling 1→3 leaves the first pod, and a restart refuses no request") {
+    onlyWithRust()
+    val first = podsOf(RustService).head.getMetadata.getName
+    applyAs(RustService, wasmSpec(RustService, RustImage, instances = 3))
+    waitFor(300.seconds)(readyReplicasOf(RustService) == 3)
+    assert(podsOf(RustService).exists(_.getMetadata.getName == first), "the first pod was replaced")
+
+    val before = podsOf(RustService).map(_.getMetadata.getName).toSet
+    applyAs(RustService, wasmSpec(RustService, RustImage, instances = 3, restarts = 1))
+    var refused  = 0
+    var requests = 0
+    val deadline = System.nanoTime() + 300.seconds.toNanos
+    while podsOf(RustService)
+        .exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
+    do
+      if rustHttp("/carts/r1")._1 != 200 then refused += 1
+      requests += 1
+    waitFor(120.seconds)(readyReplicasOf(RustService) == 3 && podsOf(RustService).forall(readyOf))
+    assert(
+      requests > 5,
+      s"the rollout finished before the loop measured anything ($requests requests)"
+    )
+    assertEquals(refused, 0, s"$refused of $requests requests were refused during the rollout")
+  }
+
+  test("wasm: a module of another ABI version fails the service, naming the versions") {
+    applyAs("wrong-abi", wasmSpec("wrong-abi", WrongAbiImage, deadline = 120))
+    // Failed may be reported first for a failed readiness probe, before the container has exited
+    // often enough to be backing off; the reason that names the versions follows.
+    def detail = statusOf("wrong-abi").flatMap(_.detail).getOrElse("")
+    waitFor(300.seconds)(
+      statusOf("wrong-abi").exists(_.lifecycle == "Failed") && detail.contains("ankka2_discover")
+    )
+    assert(detail.contains("version 2"), detail)
+    resources.withName("wrong-abi").delete(): Unit
+  }
+
+  test("wasm: a module image whose copy fails is the service's reported failure") {
+    applyAs("no-copy", wasmSpec("no-copy", NoCopyImage, deadline = 120))
+    waitFor(300.seconds)(statusOf("no-copy").exists(_.lifecycle == "Failed"))
+    val detail = statusOf("no-copy").flatMap(_.detail).getOrElse("")
+    assert(detail.contains("InitContainerFailed") || detail.contains("init container"), detail)
+    resources.withName("no-copy").delete(): Unit
   }

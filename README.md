@@ -156,11 +156,12 @@ export class CartAssistant extends Agent {
 
 ## How your code is hosted
 
-In Python and TypeScript the loop runs in the runtime beside your process, which is only called back to run
-a tool or check a guardrail — so your code never holds the model's key. [Agents](docs/build/agents.md)
+In Python and TypeScript the loop runs in the runtime beside your process, and in Rust in the runtime your
+service's WebAssembly module is loaded into; either way your code is only called back to run a tool or
+check a guardrail — so it never holds the model's key. [Agents](docs/build/agents.md)
 covers memory, structured replies, streaming and compaction.
 
-![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In both, only the runtime calls the model provider and writes to the service's Postgres.](docs/assets/diagrams/agent-hosting.svg)
+![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In Rust, the pod has one container: the runtime, with your service's WebAssembly module loaded into its JVM. They speak the same protobuf messages across the module's memory, with no network: the runtime calls the module's exports ankka1_plan, ankka1_invoke_tool and ankka1_check_guardrail, and the tool's call to the cart entity goes through the ankka1 invoke import. In all three, only the runtime calls the model provider and writes to the service's Postgres.](docs/assets/diagrams/agent-hosting.svg)
 
 ## The platform
 
@@ -170,7 +171,7 @@ and writes one `AnkkaService` resource per service into the project's namespace;
 database, and a route when it is exposed. [How ankka works](docs/concepts/architecture.md) explains the
 split.
 
-![The ankka platform on Kubernetes: the CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace; the operator watches those resources, creates and owns each service's Deployment, database and route, and writes status back. Callers reach an exposed service through the same gateway.](docs/assets/diagrams/platform.svg)
+![The ankka platform on Kubernetes: the CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace; the operator watches those resources, creates and owns each service's Deployment, database and route, and writes status back. Callers reach an exposed service through the same gateway. A Scala service is a Deployment of JVM instances forming one Pekko cluster; a Python or TypeScript service is your process beside the runtime; a Rust service is the runtime with your WebAssembly module loaded into it. Each has its own database in the project's Postgres.](docs/assets/diagrams/platform.svg)
 
 ## Get started
 
@@ -309,10 +310,12 @@ controlplane      the control plane, built as an ankka application
 crd               the AnkkaService custom resource — the contract, no ankka dependencies
 operator          the Kubernetes operator: watches resources, owns the workloads
 cli               the `ankka` command, over HTTP; `ankka mcp` for agents
-protocol          the sidecar protocol: .proto files, ENCODING.md, the encoding fixtures
-sidecar           the runtime booted from a discovery handshake, for a service in another language
+protocol          the sidecar protocol: .proto files, ENCODING.md, WASM-ABI.md, the encoding fixtures
+sidecar           the runtime booted from a discovery handshake, for a service in another language —
+                  a process beside it, or a WebAssembly module loaded into it
 sdks/python       the Python SDK, its testkits, and the sample cart ported to it
 sdks/typescript   the TypeScript SDK, its testkits, and the sample cart ported to it
+sdks/rust         the Rust crate for services built to WebAssembly modules, and the sample cart
 samples/          the shopping cart and the multi-agent planner
 ankka.g8          the service template
 action            the GitHub Action that installs and authenticates the CLI; pushed to ankka-action on release
@@ -329,6 +332,8 @@ already cost debugging time — and, for the documentation,
 ```bash
 sbt -Dankka.cluster.tests=off test   # everything but the Kubernetes suites; Docker required
 just docs                            # check and build the documentation
+(cd sdks/rust && cargo build -p shopping-cart --release --target wasm32-unknown-unknown)   # the Rust cart, as a module
+docker compose --profile wasm up -d  # the runtime hosting that module on :9000
 ```
 
 ## Licence

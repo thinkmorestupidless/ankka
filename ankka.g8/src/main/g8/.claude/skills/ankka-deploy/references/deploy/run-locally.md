@@ -129,6 +129,23 @@ your process declared, owns the journal, and forwards each request to your proce
 Stop both and start both, and the data is still there, in the sidecar's journal in Postgres. See
 [Services in other languages](../concepts/polyglot.md) for how the two halves divide the work.
 
+## Run a Rust service
+
+A Rust service is built to a WebAssembly module, and ankka's runtime loads the module into its own process:
+there is one container and no process of yours to start. The ankka repository's `docker-compose.yml` has
+the runtime under the `wasm` profile, with the module bind-mounted read-only:
+
+```bash
+cargo build --release --target wasm32-unknown-unknown   # the module, under target/wasm32-unknown-unknown/release
+docker compose --profile wasm up -d                    # Postgres and the runtime; HTTP on localhost:9000
+curl localhost:9000/carts/c1
+```
+
+The compose file mounts the repository's example cart by default; `ANKKA_WASM_MODULE_PATH` points it at
+another build. Rebuild the module and `docker compose --profile wasm restart runtime` to load the new one.
+The runtime owns the journal and serves the routes the module declared, exactly as it does for a process.
+See [Services in other languages](../concepts/polyglot.md).
+
 ## Give agents a model key
 
 A service with agents needs a model provider. For the Anthropic provider the key comes from the

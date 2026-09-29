@@ -1,7 +1,9 @@
 # Everything {{name}} needs to run on this machine except itself: Postgres, and the ankka sidecar
-# that owns the journal, the views, HTTP and the rest, and dials your process on port 9010.
+# that owns the journal, the views, HTTP and the rest, and dials your process on port 9010 — or, for
+# a service built to a WebAssembly module, the same runtime with the module loaded into it.
 #
 #   docker compose up -d        # then start your process; the service answers on localhost:9000
+#   docker compose up -d runtime   # a module instead: no process, the service answers on :9000
 #
 # The sidecar is the one published with this project's ankka version, pulled from ghcr.io on first
 # use; set ANKKA_SIDECAR_IMAGE to run another. The database schema comes out of that same image, so it
@@ -58,6 +60,35 @@ services:
       - "9000:9000"
       # The port your process calls back on, published on loopback only.
       - "127.0.0.1:9011:9011"
+
+  # For a Rust service, built to a WebAssembly module: the same image loads the module into itself
+  # instead of dialling a process. Started by name, `docker compose up -d runtime`, which starts
+  # Postgres with it and not the sidecar above; `cargo module` builds what it loads.
+  runtime:
+    profiles: ["wasm"]
+    image: ${ANKKA_SIDECAR_IMAGE:-ghcr.io/thinkmorestupidless/ankka-sidecar:{{ankka_version}}}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ANKKA_WASM_MODULE: /module/service.wasm
+      ANKKA_HTTP_PORT: "9000"
+      ANKKA_DB_HOST: postgres
+      ANKKA_DB_PORT: "5432"
+      ANKKA_DB_NAME: ankka
+      ANKKA_DB_USER: ankka
+      ANKKA_DB_PASSWORD: ankka
+    ports:
+      - "9000:9000"
+    # Refused, naming the file, until `cargo module` has built it: otherwise Docker would create a
+    # directory where the module goes, and the next `cargo module` could not write the module there.
+    volumes:
+      - type: bind
+        source: ./target/wasm32-unknown-unknown/release/{{module_snake}}.wasm
+        target: /module/service.wasm
+        read_only: true
+        bind:
+          create_host_path: false
 
 volumes:
   ddl:

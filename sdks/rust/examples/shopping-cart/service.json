@@ -1,0 +1,8 @@
+{
+  "name": "cart",
+  "service": {
+    "image": "sample-shopping-cart-rust:latest",
+    "hosting": "wasm",
+    "protocol": "1.0"
+  }
+}

@@ -108,9 +108,11 @@ final case class AnkkaServiceSpec(
      */
     exposed: Boolean = false,
     /**
-     * `embedded` (one container, the image is the node) or `process` (feature 009: the image is a
-     * developer's process in another language and the operator runs the sidecar beside it). The
-     * sidecar's image is the operator's, never the resource's.
+     * `embedded` (one container, the image is the node), `process` (feature 009: the image is a
+     * developer's process in another language and the operator runs the sidecar beside it) or
+     * `wasm` (feature 016: the image carries a WebAssembly module, which an init container copies
+     * into a shared volume for the runtime to load). The runtime's image is the operator's, never
+     * the resource's.
      */
     hosting: String = "embedded",
     /**

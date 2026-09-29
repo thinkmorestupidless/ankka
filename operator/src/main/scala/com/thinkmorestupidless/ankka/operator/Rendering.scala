@@ -53,7 +53,10 @@ import io.fabric8.kubernetes.api.model.{
   PodSpecBuilder,
   PodTemplateSpecBuilder,
   Quantity,
-  ResourceRequirementsBuilder
+  ResourceRequirementsBuilder,
+  Volume,
+  VolumeBuilder,
+  VolumeMountBuilder
 }
 import com.thinkmorestupidless.ankka.crd.{EnvEntry, Hostnames, AnkkaService, AnkkaServiceSpec}
 
@@ -99,6 +102,28 @@ object Rendering:
    */
   val ProcessHosting: String = "process"
 
+  /**
+   * `AnkkaServiceSpec.hosting`'s value for a WebAssembly module loaded into the runtime (feature
+   * 016): one container, the runtime's image, with the module delivered by running the service's
+   * own image once, as an init container that copies it into a volume the two share.
+   */
+  val WasmHosting: String = "wasm"
+
+  /** The volume a module is copied into, where the init container writes and the runtime reads. */
+  val ModuleVolume: String = "ankka-module"
+  val ModuleMount: String  = "/ankka/module"
+
+  /** Where the runtime loads the module from: what the module image's one job is to write. */
+  val ModuleFile: String = s"$ModuleMount/service.wasm"
+
+  /** A module is a few megabytes; this is the ceiling the volume and the copy are held to. */
+  private val ModuleVolumeLimit = new Quantity("64Mi")
+
+  /** The module image copies one file and exits: small, and bounded, like schema-init. */
+  private val ModuleInitRequests =
+    Map("cpu" -> new Quantity("10m"), "memory" -> new Quantity("16Mi")).asJava
+  private val ModuleInitLimits = Map("memory" -> new Quantity("64Mi")).asJava
+
   /** Where the two containers of a process-hosted pod find each other, on the pod's loopback. */
   val ProcessPort: Int = 9010
   val SidecarPort: Int = 9011
@@ -142,8 +167,9 @@ object Rendering:
       Names.namespaceProblems(settings.namespacePrefix, spec.projectId) ++
         Names.serviceNameProblems(spec.serviceName) ++
         (if spec.image.isEmpty then Vector("image must not be empty") else Vector.empty) ++
-        (if spec.hosting == ProcessHosting && settings.sidecarImage.isEmpty then
-           Vector("operator has no sidecar image")
+        (if (spec.hosting == ProcessHosting || spec.hosting == WasmHosting) &&
+           settings.sidecarImage.isEmpty
+         then Vector("operator has no sidecar image")
          else Vector.empty)
 
     if problems.nonEmpty then Left(problems)
@@ -496,7 +522,9 @@ object Rendering:
 
     val containers =
       containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage, namespacePrefix)
-    val tlsVolumes = ZeroTrust.volumes(spec, provisioned, CnpgRendering.projectClusterName)
+    val tlsVolumes =
+      ZeroTrust.volumes(spec, provisioned, CnpgRendering.projectClusterName) ++ moduleVolumes(spec)
+    val moduleInit = moduleInitContainers(spec)
 
     // The pull secret is *named*, never read. The Secret itself is the control plane's to write in
     // the project's namespace from the credential a member supplied, and the operator holds no
@@ -517,7 +545,7 @@ object Rendering:
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
-            .withInitContainers(SchemaInit.container(spec.serviceName))
+            .withInitContainers((moduleInit :+ SchemaInit.container(spec.serviceName))*)
             .withContainers(containers*)
             .withVolumes((SchemaInit.volume() +: tlsVolumes)*)
             // The database key is mounted readable by this group and nobody else, which is what
@@ -532,6 +560,7 @@ object Rendering:
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+            .withInitContainers(moduleInit*)
             .withContainers(containers*)
             .withVolumes(tlsVolumes*)
         ).build()
@@ -598,10 +627,54 @@ object Rendering:
       .build()
 
   /**
+   * A wasm service's module, copied by its own image into the pod's module volume before the
+   * runtime starts. The image's contract is exactly that: run with the volume mounted, write
+   * `service.wasm` there, exit 0. No command is set, so the image's own does the copy; a failure is
+   * the pod's init failing, which the service reports.
+   */
+  private def moduleInitContainers(spec: AnkkaServiceSpec): Vector[Container] =
+    if spec.hosting != WasmHosting then Vector.empty
+    else
+      Vector(
+        new ContainerBuilder()
+          .withName(Names.container(spec.serviceName) + "-module")
+          .withImage(spec.image)
+          .withImagePullPolicy("IfNotPresent")
+          .withVolumeMounts(
+            new VolumeMountBuilder().withName(ModuleVolume).withMountPath(ModuleMount).build()
+          )
+          .withResources(
+            new ResourceRequirementsBuilder()
+              .withRequests(ModuleInitRequests)
+              .withLimits(ModuleInitLimits)
+              .build()
+          )
+          .build()
+      )
+
+  private def moduleVolumes(spec: AnkkaServiceSpec): Vector[Volume] =
+    if spec.hosting != WasmHosting then Vector.empty
+    else
+      Vector(
+        new VolumeBuilder()
+          .withName(ModuleVolume)
+          .withEmptyDir(
+            new io.fabric8.kubernetes.api.model.EmptyDirVolumeSourceBuilder()
+              .withSizeLimit(ModuleVolumeLimit)
+              .build()
+          )
+          .build()
+      )
+
+  /**
    * `embedded`: one container, the image is the node. `process` (feature 009): the sidecar image is
    * the node — every port, probe, cluster variable and credential the single container carries
    * today — and the developer's image is a second container beside it, carrying its own variables
    * and how to find the sidecar, with no ports and no probe: its liveness is the sidecar's opinion.
+   * `wasm` (feature 016): one container again, the runtime's image, which is the node exactly as
+   * the sidecar is and loads the module from the volume the init container filled. The descriptor's
+   * variables are all on it, unsplit — the runtime keeps the reserved ones from the module when it
+   * reads them (the `config` import), since one container has one environment.
    */
   private def containersFor(
       spec: AnkkaServiceSpec,
@@ -610,7 +683,31 @@ object Rendering:
       sidecarImage: String,
       namespacePrefix: String
   ): Vector[Container] =
-    if spec.hosting != ProcessHosting then
+    if spec.hosting == WasmHosting then
+      val node = container(
+        spec.copy(image = sidecarImage),
+        identity,
+        withDatabaseEnv,
+        extraEnv = Vector(literal("ANKKA_WASM_MODULE", ModuleFile)),
+        namespacePrefix = namespacePrefix,
+        mountsFor = Some(spec)
+      )
+      Vector(
+        new ContainerBuilder(node)
+          // A module the runtime refuses — another ABI version, a missing export — is a process
+          // that logs every reason and exits 1. Its last log lines become the termination message,
+          // which the service's reported reason carries, so the refusal names itself.
+          .withTerminationMessagePolicy("FallbackToLogsOnError")
+          .addToVolumeMounts(
+            new VolumeMountBuilder()
+              .withName(ModuleVolume)
+              .withMountPath(ModuleMount)
+              .withReadOnly(true)
+              .build()
+          )
+          .build()
+      )
+    else if spec.hosting != ProcessHosting then
       Vector(container(spec, identity, withDatabaseEnv, namespacePrefix = namespacePrefix))
     else
       // A descriptor's variables are split: a model's key and configuration belong to the sidecar,

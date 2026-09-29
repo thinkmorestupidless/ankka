@@ -21,6 +21,11 @@ inside the cluster, and the base domain resolves to `127.0.0.1`.
 - A checkout of the ankka repository. Every command on this page runs from its root.
 - Optionally [just](https://github.com/casey/just), for the short forms of the commands.
 
+Nothing more is needed for services built to WebAssembly modules. A wasm service's pod copies its module
+into a shared volume by running the service's own image as an init container, so it works on any
+container runtime kind ships; the runtime that loads the module is the platform's own image, which the
+script already builds.
+
 ## Create the cluster
 
 ```bash

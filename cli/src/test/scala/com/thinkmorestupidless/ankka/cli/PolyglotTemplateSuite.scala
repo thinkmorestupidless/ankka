@@ -10,8 +10,9 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /**
- * A Python or TypeScript template's proof: `ankka init --language` — the real command, through
- * `Main.run` — renders the template into a temp directory, and the project's own checks pass there.
+ * A Python, TypeScript or Rust template's proof: `ankka init --language` — the real command,
+ * through `Main.run` — renders the template into a temp directory, and the project's own checks
+ * pass there.
  *
  * The project pins the SDK at this CLI's version, which for a build of this repository is a
  * snapshot no registry has. So the suite first asserts the pin is there, then points the dependency
@@ -62,7 +63,14 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
   test("every token is rendered, and GitHub's own expressions are untouched") {
     val leftovers = files.flatMap { f =>
       val text = Files.readString(f).replace("${{", "")
-      Vector("{{name}}", "{{module}}", "{{ankka_version}}", "{{protocol_version}}", "{{")
+      Vector(
+        "{{name}}",
+        "{{module}}",
+        "{{module_snake}}",
+        "{{ankka_version}}",
+        "{{protocol_version}}",
+        "{{"
+      )
         .find(text.contains)
         .map(token => s"$f: $token")
     }
@@ -90,17 +98,23 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
     val leaks = files.flatMap { f =>
       val text = Files.readString(f)
       val paths =
-        if f.startsWith(skills) then Vector() else Vector("sdks/python", "sdks/typescript")
+        if f.startsWith(skills) then Vector()
+        else Vector("sdks/python", "sdks/typescript", "sdks/rust")
       (repoRoot.toString +: paths).filter(text.contains).map(w => s"$f: $w")
     }
     assertEquals(leaks, Vector.empty)
   }
 
-  test("the descriptor is valid, hosted as a process speaking this platform's protocol") {
+  test(
+    "the descriptor is valid, hosted in its language's mode, speaking this platform's protocol"
+  ) {
     val descriptor =
       readFromString[ServiceDescriptor](Files.readString(project.resolve("service.json")))
     assertEquals(descriptor.problems, Vector.empty)
     assertEquals(descriptor.name, Name)
-    assert(descriptor.service.isProcessHosted, descriptor.service.toString)
+    // A Rust service is a module the runtime loads; the others are processes beside it.
+    if language == Language.Rust then
+      assert(descriptor.service.isModuleHosted, descriptor.service.toString)
+    else assert(descriptor.service.isProcessHosted, descriptor.service.toString)
     assertEquals(descriptor.service.protocol, Some(Protocol.version.toString))
   }

@@ -126,6 +126,10 @@ class ConformanceSuite extends munit.FunSuite:
 
   private def onlyForProcesses(): Unit = assume(target.isProcess, "process targets only")
 
+  /** A module answers every call whole: its handlers and routes cannot stream (WASM-ABI.md). */
+  private def onlyWhereStreaming(): Unit =
+    assume(!target.isModule, "a module cannot stream; refused at its discovery")
+
   private def cartJson(id: String, name: String, quantity: Int) =
     s"""{"productId":"$id","name":"$name","quantity":$quantity}"""
 
@@ -467,11 +471,13 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("http.caller-in-stream") {
+    onlyWhereStreaming()
     assertEquals(get("/callers/events", as(Caller.Gateway)).status, 403)
     assertEquals(get("/callers/events", as(Caller.Service("local", "local"))).status, 200)
   }
 
   test("http.sse-frames-json-encoded") {
+    onlyWhereStreaming()
     val r = get("/conformance/stream/s1")
     assertEquals(r.status, 200)
     val frames =
@@ -531,6 +537,7 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("agent.stream") {
+    onlyWhereStreaming()
     model.expectText("one two three")
     val r = get("/conformance/stream-ask/a4?q=go")
     assertEquals(r.status, 200, r.body)
@@ -796,6 +803,7 @@ class ConformanceSuite extends munit.FunSuite:
     out.result()
 
   test("auto.notifications-in-order") {
+    onlyWhereStreaming()
     val instance        = s"watch-${java.util.UUID.randomUUID()}"
     val (queue, cancel) = subscribe(instance)
     try
@@ -822,6 +830,7 @@ class ConformanceSuite extends munit.FunSuite:
   }
 
   test("auto.notifications-no-replay") {
+    onlyWhereStreaming()
     val instance = s"late-${java.util.UUID.randomUUID()}"
     model.expectCompleteTaskJson("""{"answer":"x","sources":["memory"]}""")
     val id = createTask("Before anyone watched")

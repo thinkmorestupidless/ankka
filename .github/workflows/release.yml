@@ -641,6 +641,78 @@ jobs:
           # reached npm. A spec is a file only when it starts with `./`, `../`, `/` or `~/`.
           npm publish "./dist-pack/ankka-$version.tgz" --access public
 
+  sdk-rust:
+    # The Rust crate to crates.io, as `ankka`: https://crates.io/crates/ankka. Its version is `version` in
+    # sdks/rust/ankka/Cargo.toml — 0.0.0 in the tree, written here from the tag by the same rule as the
+    # other SDKs — and the crate reports `env!("CARGO_PKG_VERSION")` in discovery, so the version a module
+    # declares is the one on crates.io. The crate carries its own copy of the protocol, checked here
+    # against this commit's `protocol/` as the ci job checks it.
+    #
+    # No token of the repository's: crates.io trusts this workflow directly (trusted publishing, OIDC,
+    # exchanged for a short-lived token by rust-lang/crates-io-auth-action), the same shape as the PyPI and
+    # npm jobs. Like npm, crates.io attaches a trusted publisher only to a crate that exists: the FIRST
+    # publish of `ankka` is made by hand after that tag's `publish` job succeeds (CLAUDE.md, Publishing),
+    # and the publisher is configured afterwards — owner `thinkmorestupidless`, repository `ankka`,
+    # workflow `release.yml`, environment `crates-io`.
+    #
+    # It waits for the publish job for the reason the other SDK jobs do. A version can never be re-uploaded
+    # to crates.io, only yanked, so the isolated build below is the last point at which a release can be
+    # withdrawn; the `cargo info` guard lets a re-run of the tag finish what a cancelled run left.
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: crates-io
+      url: https://crates.io/crates/ankka
+    permissions:
+      contents: read
+      id-token: write   # the OIDC token crates.io verifies
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Write the version, and check the protocol copy is this commit's
+        working-directory: sdks/rust
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version = \"0.0.0\"/version = \"$version\"/" ankka/Cargo.toml
+          grep -q "^version = \"$version\"" ankka/Cargo.toml || { echo "::error::the crate's version was not written"; exit 1; }
+          diff -r ../../protocol/src/main/protobuf ankka/protocol/src/main/protobuf
+          diff -r ../../protocol/fixtures ankka/protocol/fixtures
+          diff ../../protocol/ENCODING.md ankka/protocol/ENCODING.md
+          diff ../../protocol/WASM-ABI.md ankka/protocol/WASM-ABI.md
+      - name: Test, package, and build the package alone for the WebAssembly target
+        working-directory: sdks/rust
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cargo test -p ankka
+          cargo package -p ankka --allow-dirty
+          mkdir "$RUNNER_TEMP/crate" && tar -xzf "target/package/ankka-$version.crate" -C "$RUNNER_TEMP/crate"
+          (cd "$RUNNER_TEMP/crate/ankka-$version" && cargo build --target wasm32-unknown-unknown)
+      - name: Is this version already on crates.io?
+        id: published
+        working-directory: sdks/rust
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if cargo info "ankka@$version" >/dev/null 2>&1; then
+            echo "ankka@$version is already on crates.io; nothing to publish"
+            echo "already=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.published.outputs.already == 'false'
+        id: auth
+      - name: Publish
+        if: steps.published.outputs.already == 'false'
+        working-directory: sdks/rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish -p ankka --allow-dirty
+
   console-package:
     # The console as a package, `ankka-console` on npm: the client, sign-in and sessions, and the pages
     # a React Router host mounts (feature 017). Its version is the platform's, written from the tag as

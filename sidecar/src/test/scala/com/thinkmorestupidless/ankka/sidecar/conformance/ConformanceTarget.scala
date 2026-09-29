@@ -14,11 +14,19 @@ import com.thinkmorestupidless.ankka.sidecar.{
   Settings,
   SidecarExtension
 }
+import com.thinkmorestupidless.ankka.sidecar.wasm.{
+  GuestInstance,
+  HostImports,
+  ModuleLoader,
+  WasmConversation,
+  WasmDiscovery
+}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 import org.apache.pekko.actor.typed.ActorSystem
 
 import java.net.URI
+import java.nio.file.Path
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.*
@@ -27,8 +35,10 @@ import scala.util.Try
 /**
  * What the conformance suite drives: a service reachable over HTTP, restartable, with the journal
  * and the recorder in this JVM and a scripted model the suite can script. Either the Scala
- * reference in-process, or the sidecar in this JVM in front of a process that speaks the protocol —
- * chosen by `-Dankka.conformance.target=<host:port>`.
+ * reference in-process, the sidecar in this JVM in front of a process that speaks the protocol —
+ * chosen by `-Dankka.conformance.target=<host:port>` — or the runtime in this JVM hosting a
+ * WebAssembly module, by `-Dankka.conformance.target=wasm:<path>`, in the guest shape
+ * `-Dankka.conformance.shape` names (`stateless`, the default, or `stateful`).
  */
 trait ConformanceTarget:
   def name: String
@@ -39,8 +49,11 @@ trait ConformanceTarget:
   /** A new service on the same database: every instance is gone from memory. */
   def restart(): Unit
 
-  /** True when a process in another language is at the far end. */
+  /** True when a service in another language is at the far end: a process, or a module. */
   def isProcess: Boolean
+
+  /** True for a WebAssembly module, which answers every call whole and so cannot stream. */
+  def isModule: Boolean = false
 
   /** What the process was told through `ReportError`; empty in-process. */
   def problems: Vector[String]
@@ -59,6 +72,12 @@ object ConformanceTarget:
 
   def fromProperty(model: TestModelProvider): ConformanceTarget =
     sys.props.get("ankka.conformance.target").filter(_.nonEmpty) match
+      case Some(module) if module.startsWith("wasm:") =>
+        ModuleTarget(
+          Path.of(module.stripPrefix("wasm:")),
+          sys.props.getOrElse("ankka.conformance.shape", "stateless"),
+          model
+        )
       case Some(address) => Sidecar(address, model)
       case None          => InProcess(model)
 
@@ -187,3 +206,97 @@ object ConformanceTarget:
     def stop(): Unit =
       Try(kit.stop())
       channel.shutdownNow(): Unit
+
+  /**
+   * The runtime's module mode in this JVM, on `AnkkaTestKit`'s Postgres: the module loaded, its
+   * declaration discovered from its exports, every component hosted over `WasmConversation`. The
+   * module reads its guest shape from `ANKKA_CONFORMANCE_SHAPE` through the `config` import, set
+   * here as an override on the imports rather than in the environment, which a JVM cannot change.
+   */
+  final class ModuleTarget(path: Path, shape: String, val model: TestModelProvider)
+      extends ConformanceTarget:
+    private val settings =
+      Settings(
+        "127.0.0.1:0",
+        0,
+        "127.0.0.1",
+        60.seconds,
+        5.seconds,
+        10.seconds,
+        10.seconds,
+        wasmModule = Some(path)
+      )
+    private val module =
+      ModuleLoader.load(path).fold(p => throw IllegalStateException(p.mkString("; ")), identity)
+    private val overrides = Map("ANKKA_CONFORMANCE_SHAPE" -> shape)
+    private val imports =
+      HostImports(
+        settings.commandTimeout,
+        settings.requestTimeout,
+        name => overrides.get(name).orElse(sys.env.get(name))
+      )
+    @volatile private var lastProblems = Vector.empty[String]
+
+    private def discover(protocolVersion: String) =
+      val bootstrap = GuestInstance.build(module, imports.values, settings.wasmMaxMemoryPages)
+      val result    = WasmDiscovery.discover(bootstrap, module, BuildInfo.version, protocolVersion)
+      lastProblems = result.left.getOrElse(Vector.empty)
+      result
+
+    private val discovered = discover(Discovery.ProtocolVersion).fold(
+      problems =>
+        throw IllegalStateException(
+          problems.mkString("the module was refused:\n  - ", "\n  - ", "")
+        ),
+      identity
+    )
+    private val conversation =
+      WasmConversation(module, settings, imports, discovered.shapeOf)
+    private val timers = TimerRuntime(200.millis)
+    private val agents = discovered.agents.map { c =>
+      RemoteAgent.descriptor(
+        RemoteAgent.spec(c).toOption.get,
+        conversation,
+        Models.only(Models.Scripted, model),
+        settings.commandTimeout
+      )
+    }
+    private val autonomous = discovered.autonomousAgents.map(c =>
+      RemoteAutonomousAgent.descriptor(
+        c,
+        conversation,
+        Models.only(Models.Scripted, model),
+        settings.commandTimeout
+      )
+    )
+    private val endpoints =
+      discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
+    private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
+    private val kit = AnkkaTestKit.start(
+      discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
+      Seq(
+        ProjectionRuntime(),
+        timers,
+        AgentRuntime.withDefaultModel(model),
+        HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
+        SidecarExtension(settings, conversation, timers, served, Some(imports))
+      ),
+      60.seconds,
+      _.withConversation(conversation)
+    )
+    def name: String               = s"module $path ($shape)"
+    def baseUrl: String            = kit.service.boundAddresses.find(_.startsWith("http")).get
+    def system: ActorSystem[?]     = kit.service.system
+    def restart(): Unit            = kit.restartService()
+    def isProcess: Boolean         = true
+    override def isModule: Boolean = true
+    def problems: Vector[String]   = lastProblems
+    def componentIds: Set[String]  = discovered.spec.components.map(_.id).toSet
+    def readOnlyHandlers: Set[(String, String)] =
+      discovered.spec.components
+        .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))
+        .toSet
+    def endpointRoutes: Set[String] = served.map(r => s"${r.method} ${r.path}").toSet
+    def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
+      Some(discover(protocolVersion).map(_ => ()))
+    def stop(): Unit = Try(kit.stop()): Unit

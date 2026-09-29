@@ -100,7 +100,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Concepts
 
-- `references/concepts/polyglot.md` — How ankka hosts a service written in Python or TypeScript — the runtime runs beside the process as a sidecar, owning everything durable and distributed, while the process decides what each command does.
+- `references/concepts/polyglot.md` — How ankka hosts a service in Python, TypeScript or Rust — the runtime runs beside a process as a sidecar or loads a WebAssembly module, owning everything durable while the service's code decides.
 
 ### Build
 

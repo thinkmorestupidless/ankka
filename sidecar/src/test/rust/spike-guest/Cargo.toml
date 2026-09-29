@@ -1,0 +1,29 @@
+# The spike guest: a WebAssembly module answering discovery, event sourced commands and folds
+# over the ABI in protocol/WASM-ABI.md, built to measure what an in-process host costs
+# (ankka-deployments, design/wasm-hosting.md, "What the spike must answer") and kept as the host's
+# first test module. Not a guest library and not published; `build.sh` writes the module both
+# suites load.
+[package]
+name = "ankka-spike-guest"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+prost-build = "0.14"
+protox = "0.9"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

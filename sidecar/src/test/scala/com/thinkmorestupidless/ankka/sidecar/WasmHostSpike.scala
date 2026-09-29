@@ -1,0 +1,391 @@
+package com.thinkmorestupidless.ankka.sidecar
+
+import ankka.protocol.v1.discovery.{Kind, SidecarInfo}
+import ankka.protocol.v1.event_sourced.{EventSourcedIn, EventSourcedOut}
+import ankka.protocol.v1.payload.Payload
+import ankka.protocol.v1.wasm.{
+  ConfigReply,
+  ConfigRequest,
+  FoldReply,
+  FoldRequest,
+  HandleReply,
+  HandleRequest,
+  WasmSpec
+}
+import com.dylibso.chicory.compiler.MachineFactoryCompiler
+import com.dylibso.chicory.runtime.{
+  HostFunction,
+  ImportValues,
+  Instance,
+  Machine,
+  WasmFunctionHandle
+}
+import com.dylibso.chicory.wasm.types.{FunctionType, ValType}
+import com.dylibso.chicory.wasm.{Parser, WasmModule}
+import com.google.protobuf.ByteString
+import com.thinkmorestupidless.ankka.runtime.AnkkaExecutors
+
+import java.util.concurrent.{Executors, TimeUnit}
+import java.util.function.Function
+import scala.concurrent.duration.*
+import scala.concurrent.{Await, Future, Promise}
+import scala.jdk.CollectionConverters.*
+import scala.util.Try
+
+/**
+ * The spike the design treatment (ankka-deployments, design/wasm-hosting.md) says a specification
+ * waits on: two guests speaking the protocol's own messages over linear memory, loaded into this
+ * JVM through Chicory. One is Rust (`src/test/rust/spike-guest`, built to
+ * `wasm32-unknown-unknown`), the other Go under TinyGo (`src/test/go/spike-guest`, target
+ * `wasm-unknown`, protowire for the envelope); each `build.sh` writes its module under
+ * `src/test/resources/wasm/`, and the modules are committed.
+ *
+ * Both guests speak `protocol/WASM-ABI.md` over the envelopes in `wasm.proto`. The first case is a
+ * correctness test and always runs, against both: discovery, a command from the empty state, the
+ * state fed back in — the stateless shape, end to end, with the guest's JSON carrying the
+ * encoding's `"type"` discriminator — a call out through each import, and a panic trapping. The
+ * measurements are gated on `-Dankka.benchmarks` like `LoopbackLatencySpike`, whose number they are
+ * read against.
+ */
+class WasmHostSpike extends munit.FunSuite:
+
+  override def munitTimeout: Duration = 10.minutes
+
+  /**
+   * A guest to measure. The spike guests are resources; the Rust SDK's example cart, when it has
+   * been built, is a file, and is measured with its own component id and stored state so the number
+   * is the crate's real codec rather than a hand-written guest's.
+   */
+  final case class Language(
+      name: String,
+      resource: String,
+      file: Option[java.nio.file.Path] = None,
+      componentId: String = "cart",
+      state: String => String = items => s"""{"items":[$items]}""",
+      stateManifest: String = "Cart"
+  ):
+    lazy val module: WasmModule =
+      file.fold(Parser.parse(getClass.getResourceAsStream(resource)))(Parser.parse(_))
+    lazy val compiled: Function[Instance, Machine] = MachineFactoryCompiler.compile(module)
+
+  private val languages = Seq(
+    Language("rust", "/wasm/spike-guest.wasm"),
+    Language("go", "/wasm/spike-guest-go.wasm")
+  )
+
+  /** The Rust SDK's example, built by `cargo build -p shopping-cart --release --target wasm32…`. */
+  private val sdkGuest: Option[Language] =
+    val built = java.nio.file.Path
+      .of(sys.props.getOrElse("user.dir", "."))
+      .resolve("../sdks/rust/target/wasm32-unknown-unknown/release/shopping_cart.wasm")
+      .normalize
+    Option.when(java.nio.file.Files.isRegularFile(built))(
+      Language(
+        "rust-sdk",
+        "",
+        Some(built),
+        componentId = "shopping-cart",
+        state = items => s"""{"cartId":"c1","items":[$items],"checkedOut":false}""",
+        stateManifest = "shopping-cart"
+      )
+    )
+
+  /**
+   * One loaded instance and the calls the ABI names. `invoke` is what the host answers the guest's
+   * `ankka1::invoke` import with, on the guest's calling thread, and `config` what it answers
+   * `ankka1::config` with. No factory means Chicory's interpreter.
+   */
+  final class Guest(
+      language: Language,
+      factory: Option[Function[Instance, Machine]],
+      invoke: Array[Byte] => Array[Byte] = identity,
+      config: String => Option[String] = _ => None
+  ):
+    /**
+     * An import that takes bytes and answers bytes, allocated through the guest's `ankka1_alloc`.
+     */
+    private def bytesImport(name: String)(answer: Array[Byte] => Array[Byte]) = new HostFunction(
+      "ankka1",
+      name,
+      FunctionType.of(List(ValType.I32, ValType.I32).asJava, List(ValType.I64).asJava),
+      new WasmFunctionHandle:
+        def apply(inst: Instance, args: Long*): Array[Long] =
+          val request = inst.memory().readBytes(args(0).toInt, args(1).toInt)
+          val reply   = answer(request)
+          if reply.isEmpty then Array(0L)
+          else
+            val ptr = inst.`export`("ankka1_alloc").apply(reply.length.toLong)(0).toInt
+            inst.memory().write(ptr, reply)
+            Array(packed(ptr, reply.length))
+    )
+    // The SDK's module imports every function the runtime lends; the spike guests only two.
+    private val imports =
+      if language.file.isDefined then wasm.HostImports(10.seconds, 10.seconds).values
+      else
+        ImportValues
+          .builder()
+          .addFunction(bytesImport("invoke")(invoke))
+          .addFunction(
+            bytesImport("config")(bytes =>
+              ConfigReply(config(ConfigRequest.parseFrom(bytes).name)).toByteArray
+            )
+          )
+          .build()
+    val instance: Instance =
+      val builder = Instance
+        .builder(language.module)
+        .withImportValues(imports)
+      val built = factory.fold(builder)(builder.withMachineFactory).build()
+      // A reactor's own initialisation (TinyGo exports one; Rust needs none), before any call.
+      Try(built.`export`("_initialize")).foreach(_.apply())
+      built
+    private val alloc             = instance.`export`("ankka1_alloc")
+    private val free              = instance.`export`("ankka1_free")
+    private def fns(name: String) = instance.`export`(s"ankka1_$name")
+
+    /** Bytes in through `alloc`, which the guest frees; bytes out, which the host frees. */
+    def call(name: String, bytes: Array[Byte]): Array[Byte] =
+      val ptr = alloc.apply(bytes.length.toLong)(0).toInt
+      instance.memory().write(ptr, bytes)
+      val out  = fns(name).apply(ptr.toLong, bytes.length.toLong)(0)
+      val rptr = (out >>> 32).toInt
+      val rlen = (out & 0xffffffffL).toInt
+      if out == 0L then Array.emptyByteArray
+      else
+        val res = instance.memory().readBytes(rptr, rlen)
+        free.apply(rptr.toLong, rlen.toLong)
+        res
+
+    def discover(): WasmSpec =
+      WasmSpec.parseFrom(call("discover", SidecarInfo("1.0", "0.0.0").toByteArray))
+
+    def handle(
+        state: Option[Payload],
+        command: EventSourcedIn.Command
+    ): (EventSourcedOut.Reply, Payload) =
+      val request = HandleRequest(
+        kind = Kind.EVENT_SOURCED_ENTITY,
+        componentId = language.componentId,
+        entityId = "c1",
+        state = state,
+        command = HandleRequest.Command.EventSourced(command)
+      )
+      val reply = HandleReply.parseFrom(call("handle", request.toByteArray))
+      (reply.getEventSourced, reply.getState)
+
+    def fold(state: Option[Payload], event: Payload): Payload =
+      val request =
+        FoldRequest(
+          componentId = language.componentId,
+          entityId = "c1",
+          state = state,
+          event = Some(event)
+        )
+      FoldReply.parseFrom(call("fold", request.toByteArray)).getState
+
+    def callOut(bytes: Array[Byte]): Array[Byte] = call("call_out", bytes)
+
+  private def packed(ptr: Int, len: Int): Long = (ptr.toLong << 32) | (len.toLong & 0xffffffffL)
+
+  private def json(manifest: String, text: String): Payload =
+    Payload("application/json", manifest, ByteString.copyFromUtf8(text))
+
+  private def text(value: String): Payload =
+    Payload("text/plain", "string", ByteString.copyFromUtf8(value))
+
+  private def item(i: Int): String =
+    s"""{"productId":"p$i","name":"Pen $i","quantity":${i % 5 + 1}}"""
+
+  private def addItem(id: Long, i: Int): EventSourcedIn.Command =
+    EventSourcedIn.Command(id = id, name = "add-item", payload = Some(json("Item", item(i))))
+
+  private def cartOf(n: Int, language: Language): Payload =
+    json(language.stateManifest, language.state((0 until n).map(item).mkString(",")))
+
+  private def percentiles(samples: Array[Long]): (Long, Long) =
+    val sorted = samples.sorted
+    (sorted(sorted.length / 2), sorted((sorted.length * 0.99).toInt))
+
+  private def measure(n: Int)(f: => Any): (Long, Long) =
+    percentiles(Array.fill(n) {
+      val start = System.nanoTime()
+      f
+      System.nanoTime() - start
+    })
+
+  // ── correctness, always ────────────────────────────────────────────────────
+
+  for language <- languages do
+    test(s"${language.name}: discovery and a command, stateless, in the encoding") {
+      val guest =
+        Guest(language, Some(language.compiled), config = Map("GREETING" -> "hello").get)
+
+      val wasm = guest.discover()
+      assertEquals(wasm.abiVersion, "1")
+      assertEquals(wasm.stateful, Seq.empty)
+      val spec = wasm.getSpec
+      assertEquals(spec.protocolVersion, "1.0")
+      assertEquals(
+        spec.components.map(c => (c.kind, c.id)),
+        Seq((Kind.EVENT_SOURCED_ENTITY, "cart"))
+      )
+      assertEquals(
+        spec.components.head.handlers.map(h => (h.name, h.readOnly)).toSet,
+        Set(("add-item", false), ("get-cart", true), ("panic", true), ("config", true))
+      )
+      assertEquals(spec.components.head.getEventSourced.snapshotEvery, 100)
+
+      val (reply1, state1) = guest.handle(None, addItem(1, 0))
+      assertEquals(reply1.commandId, 1L)
+      assertEquals(
+        reply1.events.map(_.data.toStringUtf8),
+        Seq("""{"type":"ItemAdded","item":{"productId":"p0","name":"Pen 0","quantity":1}}""")
+      )
+      assert(reply1.outcome.exists(_.outcome.isReply))
+      assertEquals(reply1.outcome.get.getReply.payload.get.manifest, "done")
+      assertEquals(state1.manifest, "Cart")
+      assertEquals(state1.data.toStringUtf8, s"""{"items":[${item(0)}]}""")
+
+      // The host hands the state back: the guest holds nothing between calls.
+      val (reply2, state2) = guest.handle(Some(state1), addItem(2, 1))
+      assertEquals(reply2.events.size, 1)
+      assertEquals(state2.data.toStringUtf8, s"""{"items":[${item(0)},${item(1)}]}""")
+
+      // Replay is the same fold the command used.
+      val replayed = guest.fold(Some(state1), reply2.events.head)
+      assertEquals(replayed.data.toStringUtf8, state2.data.toStringUtf8)
+
+      // A read-only handler answers from the state it was given.
+      val (got, _) = guest.handle(
+        Some(state2),
+        EventSourcedIn.Command(id = 3, name = "get-cart", payload = Some(json("unit", "")))
+      )
+      assertEquals(got.events, Seq.empty)
+      assertEquals(
+        got.outcome.get.getReply.payload.get.data.toStringUtf8,
+        state2.data.toStringUtf8
+      )
+
+      // An unknown handler is a refusal, not a fault.
+      val (refused, _) = guest.handle(
+        Some(state2),
+        EventSourcedIn.Command(id = 4, name = "nope", payload = Some(json("unit", "")))
+      )
+      assert(refused.outcome.exists(_.outcome.isError))
+
+      // The config import: a variable the host has, and one it does not.
+      def configOf(name: String) =
+        guest
+          .handle(None, EventSourcedIn.Command(id = 5, name = "config", payload = Some(text(name))))
+          ._1
+      assertEquals(configOf("GREETING").outcome.get.getReply.payload.get.data.toStringUtf8, "hello")
+      assert(configOf("MISSING").outcome.exists(_.outcome.isError))
+
+      // The host's answer to a call out comes back through the guest.
+      val echo = Guest(language, Some(language.compiled), invoke = _.reverse)
+      assertEquals(echo.callOut(Array[Byte](1, 2, 3)).toSeq, Seq[Byte](3, 2, 1))
+
+      // A panic is a trap: the call throws, and nothing comes back from the guest.
+      val panicked = intercept[RuntimeException](
+        Guest(language, Some(language.compiled))
+          .handle(
+            None,
+            EventSourcedIn.Command(id = 6, name = "panic", payload = Some(json("unit", "")))
+          )
+      )
+      assert(panicked.getClass.getName.startsWith("com.dylibso.chicory"), panicked.toString)
+    }
+
+  // ── measurements, gated ────────────────────────────────────────────────────
+
+  private def benchmarks = sys.props.contains("ankka.benchmarks")
+
+  test("1. the call cost: handle and fold, against the loopback hop") {
+    assume(benchmarks, "-Dankka.benchmarks")
+    for
+      language        <- languages ++ sdkGuest
+      (mode, factory) <- Seq("compiled" -> Some(language.compiled), "interpreted" -> None)
+      if mode == "compiled" || language.file.isEmpty
+    do
+      val guest = Guest(language, factory)
+      // The interpreter is measured only far enough to rule it out: Go's 10 KB case is 100 ms a
+      // call there, and 2,500 of them is the suite's timeout for a number nobody will read.
+      for items <- if mode == "compiled" then Seq(0, 20, 200) else Seq(0, 20) do
+        val state = if items == 0 then None else Some(cartOf(items, language))
+        val cmd   = addItem(1, items)
+        val evt   = json("Event", s"""{"type":"ItemAdded","item":${item(items)}}""")
+        val warm  = if mode == "compiled" then 5000 else 500
+        val runs  = if mode == "compiled" then 20000 else 2000
+        measure(warm)(guest.handle(state, cmd))
+        val (h50, h99) = measure(runs)(guest.handle(state, cmd))
+        measure(warm)(guest.fold(state, evt))
+        val (f50, f99) = measure(runs)(guest.fold(state, evt))
+        val bytes      = state.map(_.serializedSize).getOrElse(0)
+        println(
+          f"wasm ${language.name}%-4s $mode%-11s state $items%3d items ($bytes%5d bytes): handle p50 ${h50 / 1000}%5dµs p99 ${h99 / 1000}%5dµs   fold p50 ${f50 / 1000}%5dµs p99 ${f99 / 1000}%5dµs"
+        )
+    for language <- languages do
+      val (d50, d99) = measure(2000)(Guest(language, Some(language.compiled)).discover())
+      println(
+        f"wasm ${language.name}%-4s compiled discover: p50 ${d50 / 1000}%dµs p99 ${d99 / 1000}%dµs"
+      )
+  }
+
+  test("2. and 4. instantiation cost and memory per instance") {
+    assume(benchmarks, "-Dankka.benchmarks")
+    for language <- languages ++ sdkGuest do
+      val (c50, c99) = measure(200)(Guest(language, Some(language.compiled)))
+      println(
+        f"wasm ${language.name}%-4s instance with the compiled factory: p50 ${c50 / 1000}%dµs p99 ${c99 / 1000}%dµs"
+      )
+      val (m50, _) = measure(20)(MachineFactoryCompiler.compile(language.module))
+      println(f"wasm ${language.name}%-4s compiling the module: p50 ${m50 / 1000000}%dms")
+
+      def used(): Long =
+        System.gc(); Thread.sleep(200); System.gc(); rt.totalMemory() - rt.freeMemory()
+      val before = used()
+      val kept   = Vector.fill(100)(Guest(language, Some(language.compiled)))
+      val after  = used()
+      println(
+        f"wasm ${language.name}%-4s memory per idle instance: ${(after - before) / kept.size / 1024}%d KiB (${kept.head.instance.memory().initialPages()} initial pages, ${kept.head.instance.memory().pages()} after initialisation)"
+      )
+      kept.head.discover()
+  }
+
+  test("3. a blocking host function on a virtual thread") {
+    assume(benchmarks, "-Dankka.benchmarks")
+    val n         = 64
+    val hold      = 200.millis
+    val scheduler = Executors.newSingleThreadScheduledExecutor()
+    val guests = Vector.tabulate(n) { i =>
+      val language = languages(i % languages.size)
+      Guest(
+        language,
+        Some(language.compiled),
+        invoke = request =>
+          val p = Promise[Array[Byte]]()
+          scheduler.schedule(
+            (() => p.success(request.reverse)): Runnable,
+            hold.toMillis,
+            TimeUnit.MILLISECONDS
+          )
+          Await.result(p.future, 10.seconds)
+      )
+    }
+    val start = System.nanoTime()
+    val calls = guests.zipWithIndex.map { (g, i) =>
+      Future(g.callOut(Array[Byte](i.toByte, 1, 2, 3)).toSeq)(using AnkkaExecutors.virtual)
+    }
+    val results =
+      Await.result(Future.sequence(calls)(using implicitly, AnkkaExecutors.virtual), 30.seconds)
+    val wall = (System.nanoTime() - start) / 1000000
+    scheduler.shutdownNow()
+    println(
+      f"wasm $n guests (both languages) each blocking ${hold.toMillis}ms in a host function on virtual threads (${rt.availableProcessors()} carriers): wall ${wall}ms"
+    )
+    results.zipWithIndex.foreach((r, i) => assertEquals(r, Seq[Byte](3, 2, 1, i.toByte)))
+    // Pinned carriers would serialise the blocks: ceil(64 / carriers) × hold.
+    assert(wall < hold.toMillis * 3, s"wall ${wall}ms suggests the carrier was pinned")
+  }
+
+  private def rt = Runtime.getRuntime

@@ -155,6 +155,13 @@ the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonom
 A process-hosted service declares its protocol in its descriptor's `protocol` field, and the platform checks
 it before starting anything: the same major as the platform's, and a minor no later than its own.
 
+## Without a process
+
+A service built to a WebAssembly module speaks these same messages without gRPC: the runtime loads the
+module into its own process and calls the functions it exports, with a few envelopes of the module mode's
+own in `wasm.proto` carrying the state the runtime holds for it. Discovery, the payload encoding, the
+fixtures and the conformance suite are the same. See [WebAssembly ABI](wasm-abi.md).
+
 ## Rules the messages do not state
 
 These are part of the protocol, and an SDK that ignores one misbehaves in ways the types cannot show.

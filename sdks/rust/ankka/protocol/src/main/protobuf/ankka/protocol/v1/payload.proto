@@ -1,0 +1,53 @@
+// The sidecar protocol, version 1: what every conversation carries.
+//
+// A Payload is opaque to the sidecar. `manifest` is the serializer's manifest and is exactly what
+// the journal stores; `data` is never inspected. See ENCODING.md for what the bytes mean.
+syntax = "proto3";
+
+package ankka.protocol.v1;
+
+message Payload {
+  string content_type = 1;   // application/json, text/plain, application/octet-stream (ENCODING.md)
+  string manifest = 2;       // the serializer's manifest; what JournalRecord stores
+  bytes  data = 3;           // never inspected by the sidecar
+}
+
+message Metadata {
+  repeated Entry entries = 1;
+  message Entry { string key = 1; string value = 2; }
+}
+
+enum ErrorCode {
+  INTERNAL = 0;
+  BAD_REQUEST = 1;
+  UNAUTHORIZED = 2;
+  FORBIDDEN = 3;
+  NOT_FOUND = 4;
+  CONFLICT = 5;
+  TIMEOUT = 6;
+  UNAVAILABLE = 7;
+}
+
+message Error { string message = 1; ErrorCode code = 2; }
+
+// A fault in the process: the handler threw, the payload could not be decoded. Not a refusal.
+message Failure { int64 command_id = 1; Error error = 2; }
+
+// The three cases of core.effect.Outcome, as data.
+message Outcome {
+  oneof outcome {
+    Reply   reply    = 1;
+    NoReply no_reply = 2;
+    Error   error    = 3;   // a refusal: nothing is persisted, the caller sees the code
+  }
+  message Reply   { Payload payload = 1; Metadata metadata = 2; }
+  message NoReply {}
+}
+
+message Retention {
+  oneof retention { DeleteNow delete_now = 1; ExpireAfter expire_after = 2; }
+  message DeleteNow {}
+  message ExpireAfter { int64 millis = 1; }
+}
+
+message Empty {}

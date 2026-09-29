@@ -3,17 +3,27 @@ package com.thinkmorestupidless.ankka.controlplane.api
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 
-/** The descriptor's `hosting` and `protocol` (feature 009), and the protocol compatibility rule. */
+/**
+ * The descriptor's `hosting` and `protocol` (features 009 and 016), and the protocol compatibility
+ * rule.
+ */
 class HostingSuite extends munit.FunSuite:
 
   private def spec(
       hosting: String = "embedded",
       protocol: Option[String] = None,
-      env: Vector[EnvVar] = Vector.empty
+      env: Vector[EnvVar] = Vector.empty,
+      http: Boolean = true
   ) =
     ServiceDescriptor(
       "cart",
-      ServiceSpec(image = "cart:1.0", hosting = hosting, protocol = protocol, env = env)
+      ServiceSpec(
+        image = "cart:1.0",
+        hosting = hosting,
+        protocol = protocol,
+        env = env,
+        http = http
+      )
     )
 
   test("embedded is the default and needs no protocol") {
@@ -32,16 +42,42 @@ class HostingSuite extends munit.FunSuite:
   test("a protocol on an embedded service is refused") {
     assert(
       spec(protocol = Some("1.0")).problems
-        .exists(_.contains("meaningful only for process hosting"))
+        .exists(_.contains("meaningful only for process or wasm hosting"))
     )
   }
 
-  test("an unknown hosting is refused, naming the two that exist") {
+  test("an unknown hosting is refused, naming the three that exist") {
     val p = spec("sidecar").problems
     assert(
-      p.exists(m => m.contains("embedded") && m.contains("process") && m.contains("sidecar")),
+      p.exists(m =>
+        m.contains("embedded") && m.contains("process") && m.contains("wasm") && m.contains(
+          "sidecar"
+        )
+      ),
       p
     )
+  }
+
+  test("wasm hosting needs a protocol, and is neither embedded nor a process") {
+    assert(spec("wasm").problems.exists(_.contains("protocol must be declared for wasm hosting")))
+    assertEquals(spec("wasm", Some("1.1")).problems, Vector.empty)
+    val wasm = spec("wasm", Some("1.1")).service
+    assert(wasm.isModuleHosted && wasm.isPolyglot && !wasm.isProcessHosted)
+  }
+
+  test("a wasm service serves HTTP: the runtime it is loaded into is the platform's") {
+    val p = spec("wasm", Some("1.1"), http = false).problems
+    assert(p.exists(_.contains("a wasm service's runtime serves HTTP")), p)
+    assertEquals(spec("process", Some("1.1"), http = false).problems, Vector.empty)
+  }
+
+  test("the module's variables are the runtime's and cannot be declared, whatever the hosting") {
+    for
+      hosting <- Seq("embedded" -> None, "process" -> Some("1.1"), "wasm" -> Some("1.1"))
+      name    <- Seq("ANKKA_WASM_MODULE", "ANKKA_WASM_INSTANCES", "ANKKA_WASM_MAX_MEMORY_PAGES")
+    do
+      val p = spec(hosting._1, hosting._2, Vector(EnvVar(name, Some("x")))).problems
+      assert(p.exists(_.contains(s"'$name' is set by the platform")), s"$hosting $name: $p")
   }
 
   test("a malformed protocol is refused") {

@@ -1,14 +1,14 @@
 # Install the tools
 
-> Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Python and TypeScript SDKs available to your own projects.
+> Install what ankka needs on your machine, install the ankka CLI with Homebrew or from a release, and make the Scala libraries and the Python, TypeScript and Rust SDKs available to your projects.
 
 Source: https://docs.ankka.cloud/get-started/install/
 ankka is used through three things: libraries your service depends on, the `ankka` command-line tool,
 and a platform to deploy to. This page installs the first two. The third has its own page,
 [Install a local platform](../platform/install-local.md), and you need it only once you want to deploy.
 
-The CLI is installed with Homebrew, or unpacked from a release; the Python SDK comes from PyPI and the
-TypeScript SDK from npm. One piece is not yet packaged: the sidecar image that hosts a Python or TypeScript
+The CLI is installed with Homebrew, or unpacked from a release; the Python SDK comes from PyPI, the
+TypeScript SDK from npm and the Rust crate from crates.io. One piece is not yet packaged: the sidecar image that hosts a Python or TypeScript
 service is built from the repository,
 and this page says where that applies.
 
@@ -21,6 +21,7 @@ and this page says where that applies.
 | Docker | running Postgres locally, integration tests, building images | any recent |
 | [uv](https://docs.astral.sh/uv/) and Python | Python services | Python 3.12 |
 | [Node.js](https://nodejs.org/) | TypeScript services | 22.22 or later; 24 recommended |
+| [rustup](https://rustup.rs/) and the `wasm32-unknown-unknown` target | Rust services | stable Rust, edition 2024 |
 | [kind](https://kind.sigs.k8s.io/) and `kubectl` | a local platform to deploy to | recent |
 | [just](https://github.com/casey/just) | optional shortcuts in the repository | any |
 
@@ -153,12 +154,31 @@ released yet, build it from a checkout of the repository instead: `npm ci && npm
 in `sdks/typescript`, then `npm install /path/to/ankka/sdks/typescript`. A TypeScript service needs the same
 `ankka-sidecar` image as a Python one, chosen the same way.
 
+## Install the Rust crate
+
+The Rust SDK is the crate [`ankka`](https://crates.io/crates/ankka) on crates.io, published at every release
+with the platform's version. A Rust service is built to a WebAssembly module, so add the target once, then
+the crate to your own project, pinned to the version of the platform you deploy to:
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo add ankka@0.8.0 serde --features serde/derive
+cargo add --dev ankka@0.8.0 --features testkit                 # the integration testkit, which needs Docker
+```
+
+The runtime that loads a module is the same `ankka-sidecar` image a Python or TypeScript service runs
+beside, chosen the same way: the crate's integration testkit takes `ANKKA_SIDECAR_IMAGE`, else the published
+image at the crate's version. To use a crate that is not released yet, depend on it by path from a checkout
+of the repository, `ankka = { path = "/path/to/ankka/sdks/rust/ankka" }`; it is version `0.0.0` and starts
+`ankka-sidecar:latest`, built from the same checkout with `sbt sidecar/Docker/publishLocal`.
+
 ## What you have now
 
 - `ankka` on your `PATH`, for creating services, running the local console and operating a platform.
-- The Scala libraries resolvable by sbt, or the Python or TypeScript SDK installed in your project.
-- For Python or TypeScript, the `ankka-sidecar` image, pulled from `ghcr.io/thinkmorestupidless/ankka-sidecar`.
+- The Scala libraries resolvable by sbt, or the Python or TypeScript SDK or the Rust crate in your project.
+- For Python, TypeScript or Rust, the `ankka-sidecar` image, pulled from `ghcr.io/thinkmorestupidless/ankka-sidecar`.
 
 Continue with [your first service in Scala](first-service-scala.md),
-[your first service in Python](first-service-python.md) or
-[your first service in TypeScript](first-service-typescript.md).
+[your first service in Python](first-service-python.md),
+[your first service in TypeScript](first-service-typescript.md) or
+[your first service in Rust](first-service-rust.md).

@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python or TypeScript — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
+description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
 ---
 
 # ankka agents
@@ -91,6 +91,27 @@ sidecar's configured models. A tool runs on a fresh agent instance bound to the 
 and `this.client` are available in it. `AgentTestKit.of(Cls, session, new ScriptedModel().expectToolCall(...)
 .expectText(...))` runs the loop in process and fails when the script runs out. The model is configured on
 the sidecar as for Python; the process never holds the key.
+
+## Rust differences
+
+An agent implements `Agent`: `handlers()` (`AgentHandlers::new().command("ask", Self::ask)`, each returning
+`agent::system_message(..).user_message(q).tools(["lookup"]).guardrails(["no-secrets"]).then_reply()`),
+`tools()` (`Tools::new().tool(name, description, Schema::object().string("cartId", "the cart's id"),
+Self::lookup)`, the schema written out because a Rust type carries no field descriptions, the arguments
+decoded into the tool's `Args`, an `Err` a message for the model) and `guardrails()`
+(`fn(Stage, &str, &Context) -> Result<(), String>`). The runtime runs the loop and holds the model's key;
+a module cannot stream a reply. `AgentTestKit::<C>::new(session, ScriptedModel::new().expect_tool_call(..)
+.expect_text(..))` runs a plan in process and fails when the script runs out. An autonomous agent implements
+`AutonomousAgent` (`COMPONENT_ID`, `DESCRIPTION`, `accepts()` returning `TaskAcceptance::new(task_type,
+max_iterations)`, and the same `Tools` and `Guardrails`); a task type is a value from a function,
+`TaskType::<R>::new(name, description, Schema)` or `TaskType::text(..)`, with `.rule(name, fn(&R, &Context)
+-> Verdict)`, and a tool reads its task as `ctx.task_id()`. A rule that panics traps and is checked again,
+and a module keeps nothing between calls, so a rule that must remember uses an entity. The client offers
+`tasks().create`, `task(id).get`/`get_as`/`wait(reads)`/`cancel` and `autonomous_agent(A).run_single_task`
+or `.instance(id).assign`/`suspend`/`resume`/`terminate`/`state`; a module cannot subscribe to
+notifications, and `wait` has no clock to sleep on, so it suits only a task that is nearly done.
+`AutonomousAgentTestKit::<C>::new(task_id)` runs `run_tool`, `check_rule` and `check_guardrail`, with no
+loop.
 
 ## Testing
 

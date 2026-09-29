@@ -1,13 +1,15 @@
 # Services in other languages
 
-> How ankka hosts a service written in Python or TypeScript — the runtime runs beside the process as a sidecar, owning everything durable and distributed, while the process decides what each command does.
+> How ankka hosts a service in Python, TypeScript or Rust — the runtime runs beside a process as a sidecar or loads a WebAssembly module, owning everything durable while the service's code decides.
 
 Source: https://docs.ankka.cloud/concepts/polyglot/
 A service written in Python or TypeScript is hosted by the same runtime as one written in Scala, with the same
 components, journal, cluster, deployment and console. What differs is where the code runs. A Scala
 service compiles into one JVM with the runtime. A Python or TypeScript service runs as its own process, and the ankka
 runtime runs beside it as a **sidecar**, booted from a conversation with that process instead of from a
-Scala builder.
+Scala builder. A Rust service is built to a **WebAssembly module**, and the same runtime loads the module
+into its own process instead of running beside one; see
+[Services as WebAssembly modules](#services-as-webassembly-modules).
 
 ## Who owns what
 
@@ -24,7 +26,7 @@ the runtime makes it happen.
 | HTTP: binding the port, ACLs, routing | what each route does |
 | cluster formation, readiness and observability | nothing |
 
-![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In both, only the runtime calls the model provider and writes to the service's Postgres.](../assets/diagrams/agent-hosting.svg)
+![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In Rust, the pod has one container: the runtime, with your service's WebAssembly module loaded into its JVM. They speak the same protobuf messages across the module's memory, with no network: the runtime calls the module's exports ankka1_plan, ankka1_invoke_tool and ankka1_check_guardrail, and the tool's call to the cart entity goes through the ankka1 invoke import. In all three, only the runtime calls the model provider and writes to the service's Postgres.](../assets/diagrams/agent-hosting.svg)
 
 Because the process holds no durable state, it can be restarted, redeployed or crash without losing
 anything. An entity whose process is briefly unavailable is re-opened when the process returns; callers
@@ -50,16 +52,16 @@ The protocol is versioned `MAJOR.MINOR`, and a process-hosted service declares t
 speaks. The platform accepts a declaration with the same major version and a minor version no higher
 than its own. See [Sidecar protocol](../reference/sidecar-protocol.md).
 
-## One journal, three languages
+## One journal, four languages
 
-Stored data does not record which language wrote it. The Python and TypeScript SDKs' default encoding produces the same
+Stored data does not record which language wrote it. The Python, TypeScript and Rust SDKs' default encoding produces the same
 JSON the Scala SDK does: records with every field present, sum types with a `"type"` discriminator
 naming the case, `null` for an absent optional value, and primitives such as a string or an integer as
 plain text. The mapping is written down in the protocol's
 [ENCODING.md](https://github.com/thinkmorestupidless/ankka/blob/main/protocol/ENCODING.md) and checked by
 shared fixtures that every SDK must pass.
 
-So a cart written by a Scala service can be read by a Python or TypeScript service on the same database,
+So a cart written by a Scala service can be read by a Python, TypeScript or Rust service on the same database,
 and the reverse. Field names are the contract. A Python dataclass or a TypeScript shape that stores a field
 as `product_id` does not read a journal that says `productId`, which is why the Python and TypeScript
 samples use the stored spelling.
@@ -85,11 +87,48 @@ platform, and the descriptor cannot name its image or set its variables.
 - **A producing consumer or a topic-sourced view needs a broker.** Set `ANKKA_KAFKA_BOOTSTRAP_SERVERS`;
   the sidecar refuses to start without it and names the component that needs it.
 
+## Services as WebAssembly modules
+
+A service can instead be built to a WebAssembly module, which the runtime loads into its own process.
+The division of work is the same as with a process — the module decides, the runtime does everything
+durable and distributed — and so is the conversation: the same messages, carried across the module's
+linear memory through the functions it exports and the ones the runtime lends it, instead of over gRPC.
+The Rust SDK builds services this way. See [WebAssembly ABI](../reference/wasm-abi.md).
+
+- **Deployed, it is one container.** The descriptor says `"hosting": "wasm"`, and the image holds only
+  the module. The platform runs the service's image once, as an init container that copies the module
+  into a volume the pod shares, and then runs its own runtime image with the module loaded. The
+  service's outward face — ports, probe, credential, cluster membership — is the runtime's, as for a
+  Scala service.
+
+  ```json title="service.json"
+  { "name": "cart", "service": { "image": "my-cart-module:1.0.0", "hosting": "wasm", "protocol": "1.1" } }
+  ```
+
+- **A module reaches nothing but the runtime.** It has no network, no file system and no clock of its
+  own: it calls other components, queries views and sets timers through the runtime, reads the time the
+  runtime hands it, and reads its configuration through a `config` call that answers the descriptor's
+  variables and withholds the platform's own — a model key, the database's credentials, the cluster's
+  settings. Because one container has one environment, that withholding happens when the module asks,
+  not when the pod is rendered.
+- **Two shapes of guest, chosen per component.** A *stateless* component is handed its state on every
+  call and keeps nothing between calls. A *stateful* one is handed its state once, when its instance is
+  loaded, and keeps it until the runtime unloads it, which saves decoding the state on every command.
+  Either way the runtime holds the encoded state too, so a module that faults loses nothing: the call
+  that faulted fails, and the next one starts from the state the runtime holds.
+- **What it costs, and what it saves.** A command handled by a module skips the round trip to a process
+  entirely, and there is no second container to size or restart. In exchange a running call cannot be
+  interrupted — a call that exceeds the runtime's timeout is abandoned and its instance replaced — a
+  route cannot stream, and a deployed module cannot be debugged the way a process can. The module
+  format is WebAssembly's core modules with nothing but ankka's own imports, so a language needs a guest
+  library that targets that, as the Rust SDK does.
+
 ## What makes an SDK compatible
 
 A second language is compatible when it behaves the same, not when it looks the same. ankka defines that
 with a conformance suite: one case per behaviour, from "a deleted entity written to again starts empty"
 to "a query answered while a workflow step runs", run against the Scala reference in-process and against
-any process through the real sidecar. The Python and TypeScript SDKs pass it, and a further language arrives by passing
-it with its own reference service, plus the encoding fixtures. The platform needs no change to host it.
+any process through the real sidecar, and against any module loaded by the real runtime, in both guest
+shapes. The Python, TypeScript and Rust SDKs pass it, and a further language arrives by passing it with its
+own reference service, plus the encoding fixtures. The platform needs no change to host it.
 See [Adding a language SDK](../contributing/language-sdks.md).

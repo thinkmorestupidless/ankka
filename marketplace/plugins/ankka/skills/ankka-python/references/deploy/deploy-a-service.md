@@ -191,6 +191,18 @@ The descriptor never names the sidecar's image or version. Those belong to the p
 sidecar that matches the operator's own release. See
 [Services in other languages](../concepts/polyglot.md).
 
+A Rust service is a WebAssembly module rather than a process, and says `"hosting": "wasm"`:
+
+```json title="service.json"
+{ "name": "cart", "service": { "image": "my-cart-module:1.0.0", "hosting": "wasm", "protocol": "1.1" } }
+```
+
+The pod then has **one container**, the platform's runtime with the module loaded, which the service's own
+image copies into a shared volume as an init container before the runtime starts. Every variable in `env`
+is in that one container's environment, and the module reads them through the runtime, which withholds the
+platform's own and the `ANTHROPIC_`, `ANKKA_MODEL_` and `ANKKA_DB_` names. A wasm service always serves
+HTTP. See [Build an image](images.md#a-rust-service) for the module image.
+
 ## Change a deployed service
 
 Apply the descriptor again with the change. Each apply is a new generation; the platform rolls the

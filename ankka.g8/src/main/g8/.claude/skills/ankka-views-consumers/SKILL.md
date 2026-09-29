@@ -1,6 +1,6 @@
 ---
 name: ankka-views-consumers
-description: Build the read side and the reactions of an ankka service in Scala, Python or TypeScript — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a consumer that reacts to each change by calling components or publishing to a Kafka topic, and the CloudEvents framing, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, or "find all X where".
+description: Build the read side and the reactions of an ankka service in Scala, Python, TypeScript or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a consumer that reacts to each change by calling components or publishing to a Kafka topic, and the CloudEvents framing, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, or "find all X where".
 ---
 
 # ankka views and consumers
@@ -76,6 +76,16 @@ order; messages about different entities have no order relative to each other. A
 rows by `ce-subject`, falling back to the record key, and skips a message with neither. Set other
 attributes with `effects.produce(message, metadata)`. One consumer group per component; instances share
 partitions with no ankka configuration.
+
+## Rust differences
+
+A view implements `View` (`Row`, `Event`, `COMPONENT_ID`, `ROW_MANIFEST`; `source()` is
+`Source::of(ShoppingCart)` or `Source::topic("name")`; `on_event(row, event, ctx) -> ViewEffect<Row>` with
+`view::update_row`/`delete_row`/`ignore`; `on_deleted`; `queries()`, `get` and `all` by default). A consumer
+implements `Consumer` (`Message`, `source()`, `on_message(message, ctx) -> ConsumerEffect` with
+`consumer::produce`/`done`/`ignore`, `produces_to()`); a panic redelivers the message. The source's id is
+`ctx.metadata().subject()`. Rows are queried with `ctx.client().query(CartRows, "all", ())`. `ViewTestKit`
+and `ConsumerTestKit` run them natively.
 
 ## Testing
 

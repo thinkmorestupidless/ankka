@@ -37,3 +37,7 @@ sdks/typescript/node_modules/
 sdks/typescript/src/_proto/
 sdks/typescript/dist/
 sdks/typescript/dist-pack/
+
+# Rust (the crate under sdks/rust)
+sdks/rust/target/
+sdks/rust/**/target/

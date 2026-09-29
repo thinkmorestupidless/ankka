@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 910" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" aria-labelledby="title desc">
   <title id="title">The ankka platform on Kubernetes</title>
-  <desc id="desc">The ankka CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace. The operator watches those resources, creates and owns each service's Deployment, Service, database and route, and writes status back. Exposed services are reached through the same gateway at service-project.base-domain.</desc>
+  <desc id="desc">The ankka CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace. The operator watches those resources, creates and owns each service's Deployment, Service, database and route, and writes status back. A Scala service is a Deployment of JVM instances forming one Pekko cluster; a Python or TypeScript service is your process beside the runtime as a sidecar; a Rust service is one runtime container with your WebAssembly module loaded into it, copied in from your image by an init container. Each service has its own database in the project's Postgres. Exposed services are reached through the same gateway at service-project.base-domain.</desc>
   <style>
     .bg { fill: #ffffff; }
     .ink { fill: #1f2328; }
@@ -44,7 +44,7 @@
     </marker>
   </defs>
 
-  <rect class="bg" x="0" y="0" width="1200" height="820" rx="12"/>
+  <rect class="bg" x="0" y="0" width="1200" height="910" rx="12"/>
 
   <!-- Outside the cluster -->
   <text class="label muted" x="24" y="72">OUTSIDE THE CLUSTER</text>
@@ -62,13 +62,13 @@
   <text class="small muted" x="109" y="633" text-anchor="middle">browsers, other systems</text>
 
   <!-- The cluster -->
-  <rect class="cluster" x="240" y="40" width="940" height="760" rx="14"/>
+  <rect class="cluster" x="240" y="40" width="940" height="850" rx="14"/>
   <text class="label muted" x="258" y="64">KUBERNETES CLUSTER</text>
 
   <!-- Gateway -->
-  <rect class="ns" x="258" y="84" width="176" height="700" rx="10"/>
+  <rect class="ns" x="258" y="84" width="176" height="790" rx="10"/>
   <text class="small muted" x="346" y="104" text-anchor="middle">ankka-gateway</text>
-  <rect class="box" x="272" y="114" width="148" height="656" rx="8"/>
+  <rect class="box" x="272" y="114" width="148" height="746" rx="8"/>
   <text class="title ink" x="346" y="140" text-anchor="middle">Gateway</text>
   <text class="small muted" x="346" y="158" text-anchor="middle">Envoy Gateway</text>
   <text class="small muted" x="346" y="174" text-anchor="middle">TLS for *.&lt;base&gt;</text>
@@ -141,15 +141,15 @@
   <text class="small muted" x="970" y="310" text-anchor="middle">no entities, no journal, no cluster</text>
 
   <!-- Project namespace, with a second one behind it -->
-  <rect class="ns" x="466" y="424" width="706" height="364" rx="10"/>
-  <rect class="bg" x="454" y="414" width="706" height="364" rx="10"/>
-  <rect class="ns" x="454" y="414" width="706" height="364" rx="10"/>
+  <rect class="ns" x="466" y="424" width="706" height="450" rx="10"/>
+  <rect class="bg" x="454" y="414" width="706" height="450" rx="10"/>
+  <rect class="ns" x="454" y="414" width="706" height="450" rx="10"/>
   <text class="small muted" x="632" y="432">ankka-checkout — one namespace per project</text>
 
   <!-- AnkkaService resources -->
   <rect class="hot" x="470" y="444" width="274" height="62" rx="8"/>
-  <text class="title ink" x="607" y="469" text-anchor="middle">AnkkaService: cart, orders</text>
-  <text class="small muted" x="607" y="489" text-anchor="middle">one per service · spec in, status out</text>
+  <text class="title ink" x="607" y="469" text-anchor="middle">AnkkaService: one per service</text>
+  <text class="small muted" x="607" y="489" text-anchor="middle">cart, orders, payments · spec in, status out</text>
 
   <!-- control plane -> resource -->
   <line class="line" x1="490" y1="330" x2="490" y2="442" marker-end="url(#a)"/>
@@ -166,10 +166,10 @@
 
   <!-- operator creates workloads -->
   <line class="line" x1="1040" y1="330" x2="1040" y2="524"/>
-  <line class="line" x1="700" y1="524" x2="1100" y2="524"/>
+  <line class="line" x1="700" y1="524" x2="1054" y2="524"/>
   <line class="line" x1="700" y1="524" x2="700" y2="538" marker-end="url(#a)"/>
-  <line class="line" x1="900" y1="524" x2="900" y2="538" marker-end="url(#a)"/>
-  <line class="line" x1="1100" y1="524" x2="1100" y2="538" marker-end="url(#a)"/>
+  <line class="line" x1="853" y1="524" x2="853" y2="538" marker-end="url(#a)"/>
+  <line class="line" x1="1054" y1="524" x2="1054" y2="538" marker-end="url(#a)"/>
   <text class="small ink" x="1048" y="440">creates</text>
   <text class="small ink" x="1048" y="455">and owns</text>
 
@@ -196,36 +196,48 @@
   <text class="small muted" x="454" y="598" text-anchor="middle">route</text>
 
   <!-- orders: Python, app + sidecar -->
-  <rect class="deploy" x="760" y="540" width="200" height="160" rx="8"/>
-  <text class="title ink" x="774" y="562">orders</text>
-  <text class="small muted" x="826" y="562">Python · 1 pod</text>
-  <rect class="box" x="778" y="578" width="164" height="40" rx="6"/>
-  <text class="small ink" x="860" y="595" text-anchor="middle">your process</text>
-  <text class="small muted" x="860" y="610" text-anchor="middle">handlers, tools</text>
-  <rect class="box" x="778" y="636" width="164" height="48" rx="6"/>
-  <text class="small ink" x="860" y="655" text-anchor="middle">sidecar: the runtime</text>
-  <text class="small muted" x="860" y="672" text-anchor="middle">journal, cluster, HTTP</text>
-  <line class="line" x1="860" y1="620" x2="860" y2="634"/>
-  <text class="small muted" x="866" y="631">gRPC</text>
+  <rect class="deploy" x="756" y="540" width="194" height="160" rx="8"/>
+  <text class="title ink" x="770" y="562">orders</text>
+  <text class="small muted" x="822" y="562">Python · 1 pod</text>
+  <rect class="box" x="771" y="578" width="164" height="40" rx="6"/>
+  <text class="small ink" x="853" y="595" text-anchor="middle">your process</text>
+  <text class="small muted" x="853" y="610" text-anchor="middle">handlers, tools</text>
+  <rect class="box" x="771" y="636" width="164" height="48" rx="6"/>
+  <text class="small ink" x="853" y="655" text-anchor="middle">sidecar: the runtime</text>
+  <text class="small muted" x="853" y="672" text-anchor="middle">journal, cluster, HTTP</text>
+  <line class="line" x1="853" y1="620" x2="853" y2="634"/>
+  <text class="small muted" x="859" y="631">gRPC</text>
 
-  <!-- project Postgres -->
-  <rect class="box" x="976" y="540" width="170" height="160" rx="8"/>
-  <text class="title ink" x="1061" y="564" text-anchor="middle">Postgres ankka-db</text>
-  <text class="small muted" x="1061" y="582" text-anchor="middle">CloudNativePG</text>
-  <rect class="bg" x="994" y="596" width="134" height="30" rx="5"/>
-  <rect class="deploy" x="994" y="596" width="134" height="30" rx="5"/>
-  <text class="small ink" x="1061" y="616" text-anchor="middle">database: cart</text>
-  <rect class="bg" x="994" y="634" width="134" height="30" rx="5"/>
-  <rect class="deploy" x="994" y="634" width="134" height="30" rx="5"/>
-  <text class="small ink" x="1061" y="654" text-anchor="middle">database: orders</text>
-  <text class="small muted" x="1061" y="686" text-anchor="middle">one per service</text>
+  <!-- payments: Rust, a WebAssembly module in the runtime -->
+  <rect class="deploy" x="962" y="540" width="184" height="160" rx="8"/>
+  <text class="title ink" x="976" y="562">payments</text>
+  <text class="small muted" x="1048" y="562">Rust · 1 pod</text>
+  <rect class="box" x="972" y="578" width="164" height="40" rx="6"/>
+  <text class="small ink" x="1054" y="595" text-anchor="middle">init: your image</text>
+  <text class="small muted" x="1054" y="610" text-anchor="middle">copies in service.wasm</text>
+  <rect class="box" x="972" y="636" width="164" height="48" rx="6"/>
+  <text class="small ink" x="1054" y="655" text-anchor="middle">the runtime</text>
+  <text class="small muted" x="1054" y="672" text-anchor="middle">your module in its JVM</text>
+  <line class="line" x1="1054" y1="620" x2="1054" y2="634" marker-end="url(#a)"/>
+  <text class="small muted" x="1063" y="631">emptyDir</text>
+
+  <!-- project Postgres, one database per service -->
+  <rect class="box" x="470" y="724" width="676" height="92" rx="8"/>
+  <rect class="bg" x="537" y="740" width="140" height="30" rx="5"/>
+  <rect class="deploy" x="537" y="740" width="140" height="30" rx="5"/>
+  <text class="small ink" x="607" y="760" text-anchor="middle">database: cart</text>
+  <rect class="bg" x="783" y="740" width="140" height="30" rx="5"/>
+  <rect class="deploy" x="783" y="740" width="140" height="30" rx="5"/>
+  <text class="small ink" x="853" y="760" text-anchor="middle">database: orders</text>
+  <rect class="bg" x="984" y="740" width="140" height="30" rx="5"/>
+  <rect class="deploy" x="984" y="740" width="140" height="30" rx="5"/>
+  <text class="small ink" x="1054" y="760" text-anchor="middle">database: payments</text>
+  <text class="title ink" x="808" y="796" text-anchor="middle">Postgres ankka-db <tspan class="small muted" font-weight="400">· CloudNativePG · each service its own database · mutual TLS · certificate login</tspan></text>
 
   <!-- services -> their databases -->
-  <path class="line" d="M 744 720 L 1061 720 L 1061 702" marker-end="url(#a)"/>
-  <line class="line" x1="607" y1="700" x2="607" y2="720"/>
-  <line class="line" x1="607" y1="720" x2="744" y2="720"/>
-  <line class="line" x1="860" y1="700" x2="860" y2="720"/>
-  <text class="small muted" x="660" y="740">each service its own database · mutual TLS · certificate login</text>
+  <line class="line" x1="607" y1="700" x2="607" y2="738" marker-end="url(#a)"/>
+  <line class="line" x1="853" y1="700" x2="853" y2="738" marker-end="url(#a)"/>
+  <line class="line" x1="1054" y1="700" x2="1054" y2="738" marker-end="url(#a)"/>
 
-  <text class="small muted" x="466" y="768">also per service: in-cluster Service, ServiceAccount, certificates, network policy, and an HTTPRoute once exposed</text>
+  <text class="small muted" x="466" y="850">also per service: in-cluster Service, ServiceAccount, certificates, network policy, and an HTTPRoute once exposed</text>
 </svg>

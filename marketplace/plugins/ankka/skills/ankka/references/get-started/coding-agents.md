@@ -12,7 +12,7 @@ Protocol (MCP) server built into the CLI, `ankka mcp`.
 
 An Agent Skill is a directory an agent loads when a task needs it: a `SKILL.md` saying what it is for and
 the rules to hold, and reference files it opens on demand. ankka's documentation is rendered into
-thirteen skills, one per kind of task, so an agent writing an entity loads the entity rules and not the
+fourteen skills, one per kind of task, so an agent writing an entity loads the entity rules and not the
 deployment guide:
 
 | Skill | For |
@@ -20,6 +20,7 @@ deployment guide:
 | `ankka` | orientation: what ankka is, installing it, the first service, the SDK maps, limitations, differences from Akka |
 | `ankka-design` | decomposing a domain into components, where each rule lives, what may lag, service boundaries, and the component table that records each choice and the alternative it beat |
 | `ankka-inspect` | checking a service running on this machine against its specification's acceptance scenarios, through its endpoints, its declared queries and its traces |
+| `ankka-port` | porting an existing system: recording what the running original does, a specification that says how each requirement was established, and parity tests that hold the rebuild to the recordings |
 | `ankka-entities` | event sourced and key value entities, serialization and evolution |
 | `ankka-views-consumers` | views, consumers and broker topics |
 | `ankka-workflows` | workflows, timers and timed actions |

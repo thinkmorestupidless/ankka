@@ -11,7 +11,7 @@ actor model, and for what is built on it.
 ```
 
 The `ankka` plugin carries the platform's documentation as a set of Agent Skills, one per kind of task
-(`ankka`, `ankka-design`, `ankka-inspect`, `ankka-entities`, `ankka-views-consumers`, `ankka-workflows`,
+(`ankka`, `ankka-design`, `ankka-inspect`, `ankka-port`, `ankka-entities`, `ankka-views-consumers`, `ankka-workflows`,
 `ankka-agents`, `ankka-endpoints`, `ankka-python`, `ankka-typescript`, `ankka-rust`, `ankka-deploy`,
 `ankka-platform`), and registers
 the `ankka mcp` server, which gives an agent the CLI's verbs, the services running on your machine and

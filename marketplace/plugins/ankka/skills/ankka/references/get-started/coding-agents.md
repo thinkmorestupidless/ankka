@@ -11,20 +11,23 @@ Protocol (MCP) server built into the CLI, `ankka mcp`.
 ## The skills
 
 An Agent Skill is a directory an agent loads when a task needs it: a `SKILL.md` saying what it is for and
-the rules to hold, and reference files it opens on demand. ankka's documentation is rendered into ten
-skills, one per kind of task, so an agent writing an entity loads the entity rules and not the deployment
-guide:
+the rules to hold, and reference files it opens on demand. ankka's documentation is rendered into
+thirteen skills, one per kind of task, so an agent writing an entity loads the entity rules and not the
+deployment guide:
 
 | Skill | For |
 |---|---|
 | `ankka` | orientation: what ankka is, installing it, the first service, the SDK maps, limitations, differences from Akka |
-| `ankka-design` | decomposing a domain into components, where each rule lives, what may lag, service boundaries |
+| `ankka-design` | decomposing a domain into components, where each rule lives, what may lag, service boundaries, and the component table that records each choice and the alternative it beat |
+| `ankka-inspect` | checking a service running on this machine against its specification's acceptance scenarios, through its endpoints, its declared queries and its traces |
 | `ankka-entities` | event sourced and key value entities, serialization and evolution |
 | `ankka-views-consumers` | views, consumers and broker topics |
 | `ankka-workflows` | workflows, timers and timed actions |
 | `ankka-agents` | agents, tools, sessions, guardrails, models, streaming, multi-agent orchestration |
 | `ankka-endpoints` | HTTP endpoints, ACLs, errors, server-sent events |
 | `ankka-python` | a service in Python beside the sidecar |
+| `ankka-typescript` | a service in TypeScript on Node.js beside the sidecar |
+| `ankka-rust` | a service in Rust, built to a WebAssembly module the runtime loads |
 | `ankka-deploy` | the descriptor, the CLI, images, deploying, exposing, observing and troubleshooting |
 | `ankka-platform` | installing and administering the platform itself |
 
@@ -112,11 +115,15 @@ request to the service's own port, so the endpoint's ACL applies to it exactly a
 
 With the skill and the server, an agent can take a change from code to a running, observed service:
 
-1. Read the page for the component it is writing, with `read_doc` or from the skill.
-2. Write the code and its unit test, and run `sbt test` or `uv run pytest`.
-3. Run the service locally, then use `list_local_services`, `call_local_endpoint` and `local_traces` to
-   exercise it and see which components each request went through.
-4. Build the image and `apply_service` a descriptor, then poll `get_service` until the service is
+1. Decide the components and write them down as a table, one row per requirement, naming the close
+   alternative each choice beat (the `ankka-design` skill).
+2. Read the page for the component it is writing, with `read_doc` or from the skill.
+3. Write the code and its unit test, and run `sbt test` or `uv run pytest`.
+4. Run the service locally, then check it against the specification (the `ankka-inspect` skill):
+   `describe_local_service` to compare what it registered with the table, `call_local_endpoint` for each
+   acceptance scenario, `query_local_entity` for the state each one left, and `local_traces` to see which
+   components each request went through.
+5. Build the image and `apply_service` a descriptor, then poll `get_service` until the service is
    `Ready`, and read `service_logs` if it is not.
 
 ## Documentation for other tools

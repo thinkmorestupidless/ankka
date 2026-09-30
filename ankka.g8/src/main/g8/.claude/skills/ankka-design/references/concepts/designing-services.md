@@ -206,20 +206,21 @@ read by every future version of the service, and during a rolling update two ver
 
 A shop needs customers to build a basket, check out and pay, have stock reserved so nothing is oversold,
 have unpaid orders cancelled after thirty minutes, see their order history, get help from an assistant,
-and tell the warehouse what to ship. Here is how each requirement maps onto components.
+and tell the warehouse what to ship. Here is how each requirement maps onto components. Where a second
+component was a reasonable choice, the last column names it and says why it was not chosen.
 
-| Requirement | Component | Why this one |
-|---|---|---|
-| A customer adds and removes items; a placed order cannot change | `order` event sourced entity | The rule is about one order. Events such as `ItemAdded`, `OrderPlaced`, `OrderPaid` and `OrderCancelled` are the history other components react to. |
-| Stock of a product never goes below zero | `stock` event sourced entity, one per product | The rule is about one product, so each product's entity serializes its own reservations. One entity for all stock would serialize the whole shop. |
-| Checkout reserves stock for every line, takes payment, then confirms — or releases what it reserved | `checkout` workflow, id = order id | The process spans several stock entities, the order and an external payment provider, and must complete or be compensated. |
-| Payment is authorised by an external provider | a step of the checkout workflow | The step calls the provider over HTTP with the order id as its idempotency key, so a retried step cannot charge twice. Its failover step releases the stock. |
-| An unpaid order is cancelled after thirty minutes | a timer named after the order, and an `order-timeouts` timed action | Scheduled when the order is placed. The handler asks the order for its state and cancels only if it is still unpaid; otherwise it reports done. |
-| A customer sees their orders | `orders-by-customer` view over the order's events | A question across orders. Rows lag slightly, which is fine for a list. |
-| A customer's saved address and preferences | `customer-profile` key value entity | Only the current value matters. |
-| The warehouse is told what to ship | `shipment-publisher` consumer over order events, producing to an `orders-to-ship` topic | The warehouse is another service. The consumer publishes a stable `ShipmentRequested` message rather than the order's internal events. The warehouse must tolerate a duplicate. |
-| A support assistant answers questions about orders | `support` agent, session = the customer's conversation id | Its tools are read-only: look up an order by id, list the customer's orders from the view. Cancelling goes through the order entity's `cancel` command, so the order's own rules decide whether it is allowed. |
-| Customers and staff call the service | a public `orders` endpoint that authenticates customers, and a separate `admin` endpoint with a stricter ACL | Each endpoint has one ACL, so different audiences get different endpoints. |
+| Requirement | Component | Why this one | The close alternative, and why not |
+|---|---|---|---|
+| A customer adds and removes items; a placed order cannot change | `order` event sourced entity | The rule is about one order. Events such as `ItemAdded`, `OrderPlaced`, `OrderPaid` and `OrderCancelled` are the history other components react to. | A key value entity: the view, the consumer and the timer all react to individual changes, and a key value entity keeps only the latest value. |
+| Stock of a product never goes below zero | `stock` event sourced entity, one per product | The rule is about one product, so each product's entity serializes its own reservations. | One entity holding all stock: every reservation in the shop would queue behind every other. |
+| Checkout reserves stock for every line, takes payment, then confirms — or releases what it reserved | `checkout` workflow, id = order id | The process spans several stock entities, the order and an external payment provider, and must complete or be compensated. | A chain of consumers: nothing would release the stock when payment fails, and nothing could answer how far a checkout has got. |
+| Payment is authorised by an external provider | a step of the checkout workflow | The step calls the provider over HTTP with the order id as its idempotency key, so a retried step cannot charge twice. Its failover step releases the stock. | |
+| An unpaid order is cancelled after thirty minutes | a timer named after the order, and an `order-timeouts` timed action | Scheduled when the order is placed. The handler asks the order for its state and cancels only if it is still unpaid; otherwise it reports done. | A paused step in the checkout workflow: the thirty minutes start when the order is placed, which can be before any checkout has started. |
+| A customer sees their orders | `orders-by-customer` view over the order's events | A question across orders. Rows lag slightly, which is fine for a list. | Querying each order entity: the caller does not hold the order ids, and finding them is the question. |
+| A customer's saved address and preferences | `customer-profile` key value entity | Only the current value matters. | An event sourced entity: nothing reacts to how an address changed, so the history would be kept for nobody. |
+| The warehouse is told what to ship | `shipment-publisher` consumer over order events, producing to an `orders-to-ship` topic | The warehouse is another service. The consumer publishes a stable `ShipmentRequested` message rather than the order's internal events. The warehouse must tolerate a duplicate. | A workflow: telling the warehouse is one step with nothing to undo. |
+| A support assistant answers questions about orders | `support` agent, session = the customer's conversation id | Its tools are read-only: look up an order by id, list the customer's orders from the view. Cancelling goes through the order entity's `cancel` command, so the order's own rules decide whether it is allowed. | A workflow: which lookups an answer needs depends on the question, so the sequence cannot be fixed in advance. |
+| Customers and staff call the service | a public `orders` endpoint that authenticates customers, and a separate `admin` endpoint with a stricter ACL | Each endpoint has one ACL, so different audiences get different endpoints. | One endpoint for both: it could carry only one ACL, so staff routes would be as open as customer ones. |
 
 Some decisions this table implies:
 

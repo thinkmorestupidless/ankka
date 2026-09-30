@@ -1,5 +1,11 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.thinkmorestupidless.ankka.agent.judgment.{
+  JudgmentFailed,
+  JudgmentScriptFailed,
+  Judgments,
+  NoJudgmentProvider
+}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 
@@ -22,16 +28,48 @@ private[agent] final class AgentLoop(
     descriptor: AgentDescriptor[Agent],
     sessionId: SessionId,
     componentClient: ComponentClient,
-    modelTimeout: FiniteDuration
+    modelTimeout: FiniteDuration,
+    judgments: Judgments
 ):
 
   private val agentId = descriptor.componentId
 
   /** Runs the interaction, returning either a rejection or the decoded reply. */
   def run[R](effect: AgentEffect[R]): Either[CommandError, R] =
-    effect.failure match
-      case Some(rejection) => Left(rejection)
-      case None            => execute(effect)
+    (effect.failure, effect.judgmentPlan) match
+      case (Some(rejection), _) => Left(rejection)
+      case (None, Some(plan))   => runJudgment(plan)
+      case (None, None)         => execute(effect)
+
+  /**
+   * Asks the plan's questions and replies from the answers.
+   *
+   * Nothing is read from the session and nothing is written to it: a judgment is asked of the state
+   * the handler gave it and nothing else, and it is not a turn in the conversation.
+   */
+  private def runJudgment[R](plan: JudgmentPlan[R]): Either[CommandError, R] =
+    try
+      val judgment = judgments.ask(plan.provider, plan.state, plan.questions)
+      Right(plan.reply(judgment))
+    catch
+      case _: NoJudgmentProvider =>
+        Left(
+          CommandError(
+            s"agent '$agentId' has no judgment provider: pass one with " +
+              "effects.judgment.provider(...), or configure one with withJudgments(...) on the " +
+              "AgentRuntime",
+            ErrorCode.Internal
+          )
+        )
+      case failure: JudgmentFailed =>
+        Left(
+          CommandError(
+            failure.getMessage,
+            if failure.timedOut then ErrorCode.Timeout else ErrorCode.Unavailable
+          )
+        )
+      case failure: JudgmentScriptFailed =>
+        Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   private def execute[R](effect: AgentEffect[R]): Either[CommandError, R] =
     val userText = effect.user.getOrElse("")

@@ -1,6 +1,12 @@
 package com.thinkmorestupidless.ankka.agent
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, readFromString}
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, readFromString, writeToString}
+import com.thinkmorestupidless.ankka.agent.judgment.{
+  Judgment,
+  JudgmentProvider,
+  JudgmentState,
+  Question
+}
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 
 /** How an agent's reply is shaped. */
@@ -45,7 +51,8 @@ final class AgentEffect[R] private[agent] (
     private[agent] val functionTools: Vector[FunctionTool],
     private[agent] val responseShape: ResponseShape[R],
     private[agent] val guards: Vector[Guardrail],
-    private[agent] val failure: Option[CommandError]
+    private[agent] val failure: Option[CommandError],
+    private[agent] val judgmentPlan: Option[JudgmentPlan[R]] = None
 ):
 
   private def with_[R2](
@@ -144,6 +151,15 @@ final class AgentEffects private[agent] (defaultModel: () => Option[ModelProvide
   def userMessage(text: String): AgentEffect[String] =
     blank(ResponseShape.AsText).userMessage(text)
 
+  /**
+   * Starts describing a judgment: typed questions about a state, answered by the service's judgment
+   * provider rather than a text model.
+   *
+   * A judgment reads no session history and writes no message. Its reply is the judgment, or a
+   * value computed from it.
+   */
+  def judgment: JudgmentBuilder = JudgmentBuilder(None, Vector.empty, None)
+
   /** Rejects the request without calling a model. */
   def error[R](message: String): AgentEffect[R] =
     blank[R](ResponseShape.AsText.asInstanceOf[ResponseShape[R]], Some(CommandError(message)))
@@ -203,3 +219,83 @@ object Guardrail:
  * the reverse.
  */
 final class AgentStreamEffect private[agent] (private[agent] val effect: AgentEffect[String])
+
+/**
+ * What a judgment effect asks: the state, the questions, and the provider if the handler named one.
+ * `reply` turns the judgment into what the handler replies with.
+ */
+private[agent] final case class JudgmentPlan[R](
+    provider: Option[JudgmentProvider],
+    state: JudgmentState,
+    questions: Vector[Question[?]],
+    reply: Judgment => R
+)
+
+/**
+ * Describes a judgment, inside an agent's handler.
+ *
+ * {{{
+ * def triage(ticket: Ticket): Effect[Judgment] =
+ *   effects.judgment
+ *     .state(ticket.text)
+ *     .question(TriageAgent.route, TriageAgent.frustration, TriageAgent.refund)
+ *     .thenReply()
+ * }}}
+ *
+ * Building one asks nothing, as with every effect. There is no memory, tool or guardrail to set: a
+ * judgment is asked of the state it is given and nothing else.
+ */
+final class JudgmentBuilder private[agent] (
+    state: Option[JudgmentState],
+    questions: Vector[Question[?]],
+    provider: Option[JudgmentProvider]
+):
+
+  /** The text the questions are about. */
+  def state(text: String): JudgmentBuilder =
+    JudgmentBuilder(Some(JudgmentState.Text(text)), questions, provider)
+
+  /** A structured value the questions are about, sent to the provider as structured data. */
+  def state[S](value: S)(using codec: JsonValueCodec[S]): JudgmentBuilder =
+    val json = Json
+      .parse(writeToString(value)(using codec))
+      .fold(problem => throw IllegalArgumentException(s"the state is not JSON: $problem"), identity)
+    JudgmentBuilder(Some(JudgmentState.Structured(json)), questions, provider)
+
+  /** Adds questions to ask. May be called more than once; all are asked in one request. */
+  def question(first: Question[?], more: Question[?]*): JudgmentBuilder =
+    JudgmentBuilder(state, questions ++ (first +: more), provider)
+
+  /** Asks this provider rather than the service's default. */
+  def provider(provider: JudgmentProvider): JudgmentBuilder =
+    JudgmentBuilder(state, questions, Some(provider))
+
+  /** Replies with the judgment. */
+  def thenReply(): AgentEffect[Judgment] = thenReply(identity)
+
+  /**
+   * Replies with a value computed from the judgment — a routing decision of the service's own type,
+   * say — so the caller never sees the judgment. `reply` should be a pure function of it.
+   */
+  def thenReply[T](reply: Judgment => T): AgentEffect[T] =
+    val described = state.getOrElse(
+      throw IllegalArgumentException("a judgment needs a state: call state(...)")
+    )
+    if questions.isEmpty then
+      throw IllegalArgumentException("a judgment needs at least one question: call question(...)")
+    questions.groupBy(_.id).collectFirst {
+      case (id, qs) if qs.sizeIs > 1 =>
+        throw IllegalArgumentException(s"question '$id' is asked twice in one judgment")
+    }: Unit
+    new AgentEffect[T](
+      None,
+      None,
+      None,
+      Vector.empty,
+      MemoryProvider.none,
+      Vector.empty,
+      ResponseShape.AsText.asInstanceOf[ResponseShape[T]],
+      Vector.empty,
+      None,
+      Some(JudgmentPlan(provider, described, questions, reply))
+    )

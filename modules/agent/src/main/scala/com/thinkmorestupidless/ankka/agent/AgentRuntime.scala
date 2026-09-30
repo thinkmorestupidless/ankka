@@ -114,7 +114,8 @@ final class AgentRuntime private (
               SessionId(ctx.entityId),
               client,
               defaultModel,
-              modelTimeout
+              modelTimeout,
+              judgments
             )
           }
         )
@@ -296,7 +297,8 @@ private[agent] object AgentHost:
       sessionId: SessionId,
       componentClient: ComponentClient,
       defaultModel: Option[ModelProvider],
-      modelTimeout: FiniteDuration
+      modelTimeout: FiniteDuration,
+      judgments: Judgments
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -311,7 +313,8 @@ private[agent] object AgentHost:
           descriptor.asInstanceOf[AgentDescriptor[Agent]],
           sessionId,
           componentClient,
-          modelTimeout
+          modelTimeout,
+          judgments
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {

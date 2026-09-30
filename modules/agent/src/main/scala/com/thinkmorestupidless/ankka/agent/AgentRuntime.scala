@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.thinkmorestupidless.ankka.agent.judgment.{JudgmentProvider, Judgments}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.runtime.{
   EntityProtocol,
@@ -32,7 +33,8 @@ import scala.util.{Failure, Success}
 final class AgentRuntime private (
     defaultModel: Option[ModelProvider],
     modelTimeout: FiniteDuration,
-    compaction: Option[(CompactionSettings, Summariser)]
+    compaction: Option[(CompactionSettings, Summariser)],
+    judgments: Judgments
 ) extends RuntimeExtension:
 
   def name: String = "agents"
@@ -56,7 +58,22 @@ final class AgentRuntime private (
             "AgentRuntime.withDefaultModel, or pass one explicitly"
         )
       case Some(summary) =>
-        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary))
+        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary), judgments)
+
+  /**
+   * Supplies a judgment provider, so an agent can ask typed questions of a state and a judged
+   * guardrail has someone to ask.
+   *
+   * A judgment is meant to be quick — a System One model answers in well under a second — so the
+   * timeout is short, and it bounds everything: a provider's retries included.
+   */
+  def withJudgments(
+      provider: JudgmentProvider,
+      timeout: FiniteDuration = Judgments.DefaultTimeout
+  ): AgentRuntime =
+    if timeout.length <= 0 then
+      throw IllegalArgumentException("withJudgments needs a positive timeout")
+    new AgentRuntime(defaultModel, modelTimeout, compaction, Judgments(Some(provider), timeout))
 
   /**
    * Everything this runtime needs registered.
@@ -70,6 +87,15 @@ final class AgentRuntime private (
 
   def start(service: AnkkaService): Unit =
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = service.system
+
+    judgments.default.foreach { provider =>
+      system.log.info(
+        "judgments answered by '{}' ({}), within {}",
+        provider.name,
+        provider.modelName,
+        judgments.timeout
+      )
+    }
 
     startAutonomous(service)
 
@@ -88,7 +114,8 @@ final class AgentRuntime private (
               SessionId(ctx.entityId),
               client,
               defaultModel,
-              modelTimeout
+              modelTimeout,
+              judgments
             )
           }
         )
@@ -162,6 +189,16 @@ final class AgentRuntime private (
               ""
             )
           )
+        AgentRuntime.unanswerableGuardrail(descriptor.definition.guardrails, judgments).foreach {
+          guardrail =>
+            system.log.warn(
+              "autonomous agent '{}' has the judged guardrail '{}' and no judgment provider: its " +
+                "tasks will fail until one is given with provider(...) or configured with " +
+                "withJudgments(...) on the AgentRuntime",
+              descriptor.componentId,
+              guardrail
+            )
+        }
         // As for a request agent, a missing model refuses the work that needs one, not the service:
         // a task given to this agent fails at once, saying why.
         if descriptor.definition.model.orElse(defaultModel).isEmpty then
@@ -179,7 +216,8 @@ final class AgentRuntime private (
               ctx.shard,
               client,
               defaultModel,
-              modelTimeout
+              modelTimeout,
+              judgments
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -216,8 +254,23 @@ final class AgentRuntime private (
 
 object AgentRuntime:
 
+  /** The first judged guardrail nobody can answer: no provider of its own, and none configured. */
+  private[agent] def unanswerableGuardrail(
+      guardrails: Vector[Guardrail],
+      judgments: Judgments
+  ): Option[String] =
+    if judgments.default.isDefined then None
+    else
+      guardrails.collectFirst {
+        case g: judgment.JudgedGuardrail if !g.hasOwnProvider => g.name
+      }
+
+  private[agent] def noJudgmentProvider(componentId: ComponentId, guardrail: String): String =
+    s"'$componentId' has the judged guardrail '$guardrail' and no judgment provider: give it one " +
+      "with provider(...), or configure one with withJudgments(...) on the AgentRuntime"
+
   /** Agents must each name a model via `effects.model(...)`. */
-  def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes, None)
+  def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes, None, Judgments.none)
 
   /**
    * Supplies a default model, so handlers need only describe the interaction.
@@ -230,7 +283,7 @@ object AgentRuntime:
       provider: ModelProvider,
       modelTimeout: FiniteDuration = 2.minutes
   ): AgentRuntime =
-    new AgentRuntime(Some(provider), modelTimeout, None)
+    new AgentRuntime(Some(provider), modelTimeout, None, Judgments.none)
 
   /**
    * What an agent-capable service must register when compaction is not in use.
@@ -270,7 +323,8 @@ private[agent] object AgentHost:
       sessionId: SessionId,
       componentClient: ComponentClient,
       defaultModel: Option[ModelProvider],
-      modelTimeout: FiniteDuration
+      modelTimeout: FiniteDuration,
+      judgments: Judgments
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -285,7 +339,8 @@ private[agent] object AgentHost:
           descriptor.asInstanceOf[AgentDescriptor[Agent]],
           sessionId,
           componentClient,
-          modelTimeout
+          modelTimeout,
+          judgments
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {

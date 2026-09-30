@@ -23,6 +23,7 @@ will recognise every component. The differences below are deliberate, and each h
 | `minInstances` defaults to 3 | defaults to 1 | One is what you want while trying the platform out. Set three for production. |
 | `AutonomousAgent` declared by a `definition()` on the instance | a `definition` on the companion, tools on the instance | The definition is checked at registration; the tools need the instance's component client. |
 | A task type's name is the Java field's | `Task.named("wire-name")` | A task type's name is written into every task of it: renaming code must not orphan stored tasks. |
+| `Question.choice("…").option(…)` built inline in the effect | questions declared once as values, with declared wire ids and option keys | A question is checked where it is built, and reading an answer through the question that asked it is typed. |
 | Four service lifecycle states | eight | `NotDeployed`, `Paused`, `Failed` and `Suspended` are distinctions four states cannot express. |
 
 ## Registration is explicit
@@ -148,6 +149,23 @@ Three behaviours are stated rather than left to be discovered:
   progress.
 - **Terminating an instance hands its tasks back.** They return to pending, unassigned, for another
   instance to take, rather than failing.
+
+## Judgments
+
+Akka has announced an effect for asking a System One model typed questions, and ankka's follows the shape
+it has published: a handler describes a state and questions, and the reply is a judgment. Where Akka has
+not published how a judgment is read or tested, ankka's answers are its own:
+
+- **Questions are values**, declared once — usually on the agent's companion — with a wire id and, for a
+  choice, a wire key per option. They are built in one call and checked as they are built, so a malformed
+  question fails the service at startup. The same value is used to read the answer, which comes back typed:
+  a choice over a Scala enum answers with the enum.
+- **A handler can reply with a value of its own** computed from the judgment, `thenReply(judgment => …)`,
+  so its caller never sees the judgment.
+- **A judgment is tested with `TestJudgmentProvider`**, a script separate from the text model's, which
+  fails naming any question it cannot answer.
+- **A judged guardrail** asks questions of the text a guardrail sees, fails closed when it cannot decide,
+  and says so with a different error code from a refusal.
 
 ## What Akka has that ankka does not
 

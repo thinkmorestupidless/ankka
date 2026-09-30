@@ -566,6 +566,11 @@ async function openSession(name) {
   stats.className = 'usage';
   stats.appendChild(stat(usage.inputTokens, 'tokens in'));
   stats.appendChild(stat(usage.outputTokens, 'tokens out'));
+  // Judgments are priced apart from the text model, so they are their own figure, and only
+  // shown for a session that made some.
+  if (history.judgmentUsage) {
+    stats.appendChild(stat(history.judgmentUsage.inputTokens, 'judgment tokens'));
+  }
 
   // Unknown cost shows as unknown, never as zero: a zero reads as free, which is the one wrong
   // answer that looks like an answer. The price of a model is configuration the platform is told.

@@ -1,11 +1,18 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.thinkmorestupidless.ankka.agent.judgment.{
+  JudgmentFailed,
+  JudgmentScriptFailed,
+  Judgments,
+  NoJudgmentProvider
+}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 
 import scala.concurrent.duration.FiniteDuration
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.scaladsl.Sink
+import org.slf4j.LoggerFactory
 
 import scala.concurrent.Await
 import scala.util.control.NonFatal
@@ -22,21 +29,56 @@ private[agent] final class AgentLoop(
     descriptor: AgentDescriptor[Agent],
     sessionId: SessionId,
     componentClient: ComponentClient,
-    modelTimeout: FiniteDuration
+    modelTimeout: FiniteDuration,
+    judgments: Judgments
 ):
 
   private val agentId = descriptor.componentId
+  private val log     = LoggerFactory.getLogger(getClass)
 
   /** Runs the interaction, returning either a rejection or the decoded reply. */
   def run[R](effect: AgentEffect[R]): Either[CommandError, R] =
-    effect.failure match
-      case Some(rejection) => Left(rejection)
-      case None            => execute(effect)
+    (effect.failure, effect.judgmentPlan) match
+      case (Some(rejection), _) => Left(rejection)
+      case (None, Some(plan))   => runJudgment(plan)
+      case (None, None)         => execute(effect)
+
+  /**
+   * Asks the plan's questions and replies from the answers.
+   *
+   * Nothing is read from the session and nothing is written to it: a judgment is asked of the state
+   * the handler gave it and nothing else, and it is not a turn in the conversation.
+   */
+  private def runJudgment[R](plan: JudgmentPlan[R]): Either[CommandError, R] =
+    try
+      val judgment = judgments.ask(plan.provider, plan.state, plan.questions)
+      recordJudgmentUsage(judgment.usage)
+      Right(plan.reply(judgment))
+    catch
+      case _: NoJudgmentProvider =>
+        Left(
+          CommandError(
+            s"agent '$agentId' has no judgment provider: pass one with " +
+              "effects.judgment.provider(...), or configure one with withJudgments(...) on the " +
+              "AgentRuntime",
+            ErrorCode.Internal
+          )
+        )
+      case failure: JudgmentFailed =>
+        Left(
+          CommandError(
+            failure.getMessage,
+            if failure.timedOut then ErrorCode.Timeout else ErrorCode.Unavailable
+          )
+        )
+      case failure: JudgmentScriptFailed =>
+        Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   private def execute[R](effect: AgentEffect[R]): Either[CommandError, R] =
     val userText = effect.user.getOrElse("")
+    val spent    = Guardrails.Spent()
 
-    for
+    val result = for
       provider <- effect.chosenModel.toRight(
         CommandError(
           s"agent '$agentId' has no model: pass one with effects.model(...), or " +
@@ -45,14 +87,14 @@ private[agent] final class AgentLoop(
         )
       )
       // Input guardrails run before anything is spent.
-      _ <- checkGuardrails(effect.guards, userText, input = true)
+      _ <- checkGuardrails(effect.guards, userText, input = true, spent)
 
       history =
         if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
       prompt = buildPrompt(effect, history, userText)
 
       outcome <- runToolLoop(provider, effect, prompt)
-      _       <- checkGuardrails(effect.guards, outcome.response.text, input = false)
+      _       <- checkGuardrails(effect.guards, outcome.response.text, input = false, spent)
 
       decoded <- effect.responseShape
         .decode(outcome.response.text)
@@ -61,8 +103,12 @@ private[agent] final class AgentLoop(
     yield
       // Memory is written only once the reply has survived guardrails and decoding, so a
       // rejected interaction leaves no trace in the conversation.
-      if effect.memoryProvider.write then writeHistory(effect, userText, outcome)
+      if effect.memoryProvider.write then writeHistory(effect, userText, outcome, spent.usage)
+      else recordJudgmentUsage(spent.usage)
       decoded
+    // A refused or failed interaction writes no message, but what its guardrails spent was spent.
+    result.left.foreach(_ => recordJudgmentUsage(spent.usage))
+    result
 
   /**
    * Runs the interaction, pushing text to `emit` as it is generated.
@@ -87,8 +133,9 @@ private[agent] final class AgentLoop(
       emit: String => Unit
   )(using system: ActorSystem[?]): Either[CommandError, Unit] =
     val userText = effect.user.getOrElse("")
+    val spent    = Guardrails.Spent()
 
-    for
+    val result = for
       provider <- effect.chosenModel.toRight(
         CommandError(
           s"agent '$agentId' has no model: pass one with effects.model(...), or " +
@@ -96,7 +143,7 @@ private[agent] final class AgentLoop(
           ErrorCode.Internal
         )
       )
-      _ <- checkGuardrails(effect.guards, userText, input = true)
+      _ <- checkGuardrails(effect.guards, userText, input = true, spent)
 
       history =
         if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
@@ -107,8 +154,12 @@ private[agent] final class AgentLoop(
       // Output guardrails run after the fact when streaming: tokens have already been
       // delivered, so a rejection here stops memory being written but cannot un-send
       // what the reader saw. Use input guardrails for anything that must never be shown.
-      _ <- checkGuardrails(effect.guards, outcome.response.text, input = false)
-    yield if effect.memoryProvider.write then writeHistory(effect, userText, outcome)
+      _ <- checkGuardrails(effect.guards, outcome.response.text, input = false, spent)
+    yield
+      if effect.memoryProvider.write then writeHistory(effect, userText, outcome, spent.usage)
+      else recordJudgmentUsage(spent.usage)
+    result.left.foreach(_ => recordJudgmentUsage(spent.usage))
+    result
 
   private def streamToolLoop(
       provider: ModelProvider,
@@ -325,16 +376,20 @@ private[agent] final class AgentLoop(
   private def checkGuardrails(
       guardrails: Vector[Guardrail],
       text: String,
-      input: Boolean
+      input: Boolean,
+      spent: Guardrails.Spent
   ): Either[CommandError, Unit] =
-    guardrails.iterator
-      .map(guard =>
-        guard.name -> (if input then guard.checkInput(text) else guard.checkOutput(text))
-      )
-      .collectFirst { case (name, Left(reason)) =>
-        CommandError(s"guardrail '$name': $reason", ErrorCode.Forbidden)
-      }
-      .toLeft(())
+    val direction = if input then Guardrails.Direction.Input else Guardrails.Direction.Output
+    // A refusal is Forbidden; a check that could not be made is not a refusal, and says so.
+    try
+      Guardrails
+        .check(guardrails, text, direction, judgments, spent)
+        .map(refused => CommandError(refused.message, ErrorCode.Forbidden))
+        .toLeft(())
+    catch
+      case failed: Guardrails.GuardrailCheckFailed => Left(failed.toCommandError)
+      case failure: JudgmentScriptFailed =>
+        Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   // ── Memory ────────────────────────────────────────────────────────────────
 
@@ -351,7 +406,8 @@ private[agent] final class AgentLoop(
   private def writeHistory[R](
       effect: AgentEffect[R],
       userText: String,
-      outcome: Outcome
+      outcome: Outcome,
+      judgmentUsage: TokenUsage
   ): Unit =
     val now  = System.currentTimeMillis()
     val role = descriptor.role
@@ -391,4 +447,25 @@ private[agent] final class AgentLoop(
     if messages.nonEmpty then
       memoryEntity
         .call(SessionMemoryEntity.append)
-        .invoke(SessionMemoryEntity.Append(messages, outcome.usage)): Unit
+        .invoke(SessionMemoryEntity.Append(messages, outcome.usage, judgmentUsage)): Unit
+    else recordJudgmentUsage(judgmentUsage)
+
+  /**
+   * Records tokens spent on judgments when no message is written with them: a refused request, a
+   * judgment handler, a reply that is not remembered.
+   *
+   * Best effort. The caller's outcome is already decided — a refusal must still arrive as a refusal
+   * — so a failure to record is logged, never thrown.
+   */
+  private def recordJudgmentUsage(usage: TokenUsage): Unit =
+    if usage != TokenUsage.zero then
+      try
+        memoryEntity
+          .call(SessionMemoryEntity.append)
+          .invoke(SessionMemoryEntity.Append(Vector.empty, TokenUsage.zero, usage)): Unit
+      catch
+        case NonFatal(failure) =>
+          log.warn(
+            s"agent '$agentId' could not record judgment tokens for session '$sessionId': " +
+              Option(failure.getMessage).getOrElse(failure.toString)
+          )

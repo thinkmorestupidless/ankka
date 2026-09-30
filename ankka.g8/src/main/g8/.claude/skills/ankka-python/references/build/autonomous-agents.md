@@ -181,6 +181,15 @@ model response that was recorded is never asked for again, but a tool whose resu
 when the process stopped is run again when the task resumes. A tool that only reads, like these, costs
 nothing to repeat; a tool with a side effect should check before it acts, or be idempotent.
 
+In Scala, a definition's guardrails can include a [judged guardrail](judgments.md#judged-guardrails), which
+asks a System One model typed questions instead of matching a pattern. Its input rules see a task's
+instructions before any model call, and its output rules see the completed result, as JSON. A refusal has
+the effect any guardrail's refusal has: refused instructions fail the task, and a refused result goes back
+to the model with the reason. A check that cannot be made — the provider is down or slow — is a failed
+iteration instead: it is tried again after a pause, and the task fails only after the definition's
+`maxConsecutiveFailures` in a row. The tokens its judgments spend are recorded on the task's session, not in
+the task's own usage. A judged guardrail with no rules is refused when the agent is registered.
+
 ## Running a task and reading its result
 
 `runSingleTask` creates a task, starts an instance on it and answers the task's id at once, before any

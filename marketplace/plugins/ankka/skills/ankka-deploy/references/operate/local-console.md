@@ -86,8 +86,9 @@ for how traces are recorded.
 ## Agents
 
 For a service with agents, the Agents tab takes a session id and shows that session's stored
-conversation — messages, model replies, tool calls and results — and the tokens it has used. Cost is
-shown as unknown, because the platform is not told any prices.
+conversation — messages, model replies, tool calls and results — and the tokens it has used. A session in
+which judgments were asked also shows the tokens they used, as a figure of their own. Cost is shown as
+unknown, because the platform is not told any prices.
 
 ## What it will not do
 

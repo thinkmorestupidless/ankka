@@ -3,7 +3,6 @@ package shoppingcart.application
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
-import com.thinkmorestupidless.ankka.sdk.*
 
 /**
  * An agent that answers questions about a cart.

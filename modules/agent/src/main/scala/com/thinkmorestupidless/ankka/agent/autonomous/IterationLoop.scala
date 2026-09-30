@@ -1,12 +1,14 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.thinkmorestupidless.ankka.agent.*
+import com.thinkmorestupidless.ankka.agent.judgment.{JudgmentScriptFailed, Judgments}
 import com.thinkmorestupidless.ankka.core.{EntityId, SessionId}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 
 import scala.concurrent.Await
 import scala.concurrent.duration.FiniteDuration
 import scala.util.control.NonFatal
+import org.slf4j.LoggerFactory
 
 /**
  * One autonomous agent instance's work on one task, an iteration at a time.
@@ -38,6 +40,7 @@ private[ankka] final class IterationLoop(
     client: ComponentClient,
     model: ModelProvider,
     modelTimeout: FiniteDuration,
+    judgments: Judgments,
     emit: Notification => Unit
 ):
   import IterationLoop.*
@@ -45,6 +48,7 @@ private[ankka] final class IterationLoop(
   private val componentId = agent.context.componentId
   private val role        = componentId.toString
   private val tools       = agent.tools.map(t => t.name -> t).toMap
+  private val log         = LoggerFactory.getLogger(getClass)
 
   private def instance =
     client.forEventSourcedEntity(InstanceEntity.idFor(componentId, instanceId))
@@ -186,7 +190,7 @@ private[ankka] final class IterationLoop(
     runTools(taskRecord, taskType, n, message)
 
   /** Records that iteration n failed; the host pauses, then tries it again. */
-  private def failed(taskId: String, n: Int, error: String): IterationResult =
+  private[autonomous] def failed(taskId: String, n: Int, error: String): IterationResult =
     val at = now()
     record(InstanceEvent.IterationFailed(n, error, at))
     emit(Notification.IterationFailed(role, instanceId, taskId, n, error, at))
@@ -220,6 +224,10 @@ private[ankka] final class IterationLoop(
           try complete(taskRecord, taskType, builtIn, others)
           catch
             case failure: InterruptedException => throw failure
+            // A scripted judgment that cannot answer is the test's mistake: end the task now,
+            // naming it, rather than retrying into a stall.
+            case failure: JudgmentScriptFailed =>
+              IterationResult.Ended(TaskOutcome.Failed(failure.getMessage))
             case NonFatal(failure) =>
               failed(
                 taskRecord.id,
@@ -252,9 +260,7 @@ private[ankka] final class IterationLoop(
         refuse(s"result rejected — $because")
         IterationResult.Rejected(because)
       case TaskType.Verdict.Accepted(encoded) =>
-        definition.guardrails.iterator
-          .map(g => g.name -> g.checkOutput(encoded))
-          .collectFirst { case (name, Left(reason)) => s"guardrail '$name': $reason" } match
+        checkGuardrails(taskRecord.id, encoded, Guardrails.Direction.Output) match
           case Some(because) =>
             refuse(s"result rejected — $because")
             IterationResult.Rejected(because)
@@ -333,11 +339,48 @@ private[ankka] final class IterationLoop(
       )
     )
 
-  /** Checks a task's instructions against the input guardrails, before any model call. */
-  def inputRejection(taskRecord: TaskRecord): Option[String] =
-    definition.guardrails.iterator
-      .map(g => g.name -> g.checkInput(taskRecord.instructions))
-      .collectFirst { case (name, Left(reason)) => s"guardrail '$name': $reason" }
+  /**
+   * Checks a task's instructions against the input guardrails, before any model call.
+   *
+   * Three answers, not two: a judged guardrail whose provider is down has refused nothing, and the
+   * task should not fail for it — the host treats that as a failed iteration and tries again.
+   */
+  def startCheck(taskRecord: TaskRecord): StartCheck =
+    try
+      checkGuardrails(taskRecord.id, taskRecord.instructions, Guardrails.Direction.Input) match
+        case Some(reason) => StartCheck.Refused(reason)
+        case None         => StartCheck.Allowed
+    catch
+      case failed: Guardrails.GuardrailCheckFailed => StartCheck.CouldNotCheck(failed.getMessage)
+      // An exhausted script fails the task at once, as an exhausted model script does.
+      case failure: JudgmentScriptFailed => StartCheck.Refused(failure.getMessage)
+
+  /**
+   * The guardrails' verdict on `text`. What their judgments spent is recorded on the task's session
+   * whatever the verdict — allowed, refused, or a check that could not be made.
+   */
+  private def checkGuardrails(
+      taskId: String,
+      text: String,
+      direction: Guardrails.Direction
+  ): Option[String] =
+    val spent = Guardrails.Spent()
+    try Guardrails.check(definition.guardrails, text, direction, judgments, spent).map(_.message)
+    finally recordJudgmentUsage(taskId, spent.usage)
+
+  /** Best effort, as the request agent's: a task's outcome never turns on its accounting. */
+  private def recordJudgmentUsage(taskId: String, usage: TokenUsage): Unit =
+    if usage != TokenUsage.zero then
+      try
+        session(taskId)
+          .call(SessionMemoryEntity.append)
+          .invoke(SessionMemoryEntity.Append(Vector.empty, TokenUsage.zero, usage)): Unit
+      catch
+        case NonFatal(failure) =>
+          log.warn(
+            s"autonomous agent '$componentId' could not record judgment tokens for task '$taskId': " +
+              Option(failure.getMessage).getOrElse(failure.toString)
+          )
 
 private[ankka] object IterationLoop:
 
@@ -360,6 +403,11 @@ private[ankka] object IterationLoop:
 
     /** Iteration n completed and its tools did not all land: run them again. */
     case RunTools(n: Int, response: SessionMessage.AiMessage)
+
+  enum StartCheck:
+    case Allowed
+    case Refused(reason: String)
+    case CouldNotCheck(error: String)
 
   enum IterationResult:
     /** The iteration ended with nothing decided; the next one follows. */

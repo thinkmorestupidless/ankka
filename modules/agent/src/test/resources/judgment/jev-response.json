@@ -1,0 +1,12 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "route": {"type": "choice", "choice": "billing",
+              "probabilities": {"billing": 0.88, "technical": 0.08, "sales": 0.04}, "confidence": 0.82},
+    "frustration": {"type": "score", "score": 1.43, "confidence": 0.35,
+                    "legend": {"0": "Calm, stating facts", "1": "Frustrated but civil", "2": "Angry, strong language", "3": "Abusive"},
+                    "probabilities": {"0": 0.0, "1": 0.57, "2": 0.43, "3": 0.0}},
+    "refund": {"type": "noul", "noul": 0.95}
+  },
+  "usage": {"input_tokens": 296, "output_tokens": 20}
+}

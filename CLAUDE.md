@@ -90,7 +90,9 @@ ANKKA_CLUSTER_SEED_NODES=pekko://ankka@127.0.0.1:17355 ANKKA_HTTP_PORT=9001 sbt 
 ```
 
 `AnthropicProviderSuite` exercises the live API and **skips** unless `ANTHROPIC_API_KEY`
-is set. Everything else is deterministic and offline.
+is set, and `JevProviderSuite`'s live twin `JevProviderLiveSuite` skips unless `TYPESAFE_API_KEY` is
+(`TYPESAFE_API_KEY=… sbt 'agent/testOnly *JevProviderLiveSuite'`). Everything else is deterministic and
+offline.
 
 **A full `sbt test` is an hour of wall-clock on a laptop, and a laptop sleeps.** A sleeping Mac
 pauses Docker and every container in it while the test JVM's deadlines keep counting; an
@@ -352,6 +354,20 @@ SDK as transport only.
 
 Session memory is an event-sourced entity, which is what makes multi-agent collaboration,
 compaction hooks and durability fall out rather than being features.
+
+A **judgment** (feature 018, `agent/judgment`) is the second thing a service can ask a model for: typed
+questions about a state — a choice, a score, a yes/no — answered with probabilities by a System One model
+that writes no text (TypeSafe AI's Jev, `JevProvider`). It has its own seam, `JudgmentProvider`, beside
+`ModelProvider`, because it is neither a component, nor a text model, nor an agent. Questions are values
+with declared wire ids and option keys, checked where they are built; a `Judgment` stores answers by those
+names and types them at the read. `Judgments.ask` is the one place the platform calls a provider, and it
+verifies every answer against the request whoever the provider is. The effect is an ordinary
+`AgentEffect` carrying a `JudgmentPlan`, so a judgment handler is registered and called like any other
+and the sidecar never sees one. `Guardrails.check` is the one function both loops run guardrails through,
+which is where a `JudgedGuardrail` gets the service's provider, counts what it spent and says it could not
+decide. Judgment tokens are `SessionHistory.judgmentUsage`, recorded by `JudgmentUsageAdded` — with a
+turn's messages, or alone and best effort when there are none. Scala only; `TestJudgmentProvider` is the
+script.
 
 An **autonomous agent** (feature 015, `agent/autonomous`) is the second kind: handed a task, it iterates
 until the model calls the built-in `complete_task` or `fail_task`, or the budget runs out. Three
@@ -978,6 +994,17 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   other `eventually` in that suite has the right shape: retry on the value that changes
   (`"services":0`, the hostname, the row disappearing), assert the identity that does not.
 
+- **A judged guardrail's fault is an exception, never a `Left`.** A `Left` from a guardrail is a
+  refusal — `Forbidden`, and on an autonomous agent a failed task or a rejected result. A judged
+  guardrail whose provider failed has refused nothing, so `Guardrails.check` throws
+  `GuardrailCheckFailed`, which the request loop answers `Unavailable`/`Timeout` (`Internal` for no
+  provider at all) and the autonomous host treats as a failed iteration. Before this, a guardrail that
+  threw at a task's start escaped to the worker's catch-all and was retried every second forever; it is
+  now counted against `maxConsecutiveFailures` like any failed iteration.
+- **A scripted judgment that cannot answer is `JudgmentScriptFailed`, and must never take the retry
+  path.** It is deliberately not a `JudgmentFailed`: a test that added a question and forgot its answer
+  must fail now, naming it, not back off for fifteen seconds as an outage would. `failNext` is how a test
+  produces a real `JudgmentFailed`, on purpose, and each call queues exactly one.
 - **A `var` that is assigned and never read is a lifecycle that never runs.** The local console
   endpoint was held in a `@volatile var` on the `Ankka` builder object; nothing read it, so
   `stop()` — and with it `ServiceRegistration.withdraw` — was unreachable, and every locally-run

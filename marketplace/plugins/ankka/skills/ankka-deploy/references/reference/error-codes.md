@@ -24,6 +24,12 @@ knowing the rule that was broken.
 A retryable code means a caller could reasonably send the same request again unchanged. In Scala,
 `ErrorCode.retryable` answers that.
 
+An agent's guardrail answers `Forbidden` when it refuses an interaction. A judged guardrail whose check
+could not be made because its judgment provider failed answers `Unavailable`, or `Timeout` when the
+provider did not answer in time, so a caller can tell a refusal from a check that did not happen and retry
+only the second. One with no judgment provider configured at all answers `Internal`, saying what to
+configure.
+
 ## Refusing a request
 
 A refusal is a value the handler returns, not an exception it throws. Nothing is persisted for a refused

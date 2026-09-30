@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
+import com.thinkmorestupidless.ankka.agent.AgentRuntime
+import com.thinkmorestupidless.ankka.agent.judgment.Judgments
 import com.thinkmorestupidless.ankka.agent.ModelProvider
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, EntityProtocol}
@@ -60,7 +62,8 @@ private[ankka] object AutonomousAgentHost:
       shard: ActorRef[ClusterSharding.ShardCommand],
       componentClient: ComponentClient,
       defaultModel: Option[ModelProvider],
-      modelTimeout: FiniteDuration
+      modelTimeout: FiniteDuration,
+      judgments: Judgments
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -83,6 +86,7 @@ private[ankka] object AutonomousAgentHost:
             componentClient,
             model,
             modelTimeout,
+            judgments,
             emit,
             idle => self ! WorkerIdle(idle),
             () => self ! WorkerStopped
@@ -400,6 +404,7 @@ private[ankka] object AutonomousAgentHost:
       client: ComponentClient,
       model: Option[ModelProvider],
       modelTimeout: FiniteDuration,
+      judgments: Judgments,
       emit: Notification => Unit,
       reportIdle: Boolean => Unit,
       reportStopped: () => Unit
@@ -411,8 +416,14 @@ private[ankka] object AutonomousAgentHost:
     private val wake        = LinkedBlockingQueue[Unit]()
     // Absent when neither the definition nor the runtime names a model: every task then fails, saying so.
     private val loopOrNone =
-      model.map(m => IterationLoop(definition, agent, instanceId, client, m, modelTimeout, emit))
+      model.map(m =>
+        IterationLoop(definition, agent, instanceId, client, m, modelTimeout, judgments, emit)
+      )
     private def loop: IterationLoop = loopOrNone.get
+
+    /** A judged guardrail that nobody can answer: no provider of its own, and none configured. */
+    private val unanswerable: Option[String] =
+      AgentRuntime.unanswerableGuardrail(definition.guardrails, judgments)
 
     @volatile private var running         = true
     @volatile private var thread: Thread  = null
@@ -563,6 +574,8 @@ private[ankka] object AutonomousAgentHost:
               s"'$componentId' has no model: set one with model(...) on its definition, or " +
                 "configure a default provider on the AgentRuntime"
             )
+          case Some(_) if unanswerable.nonEmpty =>
+            fail(t, AgentRuntime.noJudgmentProvider(componentId, unanswerable.get))
           case Some(acceptance) =>
             if !w.started then start(t)
             else if t.status == TaskStatus.ResultRejected then
@@ -570,9 +583,14 @@ private[ankka] object AutonomousAgentHost:
             if running then iterate(t, acceptance)
 
     private def start(t: TaskRecord): Unit =
-      loop.inputRejection(t) match
-        case Some(reason) => fail(t, reason)
-        case None =>
+      loop.startCheck(t) match
+        case IterationLoop.StartCheck.Refused(reason)      => fail(t, reason)
+        case IterationLoop.StartCheck.CouldNotCheck(error) =>
+          // Not started: the next round checks again, after the pause a failed iteration gets,
+          // and too many in a row fail the task.
+          loop.failed(t.id, 0, error): Unit
+          faulted(t, get(), error)
+        case IterationLoop.StartCheck.Allowed =>
           task(t.id).call(TaskEntity.start).invoke(): Unit
           record(InstanceEvent.TaskStarted(t.id, now()))
           emit(Notification.TaskStarted(componentId, instanceId, t.id, now()))
@@ -598,24 +616,8 @@ private[ankka] object AutonomousAgentHost:
           val iteration = after.current.map(_.iteration).getOrElse(w.iteration)
           val usage     = after.taskUsage
           result match
-            case IterationLoop.IterationResult.Continue => ()
-            case IterationLoop.IterationResult.Faulted(error) =>
-              val failures = after.current.map(_.consecutiveFailures).getOrElse(1)
-              if failures >= settings.maxConsecutiveFailures then fail(t, error)
-              else
-                if failures >= settings.repeatedFailureAt then
-                  note(after, Struggle.RepeatedFailure, reset = false) {
-                    emit(
-                      Notification.RepeatedIterationFailure(
-                        componentId,
-                        instanceId,
-                        t.id,
-                        failures,
-                        now()
-                      )
-                    )
-                  }
-                pause((1L << (failures - 1).min(6)).seconds.min(1.minute))
+            case IterationLoop.IterationResult.Continue       => ()
+            case IterationLoop.IterationResult.Faulted(error) => faulted(t, after, error)
             case IterationLoop.IterationResult.Completed(result) =>
               writeEnd(t.id, TaskOutcome.Completed)(
                 task(t.id)
@@ -643,6 +645,28 @@ private[ankka] object AutonomousAgentHost:
                   end(t.id, outcomeOf(taskRecord(t.id)))
             case IterationLoop.IterationResult.Ended(TaskOutcome.Failed(reason)) => fail(t, reason)
             case IterationLoop.IterationResult.Ended(other)                      => end(t.id, other)
+
+    /**
+     * An iteration — or a task's start check — failed: pause and try again, or fail the task once
+     * too many have failed in a row.
+     */
+    private def faulted(t: TaskRecord, after: InstanceRecord, error: String): Unit =
+      val failures = after.current.map(_.consecutiveFailures).getOrElse(1)
+      if failures >= settings.maxConsecutiveFailures then fail(t, error)
+      else
+        if failures >= settings.repeatedFailureAt then
+          note(after, Struggle.RepeatedFailure, reset = false) {
+            emit(
+              Notification.RepeatedIterationFailure(
+                componentId,
+                instanceId,
+                t.id,
+                failures,
+                now()
+              )
+            )
+          }
+        pause((1L << (failures - 1).min(6)).seconds.min(1.minute))
 
     private def warnIfNearBudget(rec: InstanceRecord, taskId: String, n: Int, budget: Int): Unit =
       if n >= math.ceil(settings.approachingBudgetAt * budget) then

@@ -166,6 +166,7 @@ nav:
       - Workflows: build/workflows.md
       - Timers: build/timers.md
       - Agents: build/agents.md
+      - Judgments: build/judgments.md
       - Streaming responses: build/streaming.md
       - Multi-agent orchestration: build/multi-agent-orchestration.md
       - Autonomous agents: build/autonomous-agents.md

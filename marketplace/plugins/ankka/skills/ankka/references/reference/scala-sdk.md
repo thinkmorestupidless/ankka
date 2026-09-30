@@ -174,6 +174,22 @@ Scheduling twice under one name replaces the earlier timer. See [Timers](../buil
 See [Agents](../build/agents.md), [Streaming responses](../build/streaming.md) and
 [Multi-agent orchestration](../build/multi-agent-orchestration.md).
 
+## Judgments
+
+| Part | API |
+|---|---|
+| Questions | `Question.choice[T](id, instructions)(value -> (key, description), …)`, `Question.choiceByKey(id, instructions)(key -> description, …)`, `Question.score(id, instructions)(levels*)`, `Question.yesNo(id, instructions)`, `.describing(yes, no)` |
+| Answers | `judgment(question)` → `ChoiceAnswer[T](choice, probabilities, confidence)`, `ScoreAnswer(score, probabilities, confidence)` with `.level`, `YesNoAnswer(probability)`; `judgment.model`, `judgment.usage`, `judgment.contains(question)` |
+| Effect | `effects.judgment.state(text)` or `.state(value)` (needs a `JsonValueCodec`), `.question(q, more*)`, `.provider(p)`, then `.thenReply()` or `.thenReply(judgment => value)` |
+| Runtime | `AgentRuntime.withJudgments(provider, timeout)` (5 seconds by default), on either `AgentRuntime()` or `withDefaultModel(…)` |
+| Providers | `JevProvider.fromEnv(model)` (reads `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`), `JevProvider.withApiKey(key, model, baseUrl)`; `DefaultModel` is `jev-1.13.0`; or implement `JudgmentProvider` |
+| Guardrails | `Guardrail.judged(name).onInput(rules*).onOutput(rules*).provider(p)`; rules `Refuse.ifYes(q, atLeast)`, `Refuse.ifChosen(q, minConfidence)(options*)`, `Refuse.ifScore(q, atLeast)`, `Refuse.when(q)(answer => Boolean)` |
+| Failures | `JudgmentFailed(provider, message, cause, timedOut)`; a judgment effect's is `Unavailable` or `Timeout`, a judged guardrail's could-not-check is `Unavailable` or `Timeout`, its refusal `Forbidden` |
+| Testing | `TestJudgmentProvider().expect(answers*)`, `.always(answers*)`, `.failNext(message, timedOut)`, `.reporting(usage)`, `.requests`, `.lastRequest`, `.callCount`, `.reset()`; `Answers.choice`, `.choiceWith`, `.score`, `.scoreWith`, `.yesNo` |
+| Usage | `forSessionMemory(id)` → `history` has `judgmentUsage` beside the text model's `usage` |
+
+See [Judgments](../build/judgments.md).
+
 ## Autonomous agent
 
 | Part | API |

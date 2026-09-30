@@ -73,6 +73,7 @@ private[agent] final class AgentLoop(
 
   private def execute[R](effect: AgentEffect[R]): Either[CommandError, R] =
     val userText = effect.user.getOrElse("")
+    val spent    = Guardrails.Spent()
 
     for
       provider <- effect.chosenModel.toRight(
@@ -83,14 +84,14 @@ private[agent] final class AgentLoop(
         )
       )
       // Input guardrails run before anything is spent.
-      _ <- checkGuardrails(effect.guards, userText, input = true)
+      _ <- checkGuardrails(effect.guards, userText, input = true, spent)
 
       history =
         if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
       prompt = buildPrompt(effect, history, userText)
 
       outcome <- runToolLoop(provider, effect, prompt)
-      _       <- checkGuardrails(effect.guards, outcome.response.text, input = false)
+      _       <- checkGuardrails(effect.guards, outcome.response.text, input = false, spent)
 
       decoded <- effect.responseShape
         .decode(outcome.response.text)
@@ -125,6 +126,7 @@ private[agent] final class AgentLoop(
       emit: String => Unit
   )(using system: ActorSystem[?]): Either[CommandError, Unit] =
     val userText = effect.user.getOrElse("")
+    val spent    = Guardrails.Spent()
 
     for
       provider <- effect.chosenModel.toRight(
@@ -134,7 +136,7 @@ private[agent] final class AgentLoop(
           ErrorCode.Internal
         )
       )
-      _ <- checkGuardrails(effect.guards, userText, input = true)
+      _ <- checkGuardrails(effect.guards, userText, input = true, spent)
 
       history =
         if effect.memoryProvider.read then readHistory(effect.memoryProvider) else Vector.empty
@@ -145,7 +147,7 @@ private[agent] final class AgentLoop(
       // Output guardrails run after the fact when streaming: tokens have already been
       // delivered, so a rejection here stops memory being written but cannot un-send
       // what the reader saw. Use input guardrails for anything that must never be shown.
-      _ <- checkGuardrails(effect.guards, outcome.response.text, input = false)
+      _ <- checkGuardrails(effect.guards, outcome.response.text, input = false, spent)
     yield if effect.memoryProvider.write then writeHistory(effect, userText, outcome)
 
   private def streamToolLoop(
@@ -363,15 +365,13 @@ private[agent] final class AgentLoop(
   private def checkGuardrails(
       guardrails: Vector[Guardrail],
       text: String,
-      input: Boolean
+      input: Boolean,
+      spent: Guardrails.Spent
   ): Either[CommandError, Unit] =
-    guardrails.iterator
-      .map(guard =>
-        guard.name -> (if input then guard.checkInput(text) else guard.checkOutput(text))
-      )
-      .collectFirst { case (name, Left(reason)) =>
-        CommandError(s"guardrail '$name': $reason", ErrorCode.Forbidden)
-      }
+    val direction = if input then Guardrails.Direction.Input else Guardrails.Direction.Output
+    Guardrails
+      .check(guardrails, text, direction, judgments, spent)
+      .map(refused => CommandError(refused.message, ErrorCode.Forbidden))
       .toLeft(())
 
   // ── Memory ────────────────────────────────────────────────────────────────

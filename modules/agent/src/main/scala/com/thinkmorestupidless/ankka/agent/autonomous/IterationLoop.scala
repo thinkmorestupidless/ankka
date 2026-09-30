@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.thinkmorestupidless.ankka.agent.*
+import com.thinkmorestupidless.ankka.agent.judgment.Judgments
 import com.thinkmorestupidless.ankka.core.{EntityId, SessionId}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 
@@ -38,6 +39,7 @@ private[ankka] final class IterationLoop(
     client: ComponentClient,
     model: ModelProvider,
     modelTimeout: FiniteDuration,
+    judgments: Judgments,
     emit: Notification => Unit
 ):
   import IterationLoop.*
@@ -252,9 +254,7 @@ private[ankka] final class IterationLoop(
         refuse(s"result rejected — $because")
         IterationResult.Rejected(because)
       case TaskType.Verdict.Accepted(encoded) =>
-        definition.guardrails.iterator
-          .map(g => g.name -> g.checkOutput(encoded))
-          .collectFirst { case (name, Left(reason)) => s"guardrail '$name': $reason" } match
+        checkGuardrails(encoded, Guardrails.Direction.Output) match
           case Some(because) =>
             refuse(s"result rejected — $because")
             IterationResult.Rejected(because)
@@ -335,9 +335,12 @@ private[ankka] final class IterationLoop(
 
   /** Checks a task's instructions against the input guardrails, before any model call. */
   def inputRejection(taskRecord: TaskRecord): Option[String] =
-    definition.guardrails.iterator
-      .map(g => g.name -> g.checkInput(taskRecord.instructions))
-      .collectFirst { case (name, Left(reason)) => s"guardrail '$name': $reason" }
+    checkGuardrails(taskRecord.instructions, Guardrails.Direction.Input)
+
+  private def checkGuardrails(text: String, direction: Guardrails.Direction): Option[String] =
+    Guardrails
+      .check(definition.guardrails, text, direction, judgments, Guardrails.Spent())
+      .map(_.message)
 
 private[ankka] object IterationLoop:
 

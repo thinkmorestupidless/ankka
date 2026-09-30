@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
+import com.thinkmorestupidless.ankka.agent.judgment.Judgments
 import com.thinkmorestupidless.ankka.agent.ModelProvider
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, EntityProtocol}
@@ -60,7 +61,8 @@ private[ankka] object AutonomousAgentHost:
       shard: ActorRef[ClusterSharding.ShardCommand],
       componentClient: ComponentClient,
       defaultModel: Option[ModelProvider],
-      modelTimeout: FiniteDuration
+      modelTimeout: FiniteDuration,
+      judgments: Judgments
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -83,6 +85,7 @@ private[ankka] object AutonomousAgentHost:
             componentClient,
             model,
             modelTimeout,
+            judgments,
             emit,
             idle => self ! WorkerIdle(idle),
             () => self ! WorkerStopped
@@ -400,6 +403,7 @@ private[ankka] object AutonomousAgentHost:
       client: ComponentClient,
       model: Option[ModelProvider],
       modelTimeout: FiniteDuration,
+      judgments: Judgments,
       emit: Notification => Unit,
       reportIdle: Boolean => Unit,
       reportStopped: () => Unit
@@ -411,7 +415,9 @@ private[ankka] object AutonomousAgentHost:
     private val wake        = LinkedBlockingQueue[Unit]()
     // Absent when neither the definition nor the runtime names a model: every task then fails, saying so.
     private val loopOrNone =
-      model.map(m => IterationLoop(definition, agent, instanceId, client, m, modelTimeout, emit))
+      model.map(m =>
+        IterationLoop(definition, agent, instanceId, client, m, modelTimeout, judgments, emit)
+      )
     private def loop: IterationLoop = loopOrNone.get
 
     @volatile private var running         = true

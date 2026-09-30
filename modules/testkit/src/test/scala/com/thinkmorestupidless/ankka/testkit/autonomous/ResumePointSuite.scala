@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.agent.judgment.Judgments
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.agent.autonomous.IterationLoop.ResumePoint
@@ -21,6 +22,7 @@ class ResumePointSuite extends munit.FunSuite:
     router.client,
     TestModelProvider(),
     scala.concurrent.duration.DurationInt(5).seconds,
+    Judgments.none,
     _ => ()
   )
 

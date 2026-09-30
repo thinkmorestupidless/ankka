@@ -206,7 +206,8 @@ final class AgentRuntime private (
               ctx.shard,
               client,
               defaultModel,
-              modelTimeout
+              modelTimeout,
+              judgments
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(

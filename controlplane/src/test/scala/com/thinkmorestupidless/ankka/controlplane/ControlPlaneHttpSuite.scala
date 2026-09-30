@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, RegistryWriter}
@@ -22,7 +23,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * Listings are asynchronous because they are views. Every assertion against one polls to a
  * deadline; that is the consistency model, not a flake being papered over.
  */
-class ControlPlaneHttpSuite extends munit.FunSuite:
+class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
@@ -8,7 +9,7 @@ import com.thinkmorestupidless.ankka.core.*
 import scala.concurrent.duration.DurationInt
 
 /** The client's orderings, against real task entities and no runtime. */
-class CallsSuite extends munit.FunSuite:
+class CallsSuite extends munit.FunSuite with LogCapturing:
 
   import CallsSuite.*
 

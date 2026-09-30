@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.crd.{
   AnkkaSerialization,
@@ -37,7 +38,7 @@ import scala.jdk.CollectionConverters.*
  * clusterIP, never a port-forward; the app container killed from inside the pod; a probe pod in the
  * namespace trying the loopback ports.
  */
-class SidecarClusterSuite extends munit.FunSuite:
+class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
   override def munitTimeout: scala.concurrent.duration.Duration = 30.minutes

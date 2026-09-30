@@ -14,7 +14,7 @@ import scala.jdk.CollectionConverters.*
  * The scripted model splits its reply into per-word deltas, so these tests can tell a genuinely
  * incremental stream from one that merely arrives all at once.
  */
-class AgentStreamSuite extends munit.FunSuite:
+class AgentStreamSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

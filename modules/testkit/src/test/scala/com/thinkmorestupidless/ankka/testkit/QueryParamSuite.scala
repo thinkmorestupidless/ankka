@@ -10,7 +10,7 @@ import java.time.Duration
 import scala.concurrent.duration.DurationInt
 
 /** Query parameters and headers, over real HTTP. */
-class QueryParamSuite extends munit.FunSuite:
+class QueryParamSuite extends munit.FunSuite with LogCapturing:
 
   private case class Problem(status: Int, error: String)
   private given JsonValueCodec[Problem] = Codecs.make[Problem]

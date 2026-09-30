@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationCreation, OrganizationPolicy}
 import com.thinkmorestupidless.ankka.http.HttpServer
@@ -17,7 +18,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * nothing is created; the administrator creates one for them; and from then on every route the user
  * is entitled to answers exactly as it would in an open installation.
  */
-class OrganizationCreationPolicySuite extends munit.FunSuite:
+class OrganizationCreationPolicySuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.Serializer
@@ -16,7 +17,7 @@ import java.util.Base64
  * The format is `protocol/ENCODING.md`'s: manifest, content type, the bytes, and the value as
  * language-neutral JSON — here the same JSON, since every one of these is a JSON record.
  */
-class AutonomousFixturesSuite extends munit.FunSuite:
+class AutonomousFixturesSuite extends munit.FunSuite with LogCapturing:
 
   private val usage = TokenUsage(120, 30)
 

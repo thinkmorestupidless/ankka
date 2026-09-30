@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.thinkmorestupidless.ankka.controlplane.api.{OrganizationSummary, Quota, Usage}
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
@@ -23,7 +24,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  *
  * Cases run in order and share one organization, so each reads the usage it expects to find.
  */
-class QuotaSuite extends munit.FunSuite:
+class QuotaSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

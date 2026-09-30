@@ -11,7 +11,7 @@ import scala.jdk.CollectionConverters.*
  * Compaction end to end: a session grows past its limit, the compactor notices, a summary replaces
  * the oldest messages, and the next request sees the shortened history.
  */
-class CompactionIntegrationSuite extends munit.FunSuite:
+class CompactionIntegrationSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

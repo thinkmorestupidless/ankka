@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.deploy.{ClusterView, StatusIngest}
 import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
@@ -10,7 +11,7 @@ import com.thinkmorestupidless.ankka.crd.AnkkaServiceStatus
  *
  * Three cases, and the distinctions between them are what make `services list` trustworthy.
  */
-class StatusIngestSuite extends munit.FunSuite:
+class StatusIngestSuite extends munit.FunSuite with LogCapturing:
 
   private val descriptor = ServiceDescriptor("cart", ServiceSpec("cart:1.0"))
 

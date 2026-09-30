@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import munit.FunSuite
 
 /**
@@ -18,7 +19,7 @@ import munit.FunSuite
  * run against a real cluster with the control plane's own ServiceAccount, which is the only form
  * that proves the API server agrees.
  */
-final class LogsRbacSuite extends FunSuite:
+final class LogsRbacSuite extends FunSuite with LogCapturing:
 
   /**
    * Read from the classpath, not from a path relative to the repository root: forked tests run in

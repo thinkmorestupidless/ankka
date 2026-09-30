@@ -1,11 +1,12 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceProjection}
 import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, Service, ServiceKey}
 
 /** Desired state becomes a resource spec. Pure: no cluster, no database. */
-class ServiceProjectionSuite extends munit.FunSuite:
+class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
 
   private val config = DeployConfig.default
 

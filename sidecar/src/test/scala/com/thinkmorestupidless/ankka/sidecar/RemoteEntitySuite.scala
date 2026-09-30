@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.event_sourced.EventSourcedIn
 import com.thinkmorestupidless.ankka.core.{
   CommandError,
@@ -22,7 +23,7 @@ import scala.util.Try
  * conversation, and the process double at the far end. What the spec's first story and its edge
  * cases promise, proven where the journal is real and the process is scriptable.
  */
-class RemoteEntitySuite extends munit.FunSuite:
+class RemoteEntitySuite extends munit.FunSuite with LogCapturing:
 
   given ExecutionContext = ExecutionContext.global
 

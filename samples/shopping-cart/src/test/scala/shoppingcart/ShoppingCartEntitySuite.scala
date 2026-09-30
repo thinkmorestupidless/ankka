@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.{Done, ErrorCode}
 import com.thinkmorestupidless.ankka.testkit.EventSourcedTestKit
 import shoppingcart.application.ShoppingCartEntity
@@ -10,7 +11,7 @@ import shoppingcart.domain.ShoppingCartEvent.*
  * Entity behaviour with no actor system, cluster or database — but with the real serializers, so a
  * missing codec fails here.
  */
-class ShoppingCartEntitySuite extends munit.FunSuite:
+class ShoppingCartEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def newKit = EventSourcedTestKit.of(ShoppingCartEntity, "cart-1")
 

@@ -1,9 +1,10 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import shoppingcart.domain.*
 
 /** Domain rules, with nothing running. */
-class ShoppingCartDomainSuite extends munit.FunSuite:
+class ShoppingCartDomainSuite extends munit.FunSuite with LogCapturing:
 
   private val cart = ShoppingCart.empty("cart-1")
 

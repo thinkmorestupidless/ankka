@@ -18,7 +18,7 @@ import scala.jdk.CollectionConverters.*
  * functions directly. The registry directory is redirected by system property — the reason that
  * override exists at all, since otherwise this suite would write into whoever is running it.
  */
-final class ConsoleEndpointSuite extends FunSuite:
+final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

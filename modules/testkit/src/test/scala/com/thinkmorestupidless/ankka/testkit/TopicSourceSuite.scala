@@ -12,7 +12,7 @@ import scala.jdk.CollectionConverters.*
  * Everything except the wire itself is real: CloudEvents subjects, decoding, view row upserts
  * against Postgres, consumer dispatch and republishing. The Kafka suite covers the wire.
  */
-class TopicSourceSuite extends munit.FunSuite:
+class TopicSourceSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

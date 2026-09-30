@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.Done
 import com.thinkmorestupidless.ankka.testkit.KeyValueEntityTestKit
 import shoppingcart.application.CheckoutLog
@@ -8,7 +9,7 @@ import shoppingcart.application.CheckoutLog
  * The key value entity with no actor system, cluster or database — but with the real serializers,
  * so a state that cannot cross the wire fails here rather than on first deployment.
  */
-class CheckoutLogSuite extends munit.FunSuite:
+class CheckoutLogSuite extends munit.FunSuite with LogCapturing:
 
   private def newKit = KeyValueEntityTestKit.of(CheckoutLog, "cart-1")
 

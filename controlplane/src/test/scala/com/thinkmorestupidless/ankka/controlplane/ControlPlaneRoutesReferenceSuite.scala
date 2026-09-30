@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.auth.AuthConfig
 import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId, Metadata, MethodName}
 import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients, HttpEndpoint}
@@ -20,7 +21,7 @@ import scala.concurrent.duration.DurationInt
  * page — so a new route is a failing build until someone has said what it does. Rewrite the table
  * with `-Dankka.docs.update=true`.
  */
-class ControlPlaneRoutesReferenceSuite extends munit.FunSuite:
+class ControlPlaneRoutesReferenceSuite extends munit.FunSuite with LogCapturing:
 
   private val PagePath = "docs/reference/control-plane-api.md"
   private val Name     = "control-plane-routes"

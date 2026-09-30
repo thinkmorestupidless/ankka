@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.application.OrganizationEntity
 import com.thinkmorestupidless.ankka.core.EntityId
 import com.thinkmorestupidless.ankka.runtime.JournalRecord
@@ -31,7 +32,7 @@ import scala.concurrent.duration.DurationInt
  * sbt -Dankka.spikes=on 'controlPlane/testOnly *IndexProjectionSpike'
  * }}}
  */
-final class IndexProjectionSpike extends munit.FunSuite:
+final class IndexProjectionSpike extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = !sys.props.get("ankka.spikes").contains("on")
 

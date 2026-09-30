@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.autonomous.NotificationSource
 
 import org.apache.pekko.actor.ActorSystem
@@ -10,7 +11,7 @@ import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
 
 /** A reader that falls behind loses the oldest, and is told how many, before the next. */
-class NotificationSourceSuite extends munit.FunSuite:
+class NotificationSourceSuite extends munit.FunSuite with LogCapturing:
 
   private given system: ActorSystem = ActorSystem("notification-source")
 

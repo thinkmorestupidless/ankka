@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import java.nio.file.{Files, Path, Paths}
 import java.nio.file.attribute.PosixFilePermissions
 import scala.sys.process.*
@@ -9,7 +10,7 @@ import scala.sys.process.*
  * that plays a cluster which does, or does not, enforce the policy the probe applies. Nothing else
  * the script does can tell the two apart: the API server stores the policy either way.
  */
-class NetpolProbeSuite extends munit.FunSuite:
+class NetpolProbeSuite extends munit.FunSuite with LogCapturing:
 
   private def repoRoot: Path =
     Iterator

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.client.{ClientGrpc, InvokeReply, InvokeRequest}
 import ankka.protocol.v1.discovery.{Kind, WorkflowDetail}
 import ankka.protocol.v1.payload as pb
@@ -29,7 +30,7 @@ import scala.util.Try
  * declared, a step calls back through the sidecar's client service, a pause survives a restart of
  * the service, and a step that never answers times out per the declared settings.
  */
-class RemoteWorkflowSuite extends munit.FunSuite:
+class RemoteWorkflowSuite extends munit.FunSuite with LogCapturing:
   import ProcessDouble.*
 
   given ExecutionContext = ExecutionContext.global

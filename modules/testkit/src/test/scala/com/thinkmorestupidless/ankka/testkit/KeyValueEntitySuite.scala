@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.testkit
 import com.thinkmorestupidless.ankka.core.{Done, ErrorCode}
 
 /** Unit-level key value behaviour: no actor system, no database. */
-class KeyValueEntitySuite extends munit.FunSuite:
+class KeyValueEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def newKit = KeyValueEntityTestKit.of(ProfileEntity, "user-1")
 

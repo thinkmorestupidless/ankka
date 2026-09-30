@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceProjection}
 import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
@@ -8,7 +9,7 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
  * A process- or module-hosted service's projection (features 009 and 016): the protocol is checked
  * before any resource is written, and the hosting reaches the resource untouched.
  */
-class ServiceProjectionHostingSuite extends munit.FunSuite:
+class ServiceProjectionHostingSuite extends munit.FunSuite with LogCapturing:
 
   private val config = DeployConfig.default
 

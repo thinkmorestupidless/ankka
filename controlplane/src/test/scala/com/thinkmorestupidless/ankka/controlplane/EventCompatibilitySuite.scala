@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.thinkmorestupidless.ankka.controlplane.application.{
   OrganizationEntity,
@@ -17,7 +18,7 @@ import scala.jdk.CollectionConverters.*
  * Each must decode through the entity's current serializer and read as unattributed. A field added
  * to an event without a default fails here, before it fails against a real installation's journal.
  */
-class EventCompatibilitySuite extends munit.FunSuite:
+class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   private val fixture =
     new ObjectMapper().readTree(getClass.getResourceAsStream("/journal/pre-008-events.json"))

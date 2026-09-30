@@ -9,7 +9,7 @@ import scala.concurrent.duration.DurationInt
  * A service that asks for judgments without having configured anyone to answer them: it starts, and
  * the work that needs a provider says what to configure.
  */
-class JudgmentUnconfiguredSuite extends munit.FunSuite:
+class JudgmentUnconfiguredSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

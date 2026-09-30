@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
@@ -14,7 +15,7 @@ import scala.jdk.CollectionConverters.*
  * A rolling replacement, without Kubernetes: a task is being worked on one node when that node
  * leaves, and the node that remains finishes it — no recorded model call repeated.
  */
-class AutonomousAgentHandoffSuite extends munit.FunSuite:
+class AutonomousAgentHandoffSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

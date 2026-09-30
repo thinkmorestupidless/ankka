@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.agent.{ChatMessage, Json, TestModelProvider}
 import com.thinkmorestupidless.ankka.runtime.{
@@ -24,7 +25,7 @@ import scala.jdk.CollectionConverters.*
  * the reference — so the same cases hold the Scala reference in-process and any process in another
  * language to one definition of "compatible".
  */
-class ConformanceSuite extends munit.FunSuite:
+class ConformanceSuite extends munit.FunSuite with LogCapturing:
 
   override def munitTimeout: scala.concurrent.duration.Duration = 10.minutes
 

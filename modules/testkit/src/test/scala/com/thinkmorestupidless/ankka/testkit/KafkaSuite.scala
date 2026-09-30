@@ -18,7 +18,7 @@ import scala.jdk.CollectionConverters.*
  *
  * Skipped unless Docker is available.
  */
-class KafkaSuite extends munit.FunSuite:
+class KafkaSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

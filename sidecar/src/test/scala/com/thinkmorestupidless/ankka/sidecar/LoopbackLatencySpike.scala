@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
 import ankka.protocol.v1.payload.Outcome
 import io.grpc.stub.StreamObserver
@@ -15,7 +16,7 @@ import scala.concurrent.ExecutionContext
  * One message each way on a long-lived bidirectional stream (the per-instance conversation).
  * Numbers are printed; the test asserts only that they were measured.
  */
-class LoopbackLatencySpike extends munit.FunSuite:
+class LoopbackLatencySpike extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = !sys.props.contains("ankka.benchmarks")
 

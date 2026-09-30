@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.crd.{
   AnkkaSerialization,
   AnkkaService,
@@ -36,7 +37,7 @@ import scala.jdk.CollectionConverters.*
  * `orders` in `checkout`, and `orders` in `billing` — the same name in another project, which is
  * what makes "a named service means this project's" observable.
  */
-class ZeroTrustClusterSuite extends munit.FunSuite:
+class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean   = sys.props.get("ankka.cluster.tests").contains("off")
   override val munitTimeout: Duration = 30.minutes

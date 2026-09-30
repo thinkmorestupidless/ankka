@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.judgment.Judgments
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
@@ -10,7 +11,7 @@ import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId}
  * Where an instance that stopped mid-task picks up, read from its record and the last message in
  * the task's session — every case of the rule, over real session memory and no runtime.
  */
-class ResumePointSuite extends munit.FunSuite:
+class ResumePointSuite extends munit.FunSuite with LogCapturing:
 
   private val router = EntityRouter()
   private val loop = IterationLoop(

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.Serializer
@@ -11,7 +12,7 @@ import com.thinkmorestupidless.ankka.core.Serializer
  * changes a line, and the change is then a decision rather than an accident: a journal written by
  * one release has to replay under the next.
  */
-class EventCompatibilitySuite extends munit.FunSuite:
+class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   private val usage    = TokenUsage(120, 30, 5, 0)
   private val assignee = Assignee("answerer", "i-1")

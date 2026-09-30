@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
@@ -21,7 +22,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  *
  * Listings are views and are polled; enforcement reads entities and is asserted without a retry.
  */
-class AuthorizationMatrixSuite extends munit.FunSuite:
+class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

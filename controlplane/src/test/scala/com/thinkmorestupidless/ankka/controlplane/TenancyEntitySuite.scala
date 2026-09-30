@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.{
   CreateProject,
   Invite,
@@ -35,7 +36,7 @@ import com.thinkmorestupidless.ankka.core.{Done, ErrorCode}
 import com.thinkmorestupidless.ankka.testkit.EventSourcedTestKit
 
 /** Organizations and projects: the tenancy rules each entity can enforce on its own. */
-class TenancyEntitySuite extends munit.FunSuite:
+class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def organization = EventSourcedTestKit.of(OrganizationEntity, "acme")
   private def project      = EventSourcedTestKit.of(ProjectEntity, "checkout")

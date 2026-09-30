@@ -11,7 +11,7 @@ import scala.concurrent.duration.DurationInt
  * typed answers — on a running service with real session memory, so "a judgment leaves the
  * conversation alone" is measured against the journal rather than assumed.
  */
-class JudgmentAgentSuite extends munit.FunSuite:
+class JudgmentAgentSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

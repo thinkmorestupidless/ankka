@@ -1,5 +1,6 @@
 package planner
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode, SessionId}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
@@ -15,7 +16,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * that they ran in one shared session, that the summariser saw their contributions and not the
  * selector's routing — rather than about a model's wording.
  */
-class PlannerSuite extends munit.FunSuite:
+class PlannerSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

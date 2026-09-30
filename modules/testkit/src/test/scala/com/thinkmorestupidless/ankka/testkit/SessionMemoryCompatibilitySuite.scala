@@ -11,7 +11,7 @@ import com.thinkmorestupidless.ankka.testkit.autonomous.Fixtures
  * session nobody can read after the next deploy. `session-memory.json` holds one line per value; a
  * change to any of them shows up as a diff to review, not as a replay failure in production.
  */
-class SessionMemoryCompatibilitySuite extends munit.FunSuite:
+class SessionMemoryCompatibilitySuite extends munit.FunSuite with LogCapturing:
 
   private val usage = TokenUsage(120, 30, 5, 2)
 

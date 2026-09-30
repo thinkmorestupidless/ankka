@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import io.fabric8.kubernetes.api.model.Pod
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
@@ -39,7 +40,7 @@ import scala.jdk.CollectionConverters.*
  *
  * Nothing here ever disables verification; the suite asserts that about its own curl arguments.
  */
-class ExposureClusterSuite extends munit.FunSuite:
+class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 30.minutes
 

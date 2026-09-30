@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
@@ -47,7 +48,7 @@ import scala.jdk.CollectionConverters.*
  *
  * Disable with `-Dankka.cluster.tests=off`, which also skips building the image.
  */
-class SampleDeploymentClusterSuite extends munit.FunSuite:
+class SampleDeploymentClusterSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 10.minutes
 

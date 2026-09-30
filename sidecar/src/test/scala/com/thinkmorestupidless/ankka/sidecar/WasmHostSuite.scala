@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.discovery.{
   Component,
   EventSourcedDetail,
@@ -48,7 +49,7 @@ import scala.jdk.CollectionConverters.*
  * The spike guest (`src/test/rust/spike-guest`) is a stateless cart speaking the ABI; the refusals
  * use modules assembled from WebAssembly text here, each wrong in exactly one way.
  */
-class WasmHostSuite extends munit.FunSuite:
+class WasmHostSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 2.minutes
 

@@ -20,7 +20,7 @@ import scala.jdk.CollectionConverters.*
  * that actually runs — start a real service, stop it, look at the directory — which is the only
  * shape that can catch a call that is never made.
  */
-final class ServiceRegistrationSuite extends FunSuite:
+final class ServiceRegistrationSuite extends FunSuite with LogCapturing:
 
   private def entries(directory: Path): Vector[String] =
     if !Files.isDirectory(directory) then Vector.empty

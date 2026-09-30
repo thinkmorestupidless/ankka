@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.ComponentId
@@ -14,7 +15,7 @@ import scala.concurrent.duration.*
  * A model call that fails is an iteration that failed, not a task that did: it is tried again, for
  * the same iteration, after a pause, and the task fails only after too many in a row.
  */
-class IterationFailureSuite extends munit.FunSuite:
+class IterationFailureSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.{Done, EntityId}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.application.{CheckoutWorkflow, ShoppingCartEntity}
@@ -14,7 +15,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * the engine's retries and failover are the behaviour under test, so this needs the whole runtime
  * and a real journal.
  */
-class CheckoutWorkflowSuite extends munit.FunSuite:
+class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

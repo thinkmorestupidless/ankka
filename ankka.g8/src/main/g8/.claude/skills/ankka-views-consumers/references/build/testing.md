@@ -262,6 +262,33 @@ suite needs Docker by default.
 Mark such tests `@pytest.mark.slow` and run them with `uv run pytest -m slow`; `uv run pytest` runs the
 unit tests alone.
 
+### Quiet output from a Scala suite
+
+An integration test starts a whole service, and a service logs as it starts, forms its cluster, runs
+projections and stops. Across a suite that is hundreds of lines, none of which matter unless a test
+fails. Mix `LogCapturing` into a munit suite to hold that log back:
+
+```scala
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
+
+class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing
+```
+
+While the suite runs, everything logged through logback's root logger is held in memory. A test that
+passes discards what was logged since the previous test finished. A test that fails prints it, under a
+header naming the test, so the log that explains the failure is still there. A suite whose `beforeAll`
+fails, so that no test runs, prints what its setup logged, and so does a test whose `beforeEach` fails.
+
+- **Levels still come from your logback configuration.** Capture changes where an event goes, not
+  whether it is logged, so a logger set to `WARN` is no noisier when a test fails.
+- **It ends when the suite does.** A suite without `LogCapturing` that runs after one with it, in the
+  same test JVM, logs as it always did. The suite's own `afterAll` runs after capture has ended, so what
+  a teardown logs is printed.
+- **Output printed directly** to standard output or standard error, not through a logger, is not
+  captured.
+- **To see everything**, as when a test passes and you want to know why, set `ANKKA_TEST_LOGS=all`, or
+  `-Dankka.test.logs=all` on the test JVM.
+
 ## A test must be able to fail
 
 A test is worth what it would catch. Before relying on one, ask of it: **could this pass while the

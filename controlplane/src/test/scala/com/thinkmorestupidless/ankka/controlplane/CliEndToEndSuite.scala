@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.cli.{Main, Settings}
 import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
@@ -21,7 +22,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * that can catch the CLI and the server disagreeing about the wire format, which is the failure the
  * shared `controlplane-api` module exists to prevent.
  */
-class CliEndToEndSuite extends munit.FunSuite:
+class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

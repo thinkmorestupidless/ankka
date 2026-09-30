@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.application.ShoppingCartEntity
@@ -13,7 +14,7 @@ import scala.concurrent.duration.DurationInt
  * Everything here goes through `ComponentClient`, which is the only way one component addresses
  * another — so this also exercises the routing an endpoint or workflow would use.
  */
-class ShoppingCartIntegrationSuite extends munit.FunSuite:
+class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

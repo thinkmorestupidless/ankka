@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.{
   OrganizationEntity,
@@ -19,7 +20,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * the organization's events is the latency half, the projector's sweep the correctness half, and
  * the resource the operator sees says `paused` for either.
  */
-class SuspensionSuite extends munit.FunSuite:
+class SuspensionSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

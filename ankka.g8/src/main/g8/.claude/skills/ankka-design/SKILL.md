@@ -7,8 +7,38 @@ description: Design or review the architecture of an ankka application before wr
 
 The component kinds are fixed, so design is deciding which things are entities, what each guarantees,
 how the rest of the system learns of their changes, and what may lag. Work through the questions below
-in order, write the answers down as a table of requirement → component → why (the worked checkout
-example in `references/concepts/designing-services.md` is the shape), and only then write code.
+in order, write the answers down as a table, and only then write code. When the design goes into a
+written plan (a `plan.md`, a design document, a pull request description), the table goes in with it.
+
+## The component table
+
+One row per requirement, rule, process or question, with four columns, as in the worked checkout example
+in `references/concepts/designing-services.md`:
+
+| Requirement | Component | Why this one | The close alternative, and why not |
+|---|---|---|---|
+
+The last column is what makes the table reviewable: it records the choice a reader would otherwise have
+to reconstruct. It is **required** for every row that is one of these close calls, and a table with a
+close-call row whose last column is empty is not finished:
+
+- event sourced entity or key value entity (step 3)
+- one entity or several, and at what grain (step 2)
+- a view, or queries to entities whose ids the caller already holds (step 4)
+- a consumer, or a workflow started by a consumer (steps 5 and 6)
+- a named timer and a timed action, or a paused workflow step (step 7)
+- an agent, or a workflow with a fixed sequence (step 8)
+- one endpoint, or one per audience (step 9)
+- one service, or two (step 10)
+
+For an obvious choice, leave the last column empty rather than invent an alternative nobody would pick.
+Pure logic with no state, subscription, schedule or route is a plain function or class, not a component,
+and has no row.
+
+**The table fixes the components.** Code written from it implements each row as the component the row
+names. A task that turns out to need a component the table does not have, or a different one, changes
+the table first, with its alternative recorded, and only then changes the code — so the table and the
+service never disagree.
 
 ## The decision procedure
 

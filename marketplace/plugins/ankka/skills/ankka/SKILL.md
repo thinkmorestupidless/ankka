@@ -1,6 +1,6 @@
 ---
 name: ankka
-description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python and TypeScript via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Python, TypeScript and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-typescript, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
+description: Start here for any work on ankka, a serverless platform for agentic AI on the actor model (Akka's component model in Scala 3 on Apache Pekko, with Python and TypeScript via a sidecar and Rust as WebAssembly modules). Use when a task mentions ankka and no narrower ankka skill fits — what ankka is, installing it, creating a first service from the template, the shape of a service, the Scala, Python, TypeScript and Rust SDK maps, what ankka does not do, and where it differs from Akka. The narrower skills (ankka-design, ankka-inspect, ankka-entities, ankka-views-consumers, ankka-workflows, ankka-agents, ankka-endpoints, ankka-python, ankka-typescript, ankka-rust, ankka-deploy, ankka-platform) carry the rules for one kind of task each.
 ---
 
 # ankka
@@ -43,6 +43,7 @@ This skill orients. The work itself has a skill each, and its rules are there, n
 | Task | Skill |
 |---|---|
 | Decide which components a problem needs, where a rule lives, what may lag | `ankka-design` |
+| Check a service running on this machine against its specification or acceptance criteria | `ankka-inspect` |
 | Write or change an event sourced or key value entity, its events, state or serializers | `ankka-entities` |
 | Project changes into a queryable table, react to changes, read or publish a broker topic | `ankka-views-consumers` |
 | A durable multi-step process, compensation, deadlines and timers | `ankka-workflows` |

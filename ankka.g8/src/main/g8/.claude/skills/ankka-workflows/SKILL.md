@@ -92,7 +92,9 @@ None, "name", input)` and `cancel(id)`. `WorkflowTestKit` and `TimedActionTestKi
 Scala workflows and timers are tested through `AnkkaTestKit`, because transitions, recovery, timeouts and
 firing are the runtime's behaviour; register `TimerRuntime` with a short poll interval to keep timer
 tests fast. Python and TypeScript have `WorkflowTestKit` and `TimedActionTestKit`, which run commands, steps and handlers
-by hand with no sidecar. Assert on the lifecycle and the state, not on timing.
+by hand with no sidecar. Assert on the lifecycle and the state, not on timing. Ask of every test whether
+it could pass while the behaviour is broken (`references/build/testing.md`, "A test must be able to
+fail"); a compensation test, for one, must make the step fail and then see what was released.
 
 ## Mistakes to check for
 

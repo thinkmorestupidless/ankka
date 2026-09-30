@@ -262,6 +262,56 @@ suite needs Docker by default.
 Mark such tests `@pytest.mark.slow` and run them with `uv run pytest -m slow`; `uv run pytest` runs the
 unit tests alone.
 
+## A test must be able to fail
+
+A test is worth what it would catch. Before relying on one, ask of it: **could this pass while the
+behaviour it names is broken?** If you can describe such a case, the test is not yet checking what its
+name says. The same question applies to any check that gates a change: a CI step, a smoke test, a
+readiness wait. These are the ways an ankka test most often passes for the wrong reason:
+
+- **Asserting a status and not the answer.** A `204` or a `200` says the request was handled, not that
+  it did the right thing, and a `404` from a mistyped path is a successful HTTP exchange. Assert the
+  body, or read the state the request should have changed.
+- **Retrying on the wrong thing.** A retry that waits for "a row exists" is satisfied by a row from an
+  earlier write. Retry on the value that changes, and assert what must not change.
+- **Proving memory instead of durability.** A test that writes and reads back without a restart passes
+  on state that was never persisted. A durability claim needs `restartService()` or `restart()` between
+  the write and the read.
+- **A test that never ran.** A filter that matches no test, a skip condition that is always true, or a
+  test marked slow that no run includes reports green for work that did not happen. Check the count of
+  tests run, not only the exit code.
+- **Asserting that something appears, not its shape.** A string found somewhere in a rendered document
+  or a response passes when it appears in the wrong place too. Assert the structure the behaviour must
+  produce.
+- **Deciding from a view what must be exact.** A view lags its source. A test that asserts on a view once,
+  immediately after a write, passes or fails by timing; read your own write from the entity.
+- **Checking the code against itself.** A test whose expected value was copied from the implementation's
+  output agrees with the implementation by construction. Take expected values from the requirement.
+
+The quickest proof that a test can fail is to break the behaviour on purpose and watch the test go red,
+then put it back.
+
+## Acceptance scenarios as integration tests
+
+An acceptance scenario — given some state, when a caller does something, then an answer and a resulting
+state — is an integration test waiting to be written. Written as one, it runs on every change, so the
+scenario keeps holding after the feature is finished, and a build that must pass its tests cannot ship a
+regression of it.
+
+Each part of the scenario has one place in the test:
+
+| Scenario | In the test |
+|---|---|
+| Given | calls that put the service in the starting state, on ids this test alone uses |
+| When | the request the scenario describes, through the same route a caller uses (`kit.http` or an HTTP client against the kit's port), so the endpoint's ACL and error mapping are part of what is tested |
+| Then, the answer | the status and the part of the body the scenario names |
+| Then, the state | a query to the entity through the component client or a route; a view or consumer effect by retrying on the value that changes |
+| Must survive a restart | `restartService()` or `restart()`, then the same reads |
+
+Name the test after the scenario, in the scenario's words, so a failure reads as the requirement that
+broke. A scenario that cannot be written this way, because nothing observable distinguishes "met" from
+"not met", is not yet a requirement a test can hold; it needs a sharper statement before it needs a test.
+
 ## Testing agents with a scripted model
 
 

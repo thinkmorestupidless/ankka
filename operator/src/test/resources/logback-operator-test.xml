@@ -1,0 +1,18 @@
+<!-- The operator's test logging, selected by -Dlogback.configurationFile in build.sbt rather than
+     named logback-test.xml: the control plane and the sidecar take this module's test classes
+     (test->test), and a second logback-test.xml beside ankka-testkit's would make logback warn and
+     pick one of them. Without any file logback logs everything at DEBUG, fabric8 included. -->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{20} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <logger name="com.github.dockerjava" level="WARN"/>
+  <logger name="org.testcontainers" level="INFO"/>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

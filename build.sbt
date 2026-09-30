@@ -335,6 +335,9 @@ lazy val operator = project
     // build failure that has nothing to do with what changed.
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.operator.Main"),
     libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test),
+    // Named, not discovered: the control plane and the sidecar take this module's test classes, and
+    // a logback-test.xml here would be a second one beside ankka-testkit's in both.
+    Test / javaOptions += "-Dlogback.configurationFile=logback-operator-test.xml",
     // As for controlPlane below: OperatorClusterSuite deploys the real sample since feature 004,
     // because only a real ankka image can be Ready now that readiness is cluster membership.
     sampleImageForClusterTests := Def.taskDyn {
@@ -492,6 +495,8 @@ lazy val sidecar = project
       // Assembles the small text modules WasmHostSuite needs to show each refusal.
       chicoryWabt % Test
     ),
+    // Named, not discovered: ankka-testkit, a test dependency, ships a logback-test.xml of its own.
+    Test / javaOptions += "-Dlogback.configurationFile=logback-sidecar-test.xml",
     // SidecarClusterSuite deploys this project's own image by the build's version tag, so the
     // image has to come from this sbt session — as sampleImageForClusterTests for the operator's
     // suites. On both test and testOnly, for the same reason as there. A full `buildAll` found it

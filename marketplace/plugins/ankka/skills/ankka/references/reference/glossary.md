@@ -157,6 +157,12 @@ it cannot be chosen.
 One running copy of a service: a pod on the platform, a process on a laptop. A service's instances form one
 cluster.
 
+### Judgment
+
+The answer to a set of typed questions about a state — a choice, a score, a yes or no — from a System One
+model, each answer with the probabilities behind it. An agent's handler can reply with one, and a judged
+guardrail refuses by one.
+
 ### Key value entity
 
 An entity that stores only its latest state, with no history of how it got there.
@@ -242,6 +248,11 @@ platform accepts the same major and a minor no later than its own.
 A handler that only reads. It must return a read-only effect, so it cannot persist. The local console runs
 queries and never commands.
 
+### Question
+
+What a judgment asks: a choice among described options, a score on described levels, or a yes or no. A
+value declared once with a wire id, used both to ask and to read the typed answer.
+
 ### Read-only effect
 
 An effect that can reply or refuse but cannot persist events or change state. A query must return one.
@@ -294,6 +305,11 @@ value entity and a workflow it is stored directly.
 
 One unit of a workflow's work. A step runs, may call other components, and says what happens next: another
 step, a pause, the end, or a failure. Each transition is journaled before the next begins.
+
+### System One model
+
+A model that answers typed questions about a state with probabilities rather than writing text, quickly
+and cheaply. TypeSafe AI's Jev is one. See judgment.
 
 ### Timed action
 

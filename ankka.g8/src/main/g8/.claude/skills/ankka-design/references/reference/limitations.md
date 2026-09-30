@@ -120,6 +120,16 @@ feature also says what that feature does not do.
 - **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
 - **The local console does not show autonomous agents.** Read a task's record, or watch an instance's
   notifications.
+- **Judgments are for Scala services' agents only.** Python, TypeScript and Rust services cannot declare a
+  question, ask for a judgment or use a judged guardrail. A workflow step, an endpoint or a consumer reaches
+  one by calling an agent's judgment handler, and a handler cannot judge and then call the text model in one
+  reply; make two calls. Guardrails, judged or not, see a message and a reply, never the tool calls a model
+  asks for. No console shows a judgment's answers or probabilities, and a task's and an instance's own usage
+  do not include judgment tokens, which are on the task's session. TypeSafe AI's Jev is the only provider
+  that ships, and it is in early access.
+- **A session that recorded judgment tokens is unreadable by an older runtime.** While a service is being
+  rolled onto its first version that uses judgments, an instance still running the previous version cannot
+  replay a session in which a judgment's tokens have been recorded, until the roll completes.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.

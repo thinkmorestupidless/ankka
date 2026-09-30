@@ -129,6 +129,16 @@ patterns and simple policy. Their scope is narrow on purpose, and designing arou
   both to `403`. If a caller must tell them apart, give guardrails names the caller can recognise in the
   message.
 
+A **judged guardrail** checks what a pattern cannot: whether a message tries to talk the agent out of its
+instructions, whether a reply gives medical advice. It asks a System One model typed questions about the
+same text and refuses when an answer meets a rule, so it sees exactly what other guardrails see and no
+more. Two things about it are different. It reads text its author may have written to defeat it — the
+model does not treat the text as hostile, and a message argued for its own classification moves the
+answer — so it belongs beside deterministic guardrails, not in place of them. And it can fail to decide:
+when its provider is down the interaction does not proceed, and the caller gets `Unavailable` rather than
+`Forbidden`, so "not allowed" and "not checked" stay distinguishable. See
+[Judged guardrails](../build/judgments.md#judged-guardrails).
+
 ## Choosing a model
 
 The service names a default model on the agent runtime, and any handler may name a different one with
@@ -138,6 +148,13 @@ cheap model for routing and classification, where the answer is a few tokens, an
 for the answer a person reads. `effort` is the lever on Claude models; sampling parameters such as
 temperature are not sent to them. In a Python service the choice is limited to the models the sidecar
 was configured with.
+
+Some decisions need no text model at all. A decision whose answer is one of a known set — which team, how
+severe, whether a refund is asked for — is a [judgment](../build/judgments.md): typed questions answered by
+a System One model with the probabilities behind them, in a fraction of a second. Anything that needs a
+tool, a calculation, facts that are not in the state, or prose a person reads is a text model's work. A
+common split is to judge first and call the text model only when the judgment says it is needed, as two
+calls from an endpoint or a workflow step.
 
 Every interaction's model call waits at most the runtime's model timeout, two minutes by default, and
 that limit applies to *each* round trip, so a request that makes many tool calls can take many times
@@ -162,6 +179,11 @@ session's history, which the `history` query reports as a total, and are recorde
 is no budget, quota or circuit breaker in the runtime: a service that must limit spend counts in a tool
 or an entity of its own and refuses from there. The two levers the runtime offers are `maxToolCallSteps`
 and `maxTokens` per turn.
+
+A judgment has a timeout of its own, five seconds by default, which bounds its provider's retries too.
+A judged guardrail whose check times out or fails stops the interaction with `Timeout` or `Unavailable`:
+it fails closed, because a guardrail that let everything through while its provider was down would not
+be one.
 
 Some failures arrive as answers. A reply the model cut short at `maxTokens` is returned as a normal reply,
 so an agent whose answers can be long either sets `maxTokens` generously or asks for structure that makes

@@ -1,6 +1,6 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
+description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, judgments — typed questions answered by a System One model such as Jev, judged guardrails and TestJudgmentProvider — several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
 ---
 
 # ankka agents
@@ -9,7 +9,9 @@ An agent's handler describes one interaction as an effect (instructions, the mes
 which memory, which model) and returns it. The runtime runs the loop: calls the model, runs the tools it
 asks for, feeds results back until it answers, applies guardrails, writes the session and counts tokens.
 An agent is addressed by a **session id**, one request per session at a time. In Python the loop runs in
-the sidecar, which calls back into the process only to run a tool or a guardrail.
+the sidecar, which calls back into the process only to run a tool or a guardrail. A Scala handler can
+instead ask for a **judgment** — typed questions about a state answered by a System One model, with the
+probabilities behind each answer — for a decision whose answer is one of a known set.
 
 ## Rules
 
@@ -63,6 +65,15 @@ the sidecar, which calls back into the process only to run a tool or a guardrail
     validates, all on the workflow's id as the session, a summariser filtered to the specialists' roles.
     A person in the loop is an agent that proposes (`thenReplyAs`) and a workflow that pauses and applies
     on a command.
+13. **A decision with a bounded answer is a judgment, not a text model call.** Which team, how severe,
+    whether a refund is asked for: declare `Question.choice`/`score`/`yesNo` values with wire ids on the
+    companion, return `effects.judgment.state(...).question(...).thenReply()` (or `thenReply(f)` to
+    reply with your own type), and read answers through the questions. It reads and writes no session
+    history, and one handler cannot judge and then call the text model — do that as two calls. Configure
+    `AgentRuntime....withJudgments(JevProvider.fromEnv())` (`TYPESAFE_API_KEY`). A check too fuzzy for a
+    pattern is a `Guardrail.judged(name).onInput(Refuse.ifYes(q, atLeast = 0.7))`, placed after the
+    free deterministic guardrails; a check it could not make is `Unavailable`, never `Forbidden`. Test
+    with `TestJudgmentProvider` — `expect` per judgment, `always` for a guardrail's questions.
 
 ## Streaming
 
@@ -145,6 +156,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/build/workflows.md` — Build a durable multi-step process in Scala or Python — commands, steps, transitions, pauses, timeouts, retries and compensation — that resumes where it stopped after a crash.
 - `references/build/agents.md` — Write an agent in Scala, Python or TypeScript — instructions, tools, guardrails, session memory, structured replies and compaction — and configure the model it talks to.
+- `references/build/judgments.md` — Ask a System One model typed questions about a state — a choice, a score, a yes or no — read typed answers with their probabilities, guard agents with them, and test them offline.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
 - `references/build/autonomous-agents.md` — Write an autonomous agent in Scala or Python — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.

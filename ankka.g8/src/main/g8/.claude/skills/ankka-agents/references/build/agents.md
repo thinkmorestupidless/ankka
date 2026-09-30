@@ -344,6 +344,13 @@ Guardrails run in the order they are declared and stop at the first rejection, s
 On a streaming handler, output guardrails run after the tokens have been sent; see
 [Streaming responses](streaming.md).
 
+A check too fuzzy for a pattern — whether a message tries to override the agent's instructions, whether a
+reply gives medical advice — is a judged guardrail: `Guardrail.judged(name)` with rules such as
+`Refuse.ifYes(question, atLeast = 0.7)`, which asks a System One model typed questions about the same text.
+It goes in the same list, after the free checks. When its provider cannot be reached the interaction does
+not proceed and the caller gets `Unavailable` rather than `Forbidden`. See
+[Judged guardrails](judgments.md#judged-guardrails).
+
 ## Memory
 
 Session memory is an event-sourced entity keyed by session id. It is durable — a conversation survives a
@@ -423,6 +430,11 @@ loop, tools, memory and guardrails are above it.
 `AgentRuntime.withDefaultModel(model, modelTimeout)` waits two minutes for a model call by default,
 because a model working through a multi-step task can legitimately take that long. An `AgentRuntime()`
 with no default model requires every handler to name one with `effects.model(provider)`.
+
+`.withJudgments(provider, timeout)` adds the service's judgment provider — a System One model that answers
+typed questions rather than writing text — for judgment effects and judged guardrails; `JevProvider.fromEnv()`
+is TypeSafe AI's Jev. A service that only judges needs no text model: `AgentRuntime().withJudgments(provider)`.
+See [Judgments](judgments.md).
 
 ## Compaction
 

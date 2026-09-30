@@ -108,6 +108,25 @@ provider reports them. The platform adds them to the session and shows them in
 [the local console](../operate/local-console.md). It reports tokens, not money, because the provider
 reports tokens; there is no price table, and cost is shown as unknown rather than as zero.
 
+## Judgments
+
+A text model is not the only thing a service can ask. A **judgment** is the answer to a set of typed
+questions about a state — a choice among described options, a score on a scale of described levels, a yes
+or no — from a System One model, which writes no text: every question is answered at once, each restricted
+to the shape it allows and carrying the probabilities behind it. It is the tool for a decision with a
+bounded set of answers that code then acts on, and it answers in a fraction of a second at a small
+fraction of a text model's cost.
+
+It sits on its own seam, `JudgmentProvider`, beside `ModelProvider`, because it fits none of the shapes
+around it. It is not a component: a judgment has no identity, state or lifecycle. It is not another model
+behind the text seam, which takes a conversation and tools and returns prose and tool calls; a System One
+model takes and returns neither. And it is not a kind of agent: it keeps no conversation and calls no
+tools. An agent's handler asks for one as an effect and replies with it, and a judged guardrail asks
+questions about the text going into or out of a model instead of matching a pattern. A judgment reads no
+session history and writes no message, but the tokens it spends are recorded against the session it was
+asked in, as a figure of their own: a sum over two models priced a hundred times apart would mean nothing.
+See [Judgments](../build/judgments.md).
+
 ## Compaction
 
 A long conversation eventually outgrows any model's context window. Compaction replaces the oldest part

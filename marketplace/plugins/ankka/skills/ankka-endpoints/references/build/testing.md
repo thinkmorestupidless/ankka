@@ -318,6 +318,26 @@ Two rules keep scripted-model tests honest:
 - **Let a workflow finish before the test ends.** A workflow left mid-flight keeps taking responses from
   a shared script, starving the next test.
 
+### Scripting judgments
+
+`TestJudgmentProvider` does for [judgments](judgments.md) what `TestModelProvider` does for text, and it
+is a separate script, so neither consumes the other's. Give it to the runtime with
+`AgentRuntime.withDefaultModel(model).withJudgments(judge)`.
+
+| Method | Scripts |
+|---|---|
+| `expect(answers*)` | One judgment's answers, taken in order. |
+| `always(answers*)` | Standing answers by question, used whenever the question is asked without consuming the queue — for a guardrail asked on every request. |
+| `failNext(message, timedOut)` | One judgment that fails as a provider's outage would; each call queues one. |
+| `reporting(usage)` | The tokens every judgment reports; zero unless set. |
+
+`Answers.choice(question, value, confidence)`, `Answers.score(question, score)` and
+`Answers.yesNo(question, probability)` script an answer by its value, with probabilities and a confidence
+consistent with it; `Answers.choiceWith` and `Answers.scoreWith` take the full probabilities. Each is
+checked against its question as it is written. A question the script has no answer for, or an answer for a
+question that was not asked, fails the call naming the question. `requests`, `lastRequest` and `callCount`
+show what was asked, and `reset()` clears everything, the reported usage included.
+
 ### Scripting a model in Python and TypeScript
 
 `AgentTestKit` runs the handler and then the loop the sidecar would run, against a `ScriptedModel`

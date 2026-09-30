@@ -1,10 +1,11 @@
 ---
 name: ankka-agents
-description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
+description: Design, write, change or test an ankka agent in Scala, Python, TypeScript or Rust — the effect that describes one model interaction (system and user messages, withContext, tools, guardrails, memory, model), FunctionTool design, session ids and shared sessions, MemoryProvider and compaction, structured replies with thenReplyAs, streaming over SSE, AnthropicProvider settings, TestModelProvider scripts, judgments — typed questions answered by a System One model such as Jev, judged guardrails and TestJudgmentProvider — several agents coordinated from a workflow, and autonomous agents — tasks with typed results, rules and iteration budgets, instances that are assigned, suspended and terminated, notifications, and the at-least-once tools a resumed task runs. Use when the task names an agent, a tool, a session, a guardrail, a model, a prompt, an LLM or Claude, a judgment, a classification, Jev or TypeSafe, multi-agent orchestration, streaming tokens, an autonomous agent, a task, or a background job for a model.
 pages:
   - concepts/agents.md
   - concepts/designing-agents.md
   - build/agents.md
+  - build/judgments.md
   - build/streaming.md
   - build/multi-agent-orchestration.md
   - concepts/autonomous-agents.md
@@ -20,7 +21,9 @@ An agent's handler describes one interaction as an effect (instructions, the mes
 which memory, which model) and returns it. The runtime runs the loop: calls the model, runs the tools it
 asks for, feeds results back until it answers, applies guardrails, writes the session and counts tokens.
 An agent is addressed by a **session id**, one request per session at a time. In Python the loop runs in
-the sidecar, which calls back into the process only to run a tool or a guardrail.
+the sidecar, which calls back into the process only to run a tool or a guardrail. A Scala handler can
+instead ask for a **judgment** — typed questions about a state answered by a System One model, with the
+probabilities behind each answer — for a decision whose answer is one of a known set.
 
 ## Rules
 
@@ -74,6 +77,15 @@ the sidecar, which calls back into the process only to run a tool or a guardrail
     validates, all on the workflow's id as the session, a summariser filtered to the specialists' roles.
     A person in the loop is an agent that proposes (`thenReplyAs`) and a workflow that pauses and applies
     on a command.
+13. **A decision with a bounded answer is a judgment, not a text model call.** Which team, how severe,
+    whether a refund is asked for: declare `Question.choice`/`score`/`yesNo` values with wire ids on the
+    companion, return `effects.judgment.state(...).question(...).thenReply()` (or `thenReply(f)` to
+    reply with your own type), and read answers through the questions. It reads and writes no session
+    history, and one handler cannot judge and then call the text model — do that as two calls. Configure
+    `AgentRuntime....withJudgments(JevProvider.fromEnv())` (`TYPESAFE_API_KEY`). A check too fuzzy for a
+    pattern is a `Guardrail.judged(name).onInput(Refuse.ifYes(q, atLeast = 0.7))`, placed after the
+    free deterministic guardrails; a check it could not make is `Unavailable`, never `Forbidden`. Test
+    with `TestJudgmentProvider` — `expect` per judgment, `always` for a guardrail's questions.
 
 ## Streaming
 

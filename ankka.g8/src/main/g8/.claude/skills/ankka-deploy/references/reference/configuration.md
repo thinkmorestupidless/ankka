@@ -158,6 +158,14 @@ port at 7627, and every one of them but readiness is mutual TLS with certificate
 Every variable beginning `ANTHROPIC_` or `ANKKA_MODEL_` in a process-hosted service's descriptor goes to the
 sidecar, never to the process.
 
+- `TYPESAFE_API_KEY` is the key for TypeSafe AI's API, which answers [judgments](../build/judgments.md). A
+  Scala service reads it when it constructs `JevProvider.fromEnv()`, which fails at startup when it is not
+  set.
+- `TYPESAFE_BASE_URL` is optional: where that provider's requests go instead of `https://api.typesafe.ai`,
+  such as a gateway that passes them through unchanged.
+
+Neither is routed to a sidecar: judgments are available to Scala services only.
+
 ### Broker topics
 
 - `ANKKA_KAFKA_BOOTSTRAP_SERVERS` is the Kafka bootstrap address for a process-hosted service. The sidecar

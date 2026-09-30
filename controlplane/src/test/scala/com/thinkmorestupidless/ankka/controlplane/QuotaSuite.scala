@@ -303,6 +303,12 @@ class QuotaSuite extends munit.FunSuite with LogCapturing:
       .invoke(RecordService("shared/x", None))
     assertEquals(summary("globex", as = bob).usage, Usage(1, 0, 0), "wrong, as an old record is")
 
+    // The snapshot reads two views: the organization's projects, then each project's services. Wait
+    // for both, or a lagging project row means no services are visited and the record stays wrong.
+    val _ = eventually("the project reaches the listing the snapshot reads") {
+      val (_, body) = send("GET", "/projects?organization=globex", bob)
+      Option.when(body.contains("\"id\":\"shared\""))(body)
+    }
     val _ = eventually("the service reaches the listing the snapshot reads") {
       val (_, body) = send("GET", "/services/shared", bob)
       Option.when(body.contains("\"name\":\"x\""))(body)

@@ -1,9 +1,10 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokens
 
 /** The credential's shape, and what may and may not be mistaken for one. */
-class DeployTokensSuite extends munit.FunSuite:
+class DeployTokensSuite extends munit.FunSuite with LogCapturing:
 
   test("a minted token has the documented shape, and its parts round-trip") {
     val minted = DeployTokens.mint()

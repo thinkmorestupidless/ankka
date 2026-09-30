@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.agent.{TaskResultRequest, ToolRequest}
 import ankka.protocol.v1.discovery.AutonomousAgentDetail
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestModelProvider}
@@ -19,7 +20,7 @@ import scala.util.Try
  * process: the loop, the records and the model are the sidecar's; the double is asked to run a
  * tool, check a guardrail or check a rule, each naming the task's session.
  */
-class RemoteAutonomousAgentSuite extends munit.FunSuite:
+class RemoteAutonomousAgentSuite extends munit.FunSuite with LogCapturing:
   import ProcessDouble.*
 
   given ExecutionContext = ExecutionContext.global

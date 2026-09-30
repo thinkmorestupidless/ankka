@@ -2,6 +2,7 @@ package shoppingcart
 
 // A wildcard because `forAgent` is an extension method on `ComponentClient` and `Json` is the agent
 // module's own, not the core's.
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.core.{CommandError, EntityId, ErrorCode, SessionId}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
@@ -18,7 +19,7 @@ import scala.concurrent.duration.DurationInt
  * inside the agent loop, which runs *after* the handler returned, so this is what proves the client
  * the tool captured is still usable there.
  */
-class CartAssistantSuite extends munit.FunSuite:
+class CartAssistantSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

@@ -1,12 +1,13 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.ComponentId
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, ConsumerContext, SimpleChangeContext}
 
 /** The cascade against real task entities and no runtime: what it cancels, and what it leaves. */
-class TaskCascadeSuite extends munit.FunSuite:
+class TaskCascadeSuite extends munit.FunSuite with LogCapturing:
 
   private val answer = Task.named("answer").describedAs("Answer").resultConformsTo[Answer]
   private val usage  = TokenUsage(1, 1)

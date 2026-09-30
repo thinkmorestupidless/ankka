@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.typesafe.config.ConfigFactory
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
@@ -21,7 +22,7 @@ import scala.concurrent.duration.*
  * caller waiting on a stashed command would time out. An explicit queue held in the actor's state
  * can answer every queued caller `Unavailable` from `PostStop`, which is the shape the host uses.
  */
-class StashSpike extends munit.FunSuite:
+class StashSpike extends munit.FunSuite with LogCapturing:
 
   sealed trait Cmd
   final case class Invoke(id: Int, replyTo: ActorRef[String]) extends Cmd

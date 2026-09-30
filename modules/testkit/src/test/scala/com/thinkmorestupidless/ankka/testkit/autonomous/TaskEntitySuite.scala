@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.agent.autonomous.TaskEntity.*
@@ -7,7 +8,7 @@ import com.thinkmorestupidless.ankka.core.{Done, ErrorCode}
 import com.thinkmorestupidless.ankka.testkit.EventSourcedTestKit
 
 /** Every transition of a task's lifecycle, and every refusal, with no runtime. */
-class TaskEntitySuite extends munit.FunSuite:
+class TaskEntitySuite extends munit.FunSuite with LogCapturing:
 
   private val worker = Assignee("answerer", "i-1")
   private val other  = Assignee("answerer", "i-2")

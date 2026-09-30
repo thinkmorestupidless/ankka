@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.ServiceEntity
 import com.thinkmorestupidless.ankka.controlplane.domain.*
@@ -8,7 +9,7 @@ import com.thinkmorestupidless.ankka.core.ErrorCode
 import com.thinkmorestupidless.ankka.testkit.EventSourcedTestKit
 
 /** Desired state, observed state, and the rules that keep them apart. */
-class ServiceEntitySuite extends munit.FunSuite:
+class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def newKit = EventSourcedTestKit.of(ServiceEntity, "acme/cart")
 

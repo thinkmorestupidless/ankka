@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.tenancy.{OrganizationCreation, OrganizationPolicy}
 import com.typesafe.config.ConfigFactory
 
@@ -8,7 +9,7 @@ import com.typesafe.config.ConfigFactory
  * the default is open with nowhere to send anyone, both values load, the refusal reads as
  * documented, and a typo does not come up as "open".
  */
-class OrganizationPolicySuite extends munit.FunSuite:
+class OrganizationPolicySuite extends munit.FunSuite with LogCapturing:
 
   private def load(overrides: String = "") =
     OrganizationPolicy.from(

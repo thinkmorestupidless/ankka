@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.agent.{GuardrailRequest, PlanRequest, ToolRequest}
 import com.thinkmorestupidless.ankka.agent.{
   AgentRuntime,
@@ -33,7 +34,7 @@ import scala.util.Try
  * arguments, a tool error is fed back and the loop goes on, tokens stream in order, a guardrail
  * blocks, the session outlives the process, and the step bound holds.
  */
-class RemoteAgentSuite extends munit.FunSuite:
+class RemoteAgentSuite extends munit.FunSuite with LogCapturing:
   import ProcessDouble.*
 
   given ExecutionContext = ExecutionContext.global

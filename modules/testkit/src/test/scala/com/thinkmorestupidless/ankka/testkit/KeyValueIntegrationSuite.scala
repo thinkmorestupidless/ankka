@@ -5,7 +5,7 @@ import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCo
 import scala.concurrent.duration.DurationInt
 
 /** Key value entities on real sharding and Postgres durable state. */
-class KeyValueIntegrationSuite extends munit.FunSuite:
+class KeyValueIntegrationSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

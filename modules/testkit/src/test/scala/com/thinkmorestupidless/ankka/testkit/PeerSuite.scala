@@ -6,7 +6,7 @@ import org.apache.pekko.cluster.{Cluster, MemberStatus}
 import scala.concurrent.duration.DurationInt
 
 /** Two nodes of one service on one machine and one database, with no Kubernetes. */
-class PeerSuite extends munit.FunSuite:
+class PeerSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

@@ -1688,6 +1688,18 @@ drops every entity from memory, so a test can prove durability rather than cachi
 `TestModelProvider` answers from a script and **fails loudly** when the script runs out —
 a test whose model quietly returned a default is no longer testing what it says.
 
+**Every suite that can see `testkit` mixes in `LogCapturing`** (testkit's own tests, the control
+plane, the sidecar, the samples): its log is held in memory and printed only for a failing test, a
+test whose `beforeEach` failed, or a suite whose `beforeAll` failed. `ANKKA_TEST_LOGS=all` (or
+`-Dankka.test.logs=all`) turns it off. A new suite should mix it in too; `runtime`, `http` and
+`agent` sit below `testkit` and cannot, and rely on their own `logback-test.xml` instead. Capture
+is one per JVM, starts when munit constructs a suite (just before running it) and ends in a
+fixture's `afterAll`, which munit runs *before* the suite's own `afterAll` — so teardown logs are
+printed, deliberately: keeping capture on past the suite could swallow the next suite's log. A
+suite that overrides `munitFixtures` must include `super.munitFixtures`, or capture never ends.
+`LogCapturingSuite` itself does not mix it in, because its assertions need the root logger's real
+appenders.
+
 ## Other agent configs
 
 A `~/.codex/config.toml` is present. Reply `/import` to scan and list what is importable

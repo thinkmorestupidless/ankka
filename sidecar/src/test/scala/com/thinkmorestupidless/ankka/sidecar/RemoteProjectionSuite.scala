@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.consumer.ConsumerRequest as PbConsumerRequest
 import ankka.protocol.v1.discovery.Kind
 import ankka.protocol.v1.payload as pb
@@ -37,7 +38,7 @@ import scala.util.Try
  * remote entity's events, a remote view over a topic the consumer produces to, a remote timed
  * action fired by the sweeper, and a key value entity set, read, deleted and recovered.
  */
-class RemoteProjectionSuite extends munit.FunSuite:
+class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
   import ProcessDouble.*
 
   given ExecutionContext = ExecutionContext.global

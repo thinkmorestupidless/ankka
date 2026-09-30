@@ -21,7 +21,7 @@ import scala.concurrent.duration.*
  *
  * Gated on `-Dankka.spikes=on`.
  */
-class RememberEntitiesSpike extends munit.FunSuite:
+class RememberEntitiesSpike extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

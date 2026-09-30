@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.operator.{KeycloakAdmin, KeycloakStack}
 import org.testcontainers.containers.GenericContainer
 import org.testcontainers.containers.wait.strategy.Wait
@@ -21,7 +22,7 @@ import scala.jdk.CollectionConverters.*
  *
  * Needs Docker, like every integration suite.
  */
-class KeycloakRealmSuite extends munit.FunSuite:
+class KeycloakRealmSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 6.minutes
 

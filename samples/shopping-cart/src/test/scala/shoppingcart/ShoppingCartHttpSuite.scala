@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.api.ShoppingCartEndpoint
@@ -17,7 +18,7 @@ import scala.concurrent.duration.DurationInt
  * Uses the JDK's own HTTP client rather than a pekko one, so the test exercises ankka from outside
  * as an ordinary web service.
  */
-class ShoppingCartHttpSuite extends munit.FunSuite:
+class ShoppingCartHttpSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

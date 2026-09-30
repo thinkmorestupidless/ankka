@@ -1,12 +1,13 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 
 import scala.concurrent.Await
 import scala.concurrent.duration.DurationInt
 
 /** The sidecar's scripted model: ordered turns, and standing rules on what a request contains. */
-class ModelsSuite extends munit.FunSuite:
+class ModelsSuite extends munit.FunSuite with LogCapturing:
 
   private def next(model: TestModelProvider, request: ModelRequest): ModelResponse =
     Await.result(model.complete(request), 1.second)

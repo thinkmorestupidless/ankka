@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.{
   OrganizationEntity,
@@ -26,7 +27,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * staleness — runs here with no Kubernetes anywhere. That is the point of the seam: the paths that
  * matter most are the ones a real cluster will not produce on demand.
  */
-class ProjectorSuite extends munit.FunSuite:
+class ProjectorSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

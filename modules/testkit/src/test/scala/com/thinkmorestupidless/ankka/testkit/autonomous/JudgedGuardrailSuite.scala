@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.agent.judgment.*
@@ -16,7 +17,7 @@ import scala.concurrent.duration.*
  * model call and a completed result before it is accepted, refuses as a deterministic guardrail
  * refuses, and treats a check it could not make as a failed iteration — retried, and bounded.
  */
-class JudgedGuardrailSuite extends munit.FunSuite:
+class JudgedGuardrailSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

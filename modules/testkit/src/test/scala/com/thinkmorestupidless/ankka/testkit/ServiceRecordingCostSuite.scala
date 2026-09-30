@@ -22,7 +22,7 @@ import munit.FunSuite
  *
  * Needs Docker, like every integration suite here, and is off unless benchmarks are asked for.
  */
-final class ServiceRecordingCostSuite extends FunSuite:
+final class ServiceRecordingCostSuite extends FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = !sys.props.get("ankka.benchmarks").contains("on")
 

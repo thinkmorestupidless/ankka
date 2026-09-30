@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.discovery.{CallerMatcher, Endpoint as EndpointSpec, NamedService}
 import ankka.protocol.v1.endpoint.Caller.Kind
 import ankka.protocol.v1.payload.Empty
@@ -21,7 +22,7 @@ import scala.util.Try
  * binding, specificity, query and headers, status passthrough, faults, the ACL applied before the
  * process is reached, SSE frames JSON-encoded, and a stopped process answering 503.
  */
-class RemoteEndpointSuite extends munit.FunSuite:
+class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
 
   given ExecutionContext = ExecutionContext.global
 

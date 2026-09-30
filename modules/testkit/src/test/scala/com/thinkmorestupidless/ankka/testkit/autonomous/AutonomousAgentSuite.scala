@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
@@ -10,7 +11,7 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /** Autonomous agents end to end: real sharding, real journals, a scripted model. */
-class AutonomousAgentSuite extends munit.FunSuite:
+class AutonomousAgentSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

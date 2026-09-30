@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import io.fabric8.kubernetes.api.model.{ConfigMapBuilder, ObjectMetaBuilder, Pod}
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.crd.AnkkaSerialization
@@ -32,7 +33,7 @@ import scala.jdk.CollectionConverters.*
  * What it settles (research R12): that the projector sweeps once, that a status seen by three nodes
  * is recorded once, and that nothing else in the control plane assumed it was alone.
  */
-class ControlPlaneClusterSuite extends munit.FunSuite:
+class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 20.minutes
 

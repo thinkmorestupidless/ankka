@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex.Live
 import com.thinkmorestupidless.ankka.controlplane.domain.DeployTokenEvent.*
@@ -15,7 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
  * and when an entry has expired. The parts that need a journal — the cold replay and the caught-up
  * signal — are `IndexProjectionSpike`'s, and the end-to-end behaviour is `ControlPlaneHttpSuite`'s.
  */
-class DeployTokenIndexSuite extends munit.FunSuite:
+class DeployTokenIndexSuite extends munit.FunSuite with LogCapturing:
 
   private val created = Instant.parse("2026-09-25T10:00:00Z")
   private val expiry  = Instant.parse("2026-12-24T10:00:00Z")

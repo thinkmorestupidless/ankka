@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.discovery.*
 import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.core.{
@@ -24,7 +25,7 @@ import scala.concurrent.{Await, ExecutionContext, Future}
  * `GrpcConversation` and `Discovery` on one side, `ProcessDouble` on the other. No actor system
  * beyond a scheduler, no database, no cluster — the protocol alone.
  */
-class ProtocolSuite extends munit.FunSuite:
+class ProtocolSuite extends munit.FunSuite with LogCapturing:
 
   given ExecutionContext = ExecutionContext.global
 

@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.http.{Caller, HttpServer}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import shoppingcart.api.CallersEndpoint
@@ -10,7 +11,7 @@ import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import scala.concurrent.duration.DurationInt
 
 /** The caller-naming ACLs of the sample, tested without a cluster by naming the caller. */
-class CallersSuite extends munit.FunSuite:
+class CallersSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

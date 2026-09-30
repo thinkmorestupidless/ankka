@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestModelProvider}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.EntityId
@@ -15,7 +16,7 @@ import java.net.http.{HttpClient, HttpRequest as JdkRequest, HttpResponse as Jdk
 import scala.concurrent.duration.DurationInt
 
 /** The cart answerer, with a scripted model, over real HTTP and a real journal. */
-class CartAnswererSuite extends munit.FunSuite:
+class CartAnswererSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

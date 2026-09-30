@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import munit.FunSuite
 
 import java.nio.file.{Files, Path, Paths}
@@ -25,7 +26,7 @@ import scala.util.Try
  * Rendering needs kustomize, which ships inside kubectl, and the repository does not otherwise
  * require it on the host — the k3s suites use the *node's* kubectl, not this machine's.
  */
-final class RemoteOverlaySuite extends FunSuite:
+final class RemoteOverlaySuite extends FunSuite with LogCapturing:
 
   private val kubectl = Try("kubectl version --client".!(ProcessLogger(_ => ()))).getOrElse(1) == 0
 

@@ -1,11 +1,12 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.controlplane.domain.{Service, ServiceKey}
 
 /** The four reasons a service cannot be exposed, as values — contracts/expose-api.md. */
-class ExposureRulesSuite extends munit.FunSuite:
+class ExposureRulesSuite extends munit.FunSuite with LogCapturing:
 
   private val configured = DeployConfig.default.copy(baseDomain = Some("example.test"))
 

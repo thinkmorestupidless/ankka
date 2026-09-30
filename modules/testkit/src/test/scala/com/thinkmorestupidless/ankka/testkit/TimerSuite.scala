@@ -7,7 +7,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
 /** Scheduled calls: durable, at-least-once, cancellable. */
-class TimerSuite extends munit.FunSuite:
+class TimerSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

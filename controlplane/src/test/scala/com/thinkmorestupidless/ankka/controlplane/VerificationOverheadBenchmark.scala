@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
 import com.thinkmorestupidless.ankka.controlplane.auth.{DeployTokenIndex, DeployTokens}
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
@@ -32,7 +33,7 @@ import scala.concurrent.duration.DurationInt
  * sbt -Dankka.benchmarks=on 'controlPlane/testOnly *VerificationOverheadBenchmark'
  * }}}
  */
-final class VerificationOverheadBenchmark extends munit.FunSuite:
+final class VerificationOverheadBenchmark extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = !sys.props.get("ankka.benchmarks").contains("on")
 

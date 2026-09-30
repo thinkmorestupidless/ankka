@@ -16,7 +16,7 @@ import scala.concurrent.duration.*
  * Without this, every invocation is its own root and the Traces panel shows a flat list of
  * unrelated things, which looks plausible and explains nothing.
  */
-final class TraceCorrelationSuite extends FunSuite:
+final class TraceCorrelationSuite extends FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

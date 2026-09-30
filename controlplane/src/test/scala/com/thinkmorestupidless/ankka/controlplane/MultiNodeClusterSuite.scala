@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import io.fabric8.kubernetes.api.model.Pod
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
@@ -43,7 +44,7 @@ import scala.jdk.CollectionConverters.*
  * Slow, deliberately: twenty simultaneous cold starts (SC-002), because one clean formation is no
  * evidence for a race. Disable with `-Dankka.cluster.tests=off`.
  */
-class MultiNodeClusterSuite extends munit.FunSuite:
+class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 50.minutes
 

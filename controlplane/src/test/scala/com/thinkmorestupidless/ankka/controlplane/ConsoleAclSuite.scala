@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.cli.console.{InvokeRequest, LocalSource}
 import com.thinkmorestupidless.ankka.http.{Acl, HttpEndpoint, HttpServer}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
@@ -31,7 +32,7 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
  * It lives here because this is the one module whose test scope sees both `cli` (the console) and
  * `testkit` (a real service to point it at).
  */
-final class ConsoleAclSuite extends FunSuite:
+final class ConsoleAclSuite extends FunSuite with LogCapturing:
 
   override val munitTimeout = 3.minutes
 

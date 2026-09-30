@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientBuilder}
 import com.thinkmorestupidless.ankka.cli.Main
 import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
@@ -44,7 +45,7 @@ import scala.jdk.CollectionConverters.*
  *
  * Disable with `-Dankka.cluster.tests=off`.
  */
-class EndToEndClusterSuite extends munit.FunSuite:
+class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 14.minutes
 

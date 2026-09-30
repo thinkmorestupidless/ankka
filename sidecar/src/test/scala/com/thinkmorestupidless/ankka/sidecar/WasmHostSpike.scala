@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import ankka.protocol.v1.discovery.{Kind, SidecarInfo}
 import ankka.protocol.v1.event_sourced.{EventSourcedIn, EventSourcedOut}
 import ankka.protocol.v1.payload.Payload
@@ -47,7 +48,7 @@ import scala.util.Try
  * measurements are gated on `-Dankka.benchmarks` like `LoopbackLatencySpike`, whose number they are
  * read against.
  */
-class WasmHostSpike extends munit.FunSuite:
+class WasmHostSpike extends munit.FunSuite with LogCapturing:
 
   override def munitTimeout: Duration = 10.minutes
 

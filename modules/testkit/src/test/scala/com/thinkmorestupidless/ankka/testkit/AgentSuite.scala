@@ -10,7 +10,7 @@ import scala.jdk.CollectionConverters.*
  * Agents end to end: sharded per session, real session memory in Postgres, real tool loop — with a
  * scripted model so the assertions are about ankka's behaviour rather than a model's mood.
  */
-class AgentSuite extends munit.FunSuite:
+class AgentSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

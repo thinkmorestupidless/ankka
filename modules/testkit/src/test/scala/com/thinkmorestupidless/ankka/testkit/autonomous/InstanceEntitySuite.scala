@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.agent.autonomous.InstanceEvent as E
@@ -7,7 +8,7 @@ import com.thinkmorestupidless.ankka.core.{ComponentId, ErrorCode}
 import com.thinkmorestupidless.ankka.testkit.{CommandResult, EventSourcedTestKit}
 
 /** An instance's record: the queue, the current task, the counters and the refusals. */
-class InstanceEntitySuite extends munit.FunSuite:
+class InstanceEntitySuite extends munit.FunSuite with LogCapturing:
 
   private def kit() =
     EventSourcedTestKit.of(InstanceEntity, InstanceEntity.idFor(ComponentId("answerer"), "i-1"))

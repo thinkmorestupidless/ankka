@@ -1,5 +1,6 @@
 package shoppingcart
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.core.EntityId
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 import com.thinkmorestupidless.ankka.runtime.{InMemoryPublisher, ProjectionRuntime}
@@ -16,7 +17,7 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
  * once. That is not test hygiene papering over a race — it is the actual consistency model, and a
  * test that pretended otherwise would be testing a system ankka does not provide.
  */
-class CartViewSuite extends munit.FunSuite:
+class CartViewSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

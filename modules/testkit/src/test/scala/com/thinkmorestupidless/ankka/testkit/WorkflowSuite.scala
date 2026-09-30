@@ -5,7 +5,7 @@ import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCo
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /** The workflow engine against real sharding, persistence and recovery. */
-class WorkflowSuite extends munit.FunSuite:
+class WorkflowSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 5.minutes
 

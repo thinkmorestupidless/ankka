@@ -13,7 +13,7 @@ import scala.jdk.OptionConverters.*
  * Token streaming all the way out: agent -> token ref -> pekko stream -> SSE -> a plain JDK HTTP
  * client reading the wire.
  */
-class HttpSseSuite extends munit.FunSuite:
+class HttpSseSuite extends munit.FunSuite with LogCapturing:
 
   override val munitTimeout = 4.minutes
 

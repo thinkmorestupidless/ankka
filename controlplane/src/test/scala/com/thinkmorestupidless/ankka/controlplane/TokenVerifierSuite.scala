@@ -1,12 +1,13 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.controlplane.auth.{Principals, Verification}
 
 import java.time.Instant
 import scala.concurrent.duration.DurationInt
 
 /** Every way a token is refused, and the two ways keys are refetched (contracts/http-api.md). */
-class TokenVerifierSuite extends munit.FunSuite:
+class TokenVerifierSuite extends munit.FunSuite with LogCapturing:
 
   private var identity: TestIdentity = null
 

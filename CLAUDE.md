@@ -729,9 +729,9 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   its own. `ankka init` used to run `sbt --allow-empty -batch "new <template> --name=…"`; the sbt 2
   launcher, not recognising that as `new`, sent it through its thin client (the default under sbt
   2), which appends `sbtCompleteExec <id>`, `resumeFromFailure` and `shell` — and giter8 refused them
-  as `Unknown argument`, for every template. The Scala template suite does not run in CI, so the
-  first sign was a laptop with the sbt 2 launcher. `Init.command` builds the arguments; `InitSuite`
-  refuses one that holds a space.
+  as `Unknown argument`, for every template. The Scala template suite did not run in CI then, so the
+  first sign was a laptop with the sbt 2 launcher; the `template-scala` job now runs it under both
+  launcher lines. `Init.command` builds the arguments; `InitSuite` refuses one that holds a space.
 - **A wildcard is one label deep — for X.509 certificates and for Gateway API listeners alike.**
   `*.example.test` covers `cart-checkout.example.test` and not `cart.checkout.example.test`; two
   implementations that got the listener rule wrong filed it as a bug. With TLS on the

@@ -263,6 +263,29 @@ class JudgmentAgentSuite extends munit.FunSuite:
     assert(historyOf("g-stream").messages.isEmpty)
   }
 
+  // ── US4 ──────────────────────────────────────────────────────────────────
+
+  test("the judgment script and the model script are separate: neither consumes the other's") {
+    // docs:start testing
+    // Standing answers for the guardrail, asked on every request.
+    judge.always(
+      Answers.yesNo(TriageAgent.Safety.overridesInstructions, 0.02),
+      Answers.yesNo(TriageAgent.Safety.givesMedicalAdvice, 0.01),
+      Answers.score(TriageAgent.Safety.hostility, 0),
+      Answers.choice(TriageAgent.Safety.topic, "general")
+    )
+    // One scripted reply per turn, for the text model.
+    model.expectText("Your order ships tomorrow.").expectText("It left the warehouse today.")
+
+    val first  = agent("s-both").call(TriageAgent.guarded).invoke("Where is my order?")
+    val second = agent("s-both").call(TriageAgent.guarded).invoke("And now?")
+
+    assertEquals((first, second), ("Your order ships tomorrow.", "It left the warehouse today."))
+    assertEquals(judge.callCount, 4) // an input and an output check per call
+    assertEquals(model.callCount, 2)
+    // docs:end testing
+  }
+
   test("a question asked twice is refused before any provider is asked") {
     val failure = refusal(agent("s-twice").call(TriageAgent.invalid).invoke(ticket))
     assert(failure.getMessage.contains("question 'route' is asked twice"), failure.getMessage)

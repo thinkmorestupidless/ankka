@@ -124,7 +124,7 @@ this file, and everything here still works without `just` installed.
 
 **CI builds pull requests, and only the parts a pull request touched.** `.github/workflows/ci.yml`
 opens with a `changes` job that maps changed paths onto the jobs (`build`, `docs`, `sdk-python`,
-`sdk-typescript`); an untouched job is skipped, which GitHub counts as a pass for a required check.
+`sdk-typescript`, `sdk-rust`, `console`, `template-scala`); an untouched job is skipped, which GitHub counts as a pass for a required check.
 The map errs towards running and is the whole argument, so a job that starts reading a new part of
 the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/`, `kustomization/`,
 `action/` and the root `docker-compose.yml`, and both SDK jobs build the sidecar image from the Scala
@@ -1430,7 +1430,11 @@ dirty, rather than shipping a snapshot named like a release. `com.thinkmorestupi
 **The template** is `ankka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which
 publishes locally, expands it into a temp directory through the real `ankka init`, and runs the
 expansion's own `sbt test` and image build as subprocesses (`-Dankka.template.tests=off` skips
-it; it needs `sbt` on `PATH` and Docker). For Scala `ankka init` shells out to `sbt new` and carries
+it; it needs `sbt` on `PATH` and Docker). CI runs it in its own `template-scala` job, once under
+each sbt launcher line, because `sbt new` runs outside any build and the launcher is what expands
+it. A template suite whose language is *named* in `-Dankka.template.tests` fails when its tools are
+missing rather than skipping: a job that asked for it would otherwise report green having run
+nothing (`TemplateSwitch.skip`). For Scala `ankka init` shells out to `sbt new` and carries
 no template of its own; it passes its `BuildInfo.version` as `--ankka_version`. The directory is
 named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
 `file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt

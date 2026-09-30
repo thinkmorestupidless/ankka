@@ -139,6 +139,22 @@ class JudgedGuardrailSuite extends munit.FunSuite:
     finally bare.stop()
   }
 
+  test("a task's judgment tokens are on its session, not in its own usage") {
+    judge
+      .reporting(TokenUsage(inputTokens = 100, outputTokens = 20))
+      .always(Answers.yesNo(harmful, 0.1), Answers.yesNo(leaksSecrets, 0.1))
+    model.expectCompleteTask(answer)
+    val id   = run()
+    val done = kit.awaitTask(id, Tasks.answer, 30.seconds)
+    assertEquals(done.status, TaskStatus.Completed)
+    val session = kit.componentClient
+      .forSessionMemory(IterationLoop.sessionIdFor(id))
+      .call(SessionMemoryEntity.history)
+      .invoke()
+    assertEquals(session.judgmentUsage, TokenUsage(inputTokens = 200, outputTokens = 40))
+    assertEquals(done.record.usage, TokenUsage.zero) // the scripted model reports none
+  }
+
   test("a judged guardrail with no rules is refused when the agent is declared") {
     val failure = intercept[IllegalArgumentException](Empty.descriptor)
     assert(

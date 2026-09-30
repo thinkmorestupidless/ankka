@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.agent.*
-import com.thinkmorestupidless.ankka.core.Serializer
+import com.thinkmorestupidless.ankka.core.{EntityId, Serializer}
 import com.thinkmorestupidless.ankka.testkit.autonomous.Fixtures
 
 /**
@@ -39,7 +39,8 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite:
       ToolResultAdded(result),
       ToolResultAdded(failed),
       HistoryCompacted(summary, 3),
-      Cleared
+      Cleared,
+      JudgmentUsageAdded(TokenUsage(inputTokens = 296, outputTokens = 20))
     )
 
   private val state = SessionHistory(Vector(summary, user, ai, result), usage, 98)
@@ -90,5 +91,70 @@ class SessionMemoryCompatibilitySuite extends munit.FunSuite:
   }
 
   test("every event case is pinned") {
-    assertEquals(events.map(_.ordinal).distinct.size, SessionMemoryEvent.Cleared.ordinal + 1)
+    assertEquals(
+      events.map(_.ordinal).distinct.size,
+      SessionMemoryEvent.JudgmentUsageAdded(TokenUsage.zero).ordinal + 1
+    )
+  }
+
+  // ── Judgment tokens ──────────────────────────────────────────────────────
+
+  private def kit() = EventSourcedTestKit.of(SessionMemoryEntity, EntityId("s-1"))
+
+  private val judged = TokenUsage(inputTokens = 100, outputTokens = 20)
+
+  test("a session in which no judgment was made is stored exactly as before") {
+    val encoded = String(stateSerializer.toBytes(state), "UTF-8")
+    assert(!encoded.contains("judgmentUsage"), encoded)
+    val withJudgments = String(stateSerializer.toBytes(state.copy(judgmentUsage = judged)), "UTF-8")
+    assert(
+      withJudgments.contains("\"judgmentUsage\":{\"inputTokens\":100,\"outputTokens\":20}"),
+      withJudgments
+    )
+  }
+
+  test("a turn's judgment tokens are persisted after its messages, as their own event") {
+    val k = kit()
+    val result = k.call(SessionMemoryEntity.append)(
+      SessionMemoryEntity.Append(Vector(user, ai), usage, judged)
+    )
+    assertEquals(
+      result.events,
+      Vector(
+        SessionMemoryEvent.UserMessageAdded(user),
+        SessionMemoryEvent.AiMessageAdded(ai, usage),
+        SessionMemoryEvent.JudgmentUsageAdded(judged)
+      )
+    )
+    assertEquals(k.currentState.judgmentUsage, judged)
+    assertEquals(k.currentState.usage, usage)
+  }
+
+  test("judgment tokens with no messages are persisted alone, and change nothing else") {
+    val k = kit()
+    k.call(SessionMemoryEntity.append)(SessionMemoryEntity.Append(Vector(user), usage)): Unit
+    val before = k.currentState
+    val result =
+      k.call(SessionMemoryEntity.append)(
+        SessionMemoryEntity.Append(Vector.empty, TokenUsage.zero, judged)
+      )
+    assertEquals(result.events, Vector(SessionMemoryEvent.JudgmentUsageAdded(judged)))
+    assertEquals(k.currentState, before.copy(judgmentUsage = judged))
+  }
+
+  test("an append with nothing in it persists nothing") {
+    val result =
+      kit().call(SessionMemoryEntity.append)(
+        SessionMemoryEntity.Append(Vector.empty, TokenUsage.zero)
+      )
+    assert(!result.persisted)
+  }
+
+  test("clearing a session clears its judgment tokens too") {
+    val k = kit()
+    k.call(SessionMemoryEntity.append)(
+      SessionMemoryEntity.Append(Vector.empty, TokenUsage.zero, judged)
+    ): Unit
+    k.call(SessionMemoryEntity.clear): Unit
+    assertEquals(k.currentState.judgmentUsage, TokenUsage.zero)
   }

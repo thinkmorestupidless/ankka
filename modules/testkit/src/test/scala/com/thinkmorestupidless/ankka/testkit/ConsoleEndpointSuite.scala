@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
-import com.thinkmorestupidless.ankka.agent.{SessionMemoryEntity, SessionMessage}
+import com.thinkmorestupidless.ankka.agent.{SessionMemoryEntity, SessionMessage, TokenUsage}
 import com.thinkmorestupidless.ankka.core.EntityId
 import munit.FunSuite
 
@@ -110,6 +110,25 @@ final class ConsoleEndpointSuite extends FunSuite:
     assertEquals(status, 200, body)
     assert(body.contains("what is the weather"), "the stored conversation is returned")
     assert(body.contains("usage"), "with the tokens it has cost")
+  }
+
+  test("a session's judgment tokens are shown as their own figure, and only when there are some") {
+    val sessionId = "console-judged"
+    val _ = testKit.componentClient
+      .forEventSourcedEntity(EntityId(sessionId))
+      .call(SessionMemoryEntity.append)
+      .invoke(
+        SessionMemoryEntity.Append(
+          Vector.empty,
+          TokenUsage.zero,
+          TokenUsage(inputTokens = 100, outputTokens = 20)
+        )
+      )
+
+    val (status, body) = get(s"/observability/sessions/$sessionId")
+    assertEquals(status, 200, body)
+    assert(body.contains("\"judgmentUsage\""), body)
+    assert(!get("/observability/sessions/console-session")._2.contains("judgmentUsage"))
   }
 
   test("a query handler can be run against an entity, and returns its state") {

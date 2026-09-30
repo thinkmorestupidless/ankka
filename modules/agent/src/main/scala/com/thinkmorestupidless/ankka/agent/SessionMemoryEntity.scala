@@ -4,11 +4,18 @@ import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
 import com.thinkmorestupidless.ankka.sdk.*
 
-/** A session's accumulated history. */
+/**
+ * A session's accumulated history.
+ *
+ * `usage` is what the text model cost; `judgmentUsage` what judgments asked in the session cost —
+ * the handler's own and its guardrails'. They are kept apart because the two models are priced a
+ * hundred times apart, and one figure summing both would mean nothing.
+ */
 final case class SessionHistory(
     messages: Vector[SessionMessage],
     usage: TokenUsage,
-    sizeInBytes: Int
+    sizeInBytes: Int,
+    judgmentUsage: TokenUsage = TokenUsage.zero
 ):
   def isEmpty: Boolean = messages.isEmpty
 
@@ -28,6 +35,12 @@ enum SessionMemoryEvent:
   /** Replaces everything before `keepFrom` with a summary. */
   case HistoryCompacted(summary: SessionMessage.SummaryMessage, droppedCount: Int)
   case Cleared
+
+  /**
+   * Tokens spent on judgments. Recorded with a turn's messages when there are some, and alone when
+   * there are none — a refused request, a judgment handler — which is why it is not on a message.
+   */
+  case JudgmentUsageAdded(usage: TokenUsage)
 
 /**
  * A conversation, as an event sourced entity.
@@ -63,6 +76,9 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
     case SessionMemoryEvent.Cleared =>
       SessionHistory.empty
 
+    case SessionMemoryEvent.JudgmentUsageAdded(usage) =>
+      currentState.copy(judgmentUsage = currentState.judgmentUsage + usage)
+
   def addUserMessage(message: SessionMessage.UserMessage): Effect[Done] =
     effects.persist(SessionMemoryEvent.UserMessageAdded(message)).thenReply(_ => Done)
 
@@ -90,8 +106,13 @@ final class SessionMemoryEntity(context: EventSourcedEntityContext)
       case message: SessionMessage.SummaryMessage =>
         SessionMemoryEvent.HistoryCompacted(message, 0)
     }
-    if events.isEmpty then effects.reply(Done)
-    else effects.persistAll(events).thenReply(_ => Done)
+    val judged =
+      Option.when(batch.judgmentUsage != TokenUsage.zero)(
+        SessionMemoryEvent.JudgmentUsageAdded(batch.judgmentUsage)
+      )
+    val all = events ++ judged
+    if all.isEmpty then effects.reply(Done)
+    else effects.persistAll(all).thenReply(_ => Done)
 
   /** Replaces the oldest `droppedCount` messages with `summary`. */
   def compact(request: SessionMemoryEntity.Compact): Effect[Done] =
@@ -145,7 +166,13 @@ object SessionMemoryEntity
     ):
 
   final case class AddAiMessage(message: SessionMessage.AiMessage, usage: TokenUsage)
-  final case class Append(messages: Vector[SessionMessage], usage: TokenUsage)
+
+  /** A turn's messages, what the text model cost, and what the turn's judgments cost. */
+  final case class Append(
+      messages: Vector[SessionMessage],
+      usage: TokenUsage,
+      judgmentUsage: TokenUsage = TokenUsage.zero
+  )
   final case class Compact(summary: String, droppedCount: Int, agentId: String)
 
   given Serializer[SessionMessage.UserMessage] =

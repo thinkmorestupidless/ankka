@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import scala.concurrent.Await
 import scala.concurrent.duration.FiniteDuration
 import scala.util.control.NonFatal
+import org.slf4j.LoggerFactory
 
 /**
  * One autonomous agent instance's work on one task, an iteration at a time.
@@ -47,6 +48,7 @@ private[ankka] final class IterationLoop(
   private val componentId = agent.context.componentId
   private val role        = componentId.toString
   private val tools       = agent.tools.map(t => t.name -> t).toMap
+  private val log         = LoggerFactory.getLogger(getClass)
 
   private def instance =
     client.forEventSourcedEntity(InstanceEntity.idFor(componentId, instanceId))
@@ -258,7 +260,7 @@ private[ankka] final class IterationLoop(
         refuse(s"result rejected — $because")
         IterationResult.Rejected(because)
       case TaskType.Verdict.Accepted(encoded) =>
-        checkGuardrails(encoded, Guardrails.Direction.Output) match
+        checkGuardrails(taskRecord.id, encoded, Guardrails.Direction.Output) match
           case Some(because) =>
             refuse(s"result rejected — $because")
             IterationResult.Rejected(because)
@@ -345,7 +347,7 @@ private[ankka] final class IterationLoop(
    */
   def startCheck(taskRecord: TaskRecord): StartCheck =
     try
-      checkGuardrails(taskRecord.instructions, Guardrails.Direction.Input) match
+      checkGuardrails(taskRecord.id, taskRecord.instructions, Guardrails.Direction.Input) match
         case Some(reason) => StartCheck.Refused(reason)
         case None         => StartCheck.Allowed
     catch
@@ -353,10 +355,32 @@ private[ankka] final class IterationLoop(
       // An exhausted script fails the task at once, as an exhausted model script does.
       case failure: JudgmentScriptFailed => StartCheck.Refused(failure.getMessage)
 
-  private def checkGuardrails(text: String, direction: Guardrails.Direction): Option[String] =
-    Guardrails
-      .check(definition.guardrails, text, direction, judgments, Guardrails.Spent())
-      .map(_.message)
+  /**
+   * The guardrails' verdict on `text`. What their judgments spent is recorded on the task's session
+   * whatever the verdict — allowed, refused, or a check that could not be made.
+   */
+  private def checkGuardrails(
+      taskId: String,
+      text: String,
+      direction: Guardrails.Direction
+  ): Option[String] =
+    val spent = Guardrails.Spent()
+    try Guardrails.check(definition.guardrails, text, direction, judgments, spent).map(_.message)
+    finally recordJudgmentUsage(taskId, spent.usage)
+
+  /** Best effort, as the request agent's: a task's outcome never turns on its accounting. */
+  private def recordJudgmentUsage(taskId: String, usage: TokenUsage): Unit =
+    if usage != TokenUsage.zero then
+      try
+        session(taskId)
+          .call(SessionMemoryEntity.append)
+          .invoke(SessionMemoryEntity.Append(Vector.empty, TokenUsage.zero, usage)): Unit
+      catch
+        case NonFatal(failure) =>
+          log.warn(
+            s"autonomous agent '$componentId' could not record judgment tokens for task '$taskId': " +
+              Option(failure.getMessage).getOrElse(failure.toString)
+          )
 
 private[ankka] object IterationLoop:
 

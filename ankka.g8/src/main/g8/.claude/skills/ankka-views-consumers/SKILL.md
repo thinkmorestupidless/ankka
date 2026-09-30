@@ -92,7 +92,10 @@ and `ConsumerTestKit` run them natively.
 Scala views and consumers that call components run under the integration testkit against a real
 projection and database; `InMemoryBroker` exercises the whole topic path with no Kafka, and
 `InMemoryPublisher` captures what a consumer published. Python and TypeScript have `ViewTestKit` and
-`ConsumerTestKit` that need no sidecar. Poll for rows; never read once.
+`ConsumerTestKit` that need no sidecar. Poll for rows; never read once. Poll on the value that changes,
+not on a row existing, since a row an earlier write left satisfies "exists"; ask of every test whether
+it could pass while the behaviour is broken (`references/build/testing.md`, "A test must be able to
+fail").
 
 ## Mistakes to check for
 

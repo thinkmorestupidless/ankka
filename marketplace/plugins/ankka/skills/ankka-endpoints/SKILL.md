@@ -81,7 +81,10 @@ status with `?`. The module never binds a port, and no route streams: a module a
 Run the service with `AnkkaTestKit`, register the server with `HttpServer.at("127.0.0.1", 0)`, and call
 the bound port with an HTTP client. Assert on statuses and bodies, including the status a refusal
 produces and the SSE encoding of a streaming route. A route's arity mismatch shows up at start, so a
-test that starts the service covers every route's shape.
+test that starts the service covers every route's shape. A status alone proves little — a `404` from a
+mistyped path is a successful exchange — so assert the body or the state the request changed, and write
+each acceptance scenario as one integration test through its route (`references/build/testing.md`,
+"Acceptance scenarios as integration tests").
 
 ## Mistakes to check for
 

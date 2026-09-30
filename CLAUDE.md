@@ -126,8 +126,13 @@ this file, and everything here still works without `just` installed.
 opens with a `changes` job that maps changed paths onto the jobs (`build`, `docs`, `sdk-python`,
 `sdk-typescript`); an untouched job is skipped, which GitHub counts as a pass for a required check.
 The map errs towards running and is the whole argument, so a job that starts reading a new part of
-the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/` and `kustomization/`,
-and both SDK jobs build the sidecar image from the Scala tree. `main` is branch-protected: a pull
+the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/`, `kustomization/`,
+`action/` and the root `docker-compose.yml`, and both SDK jobs build the sidecar image from the Scala
+tree. `.github/ci-coverage.py` runs first in `changes` and holds the map to the tree both ways: every
+tracked file is claimed by some filter, and every pattern matches some file. A file no job needs goes
+under the `unchecked` filter with its reason, so a new top-level directory fails CI until someone
+decides which job reads it, and a pattern left naming a moved file fails rather than never firing.
+`main` is branch-protected: a pull
 request merges only when every job has passed on a head up to date with `main`, so pushes to `main`
 are not built at all, and the README badge reads the latest pull request run. A full run on demand
 is `workflow_dispatch` (`gh workflow run ci`).

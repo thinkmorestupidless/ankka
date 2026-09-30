@@ -32,8 +32,13 @@ jobs:
       sdk-rust: ${{ steps.filter.outputs.sdk-rust == 'true' || github.event_name == 'workflow_dispatch' }}
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
+      # The map below is only as good as its coverage: a tracked file no filter claims is a file whose
+      # change runs nothing, and a pattern that matches no file can never fire. Both would pass
+      # silently, so this refuses both before the map is used.
+      - uses: actions/checkout@v7
+      - run: python3 .github/ci-coverage.py
       # On a pull request the action lists the changed files through the API against the base
-      # branch, so it needs no checkout; on a manual run there is no diff and every output is true.
+      # branch; on a manual run there is no diff and every output is true.
       - uses: dorny/paths-filter@v4
         if: github.event_name == 'pull_request'
         id: filter
@@ -41,6 +46,7 @@ jobs:
           filters: |
             workflow: &workflow
               - '.github/workflows/ci.yml'
+              - '.github/ci-coverage.py'
             # Everything that goes into `sbt compile test`, and everything a suite reads back out of
             # the tree. The sidecar image the SDK jobs build is a subset of the same inputs.
             scala-build: &scala-build
@@ -63,6 +69,10 @@ jobs:
               - 'kustomization/**'
               - 'docs/**'
               - 'homebrew/**'
+              # The GitHub Action, whose placeholders and install script `ActionSuite` runs.
+              - 'action/**'
+              # `RemoteOverlaySuite` checks the compose file runs the release's images.
+              - 'docker-compose.yml'
               # The wire fixtures the console's client is held to are written by a controlplane-api suite.
               - 'console/package/fixtures/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
@@ -79,6 +89,8 @@ jobs:
               - 'marketplace/**'
               - 'ankka.g8/**'
               - 'console/**'
+              # One of the files outside docs/ whose links to the site the check holds to it.
+              - 'README.md'
             # What `ankka init --language` renders, and the suites that run the result: each SDK job
             # proves its language's template against the SDK and sidecar it has just built.
             templates: &templates
@@ -119,6 +131,19 @@ jobs:
               - 'kustomization/components/console/**'
               - 'kustomization/components/keycloak/realm-import.json'
               - 'docs/reference/control-plane-api.md'
+            # Files no job reads, each for a reason. No job uses this output; it exists so that
+            # `ci-coverage.py` can tell a file left out on purpose from one nobody thought about.
+            unchecked:
+              - '.github/workflows/release.yml'   # runs only on a tag; nothing a pull request builds executes it
+              - '.githooks/**'                    # the pre-commit hook runs on a developer's machine
+              - 'Justfile'                        # thin wrappers over commands the jobs run directly
+              - '.gitignore'
+              - 'LICENSE.md'
+              - 'CLAUDE.md'
+              - 'assets/**'                       # images for the repository's own pages, not the site's
+              - '.claude/**'                      # spec-kit's commands for developing ankka
+              - '.specify/**'
+              - 'specs/**'                        # feature records; nothing builds from them
 
   build:
     needs: changes

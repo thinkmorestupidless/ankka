@@ -1,0 +1,1 @@
+{"model":"jev-1.13.0","answers":{"route":{"type":"Choice","key":"billing","probabilities":{"billing":0.88,"technical":0.08,"sales":0.04},"confidence":0.82},"frustration":{"type":"Score","score":1.43,"probabilities":[0.0,0.57,0.43,0.0],"confidence":0.35},"refund":{"type":"YesNo","probability":0.95}},"usage":{"inputTokens":296,"outputTokens":20}}

@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.thinkmorestupidless.ankka.agent.judgment.{JudgmentProvider, Judgments}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.runtime.{
   EntityProtocol,
@@ -32,7 +33,8 @@ import scala.util.{Failure, Success}
 final class AgentRuntime private (
     defaultModel: Option[ModelProvider],
     modelTimeout: FiniteDuration,
-    compaction: Option[(CompactionSettings, Summariser)]
+    compaction: Option[(CompactionSettings, Summariser)],
+    judgments: Judgments
 ) extends RuntimeExtension:
 
   def name: String = "agents"
@@ -56,7 +58,22 @@ final class AgentRuntime private (
             "AgentRuntime.withDefaultModel, or pass one explicitly"
         )
       case Some(summary) =>
-        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary))
+        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary), judgments)
+
+  /**
+   * Supplies a judgment provider, so an agent can ask typed questions of a state and a judged
+   * guardrail has someone to ask.
+   *
+   * A judgment is meant to be quick — a System One model answers in well under a second — so the
+   * timeout is short, and it bounds everything: a provider's retries included.
+   */
+  def withJudgments(
+      provider: JudgmentProvider,
+      timeout: FiniteDuration = Judgments.DefaultTimeout
+  ): AgentRuntime =
+    if timeout.length <= 0 then
+      throw IllegalArgumentException("withJudgments needs a positive timeout")
+    new AgentRuntime(defaultModel, modelTimeout, compaction, Judgments(Some(provider), timeout))
 
   /**
    * Everything this runtime needs registered.
@@ -70,6 +87,15 @@ final class AgentRuntime private (
 
   def start(service: AnkkaService): Unit =
     given system: org.apache.pekko.actor.typed.ActorSystem[?] = service.system
+
+    judgments.default.foreach { provider =>
+      system.log.info(
+        "judgments answered by '{}' ({}), within {}",
+        provider.name,
+        provider.modelName,
+        judgments.timeout
+      )
+    }
 
     startAutonomous(service)
 
@@ -217,7 +243,7 @@ final class AgentRuntime private (
 object AgentRuntime:
 
   /** Agents must each name a model via `effects.model(...)`. */
-  def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes, None)
+  def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes, None, Judgments.none)
 
   /**
    * Supplies a default model, so handlers need only describe the interaction.
@@ -230,7 +256,7 @@ object AgentRuntime:
       provider: ModelProvider,
       modelTimeout: FiniteDuration = 2.minutes
   ): AgentRuntime =
-    new AgentRuntime(Some(provider), modelTimeout, None)
+    new AgentRuntime(Some(provider), modelTimeout, None, Judgments.none)
 
   /**
    * What an agent-capable service must register when compaction is not in use.

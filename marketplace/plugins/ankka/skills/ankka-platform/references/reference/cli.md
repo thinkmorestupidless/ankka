@@ -47,6 +47,15 @@ owner only, where the filesystem supports permissions. It is separate from the s
 Setting `HOME` for one command does not relocate either file, because the JVM resolves `~` once at
 start. Use `ANKKA_CONFIG` to isolate a run.
 
+`ankka mcp install` writes files that belong to other programs, and only by merging: every other
+server and setting in them is kept, and an existing server named `ankka` is left alone unless
+`--force` is given. With `--scope project` it writes `.mcp.json` in the project directory. With
+`--client desktop` it writes Claude Desktop's `claude_desktop_config.json`, in
+`~/Library/Application Support/Claude/` on macOS and `%APPDATA%\Claude\` on Windows; the system
+property `-Dankka.claude.desktop.config` names a different file. For Claude Code in every project it
+writes nothing itself: it runs `claude mcp add --scope user`, so Claude Code keeps its own
+configuration.
+
 ## Credentials
 
 The token a command presents is chosen in this order:
@@ -1364,7 +1373,9 @@ Options and flags:
 ### `ankka mcp`
 
 ```text
-Usage: ankka mcp [--url <string>] [--token <string>] [--project <string>]
+Usage:
+    ankka mcp install
+    ankka mcp [--url <string>] [--token <string>] [--project <string>]
 
 Serve ankka's tools and documentation to an agent over MCP (stdio).
 
@@ -1377,4 +1388,32 @@ Options and flags:
         Bearer token. Prefer ANKKA_TOKEN or the config file.
     --project <string>, -p <string>
         Project id. Defaults to the configured project.
+
+Subcommands:
+    install
+        Configure Claude Code (for you, or a project's .mcp.json) or Claude Desktop to start `ankka mcp`.
+```
+
+### `ankka mcp install`
+
+```text
+Usage: ankka mcp install [--client <string>] [--scope <string>] [--dir <string>] [--command <string>] [--force] [--dry-run]
+
+Configure Claude Code (for you, or a project's .mcp.json) or Claude Desktop to start `ankka mcp`.
+
+Options and flags:
+    --help
+        Display this help text.
+    --client <string>
+        code (Claude Code, the default) or desktop (Claude Desktop).
+    --scope <string>
+        user (the default: every project, for you) or project (a .mcp.json to commit).
+    --dir <string>
+        The project for --scope project; defaults to the current directory.
+    --command <string>
+        The ankka to start; defaults to the one on PATH.
+    --force
+        Replace an existing server named ankka.
+    --dry-run
+        Say what would change, and change nothing.
 ```

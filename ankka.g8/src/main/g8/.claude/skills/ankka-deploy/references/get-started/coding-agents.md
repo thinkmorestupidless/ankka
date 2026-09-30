@@ -38,8 +38,9 @@ ankka build compiles and tests, so an agent that reads them writes current signa
 
 **In a project made from the template**, the skills are already there. `ankka init` and
 `sbt new thinkmorestupidless/ankka.g8` create `.claude/skills/` in the new project, holding the
-documentation of the ankka version the project was created with. Claude Code loads skills from that
-directory with no configuration. Other agents that read Agent Skills can be pointed at it.
+documentation of the ankka version the project was created with, and a `.mcp.json` that starts
+[the MCP server](#the-mcp-server). Claude Code loads both with no configuration. Other agents that read Agent
+Skills can be pointed at the skills directory.
 
 **In any other project**, install the Claude Code plugin from the ankka marketplace:
 
@@ -64,14 +65,34 @@ documentation as resources.
 | This machine | `list_local_services`, `describe_local_service`, `local_traces`, `query_local_entity`, `call_local_endpoint`, `local_agent_session` | services running locally |
 | Documentation | `search_docs`, `read_doc`, and every page as an `ankka://docs/<path>` resource | this CLI's version of the docs |
 
-To use it from Claude Code without the plugin, add it once:
+### Connect Claude to it
 
-```bash
-claude mcp add ankka -- ankka mcp
-```
+`ankka mcp install` configures a client to start the server, whichever way you work:
 
-Any other MCP client starts it the same way. A client that takes a JSON configuration names the command
-and its argument:
+| You use | Run | What it changes |
+|---|---|---|
+| Claude Code, in a project made by `ankka init` | nothing | the project's `.mcp.json` already names the server |
+| Claude Code, in every project | `ankka mcp install` | Claude Code's own configuration, for you, through `claude mcp add --scope user` |
+| Claude Code, in one existing project, for everyone who works on it | `ankka mcp install --scope project` | a `.mcp.json` in the project, to commit |
+| Claude Desktop | `ankka mcp install --client desktop` | Claude Desktop's `claude_desktop_config.json`; quit and reopen Desktop afterwards |
+
+**Claude Code asks before starting a project's server.** A `.mcp.json` is part of the repository, so
+Claude Code asks each person once whether to trust it. `ankka init` leaves that question in place rather
+than answering it for you: a repository that could start programs without asking could start any.
+
+**The project file names `ankka`; the others name a path.** A `.mcp.json` is read on other machines, so
+it names the command and relies on `PATH`. Claude Desktop is started from the Dock rather than a shell
+and does not see your shell's `PATH`, so `ankka mcp install` writes the absolute path of the first
+`ankka` on yours, and for the JVM build a `JAVA_HOME`, so the launcher finds Java without one either.
+`--command` names a different `ankka`.
+
+**Nothing is overwritten.** Every write keeps the other servers and settings in the file, and an
+existing server named `ankka` is left as it is and shown to you; `--force` replaces it. `--dry-run`
+prints what would change and changes nothing. When the `claude` command is not on `PATH`,
+`ankka mcp install` changes nothing and prints the command to run, or the plugin to install instead.
+
+Any other MCP client starts the server the same way. A client that takes a JSON configuration names the
+command and its argument:
 
 ```json
 {

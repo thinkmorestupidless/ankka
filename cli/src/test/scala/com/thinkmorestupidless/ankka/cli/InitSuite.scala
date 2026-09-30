@@ -7,22 +7,40 @@ class InitSuite extends munit.FunSuite:
 
   test("the sbt invocation carries the template, the name and this CLI's version") {
     val cmd = Init.command(Init.Request("orders", Some("file:///t/ankka.g8")), version = "0.2.0")
-    assertEquals(cmd.take(3), Vector("sbt", "--allow-empty", "-batch"))
-    assertEquals(cmd(3), "new file:///t/ankka.g8 --name=orders --ankka_version=0.2.0")
+    assertEquals(
+      cmd,
+      Vector(
+        "sbt",
+        "--allow-empty",
+        "-batch",
+        "new",
+        "file:///t/ankka.g8",
+        "--name=orders",
+        "--ankka_version=0.2.0"
+      )
+    )
+  }
+
+  test("`new` is an argument of its own, never inside a command string") {
+    // sbt's launcher runs `new` outside any build only when it sees it on its own; inside one string,
+    // the sbt 2 launcher sends it through its thin client, whose own commands reach giter8.
+    val cmd = Init.command(Init.Request("orders", pkg = Some("acme.orders")), version = "1.0.0")
+    assert(cmd.contains("new"), cmd.toString)
+    assert(cmd.forall(arg => !arg.contains(' ')), s"an argument holds a space: $cmd")
   }
 
   test("a package is passed through when given, and only then") {
-    assert(
-      Init
-        .newCommand(Init.Request("orders", pkg = Some("acme.orders")), "1.0.0")
-        .endsWith("--package=acme.orders")
+    assertEquals(
+      Init.newArguments(Init.Request("orders", pkg = Some("acme.orders")), "1.0.0").last,
+      "--package=acme.orders"
     )
-    assert(!Init.newCommand(Init.Request("orders"), "1.0.0").contains("--package"))
+    assert(!Init.newArguments(Init.Request("orders"), "1.0.0").exists(_.startsWith("--package")))
   }
 
   test("the default template is the published one") {
-    assert(
-      Init.newCommand(Init.Request("orders"), "1.0.0").contains("thinkmorestupidless/ankka.g8")
+    assertEquals(
+      Init.newArguments(Init.Request("orders"), "1.0.0")(1),
+      "thinkmorestupidless/ankka.g8"
     )
   }
 

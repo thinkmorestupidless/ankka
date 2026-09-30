@@ -1,0 +1,21 @@
+<!-- This module's tests do not have ankka-testkit on their classpath, so they never see its
+     logback-test.xml. Without a file of their own logback logs everything at DEBUG, and
+     testcontainers' Docker traffic alone is thousands of lines per container. The levels match
+     testkit's; the same file sits in runtime, http, agent and cli. -->
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{20} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <logger name="com.github.dockerjava" level="WARN"/>
+  <logger name="org.testcontainers" level="INFO"/>
+  <logger name="org.apache.pekko.cluster" level="WARN"/>
+  <logger name="org.apache.pekko.remote" level="WARN"/>
+  <logger name="org.apache.pekko.persistence" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

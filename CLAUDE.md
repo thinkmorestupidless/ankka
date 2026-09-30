@@ -722,8 +722,16 @@ the package and `package/test/fixture-host/` proves a second host works with no 
 - **A top-level `require(...)` is not an sbt DSL entry** (`required: sbt.internal.DslEntry`); a
   check in a `build.sbt` is a `val` whose body calls `sys.error`.
 - **Giter8 reads `default.properties` from `src/main/g8/`, not the template root** — at the root
-  it is silently ignored ("Ignoring unrecognized parameter: name"). Spaces in `--name` must be
-  quoted inside the sbt command string; an empty directory needs `sbt --allow-empty`.
+  it is silently ignored ("Ignoring unrecognized parameter: name"). An empty directory needs
+  `sbt --allow-empty`.
+- **`sbt new` must be `new` and its arguments as separate arguments, never one command string.**
+  sbt's launcher (1.x and 2.x) runs `new` outside any build only when it sees `new` as an argument of
+  its own. `ankka init` used to run `sbt --allow-empty -batch "new <template> --name=…"`; the sbt 2
+  launcher, not recognising that as `new`, sent it through its thin client (the default under sbt
+  2), which appends `sbtCompleteExec <id>`, `resumeFromFailure` and `shell` — and giter8 refused them
+  as `Unknown argument`, for every template. The Scala template suite does not run in CI, so the
+  first sign was a laptop with the sbt 2 launcher. `Init.command` builds the arguments; `InitSuite`
+  refuses one that holds a space.
 - **A wildcard is one label deep — for X.509 certificates and for Gateway API listeners alike.**
   `*.example.test` covers `cart-checkout.example.test` and not `cart.checkout.example.test`; two
   implementations that got the listener rule wrong filed it as a bug. With TLS on the

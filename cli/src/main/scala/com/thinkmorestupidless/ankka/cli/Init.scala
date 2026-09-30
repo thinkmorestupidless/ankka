@@ -42,21 +42,29 @@ object Init:
   ):
     def templateRef: String = template.getOrElse(DefaultTemplate)
 
-  /** The `sbt` invocation, as a value — so the argument shape is tested without a process. */
+  /**
+   * The `sbt` invocation, as a value — so the argument shape is tested without a process.
+   *
+   * `new` and each of its arguments are separate arguments, never one quoted command string. sbt's
+   * launcher recognises `new` only as an argument of its own, and runs it outside any build; handed
+   * `"new … --name=…"` as one string, the sbt 2 launcher sends it through its thin client, which
+   * appends commands of its own (`sbtCompleteExec <id>`, `shell`) that giter8 then rejects as
+   * unknown template arguments — so `ankka init` failed for every sbt 2 user, whatever the
+   * template.
+   */
   def command(
       request: Request,
       version: String = com.thinkmorestupidless.ankka.core.BuildInfo.version
   ): Vector[String] =
-    Vector("sbt", "--allow-empty", "-batch", newCommand(request, version))
+    Vector("sbt", "--allow-empty", "-batch") ++ newArguments(request, version)
 
-  def newCommand(request: Request, version: String): String =
-    val parts = Vector(
+  def newArguments(request: Request, version: String): Vector[String] =
+    Vector(
       "new",
       request.templateRef,
       s"--name=${request.name}",
       s"--ankka_version=$version"
     ) ++ request.pkg.map(p => s"--package=$p")
-    parts.mkString(" ")
 
   /** Everything that can be wrong before a process is started; empty means go. */
   def problems(request: Request): Vector[String] =

@@ -369,10 +369,16 @@ private[agent] final class AgentLoop(
       spent: Guardrails.Spent
   ): Either[CommandError, Unit] =
     val direction = if input then Guardrails.Direction.Input else Guardrails.Direction.Output
-    Guardrails
-      .check(guardrails, text, direction, judgments, spent)
-      .map(refused => CommandError(refused.message, ErrorCode.Forbidden))
-      .toLeft(())
+    // A refusal is Forbidden; a check that could not be made is not a refusal, and says so.
+    try
+      Guardrails
+        .check(guardrails, text, direction, judgments, spent)
+        .map(refused => CommandError(refused.message, ErrorCode.Forbidden))
+        .toLeft(())
+    catch
+      case failed: Guardrails.GuardrailCheckFailed => Left(failed.toCommandError)
+      case failure: JudgmentScriptFailed =>
+        Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   // ── Memory ────────────────────────────────────────────────────────────────
 

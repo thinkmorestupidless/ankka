@@ -175,6 +175,11 @@ object AutonomousAgentDefinition:
       if a.budget < 1 then
         builder += s"task type '${a.taskType.name}' needs a budget of at least one iteration"
     }
+    d.guardrails.foreach {
+      case g: com.thinkmorestupidless.ankka.agent.judgment.JudgedGuardrail if !g.hasRules =>
+        builder += s"judged guardrail '${g.name}' has no rules: add onInput(...) or onOutput(...)"
+      case _ => ()
+    }
     d.guardrails.groupBy(_.name).foreach { (name, gs) =>
       if gs.sizeIs > 1 then builder += s"guardrail '$name' is declared ${gs.size} times"
     }

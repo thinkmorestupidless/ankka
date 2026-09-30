@@ -28,6 +28,14 @@ class JudgmentUnconfiguredSuite extends munit.FunSuite:
 
   private val ticket = Ticket("t-1", "Where is my order?")
 
+  test("a judged guardrail with no provider anywhere says what to configure") {
+    val failure =
+      intercept[CommandError](agent("s-guard").call(TriageAgent.guarded).invoke("Hello"))
+    assertEquals(failure.code, ErrorCode.Internal)
+    assert(failure.getMessage.contains("withJudgments"), failure.getMessage)
+    assertEquals(model.callCount, 0)
+  }
+
   test("a judgment with no provider anywhere says what to configure") {
     val failure = intercept[CommandError](agent("s-none").call(TriageAgent.triage).invoke(ticket))
     assertEquals(failure.code, ErrorCode.Internal)

@@ -193,6 +193,13 @@ trait Guardrail:
 
 object Guardrail:
 
+  /**
+   * A guardrail that asks questions of the text rather than matching it; add its rules with
+   * `onInput` and `onOutput`. It is answered by the service's judgment provider unless given one.
+   */
+  def judged(name: String): judgment.JudgedGuardrail =
+    judgment.JudgedGuardrail(name, Vector.empty, Vector.empty, None)
+
   /** Rejects input longer than `maxChars`, before it costs a model call. */
   def maxInputLength(maxChars: Int): Guardrail = new Guardrail:
     val name = s"max-input-length($maxChars)"

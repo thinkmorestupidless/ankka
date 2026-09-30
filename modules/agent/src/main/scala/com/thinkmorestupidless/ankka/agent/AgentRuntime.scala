@@ -189,6 +189,16 @@ final class AgentRuntime private (
               ""
             )
           )
+        AgentRuntime.unanswerableGuardrail(descriptor.definition.guardrails, judgments).foreach {
+          guardrail =>
+            system.log.warn(
+              "autonomous agent '{}' has the judged guardrail '{}' and no judgment provider: its " +
+                "tasks will fail until one is given with provider(...) or configured with " +
+                "withJudgments(...) on the AgentRuntime",
+              descriptor.componentId,
+              guardrail
+            )
+        }
         // As for a request agent, a missing model refuses the work that needs one, not the service:
         // a task given to this agent fails at once, saying why.
         if descriptor.definition.model.orElse(defaultModel).isEmpty then
@@ -243,6 +253,21 @@ final class AgentRuntime private (
         )
 
 object AgentRuntime:
+
+  /** The first judged guardrail nobody can answer: no provider of its own, and none configured. */
+  private[agent] def unanswerableGuardrail(
+      guardrails: Vector[Guardrail],
+      judgments: Judgments
+  ): Option[String] =
+    if judgments.default.isDefined then None
+    else
+      guardrails.collectFirst {
+        case g: judgment.JudgedGuardrail if !g.hasOwnProvider => g.name
+      }
+
+  private[agent] def noJudgmentProvider(componentId: ComponentId, guardrail: String): String =
+    s"'$componentId' has the judged guardrail '$guardrail' and no judgment provider: give it one " +
+      "with provider(...), or configure one with withJudgments(...) on the AgentRuntime"
 
   /** Agents must each name a model via `effects.model(...)`. */
   def apply(): AgentRuntime = new AgentRuntime(None, 2.minutes, None, Judgments.none)

@@ -1,6 +1,6 @@
 ---
 name: ankka-inspect
-description: Verify that an ankka service running on this machine does what its specification says — build and test it, run it, check the components it registered against the design, exercise each acceptance scenario through its real HTTP endpoints, confirm the resulting state with its declared queries, and read the traces — then report each scenario as met or not, with the evidence. Use after implementing a feature or a change, when asked to check, inspect, verify, smoke-test or demo a service against a spec, acceptance criteria or a plan, or before deploying one.
+description: Verify that an ankka service running on this machine does what its specification says — build and test it, run it, check the components it registered against the design, exercise each acceptance scenario through its real HTTP endpoints, confirm the resulting state with its declared queries, and read the traces — then report each scenario as met or not, with the evidence, and keep each met scenario as an integration test. Use after implementing a feature or a change, when asked to check, inspect, verify, smoke-test or demo a service against a spec, acceptance criteria or a plan, or before deploying one.
 ---
 
 # Inspecting a running service against its specification
@@ -30,7 +30,12 @@ collect that too.
 
 Write each scenario down as a request, an expected response (status and the part of the body that
 matters), and the state that must hold afterwards. A scenario that cannot be written that way is not yet
-checkable; say which one and why, rather than checking something nearby.
+checkable: ask the user the question that would make it checkable, rather than checking something nearby.
+
+Then, for each check, ask **could it pass while the scenario is not met?** A check on the status alone
+passes a handler that did nothing; a read of a view passes on a row an earlier run left; a read without a
+restart passes on state that was never persisted. If the answer is yes, sharpen the check before running
+it. `references/build/testing.md` lists the usual ways a check passes for the wrong reason.
 
 ## 2. Build, test, run
 
@@ -97,7 +102,20 @@ wait. A span with an unknown parent is work the runtime could not attribute; rep
 than guessing which request it belonged to. The trace window is a fixed ring of recent spans, so read a
 scenario's trace soon after running it.
 
-## 7. Report
+## 7. Keep each met scenario as a test
+
+An inspection holds only for the build it ran against. A scenario that is met should also be an
+integration test in the project's own test kit, so it is checked on every change and the project's CI
+refuses a regression of it. For each met scenario with no test that already covers it, propose one: named
+after the scenario, with its given, when and then mapped as `references/build/testing.md` describes, on
+ids the test alone uses, and with a restart where the scenario says something must survive. Write the
+tests when the user agrees or the task already asks for them, run them, and break the behaviour once to
+see each one fail before relying on it.
+
+A scenario that is not met gets no test yet: a test written to the current behaviour would encode the
+defect.
+
+## 8. Report
 
 One row per scenario, and one per design finding:
 
@@ -105,7 +123,8 @@ One row per scenario, and one per design finding:
 |---|---|---|---|---|
 
 Evidence is the status and body that decided it, the query result, the trace id. The verdict is *met*,
-*not met*, or *not checkable* with the reason. End with what was not inspected and why: a scenario with
+*not met*, or *not checkable* with the reason. For a met scenario, say which test now holds it, or that
+none does yet. End with what was not inspected and why: a scenario with
 no route, a service that needs a model key the machine does not have, a behaviour only a deployment can
 show. Stop the service and the containers this inspection started, unless the user wants them left
 running.

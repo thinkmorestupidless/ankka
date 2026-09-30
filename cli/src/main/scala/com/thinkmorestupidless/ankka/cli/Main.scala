@@ -765,7 +765,58 @@ object Main:
    */
   private val mcpCommand =
     Opts.subcommand("mcp", "Serve ankka's tools and documentation to an agent over MCP (stdio).") {
-      (urlOpt, tokenOpt, projectOpt).mapN { (url, token, project) => () =>
+      val install = Opts.subcommand(
+        "install",
+        "Configure Claude Code (for you, or a project's .mcp.json) or Claude Desktop to start `ankka mcp`."
+      ) {
+        (
+          Opts
+            .option[String](
+              "client",
+              "code (Claude Code, the default) or desktop (Claude Desktop)."
+            )
+            .mapValidated {
+              case "code"    => Validated.valid(mcp.McpInstall.Client.Code)
+              case "desktop" => Validated.valid(mcp.McpInstall.Client.Desktop)
+              case other     => Validated.invalidNel(s"unknown client '$other'; code or desktop")
+            }
+            .withDefault(mcp.McpInstall.Client.Code),
+          Opts
+            .option[String](
+              "scope",
+              "user (the default: every project, for you) or project (a .mcp.json to commit)."
+            )
+            .mapValidated {
+              case "user"    => Validated.valid(mcp.McpInstall.Scope.User)
+              case "project" => Validated.valid(mcp.McpInstall.Scope.Project)
+              case other     => Validated.invalidNel(s"unknown scope '$other'; user or project")
+            }
+            .withDefault(mcp.McpInstall.Scope.User),
+          Opts
+            .option[String](
+              "dir",
+              "The project for --scope project; defaults to the current directory."
+            )
+            .orNone,
+          Opts
+            .option[String]("command", "The ankka to start; defaults to the one on PATH.")
+            .orNone,
+          Opts.flag("force", "Replace an existing server named ankka.").orFalse,
+          Opts.flag("dry-run", "Say what would change, and change nothing.").orFalse
+        ).mapN { (client, scope, dir, command, force, dryRun) => () =>
+          mcp.McpInstall.perform(
+            mcp.McpInstall.Request(
+              client,
+              scope,
+              dir.map(Paths.get(_)).getOrElse(Paths.get(".")),
+              command,
+              force,
+              dryRun
+            )
+          )
+        }
+      }
+      val serve = (urlOpt, tokenOpt, projectOpt).mapN { (url, token, project) => () =>
         val tools = mcp.AnkkaTools(() => Settings.resolve(url, token, project))
         val server = mcp.McpServer(
           "ankka",
@@ -782,6 +833,7 @@ object Main:
         )
         ""
       }
+      install.orElse(serve)
     }
 
   private def openBrowser(address: String): Unit =

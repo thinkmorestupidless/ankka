@@ -47,8 +47,15 @@ echo "console    serves its files"
 for language in python typescript rust; do
   "$bin" init smoke --language "$language" --dir "$work/$language" > /dev/null \
     || fail "ankka init --language $language failed"
-  for file in service.json .gitignore .github/workflows/deploy.yml .claude/skills/ankka/SKILL.md; do
+  for file in service.json .gitignore .mcp.json .github/workflows/deploy.yml .claude/skills/ankka/SKILL.md; do
     [ -f "$work/$language/smoke/$file" ] || fail "ankka init --language $language wrote no $file: the image is missing ankka/templates"
   done
 done
 echo "init       renders the python, typescript and rust templates"
+
+mkdir -p "$work/existing"
+"$bin" mcp install --scope project --dir "$work/existing" > /dev/null \
+  || fail "ankka mcp install --scope project failed"
+grep -q '"command": "ankka"' "$work/existing/.mcp.json" \
+  || fail "ankka mcp install wrote no ankka server: $(cat "$work/existing/.mcp.json")"
+echo "mcp install writes a project's .mcp.json"

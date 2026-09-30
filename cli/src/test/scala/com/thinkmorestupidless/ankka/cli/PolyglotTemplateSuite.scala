@@ -87,8 +87,17 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
       "docker-compose.yml",
       "Dockerfile",
       "README.md",
-      ".claude/skills/ankka/SKILL.md"
+      ".claude/skills/ankka/SKILL.md",
+      ".mcp.json"
     ).foreach(path => assert(Files.exists(project.resolve(path)), s"missing $path"))
+  }
+
+  test("the project's .mcp.json starts ankka mcp, by name, as `ankka mcp install` would write it") {
+    val written = mcp.Json.parse(Files.readString(project.resolve(".mcp.json")))
+    assertEquals(
+      written.map(_("mcpServers").flatMap(_("ankka"))),
+      Right(Some(mcp.McpInstall.ProjectLaunch.entry))
+    )
   }
 
   test("the project references no path of this repository") {

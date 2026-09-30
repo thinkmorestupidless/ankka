@@ -1461,6 +1461,15 @@ released SDK's testkit, and a generated project's compose file, start
 languages (`python`, `typescript,scala`); only `scala` pays for the local publish, which is how each SDK
 job in CI runs its own template's suite against the SDK and sidecar it just built.
 
+**Every project `ankka init` makes carries a `.mcp.json`** naming `ankka mcp` by command (in `common/`
+and in `ankka.g8/`), and `ankka mcp install` (`cli/mcp/McpInstall`) writes the same entry — the template
+suites assert the two agree. Two choices there are deliberate. It never edits `~/.claude.json`: for
+Claude Code in every project it runs `claude mcp add --scope user`, because that file is Claude Code's
+to write, and its tests drive that branch through a scripted runner so they never touch the developer's
+own. And no template pre-approves the project's server (`enabledMcpjsonServers`): Claude Code asks each
+person once, and a repository that could start a program without asking could start any. Claude
+Desktop's file is `-Dankka.claude.desktop.config`-overridable for the same reason `-Dankka.config` is.
+
 **The CLI ships as a native executable per platform**, from the release workflow's `cli-native`
 matrix: GraalVM's `native-image` over the same jar, one runner per platform because it cannot
 cross-compile (`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`), each attached to the tag's

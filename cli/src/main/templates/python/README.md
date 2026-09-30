@@ -59,6 +59,20 @@ through and how long each took. It reads an entity's state through the queries i
 and refuses to run a command. It is local-only; for a deployed service, `ankka services logs` is the
 equivalent.
 
+## Work with a coding agent
+
+This project carries ankka's documentation for the version it was made with, as Agent Skills in
+`.claude/skills/`, and a `.mcp.json` that starts `ankka mcp`: the CLI's commands, the services running
+on this machine and the same documentation, as tools. Claude Code reads both with no configuration; it
+asks once before starting the project's MCP server. The `ankka` CLI must be on your `PATH`.
+
+For Claude Desktop, or for Claude Code in every project rather than this one:
+
+```bash
+ankka mcp install --client desktop      # Claude Desktop; quit and reopen it afterwards
+ankka mcp install                       # Claude Code, for you, in every project
+```
+
 ## Build the image
 
 ```bash

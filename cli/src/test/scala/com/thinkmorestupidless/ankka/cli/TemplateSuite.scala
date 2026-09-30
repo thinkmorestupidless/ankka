@@ -151,3 +151,11 @@ class TemplateSuite extends munit.FunSuite:
     val output = new String(inspect.getInputStream.readAllBytes())
     assertEquals(inspect.waitFor(), 0, s"$repo/$Name:$version was not built:\n$output")
   }
+
+  test("8. the expansion's .mcp.json starts ankka mcp, as `ankka mcp install` would write it") {
+    val written = mcp.Json.parse(Files.readString(expansion.resolve(".mcp.json")))
+    assertEquals(
+      written.map(_("mcpServers").flatMap(_("ankka"))),
+      Right(Some(mcp.McpInstall.ProjectLaunch.entry))
+    )
+  }

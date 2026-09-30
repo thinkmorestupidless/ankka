@@ -10,7 +10,7 @@ import java.nio.file.{Files, Path, Paths}
  * that was missing or different is rewritten, and the test still fails, so the new form is reviewed
  * rather than accepted silently.
  */
-private[autonomous] object Fixtures:
+private[testkit] object Fixtures:
 
   /** The repository root, found by walking up from the forked test JVM's working directory. */
   def repositoryRoot: Path =

@@ -97,6 +97,9 @@ state in the module between commands. Register by value (`.register(ShoppingCart
 `result.replyValue` and the new state. Arguments and replies still round-trip through the entity's own
 serializers, so a missing codec fails here rather than on first deployment. Prove durability with the
 integration testkit and `restartService()`, which drops every entity from memory and forces a replay.
+Ask of every test whether it could pass while the behaviour it names is broken
+(`references/build/testing.md`, "A test must be able to fail"), and take expected values from the
+requirement, never from the handler's output.
 
 ## Mistakes to check for
 

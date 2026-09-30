@@ -131,7 +131,10 @@ Script the model with `TestModelProvider` (`expectText`, `expectToolCall`, `expe
 shared a session, that a refusal reached the caller as `Forbidden`. It fails loudly when the script runs
 out. Give the agent and the compactor separate providers, because the compactor is asynchronous and the
 two would race for one queue. Drain a workflow before the test ends. Never assert on the model's prose;
-keep an evaluation set for the real model outside the build.
+keep an evaluation set for the real model outside the build. A scripted model answers what the test told
+it to, so assert on what the platform did with the answer — the tool that ran, the state it changed, the
+refusal — and ask whether the test could pass while that is broken (`references/build/testing.md`, "A
+test must be able to fail").
 
 ## Mistakes to check for
 

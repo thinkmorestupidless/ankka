@@ -7,7 +7,7 @@ import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.MemberStatus
 import org.apache.pekko.cluster.typed.Cluster
 
-import java.net.{ServerSocket, URI}
+import java.net.{InetSocketAddress, ServerSocket, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.file.{Files, Path}
 import scala.concurrent.Await
@@ -31,10 +31,37 @@ class TlsClusterFormationSuite extends munit.FunSuite:
   private val authority = TestPki.root("tls-cluster-formation")
   private val identity  = "ankka://checkout/orders"
 
-  private def freePort(): Int =
-    val socket = new ServerSocket(0)
-    try socket.getLocalPort
-    finally socket.close()
+  /**
+   * A port a node can bind later, for the listeners whose number must be known before any node
+   * starts: each node's contact points name the others' management ports, and the test reads the
+   * first node's probe. Everything else binds port 0.
+   *
+   * Not `new ServerSocket(0)`: that hands back a port from the ephemeral range and gives it up, and
+   * the ephemeral range is where the kernel picks the local end of every outgoing connection — so a
+   * connection anything on the machine opens before the node binds can take the port, and the node
+   * fails "Address already in use". It did, on CI. Ports below the range (Linux's starts at 32768,
+   * macOS's at 49152) are only ever taken by something that listens on them on purpose.
+   */
+  private val handedOut = scala.collection.mutable.Set.empty[Int]
+
+  private def reservedPort(): Int = synchronized {
+    val (low, high) = (20000, 32000)
+    val start       = low + scala.util.Random.nextInt(high - low)
+    val candidates  = Iterator.range(start, high) ++ Iterator.range(low, start)
+    candidates
+      .find(port => !handedOut.contains(port) && bindable(port))
+      .map { port =>
+        handedOut += port; port
+      }
+      .getOrElse(fail(s"no free port between $low and $high"))
+  }
+
+  private def bindable(port: Int): Boolean =
+    Try {
+      val socket = new ServerSocket()
+      try socket.bind(InetSocketAddress(port))
+      finally socket.close()
+    }.isSuccess
 
   private def certificateDir(leaf: TestPki.Leaf): Path =
     leaf.writeTo(Files.createTempDirectory("tls-cluster"))
@@ -142,9 +169,10 @@ class TlsClusterFormationSuite extends munit.FunSuite:
 
   test("two nodes form over mutual TLS; a node with a foreign certificate never joins") {
     val shared          = certificateDir(authority.issue(uris = Seq(identity)))
-    val Seq(r1, r2, r3) = Seq.fill(3)(freePort())
-    val Seq(m1, m2, m3) = Seq.fill(3)(freePort())
-    val Seq(p1, p2, p3) = Seq.fill(3)(freePort())
+    val Seq(m1, m2, m3) = Seq.fill(3)(reservedPort())
+    val p1              = reservedPort()
+    // Remoting and the other nodes' probes are never named in advance, so the OS picks them.
+    val (r1, r2, r3, p2, p3) = (0, 0, 0, 0, 0)
     // Bootstrap counts contact points per host, and in a cluster every pod has its own IP. On one
     // machine the two nodes are told apart by name instead: both names are loopback.
     val points = Seq("localhost" -> m1, "127.0.0.1" -> m2)

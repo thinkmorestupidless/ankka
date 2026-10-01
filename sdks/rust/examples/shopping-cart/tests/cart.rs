@@ -30,14 +30,19 @@ fn ink() -> LineItem {
 
 // docs:start view-test
 #[test]
-fn the_row_counts_each_product_and_outlives_the_cart() {
+fn the_row_counts_each_product_and_leaves_with_a_discarded_cart() {
     let mut kit = ViewTestKit::<CartRows>::new();
     kit.on_event("cart-1", ShoppingCartEvent::ItemAdded { item: pen(2) });
     kit.on_event("cart-1", ShoppingCartEvent::ItemAdded { item: pen(3) });
     assert_eq!(kit.row("cart-1").unwrap().quantities["p1"], 5);
-    // Checkout deletes the cart; the row stays, checked out.
-    kit.on_deleted("cart-1");
+    kit.on_event("cart-1", ShoppingCartEvent::CheckedOut);
     assert!(kit.row("cart-1").unwrap().checked_out);
+    // A discarded cart's row goes with it: the event changes nothing, the deletion removes it.
+    kit.on_event("cart-2", ShoppingCartEvent::ItemAdded { item: pen(1) });
+    kit.on_event("cart-2", ShoppingCartEvent::Discarded);
+    assert!(kit.row("cart-2").is_some());
+    kit.on_deleted("cart-2");
+    assert!(kit.row("cart-2").is_none());
 }
 // docs:end view-test
 
@@ -102,8 +107,44 @@ fn removing_and_checking_out() {
     let checkout = kit.command("checkout", ());
     assert_eq!(checkout.events, vec![ShoppingCartEvent::CheckedOut]);
     assert!(checkout.reply::<Cart>().unwrap().checked_out);
-    // Checked out and deleted: the id is a fresh cart again.
-    assert_eq!(kit.state(), &Cart::empty("cart-2"));
+    // Kept, checked out, holding what it held.
+    assert!(kit.state().checked_out);
+    assert_eq!(kit.state().items, vec![ink()]);
+}
+
+#[test]
+fn a_checked_out_cart_refuses_every_change() {
+    let mut kit = EventSourcedTestKit::<ShoppingCart>::new("cart-4");
+    kit.command("add-item", pen(1));
+    kit.command("checkout", ());
+    let refusals = [
+        kit.command("add-item", ink()),
+        kit.command("remove-item", "p1".to_string()),
+        kit.command("checkout", ()),
+        kit.command("discard", ()),
+    ];
+    for refused in refusals {
+        assert!(refused.events.is_empty());
+        let error = refused.error().expect("a checked-out cart refuses");
+        assert_eq!(error.code, ErrorCode::Conflict);
+        assert!(
+            error.message.contains("already checked out"),
+            "{}",
+            error.message
+        );
+    }
+    assert_eq!(kit.state().items, vec![pen(1)]);
+}
+
+#[test]
+fn discarding_deletes_the_cart() {
+    let mut kit = EventSourcedTestKit::<ShoppingCart>::new("cart-5");
+    kit.command("add-item", pen(1));
+    let discarded = kit.command("discard", ());
+    assert_eq!(discarded.events, vec![ShoppingCartEvent::Discarded]);
+    assert_eq!(discarded.reply::<Done>(), Ok(Done));
+    // Deleted: the id is a fresh cart again.
+    assert_eq!(kit.state(), &Cart::empty("cart-5"));
 }
 
 #[test]
@@ -175,8 +216,31 @@ mod slow {
 
         let checkout = rt.http().post("/carts/c1/checkout").send().unwrap();
         assert_eq!(checkout.status, 200, "{}", checkout.text());
-        let fresh: Cart = rt.http().get("/carts/c1").send().unwrap().json().unwrap();
-        assert_eq!(fresh, Cart::empty("c1"));
+        // Kept after the checkout, and refusing changes after a restart too.
+        rt.restart().unwrap();
+        let kept: Cart = rt.http().get("/carts/c1").send().unwrap().json().unwrap();
+        assert!(kept.checked_out);
+        assert_eq!(kept.items, vec![pen(2)]);
+        assert_eq!(
+            rt.http()
+                .post("/carts/c1/items")
+                .json(&ink())
+                .send()
+                .unwrap()
+                .status,
+            409
+        );
+
+        // Discarding deletes a cart, so the id is fresh again.
+        rt.http()
+            .post("/carts/c2/items")
+            .json(&ink())
+            .send()
+            .unwrap();
+        let discarded = rt.http().delete("/carts/c2").send().unwrap();
+        assert_eq!(discarded.status, 204, "{}", discarded.text());
+        let fresh: Cart = rt.http().get("/carts/c2").send().unwrap().json().unwrap();
+        assert_eq!(fresh, Cart::empty("c2"));
     }
     // docs:end integration-test
 

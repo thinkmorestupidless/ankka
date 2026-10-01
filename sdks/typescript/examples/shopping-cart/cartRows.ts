@@ -28,13 +28,11 @@ export class CartRows extends View<ShoppingCartEvent, CartRow> {
       }
       case "CheckedOut":
         return this.effects.updateRow({ ...current, checkedOut: true })
+      case "Discarded":
+        // The deletion that follows removes the row: a discarded cart leaves the listing, which is the
+        // view's default when its source is deleted.
+        return this.effects.ignore()
     }
-  }
-
-  /** Checkout deletes the cart, but a checked-out cart is exactly what an order history needs: the row outlives the entity. */
-  override onDelete() {
-    if (this.row === null) return this.effects.ignore()
-    return this.effects.updateRow({ ...this.row, checkedOut: true })
   }
 }
 // docs:end view

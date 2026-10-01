@@ -7,7 +7,7 @@ import { CheckoutLog, CheckoutRecord } from "./checkoutLog.ts"
 import { CartAssistant } from "./assistant.ts"
 
 // docs:start endpoint
-/** The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout. */
+/** The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout, DELETE /carts/{cartId}. */
 export class ShoppingCartEndpoint extends Endpoint {
   static readonly prefix = "/carts"
   static readonly acl = Acl.allowAll
@@ -20,6 +20,7 @@ export class ShoppingCartEndpoint extends Endpoint {
       ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.removeItem).invoke(req.params.productId),
     ),
     checkout: post("/{cartId}/checkout", ShoppingCart, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.checkout).invoke()),
+    discard: del("/{cartId}", Done, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.discard).invoke()),
     // docs:end endpoint
 
     // A literal beside a parameter: the router must prefer it over /{cartId}.

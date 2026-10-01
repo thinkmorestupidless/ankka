@@ -118,11 +118,21 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
     last = send("POST", s"$cart/checkout")
   }
 
+  When("the customer discards the cart") { () =>
+    last = send("DELETE", cart)
+  }
+
   // ── Then ──────────────────────────────────────────────────────────────────
 
   Then("the cart holds {int} item(s) in total") { (total: Int) =>
     val (status, body) = send("GET", s"$cart/total")
     assertEquals((status, body.trim), (200, total.toString))
+  }
+
+  Then("the cart is checked out") { () =>
+    val (status, body) = send("GET", cart)
+    assertEquals(status, 200, body)
+    assert(body.contains("\"checkedOut\":true"), body)
   }
 
   Then("the cart is empty") { () =>
@@ -149,3 +159,9 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
   Then("the checkout is refused because the cart is empty") { () =>
     refused(400, "cannot check out an empty cart")
   }
+
+  // One rule refuses every change to a checked-out cart; each Then names the change it refused.
+  for change <- Seq("addition", "removal", "checkout", "discard") do
+    Then(s"the $change is refused because the cart is checked out") { () =>
+      refused(409, "cart is already checked out")
+    }

@@ -22,15 +22,22 @@ One unit of a product in a cart: a cart holding 2 of "Widget" holds 2 items.
 How many of one product a cart holds.
 
 ### checked out
-Of a cart: ended. Checking out records what the cart held and empties it, so the same cart starts
-again with nothing in it.
+Of a cart: ended. A checked-out cart is kept as the record of what was ordered, and refuses every
+change after it, including being discarded.
 
 ### checkout
 The customer's act of checking a cart out, and what it answers with: the products and quantities
 the cart held.
 
+### discard
+The customer's act of throwing a cart away before checking out: the cart is deleted, and the same
+cart starts again with nothing in it.
+
+Avoid: abandon, cancel, clear
+
 ## Everyday words
 
 add, adds, addition, remove, removes, removal, hold, holds, empty, only, line, total, already,
 greater, zero, positive, leave, leaves, refuse, refused, ends, answers, starts, held, nothing,
-collects, checking, cannot
+collects, checking, cannot, again, keeps, kept, never, record, ordered, deleted, want, throwing,
+away

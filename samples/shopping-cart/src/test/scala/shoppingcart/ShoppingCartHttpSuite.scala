@@ -96,9 +96,18 @@ class ShoppingCartHttpSuite extends munit.FunSuite with LogCapturing:
     val (checkoutStatus, _) = send("POST", "/carts/http-conflict/checkout")
     assertEquals(checkoutStatus, 200)
 
-    // Cart was deleted by checkout, so it is empty — which fails a different rule.
+    // A checked-out cart is kept, so checking it out again conflicts with that state.
     val (again, body) = send("POST", "/carts/http-conflict/checkout")
-    assertEquals(again, 400, body)
+    assertEquals(again, 409, body)
+    assert(body.contains("already checked out"), body)
+  }
+
+  test("DELETE discards a cart, answering 204, and the id starts again empty") {
+    val _              = send("POST", "/carts/http-discard/items", Some(item("p1", "Widget", 2)))
+    val (status, body) = send("DELETE", "/carts/http-discard")
+    assertEquals(status, 204, body)
+    val (_, after) = send("GET", "/carts/http-discard")
+    assert(after.contains("\"items\":[]"), after)
   }
 
   test("checkout returns the checked-out cart as JSON") {

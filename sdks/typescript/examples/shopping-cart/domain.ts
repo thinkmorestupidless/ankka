@@ -14,6 +14,7 @@ export const ShoppingCartEvent = s.sumType("ShoppingCartEvent", {
   ItemAdded: { item: LineItem },
   ItemRemoved: { productId: s.string },
   CheckedOut: {},
+  Discarded: {},
 })
 export type ShoppingCartEvent = Infer<typeof ShoppingCartEvent>
 // docs:end events

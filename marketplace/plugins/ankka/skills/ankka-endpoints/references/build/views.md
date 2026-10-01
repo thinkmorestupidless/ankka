@@ -71,17 +71,10 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
         effects.updateRow(current.copy(quantities = current.quantities - productId))
       case CheckedOut =>
         effects.updateRow(current.copy(checkedOut = true))
-
-  /**
-   * Keeps the row after the cart is deleted.
-   *
-   * Checkout deletes the entity, but a checked-out cart is exactly what an order history needs.
-   * This is the tombstone case: the row outlives the entity that produced it.
-   */
-  override def onDelete: Effect =
-    rowState match
-      case Some(row) => effects.updateRow(row.copy(checkedOut = true))
-      case None      => effects.ignore()
+      // The deletion that follows removes the row: a discarded cart leaves the listing, which is
+      // the view's default when its source is deleted.
+      case Discarded =>
+        effects.ignore()
 
 object CartRows
     extends View.Companion[CartRowsView, ShoppingCartEvent, CartRow](
@@ -106,7 +99,7 @@ from ankka import json_codec
 from ankka.effects.view import ViewEffect
 from ankka.view import View
 
-from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, ShoppingCartEvent
+from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, ShoppingCartEvent
 from examples.shopping_cart.entity import ShoppingCartEntity
 
 
@@ -138,14 +131,11 @@ class CartRows(View[ShoppingCartEvent, CartRow]):
                 return self.effects.update_row(replace(current, quantities={k: v for k, v in current.quantities.items() if k != product_id}))
             case CheckedOut():
                 return self.effects.update_row(replace(current, checkedOut=True))
+            case Discarded():
+                # The deletion that follows removes the row: a discarded cart leaves the listing,
+                # which is the view's default when its source is deleted.
+                return self.effects.ignore()
         raise AssertionError(event)
-
-    def on_delete(self) -> ViewEffect:
-        """Checkout deletes the cart, but a checked-out cart is exactly what an order history
-        needs: the row outlives the entity that produced it."""
-        if self.row is None:
-            return self.effects.ignore()
-        return self.effects.update_row(replace(self.row, checkedOut=True))
 ```
 
 **TypeScript**
@@ -174,13 +164,11 @@ export class CartRows extends View<ShoppingCartEvent, CartRow> {
       }
       case "CheckedOut":
         return this.effects.updateRow({ ...current, checkedOut: true })
+      case "Discarded":
+        // The deletion that follows removes the row: a discarded cart leaves the listing, which is the
+        // view's default when its source is deleted.
+        return this.effects.ignore()
     }
-  }
-
-  /** Checkout deletes the cart, but a checked-out cart is exactly what an order history needs: the row outlives the entity. */
-  override onDelete() {
-    if (this.row === null) return this.effects.ignore()
-    return this.effects.updateRow({ ...this.row, checkedOut: true })
   }
 }
 ```
@@ -205,10 +193,11 @@ change at a time, so the row is the only memory it has of the changes before.
 
 ## When the source is deleted
 
-When a source entity is deleted, the view's deletion handler runs. By default it removes the row. Override
-it to keep a tombstone instead: the cart deletes itself on checkout, and its view keeps the row and marks it
-checked out, because a checked-out cart is exactly what an order history needs. The row outlives the entity
-that produced it.
+When a source entity is deleted, the view's deletion handler runs. By default it removes the row, which
+is what the cart's view relies on: a discarded cart deletes itself, and its row leaves the listing with
+it. A view that must outlive its source, an order history reading entities that are deleted once an order
+is placed, say, overrides the handler to keep the row as a tombstone and mark it, rather than lose what
+the entity held.
 
 ## Registering a view
 

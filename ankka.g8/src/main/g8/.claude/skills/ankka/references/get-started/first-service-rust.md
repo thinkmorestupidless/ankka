@@ -163,6 +163,7 @@ pub enum ShoppingCartEvent {
         product_id: String,
     },
     CheckedOut,
+    Discarded,
 }
 ```
 
@@ -212,11 +213,20 @@ impl ShoppingCart {
         if cart.is_empty() {
             return effects::error(ErrorCode::BadRequest, "cannot check out an empty cart").into();
         }
+        // As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every
+        // later change to it is refused.
+        effects::persist(ShoppingCartEvent::CheckedOut).then_reply(|cart: &Cart| cart.clone())
+    }
+
+    fn discard(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Done> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
         // The event is persisted, then the cart deleted, so a consumer downstream still sees the
-        // checkout rather than a cart that vanished.
-        effects::persist(ShoppingCartEvent::CheckedOut)
+        // discard rather than a cart that vanished; the same id then starts again empty.
+        effects::persist(ShoppingCartEvent::Discarded)
             .delete_entity()
-            .then_reply(|cart: &Cart| cart.clone())
+            .then_reply_value(Done)
     }
 
     fn get_cart(cart: &Cart, _: (), _: &Context) -> ReadOnlyEffect<Cart> {
@@ -245,6 +255,8 @@ impl EventSourcedEntity for ShoppingCart {
             ShoppingCartEvent::ItemAdded { item } => cart.add_item(item.clone()),
             ShoppingCartEvent::ItemRemoved { product_id } => cart.remove_item(product_id),
             ShoppingCartEvent::CheckedOut => cart.on_checked_out(),
+            // The cart is deleted straight after; the event is there for what reads the journal.
+            ShoppingCartEvent::Discarded => cart,
         }
     }
 
@@ -253,6 +265,7 @@ impl EventSourcedEntity for ShoppingCart {
             .command("add-item", ShoppingCart::add_item)
             .command("remove-item", ShoppingCart::remove_item)
             .command("checkout", ShoppingCart::checkout)
+            .command("discard", ShoppingCart::discard)
             .query("get-cart", ShoppingCart::get_cart)
             .query("total-quantity", ShoppingCart::total_quantity)
     }
@@ -282,7 +295,8 @@ An endpoint is the service's HTTP edge. Create `src/endpoint.rs`; an excerpt of 
 this page uses:
 
 ```rust
-/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, open to anyone.
+/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, and `DELETE
+/// /carts/{cartId}`, open to anyone.
 pub struct CartApi;
 
 impl CartApi {
@@ -324,6 +338,13 @@ impl CartApi {
             .client()
             .invoke(ShoppingCart, cart_id, "checkout", ())?)
     }
+
+    fn discard(request: &Request) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "discard", ())?)
+    }
 }
 ```
 
@@ -348,6 +369,7 @@ impl Endpoint for CartApi {
             .post("/{cartId}/items", CartApi::add_item)
             .delete("/{cartId}/items/{productId}", CartApi::remove_item)
             .post("/{cartId}/checkout", CartApi::checkout)
+            .delete("/{cartId}", CartApi::discard)
             // A literal beside a parameter: the router must prefer it over `/{cartId}`.
             .get("/awkward", |_: &Request| Ok("literal".to_string()))
             .get("/{cartId}/rows", CartApi::row)
@@ -509,8 +531,31 @@ fn the_cart_through_the_runtime_survives_a_restart() {
 
     let checkout = rt.http().post("/carts/c1/checkout").send().unwrap();
     assert_eq!(checkout.status, 200, "{}", checkout.text());
-    let fresh: Cart = rt.http().get("/carts/c1").send().unwrap().json().unwrap();
-    assert_eq!(fresh, Cart::empty("c1"));
+    // Kept after the checkout, and refusing changes after a restart too.
+    rt.restart().unwrap();
+    let kept: Cart = rt.http().get("/carts/c1").send().unwrap().json().unwrap();
+    assert!(kept.checked_out);
+    assert_eq!(kept.items, vec![pen(2)]);
+    assert_eq!(
+        rt.http()
+            .post("/carts/c1/items")
+            .json(&ink())
+            .send()
+            .unwrap()
+            .status,
+        409
+    );
+
+    // Discarding deletes a cart, so the id is fresh again.
+    rt.http()
+        .post("/carts/c2/items")
+        .json(&ink())
+        .send()
+        .unwrap();
+    let discarded = rt.http().delete("/carts/c2").send().unwrap();
+    assert_eq!(discarded.status, 204, "{}", discarded.text());
+    let fresh: Cart = rt.http().get("/carts/c2").send().unwrap().json().unwrap();
+    assert_eq!(fresh, Cart::empty("c2"));
 }
 ```
 

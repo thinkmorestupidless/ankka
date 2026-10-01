@@ -38,6 +38,7 @@ enum ShoppingCartEvent:
   case ItemAdded(item: LineItem)
   case ItemRemoved(productId: String)
   case CheckedOut
+  case Discarded
 ```
 
 **Python**
@@ -58,7 +59,12 @@ class CheckedOut:
     pass
 
 
-ShoppingCartEvent = ItemAdded | ItemRemoved | CheckedOut
+@dataclass(frozen=True)
+class Discarded:
+    pass
+
+
+ShoppingCartEvent = ItemAdded | ItemRemoved | CheckedOut | Discarded
 ```
 
 **TypeScript**
@@ -68,6 +74,7 @@ export const ShoppingCartEvent = s.sumType("ShoppingCartEvent", {
   ItemAdded: { item: LineItem },
   ItemRemoved: { productId: s.string },
   CheckedOut: {},
+  Discarded: {},
 })
 export type ShoppingCartEvent = Infer<typeof ShoppingCartEvent>
 ```
@@ -99,6 +106,8 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     case ItemAdded(item)        => currentState.addItem(item)
     case ItemRemoved(productId) => currentState.removeItem(productId)
     case CheckedOut             => currentState.onCheckedOut
+    // The cart is deleted straight after; the event is there for what reads the journal.
+    case Discarded => currentState
 
   def addItem(item: LineItem): Effect[Done] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
@@ -113,15 +122,26 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     else effects.persist(ItemRemoved(productId)).thenReply(_ => Done)
 
   /**
-   * Records the checkout and then deletes the cart.
+   * Records the checkout and answers with the cart as it was checked out.
    *
-   * The event is persisted before the deletion takes effect, so a consumer or view downstream still
-   * observes that this cart was checked out rather than merely vanishing.
+   * A checked-out cart stays: it is the record of what was ordered, and every later change to it is
+   * refused.
    */
   def checkout: Effect[ShoppingCart] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else if currentState.isEmpty then effects.error("cannot check out an empty cart")
-    else effects.persist(CheckedOut).deleteEntity().thenReplyState
+    else effects.persist(CheckedOut).thenReplyState
+
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty.
+   *
+   * The event is persisted before the deletion takes effect, so a consumer or view downstream still
+   * observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+   * record of an order and is not discarded.
+   */
+  def discard: Effect[Done] =
+    if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
+    else effects.persist(Discarded).deleteEntity().thenReply(_ => Done)
 
   def getCart: ReadOnlyEffect[ShoppingCart] = effects.reply(currentState)
 
@@ -135,7 +155,7 @@ from __future__ import annotations
 
 from ankka import DONE, Done, ErrorCode, EventSourcedEffect, EventSourcedEntity, ReadOnlyEffect, command, json_codec, query
 
-from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
+from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
 
 
 class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
@@ -155,6 +175,9 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
                 return state.remove_item(product_id)
             case CheckedOut():
                 return state.on_checked_out()
+            case Discarded():
+                # The cart is deleted straight after; the event is there for what reads the journal.
+                return state
         raise AssertionError(event)
 
     @command("add-item")
@@ -179,9 +202,17 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
             return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
         if self.state.is_empty:
             return self.effects.error("cannot check out an empty cart")
-        # As the Scala cart: the event is persisted, then the cart is deleted, so a consumer
-        # downstream still sees the checkout rather than a cart that vanished.
-        return self.effects.persist(CheckedOut()).delete_entity().then_reply_state()
+        # As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every
+        # later change to it is refused.
+        return self.effects.persist(CheckedOut()).then_reply_state()
+
+    @command("discard")
+    def discard(self) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+        if self.state.checkedOut:
+            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+        # The event is persisted, then the cart is deleted, so a consumer downstream still sees the
+        # discard rather than a cart that vanished; the same id then starts again empty.
+        return self.effects.persist(Discarded()).delete_entity().then_reply(lambda _: DONE)
 
     @query("get-cart")
     def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]:
@@ -205,6 +236,7 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
     addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
     removeItem: command("remove-item", s.string, Done, (cart: ShoppingCartEntity, productId) => cart.removeItem(productId)),
     checkout: command("checkout", ShoppingCart, (cart: ShoppingCartEntity) => cart.checkout()),
+    discard: command("discard", Done, (cart: ShoppingCartEntity) => cart.discard()),
     getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
     totalQuantity: query("total-quantity", s.int, (cart: ShoppingCartEntity) => cart.effects.reply(totalQuantity(cart.state))),
   }
@@ -221,6 +253,9 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
         return removeItem(cart, event.productId)
       case "CheckedOut":
         return { ...cart, checkedOut: true }
+      case "Discarded":
+        // The cart is deleted straight after; the event is there for what reads the journal.
+        return cart
     }
   }
 
@@ -239,9 +274,16 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
   checkout() {
     if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
     if (this.state.items.length === 0) return this.effects.error("cannot check out an empty cart")
-    // As the Scala cart: the event is persisted, then the cart is deleted, so a consumer downstream
-    // still sees the checkout rather than a cart that vanished.
-    return this.effects.persist({ type: "CheckedOut" }).deleteEntity().thenReplyState()
+    // As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every later
+    // change to it is refused.
+    return this.effects.persist({ type: "CheckedOut" }).thenReplyState()
+  }
+
+  discard() {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    // The event is persisted, then the cart is deleted, so a consumer downstream still sees the discard
+    // rather than a cart that vanished; the same id then starts again empty.
+    return this.effects.persist({ type: "Discarded" }).deleteEntity().thenReply(() => done)
   }
 }
 ```
@@ -281,6 +323,7 @@ object ShoppingCartEntity
   val addItem       = command("add-item")(_.addItem)
   val removeItem    = command("remove-item")(_.removeItem)
   val checkout      = command("checkout")(_.checkout)
+  val discard       = command("discard")(_.discard)
   val getCart       = query("get-cart")(_.getCart)
   val totalQuantity = query("total-quantity")(_.totalQuantity)
 ```
@@ -329,26 +372,31 @@ the same code. The endpoint in between needs no error handling of its own. See
 
 ## Deleting an entity
 
-Deleting an entity marks it deleted in the journal. The shopping cart deletes itself on checkout, after
-persisting a final event:
+Deleting an entity marks it deleted in the journal. The shopping cart deletes itself when a customer
+discards it, after persisting a final event:
 
 ```scala
 /**
- * Records the checkout and then deletes the cart.
+ * Records the discard and then deletes the cart, so the same id starts again empty.
  *
  * The event is persisted before the deletion takes effect, so a consumer or view downstream still
- * observes that this cart was checked out rather than merely vanishing.
+ * observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+ * record of an order and is not discarded.
  */
-def checkout: Effect[ShoppingCart] =
+def discard: Effect[Done] =
   if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
-  else if currentState.isEmpty then effects.error("cannot check out an empty cart")
-  else effects.persist(CheckedOut).deleteEntity().thenReplyState
+  else effects.persist(Discarded).deleteEntity().thenReply(_ => Done)
 ```
 
 Persisting the event before deleting matters to everything downstream. A view or consumer reading the
-cart's events sees `CheckedOut` and then the deletion, so it learns that the cart was checked out rather
-than that it vanished. A view can keep a row for a deleted entity, as the cart's view does; see
+cart's events sees `Discarded` and then the deletion, so it learns that the cart was discarded rather
+than that it vanished. A view decides what a deleted entity's row becomes; see
 [Views](views.md#when-the-source-is-deleted).
+
+Not every ending is a deletion. A checked-out cart is kept: it is the record of what was ordered, so
+checkout persists `CheckedOut` and leaves the entity in place, and every handler refuses a change to a
+checked-out cart with `ErrorCode.Conflict`. Delete an entity when its id should start again; keep it,
+in a state that refuses changes, when what it holds is still worth reading.
 
 After a deletion the id is free. The next command for it starts from the empty state, as if the id had
 never been used, and none of the earlier events are folded in. Choose ids that are not reused by accident

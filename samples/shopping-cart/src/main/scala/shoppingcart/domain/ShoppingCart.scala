@@ -44,6 +44,7 @@ enum ShoppingCartEvent:
   case ItemAdded(item: LineItem)
   case ItemRemoved(productId: String)
   case CheckedOut
+  case Discarded
 // docs:end events
 
 /**

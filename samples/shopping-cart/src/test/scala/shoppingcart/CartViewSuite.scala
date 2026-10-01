@@ -106,19 +106,29 @@ class CartViewSuite extends munit.FunSuite with LogCapturing:
     assertEquals(found.map(_.cartId), Vector("view-q-1"))
   }
 
-  test("a checked-out cart survives in the view as a tombstone") {
-    val id = "view-tombstone"
+  test("a checked-out cart's row is marked checked out and keeps what it held") {
+    val id = "view-checked-out"
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 4))
     val _  = eventually("the row exists")(rows.get(id))
 
     val _ = cart(id).call(ShoppingCartEntity.checkout).invoke()
 
-    // The entity is gone...
-    assert(cart(id).call(ShoppingCartEntity.getCart).invoke().isEmpty)
-
-    // ...but onDelete kept the row, so order history still works.
     val row = eventually("the row is marked checked out")(rows.get(id).filter(_.checkedOut))
     assertEquals(row.totalQuantity, 4)
+    // The cart itself is kept too.
+    assert(cart(id).call(ShoppingCartEntity.getCart).invoke().checkedOut)
+  }
+
+  test("a discarded cart leaves the listing") {
+    val id = "view-discarded"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 4))
+    val _  = eventually("the row exists")(rows.get(id))
+
+    val _ = cart(id).call(ShoppingCartEntity.discard).invoke()
+
+    // The deletion runs the view's default handler, which removes the row. Retried on the row going,
+    // since the projection follows the journal.
+    val _ = eventually("the row is removed")(Option.when(rows.get(id).isEmpty)(()))
   }
 
   test("count and all see every projected row") {

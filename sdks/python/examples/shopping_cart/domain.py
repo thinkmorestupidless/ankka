@@ -64,5 +64,10 @@ class CheckedOut:
     pass
 
 
-ShoppingCartEvent = ItemAdded | ItemRemoved | CheckedOut
+@dataclass(frozen=True)
+class Discarded:
+    pass
+
+
+ShoppingCartEvent = ItemAdded | ItemRemoved | CheckedOut | Discarded
 # docs:end events

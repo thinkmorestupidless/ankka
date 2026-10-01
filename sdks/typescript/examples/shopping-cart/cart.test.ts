@@ -44,15 +44,41 @@ describe("the cart entity, without a sidecar", () => {
     assert.equal(kit.sequence, 0n)
   })
 
-  test("checkout persists the event, replies the checked-out cart and deletes the entity", async () => {
+  test("checkout persists the event, replies the checked-out cart and keeps it", async () => {
     const kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
     await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p1", name: "Pen", quantity: 2 })
     const result = await kit.call(ShoppingCartEntity.handlers.checkout)
     assert.deepEqual(result.events, [{ type: "CheckedOut" }])
     assert.equal(result.reply?.checkedOut, true)
+    assert.equal(result.retention, null)
+    assert.deepEqual(kit.state, { cartId: "c1", items: [{ productId: "p1", name: "Pen", quantity: 2 }], checkedOut: true })
+  })
+
+  test("a checked-out cart refuses every change, and none of them changes it", async () => {
+    const kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+    await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p1", name: "Pen", quantity: 2 })
+    await kit.call(ShoppingCartEntity.handlers.checkout)
+    const refusals = [
+      await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p2", name: "Ink", quantity: 1 }),
+      await kit.call(ShoppingCartEntity.handlers.removeItem, "p1"),
+      await kit.call(ShoppingCartEntity.handlers.checkout),
+      await kit.call(ShoppingCartEntity.handlers.discard),
+    ]
+    for (const refused of refusals) {
+      assert.equal(refused.error?.code, "CONFLICT")
+      assert.match(refused.error?.message ?? "", /already checked out/)
+      assert.deepEqual(refused.events, [])
+    }
+    assert.equal(kit.state.items.length, 1)
+  })
+
+  test("discard persists the event and deletes the entity", async () => {
+    const kit = EventSourcedTestKit.of(ShoppingCartEntity, "c1")
+    await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p1", name: "Pen", quantity: 2 })
+    const result = await kit.call(ShoppingCartEntity.handlers.discard)
+    assert.deepEqual(result.events, [{ type: "Discarded" }])
+    assert.equal(result.reply, done)
     assert.equal(result.retention?.kind, "delete-now")
-    const again = await kit.call(ShoppingCartEntity.handlers.addItem, { productId: "p1", name: "Pen", quantity: 1 })
-    assert.equal(again.error?.code, "CONFLICT")
   })
 
   test("removing a product that is not there is NOT_FOUND", async () => {
@@ -110,8 +136,17 @@ describe("the cart through the real sidecar", { skip: slow }, () => {
       const checkedOut = (await kit.http.post("/carts/c2/checkout")).json() as { checkedOut: boolean; items: unknown[] }
       assert.equal(checkedOut.checkedOut, true)
       assert.equal(checkedOut.items.length, 1)
-      const fresh = (await kit.http.get("/carts/c2")).json() as { items: unknown[]; checkedOut: boolean }
-      assert.deepEqual(fresh, { cartId: "c2", items: [], checkedOut: false })
+      // Kept after the checkout, and refusing changes after a restart too.
+      await kit.restart()
+      const kept = (await kit.http.get("/carts/c2")).json() as { items: unknown[]; checkedOut: boolean }
+      assert.deepEqual(kept, { cartId: "c2", items: [{ productId: "p1", name: "Pen", quantity: 2 }], checkedOut: true })
+      assert.equal((await kit.http.post("/carts/c2/items", { productId: "p1", name: "Pen", quantity: 1 })).status, 409)
+      assert.equal((await kit.http.delete("/carts/c2")).status, 409)
+      // Discarding deletes a cart, so the id is fresh again.
+      assert.equal((await kit.http.post("/carts/c3/items", { productId: "p1", name: "Pen", quantity: 1 })).status, 204)
+      assert.equal((await kit.http.delete("/carts/c3")).status, 204)
+      const fresh = (await kit.http.get("/carts/c3")).json() as { items: unknown[]; checkedOut: boolean }
+      assert.deepEqual(fresh, { cartId: "c3", items: [], checkedOut: false })
     } finally {
       await kit.stop()
     }

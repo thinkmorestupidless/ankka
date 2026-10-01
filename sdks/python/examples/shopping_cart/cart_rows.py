@@ -9,7 +9,7 @@ from ankka import json_codec
 from ankka.effects.view import ViewEffect
 from ankka.view import View
 
-from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, ShoppingCartEvent
+from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, ShoppingCartEvent
 from examples.shopping_cart.entity import ShoppingCartEntity
 
 
@@ -41,11 +41,8 @@ class CartRows(View[ShoppingCartEvent, CartRow]):
                 return self.effects.update_row(replace(current, quantities={k: v for k, v in current.quantities.items() if k != product_id}))
             case CheckedOut():
                 return self.effects.update_row(replace(current, checkedOut=True))
+            case Discarded():
+                # The deletion that follows removes the row: a discarded cart leaves the listing,
+                # which is the view's default when its source is deleted.
+                return self.effects.ignore()
         raise AssertionError(event)
-
-    def on_delete(self) -> ViewEffect:
-        """Checkout deletes the cart, but a checked-out cart is exactly what an order history
-        needs: the row outlives the entity that produced it."""
-        if self.row is None:
-            return self.effects.ignore()
-        return self.effects.update_row(replace(self.row, checkedOut=True))

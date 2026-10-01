@@ -13,7 +13,7 @@ from examples.shopping_cart.domain import LineItem, ShoppingCart
 
 # docs:start endpoint
 class ShoppingCartEndpoint(Endpoint):
-    """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
+    """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout, DELETE /carts/{cartId}."""
 
     prefix = "/carts"
     acl = Acl.ALLOW_ALL
@@ -43,6 +43,10 @@ class ShoppingCartEndpoint(Endpoint):
     @post("/{cartId}/checkout")
     async def checkout(self, cartId: str) -> ShoppingCart:
         return await self._cart(cartId).call("checkout").invoke(reply=ShoppingCart)
+
+    @delete("/{cartId}")
+    async def discard(self, cartId: str) -> Done:
+        return await self._cart(cartId).call("discard").invoke(reply=Done)
     # docs:end endpoint
 
     # ── The view, the workflow and the notifier's log ──────────────────────

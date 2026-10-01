@@ -25,6 +25,8 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
     case ItemAdded(item)        => currentState.addItem(item)
     case ItemRemoved(productId) => currentState.removeItem(productId)
     case CheckedOut             => currentState.onCheckedOut
+    // The cart is deleted straight after; the event is there for what reads the journal.
+    case Discarded => currentState
 
   def addItem(item: LineItem): Effect[Done] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
@@ -40,16 +42,29 @@ final class ShoppingCartEntity(context: EventSourcedEntityContext)
 
   // docs:start checkout
   /**
-   * Records the checkout and then deletes the cart.
+   * Records the checkout and answers with the cart as it was checked out.
    *
-   * The event is persisted before the deletion takes effect, so a consumer or view downstream still
-   * observes that this cart was checked out rather than merely vanishing.
+   * A checked-out cart stays: it is the record of what was ordered, and every later change to it is
+   * refused.
    */
   def checkout: Effect[ShoppingCart] =
     if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
     else if currentState.isEmpty then effects.error("cannot check out an empty cart")
-    else effects.persist(CheckedOut).deleteEntity().thenReplyState
+    else effects.persist(CheckedOut).thenReplyState
   // docs:end checkout
+
+  // docs:start discard
+  /**
+   * Records the discard and then deletes the cart, so the same id starts again empty.
+   *
+   * The event is persisted before the deletion takes effect, so a consumer or view downstream still
+   * observes that this cart was discarded rather than merely vanishing. A checked-out cart is a
+   * record of an order and is not discarded.
+   */
+  def discard: Effect[Done] =
+    if currentState.checkedOut then effects.error("cart is already checked out", ErrorCode.Conflict)
+    else effects.persist(Discarded).deleteEntity().thenReply(_ => Done)
+  // docs:end discard
 
   def getCart: ReadOnlyEffect[ShoppingCart] = effects.reply(currentState)
 
@@ -75,6 +90,7 @@ object ShoppingCartEntity
   val addItem       = command("add-item")(_.addItem)
   val removeItem    = command("remove-item")(_.removeItem)
   val checkout      = command("checkout")(_.checkout)
+  val discard       = command("discard")(_.discard)
   val getCart       = query("get-cart")(_.getCart)
   val totalQuantity = query("total-quantity")(_.totalQuantity)
 // docs:end companion

@@ -276,16 +276,24 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     // in-process and process runs of this suite write the same rows for the same requests.
     postJson("/carts/port1/items", cartJson("p1", "Pen", 2))
     assertEquals(post("/carts/port1/checkout").status, 200)
-    val rows = journal("shopping-cart|port1")
-    // Two domain events under the shared manifest, then the deletion marker.
-    assertEquals(rows.size, 3, rows.toString)
+    val kept = journal("shopping-cart|port1")
+    // A checked-out cart is kept: two domain events under the shared manifest, and no deletion.
+    assertEquals(kept.size, 2, kept.toString)
     assert(
-      rows(0)._3
+      kept(0)._3
         .contains("""{"type":"ItemAdded","item":{"productId":"p1","name":"Pen","quantity":2}}"""),
-      rows(0)._3
+      kept(0)._3
     )
-    assert(rows(1)._3.contains("""{"type":"CheckedOut"}"""), rows(1)._3)
-    assert(rows.take(2).forall(_._3.contains("shopping-cart-event")))
+    assert(kept(1)._3.contains("""{"type":"CheckedOut"}"""), kept(1)._3)
+    assert(kept.forall(_._3.contains("shopping-cart-event")))
+
+    postJson("/carts/port2/items", cartJson("p1", "Pen", 2))
+    assertEquals(send("DELETE", "/carts/port2").status, 204)
+    val discarded = journal("shopping-cart|port2")
+    // Two domain events under the shared manifest, then the deletion marker.
+    assertEquals(discarded.size, 3, discarded.toString)
+    assert(discarded(1)._3.contains("""{"type":"Discarded"}"""), discarded(1)._3)
+    assert(discarded.take(2).forall(_._3.contains("shopping-cart-event")))
   }
 
   test("kv.set-get") {
@@ -361,14 +369,24 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     eventually()(Some(get("/carts/v2/rows")).filter(_.status == 200))
   }
 
-  test("view.row-tombstoned-on-checkout") {
+  test("view.row-marked-on-checkout") {
     postJson("/carts/v3/items", cartJson("p1", "Pen", 1))
     eventually()(Some(get("/carts/v3/rows")).filter(_.status == 200))
     assertEquals(post("/carts/v3/checkout").status, 200)
     eventually()(
       Some(get("/carts/v3/rows").json).filter(_("checkedOut").flatMap(_.asBoolean).contains(true))
     )
-    assertEquals(get("/carts/v3").json("items").flatMap(_.asArray).map(_.size), Some(0))
+    // The checked-out cart is kept, holding what it held.
+    assertEquals(get("/carts/v3").json("items").flatMap(_.asArray).map(_.size), Some(1))
+  }
+
+  test("view.row-removed-with-source") {
+    postJson("/carts/v4/items", cartJson("p1", "Pen", 1))
+    eventually()(Some(get("/carts/v4/rows")).filter(_.status == 200))
+    assertEquals(send("DELETE", "/carts/v4").status, 204)
+    // The source's deletion removes the row; retried on the row going, as the view follows.
+    eventually()(Some(get("/carts/v4/rows")).filter(_.status == 404))
+    assertEquals(get("/carts/v4").json("items").flatMap(_.asArray).map(_.size), Some(0))
   }
 
   test("consumer.at-least-once-in-order") {

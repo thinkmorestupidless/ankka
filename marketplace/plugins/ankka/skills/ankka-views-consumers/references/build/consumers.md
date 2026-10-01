@@ -68,7 +68,7 @@ final class CheckoutNotifier extends Consumer[ShoppingCartEvent, CheckoutNotice]
   def onMessage(event: ShoppingCartEvent): Effect = event match
     case CheckedOut =>
       effects.produce(CheckoutNotice(messageContext.subject, System.currentTimeMillis()))
-    case ItemAdded(_) | ItemRemoved(_) =>
+    case ItemAdded(_) | ItemRemoved(_) | Discarded =>
       effects.ignore()
 
 object CheckoutNotifier

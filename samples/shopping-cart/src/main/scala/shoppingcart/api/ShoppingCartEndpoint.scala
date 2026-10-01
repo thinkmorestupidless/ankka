@@ -43,5 +43,9 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
     cart(cartId).call(ShoppingCartEntity.checkout).invoke()
   }
 
+  delete("/{cartId}") { (cartId: String) =>
+    cart(cartId).call(ShoppingCartEntity.discard).invoke()
+  }
+
   private def cart(cartId: String) =
     client.forEventSourcedEntity(EntityId(cartId))

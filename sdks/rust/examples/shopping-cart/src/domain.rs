@@ -90,6 +90,7 @@ pub enum ShoppingCartEvent {
         product_id: String,
     },
     CheckedOut,
+    Discarded,
 }
 // docs:end events
 
@@ -121,6 +122,10 @@ mod tests {
         assert_eq!(
             json(&ShoppingCartEvent::CheckedOut),
             r#"{"type":"CheckedOut"}"#
+        );
+        assert_eq!(
+            json(&ShoppingCartEvent::Discarded),
+            r#"{"type":"Discarded"}"#
         );
         assert_eq!(
             json(&ShoppingCart::empty("c1").add_item(pen())),

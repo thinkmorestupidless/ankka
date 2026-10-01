@@ -57,20 +57,11 @@ impl View for CartRows {
                 row.quantities.remove(&product_id);
             }
             ShoppingCartEvent::CheckedOut => row.checked_out = true,
+            // The deletion that follows removes the row: a discarded cart leaves the listing, which
+            // is the view's default when its source is deleted.
+            ShoppingCartEvent::Discarded => return view::ignore(),
         }
         view::update_row(row)
-    }
-
-    /// Checkout deletes the cart, but a checked-out cart is exactly what an order history needs:
-    /// the row outlives the entity that produced it.
-    fn on_deleted(row: Option<CartRow>, _: &Context) -> ViewEffect<CartRow> {
-        match row {
-            Some(row) => view::update_row(CartRow {
-                checked_out: true,
-                ..row
-            }),
-            None => view::ignore(),
-        }
     }
 
     fn queries() -> Vec<&'static str> {

@@ -5,7 +5,9 @@
 #
 # Only what a change can break is built. The `changes` job maps the files a pull request touched
 # onto the jobs below, and a job whose inputs are untouched is skipped — which GitHub counts as a
-# pass for a required status check, so a Python-only change merges on the Python job alone. The map
+# pass for a required status check, so a Python-only change merges on the Python job alone. A matrix
+# job is the exception: skipped, it never reports its expanded names, so the required check for one
+# is a summary job that always runs (`template-scala`). The map
 # is the whole of that argument, and it errs towards running: a job's inputs are everything the job
 # reads or builds, not only the directory named after it. The Scala job reads `docs/` (the
 # descriptors shown in the docs and the generated reference pages are asserted by suites),
@@ -206,6 +208,26 @@ jobs:
           sbt-runner-version: ${{ matrix.sbt-runner }}
       - run: sbt --script-version
       - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=scala 'cli/testOnly com.thinkmorestupidless.ankka.cli.TemplateSuite'
+
+  # The check branch protection requires for the Scala template, in place of the matrix's own names.
+  # A matrix job skipped by the path filter is skipped before it expands, so it reports once, under
+  # its unexpanded name (`template-scala (sbt ${{ matrix.sbt-runner }})`), and the expanded names
+  # never appear: required by name, they blocked every pull request that did not touch the template.
+  # This job always runs, and passes when both launcher lines passed or the template was untouched.
+  template-scala-result:
+    name: template-scala
+    needs: [changes, template-scala]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "changes: ${{ needs.changes.result }}, template-scala: ${{ needs.template-scala.result }}"
+          # A failed `changes` job skips the template too; that is not a pass.
+          [ "${{ needs.changes.result }}" = success ] || exit 1
+          case "${{ needs.template-scala.result }}" in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac
 
   # The documentation: every page's rules, every included sample against its source, every generated
   # table against the code, the rendered skill, and a strict site build. The JVM-generated reference

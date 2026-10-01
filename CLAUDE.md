@@ -125,6 +125,9 @@ this file, and everything here still works without `just` installed.
 **CI builds pull requests, and only the parts a pull request touched.** `.github/workflows/ci.yml`
 opens with a `changes` job that maps changed paths onto the jobs (`build`, `docs`, `sdk-python`,
 `sdk-typescript`, `sdk-rust`, `console`, `template-scala`); an untouched job is skipped, which GitHub counts as a pass for a required check.
+A matrix job is the exception: skipped before it expands, it never reports its expanded names, so
+branch protection requires the `template-scala` summary job (always run; passes when both launcher
+lines passed or were skipped), never the matrix's own `template-scala (sbt …)` names.
 The map errs towards running and is the whole argument, so a job that starts reading a new part of
 the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/`, `kustomization/`,
 `action/` and the root `docker-compose.yml`, and both SDK jobs build the sidecar image from the Scala

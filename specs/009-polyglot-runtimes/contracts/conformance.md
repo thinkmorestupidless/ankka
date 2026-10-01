@@ -77,7 +77,7 @@ Each is one munit case whose name is the identifier below, so a failure names th
 - `wf.survives-restart-mid-step` — restart during `charge`'s pause; the pending step resumes.
 
 **View and consumer**
-- `view.row-updated`, `view.query-by-id`, `view.row-tombstoned-on-checkout` — checkout deletes the cart; the row stays, marked `checkedOut`, as an order history wants.
+- `view.row-updated`, `view.query-by-id`, `view.row-marked-on-checkout`, `view.row-removed-with-source` — a checked-out cart is kept and its row marked `checkedOut`; a discarded cart (`DELETE /carts/{id}`) is deleted, and the view's default deletion handler removes its row.
 - `consumer.at-least-once-in-order` — checkouts arrive in order per cart; `conformance/count` matches.
 
 **Timed action**

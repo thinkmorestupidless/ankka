@@ -165,18 +165,20 @@ describe("the workflow servicer's two slots", () => {
 })
 
 describe("views", () => {
-  test("rows follow the source's events; the row survives the source's deletion as a tombstone", async () => {
+  test("rows follow the source's events; the source's deletion removes the row", async () => {
     const kit = ViewTestKit.of(CartRows)
     await kit.onChange("c1", { type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 2 } })
     await kit.onChange("c1", { type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 3 } })
     await kit.onChange("c1", { type: "ItemAdded", item: { productId: "p2", name: "Ink", quantity: 1 } })
     await kit.onChange("c1", { type: "ItemRemoved", productId: "p2" })
     assert.deepEqual(kit.get("c1"), { cartId: "c1", quantities: { p1: 5 }, checkedOut: false })
-    await kit.onDelete("c1")
+    await kit.onChange("c1", { type: "CheckedOut" })
     assert.deepEqual(kit.get("c1"), { cartId: "c1", quantities: { p1: 5 }, checkedOut: true })
-    const ignored = await kit.onDelete("never-seen")
-    assert.equal(ignored.kind, "ignore")
-    assert.equal(kit.get("never-seen"), null)
+    // A discarded cart: the event changes nothing, the deletion that follows removes the row.
+    await kit.onChange("c2", { type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 1 } })
+    assert.equal((await kit.onChange("c2", { type: "Discarded" })).kind, "ignore")
+    assert.equal((await kit.onDelete("c2")).kind, "delete-row")
+    assert.equal(kit.get("c2"), null)
   })
 })
 

@@ -36,6 +36,7 @@ object ConformanceReference:
     case ItemAdded(item: LineItem)
     case ItemRemoved(productId: String)
     case CheckedOut
+    case Discarded
 
   import ShoppingCartEvent.*
 
@@ -46,18 +47,27 @@ object ConformanceReference:
       case ItemAdded(item)        => currentState.addItem(item)
       case ItemRemoved(productId) => currentState.removeItem(productId)
       case CheckedOut             => currentState.copy(checkedOut = true)
+      case Discarded              => currentState
     def addItem(item: LineItem): Effect[Done] =
       if currentState.checkedOut then
         effects.error("cart is already checked out", ErrorCode.Conflict)
       else if item.quantity <= 0 then effects.error(s"quantity must be greater than zero")
       else effects.persist(ItemAdded(item)).thenReply(_ => Done)
     def removeItem(productId: String): Effect[Done] =
-      if !currentState.items.exists(_.productId == productId) then
+      if currentState.checkedOut then
+        effects.error("cart is already checked out", ErrorCode.Conflict)
+      else if !currentState.items.exists(_.productId == productId) then
         effects.error(s"cart does not contain '$productId'", ErrorCode.NotFound)
       else effects.persist(ItemRemoved(productId)).thenReply(_ => Done)
     def checkout: Effect[ShoppingCart] =
-      if currentState.items.isEmpty then effects.error("cannot check out an empty cart")
-      else effects.persist(CheckedOut).deleteEntity().thenReplyState
+      if currentState.checkedOut then
+        effects.error("cart is already checked out", ErrorCode.Conflict)
+      else if currentState.items.isEmpty then effects.error("cannot check out an empty cart")
+      else effects.persist(CheckedOut).thenReplyState
+    def discard: Effect[Done] =
+      if currentState.checkedOut then
+        effects.error("cart is already checked out", ErrorCode.Conflict)
+      else effects.persist(Discarded).deleteEntity().thenReply(_ => Done)
     def getCart: ReadOnlyEffect[ShoppingCart] = effects.reply(currentState)
     def totalQuantity: ReadOnlyEffect[Int]    = effects.reply(currentState.totalQuantity)
 
@@ -73,6 +83,7 @@ object ConformanceReference:
     val addItem                                    = command("add-item")(_.addItem)
     val removeItem                                 = command("remove-item")(_.removeItem)
     val checkout                                   = command("checkout")(_.checkout)
+    val discard                                    = command("discard")(_.discard)
     val getCart                                    = query("get-cart")(_.getCart)
     val totalQuantity                              = query("total-quantity")(_.totalQuantity)
 
@@ -214,11 +225,8 @@ object ConformanceReference:
         case ItemRemoved(productId) =>
           effects.updateRow(current.copy(quantities = current.quantities - productId))
         case CheckedOut => effects.updateRow(current.copy(checkedOut = true))
-
-    /** The tombstone: a checked-out cart's row outlives the cart. */
-    override def onDelete: Effect = rowState match
-      case Some(row) => effects.updateRow(row.copy(checkedOut = true))
-      case None      => effects.ignore()
+        // The deletion that follows removes the row, by the view's default deletion handler.
+        case Discarded => effects.ignore()
 
   object CartRows
       extends View.Companion[CartRowsView, ShoppingCartEvent, CartRow](
@@ -353,6 +361,9 @@ object ConformanceReference:
     }
     post("/{cartId}/checkout") { (cartId: String) =>
       cart(cartId).call(ShoppingCartEntity.checkout).invoke()
+    }
+    delete("/{cartId}") { (cartId: String) =>
+      cart(cartId).call(ShoppingCartEntity.discard).invoke()
     }
     get("/awkward")(() => "literal")
     get("/{cartId}")((cartId: String) => cart(cartId).call(ShoppingCartEntity.getCart).invoke())

@@ -270,6 +270,8 @@ lazy val testkit = project
     name := "ankka-testkit",
     libraryDependencies ++= Seq(
       munit,
+      gherkin,
+      cucumberExpressions,
       pekkoActorTestkit,
       pekkoStreamTestkit,
       pekkoHttpTestkit,

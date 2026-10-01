@@ -23,13 +23,16 @@ object Dependencies {
     val jsoniter  = "2.40.1"
     val anthropic = "2.61.0"
 
-    val logback        = "1.6.3"
-    val munit          = "1.3.6"
-    val testcontainers = "1.21.4"
-    val r2dbcPostgres  = "1.1.2.RELEASE"
-    val fabric8        = "7.9.0"
-    val decline        = "2.6.2"
-    val nimbusJoseJwt  = "10.9.1"
+    val logback = "1.6.3"
+    val munit   = "1.3.6"
+    // GherkinSuite: Cucumber's own parser and step-expression matcher, not Cucumber-JVM's runner.
+    val gherkin             = "42.0.1"
+    val cucumberExpressions = "20.1.0"
+    val testcontainers      = "1.21.4"
+    val r2dbcPostgres       = "1.1.2.RELEASE"
+    val fabric8             = "7.9.0"
+    val decline             = "2.6.2"
+    val nimbusJoseJwt       = "10.9.1"
 
     /** Test scope only: mints certificates in-process for the TLS suites (feature 014, R13). */
     val bouncyCastle = "1.86"
@@ -113,11 +116,13 @@ object Dependencies {
   val anthropicJava = "com.anthropic" % "anthropic-java" % V.anthropic
 
   // ── Misc ─────────────────────────────────────────────────────────────────
-  val logback             = "ch.qos.logback"     % "logback-classic" % V.logback
-  val munit               = "org.scalameta"     %% "munit"           % V.munit
-  val testcontainersPg    = "org.testcontainers" % "postgresql"      % V.testcontainers
-  val testcontainersKafka = "org.testcontainers" % "kafka"           % V.testcontainers
-  val testcontainersK3s   = "org.testcontainers" % "k3s"             % V.testcontainers
+  val logback             = "ch.qos.logback"     % "logback-classic"      % V.logback
+  val munit               = "org.scalameta"     %% "munit"                % V.munit
+  val gherkin             = "io.cucumber"        % "gherkin"              % V.gherkin
+  val cucumberExpressions = "io.cucumber"        % "cucumber-expressions" % V.cucumberExpressions
+  val testcontainersPg    = "org.testcontainers" % "postgresql"           % V.testcontainers
+  val testcontainersKafka = "org.testcontainers" % "kafka"                % V.testcontainers
+  val testcontainersK3s   = "org.testcontainers" % "k3s"                  % V.testcontainers
 
   // ── Control plane, operator ──────────────────────────────────────────────
   val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8

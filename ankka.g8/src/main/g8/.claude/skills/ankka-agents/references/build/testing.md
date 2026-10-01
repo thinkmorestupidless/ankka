@@ -339,6 +339,55 @@ Name the test after the scenario, in the scenario's words, so a failure reads as
 broke. A scenario that cannot be written this way, because nothing observable distinguishes "met" from
 "not met", is not yet a requirement a test can hold; it needs a sharper statement before it needs a test.
 
+### Scenarios written in Gherkin
+
+Scenarios can live in Gherkin `.feature` files, in the domain's own words, and run as a Scala suite.
+`GherkinSuite` makes each scenario a munit test, and each row of a `Scenario Outline`'s `Examples`
+its own test, named with its file and line:
+
+```gherkin
+Scenario: adding a product the cart already holds adds to that product's quantity
+  Given a cart holding 2 of "Widget"
+  When the customer adds 3 of "Widget"
+  Then the cart holds 5 of "Widget"
+  And the cart holds 5 items in total
+```
+
+Steps are defined with Cucumber Expressions, `{int}`, `{string}` and the rest, and a definition
+matches whatever keyword a step was written with. These drive the shopping cart through its HTTP routes,
+so a scenario checks the routes, the entity's rules and the journal together:
+
+```scala
+Given("a cart holding {int} of {string}") { (quantity: Int, product: String) =>
+  setUp(add(quantity, product))
+}
+
+When("the customer adds {int} of {string}") { (quantity: Int, product: String) =>
+  last = add(quantity, product)
+}
+
+Then("the cart holds {int} of {string}") { (quantity: Int, product: String) =>
+  assertEquals(quantityOf(product), quantity)
+}
+```
+
+The suite takes the directory of its features, relative to the working directory; a forked sbt test runs
+in its project's directory, so `GherkinSuite("features")` reads the project's own `features/`. It mixes
+in like any suite, `LogCapturing` included, and starts its service in `beforeAll` as the integration test
+kit does.
+
+- **An undefined step fails its scenario**, naming the step and its line and printing a definition to
+  paste. A step two definitions match fails too, naming both, and so does one whose values do not match
+  its definition's parameters.
+- **A directory with no scenarios fails the suite.** A suite that ran no scenarios has checked nothing.
+- **A scenario tagged `@ignore` is reported ignored**, never passed.
+- **Each scenario's state is its own**: `scenarioId` is unique to the running scenario, for entity ids no
+  other scenario uses. Scenarios run one at a time on one suite instance.
+- **A step's `DocString` or `DataTable` is the definition's last value**, as a `String` or a
+  `Seq[Seq[String]]`.
+- **Assert what the scenario names.** A refusal is checked by its status and by the entity's own message:
+  a status alone passes for any refusal of that kind, including the wrong one.
+
 ## Testing agents with a scripted model
 
 

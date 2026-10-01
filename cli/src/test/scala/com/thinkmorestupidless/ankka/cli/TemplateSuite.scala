@@ -21,8 +21,9 @@ class TemplateSuite extends munit.FunSuite:
 
   override val munitTimeout: FiniteDuration = 15.minutes
 
-  override def munitIgnore: Boolean =
-    !TemplateSwitch.enabled("scala") || !Init.sbtOnPath()
+  private def missingTools: Seq[String] = if Init.sbtOnPath() then Nil else Seq("sbt")
+
+  override def munitIgnore: Boolean = TemplateSwitch.skip("scala", missingTools)
 
   private val Name    = "probe"
   private val Version = com.thinkmorestupidless.ankka.core.BuildInfo.version
@@ -37,6 +38,7 @@ class TemplateSuite extends munit.FunSuite:
 
   override def beforeAll(): Unit =
     if !munitIgnore then
+      TemplateSwitch.requireTools("scala", missingTools)
       workspace = Files.createTempDirectory("ankka-template")
       val request =
         Init.Request(Name, Some(s"file://${repoRoot.resolve("ankka.g8")}"), directory = workspace)

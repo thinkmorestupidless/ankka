@@ -1,7 +1,7 @@
 # The subset of the build that runs without Docker-in-Docker. The k3s suites (three modules'
-# worth, each starting a Kubernetes node in a container) and the Scala template suite (which publishes
-# locally and runs an external sbt build) stay local for now: see CLAUDE.md, "Commands". The Python,
-# TypeScript and Rust template suites run in their SDK's job.
+# worth, each starting a Kubernetes node in a container) stay local for now: see CLAUDE.md,
+# "Commands". The Scala template suite runs in its own job, and the Python, TypeScript and Rust
+# template suites in their SDK's job.
 #
 # Only what a change can break is built. The `changes` job maps the files a pull request touched
 # onto the jobs below, and a job whose inputs are untouched is skipped — which GitHub counts as a
@@ -31,6 +31,7 @@ jobs:
       sdk-typescript: ${{ steps.filter.outputs.sdk-typescript == 'true' || github.event_name == 'workflow_dispatch' }}
       sdk-rust: ${{ steps.filter.outputs.sdk-rust == 'true' || github.event_name == 'workflow_dispatch' }}
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
+      template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       # The map below is only as good as its coverage: a tracked file no filter claims is a file whose
       # change runs nothing, and a pattern that matches no file can never fire. Both would pass
@@ -99,6 +100,7 @@ jobs:
               - 'cli/src/main/scala/**/cli/Scaffold.scala'
               - 'cli/src/main/scala/**/cli/Main.scala'
               - 'cli/src/test/scala/**/cli/PolyglotTemplateSuite.scala'
+              - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
               - 'marketplace/plugins/ankka/skills/**'
             sdk-python:
               - *workflow
@@ -131,6 +133,19 @@ jobs:
               - 'kustomization/components/console/**'
               - 'kustomization/components/keycloak/realm-import.json'
               - 'docs/reference/control-plane-api.md'
+            # `ankka init` for Scala: the Giter8 template, the command that expands it with `sbt new`,
+            # the suite, and everything the expansion builds against — the modules this commit
+            # publishes locally, and the descriptor rules its service.json is checked with.
+            template-scala:
+              - *workflow
+              - *scala-build
+              - 'ankka.g8/**'
+              - 'controlplane-api/**'
+              - 'cli/src/main/scala/**/cli/Init.scala'
+              - 'cli/src/main/scala/**/cli/Main.scala'
+              - 'cli/src/main/scala/**/mcp/McpInstall.scala'
+              - 'cli/src/test/scala/**/cli/TemplateSuite.scala'
+              - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
             # Files no job reads, each for a reason. No job uses this output; it exists so that
             # `ci-coverage.py` can tell a file left out on purpose from one nobody thought about.
             unchecked:
@@ -160,6 +175,37 @@ jobs:
           cache: sbt
       - uses: sbt/setup-sbt@v1
       - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off scalafmtCheckAll scalafmtSbtCheck compile test
+
+  # The Scala template, the one `ankka init` expands with `sbt new`: this commit's six libraries
+  # published locally, the template expanded by the real command into a directory outside this build,
+  # and the expansion made to pass its own tests and build its image. It runs beside `build` rather
+  # than inside it, because it is minutes of its own. `sbt new` runs outside any build, so the
+  # launcher is the sbt that expands it, and the two launcher lines differ in exactly the way that
+  # once broke `ankka init` for every sbt 2 user: both are run. Naming `scala` in the switch makes a
+  # missing sbt a failure rather than a skipped suite reported green.
+  template-scala:
+    needs: changes
+    if: needs.changes.outputs.template-scala == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sbt-runner: ["1.12.15", "2.0.9"]
+    name: template-scala (sbt ${{ matrix.sbt-runner }})
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the published version, and the one the expansion asks for, come from tags
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+        with:
+          sbt-runner-version: ${{ matrix.sbt-runner }}
+      - run: sbt --script-version
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=scala 'cli/testOnly com.thinkmorestupidless.ankka.cli.TemplateSuite'
 
   # The documentation: every page's rules, every included sample against its source, every generated
   # table against the code, the rendered skill, and a strict site build. The JVM-generated reference

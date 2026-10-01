@@ -26,8 +26,9 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
 
   override val munitTimeout: FiniteDuration = 10.minutes
 
-  override def munitIgnore: Boolean =
-    !TemplateSwitch.enabled(language.id) || !tools.forall(TemplateSwitch.onPath)
+  private def missingTools: Seq[String] = tools.filterNot(TemplateSwitch.onPath)
+
+  override def munitIgnore: Boolean = TemplateSwitch.skip(language.id, missingTools)
 
   protected val Name    = "probe-service"
   protected val Version = com.thinkmorestupidless.ankka.core.BuildInfo.version
@@ -42,6 +43,7 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
 
   override def beforeAll(): Unit =
     if !munitIgnore then
+      TemplateSwitch.requireTools(language.id, missingTools)
       workspace = Files.createTempDirectory(s"ankka-${language.id}-template")
       val out  = ByteArrayOutputStream()
       val err  = ByteArrayOutputStream()

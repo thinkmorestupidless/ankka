@@ -223,7 +223,18 @@ KCADM="kubectl -n ankka-auth exec statefulset/ankka-keycloak -- /opt/keycloak/bi
 KC_ADMIN_USER="$(kubectl -n ankka-auth get secret ankka-keycloak-admin -o jsonpath='{.data.username}' | base64 -d)"
 KC_ADMIN_PASSWORD="$(kubectl -n ankka-auth get secret ankka-keycloak-admin -o jsonpath='{.data.password}' | base64 -d)"
 $KCADM config credentials --server http://localhost:8080 --realm master --user "$KC_ADMIN_USER" --password "$KC_ADMIN_PASSWORD" >/dev/null
-if $KCADM get users -r ankka -q username=dev -q exact=true | grep -q '"username" : "dev"'; then
+# Whether a kcadm query's output contains a field. The output is read whole before it is searched:
+# piped straight into `grep -q`, grep exits at the first match, kubectl exec is killed writing the
+# rest (SIGPIPE, status 141), and under `set -o pipefail` the test then reads as "not found". A long
+# answer — the console client's, on a fresh cluster whose realm import created it — failed every
+# time, and the create that followed stopped this script with "Client ankka-console already exists".
+kc_has() { # kc_has '"clientId" : "x"' get clients -r ankka -q clientId=x
+  local want="$1"; shift
+  local out
+  out="$($KCADM "$@")"
+  grep -qF "$want" <<<"$out"
+}
+if kc_has '"username" : "dev"' get users -r ankka -q username=dev -q exact=true; then
   echo "user dev already exists"
 else
   $KCADM create users -r ankka -s username=dev -s email="dev@${BASE_DOMAIN}" -s emailVerified=true \
@@ -235,7 +246,7 @@ fi
 # A confidential client whose service account is a platform admin, for the smoke test below and
 # for scripts on this machine: the same shape as a CI client on a real installation.
 SMOKE_SECRET="local-smoke-secret"
-if $KCADM get clients -r ankka -q clientId=ankka-local-smoke | grep -q '"clientId" : "ankka-local-smoke"'; then
+if kc_has '"clientId" : "ankka-local-smoke"' get clients -r ankka -q clientId=ankka-local-smoke -q exact=true; then
   echo "client ankka-local-smoke already exists"
 else
   $KCADM create clients -r ankka -s clientId=ankka-local-smoke -s secret="$SMOKE_SECRET" \
@@ -247,7 +258,7 @@ fi
 # The console's client (feature 017). A realm imported before the console existed does not have it,
 # and an import never updates a realm, so it is added the way docs/platform/console.md tells an older
 # installation to add it — with the same values realm-import.json gives a new one.
-if $KCADM get clients -r ankka -q clientId=ankka-console | grep -q '"clientId" : "ankka-console"'; then
+if kc_has '"clientId" : "ankka-console"' get clients -r ankka -q clientId=ankka-console -q exact=true; then
   echo "client ankka-console already exists"
 else
   $KCADM create clients -r ankka -s clientId=ankka-console -s 'name=ankka console' -s secret=dev \

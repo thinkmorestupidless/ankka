@@ -12,6 +12,7 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
     addItem: command("add-item", LineItem, Done, (cart: ShoppingCartEntity, item) => cart.addItem(item)),
     removeItem: command("remove-item", s.string, Done, (cart: ShoppingCartEntity, productId) => cart.removeItem(productId)),
     checkout: command("checkout", ShoppingCart, (cart: ShoppingCartEntity) => cart.checkout()),
+    discard: command("discard", Done, (cart: ShoppingCartEntity) => cart.discard()),
     getCart: query("get-cart", ShoppingCart, (cart: ShoppingCartEntity) => cart.effects.reply(cart.state)),
     totalQuantity: query("total-quantity", s.int, (cart: ShoppingCartEntity) => cart.effects.reply(totalQuantity(cart.state))),
   }
@@ -28,6 +29,9 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
         return removeItem(cart, event.productId)
       case "CheckedOut":
         return { ...cart, checkedOut: true }
+      case "Discarded":
+        // The cart is deleted straight after; the event is there for what reads the journal.
+        return cart
     }
   }
 
@@ -46,9 +50,16 @@ export class ShoppingCartEntity extends EventSourcedEntity<ShoppingCart, Shoppin
   checkout() {
     if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
     if (this.state.items.length === 0) return this.effects.error("cannot check out an empty cart")
-    // As the Scala cart: the event is persisted, then the cart is deleted, so a consumer downstream
-    // still sees the checkout rather than a cart that vanished.
-    return this.effects.persist({ type: "CheckedOut" }).deleteEntity().thenReplyState()
+    // As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every later
+    // change to it is refused.
+    return this.effects.persist({ type: "CheckedOut" }).thenReplyState()
+  }
+
+  discard() {
+    if (this.state.checkedOut) return this.effects.error("cart is already checked out", ErrorCode.Conflict)
+    // The event is persisted, then the cart is deleted, so a consumer downstream still sees the discard
+    // rather than a cart that vanished; the same id then starts again empty.
+    return this.effects.persist({ type: "Discarded" }).deleteEntity().thenReply(() => done)
   }
 }
 // docs:end entity

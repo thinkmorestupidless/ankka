@@ -206,8 +206,15 @@ async def test_cart_through_the_sidecar_survives_a_restart() -> None:
 
         checked = (await kit.http.post("/carts/c1/checkout")).json()
         assert checked["checkedOut"] is True
-        # Deleted after the checkout, as the Scala cart: the id is fresh again.
-        assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [], "checkedOut": False}
+        # Kept after the checkout, as the Scala cart, and refusing changes after a restart too.
+        await kit.restart()
+        assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [PEN_JSON, INK_JSON], "checkedOut": True}
+        assert (await kit.http.post("/carts/c1/items", json=PEN_JSON)).status_code == 409
+
+        # Discarding deletes a cart, so the id is fresh again.
+        assert (await kit.http.post("/carts/c2/items", json=PEN_JSON)).status_code == 204
+        assert (await kit.http.delete("/carts/c2")).status_code == 204
+        assert (await kit.http.get("/carts/c2")).json() == {"cartId": "c2", "items": [], "checkedOut": False}
 ```
 
 **TypeScript**

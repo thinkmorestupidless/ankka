@@ -71,6 +71,10 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
     cart(cartId).call(ShoppingCartEntity.checkout).invoke()
   }
 
+  delete("/{cartId}") { (cartId: String) =>
+    cart(cartId).call(ShoppingCartEntity.discard).invoke()
+  }
+
   private def cart(cartId: String) =
     client.forEventSourcedEntity(EntityId(cartId))
 ```
@@ -82,7 +86,7 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
 <!-- include: sdks/python/examples/shopping_cart/endpoint.py#endpoint -->
 ```python
 class ShoppingCartEndpoint(Endpoint):
-    """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout."""
+    """The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout, DELETE /carts/{cartId}."""
 
     prefix = "/carts"
     acl = Acl.ALLOW_ALL
@@ -112,6 +116,10 @@ class ShoppingCartEndpoint(Endpoint):
     @post("/{cartId}/checkout")
     async def checkout(self, cartId: str) -> ShoppingCart:
         return await self._cart(cartId).call("checkout").invoke(reply=ShoppingCart)
+
+    @delete("/{cartId}")
+    async def discard(self, cartId: str) -> Done:
+        return await self._cart(cartId).call("discard").invoke(reply=Done)
 ```
 
 ///
@@ -120,7 +128,7 @@ class ShoppingCartEndpoint(Endpoint):
 
 <!-- include: sdks/typescript/examples/shopping-cart/endpoint.ts#endpoint -->
 ```ts
-/** The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout. */
+/** The Scala sample's routes, exactly: /carts/{cartId}, /total, /items, /items/{productId}, /checkout, DELETE /carts/{cartId}. */
 export class ShoppingCartEndpoint extends Endpoint {
   static readonly prefix = "/carts"
   static readonly acl = Acl.allowAll
@@ -133,6 +141,7 @@ export class ShoppingCartEndpoint extends Endpoint {
       ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.removeItem).invoke(req.params.productId),
     ),
     checkout: post("/{cartId}/checkout", ShoppingCart, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.checkout).invoke()),
+    discard: del("/{cartId}", Done, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.discard).invoke()),
 ```
 
 ///

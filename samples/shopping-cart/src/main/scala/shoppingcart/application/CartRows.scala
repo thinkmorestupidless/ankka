@@ -35,17 +35,10 @@ final class CartRowsView extends View[ShoppingCartEvent, CartRow]:
         effects.updateRow(current.copy(quantities = current.quantities - productId))
       case CheckedOut =>
         effects.updateRow(current.copy(checkedOut = true))
-
-  /**
-   * Keeps the row after the cart is deleted.
-   *
-   * Checkout deletes the entity, but a checked-out cart is exactly what an order history needs.
-   * This is the tombstone case: the row outlives the entity that produced it.
-   */
-  override def onDelete: Effect =
-    rowState match
-      case Some(row) => effects.updateRow(row.copy(checkedOut = true))
-      case None      => effects.ignore()
+      // The deletion that follows removes the row: a discarded cart leaves the listing, which is
+      // the view's default when its source is deleted.
+      case Discarded =>
+        effects.ignore()
 
 object CartRows
     extends View.Companion[CartRowsView, ShoppingCartEvent, CartRow](

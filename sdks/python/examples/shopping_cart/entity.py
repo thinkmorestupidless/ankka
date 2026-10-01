@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ankka import DONE, Done, ErrorCode, EventSourcedEffect, EventSourcedEntity, ReadOnlyEffect, command, json_codec, query
 
-from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
+from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, LineItem, ShoppingCart, ShoppingCartEvent
 
 
 class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
@@ -22,6 +22,9 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
                 return state.remove_item(product_id)
             case CheckedOut():
                 return state.on_checked_out()
+            case Discarded():
+                # The cart is deleted straight after; the event is there for what reads the journal.
+                return state
         raise AssertionError(event)
 
     @command("add-item")
@@ -46,9 +49,17 @@ class ShoppingCartEntity(EventSourcedEntity[ShoppingCart, ShoppingCartEvent]):
             return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
         if self.state.is_empty:
             return self.effects.error("cannot check out an empty cart")
-        # As the Scala cart: the event is persisted, then the cart is deleted, so a consumer
-        # downstream still sees the checkout rather than a cart that vanished.
-        return self.effects.persist(CheckedOut()).delete_entity().then_reply_state()
+        # As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every
+        # later change to it is refused.
+        return self.effects.persist(CheckedOut()).then_reply_state()
+
+    @command("discard")
+    def discard(self) -> EventSourcedEffect[ShoppingCart, ShoppingCartEvent, Done]:
+        if self.state.checkedOut:
+            return self.effects.error("cart is already checked out", ErrorCode.CONFLICT)
+        # The event is persisted, then the cart is deleted, so a consumer downstream still sees the
+        # discard rather than a cart that vanished; the same id then starts again empty.
+        return self.effects.persist(Discarded()).delete_entity().then_reply(lambda _: DONE)
 
     @query("get-cart")
     def get_cart(self) -> ReadOnlyEffect[ShoppingCart, ShoppingCartEvent, ShoppingCart]:

@@ -41,6 +41,7 @@ class ShoppingCartEntitySuite extends munit.FunSuite with LogCapturing:
       case (cart, ItemAdded(item))        => cart.addItem(item)
       case (cart, ItemRemoved(productId)) => cart.removeItem(productId)
       case (cart, CheckedOut)             => cart.onCheckedOut
+      case (cart, Discarded)              => cart
     }
     assertEquals(folded, kit.currentState, "replaying the journal must reproduce the state")
   }
@@ -72,7 +73,7 @@ class ShoppingCartEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(kit.allEvents, before)
   }
 
-  test("checkout persists the event and then deletes the cart") {
+  test("checkout persists the event and keeps the cart, checked out") {
     val kit    = newKit
     val _      = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 1))
     val result = kit.call(ShoppingCartEntity.checkout)
@@ -80,12 +81,40 @@ class ShoppingCartEntitySuite extends munit.FunSuite with LogCapturing:
     // thenReplyState observes the post-event state, so checkedOut is already true.
     assert(result.replyValue.checkedOut, "reply should see the state after the event applied")
     assertEquals(result.events, Vector(CheckedOut))
+    assertEquals(result.retention, None)
+    assert(!kit.isDeleted)
+    assert(kit.currentState.checkedOut)
+    assertEquals(kit.currentState.totalQuantity, 1)
+  }
+
+  test("a checked-out cart refuses every change") {
+    val kit    = newKit
+    val _      = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 1))
+    val _      = kit.call(ShoppingCartEntity.checkout)
+    val add    = kit.call(ShoppingCartEntity.addItem)(LineItem("p2", "Gadget", 1))
+    val remove = kit.call(ShoppingCartEntity.removeItem)("p1")
+    val drop   = kit.call(ShoppingCartEntity.discard)
+    for refused <- Seq(add, remove, drop) do
+      assert(refused.isError, refused.toString)
+      assertEquals(refused.error.code, ErrorCode.Conflict)
+      assert(refused.errorMessage.contains("already checked out"), refused.errorMessage)
+    assertEquals(kit.currentState.totalQuantity, 1)
+  }
+
+  // docs:start discard-test
+  test("discard persists the event and then deletes the cart") {
+    val kit    = newKit
+    val _      = kit.call(ShoppingCartEntity.addItem)(LineItem("p1", "Widget", 1))
+    val result = kit.call(ShoppingCartEntity.discard)
+
+    assertEquals(result.events, Vector(Discarded))
     assertEquals(
       result.retention,
       Some(com.thinkmorestupidless.ankka.core.effect.Retention.DeleteNow)
     )
     assert(kit.isDeleted)
   }
+  // docs:end discard-test
 
   test("an empty cart cannot be checked out") {
     val result = newKit.call(ShoppingCartEntity.checkout)

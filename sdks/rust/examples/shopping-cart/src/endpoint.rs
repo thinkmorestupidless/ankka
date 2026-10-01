@@ -10,7 +10,8 @@ use crate::domain::{LineItem, ShoppingCart as Cart};
 use crate::entity::ShoppingCart;
 
 // docs:start endpoint
-/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, open to anyone.
+/// `/carts/{cartId}`, `/total`, `/items`, `/items/{productId}` and `/checkout`, and `DELETE
+/// /carts/{cartId}`, open to anyone.
 pub struct CartApi;
 
 impl CartApi {
@@ -51,6 +52,13 @@ impl CartApi {
         Ok(request
             .client()
             .invoke(ShoppingCart, cart_id, "checkout", ())?)
+    }
+
+    fn discard(request: &Request) -> Result<Done, HttpProblem> {
+        let cart_id = request.path("cartId");
+        Ok(request
+            .client()
+            .invoke(ShoppingCart, cart_id, "discard", ())?)
     }
 }
 // docs:end endpoint
@@ -123,6 +131,7 @@ impl Endpoint for CartApi {
             .post("/{cartId}/items", CartApi::add_item)
             .delete("/{cartId}/items/{productId}", CartApi::remove_item)
             .post("/{cartId}/checkout", CartApi::checkout)
+            .delete("/{cartId}", CartApi::discard)
             // A literal beside a parameter: the router must prefer it over `/{cartId}`.
             .get("/awkward", |_: &Request| Ok("literal".to_string()))
             .get("/{cartId}/rows", CartApi::row)

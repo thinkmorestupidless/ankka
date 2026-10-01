@@ -62,9 +62,10 @@ class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
 
     val state = checkout("cart-ok").call(CheckoutWorkflow.status).invoke()
     assertEquals(state.reserved, 3, "the reserve step should have read the cart's total quantity")
-    // The charge step checked the cart out, and checking out deletes it — so the id starts again
-    // from the empty state rather than answering with the old contents.
-    assertEquals(cart("cart-ok").call(ShoppingCartEntity.totalQuantity).invoke(), 0)
+    // The charge step checked the cart out, and a checked-out cart keeps what it held.
+    val checkedOut = cart("cart-ok").call(ShoppingCartEntity.getCart).invoke()
+    assert(checkedOut.checkedOut, checkedOut.toString)
+    assertEquals(checkedOut.totalQuantity, 3)
   }
 
   test("a declined charge is retried, fails over to compensation, and leaves the cart alone") {
@@ -87,7 +88,9 @@ class CheckoutWorkflowSuite extends munit.FunSuite with LogCapturing:
     // resumes without anything nudging it.
     awaitStatus("cart-pause", "charged")
 
-    assertEquals(cart("cart-pause").call(ShoppingCartEntity.totalQuantity).invoke(), 0)
+    val checkedOut = cart("cart-pause").call(ShoppingCartEntity.getCart).invoke()
+    assert(checkedOut.checkedOut, checkedOut.toString)
+    assertEquals(checkedOut.totalQuantity, 3)
   }
 
   test("starting a checkout twice is refused") {

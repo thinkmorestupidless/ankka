@@ -42,11 +42,20 @@ impl ShoppingCart {
         if cart.is_empty() {
             return effects::error(ErrorCode::BadRequest, "cannot check out an empty cart").into();
         }
+        // As the Scala cart: a checked-out cart is kept, the record of what was ordered, and every
+        // later change to it is refused.
+        effects::persist(ShoppingCartEvent::CheckedOut).then_reply(|cart: &Cart| cart.clone())
+    }
+
+    fn discard(cart: &Cart, _: (), _: &Context) -> Effect<ShoppingCartEvent, Done> {
+        if cart.checked_out {
+            return effects::error(ErrorCode::Conflict, "cart is already checked out").into();
+        }
         // The event is persisted, then the cart deleted, so a consumer downstream still sees the
-        // checkout rather than a cart that vanished.
-        effects::persist(ShoppingCartEvent::CheckedOut)
+        // discard rather than a cart that vanished; the same id then starts again empty.
+        effects::persist(ShoppingCartEvent::Discarded)
             .delete_entity()
-            .then_reply(|cart: &Cart| cart.clone())
+            .then_reply_value(Done)
     }
 
     fn get_cart(cart: &Cart, _: (), _: &Context) -> ReadOnlyEffect<Cart> {
@@ -75,6 +84,8 @@ impl EventSourcedEntity for ShoppingCart {
             ShoppingCartEvent::ItemAdded { item } => cart.add_item(item.clone()),
             ShoppingCartEvent::ItemRemoved { product_id } => cart.remove_item(product_id),
             ShoppingCartEvent::CheckedOut => cart.on_checked_out(),
+            // The cart is deleted straight after; the event is there for what reads the journal.
+            ShoppingCartEvent::Discarded => cart,
         }
     }
 
@@ -83,6 +94,7 @@ impl EventSourcedEntity for ShoppingCart {
             .command("add-item", ShoppingCart::add_item)
             .command("remove-item", ShoppingCart::remove_item)
             .command("checkout", ShoppingCart::checkout)
+            .command("discard", ShoppingCart::discard)
             .query("get-cart", ShoppingCart::get_cart)
             .query("total-quantity", ShoppingCart::total_quantity)
     }

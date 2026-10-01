@@ -6,9 +6,9 @@ import json
 
 from typing import Any
 
-from ankka import ErrorCode
+from ankka import DONE, ErrorCode
 from ankka.testkit import EventSourcedTestKit
-from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, LineItem, ShoppingCart
+from examples.shopping_cart.domain import CheckedOut, Discarded, ItemAdded, ItemRemoved, LineItem, ShoppingCart
 from examples.shopping_cart.entity import ShoppingCartEntity
 
 PEN = LineItem("p1", "Pen", 2)
@@ -41,10 +41,25 @@ def test_refusals() -> None:
     assert _code(kit, "remove-item", "nope") == ErrorCode.NOT_FOUND
     kit.call("add-item", PEN)
     checked = kit.call("checkout")
-    assert checked.retention is not None  # the cart is deleted after the checkout event
+    assert checked.retention is None  # a checked-out cart is kept
+    assert kit.state == ShoppingCart("c2", [PEN], True)
+    # Every change to a checked-out cart is refused, and none of them changed it.
+    assert _code(kit, "add-item", INK) == ErrorCode.CONFLICT
+    assert _code(kit, "remove-item", "p1") == ErrorCode.CONFLICT
+    assert _code(kit, "checkout") == ErrorCode.CONFLICT
+    assert _code(kit, "discard") == ErrorCode.CONFLICT
+    assert kit.state == ShoppingCart("c2", [PEN], True)
+
+
+def test_discard_records_the_event_and_deletes_the_cart() -> None:
+    kit = EventSourcedTestKit.of(ShoppingCartEntity, "c4")
+    kit.call("add-item", PEN)
+    discarded = kit.call("discard")
+    assert discarded.events == (Discarded(),)
+    assert discarded.reply == DONE
+    assert discarded.retention is not None  # the cart is deleted after the discard event
     # A deleted cart is fresh, as in-process: the unit testkit models that with a new kit.
-    fresh = EventSourcedTestKit.of(ShoppingCartEntity, "c2")
-    assert fresh.state == ShoppingCart.empty("c2")
+    assert EventSourcedTestKit.of(ShoppingCartEntity, "c4").state == ShoppingCart.empty("c4")
 
 
 def test_the_json_is_the_scala_carts_json() -> None:
@@ -53,6 +68,7 @@ def test_the_json_is_the_scala_carts_json() -> None:
     assert ShoppingCartEntity.event_codec.encode(ItemAdded(PEN)) == b'{"type":"ItemAdded","item":{"productId":"p1","name":"Pen","quantity":2}}'
     assert ShoppingCartEntity.state_codec.encode(kit.state) == b'{"cartId":"c3","items":[{"productId":"p1","name":"Pen","quantity":2}],"checkedOut":false}'
     assert ShoppingCartEntity.event_codec.encode(CheckedOut()) == b'{"type":"CheckedOut"}'
+    assert ShoppingCartEntity.event_codec.encode(Discarded()) == b'{"type":"Discarded"}'
 
 
 # ── The view, the notifier and the workflow, without a sidecar ─────────────────
@@ -66,7 +82,7 @@ from examples.shopping_cart.checkout_notifier import CheckoutNotifier
 from examples.shopping_cart.checkout_workflow import CheckoutWorkflow
 
 
-def test_cart_rows_follow_the_events_and_outlive_the_cart() -> None:
+def test_cart_rows_follow_the_events_and_leave_with_a_discarded_cart() -> None:
     kit = ViewTestKit.of(CartRows)
     assert isinstance(kit.on_change("c1", ItemAdded(PEN)), UpdateRow)
     kit.on_change("c1", ItemAdded(LineItem("p1", "Pen", 3)))
@@ -74,9 +90,12 @@ def test_cart_rows_follow_the_events_and_outlive_the_cart() -> None:
     kit.on_change("c1", ItemRemoved("p2"))
     assert kit.get("c1") == CartRow("c1", {"p1": 5}, False)
     kit.on_change("c1", CheckedOut())
-    assert isinstance(kit.on_delete("c1"), UpdateRow)  # the tombstone: a checked-out cart stays queryable
     assert kit.get("c1") == CartRow("c1", {"p1": 5}, True)
-    assert kit.on_delete("never-seen").__class__.__name__ == "Ignore"
+    # A discarded cart's row goes with it: the event changes nothing, the deletion removes the row.
+    kit.on_change("c2", ItemAdded(PEN))
+    assert kit.on_change("c2", Discarded()).__class__.__name__ == "Ignore"
+    assert isinstance(kit.on_delete("c2"), DeleteRow)
+    assert kit.get("c2") is None
     assert CartRows.row_codec.encode(CartRow("c1", {"p1": 5}, True)) == b'{"cartId":"c1","quantities":{"p1":5},"checkedOut":true}'
 
 
@@ -183,11 +202,11 @@ async def test_every_kind_through_the_sidecar() -> None:
         charged = await _json_when(kit, "/carts/k1/checkouts", lambda s: s["status"] == "charged")
         assert charged == {"cartId": "k1", "status": "charged", "reserved": 3, "mode": "ok"}
         assert (await kit.http.post("/carts/k1/checkouts", content="ok")).status_code == 409
-        assert (await kit.http.get("/carts/k1")).json() == {"cartId": "k1", "items": [], "checkedOut": False}
+        assert (await kit.http.get("/carts/k1")).json() == {"cartId": "k1", "items": [PEN_JSON, INK_JSON], "checkedOut": True}
         logged = await _json_when(kit, "/carts/k1/checkout-log", lambda r: r["notified"])
         assert logged["cartId"] == "k1" and logged["at"] > 0
-        tombstone = await _json_when(kit, "/carts/k1/rows", lambda r: r["checkedOut"])
-        assert tombstone == {"cartId": "k1", "quantities": {"p1": 2, "p2": 1}, "checkedOut": True}
+        checked_out = await _json_when(kit, "/carts/k1/rows", lambda r: r["checkedOut"])
+        assert checked_out == {"cartId": "k1", "quantities": {"p1": 2, "p2": 1}, "checkedOut": True}
 
         # A declined charge is retried once, then fails over to compensation.
         assert (await kit.http.post("/carts/k2/checkouts", content="fail")).status_code == 204
@@ -250,8 +269,15 @@ async def test_cart_through_the_sidecar_survives_a_restart() -> None:
 
         checked = (await kit.http.post("/carts/c1/checkout")).json()
         assert checked["checkedOut"] is True
-        # Deleted after the checkout, as the Scala cart: the id is fresh again.
-        assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [], "checkedOut": False}
+        # Kept after the checkout, as the Scala cart, and refusing changes after a restart too.
+        await kit.restart()
+        assert (await kit.http.get("/carts/c1")).json() == {"cartId": "c1", "items": [PEN_JSON, INK_JSON], "checkedOut": True}
+        assert (await kit.http.post("/carts/c1/items", json=PEN_JSON)).status_code == 409
+
+        # Discarding deletes a cart, so the id is fresh again.
+        assert (await kit.http.post("/carts/c2/items", json=PEN_JSON)).status_code == 204
+        assert (await kit.http.delete("/carts/c2")).status_code == 204
+        assert (await kit.http.get("/carts/c2")).json() == {"cartId": "c2", "items": [], "checkedOut": False}
 # docs:end integration
 
 

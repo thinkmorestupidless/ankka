@@ -90,7 +90,9 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
     assertEquals(failure.code, ErrorCode.NotFound)
   }
 
-  test("checkout persists then deletes, and the id becomes reusable") {
+  test(
+    "a checked-out cart is persisted: after a restart it is still checked out and refuses changes"
+  ) {
     val id = "cart-checkout"
     val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 3))
 
@@ -98,7 +100,26 @@ class ShoppingCartIntegrationSuite extends munit.FunSuite with LogCapturing:
     assert(checkedOut.checkedOut)
     assertEquals(checkedOut.totalQuantity, 3)
 
-    // Deleted, so the cart is empty again rather than permanently bricked.
+    // Rebuilt from the journal, not remembered: the cart a restarted service answers with is the
+    // checked-out one.
+    testKit.restartService()
+    val restored = cart(id).call(ShoppingCartEntity.getCart).invoke()
+    assert(restored.checkedOut, restored.toString)
+    assertEquals(restored.totalQuantity, 3)
+    val refused = intercept[CommandError](
+      cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p9", "New", 1))
+    )
+    assertEquals(refused.code, ErrorCode.Conflict)
+  }
+
+  test("discard deletes the cart, and the id starts again empty") {
+    val id = "cart-discard"
+    val _  = cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p1", "Widget", 3))
+
+    assertEquals(cart(id).call(ShoppingCartEntity.discard).invoke(), Done)
+
+    // Deleted, so the cart is empty again rather than permanently bricked, after a restart too.
+    testKit.restartService()
     assert(cart(id).call(ShoppingCartEntity.getCart).invoke().isEmpty)
     assertEquals(cart(id).call(ShoppingCartEntity.addItem).invoke(LineItem("p9", "New", 1)), Done)
   }

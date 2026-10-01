@@ -62,8 +62,10 @@ keeps its history as events and folds them into state; a key value entity keeps 
 
 ## Deletion, expiry and snapshots
 
-- `effects.persist(CheckedOut).deleteEntity()` persists the final event *before* deleting, so a view or
+- `effects.persist(Discarded).deleteEntity()` persists the final event *before* deleting, so a view or
   consumer downstream sees what happened rather than a vanished entity. Prefer that to a bare delete.
+  Delete only when the id should start again: an ending worth keeping (a checked-out cart) is a
+  persisted state whose handlers refuse further changes.
 - `.expireAfter(duration)` is the same deletion, deferred until the entity has been idle that long.
 - Snapshots change performance, never behaviour: every 100 events by default in Scala
   (`override def snapshotEvery`), never by default in Python (`snapshot_every`) or TypeScript (`static snapshotEvery`).

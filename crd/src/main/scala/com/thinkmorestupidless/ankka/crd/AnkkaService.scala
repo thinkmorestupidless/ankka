@@ -124,7 +124,19 @@ final case class AnkkaServiceSpec(
      * resolves it, exactly as it does for a descriptor's own `secretKeyRef` variables. `None` on a
      * resource written before this field existed, which renders as it always did.
      */
-    imagePullSecret: Option[String] = None
+    imagePullSecret: Option[String] = None,
+    /**
+     * The port the workload serves gRPC on — or absent, when it serves none.
+     *
+     * Resolved by the control plane from the descriptor's `grpc`/`grpcPort` pair, as `port` is from
+     * `http`/`port`. Present, the operator renders a container port and `ANKKA_GRPC_PORT`, a second
+     * port on the service's address, a headless address for per-call balancing, the policy that
+     * admits workloads of the installation to it, and — when exposed — the route rule that sends
+     * gRPC there. Absent renders none of it, which is what keeps a service that declares no gRPC
+     * rendering exactly as it did before the field existed.
+     */
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    grpcPort: Option[Int] = None
 )
 
 /**

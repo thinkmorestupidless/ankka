@@ -197,3 +197,13 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     val json = serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready"))
     assert(!json.contains("database"), s"an absent Option should not appear at all: $json")
   }
+
+  test("a gRPC port is absent from a resource that has none, and round-trips when present") {
+    val without = serialization.asJson(fullSpec)
+    assert(!without.contains("grpcPort"), without)
+    val withGrpc = fullSpec.copy(grpcPort = Some(9090))
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(withGrpc), classOf[AnkkaServiceSpec]),
+      withGrpc
+    )
+  }

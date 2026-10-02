@@ -13,6 +13,21 @@ service CartService {
   rpc WhoCalled (WhoCalledRequest) returns (WhoCalledReply);
 }
 
+// docs:start streams-definition
+// The same cart, a part at a time: one kind of method each way a stream can go.
+service CartStreams {
+  // The cart after each change, for as long as the caller watches.
+  rpc WatchCart   (GetCartRequest)        returns (stream Cart);
+  // Items sent one at a time, answered once with how many were added.
+  rpc ImportItems (stream AddItemRequest) returns (ImportSummary);
+  // A conversation: each line answered as it arrives.
+  rpc Converse    (stream Line)           returns (stream Line);
+}
+
+message ImportSummary { int32 added = 1; }
+message Line          { string text = 1; }
+// docs:end streams-definition
+
 message GetCartRequest { string cart_id = 1; }
 message AddItemRequest { string cart_id = 1; LineItem item = 2; }
 message LineItem       { string product_id = 1; string name = 2; int32 quantity = 3; }

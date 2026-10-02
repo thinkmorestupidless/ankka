@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.runtime.{
 import com.typesafe.config.Config
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 import io.grpc.{InsecureServerCredentials, Server, ServerCredentials, TlsServerCredentials}
+import org.apache.pekko.stream.Materializer
 import org.slf4j.LoggerFactory
 
 import java.io.IOException
@@ -62,7 +63,8 @@ final class GrpcServer private (
       factories.map(_(clients)).toVector,
       interface.getOrElse(config.getString("ankka.grpc.interface")),
       port.getOrElse(config.getInt("ankka.grpc.port")),
-      config
+      config,
+      Some(Materializer(service.system))
     )
 
   /** Validates, logs and binds `endpoints`: everything `start` does once the endpoints exist. */
@@ -70,7 +72,8 @@ final class GrpcServer private (
       endpoints: Vector[GrpcEndpoint],
       host: String,
       bindPort: Int,
-      config: Config
+      config: Config,
+      materializer: Option[Materializer] = None
   ): Unit =
     GrpcServer.validate(endpoints)
     grace = duration(config, "ankka.grpc.shutdown-grace")
@@ -94,7 +97,9 @@ final class GrpcServer private (
       .executor(AnkkaExecutors.virtual.execute(_))
       .maxInboundMessageSize(config.getBytes("ankka.grpc.max-message-size").toInt)
       .fallbackHandlerRegistry(Binding.fallback(endpoints, admission))
-    endpoints.foreach(endpoint => builder.addService(Binding.definition(endpoint, admission)))
+    endpoints.foreach(endpoint =>
+      builder.addService(Binding.definition(endpoint, admission, materializer))
+    )
 
     val started =
       try builder.build().start()

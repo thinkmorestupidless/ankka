@@ -1,0 +1,131 @@
+[
+  {
+    "delta": {
+      "kind": "node",
+      "id": "person:ada",
+      "version": 1,
+      "labels": ["Person"],
+      "properties": {"name": "Ada", "count": 3, "balance": -42, "ratio": 0.25, "active": true}
+    },
+    "key": "node:person:ada",
+    "reads": {"name": "string", "count": "integer", "balance": "integer", "ratio": "float", "active": "boolean"}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "extremes",
+      "version": 9223372036854775807,
+      "labels": ["Number"],
+      "properties": {"max": 9223372036854775807, "min": -9223372036854775808, "zero": 0}
+    },
+    "key": "node:extremes",
+    "reads": {"max": "integer", "min": "integer", "zero": "integer"}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "past-two-to-the-53",
+      "version": 9007199254740993,
+      "labels": ["Number"],
+      "properties": {"big": 9007199254740993}
+    },
+    "key": "node:past-two-to-the-53",
+    "reads": {"big": "integer"}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "whole-float",
+      "version": 2,
+      "labels": ["Number"],
+      "properties": {"whole": 2.0, "small": 1.0E-3, "negative": -7.5}
+    },
+    "key": "node:whole-float",
+    "reads": {"whole": "integer", "small": "float", "negative": "float"}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "lists",
+      "version": 3,
+      "labels": ["Thing"],
+      "properties": {"tags": ["a", "b"], "sizes": [1, 2, 3], "weights": [0.5, 1.5], "flags": [true, false], "one": ["only"]}
+    },
+    "key": "node:lists",
+    "reads": {"tags": "list:string", "sizes": "list:integer", "weights": "list:float", "flags": "list:boolean", "one": "list:string"}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "bare",
+      "version": 4
+    },
+    "key": "node:bare",
+    "reads": {}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "empty",
+      "version": 5,
+      "labels": [],
+      "properties": {}
+    },
+    "key": "node:empty",
+    "reads": {}
+  },
+  {
+    "delta": {
+      "kind": "node",
+      "id": "text",
+      "version": 6,
+      "labels": ["Text", "_Private", "Label2"],
+      "properties": {"empty": "", "unicode": "žluťoučký kůň 🐎", "quoted": "say \"hi\"\n", "looksLikeNumber": "42"}
+    },
+    "key": "node:text",
+    "reads": {"empty": "string", "unicode": "string", "quoted": "string", "looksLikeNumber": "string"}
+  },
+  {
+    "delta": {
+      "kind": "edge",
+      "id": "knows:ada:grace",
+      "version": 7,
+      "type": "KNOWS",
+      "from": "person:ada",
+      "to": "person:grace",
+      "properties": {"since": 1843, "weight": 0.5, "close": true, "via": ["letters"]}
+    },
+    "key": "edge:knows:ada:grace",
+    "reads": {"since": "integer", "weight": "float", "close": "boolean", "via": "list:string"}
+  },
+  {
+    "delta": {
+      "kind": "edge",
+      "id": "bare-edge",
+      "version": 8,
+      "type": "_LINKS",
+      "from": "a",
+      "to": "b"
+    },
+    "key": "edge:bare-edge",
+    "reads": {}
+  },
+  {
+    "delta": {"kind": "tombstone", "element": "node", "id": "person:ada", "version": 9},
+    "key": "node:person:ada",
+    "reads": {}
+  },
+  {
+    "delta": {
+      "kind": "tombstone",
+      "element": "edge",
+      "id": "knows:ada:grace",
+      "version": 10,
+      "type": "KNOWS",
+      "from": "person:ada",
+      "to": "person:grace"
+    },
+    "key": "edge:knows:ada:grace",
+    "reads": {}
+  }
+]

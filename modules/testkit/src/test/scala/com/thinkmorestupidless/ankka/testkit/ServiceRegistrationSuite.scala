@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.testkit
 
+import com.thinkmorestupidless.ankka.runtime.{AnkkaService, RuntimeExtension, ServiceRegistration}
 import munit.FunSuite
 
 import java.nio.file.{Files, Path}
@@ -61,6 +62,55 @@ final class ServiceRegistrationSuite extends FunSuite with LogCapturing:
       ): Unit
       try Files.deleteIfExists(directory): Unit
       catch case _: Throwable => ()
+  }
+
+  /** An extension that serves gRPC as far as the inventory can tell: it says where. */
+  private final class ServesGrpc(address: Option[String]) extends RuntimeExtension:
+    val name: String                         = "grpc-server"
+    def start(service: AnkkaService): Unit   = ()
+    override def grpcAddress: Option[String] = address
+
+  /** The name a running service announced itself under, read from its entry. */
+  private def announcedName(directory: Path): String =
+    val entry = entries(directory).headOption.getOrElse(fail("no entry was announced"))
+    """"name":"([^"]+)"""".r.findFirstMatchIn(entry).map(_.group(1)).getOrElse(fail(entry))
+
+  /** Runs `body` with the registry in a directory of its own, restoring the property after. */
+  private def inRegistry(body: Path => Unit): Unit =
+    val directory = Files.createTempDirectory("ankka-registration")
+    val previous  = sys.props.get("ankka.running.dir")
+    sys.props.put("ankka.running.dir", directory.toString): Unit
+    try body(directory)
+    finally
+      previous.fold(sys.props.remove("ankka.running.dir"))(
+        sys.props.put("ankka.running.dir", _)
+      ): Unit
+
+  test("a service that serves gRPC is found at its gRPC address while it runs, and not after") {
+    inRegistry { directory =>
+      val testKit =
+        AnkkaTestKit.start(Seq(ProfileEntity.descriptor), Seq(ServesGrpc(Some("127.0.0.1:4242"))))
+      val name =
+        try
+          val name = announcedName(directory)
+          assertEquals(ServiceRegistration.grpcAddressOf(name), Some("127.0.0.1:4242"))
+          assert(ServiceRegistration.isAnnounced(name))
+          name
+        finally testKit.stop()
+      assertEquals(ServiceRegistration.grpcAddressOf(name), None)
+      assert(!ServiceRegistration.isAnnounced(name), "a stopped service is not announced")
+    }
+  }
+
+  test("a running service that serves no gRPC is announced, with no gRPC address") {
+    inRegistry { directory =>
+      val testKit = AnkkaTestKit.start(Seq(ProfileEntity.descriptor), Seq(ServesGrpc(None)))
+      try
+        val name = announcedName(directory)
+        assert(ServiceRegistration.isAnnounced(name), "it is running")
+        assertEquals(ServiceRegistration.grpcAddressOf(name), None)
+      finally testKit.stop()
+    }
   }
 
   test("a suite that chooses no directory does not write into the developer's home") {

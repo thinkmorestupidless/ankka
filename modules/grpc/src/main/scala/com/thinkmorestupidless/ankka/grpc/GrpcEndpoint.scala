@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.grpc
 
-import com.thinkmorestupidless.ankka.http.Acl
+import com.thinkmorestupidless.ankka.http.{Acl, Caller, Principal, RequestContext, RequestScope}
 import io.grpc.{MethodDescriptor, ServiceDescriptor}
 
 import scala.collection.mutable
@@ -45,6 +45,42 @@ abstract class GrpcEndpoint(val service: ServiceDescriptor):
     scopedAcl = Some(acl)
     try declare
     finally scopedAcl = enclosing
+
+  /**
+   * The call being handled, as an ACL saw it: method `POST`, path `/<service definition>/<method>`,
+   * the call's text metadata as headers.
+   *
+   * Available only on the handler's own thread, as `HttpEndpoint.request` is. Read what you need
+   * before handing work to another thread.
+   */
+  protected def call: RequestContext =
+    RequestScope.currentContext.getOrElse(
+      throw IllegalStateException(
+        "call is only available inside a method handler, on the handler's own thread"
+      )
+    )
+
+  /** Which workload sent this call; see `Caller`. Always present. */
+  protected def caller: Caller = call.caller
+
+  /** The names and values sent with the call beside its request. */
+  protected def metadata: CallMetadata = CallMetadata(call.headers)
+
+  /**
+   * Who is calling, as the `Acl.Authenticate` that admitted the call established it.
+   *
+   * Throws when there is none: a method whose ACL does not authenticate has no business asking, and
+   * the mistake should fail on the first call in a test rather than hand `None` into a permission
+   * check.
+   */
+  protected def principal: Principal =
+    val current = call
+    current.principal.getOrElse(
+      throw IllegalStateException(
+        s"'${current.path.drop(1)}' asked for a principal, but the acl that admitted it does not " +
+          "authenticate callers"
+      )
+    )
 
   /** Answers each call to `method` with one reply. */
   protected def unary[Req, Res](method: MethodDescriptor[Req, Res])(handler: Req => Res): Unit =

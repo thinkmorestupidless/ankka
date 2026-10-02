@@ -1,13 +1,7 @@
 package com.thinkmorestupidless.ankka.grpc
 
 import com.thinkmorestupidless.ankka.core.CommandError
-import com.thinkmorestupidless.ankka.http.{
-  Acl,
-  Caller,
-  QueryParams,
-  RequestScope,
-  SimpleRequestContext
-}
+import com.thinkmorestupidless.ankka.http.{Acl, RequestContext, RequestScope}
 import com.thinkmorestupidless.ankka.runtime.AnkkaExecutors
 import io.grpc.*
 import org.slf4j.LoggerFactory
@@ -36,7 +30,7 @@ private[grpc] object Binding:
       def stream(value: Array[Byte]): InputStream = ByteArrayInputStream(value)
       def parse(stream: InputStream): Array[Byte] = stream.readAllBytes()
 
-  def definition(endpoint: GrpcEndpoint): ServerServiceDefinition =
+  def definition(endpoint: GrpcEndpoint, admission: Admission): ServerServiceDefinition =
     val rebound = endpoint.methods.map { declared =>
       declared -> declared.descriptor
         .toBuilder(bytes, declared.descriptor.getResponseMarshaller)
@@ -51,19 +45,79 @@ private[grpc] object Binding:
       .build()
     rebound
       .foldLeft(ServerServiceDefinition.builder(service)) { case (builder, (declared, method)) =>
-        builder.addMethod(method, handlerFor(endpoint, declared))
+        builder.addMethod(method, handlerFor(endpoint, declared, admission))
       }
       .build()
 
+  /**
+   * A call to a method nothing declares. When its service definition is one an endpoint serves,
+   * that endpoint's ACL judges the call first, so a closed endpoint does not disclose which of its
+   * methods exist by answering some unimplemented and the rest refused. A definition nothing serves
+   * is grpc-java's to answer, `UNIMPLEMENTED`.
+   */
+  def fallback(endpoints: Vector[GrpcEndpoint], admission: Admission): HandlerRegistry =
+    val byDefinition = endpoints.map(e => e.service.getName -> e).toMap
+    new HandlerRegistry:
+      override def lookupMethod(fullName: String, authority: String): ServerMethodDefinition[?, ?] =
+        byDefinition
+          .get(MethodDescriptor.extractFullServiceName(fullName))
+          .map { endpoint =>
+            val method = MethodDescriptor
+              .newBuilder(bytes, bytes)
+              .setType(MethodDescriptor.MethodType.UNKNOWN)
+              .setFullMethodName(fullName)
+              .build()
+            ServerMethodDefinition.create(method, unimplemented(endpoint, fullName, admission))
+          }
+          .orNull
+
+  private def unimplemented(
+      endpoint: GrpcEndpoint,
+      fullName: String,
+      admission: Admission
+  ): ServerCallHandler[Array[Byte], Array[Byte]] =
+    new ServerCallHandler[Array[Byte], Array[Byte]]:
+      def startCall(
+          call: ServerCall[Array[Byte], Array[Byte]],
+          headers: Metadata
+      ): ServerCall.Listener[Array[Byte]] =
+        admitted(call, headers, fullName, endpoint.acl, admission) match
+          case Left((status, trailers)) => call.close(status, trailers)
+          case Right(_) =>
+            call.close(
+              Status.UNIMPLEMENTED.withDescription(s"Method not found: $fullName"),
+              Metadata()
+            )
+        new ServerCall.Listener[Array[Byte]] {}
+
+  /**
+   * The context a call is handled in, or the refusal that ends it — decided before the call reads a
+   * single message, so a refused call runs no handler and parses no request.
+   */
+  private def admitted(
+      call: ServerCall[?, ?],
+      headers: Metadata,
+      fullName: String,
+      acl: Acl,
+      admission: Admission
+  ): Either[(Status, Metadata), RequestContext] =
+    admission
+      .contextFor(call, headers, fullName)
+      .left
+      .map(_ -> Metadata())
+      .flatMap(context => admission.decide(acl, context))
+
   private def handlerFor(
       endpoint: GrpcEndpoint,
-      declared: DeclaredMethod
+      declared: DeclaredMethod,
+      admission: Admission
   ): ServerCallHandler[Array[Byte], Any] = declared.handler match
-    case Handler.Unary(run) => unary(endpoint, declared, run)
+    case Handler.Unary(run) => unary(endpoint, declared, admission, run)
 
   private def unary(
       endpoint: GrpcEndpoint,
       declared: DeclaredMethod,
+      admission: Admission,
       run: Any => Any
   ): ServerCallHandler[Array[Byte], Any] =
     new ServerCallHandler[Array[Byte], Any]:
@@ -71,77 +125,64 @@ private[grpc] object Binding:
           call: ServerCall[Array[Byte], Any],
           headers: Metadata
       ): ServerCall.Listener[Array[Byte]] =
-        // Two, not one, as grpc-java's own unary handler asks: a second message is how a client
-        // that sent too many is noticed.
-        call.request(2)
-        new ServerCall.Listener[Array[Byte]]:
-          private var request: Option[Array[Byte]] = None
-          private var refused                      = false
+        admitted(
+          call,
+          headers,
+          declared.fullName,
+          declared.acl.getOrElse(endpoint.acl),
+          admission
+        ) match
+          case Left((status, trailers)) =>
+            call.close(status, trailers)
+            new ServerCall.Listener[Array[Byte]] {}
+          case Right(context) =>
+            // Two, not one, as grpc-java's own unary handler asks: a second message is how a client
+            // that sent too many is noticed.
+            call.request(2)
+            new ServerCall.Listener[Array[Byte]]:
+              private var request: Option[Array[Byte]] = None
+              private var refused                      = false
 
-          override def onMessage(message: Array[Byte]): Unit =
-            if request.isDefined then
-              refused = true
-              call.close(
-                Status.INTERNAL.withDescription("more than one request for a unary method"),
-                Metadata()
-              )
-            else request = Some(message)
-
-          override def onHalfClose(): Unit =
-            if !refused then
-              request match
-                case None =>
+              override def onMessage(message: Array[Byte]): Unit =
+                if request.isDefined then
+                  refused = true
                   call.close(
-                    Status.INTERNAL.withDescription("no request for a unary method"),
+                    Status.INTERNAL.withDescription("more than one request for a unary method"),
                     Metadata()
                   )
-                case Some(message) =>
-                  // On a thread of its own, not the call's: a handler that blocks must not hold the
-                  // thread grpc-java delivers this call's cancellation on.
-                  AnkkaExecutors.virtual.execute(() =>
-                    answer(call, endpoint, declared, message, run)
-                  )
+                else request = Some(message)
+
+              override def onHalfClose(): Unit =
+                if !refused then
+                  request match
+                    case None =>
+                      call.close(
+                        Status.INTERNAL.withDescription("no request for a unary method"),
+                        Metadata()
+                      )
+                    case Some(message) =>
+                      // On a thread of its own, not the call's: a handler that blocks must not hold
+                      // the thread grpc-java delivers this call's cancellation on.
+                      AnkkaExecutors.virtual.execute(() =>
+                        answer(call, declared, context, message, run)
+                      )
 
   private def answer(
       call: ServerCall[Array[Byte], Any],
-      endpoint: GrpcEndpoint,
       declared: DeclaredMethod,
+      context: RequestContext,
       message: Array[Byte],
       run: Any => Any
   ): Unit =
-    admit(endpoint, declared) match
-      case Some(refusal) => call.close(refusal, Metadata())
-      case None =>
-        parse(declared, message) match
-          case Left(status) => call.close(status, Metadata())
-          case Right(request) =>
-            try
-              val reply = RequestScope.withContext(contextFor(declared))(run(request))
-              call.sendHeaders(Metadata())
-              call.sendMessage(reply)
-              call.close(Status.OK, Metadata())
-            catch
-              case NonFatal(failure) => call.close(statusOf(declared, failure), trailersOf(failure))
-
-  /**
-   * Who may call, until the ACLs are wired: a method open to all is served and every other is
-   * refused. Closed by default, never open.
-   */
-  private def admit(endpoint: GrpcEndpoint, declared: DeclaredMethod): Option[Status] =
-    declared.acl.getOrElse(endpoint.acl) match
-      case Acl.AllowAll => None
-      case _ =>
-        Some(Status.PERMISSION_DENIED.withDescription("not permitted by this endpoint's acl"))
-
-  private def contextFor(declared: DeclaredMethod): SimpleRequestContext =
-    SimpleRequestContext(
-      method = "POST",
-      path = s"/${declared.fullName}",
-      query = QueryParams.empty,
-      headers = Vector.empty,
-      remoteAddress = None,
-      caller = Caller.Local
-    )
+    parse(declared, message) match
+      case Left(status) => call.close(status, Metadata())
+      case Right(request) =>
+        try
+          val reply = RequestScope.withContext(context)(run(request))
+          call.sendHeaders(Metadata())
+          call.sendMessage(reply)
+          call.close(Status.OK, Metadata())
+        catch case NonFatal(failure) => call.close(statusOf(declared, failure), trailersOf(failure))
 
   private[grpc] def parse(declared: DeclaredMethod, message: Array[Byte]): Either[Status, Any] =
     try Right(declared.descriptor.getRequestMarshaller.parse(ByteArrayInputStream(message)))

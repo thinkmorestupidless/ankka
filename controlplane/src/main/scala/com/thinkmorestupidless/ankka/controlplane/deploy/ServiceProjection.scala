@@ -123,6 +123,7 @@ object ServiceProjection:
               // Resolved here, once. The operator never sees `http` or the descriptor's `port`,
               // only the answer — the same split `instanceType` → cpu/memory already uses.
               port = descriptor.service.resolvedPort,
+              grpcPort = descriptor.service.resolvedGrpcPort,
               restarts = service.restarts,
               exposed = service.exposed,
               hosting = descriptor.service.hosting,

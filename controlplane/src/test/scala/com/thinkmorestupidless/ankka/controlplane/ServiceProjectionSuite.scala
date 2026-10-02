@@ -131,6 +131,23 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(spec.port, Some(8080))
   }
 
+  test("a descriptor silent about gRPC projects with no gRPC port, so nothing for it is rendered") {
+    val Right(spec) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(spec.grpcPort, None)
+  }
+
+  test("a descriptor that declares gRPC projects its port, resolved") {
+    val d           = descriptor().copy(service = descriptor().service.copy(grpc = true))
+    val Right(spec) = ServiceProjection.project(service(d = d), config): @unchecked
+    assertEquals(spec.grpcPort, Some(9090))
+  }
+
+  test("gRPC and no HTTP projects a gRPC port and no HTTP port") {
+    val d = descriptor().copy(service = descriptor().service.copy(http = false, grpc = true))
+    val Right(spec) = ServiceProjection.project(service(d = d), config): @unchecked
+    assertEquals((spec.port, spec.grpcPort), (None, Some(9090)))
+  }
+
   test("a service that serves no HTTP projects with no port at all") {
     // The operator reads absence as "render nothing" — no magic value crosses the boundary.
     val d           = descriptor().copy(service = descriptor().service.copy(http = false))

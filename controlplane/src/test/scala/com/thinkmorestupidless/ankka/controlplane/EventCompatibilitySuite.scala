@@ -80,6 +80,8 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       case ServiceEvent.ServiceApplied(projectId, descriptor, generation, actor, at) =>
         assertEquals((projectId, descriptor.name, generation), ("checkout", "cart", 1L))
         assertEquals((actor, at), (None, None))
+        // A descriptor stored before gRPC endpoints existed declares none (feature 020).
+        assertEquals((descriptor.service.grpc, descriptor.service.resolvedGrpcPort), (false, None))
       case ServiceEvent.ServiceRestarted(generation, actor, at) =>
         assertEquals((generation, actor, at), (2L, None, None))
       case ServiceEvent.ServicePaused(actor, at)    => assertEquals((actor, at), (None, None))

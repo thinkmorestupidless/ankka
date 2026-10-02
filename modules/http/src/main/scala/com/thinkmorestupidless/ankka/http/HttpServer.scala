@@ -458,8 +458,8 @@ private final class Router(
         )
       }
       .recover {
-        case failure: HttpProblem  => problem(failure)
-        case failure: CommandError => problem(HttpProblem.from(failure))
+        case failure: HttpProblem => problem(failure)
+        case Rejection(error)     => problem(HttpProblem.from(error))
         case failure: IllegalArgumentException =>
           problem(HttpProblem.badRequest(Option(failure.getMessage).getOrElse("bad request")))
         case NonFatal(failure) =>
@@ -506,8 +506,8 @@ private final class Router(
         Marshal(source.map(text => ServerSentEvent(JsonText.encode(text)))).to[HttpResponse]
       }
       .recover {
-        case failure: HttpProblem  => problem(failure)
-        case failure: CommandError => problem(HttpProblem.from(failure))
+        case failure: HttpProblem => problem(failure)
+        case Rejection(error)     => problem(HttpProblem.from(error))
         case NonFatal(failure) =>
           system.log.error(s"unhandled failure building ${route.describe}", failure)
           problem(HttpProblem(500, "internal error"))
@@ -531,6 +531,14 @@ private final class Router(
         s"""{"status":${failure.status},"error":${JsonText.encode(failure.message)}}"""
       )
     )
+
+/**
+ * A modelled rejection, thrown as itself or carried as the cause of a transport's exception — a
+ * call to another service that was refused arrives that way, and a handler that lets it pass should
+ * answer its own caller with the same refusal rather than a 500.
+ */
+private object Rejection:
+  def unapply(failure: Throwable): Option[CommandError] = CommandError.from(failure)
 
 /**
  * Where a request's caller comes from: the client certificate under mutual TLS, the local
@@ -584,7 +592,7 @@ private[http] object CallerSource:
  * reaches the recorder through the extension `runtime` publishes — the same direction every other
  * part of the seam runs in.
  */
-private[http] object Tracing:
+private[ankka] object Tracing:
 
   def request[A](describe: String)(body: => A)(using system: ActorSystem[?]): A =
     val observability = Observability(system)

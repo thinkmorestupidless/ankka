@@ -10,11 +10,13 @@ import java.security.cert.{CertificateFactory, X509Certificate}
 import java.security.{KeyStore, SecureRandom}
 import java.net.Socket
 import java.security.cert.CertificateException
+import java.security.{Principal, PrivateKey}
 import javax.net.ssl.{
   KeyManagerFactory,
   SSLContext,
   SSLEngine,
   TrustManagerFactory,
+  X509ExtendedKeyManager,
   X509ExtendedTrustManager
 }
 import scala.concurrent.duration.FiniteDuration
@@ -82,6 +84,29 @@ final class RotatingTls(
 
   private val requiring =
     new java.util.concurrent.ConcurrentHashMap[(String, X509Certificate), SSLContext]()
+
+  /**
+   * This identity's key and certificate as a key manager, for a TLS stack that takes managers
+   * rather than an `SSLContext` — grpc-java's credentials API is one. One object for the life of
+   * this `RotatingTls`: every call asks the material loaded at that moment, so a stack that built
+   * its credentials once still presents a renewed certificate on its next handshake.
+   */
+  lazy val keyManager: X509ExtendedKeyManager = RotatingKeyManager(() => refreshed().keyManagers)
+
+  /**
+   * The authority in `ca.crt`, as a trust manager that follows rotation as `keyManager` does. It
+   * trusts any certificate the authority issued — whatever `peers` says, which governs only
+   * `sslContext` — and leaves who the peer is to whoever reads its certificate.
+   */
+  lazy val trustManager: X509ExtendedTrustManager =
+    RotatingTrustManager(() => refreshed().trustManagers)
+
+  /**
+   * `trustManager`, and the server must also carry `uri` among its `ankka://` identities: the
+   * manager form of `contextRequiring`, for calling one named service and nobody else.
+   */
+  def trustManagerRequiring(uri: String): X509ExtendedTrustManager =
+    RequiredIdentityTrustManager(trustManager, uri)
 
   /** An engine for accepting a connection: TLS 1.3, a client certificate required. */
   def serverEngine(): SSLEngine =
@@ -227,6 +252,58 @@ object RotatingTls:
     override def getAcceptedIssuers: Array[X509Certificate] = delegate.getAcceptedIssuers
 
   extension (s: String) private def ifEmpty(other: String): String = if s.isEmpty then other else s
+
+  /** Delegates every call to whichever key manager is loaded when it is made. */
+  private final class RotatingKeyManager(current: () => Array[javax.net.ssl.KeyManager])
+      extends X509ExtendedKeyManager:
+    private def delegate: X509ExtendedKeyManager =
+      current()
+        .collectFirst { case k: X509ExtendedKeyManager => k }
+        .getOrElse(
+          throw IllegalStateException("the loaded identity has no X.509 key manager")
+        )
+    override def getClientAliases(t: String, i: Array[Principal]): Array[String] =
+      delegate.getClientAliases(t, i)
+    override def chooseClientAlias(t: Array[String], i: Array[Principal], s: Socket): String =
+      delegate.chooseClientAlias(t, i, s)
+    override def getServerAliases(t: String, i: Array[Principal]): Array[String] =
+      delegate.getServerAliases(t, i)
+    override def chooseServerAlias(t: String, i: Array[Principal], s: Socket): String =
+      delegate.chooseServerAlias(t, i, s)
+    override def getCertificateChain(alias: String): Array[X509Certificate] =
+      delegate.getCertificateChain(alias)
+    override def getPrivateKey(alias: String): PrivateKey = delegate.getPrivateKey(alias)
+    override def chooseEngineClientAlias(
+        t: Array[String],
+        i: Array[Principal],
+        e: SSLEngine
+    ): String =
+      delegate.chooseEngineClientAlias(t, i, e)
+    override def chooseEngineServerAlias(t: String, i: Array[Principal], e: SSLEngine): String =
+      delegate.chooseEngineServerAlias(t, i, e)
+
+  /** Delegates every call to whichever trust manager is loaded when it is made. */
+  private final class RotatingTrustManager(current: () => Array[javax.net.ssl.TrustManager])
+      extends X509ExtendedTrustManager:
+    private def delegate: X509ExtendedTrustManager =
+      current()
+        .collectFirst { case t: X509ExtendedTrustManager => t }
+        .getOrElse(
+          throw IllegalStateException("the loaded authority has no X.509 trust manager")
+        )
+    override def checkClientTrusted(c: Array[X509Certificate], a: String): Unit =
+      delegate.checkClientTrusted(c, a)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String): Unit =
+      delegate.checkServerTrusted(c, a)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String, s: Socket): Unit =
+      delegate.checkClientTrusted(c, a, s)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String, s: Socket): Unit =
+      delegate.checkServerTrusted(c, a, s)
+    override def checkClientTrusted(c: Array[X509Certificate], a: String, e: SSLEngine): Unit =
+      delegate.checkClientTrusted(c, a, e)
+    override def checkServerTrusted(c: Array[X509Certificate], a: String, e: SSLEngine): Unit =
+      delegate.checkServerTrusted(c, a, e)
+    override def getAcceptedIssuers: Array[X509Certificate] = delegate.getAcceptedIssuers
 
   /** Where a certificate's `ankka://<project>/<service>` URI says it belongs. */
   final case class Identity(project: String, service: String)

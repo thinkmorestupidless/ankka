@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.http
 
+import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.http.scaladsl.model.*
@@ -34,6 +35,11 @@ class ResponseSuite extends munit.FunSuite:
     )
     get("/created")(() => Respond("made", 201))
     get("/asset")(() => Respond(Bytes("image/svg+xml", "<svg/>".getBytes("UTF-8")), 200))
+    // What a client throws when the service it called refused: its own exception, the refusal as
+    // the cause. Letting it pass answers this caller with the same refusal.
+    get("/relayed")(() =>
+      (throw RuntimeException("NOT_FOUND: gone", CommandError("gone", ErrorCode.NotFound))): String
+    )
 
   private val router = Router(Vector(new Site), 5.seconds)
 
@@ -76,4 +82,10 @@ class ResponseSuite extends munit.FunSuite:
     assertEquals(headers.get("set-cookie"), Some("s=1; HttpOnly"))
     assertEquals(headers.get("x-trace"), Some("t"))
     assertEquals(call("/site/created")._1, 201)
+  }
+
+  test("a refusal carried as a cause answers as the refusal, not as a fault") {
+    val (status, body, _, _) = call("/site/relayed")
+    assertEquals(status, 404)
+    assert(body.contains("\"gone\""), body)
   }

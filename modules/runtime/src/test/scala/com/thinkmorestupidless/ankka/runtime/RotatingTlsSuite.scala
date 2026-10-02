@@ -35,8 +35,23 @@ class RotatingTlsSuite extends munit.FunSuite:
       server: RotatingTls,
       client: Option[RotatingTls]
   ): Either[Throwable, java.math.BigInteger] =
+    between(server.sslContext, client.map(_.sslContext))
+
+  /** A context built once from a key manager and a trust manager, as grpc-java builds its own. */
+  private def fixed(
+      keys: javax.net.ssl.KeyManager,
+      trust: javax.net.ssl.TrustManager
+  ): javax.net.ssl.SSLContext =
+    val context = javax.net.ssl.SSLContext.getInstance("TLS")
+    context.init(Array(keys), Array(trust), null)
+    context
+
+  private def between(
+      serverContext: javax.net.ssl.SSLContext,
+      clientContext: Option[javax.net.ssl.SSLContext]
+  ): Either[Throwable, java.math.BigInteger] =
     val listener =
-      server.sslContext.getServerSocketFactory.createServerSocket(0).asInstanceOf[SSLServerSocket]
+      serverContext.getServerSocketFactory.createServerSocket(0).asInstanceOf[SSLServerSocket]
     listener.setNeedClientAuth(true)
     listener.setEnabledProtocols(Array("TLSv1.3"))
     val accepted = Future {
@@ -45,8 +60,8 @@ class RotatingTlsSuite extends munit.FunSuite:
       finally socket.close()
     }
     try
-      val factory = client match
-        case Some(c) => c.sslContext.getSocketFactory
+      val factory = clientContext match
+        case Some(c) => c.getSocketFactory
         case None    =>
           // Trusts the server's authority and presents nothing.
           val bare = javax.net.ssl.SSLContext.getInstance("TLS")
@@ -163,4 +178,43 @@ class RotatingTlsSuite extends munit.FunSuite:
     intercept[IllegalStateException](
       RotatingTls(directory, 1.minute, RotatingTls.Peers.SameIdentity)
     )
+  }
+
+  test("a context built once from the rotating managers completes a mutual handshake") {
+    val server = RotatingTls(root.issue(uris = Seq("ankka://p/server")).writeTo(dir()), 1.minute)
+    val client = RotatingTls(root.issue(uris = Seq("ankka://p/client")).writeTo(dir()), 1.minute)
+    val result = between(
+      fixed(server.keyManager, server.trustManager),
+      Some(fixed(client.keyManager, client.trustManager))
+    )
+    assert(result.isRight, result)
+  }
+
+  test("a context built once presents a renewed certificate on its next handshake") {
+    val directory = dir()
+    val server =
+      RotatingTls(root.issue(uris = Seq("ankka://p/server")).writeTo(directory), 50.millis)
+    val client = RotatingTls(root.issue(uris = Seq("ankka://p/client")).writeTo(dir()), 1.minute)
+    val serverContext = fixed(server.keyManager, server.trustManager)
+    val clientContext = Some(fixed(client.keyManager, client.trustManager))
+    val first         = between(serverContext, clientContext)
+    val renewed       = root.issue(uris = Seq("ankka://p/server"))
+    renewed.writeTo(directory)
+    touch(directory)
+    Thread.sleep(100)
+    assertNotEquals(first, Right(renewed.serial))
+    assertEquals(between(serverContext, clientContext), Right(renewed.serial))
+  }
+
+  test("trustManagerRequiring refuses a server that names another service") {
+    val server = RotatingTls(root.issue(uris = Seq("ankka://p/orders")).writeTo(dir()), 1.minute)
+    val client = RotatingTls(root.issue(uris = Seq("ankka://p/client")).writeTo(dir()), 1.minute)
+    val asked  = fixed(client.keyManager, client.trustManagerRequiring("ankka://p/cart"))
+    val result = between(fixed(server.keyManager, server.trustManager), Some(asked))
+    // The helper reports the server's side first, which sees only the client's alert; the reason
+    // is the client's. The same pair succeeding when the URI asked for is the one presented is what
+    // shows the identity, and nothing else, is the difference.
+    assert(result.isLeft, result)
+    val right = fixed(client.keyManager, client.trustManagerRequiring("ankka://p/orders"))
+    assert(between(fixed(server.keyManager, server.trustManager), Some(right)).isRight)
   }

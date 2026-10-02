@@ -9,7 +9,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   Version
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, Service}
-import com.thinkmorestupidless.ankka.crd.{AutoscalingSpec, EnvEntry, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{AutoscalingSpec, EnvEntry, AnkkaServiceSpec, MountEntry}
 
 /**
  * Desired state becomes a resource spec.
@@ -119,7 +119,10 @@ object ServiceProjection:
               // already lives here (research R11): a caller who names their own ANKKA_DB_*
               // variable is bringing their own database, so nothing should be provisioned for
               // it — checked by name, not value, so a secretKeyRef-sourced value still counts.
-              provisionDatabase = !descriptor.service.env.exists(_.name.startsWith("ANKKA_DB_")),
+              // A web-hosted service has no database at all (feature 021): nothing is provisioned
+              // and, as the descriptor's rules refuse ANKKA_DB_* for it, nothing is supplied either.
+              provisionDatabase = !descriptor.service.isWebHosted &&
+                !descriptor.service.env.exists(_.name.startsWith("ANKKA_DB_")),
               // Resolved here, once. The operator never sees `http` or the descriptor's `port`,
               // only the answer — the same split `instanceType` → cpu/memory already uses.
               port = descriptor.service.resolvedPort,
@@ -130,6 +133,11 @@ object ServiceProjection:
               // The name of the Secret the project's credential was written to, so the operator can
               // name it on the pod. Absent when the project has no registry, which is the default and
               // renders no field at all.
-              imagePullSecret = registry.map(_.secretName)
+              imagePullSecret = registry.map(_.secretName),
+              // Feature 021: the proxy's mounts and admitted callers as the descriptor wrote them,
+              // and the program's port resolved here, once, as `port` is.
+              mounts = descriptor.service.mounts.map(m => MountEntry(m.path, m.service)).toList,
+              callers = descriptor.service.callers.toList,
+              processPort = descriptor.service.resolvedProcessPort
             )
           )

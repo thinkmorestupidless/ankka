@@ -78,3 +78,14 @@ class CrdSchemaSuite extends munit.FunSuite:
       s"the schema declares fields AnkkaServiceSpec does not have: ${spurious.mkString(", ")}"
     )
   }
+
+  test("the schema's hostings are exactly the ones the operator renders") {
+    // The structural schema refuses a value outside its enum, so a hosting the operator learns and
+    // the CRD does not is refused by the API server on every projection: offline tests cannot see it.
+    val hosting = crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties
+      .get("spec")
+      .getProperties
+      .get("hosting")
+    val enumerated = hosting.getEnum.asScala.map(_.asText).toSet
+    assertEquals(enumerated, Rendering.Hostings)
+  }

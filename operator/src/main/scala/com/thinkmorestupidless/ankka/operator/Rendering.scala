@@ -112,6 +112,18 @@ object Rendering:
    */
   val WasmHosting: String = "wasm"
 
+  /**
+   * `AnkkaServiceSpec.hosting`'s value for any program that serves HTTP, beside the platform's
+   * proxy (feature 021): no database, no cluster, two containers.
+   */
+  val WebHosting: String = "web"
+
+  /** `AnkkaServiceSpec.hosting`'s value, and its default, for an image that is an ankka node. */
+  val EmbeddedHosting: String = "embedded"
+
+  /** Every hosting the operator knows; the CRD's enum is held to exactly these. */
+  val Hostings: Set[String] = Set(EmbeddedHosting, ProcessHosting, WasmHosting, WebHosting)
+
   /** The volume a module is copied into, where the init container writes and the runtime reads. */
   val ModuleVolume: String = "ankka-module"
   val ModuleMount: String  = "/ankka/module"

@@ -1,10 +1,13 @@
 package shoppingcart.api
 
+import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.grpc.GrpcClients
 import com.thinkmorestupidless.ankka.http.*
 import io.grpc.stub.MetadataUtils
 import io.grpc.{ClientInterceptors, Metadata, StatusRuntimeException}
 import shoppingcart.v1.cart.{CartServiceGrpc, WhoCalledRequest}
+
+import scala.util.control.NonFatal
 
 /**
  * Calls another service's gRPC endpoint as this service, and says what came back. Not part of the
@@ -21,6 +24,13 @@ final class GrpcCallersEndpoint(grpc: GrpcClients) extends HttpEndpoint("/caller
     CartServiceGrpc.blockingStub(grpc(service)).whoCalled(WhoCalledRequest()).caller
   }
   // docs:end call-another-service-grpc
+
+  // The same call, answering why it could not be made — a service nobody has, one that serves no
+  // gRPC — where the route above answers a bare 500. A refusal still passes as itself.
+  get("/{service}/explained") { (service: String) =>
+    try CartServiceGrpc.blockingStub(grpc(service)).whoCalled(WhoCalledRequest()).caller
+    catch case NonFatal(e) if CommandError.from(e).isEmpty => s"failed: ${e.getMessage}"
+  }
 
   // `n` calls in a row, counted by the instance that answered each, and the failures: what shows a
   // caller's calls spread over a service's instances, and none refused while they are replaced.

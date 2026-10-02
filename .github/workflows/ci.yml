@@ -78,6 +78,10 @@ jobs:
               - 'docker-compose.yml'
               # The wire fixtures the console's client is held to are written by a controlplane-api suite.
               - 'console/package/fixtures/**'
+              # The living features and the glossary their steps are written in: `GherkinSuite`s run
+              # the features, and suites named for a scenario are held to its words.
+              - 'features/**'
+              - 'GLOSSARY.md'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow

@@ -1,0 +1,47 @@
+schema_version: "1.0"
+
+extension:
+  id: bdd
+  name: "Behaviour-Driven Specs"
+  version: "0.2.0"
+  description: "Living Gherkin features and a project glossary beside spec-kit's specs, checked for undefined terms, refused synonyms, contradictions and untraced requirements."
+  author: thinkmorestupidless
+  repository: https://github.com/thinkmorestupidless/speckit-bdd
+  license: Apache-2.0
+
+requires:
+  speckit_version: ">=0.14.0"
+  tools:
+    - name: uv
+      required: true
+
+provides:
+  commands:
+    - name: speckit.bdd.features
+      file: commands/speckit.bdd.features.md
+      description: "Write or update the living features and glossary a spec describes, and reference the scenarios from the spec"
+    - name: speckit.bdd.check
+      file: commands/speckit.bdd.check.md
+      description: "Check the features, the glossary and the specs; turn each finding into a question to resolve"
+
+  config:
+    - name: "bdd-config.yml"
+      template: "config-template.yml"
+      description: "Where the glossary, features and specs live, and how to run the checker"
+      required: false
+
+hooks:
+  after_specify:
+    command: speckit.bdd.features
+    optional: false
+    description: "Write the spec's scenarios into the living features"
+  before_clarify:
+    command: speckit.bdd.check
+    optional: false
+    description: "Check every feature and the glossary; each finding becomes a clarification"
+
+tags:
+  - "bdd"
+  - "gherkin"
+  - "glossary"
+  - "testing"

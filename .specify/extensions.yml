@@ -1,0 +1,23 @@
+installed:
+- bdd
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_specify:
+  - extension: bdd
+    command: speckit.bdd.features
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.bdd.features?
+    description: Write the spec's scenarios into the living features
+    condition: null
+  before_clarify:
+  - extension: bdd
+    command: speckit.bdd.check
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.bdd.check?
+    description: Check every feature and the glossary; each finding becomes a clarification
+    condition: null

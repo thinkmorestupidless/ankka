@@ -308,13 +308,17 @@ object ZeroTrust:
       .withMetadata(metadata(resource, spec, namespace, spec.serviceName))
       .withSpec(
         new BackendTLSPolicySpecBuilder()
+          // One per port the service has, so the gateway reaches each over TLS.
           .withTargetRefs(
-            new LocalPolicyTargetReferenceWithSectionNameBuilder()
-              .withGroup("")
-              .withKind("Service")
-              .withName(Names.service(spec.serviceName))
-              .withSectionName("http")
-              .build()
+            (spec.port.map(_ => "http").toVector ++ spec.grpcPort.map(_ => Rendering.GrpcPortName))
+              .map { section =>
+                new LocalPolicyTargetReferenceWithSectionNameBuilder()
+                  .withGroup("")
+                  .withKind("Service")
+                  .withName(Names.service(spec.serviceName))
+                  .withSectionName(section)
+                  .build()
+              }*
           )
           .withValidation(
             new BackendTLSPolicyValidationBuilder()

@@ -22,7 +22,13 @@ final case class ServiceDescriptor(name: String, service: ServiceSpec):
             "starting with a letter"
         )
       else Vector.empty
-    nameProblems ++ service.problems
+    // The one rule that needs the name as well as the spec: a mount of the service itself would
+    // pass a request to the proxy that is passing it, for ever.
+    val selfMountProblems =
+      service.mounts
+        .filter(m => service.isWebHosted && m.service == name)
+        .map(m => s"mount '${m.path}': a web-hosted service cannot mount itself")
+    nameProblems ++ service.problems ++ selfMountProblems
 
   def isValid: Boolean = problems.isEmpty
 
@@ -41,6 +47,9 @@ object ServiceDescriptor:
    * it.
    */
   private val ValidName = "[a-z]([-a-z0-9]{0,61}[a-z0-9])?".r
+
+  /** Whether `text` could be a service's name, or a project's: a DNS label. */
+  private[api] def isName(text: String): Boolean = ValidName.matches(text)
 
 /**
  * Validation for a project id.
@@ -141,7 +150,25 @@ final case class ServiceSpec(
      * `wasm` hosting, meaningless with `embedded`. Checked against the platform's own when the
      * service is projected (`Compatibility.supportsProtocol`): same major, minor not above.
      */
-    protocol: Option[String] = None
+    protocol: Option[String] = None,
+    /**
+     * Paths of a web-hosted service answered by another service of its project (feature 021). The
+     * service's proxy passes a request under one to that service, which is told the request came
+     * from the internet. Meaningful only for web hosting.
+     */
+    mounts: Vector[Mount] = Vector.empty,
+    /**
+     * The services a web-hosted service's proxy admits beside the internet and itself:
+     * `"<service>"` in its own project, `"<project>/<service>"`, or `"*"` for every service of its
+     * project (feature 021). Meaningful only for web hosting.
+     */
+    callers: Vector[String] = Vector.empty,
+    /**
+     * The port a web-hosted service's own program listens on, told to it as `PORT` (feature 021).
+     * Absent means the platform's default, `DefaultProcessPort`. An `Option` defaulting to `None`,
+     * the one shape the codec's reading of `null` as absent cannot turn into something else.
+     */
+    processPort: Option[Int] = None
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -154,6 +181,13 @@ final case class ServiceSpec(
 
   /** Written in another language: a process beside the runtime, or a module inside it. */
   def isPolyglot: Boolean = isProcessHosted || isModuleHosted
+
+  /** Any program that serves HTTP, beside the platform's proxy (feature 021). */
+  def isWebHosted: Boolean = hosting == ServiceSpec.Web
+
+  /** The port a web-hosted service's program is told to listen on; `None` for any other hosting. */
+  def resolvedProcessPort: Option[Int] =
+    Option.when(isWebHosted)(processPort.getOrElse(ServiceSpec.DefaultProcessPort))
 
   /** The declared protocol, parsed; `None` when undeclared; the problem text when malformed. */
   def declaredProtocol: Option[Either[String, ProtocolVersion]] =
@@ -200,11 +234,22 @@ final case class ServiceSpec(
             .contains(e.name) || ServiceSpec.WasmEnvVars.contains(e.name)
         )
         .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
+    // Any hosting: a Secret the platform issued holds a certificate's key or an authority's, and a
+    // variable taken from one would hand a workload an identity that is not its own.
+    val secretProblems =
+      env.flatMap(e =>
+        e.secretKeyRef
+          .filter(ref => ServiceSpec.isPlatformSecret(ref.name))
+          .map(ref =>
+            s"env var '${e.name}': secret '${ref.name}' is issued by the platform and cannot " +
+              "be read by a service"
+          )
+      )
     val hostingProblems =
       if !ServiceSpec.Hostings.contains(hosting) then
         Vector(
-          s"hosting must be \"${ServiceSpec.Embedded}\", \"${ServiceSpec.Process}\" or " +
-            s"\"${ServiceSpec.Wasm}\", not \"$hosting\""
+          s"hosting must be \"${ServiceSpec.Embedded}\", \"${ServiceSpec.Process}\", " +
+            s"\"${ServiceSpec.Wasm}\" or \"${ServiceSpec.Web}\", not \"$hosting\""
         )
       else if isPolyglot && protocol.isEmpty then
         Vector(s"protocol must be declared for $hosting hosting")
@@ -220,7 +265,60 @@ final case class ServiceSpec(
         .toVector
     val protocolProblems = declaredProtocol.flatMap(_.left.toOption).map("protocol " + _).toVector
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
-      hostingProblems ++ moduleProblems ++ protocolProblems ++ resources.problems
+      secretProblems ++ hostingProblems ++ moduleProblems ++ webProblems ++ protocolProblems ++
+      resources.problems
+
+  /**
+   * What only a web-hosted service may say, and what it may not (feature 021). Empty for a service
+   * that is not web-hosted and says none of it.
+   */
+  private def webProblems: Vector[String] =
+    if !isWebHosted then
+      Vector(
+        Option.when(mounts.nonEmpty)("mounts"),
+        Option.when(callers.nonEmpty)("callers"),
+        Option.when(processPort.nonEmpty)("processPort")
+      ).flatten.map(field => s"$field is meaningful only for web hosting")
+    else
+      val httpProblems =
+        Option
+          .when(!http)("a web-hosted service's proxy serves HTTP; remove \"http\": false")
+          .toVector
+      val runtimeProblems =
+        Option
+          .when(runtime.nonEmpty)(
+            "runtime is meaningful only for a service built on ankka; a web-hosted service " +
+              "declares none"
+          )
+          .toVector
+      val reservedProblems =
+        env
+          .filter(e => ServiceSpec.WebEnvVars.contains(e.name))
+          .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
+      val databaseProblems =
+        env
+          .filter(_.name.startsWith("ANKKA_DB_"))
+          .map(e => s"env var '${e.name}' supplies a database, and a web-hosted service has none")
+      val servicePortProblems =
+        Option
+          .when(ServiceSpec.ProxyPorts.contains(port))(
+            s"service port $port is used by the platform's proxy"
+          )
+          .toVector
+      val processPortProblems =
+        val p = processPort.getOrElse(ServiceSpec.DefaultProcessPort)
+        if p < 1 || p > 65535 then Vector(s"processPort $p is outside the range 1-65535")
+        else if p == port then
+          Vector(
+            s"processPort $p is the service's own port; the process and the proxy cannot both " +
+              "listen on it"
+          )
+        else if ServiceSpec.PlatformPorts.contains(p) then
+          Vector(s"processPort $p is used by the platform")
+        else Vector.empty
+      httpProblems ++ runtimeProblems ++ reservedProblems ++ databaseProblems ++
+        servicePortProblems ++ processPortProblems ++ Mount.problems(mounts) ++
+        AdmittedCaller.problems(callers)
 
 object ServiceSpec:
   /**
@@ -252,8 +350,40 @@ object ServiceSpec:
   val Embedded: String = "embedded"
   val Process: String  = "process"
   val Wasm: String     = "wasm"
+  val Web: String      = "web"
 
-  val Hostings: Vector[String] = Vector(Embedded, Process, Wasm)
+  val Hostings: Vector[String] = Vector(Embedded, Process, Wasm, Web)
+
+  /** The port a web-hosted service's program is told when its descriptor states none. */
+  val DefaultProcessPort: Int = 8080
+
+  /**
+   * The ports the platform uses inside a pod, which a web-hosted service's program may not take:
+   * management, readiness, observation, the proxy's calling address, and remoting.
+   */
+  val PlatformPorts: Set[Int] = Set(7626, 7627, 7628, 7630, 17355)
+
+  /** The ports a web-hosted service's proxy listens on besides the service's own. */
+  val ProxyPorts: Set[Int] = Set(7627, 7630)
+
+  /** What the platform tells a web-hosted service's program: where to listen, where to call. */
+  val WebEnvVars: Set[String] = Set("PORT", "ANKKA_SERVICES_URL")
+
+  /**
+   * The Secrets the platform issues into a project's namespace: a workload's certificates, and its
+   * project database's own authorities and certificates. No descriptor of any hosting may read one
+   * (feature 021): a certificate's key is an identity, and the process of a web-hosted service in
+   * particular must never hold the one its proxy passes requests under a mount with.
+   */
+  val PlatformSecretSuffixes: Vector[String] =
+    Vector("-service-tls", "-mount-tls", "-cluster-tls", "-database-tls")
+
+  /** The project database's cluster name, and the prefix of every Secret it is issued. */
+  val PlatformSecretPrefix: String = "ankka-db"
+
+  def isPlatformSecret(name: String): Boolean =
+    PlatformSecretSuffixes.exists(name.endsWith) || name == PlatformSecretPrefix ||
+      name.startsWith(PlatformSecretPrefix + "-")
 
   /**
    * How the runtime finds and sizes a module (feature 016). The operator sets the module's path;
@@ -304,6 +434,87 @@ final case class EnvVar(
           Vector(s"env var '$name' sets neither value nor secretKeyRef")
 
 final case class SecretKeyRef(name: String, key: String)
+
+/**
+ * A path of a web-hosted service and the service of its project that answers requests under it
+ * (feature 021). The proxy passes a request whose path is `path`, or lies under it, to `service`,
+ * with `path` removed from its front.
+ */
+final case class Mount(path: String, service: String)
+
+object Mount:
+
+  /** A segment of a path: unreserved URL characters only. */
+  private val Segment = "[A-Za-z0-9._~-]+".r
+
+  private def segments(path: String): Vector[String] = path.split('/').toVector.drop(1)
+
+  /** One mount's problems, then every duplicate and every mount inside another. */
+  def problems(mounts: Vector[Mount]): Vector[String] =
+    val shapes = mounts.flatMap { m =>
+      val path =
+        if !m.path.startsWith("/") then Vector(s"mount '${m.path}': a path starts with \"/\"")
+        else if m.path == "/" then
+          Vector(
+            "mount '/': a mount cannot be every path; the process serves what no mount does"
+          )
+        else if m.path.endsWith("/") || !segments(m.path).forall(Segment.matches) then
+          Vector(
+            s"mount '${m.path}': a path is whole segments of letters, digits, \"-\", \".\", " +
+              "\"_\" and \"~\", with no trailing \"/\""
+          )
+        else Vector.empty
+      val service =
+        Option
+          .when(!ServiceDescriptor.isName(m.service))(
+            s"mount '${m.path}': '${m.service}' is not a service name"
+          )
+          .toVector
+      path ++ service
+    }
+    val paths = mounts.map(_.path).distinct
+    val duplicates =
+      paths
+        .filter(p => mounts.count(_.path == p) > 1)
+        .map(p => s"mount '$p' is declared more than once")
+    val nested =
+      for
+        inner <- paths
+        outer <- paths
+        if inner != outer && segments(inner).startsWith(segments(outer))
+      yield s"mount '$inner' is inside mount '$outer'"
+    shapes ++ duplicates ++ nested
+
+/** Who a web-hosted service's proxy admits beside the internet and itself (feature 021). */
+enum AdmittedCaller:
+  /** A service of the web-hosted service's own project: `"orders"`. */
+  case Service(name: String)
+
+  /** A service of another project: `"billing/invoices"`. */
+  case ServiceIn(project: String, name: String)
+
+  /** Every service of the web-hosted service's own project: `"*"`. */
+  case AnyInProject
+
+object AdmittedCaller:
+
+  def parse(entry: String): Either[String, AdmittedCaller] =
+    val refusal =
+      s"caller '$entry' is not \"<service>\", \"<project>/<service>\" or \"*\""
+    entry.split("/", -1) match
+      case Array("*")                                    => Right(AnyInProject)
+      case Array(name) if ServiceDescriptor.isName(name) => Right(Service(name))
+      case Array(project, name)
+          if ServiceDescriptor.isName(project) && ServiceDescriptor.isName(name) =>
+        Right(ServiceIn(project, name))
+      case _ => Left(refusal)
+
+  /** Each entry's shape, then each entry given twice. */
+  def problems(entries: Vector[String]): Vector[String] =
+    entries.flatMap(parse(_).left.toOption) ++
+      entries.distinct
+        .filter(e => entries.count(_ == e) > 1)
+        .map(e => s"caller '$e' is declared more than once")
 
 final case class ServiceResources(
     instanceType: String = "small",

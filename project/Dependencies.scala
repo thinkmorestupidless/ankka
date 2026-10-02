@@ -44,6 +44,19 @@ object Dependencies {
     val chicory = "1.7.5"
 
     /**
+     * grpc-java, named here rather than taken from the ScalaPB plugin's `grpcJavaVersion`. The plugin
+     * declares the line it was built against (1.62.2 for 0.11.20), and the build then served the
+     * sidecar protocol on whatever that was — 1.46.0 until feature 020, a 2022 release from before
+     * the HTTP/2 rapid-reset fixes. That is tolerable on a pod's loopback and not for `ankka-grpc`,
+     * which listens on the network; reflection v1 also needs 1.66 or later. ScalaPB's generated code
+     * uses only descriptor builders, `ServerCalls`/`ClientCalls` and the proto descriptor suppliers,
+     * and grpc-java 1.84 is still on protobuf-java 3.25, ScalaPB 0.11's line; the sidecar suites and
+     * the three SDKs' conformance runs are the proof. Every grpc-java artifact the build uses is
+     * declared at this version, so eviction never mixes two.
+     */
+    val grpc = "1.84.0"
+
+    /**
      * Must match the jackson-databind that fabric8 resolves — currently 2.21.x.
      *
      * The Scala module refuses to load against a databind outside its own minor range, so a
@@ -128,18 +141,22 @@ object Dependencies {
   val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8
   val decline = "com.monovore" %% "decline"           % V.decline
 
-  // ── The sidecar protocol (feature 009) ───────────────────────────────────
+  // ── gRPC: the sidecar protocol (feature 009) and gRPC endpoints (feature 020) ──
   // grpc-java with ScalaPB, not pekko-grpc: pekko-grpc runs on pekko-http and every artifact it
-  // pulled would need adding to the family pin above. Versions come from the ScalaPB compiler
-  // plugin so the generated code and the runtime can never disagree. `grpc-netty-shaded` so the
-  // sidecar image carries no second Netty beside Pekko's.
+  // pulled would need adding to the family pin above. ScalaPB's runtime comes from its compiler
+  // plugin, so the generated code and its runtime can never disagree; grpc-java's version is
+  // `V.grpc`, for the reason given there. `grpc-netty-shaded` so an image carries no second Netty
+  // beside Pekko's.
   val scalapbRuntime: ModuleID =
     "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion
   val scalapbRuntimeGrpc: ModuleID =
     "com.thesamet.scalapb" %% "scalapb-runtime-grpc" % scalapb.compiler.Version.scalapbVersion
-  val grpcNettyShaded: ModuleID =
-    "io.grpc" % "grpc-netty-shaded" % scalapb.compiler.Version.grpcJavaVersion
-  val grpcStub: ModuleID = "io.grpc" % "grpc-stub" % scalapb.compiler.Version.grpcJavaVersion
+  val grpcNettyShaded: ModuleID = "io.grpc" % "grpc-netty-shaded" % V.grpc
+  val grpcStub: ModuleID        = "io.grpc" % "grpc-stub"         % V.grpc
+  val grpcProtobuf: ModuleID    = "io.grpc" % "grpc-protobuf"     % V.grpc
+
+  /** The reflection services, v1 and v1alpha, for a service that opts in (feature 020). */
+  val grpcServices: ModuleID = "io.grpc" % "grpc-services" % V.grpc
 
   /** JOSE/JWT verification for the control plane. Deliberately not in any published module. */
   val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt

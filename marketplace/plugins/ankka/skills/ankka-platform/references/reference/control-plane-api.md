@@ -123,7 +123,8 @@ The table is generated from the control plane's own route declarations.
 | `GET` | `/auth` | |
 Path parameters are shown in braces. Identifiers for organizations and projects are lowercase letters,
 digits and `-`, starting with a letter; a project id must also fit in a Kubernetes namespace name, so it
-is at most 57 characters.
+is at most 57 characters. The project id `platform` is reserved for the platform's own workloads, and
+creating a project with it answers `400`.
 
 ## Identity
 

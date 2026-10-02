@@ -317,7 +317,12 @@ bootstrap's client and `ServiceClients`; remoting uses Pekko's own rotating-keys
 same files. Two installation authorities (`ankka-cluster`, `ankka-service`, component `pki`) plus a
 per-project database authority the operator renders. The caller is read from the client
 certificate's `ankka://<project>/<service>` URI (`ankka://gateway` for the gateway); nothing the
-request says is trusted. Readiness has its own plain port, 7627 `probe`. The one non-rolling
+request says is trusted. That makes a project id part of an identity, so `platform`, the project the
+control plane's and the console's own certificates name, is reserved: `ProjectId.Reserved` refuses to
+create or project it, `Names.ReservedProjectIds` refuses to render it (the operator trusts no writer of
+the resource), and `ReservedProjectIdsSuite` holds the two lists to each other and to every
+`ankka://<project>/<service>` the manifests under `kustomization/` ask for, so a platform workload
+given an identity in an unreserved project fails the build. Readiness has its own plain port, 7627 `probe`. The one non-rolling
 deployment — a template without `ankka.thinkmorestupidless.com/transport=tls` — is `Transition`:
 delete, wait for no pods, apply.
 

@@ -26,6 +26,13 @@ hostname, so it follows DNS label rules: lowercase letters, digits and `-`, star
 at most 57 characters. Short project ids leave room for service names in hostnames, whose single label is
 limited to 63 characters.
 
+One id is reserved: no project can be called `platform`. A service's identity to every other service
+is `ankka://<project>/<service>`, and the platform's own workloads, the control plane and the console,
+are `ankka://platform/controlplane` and `ankka://platform/console`. A project of that id could deploy
+a service that carried one of those identities, so creating it is refused with
+`project id 'platform' is reserved for the platform's own workloads`. An id that only contains the
+word, such as `platform-tools`, is an ordinary id.
+
 ```bash
 ankka organizations list
 ankka projects list -O acme

@@ -29,6 +29,20 @@ class ProjectIdSuite extends munit.FunSuite:
     assert(ProjectId.isValid("a" * ProjectId.MaxLength))
   }
 
+  test("the platform's own project id is refused") {
+    // A workload's identity is ankka://<project>/<service>, and the control plane's is
+    // ankka://platform/controlplane: a tenant project of that id could be issued it.
+    assertEquals(
+      ProjectId.problems("platform"),
+      Vector("project id 'platform' is reserved for the platform's own workloads")
+    )
+  }
+
+  test("only the reserved id itself is refused, not ids that contain it") {
+    for near <- Vector("platforms", "platform-tools", "my-platform", "plat")
+    do assert(ProjectId.isValid(near), s"'$near' should be accepted")
+  }
+
   test("the bound leaves room for the default namespace prefix") {
     // "ankka-" + id must fit in a 63 character DNS label.
     assertEquals("ankka-".length + ProjectId.MaxLength, 63)

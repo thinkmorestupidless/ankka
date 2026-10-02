@@ -209,7 +209,19 @@ async function loadRoutes(name) {
     return;
   }
 
-  const routes = service.routes || [];
+  // gRPC methods are listed and never offered: the console has no client generated from a service
+  // definition, and a form sending HTTP to one would teach the wrong thing.
+  const all = service.routes || [];
+  const routes = all.filter((r) => r.method !== 'GRPC');
+  for (const method of all.filter((r) => r.method === 'GRPC')) {
+    const row = document.createElement('div');
+    row.className = 'route grpc';
+    row.title = 'Call this with a gRPC client generated from the service definition; the console does not call gRPC methods.';
+    row.innerHTML = `<span class="m"></span><span class="p"></span>`;
+    row.querySelector('.m').textContent = 'gRPC';
+    row.querySelector('.p').textContent = method.path + (method.streaming ? '  ⋯' : '');
+    container.appendChild(row);
+  }
   // A service with "http": false has nothing to invoke. Say so rather than show a dead form.
   $('invoke-none').hidden = routes.length > 0;
   $('invoke-form').hidden = routes.length === 0;

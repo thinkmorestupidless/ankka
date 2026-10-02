@@ -141,7 +141,21 @@ final case class ServiceSpec(
      * `wasm` hosting, meaningless with `embedded`. Checked against the platform's own when the
      * service is projected (`Compatibility.supportsProtocol`): same major, minor not above.
      */
-    protocol: Option[String] = None
+    protocol: Option[String] = None,
+    /**
+     * Whether this service serves gRPC. Saying nothing means it serves none, and a service that
+     * says nothing is deployed exactly as it was before gRPC endpoints existed.
+     *
+     * A boolean beside a plain port, for the reason `http` is one: a JSON `null` on an `Option`
+     * reads as absent, so "serves none" has to be said positively. Only an embedded service can
+     * serve gRPC; the SDKs in other languages declare no gRPC endpoint.
+     */
+    grpc: Boolean = false,
+    /**
+     * The port the workload serves gRPC on. Ignored when `grpc` is false; must differ from `port`
+     * when both are served. The default is `ankka.grpc.port`'s own.
+     */
+    grpcPort: Int = ServiceSpec.DefaultGrpcPort
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -167,6 +181,9 @@ final case class ServiceSpec(
    * they have nothing to disagree with.
    */
   def resolvedPort: Option[Int] = Option.when(http)(port)
+
+  /** `resolvedPort`'s twin: the one value the resource, and so the operator, sees. */
+  def resolvedGrpcPort: Option[Int] = Option.when(grpc)(grpcPort)
 
   def problems: Vector[String] =
     val imageProblems =
@@ -219,8 +236,34 @@ final case class ServiceSpec(
         )
         .toVector
     val protocolProblems = declaredProtocol.flatMap(_.left.toOption).map("protocol " + _).toVector
+    // The same shape as the HTTP port's rules: the range is checked whether or not gRPC is served,
+    // the variable is refused by name, and the field is the only way to say it.
+    val grpcProblems =
+      Option
+        .when(grpcPort < 1 || grpcPort > 65535)(
+          s"service grpcPort $grpcPort is outside the range 1-65535"
+        )
+        .toVector ++
+        Option
+          .when(grpc && http && grpcPort == port)(
+            s"grpcPort $grpcPort is also the service port; gRPC and HTTP are served on different ports"
+          )
+          .toVector ++
+        Option
+          .when(env.exists(_.name == ServiceSpec.GrpcPortEnvVar))(
+            s"env var '${ServiceSpec.GrpcPortEnvVar}' conflicts with the service grpcPort; " +
+              "declare the grpcPort instead"
+          )
+          .toVector ++
+        // A process or a module has no gRPC endpoint to declare: the SDKs in other languages serve
+        // HTTP routes only, and a port the platform opened for them would be one nothing answers.
+        Option
+          .when(grpc && isPolyglot)(
+            "only an embedded service serves gRPC; remove \"grpc\" or use embedded hosting"
+          )
+          .toVector
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
-      hostingProblems ++ moduleProblems ++ protocolProblems ++ resources.problems
+      hostingProblems ++ moduleProblems ++ protocolProblems ++ grpcProblems ++ resources.problems
 
 object ServiceSpec:
   /**
@@ -231,6 +274,12 @@ object ServiceSpec:
 
   /** What the runtime reads its port from, and what the operator therefore injects. */
   val PortEnvVar: String = "ANKKA_HTTP_PORT"
+
+  /** `ankka.grpc.port`'s default in `modules/grpc`'s `reference.conf`. Adopted, not chosen. */
+  val DefaultGrpcPort: Int = 9090
+
+  /** What the runtime reads its gRPC port from, and what the operator therefore injects. */
+  val GrpcPortEnvVar: String = "ANKKA_GRPC_PORT"
 
   /**
    * What the platform tells a deployed node about where it is running (feature 004). Set by the

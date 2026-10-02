@@ -1,4 +1,3 @@
-@ignore
 Feature: Testing a gRPC endpoint
   A test starts a whole service with the test kit and calls its gRPC endpoints as any other caller
   would, so what the test proves is what a deployed service does.

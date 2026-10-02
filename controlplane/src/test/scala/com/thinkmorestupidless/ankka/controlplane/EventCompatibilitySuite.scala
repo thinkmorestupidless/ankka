@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ProjectEntity,
   ServiceEntity
 }
+import com.thinkmorestupidless.ankka.controlplane.api.{Mount, ServiceDescriptor, ServiceSpec}
 import com.thinkmorestupidless.ankka.controlplane.domain.*
 
 import scala.jdk.CollectionConverters.*
@@ -90,6 +91,31 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       case observed: ServiceEvent.ServiceObserved =>
         assertEquals(observed.readyInstances, 1); assert(observed.confirmed)
     }
+  }
+
+  test("a descriptor applied before web hosting decodes with no mounts, callers or process port") {
+    val applied = samples("service-event")
+      .map(ServiceEntity.eventSerializer.fromBytes)
+      .collectFirst { case a: ServiceEvent.ServiceApplied => a }
+      .getOrElse(fail("the fixture has no ServiceApplied"))
+    val spec = applied.descriptor.service
+    assertEquals((spec.mounts, spec.callers, spec.processPort), (Vector.empty, Vector.empty, None))
+  }
+
+  test("a web-hosted service's descriptor round-trips through the event, its new fields whole") {
+    val descriptor = ServiceDescriptor(
+      "web",
+      ServiceSpec(
+        "shop-web:1",
+        hosting = ServiceSpec.Web,
+        processPort = Some(3000),
+        mounts = Vector(Mount("/api/cart", "cart")),
+        callers = Vector("orders", "billing/invoices", "*")
+      )
+    )
+    val event: ServiceEvent = ServiceEvent.ServiceApplied("shop", descriptor, 1L)
+    val bytes               = ServiceEntity.eventSerializer.toBytes(event)
+    assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
   }
 
   test("an attributed event round-trips with its actor and time") {

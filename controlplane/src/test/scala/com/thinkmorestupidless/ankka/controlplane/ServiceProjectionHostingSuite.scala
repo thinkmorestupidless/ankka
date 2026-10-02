@@ -39,6 +39,48 @@ class ServiceProjectionHostingSuite extends munit.FunSuite with LogCapturing:
     assertEquals(spec.hosting, "embedded")
   }
 
+  private def webService(spec: ServiceSpec) =
+    Service.empty(ServiceKey("shop", "web")).onApplied(ServiceDescriptor("web", spec), 1L)
+
+  test("a web-hosted service projects with its mounts, callers and port, and no database") {
+    val Right(spec) = ServiceProjection.project(
+      webService(
+        ServiceSpec(
+          "shop-web:1",
+          hosting = ServiceSpec.Web,
+          processPort = Some(3000),
+          mounts = Vector(Mount("/api/cart", "cart")),
+          callers = Vector("orders", "*")
+        )
+      ),
+      config
+    ): @unchecked
+    assertEquals(spec.hosting, "web")
+    assertEquals(
+      spec.mounts,
+      List(com.thinkmorestupidless.ankka.crd.MountEntry("/api/cart", "cart"))
+    )
+    assertEquals(spec.callers, List("orders", "*"))
+    assertEquals(spec.processPort, Some(3000))
+    assertEquals(spec.provisionDatabase, false)
+  }
+
+  test("a web-hosted service that states no port projects the platform's default") {
+    val Right(spec) =
+      ServiceProjection.project(
+        webService(ServiceSpec("shop-web:1", hosting = ServiceSpec.Web)),
+        config
+      ): @unchecked
+    assertEquals(spec.processPort, Some(ServiceSpec.DefaultProcessPort))
+    assertEquals(spec.mounts, Nil)
+  }
+
+  test("a service that is not web-hosted projects none of web hosting's fields") {
+    val Right(spec) = ServiceProjection.project(service("embedded", None), config): @unchecked
+    assertEquals((spec.mounts, spec.callers, spec.processPort), (Nil, Nil, None))
+    assertEquals(spec.provisionDatabase, true)
+  }
+
   test("an unsupported protocol is refused, naming both versions, before any resource") {
     val refused = ServiceProjection.project(service("process", Some("2.0")), config)
     assert(refused.isLeft)

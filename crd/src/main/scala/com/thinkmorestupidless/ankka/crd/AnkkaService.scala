@@ -109,10 +109,11 @@ final case class AnkkaServiceSpec(
     exposed: Boolean = false,
     /**
      * `embedded` (one container, the image is the node), `process` (feature 009: the image is a
-     * developer's process in another language and the operator runs the sidecar beside it) or
-     * `wasm` (feature 016: the image carries a WebAssembly module, which an init container copies
-     * into a shared volume for the runtime to load). The runtime's image is the operator's, never
-     * the resource's.
+     * developer's process in another language and the operator runs the sidecar beside it), `wasm`
+     * (feature 016: the image carries a WebAssembly module, which an init container copies into a
+     * shared volume for the runtime to load) or `web` (feature 021: the image is any program that
+     * serves HTTP, and the operator runs the platform's proxy beside it). The runtime's and the
+     * proxy's images are the operator's, never the resource's.
      */
     hosting: String = "embedded",
     /**
@@ -124,8 +125,29 @@ final case class AnkkaServiceSpec(
      * resolves it, exactly as it does for a descriptor's own `secretKeyRef` variables. `None` on a
      * resource written before this field existed, which renders as it always did.
      */
-    imagePullSecret: Option[String] = None
+    imagePullSecret: Option[String] = None,
+    /**
+     * A web-hosted service's mounts (feature 021): each a path and the name of a service in the
+     * same project, whose requests the proxy passes to that service. Names only, never addresses:
+     * the proxy finds the service as any service is found.
+     */
+    mounts: List[MountEntry] = Nil,
+    /**
+     * The services a web-hosted service's proxy admits beside the internet and itself, as the
+     * descriptor wrote them: `"<service>"`, `"<project>/<service>"` or `"*"`.
+     */
+    callers: List[String] = Nil,
+    /**
+     * The port a web-hosted service's program listens on, resolved by the control plane: the
+     * descriptor's, or the platform's default. Absent for every other hosting.
+     */
+    @JsonDeserialize(contentAs = classOf[java.lang.Integer])
+    processPort: Option[Int] = None
 )
+
+/** One mount of a web-hosted service: a path, and the service of its project that answers it. */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class MountEntry(path: String = "", service: String = "")
 
 /**
  * One environment variable, literal or drawn from a secret.

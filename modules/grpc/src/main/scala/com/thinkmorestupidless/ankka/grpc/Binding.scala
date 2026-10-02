@@ -2,6 +2,8 @@ package com.thinkmorestupidless.ankka.grpc
 
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.http.{Acl, RequestContext, RequestScope}
+import org.apache.pekko.stream.Materializer
+import org.apache.pekko.stream.scaladsl.Source
 import com.thinkmorestupidless.ankka.runtime.AnkkaExecutors
 import io.grpc.*
 import org.slf4j.LoggerFactory
@@ -30,7 +32,11 @@ private[grpc] object Binding:
       def stream(value: Array[Byte]): InputStream = ByteArrayInputStream(value)
       def parse(stream: InputStream): Array[Byte] = stream.readAllBytes()
 
-  def definition(endpoint: GrpcEndpoint, admission: Admission): ServerServiceDefinition =
+  def definition(
+      endpoint: GrpcEndpoint,
+      admission: Admission,
+      materializer: Option[Materializer] = None
+  ): ServerServiceDefinition =
     val rebound = endpoint.methods.map { declared =>
       declared -> declared.descriptor
         .toBuilder(bytes, declared.descriptor.getResponseMarshaller)
@@ -45,7 +51,7 @@ private[grpc] object Binding:
       .build()
     rebound
       .foldLeft(ServerServiceDefinition.builder(service)) { case (builder, (declared, method)) =>
-        builder.addMethod(method, handlerFor(endpoint, declared, admission))
+        builder.addMethod(method, handlerFor(endpoint, declared, admission, materializer))
       }
       .build()
 
@@ -110,9 +116,157 @@ private[grpc] object Binding:
   private def handlerFor(
       endpoint: GrpcEndpoint,
       declared: DeclaredMethod,
-      admission: Admission
-  ): ServerCallHandler[Array[Byte], Any] = declared.handler match
-    case Handler.Unary(run) => unary(endpoint, declared, admission, run)
+      admission: Admission,
+      materializer: Option[Materializer]
+  ): ServerCallHandler[Array[Byte], Any] =
+    val acl = declared.acl.getOrElse(endpoint.acl)
+    declared.handler match
+      case Handler.Unary(run) => unary(endpoint, declared, admission, run)
+      case Handler.ServerStream(run) =>
+        streaming(declared, acl, admission) { (call, context, out, readiness, listener) =>
+          // One request, as for a unary method, then the stream.
+          call.request(2)
+          listener.onRequest { message =>
+            parse(declared, message) match
+              case Left(status) => out.close(status, Metadata())
+              case Right(request) =>
+                answerWith(declared, out, readiness, listener, materializer)(
+                  RequestScope.withContext(context)(run(request))
+                )
+          }
+        }
+      case Handler.ClientStream(run) =>
+        streaming(declared, acl, admission) { (call, context, out, _, listener) =>
+          val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
+          AnkkaExecutors.virtual.execute { () =>
+            try
+              val reply = RequestScope.withContext(context)(run(inbound))
+              out.send(reply)
+              out.close(Status.OK, Metadata())
+            catch case NonFatal(failure) => endWith(declared, out, failure)
+          }
+        }
+      case Handler.BidiStream(run) =>
+        streaming(declared, acl, admission) { (call, context, out, readiness, listener) =>
+          val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
+          AnkkaExecutors.virtual.execute { () =>
+            answerWith(declared, out, readiness, listener, materializer)(
+              RequestScope.withContext(context)(run(inbound))
+            )
+          }
+        }
+
+  /** What a streaming call's listener does, filled in by the kind of method it serves. */
+  private final class StreamListener(readiness: Readiness) extends ServerCall.Listener[Array[Byte]]:
+    @volatile var cancelled                             = false
+    private var single: Option[Array[Byte] => Unit]     = None
+    private var request: Option[Array[Byte]]            = None
+    private var requests: Option[Streams.Inbound]       = None
+    private var tooMany                                 = false
+    @volatile private var onEnd: Option[Status => Unit] = None
+
+    def onRequest(handle: Array[Byte] => Unit): Unit = single = Some(handle)
+
+    def inbound(stream: Streams.Inbound): Streams.Inbound =
+      requests = Some(stream)
+      stream
+
+    def ending(handle: Status => Unit): Unit = onEnd = Some(handle)
+
+    override def onMessage(message: Array[Byte]): Unit =
+      requests match
+        case Some(stream) => stream.onMessage(message)
+        case None =>
+          if request.isDefined then
+            tooMany = true
+            onEnd.foreach(
+              _(Status.INTERNAL.withDescription("more than one request for this method"))
+            )
+          else request = Some(message)
+
+    override def onHalfClose(): Unit =
+      requests match
+        case Some(stream) => stream.onHalfClose()
+        case None =>
+          if !tooMany then
+            (single, request) match
+              case (Some(handle), Some(message)) =>
+                // On a thread of its own, not the call's: a handler that blocks must not hold the
+                // thread grpc-java delivers this call's cancellation and readiness on.
+                AnkkaExecutors.virtual.execute(() => handle(message))
+              case _ =>
+                onEnd.foreach(_(Status.INTERNAL.withDescription("no request for this method")))
+
+    override def onCancel(): Unit =
+      cancelled = true
+      requests.foreach(_.onCancel("the caller cancelled the call or went away"))
+      readiness.signal()
+
+    override def onReady(): Unit = readiness.signal()
+
+  /**
+   * A streaming call: admitted before anything is read, then handed to `begin` with the pieces it
+   * needs, on the call's own thread.
+   */
+  private def streaming(declared: DeclaredMethod, acl: Acl, admission: Admission)(
+      begin: (
+          ServerCall[Array[Byte], Any],
+          RequestContext,
+          Outgoing,
+          Readiness,
+          StreamListener
+      ) => Unit
+  ): ServerCallHandler[Array[Byte], Any] =
+    new ServerCallHandler[Array[Byte], Any]:
+      def startCall(
+          call: ServerCall[Array[Byte], Any],
+          headers: Metadata
+      ): ServerCall.Listener[Array[Byte]] =
+        admitted(call, headers, declared.fullName, acl, admission) match
+          case Left((status, trailers)) =>
+            call.close(status, trailers)
+            new ServerCall.Listener[Array[Byte]] {}
+          case Right(context) =>
+            val out       = Outgoing(call)
+            val readiness = Readiness()
+            val listener  = StreamListener(readiness)
+            listener.ending(status => out.close(status, Metadata()))
+            begin(call, context, out, readiness, listener)
+            listener
+
+  /** Builds the handler's stream and sends it, ending the call however the stream ends. */
+  private def answerWith(
+      declared: DeclaredMethod,
+      out: Outgoing,
+      readiness: Readiness,
+      listener: StreamListener,
+      materializer: Option[Materializer]
+  )(build: => Source[Any, ?]): Unit =
+    try
+      val source = build
+      materializer match
+        case Some(m) =>
+          Streams.drain(
+            source,
+            out,
+            readiness,
+            listener.cancelled,
+            m,
+            failure => statusOf(declared, failure) -> trailersOf(failure)
+          )
+        case None =>
+          log.error(
+            s"${declared.fullName} answers with a stream, and this server has no materializer"
+          )
+          out.close(GrpcStatus.internal, Metadata())
+    catch case NonFatal(failure) => endWith(declared, out, failure)
+
+  /** Ends the call for a handler's failure — or not at all, when the call already ended. */
+  private def endWith(declared: DeclaredMethod, out: Outgoing, failure: Throwable): Unit =
+    failure match
+      case _: CallCancelled =>
+        out.close(Status.CANCELLED.withDescription(failure.getMessage), Metadata())
+      case other => out.close(statusOf(declared, other), trailersOf(other))
 
   private def unary(
       endpoint: GrpcEndpoint,

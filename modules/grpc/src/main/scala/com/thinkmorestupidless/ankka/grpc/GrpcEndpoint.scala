@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.grpc
 
 import com.thinkmorestupidless.ankka.http.{Acl, Caller, Principal, RequestContext, RequestScope}
 import io.grpc.{MethodDescriptor, ServiceDescriptor}
+import org.apache.pekko.stream.scaladsl.Source
 
 import scala.collection.mutable
 
@@ -84,11 +85,54 @@ abstract class GrpcEndpoint(val service: ServiceDescriptor):
 
   /** Answers each call to `method` with one reply. */
   protected def unary[Req, Res](method: MethodDescriptor[Req, Res])(handler: Req => Res): Unit =
+    declare(method, MethodKind.Unary, Handler.Unary(request => handler(request.asInstanceOf[Req])))
+
+  /**
+   * Answers each call to `method` with a stream. Each part reaches the caller as it is produced and
+   * no faster than the caller reads; when the caller goes away, the stream is cancelled. A stream
+   * that fails ends the call with the failure's status, after the parts already sent.
+   */
+  protected def serverStream[Req, Res](method: MethodDescriptor[Req, Res])(
+      handler: Req => Source[Res, ?]
+  ): Unit =
+    declare(
+      method,
+      MethodKind.ServerStream,
+      Handler.ServerStream(request => handler(request.asInstanceOf[Req]))
+    )
+
+  /**
+   * Answers a stream of requests with one reply. The handler reads the requests as the caller sends
+   * them, and may answer — or refuse — before it has read them all.
+   */
+  protected def clientStream[Req, Res](method: MethodDescriptor[Req, Res])(
+      handler: Requests[Req] => Res
+  ): Unit =
+    declare(
+      method,
+      MethodKind.ClientStream,
+      Handler.ClientStream(requests => handler(requests.asInstanceOf[Requests[Req]]))
+    )
+
+  /**
+   * Answers a stream of requests with a stream, which may begin before the requests end: a
+   * conversation.
+   */
+  protected def bidiStream[Req, Res](method: MethodDescriptor[Req, Res])(
+      handler: Requests[Req] => Source[Res, ?]
+  ): Unit =
+    declare(
+      method,
+      MethodKind.BidiStream,
+      Handler.BidiStream(requests => handler(requests.asInstanceOf[Requests[Req]]))
+    )
+
+  private def declare(method: MethodDescriptor[?, ?], kind: MethodKind, handler: Handler): Unit =
     collected += DeclaredMethod(
       method.asInstanceOf[MethodDescriptor[Any, Any]],
-      MethodKind.Unary,
+      kind,
       scopedAcl,
-      Handler.Unary(request => handler(request.asInstanceOf[Req]))
+      handler
     )
 
 /** The four shapes a method can have, as its descriptor states them. */
@@ -115,6 +159,9 @@ private[ankka] object MethodKind:
  */
 private[ankka] enum Handler:
   case Unary(run: Any => Any)
+  case ServerStream(run: Any => Source[Any, ?])
+  case ClientStream(run: Requests[Any] => Any)
+  case BidiStream(run: Requests[Any] => Source[Any, ?])
 
 /** One method an endpoint declared, as the server sees it. */
 private[ankka] final case class DeclaredMethod(

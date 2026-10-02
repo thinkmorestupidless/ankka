@@ -24,10 +24,10 @@ object ExposureRules:
       Some(
         "the control plane has no base domain configured (ANKKA_BASE_DOMAIN); nothing can be exposed"
       )
-    else if !service.descriptor.exists(_.service.http) then
-      Some(
-        s"""service '${service.name}' serves no HTTP ("http": false); there is nothing to expose"""
-      )
+    // One hostname carries both kinds of traffic, so a service serving either has something to
+    // expose; one serving neither has nothing.
+    else if !service.descriptor.exists(d => d.service.http || d.service.grpc) then
+      Some(s"service '${service.name}' serves no HTTP and no gRPC; there is nothing to expose")
     else
       Hostnames
         .problems(service.name, service.projectId)

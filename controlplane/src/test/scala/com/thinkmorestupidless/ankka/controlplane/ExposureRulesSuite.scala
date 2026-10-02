@@ -10,22 +10,35 @@ class ExposureRulesSuite extends munit.FunSuite with LogCapturing:
 
   private val configured = DeployConfig.default.copy(baseDomain = Some("example.test"))
 
-  private def service(name: String = "cart", projectId: String = "checkout", http: Boolean = true) =
+  private def service(
+      name: String = "cart",
+      projectId: String = "checkout",
+      http: Boolean = true,
+      grpc: Boolean = false
+  ) =
     Service
       .empty(ServiceKey(projectId, name))
-      .onApplied(ServiceDescriptor(name, ServiceSpec("cart:1.0", http = http)), 1L)
+      .onApplied(ServiceDescriptor(name, ServiceSpec("cart:1.0", http = http, grpc = grpc)), 1L)
 
   test("nothing can be exposed without a base domain, and the message names the variable") {
     val refusal = ExposureRules.refusal(service(), DeployConfig.default, None)
     assert(refusal.exists(_.contains("ANKKA_BASE_DOMAIN")), refusal)
   }
 
-  test("a service that serves no HTTP has nothing to expose") {
+  test("a service that serves neither HTTP nor gRPC has nothing to expose") {
     val refusal = ExposureRules.refusal(service(http = false), configured, None)
     assertEquals(
       refusal,
-      Some("""service 'cart' serves no HTTP ("http": false); there is nothing to expose""")
+      Some("service 'cart' serves no HTTP and no gRPC; there is nothing to expose")
     )
+  }
+
+  test("a service that serves gRPC and no HTTP may be exposed") {
+    assertEquals(ExposureRules.refusal(service(http = false, grpc = true), configured, None), None)
+  }
+
+  test("a service that serves both may be exposed") {
+    assertEquals(ExposureRules.refusal(service(grpc = true), configured, None), None)
   }
 
   test("a label over 63 characters is refused with the length and the limit") {

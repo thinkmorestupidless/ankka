@@ -3,6 +3,8 @@ package com.thinkmorestupidless.ankka.grpc
 import com.thinkmorestupidless.ankka.http.EndpointClients
 import com.thinkmorestupidless.ankka.runtime.{
   DeclaredGrpc,
+  Observability,
+  ServedRoute,
   AnkkaExecutors,
   AnkkaService,
   RotatingTls,
@@ -52,8 +54,9 @@ final class GrpcServer private (
 
   private val log = LoggerFactory.getLogger(classOf[GrpcServer])
 
-  @volatile private var server: Option[Server] = None
-  @volatile private var grace: FiniteDuration  = FiniteDuration(5000, MILLISECONDS)
+  @volatile private var server: Option[Server]      = None
+  @volatile private var served: Vector[ServedRoute] = Vector.empty
+  @volatile private var grace: FiniteDuration       = FiniteDuration(5000, MILLISECONDS)
 
   def name: String = GrpcServer.Name
 
@@ -65,7 +68,7 @@ final class GrpcServer private (
       interface.getOrElse(config.getString("ankka.grpc.interface")),
       port.getOrElse(config.getInt("ankka.grpc.port")),
       config,
-      Some(Materializer(service.system))
+      Hosting(Some(Materializer(service.system)), Some(Observability(service.system)))
     )
 
   /** Validates, logs and binds `endpoints`: everything `start` does once the endpoints exist. */
@@ -74,7 +77,7 @@ final class GrpcServer private (
       host: String,
       bindPort: Int,
       config: Config,
-      materializer: Option[Materializer] = None
+      hosting: Hosting = Hosting()
   ): Unit =
     GrpcServer.validate(endpoints)
     grace = duration(config, "ankka.grpc.shutdown-grace")
@@ -99,7 +102,7 @@ final class GrpcServer private (
       .maxInboundMessageSize(config.getBytes("ankka.grpc.max-message-size").toInt)
       .fallbackHandlerRegistry(Binding.fallback(endpoints, admission))
     endpoints.foreach(endpoint =>
-      builder.addService(Binding.definition(endpoint, admission, materializer))
+      builder.addService(Binding.definition(endpoint, admission, hosting))
     )
 
     val started =
@@ -111,6 +114,10 @@ final class GrpcServer private (
             failure
           )
     server = Some(started)
+    served = endpoints.flatMap(_.methods.map { method =>
+      // A description for the local console, which lists a method and offers no way to call it.
+      ServedRoute("GRPC", method.fullName, streaming = method.kind != MethodKind.Unary)
+    })
 
     endpoints.foreach(
       _.methods.foreach(method =>
@@ -146,6 +153,9 @@ final class GrpcServer private (
 
   private def duration(config: Config, path: String): FiniteDuration =
     FiniteDuration(config.getDuration(path).toMillis, MILLISECONDS)
+
+  /** The methods served, for the local console: listed, and never offered to call. */
+  override def routes: Vector[ServedRoute] = served
 
   /** Not ready until bound: a member that cannot yet answer a call must not receive one. */
   override def readiness: Option[() => Boolean] = Some(() => server.isDefined)

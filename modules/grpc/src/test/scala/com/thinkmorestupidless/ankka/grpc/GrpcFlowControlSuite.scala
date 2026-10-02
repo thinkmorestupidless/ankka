@@ -71,7 +71,13 @@ class GrpcFlowControlSuite extends munit.FunSuite:
   private var channel: ManagedChannel = null
 
   override def beforeAll(): Unit =
-    server.serve(Vector(Streams()), "127.0.0.1", 0, ConfigFactory.load(), Some(materializer))
+    server.serve(
+      Vector(Streams()),
+      "127.0.0.1",
+      0,
+      ConfigFactory.load(),
+      Hosting(Some(materializer))
+    )
     channel = GrpcChannels.plaintext(server.boundPort.getOrElse(fail("not bound")))
 
   override def afterAll(): Unit =

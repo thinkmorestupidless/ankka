@@ -2,14 +2,31 @@ package com.thinkmorestupidless.ankka.grpc
 
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.http.{Acl, RequestContext, RequestScope}
+import com.thinkmorestupidless.ankka.core.ErrorCode
+import com.thinkmorestupidless.ankka.runtime.{
+  AnkkaExecutors,
+  Observability,
+  Span,
+  SpanOutcome,
+  Trace
+}
+import io.grpc.*
 import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.Source
-import com.thinkmorestupidless.ankka.runtime.AnkkaExecutors
-import io.grpc.*
 import org.slf4j.LoggerFactory
 
 import java.io.{ByteArrayInputStream, InputStream}
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
+
+/**
+ * What a server lends the calls it serves: a materializer for the streams handlers return, and the
+ * recorder their spans go to. A suite serving with neither gets no streams and records nothing.
+ */
+private[grpc] final case class Hosting(
+    materializer: Option[Materializer] = None,
+    observability: Option[Observability] = None
+)
 
 /**
  * An endpoint as grpc-java serves it.
@@ -21,6 +38,10 @@ import scala.util.control.NonFatal
  * rebuilt rather than patched, keeping the original's name and schema descriptor (which reflection
  * reads), because a `ServerServiceDefinition` insists its methods are the descriptor's own
  * instances. This is what grpc-java's own `ServerInterceptors.useMarshalledMessages` does.
+ *
+ * Every kind of method goes through one path: admitted before a message is read, then handed to a
+ * virtual thread of its own — never the call's, whose thread delivers cancellation and readiness —
+ * with one guarded outgoing half that every writer shares and that records how the call ended.
  */
 private[grpc] object Binding:
 
@@ -35,7 +56,7 @@ private[grpc] object Binding:
   def definition(
       endpoint: GrpcEndpoint,
       admission: Admission,
-      materializer: Option[Materializer] = None
+      hosting: Hosting = Hosting()
   ): ServerServiceDefinition =
     val rebound = endpoint.methods.map { declared =>
       declared -> declared.descriptor
@@ -51,7 +72,7 @@ private[grpc] object Binding:
       .build()
     rebound
       .foldLeft(ServerServiceDefinition.builder(service)) { case (builder, (declared, method)) =>
-        builder.addMethod(method, handlerFor(endpoint, declared, admission, materializer))
+        builder.addMethod(method, handlerFor(endpoint, declared, admission, hosting))
       }
       .build()
 
@@ -59,7 +80,8 @@ private[grpc] object Binding:
    * A call to a method nothing declares. When its service definition is one an endpoint serves,
    * that endpoint's ACL judges the call first, so a closed endpoint does not disclose which of its
    * methods exist by answering some unimplemented and the rest refused. A definition nothing serves
-   * is grpc-java's to answer, `UNIMPLEMENTED`.
+   * is grpc-java's to answer, `UNIMPLEMENTED`. Neither is recorded: a caller can invent method
+   * names without limit, and only declared names are ever interned.
    */
   def fallback(endpoints: Vector[GrpcEndpoint], admission: Admission): HandlerRegistry =
     val byDefinition = endpoints.map(e => e.service.getName -> e).toMap
@@ -117,53 +139,76 @@ private[grpc] object Binding:
       endpoint: GrpcEndpoint,
       declared: DeclaredMethod,
       admission: Admission,
-      materializer: Option[Materializer]
+      hosting: Hosting
   ): ServerCallHandler[Array[Byte], Any] =
-    val acl = declared.acl.getOrElse(endpoint.acl)
+    val acl   = declared.acl.getOrElse(endpoint.acl)
+    val spans = Spans(hosting.observability, declared.fullName)
     declared.handler match
-      case Handler.Unary(run) => unary(endpoint, declared, admission, run)
-      case Handler.ServerStream(run) =>
-        streaming(declared, acl, admission) { (call, context, out, readiness, listener) =>
-          // One request, as for a unary method, then the stream.
+      case Handler.Unary(run) =>
+        calls(declared, acl, admission, spans) { (call, context, out, _, listener, span) =>
+          // Two, not one, as grpc-java's own unary handler asks: a second message is how a client
+          // that sent too many is noticed.
           call.request(2)
           listener.onRequest { message =>
-            parse(declared, message) match
-              case Left(status) => out.close(status, Metadata())
-              case Right(request) =>
-                answerWith(declared, out, readiness, listener, materializer)(
-                  RequestScope.withContext(context)(run(request))
-                )
+            span.within {
+              parse(declared, message) match
+                case Left(status) => out.close(status, Metadata())
+                case Right(request) =>
+                  try
+                    val reply = RequestScope.withContext(context)(run(request))
+                    out.send(reply)
+                    out.close(Status.OK, Metadata())
+                  catch case NonFatal(failure) => endWith(declared, out, failure)
+            }
+          }
+        }
+      case Handler.ServerStream(run) =>
+        calls(declared, acl, admission, spans) { (call, context, out, readiness, listener, span) =>
+          call.request(2)
+          listener.onRequest { message =>
+            span.within {
+              parse(declared, message) match
+                case Left(status) => out.close(status, Metadata())
+                case Right(request) =>
+                  answerWith(declared, out, readiness, listener, hosting)(
+                    RequestScope.withContext(context)(run(request))
+                  )
+            }
           }
         }
       case Handler.ClientStream(run) =>
-        streaming(declared, acl, admission) { (call, context, out, _, listener) =>
+        calls(declared, acl, admission, spans) { (call, context, out, _, listener, span) =>
           val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
           AnkkaExecutors.virtual.execute { () =>
-            try
-              val reply = RequestScope.withContext(context)(run(inbound))
-              out.send(reply)
-              out.close(Status.OK, Metadata())
-            catch case NonFatal(failure) => endWith(declared, out, failure)
+            span.within {
+              try
+                val reply = RequestScope.withContext(context)(run(inbound))
+                out.send(reply)
+                out.close(Status.OK, Metadata())
+              catch case NonFatal(failure) => endWith(declared, out, failure)
+            }
           }
         }
       case Handler.BidiStream(run) =>
-        streaming(declared, acl, admission) { (call, context, out, readiness, listener) =>
+        calls(declared, acl, admission, spans) { (call, context, out, readiness, listener, span) =>
           val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
           AnkkaExecutors.virtual.execute { () =>
-            answerWith(declared, out, readiness, listener, materializer)(
-              RequestScope.withContext(context)(run(inbound))
-            )
+            span.within {
+              answerWith(declared, out, readiness, listener, hosting)(
+                RequestScope.withContext(context)(run(inbound))
+              )
+            }
           }
         }
 
-  /** What a streaming call's listener does, filled in by the kind of method it serves. */
-  private final class StreamListener(readiness: Readiness) extends ServerCall.Listener[Array[Byte]]:
-    @volatile var cancelled                             = false
-    private var single: Option[Array[Byte] => Unit]     = None
-    private var request: Option[Array[Byte]]            = None
-    private var requests: Option[Streams.Inbound]       = None
-    private var tooMany                                 = false
-    @volatile private var onEnd: Option[Status => Unit] = None
+  /** What a call's listener does, filled in by the kind of method it serves. */
+  private final class CallListener(readiness: Readiness, out: Outgoing)
+      extends ServerCall.Listener[Array[Byte]]:
+    @volatile var cancelled                         = false
+    private var single: Option[Array[Byte] => Unit] = None
+    private var request: Option[Array[Byte]]        = None
+    private var requests: Option[Streams.Inbound]   = None
+    private var tooMany                             = false
 
     def onRequest(handle: Array[Byte] => Unit): Unit = single = Some(handle)
 
@@ -171,16 +216,15 @@ private[grpc] object Binding:
       requests = Some(stream)
       stream
 
-    def ending(handle: Status => Unit): Unit = onEnd = Some(handle)
-
     override def onMessage(message: Array[Byte]): Unit =
       requests match
         case Some(stream) => stream.onMessage(message)
         case None =>
           if request.isDefined then
             tooMany = true
-            onEnd.foreach(
-              _(Status.INTERNAL.withDescription("more than one request for this method"))
+            out.close(
+              Status.INTERNAL.withDescription("more than one request for this method"),
+              Metadata()
             )
           else request = Some(message)
 
@@ -191,30 +235,30 @@ private[grpc] object Binding:
           if !tooMany then
             (single, request) match
               case (Some(handle), Some(message)) =>
-                // On a thread of its own, not the call's: a handler that blocks must not hold the
-                // thread grpc-java delivers this call's cancellation and readiness on.
                 AnkkaExecutors.virtual.execute(() => handle(message))
               case _ =>
-                onEnd.foreach(_(Status.INTERNAL.withDescription("no request for this method")))
+                out.close(Status.INTERNAL.withDescription("no request for this method"), Metadata())
 
     override def onCancel(): Unit =
       cancelled = true
       requests.foreach(_.onCancel("the caller cancelled the call or went away"))
+      out.cancelled()
       readiness.signal()
 
     override def onReady(): Unit = readiness.signal()
 
   /**
-   * A streaming call: admitted before anything is read, then handed to `begin` with the pieces it
-   * needs, on the call's own thread.
+   * One call of any kind: admitted before anything is read — a refusal recorded and answered there
+   * — then handed to `begin` with the pieces it needs, on the call's own thread.
    */
-  private def streaming(declared: DeclaredMethod, acl: Acl, admission: Admission)(
+  private def calls(declared: DeclaredMethod, acl: Acl, admission: Admission, spans: Spans)(
       begin: (
           ServerCall[Array[Byte], Any],
           RequestContext,
           Outgoing,
           Readiness,
-          StreamListener
+          CallListener,
+          Spans.Call
       ) => Unit
   ): ServerCallHandler[Array[Byte], Any] =
     new ServerCallHandler[Array[Byte], Any]:
@@ -224,14 +268,15 @@ private[grpc] object Binding:
       ): ServerCall.Listener[Array[Byte]] =
         admitted(call, headers, declared.fullName, acl, admission) match
           case Left((status, trailers)) =>
+            spans.refused()
             call.close(status, trailers)
             new ServerCall.Listener[Array[Byte]] {}
           case Right(context) =>
-            val out       = Outgoing(call)
+            val span      = spans.call()
+            val out       = Outgoing(call, span.complete)
             val readiness = Readiness()
-            val listener  = StreamListener(readiness)
-            listener.ending(status => out.close(status, Metadata()))
-            begin(call, context, out, readiness, listener)
+            val listener  = CallListener(readiness, out)
+            begin(call, context, out, readiness, listener, span)
             listener
 
   /** Builds the handler's stream and sends it, ending the call however the stream ends. */
@@ -239,12 +284,12 @@ private[grpc] object Binding:
       declared: DeclaredMethod,
       out: Outgoing,
       readiness: Readiness,
-      listener: StreamListener,
-      materializer: Option[Materializer]
+      listener: CallListener,
+      hosting: Hosting
   )(build: => Source[Any, ?]): Unit =
     try
       val source = build
-      materializer match
+      hosting.materializer match
         case Some(m) =>
           Streams.drain(
             source,
@@ -267,76 +312,6 @@ private[grpc] object Binding:
       case _: CallCancelled =>
         out.close(Status.CANCELLED.withDescription(failure.getMessage), Metadata())
       case other => out.close(statusOf(declared, other), trailersOf(other))
-
-  private def unary(
-      endpoint: GrpcEndpoint,
-      declared: DeclaredMethod,
-      admission: Admission,
-      run: Any => Any
-  ): ServerCallHandler[Array[Byte], Any] =
-    new ServerCallHandler[Array[Byte], Any]:
-      def startCall(
-          call: ServerCall[Array[Byte], Any],
-          headers: Metadata
-      ): ServerCall.Listener[Array[Byte]] =
-        admitted(
-          call,
-          headers,
-          declared.fullName,
-          declared.acl.getOrElse(endpoint.acl),
-          admission
-        ) match
-          case Left((status, trailers)) =>
-            call.close(status, trailers)
-            new ServerCall.Listener[Array[Byte]] {}
-          case Right(context) =>
-            // Two, not one, as grpc-java's own unary handler asks: a second message is how a client
-            // that sent too many is noticed.
-            call.request(2)
-            new ServerCall.Listener[Array[Byte]]:
-              private var request: Option[Array[Byte]] = None
-              private var refused                      = false
-
-              override def onMessage(message: Array[Byte]): Unit =
-                if request.isDefined then
-                  refused = true
-                  call.close(
-                    Status.INTERNAL.withDescription("more than one request for a unary method"),
-                    Metadata()
-                  )
-                else request = Some(message)
-
-              override def onHalfClose(): Unit =
-                if !refused then
-                  request match
-                    case None =>
-                      call.close(
-                        Status.INTERNAL.withDescription("no request for a unary method"),
-                        Metadata()
-                      )
-                    case Some(message) =>
-                      // On a thread of its own, not the call's: a handler that blocks must not hold
-                      // the thread grpc-java delivers this call's cancellation on.
-                      AnkkaExecutors.virtual.execute(() =>
-                        answer(call, declared, context, message, run)
-                      )
-
-  private def answer(
-      call: ServerCall[Array[Byte], Any],
-      declared: DeclaredMethod,
-      context: RequestContext,
-      message: Array[Byte],
-      run: Any => Any
-  ): Unit =
-    parse(declared, message) match
-      case Left(status) => call.close(status, Metadata())
-      case Right(request) =>
-        try
-          val reply = RequestScope.withContext(context)(run(request))
-          call.sendHeaders(Metadata())
-          call.sendMessage(reply)
-          call.close(Status.OK, Metadata())
-        catch case NonFatal(failure) => call.close(statusOf(declared, failure), trailersOf(failure))
 
   private[grpc] def parse(declared: DeclaredMethod, message: Array[Byte]): Either[Status, Any] =
     try Right(declared.descriptor.getRequestMarshaller.parse(ByteArrayInputStream(message)))
@@ -369,3 +344,57 @@ private[grpc] object Binding:
     case e: StatusException if CommandError.from(e).isEmpty =>
       Option(e.getTrailers).getOrElse(Metadata())
     case _ => Metadata()
+
+/**
+ * The spans of one declared method: each call the root of its own trace, named `grpc` /
+ * `<service definition>/<method>`, both interned once when the endpoint is bound.
+ *
+ * Opened on the handler's own thread and around everything it does, so the component calls it makes
+ * record themselves beneath it; a trace set on another thread would leave them roots of traces of
+ * their own. Completed when the call ends, with how it ended: a refusal — an ACL's, or a
+ * component's, or any status of the refusal table — is `Refused`, never `Failed`.
+ */
+private[grpc] final class Spans(observability: Option[Observability], fullName: String):
+
+  private val refs = observability.map(o => (o.names.intern("grpc"), o.names.intern(fullName)))
+
+  /** A call its ACL refused: recorded and ended at once, since no handler will run. */
+  def refused(): Unit =
+    for o <- observability; (component, handler) <- refs do
+      o.recorder.complete(
+        o.recorder.begin(Trace.mint(), 0L, component, handler),
+        SpanOutcome.Refused
+      )
+
+  def call(): Spans.Call = Spans.Call(observability, refs)
+
+private[grpc] object Spans:
+
+  final class Call(observability: Option[Observability], refs: Option[(Int, Int)]):
+    @volatile private var span: Option[Span] = None
+    private val completed                    = AtomicBoolean(false)
+
+    /** Runs `body` as this call's span, opened here, on the thread that runs it. */
+    def within[A](body: => A): A =
+      (observability, refs) match
+        case (Some(o), Some((component, handler))) =>
+          val opened = o.recorder.begin(Trace.mint(), 0L, component, handler)
+          span = Some(opened)
+          Trace.within(opened.traceId, opened.id)(body)
+        case _ => body
+
+    /** Ends the span with how the call ended; once, whichever writer ended it. */
+    def complete(status: Status): Unit =
+      if completed.compareAndSet(false, true) then
+        for o <- observability; s <- span do o.recorder.complete(s, outcomeOf(status))
+
+  /**
+   * A refusal is the service working: every status of the refusal table but `INTERNAL`, and the
+   * ACL's own answers. A caller that stopped waiting is `TimedOut`. Anything else is a fault.
+   */
+  def outcomeOf(status: Status): SpanOutcome =
+    if status.isOk then SpanOutcome.Ok
+    else if status.getCode == Status.Code.CANCELLED then SpanOutcome.TimedOut
+    else if GrpcStatus.fromStatus(status).exists(_.code != ErrorCode.Internal) then
+      SpanOutcome.Refused
+    else SpanOutcome.Failed

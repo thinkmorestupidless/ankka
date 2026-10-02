@@ -36,7 +36,11 @@ final class CallCancelled(message: String) extends RuntimeException(message):
  * One call's outgoing half, shared by whatever writes to it: grpc-java's `ServerCall` is not
  * thread-safe, and a handler streaming answers can be ended by a part it failed to read.
  */
-private[grpc] final class Outgoing(call: ServerCall[Array[Byte], Any]):
+private[grpc] final class Outgoing(
+    call: ServerCall[Array[Byte], Any],
+    /** Told once how the call ended: the status it was closed with, or `CANCELLED`. */
+    ended: Status => Unit = _ => ()
+):
   private var headersSent = false
   private var closed      = false
 
@@ -48,11 +52,24 @@ private[grpc] final class Outgoing(call: ServerCall[Array[Byte], Any]):
       call.sendMessage(message)
   }
 
-  def close(status: Status, trailers: Metadata): Unit = synchronized {
-    if !closed then
+  def close(status: Status, trailers: Metadata): Unit =
+    val closing = synchronized {
+      val first = !closed
+      if first then
+        closed = true
+        call.close(status, trailers)
+      first
+    }
+    if closing then ended(status)
+
+  /** The caller cancelled or went away: the call is over, and nothing is sent to end it. */
+  def cancelled(): Unit =
+    val first = synchronized {
+      val was = !closed
       closed = true
-      call.close(status, trailers)
-  }
+      was
+    }
+    if first then ended(Status.CANCELLED)
 
   def isClosed: Boolean = synchronized(closed)
 

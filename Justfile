@@ -120,6 +120,10 @@ docs-sync:
 docs-serve:
     uv run --project tools/docs docs serve
 
+# The living features, the glossary and the specs that name their scenarios, checked against each other.
+features:
+    .github/features-check.sh
+
 # The documentation tool's own tests, against a repository that is not ankka.
 docs-test:
     uv run --project tools/docs pytest tools/docs

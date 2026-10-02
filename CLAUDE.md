@@ -60,6 +60,7 @@ sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka
                                    # against sdks/python (and typescript and rust likewise); needs uv, node and npm, or cargo
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
+just features                     # speckit-bdd check: the living features, the glossary and the specs that name them
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
@@ -123,7 +124,7 @@ Keep it that way — a recipe that reimplements a step becomes a second copy to 
 this file, and everything here still works without `just` installed.
 
 **CI builds pull requests, and only the parts a pull request touched.** `.github/workflows/ci.yml`
-opens with a `changes` job that maps changed paths onto the jobs (`build`, `docs`, `sdk-python`,
+opens with a `changes` job that maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
 `sdk-typescript`, `sdk-rust`, `console`, `template-scala`); an untouched job is skipped, which GitHub counts as a pass for a required check.
 A matrix job is the exception: skipped before it expands, it never reports its expanded names, so
 branch protection requires the `template-scala` summary job (always run; passes when both launcher
@@ -1780,7 +1781,11 @@ requirements into clarification questions. `specs-from: "019"` in
 record changes that were made, in the form they were made in, and the checker does not read them. Its
 report says how many specs it read and how many it did not, so a setting that skipped everything
 cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
-so `uv` must be on `PATH`. The shopping cart sample has features and a glossary of its own, under
+so `uv` must be on `PATH`. CI's `features` job runs the same check through
+`.github/features-check.sh` (`just features` locally), which reads that config and fails when it
+read no spec or no scenario. A feature file that one suite can run whole is run by `GherkinSuite`,
+which takes a directory or one file; a scenario no suite can reach is a test named after it. The
+shopping cart sample has features and a glossary of its own, under
 `samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the
 root ones the platform.
 

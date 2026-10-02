@@ -92,18 +92,21 @@ object ObservabilityEndpoint:
 
     /** Identity and inventory: what the Services and Components panels are built from. */
     def service(exchange: HttpExchange): Unit =
+      // A service with `"http": false` serves nothing addressable over HTTP. Say so, rather than
+      // offer an invoke panel that cannot work. Its gRPC address, when it has one, is beside.
+      val grpc = service.grpcAddresses.headOption
+        .map(a => s""","grpc":{"address":${Json.str(a)}}""")
+        .getOrElse("")
       val instances = service.boundAddresses match
         case addresses if addresses.nonEmpty =>
           addresses
             .map(a =>
               s"""{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)},""" +
-                s""""http":{"address":${Json.str(a)}}}"""
+                s""""http":{"address":${Json.str(a)}}$grpc}"""
             )
             .mkString("[", ",", "]")
-        // A service with `"http": false` serves nothing addressable. Say so, rather than offer an
-        // invoke panel that cannot work.
         case _ =>
-          s"""[{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)}}]"""
+          s"""[{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)}$grpc}]"""
 
       val components = service.registry.components
         .map { descriptor =>

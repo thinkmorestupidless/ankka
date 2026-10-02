@@ -61,6 +61,13 @@ trait RuntimeExtension:
    */
   def routes: Vector[ServedRoute] = Vector.empty
 
+  /**
+   * Where this extension serves gRPC, once it has bound — `127.0.0.1:9090` — for a service on this
+   * machine that calls it. Separate from `boundAddress`, which every reader takes for an HTTP
+   * address: a gRPC address offered as one would be an invoke panel that cannot work.
+   */
+  def grpcAddress: Option[String] = None
+
 /** Entry point for defining and starting an ankka service. */
 object Ankka:
 
@@ -360,6 +367,9 @@ final class AnkkaService private[ankka] (
    * structural fact rather than a rule someone has to remember.
    */
   def boundAddresses: Vector[String] = extensions.flatMap(_.boundAddress)
+
+  /** Where this service serves gRPC, for a service on this machine that calls it. */
+  def grpcAddresses: Vector[String] = extensions.flatMap(_.grpcAddress)
 
   /** Every route this service's extensions serve, for the console's invoke panel. */
   def routes: Vector[ServedRoute] = extensions.flatMap(_.routes)

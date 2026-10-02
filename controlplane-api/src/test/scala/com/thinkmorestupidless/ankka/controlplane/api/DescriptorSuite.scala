@@ -320,3 +320,68 @@ class DescriptorSuite extends munit.FunSuite:
     )
     assertEquals((summary.quota, summary.usage), (None, Usage.zero))
   }
+
+  // --- gRPC (feature 020)
+
+  test("a descriptor that says nothing about gRPC serves none, and is written without saying so") {
+    val spec = decode("""{"image":"i:1"}""")
+    assertEquals(spec.grpc, false)
+    assertEquals(spec.resolvedGrpcPort, None)
+    val written = writeToString(ServiceDescriptor("cart", ServiceSpec("i:1")))
+    assert(!written.contains("grpc"), written)
+  }
+
+  test(
+    "a service that declares gRPC serves it on the runtime's default port, or the one it names"
+  ) {
+    assertEquals(decode("""{"image":"i:1","grpc":true}""").resolvedGrpcPort, Some(9090))
+    assertEquals(
+      decode("""{"image":"i:1","grpc":true,"grpcPort":7070}""").resolvedGrpcPort,
+      Some(7070)
+    )
+    assertEquals(decode("""{"image":"i:1","grpc":true}""").problems, Vector.empty)
+  }
+
+  test("a service may serve gRPC and no HTTP") {
+    val spec = decode("""{"image":"i:1","http":false,"grpc":true}""")
+    assertEquals(spec.resolvedPort, None)
+    assertEquals(spec.resolvedGrpcPort, Some(9090))
+    assertEquals(spec.problems, Vector.empty)
+  }
+
+  test("a grpcPort outside 1-65535 is a problem, whether or not gRPC is served") {
+    for served <- Vector(true, false) do
+      assertEquals(
+        ServiceSpec("i:1", grpc = served, grpcPort = 0).problems,
+        Vector("service grpcPort 0 is outside the range 1-65535")
+      )
+  }
+
+  test("a gRPC port that is the HTTP port is refused, and is not when HTTP is not served") {
+    assertEquals(
+      ServiceSpec("i:1", grpc = true, grpcPort = 9000).problems,
+      Vector("grpcPort 9000 is also the service port; gRPC and HTTP are served on different ports")
+    )
+    assertEquals(
+      ServiceSpec("i:1", http = false, grpc = true, grpcPort = 9000).problems,
+      Vector.empty
+    )
+  }
+
+  test("ANKKA_GRPC_PORT in env is refused: the grpcPort field is the only way to set it") {
+    assertEquals(
+      ServiceSpec("i:1", env = Vector(EnvVar("ANKKA_GRPC_PORT", value = Some("1")))).problems,
+      Vector(
+        "env var 'ANKKA_GRPC_PORT' conflicts with the service grpcPort; declare the grpcPort instead"
+      )
+    )
+  }
+
+  test("gRPC declared for a process or a module is refused") {
+    for hosting <- Vector("process", "wasm") do
+      assertEquals(
+        ServiceSpec("i:1", hosting = hosting, protocol = Some("1.0"), grpc = true).problems,
+        Vector("only an embedded service serves gRPC; remove \"grpc\" or use embedded hosting"),
+        hosting
+      )
+  }

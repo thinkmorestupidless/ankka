@@ -197,10 +197,14 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     // the list is whole and the TypeScript side can say it is deliberately not decoded.
     fixture(
       "ServiceDescriptor",
-      ServiceDescriptor("cart", ServiceSpec("cart:1", runtime = Some("0.7.0"))),
+      ServiceDescriptor("cart", ServiceSpec("cart:1", runtime = Some("0.7.0"), grpc = true)),
       ServiceDescriptor("cart", ServiceSpec("cart:1"))
     ),
-    fixture("ServiceSpec", ServiceSpec("cart:1", runtime = Some("0.7.0")), ServiceSpec("cart:1"))
+    fixture(
+      "ServiceSpec",
+      ServiceSpec("cart:1", runtime = Some("0.7.0"), grpc = true),
+      ServiceSpec("cart:1")
+    )
   ).flatten
 
   test("every fixture matches what the wire codecs write") {

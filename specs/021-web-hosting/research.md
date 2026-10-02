@@ -56,8 +56,12 @@ delegates to `RotatingTls.serverEngine()` (which already sets `needClientAuth` a
 `HttpsExchange.getSSLSession.getPeerCertificates`. Handlers run on virtual threads
 (`server.setExecutor`).
 
-**Status**: **a task, and the first one.** Nothing in this repository uses `HttpsServer`. A spike,
-`ProxyTlsSpike` in `proxy`'s tests, must show before anything else is built on it:
+**Status**: **verified 2026-10-02** by `ProxyTlsSpike` (`sbt -Dankka.spikes=on 'proxy/testOnly
+*ProxyTlsSpike'`, five of five), on JDK 21 with TLS 1.3. `HttpsServer` keeps the one `SSLContext` it
+is given, so `RotatingServerTls` gives it a context whose every engine is `RotatingTls.serverEngine()`,
+made when the connection arrives; and an `HttpsConfigurator` whose `configure` restates the client
+certificate requirement, since the default replaces the engine's parameters with the context's
+defaults, which do not require one. The spike showed, before anything else was built on it:
 
 1. a rotated `tls.crt` is served to the next connection without a restart;
 2. a connection with no client certificate, or one from another authority, fails the handshake;

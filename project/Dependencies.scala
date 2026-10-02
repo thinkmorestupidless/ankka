@@ -44,15 +44,16 @@ object Dependencies {
     val chicory = "1.7.5"
 
     /**
-     * grpc-java, named here rather than taken from the ScalaPB plugin's `grpcJavaVersion`. The plugin
-     * declares the line it was built against (1.62.2 for 0.11.20), and the build then served the
-     * sidecar protocol on whatever that was — 1.46.0 until feature 020, a 2022 release from before
-     * the HTTP/2 rapid-reset fixes. That is tolerable on a pod's loopback and not for `ankka-grpc`,
-     * which listens on the network; reflection v1 also needs 1.66 or later. ScalaPB's generated code
-     * uses only descriptor builders, `ServerCalls`/`ClientCalls` and the proto descriptor suppliers,
-     * and grpc-java 1.84 is still on protobuf-java 3.25, ScalaPB 0.11's line; the sidecar suites and
-     * the three SDKs' conformance runs are the proof. Every grpc-java artifact the build uses is
-     * declared at this version, so eviction never mixes two.
+     * grpc-java, named here rather than taken from the ScalaPB plugin's `grpcJavaVersion`. The
+     * plugin declares the line it was built against (1.62.2 for 0.11.20), and the build then served
+     * the sidecar protocol on whatever that was — 1.46.0 until feature 020, a 2022 release from
+     * before the HTTP/2 rapid-reset fixes. That is tolerable on a pod's loopback and not for
+     * `ankka-grpc`, which listens on the network; reflection v1 also needs 1.66 or later. ScalaPB's
+     * generated code uses only descriptor builders, `ServerCalls`/`ClientCalls` and the proto
+     * descriptor suppliers, and grpc-java 1.84 is still on protobuf-java 3.25, ScalaPB 0.11's line;
+     * the sidecar suites and the Python and TypeScript SDKs' conformance runs, on the rebuilt
+     * image, are the proof. Every grpc-java artifact the build uses is declared at this version, so
+     * eviction never mixes two.
      */
     val grpc = "1.84.0"
 

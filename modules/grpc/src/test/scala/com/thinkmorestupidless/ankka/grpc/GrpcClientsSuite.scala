@@ -117,3 +117,53 @@ class GrpcClientsSuite extends munit.FunSuite:
       assertEquals(counter.get, 0)
     finally server.stop()
   }
+
+  // ---- on a developer's machine, with no locator: what the service itself would do ---------------
+
+  /** Runs `body` with the local registry in an empty directory of its own. */
+  private def withEmptyRegistry[A](body: => A): A =
+    val previous = sys.props.get("ankka.running.dir")
+    sys.props.put(
+      "ankka.running.dir",
+      Files.createTempDirectory("grpc-clients-running").toString
+    ): Unit
+    try body
+    finally
+      previous.fold(sys.props.remove("ankka.running.dir"))(
+        sys.props.put("ankka.running.dir", _)
+      ): Unit
+
+  test("on a developer's machine a service is found where the developer configured it") {
+    val counter = AtomicInteger()
+    val server  = serving(counter)
+    withEmptyRegistry {
+      val config = ConfigFactory
+        .parseString(s"""ankka.local-grpc-services."cart" = "127.0.0.1:${server.boundPort.get}"""")
+        .withFallback(ConfigFactory.load())
+      val grpc = GrpcClients().configure(config)
+      try
+        assertEquals(
+          CartServiceGrpc.blockingStub(grpc("cart")).getCart(GetCartRequest("c1")).cartId,
+          "c1"
+        )
+        assertEquals(counter.get, 1)
+      finally
+        grpc.stop()
+        server.stop()
+    }
+  }
+
+  test(
+    "on a developer's machine a service neither configured nor running cannot be found, and the failure says where it looked"
+  ) {
+    withEmptyRegistry {
+      val grpc = GrpcClients().configure(ConfigFactory.load())
+      try
+        val failure = intercept[ServiceUnresolvable](
+          CartServiceGrpc.blockingStub(grpc("basket")).getCart(GetCartRequest("c"))
+        )
+        assert(failure.getMessage.contains("basket"), failure.getMessage)
+        assert(failure.getMessage.contains("ankka.local-grpc-services"), failure.getMessage)
+      finally grpc.stop()
+    }
+  }

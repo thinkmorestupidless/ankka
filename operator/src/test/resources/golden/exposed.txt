@@ -519,6 +519,8 @@
   }
 }
 
+# remove networkpolicy ankka-checkout/cart-grpc if owned
+
 # apply deployment ankka-checkout/cart
 {
   "apiVersion" : "apps/v1",

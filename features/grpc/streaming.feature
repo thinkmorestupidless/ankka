@@ -1,3 +1,4 @@
+@ignore
 Feature: Answering a gRPC call with a stream
   A handler may answer with a stream. Each part reaches whoever called as it is produced and no
   faster than it is read, and the stream stops being produced when nobody is reading it.

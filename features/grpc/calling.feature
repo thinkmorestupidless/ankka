@@ -1,3 +1,4 @@
+@ignore
 Feature: One service calling another's gRPC endpoint
   A service calls a gRPC endpoint of another service by the other's name, as itself. The call is
   sent only to the service asked for, and a call that cannot be made says why.

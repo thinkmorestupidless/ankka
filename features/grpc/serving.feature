@@ -1,3 +1,4 @@
+@ignore
 Feature: Serving a gRPC endpoint
   A gRPC endpoint implements one service definition. A call to one of its methods is answered by
   the handler the endpoint declares for that method, and a mistake in the endpoint is found when

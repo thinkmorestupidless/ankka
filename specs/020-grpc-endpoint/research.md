@@ -96,7 +96,9 @@ recently.
 `X509ExtendedKeyManager` behaves under it was not tested. **Proof**: `GrpcTlsSpike` under
 `-Dankka.spikes`, in-process with `testPki` certificates — handshake, client certificate required,
 the peer certificate readable from `Grpc.TRANSPORT_ATTR_SSL_SESSION`, and a rotated certificate
-served without a restart. **Fallback**: force the JDK provider
+served without a restart. **Confirmed 2026-10-02** by `GrpcTlsSpike`, on the provider
+grpc-netty-shaded chose for itself: all four cases pass, so the credentials API is the server's
+form. **Fallback** (not needed): force the JDK provider
 (`GrpcSslContexts.configure(builder, SslProvider.JDK)` on `NettyServerBuilder`), which costs the
 shaded class names and nothing else.
 

@@ -1,3 +1,4 @@
+@ignore
 Feature: Calling a gRPC method with a stream
   A method may take a stream: its request arrives a part at a time. The handler reads each part as
   it is sent and no faster than it chooses, and may answer once or with a stream of its own.

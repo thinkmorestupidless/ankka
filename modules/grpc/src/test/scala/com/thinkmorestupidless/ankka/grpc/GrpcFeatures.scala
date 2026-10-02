@@ -17,7 +17,22 @@ import com.thinkmorestupidless.ankka.testpki.TestPki
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
 import io.grpc.stub.ClientCalls
 import com.thinkmorestupidless.ankka.core.CommandError
+import com.thinkmorestupidless.ankka.runtime.{Observability, RecordedSpan, SpanOutcome}
+import com.thinkmorestupidless.ankka.sdk.{
+  ServiceIdentityMismatch,
+  ServiceServesNoGrpc,
+  ServiceUnresolvable
+}
+import com.typesafe.config.ConfigFactory
 import io.grpc.ClientCall
+import io.grpc.reflection.v1.{
+  ServerReflectionGrpc,
+  ServerReflectionRequest,
+  ServerReflectionResponse
+}
+import io.grpc.stub.StreamObserver
+import java.net.InetSocketAddress
+import scala.jdk.CollectionConverters.*
 import io.grpc.stub.MetadataUtils
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
@@ -69,7 +84,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   @volatile private var shape: Shape                         = Shape.Complete
   @volatile private var withHttp                             = false
   @volatile private var refusal: Option[(ErrorCode, String)] = None
-  @volatile private var failure: Option[String]              = None
+  @volatile private var failure: Option[(String, String)]    = None
   @volatile private var useRegistered                        = false
   private val handled                                        = AtomicInteger()
 
@@ -106,6 +121,22 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   /** Parts sized so a count measures backpressure: the HTTP/2 window is counted in bytes. */
   private def padding(parts: Int): String = if parts >= 1000 then "x" * 16384 else ""
 
+  // GetCart refusing through the component, for the calling and traces features.
+  @volatile private var getCartRefusal: Option[ErrorCode] = None
+  // Reflection, when the scenario opts in.
+  @volatile private var reflectionAcl: Option[Acl]  = None
+  @volatile private var reflected: Vector[String]   = Vector.empty
+  @volatile private var methodsTold: Vector[String] = Vector.empty
+  // One service calling another, through GrpcClients.
+  @volatile private var served: Set[String]             = Set.empty
+  @volatile private var withoutGrpc: Set[String]        = Set.empty
+  @volatile private var projectOf: Map[String, String]  = Map.empty
+  @volatile private var impostor: Option[(String, Int)] = None
+  private val impostorHandled                           = AtomicInteger()
+  @volatile private var callFailure: Option[Throwable]  = None
+  // The spans recorded before the scenario, so its own can be told apart.
+  @volatile private var spansBefore: Set[Long] = Set.empty
+
   // What the handler for GetCart saw.
   @volatile private var sawPrincipal: Option[String]     = None
   @volatile private var sawMetadata: Map[String, String] = Map.empty
@@ -134,6 +165,17 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     sawPrincipal = None
     sawMetadata = Map.empty
     sawCaller = None
+    getCartRefusal = None
+    reflectionAcl = None
+    reflected = Vector.empty
+    methodsTold = Vector.empty
+    served = Set.empty
+    withoutGrpc = Set.empty
+    projectOf = Map.empty
+    impostor = None
+    impostorHandled.set(0)
+    callFailure = None
+    spansBefore = observability.recorder.snapshot().map(_.spanId).toSet
     watchParts = Some(3)
     watchEvery = None
     watchEndsIn = None
@@ -178,14 +220,18 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
           sawCaller = Some(caller)
           sawPrincipal = Try(principal.subject).toOption
           sawMetadata = metadata.toSeq.toMap
-          val state = cart(request.cartId).call(FixtureCart.get).invoke()
+          failure.collect { case ("GetCart", message) => throw RuntimeException(message) }
+          val state = getCartRefusal match
+            case Some(code) =>
+              cart(request.cartId).call(FixtureCart.refuse).invoke(s"$code|no such cart")
+            case None => cart(request.cartId).call(FixtureCart.get).invoke()
           Cart(request.cartId, state.items.map(Item(_, 1)))
         }
       }
     if !omit.contains("AddItem") then
       unary(CartServiceGrpc.METHOD_ADD_ITEM) { request =>
         handled.incrementAndGet()
-        failure.foreach(message => throw RuntimeException(message))
+        failure.collect { case ("AddItem", message) => throw RuntimeException(message) }
         val state = refusal match
           case Some((code, message)) =>
             cart(request.cartId).call(FixtureCart.refuse).invoke(s"$code|$message")
@@ -252,6 +298,8 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   private val registered = GrpcServer.at("127.0.0.1", 0)(clients => CartEndpoint(clients))
   private var testKit: AnkkaTestKit = null
 
+  private def observability = Observability(testKit.service.system)
+
   override def beforeAll(): Unit =
     super.beforeAll()
     testKit = AnkkaTestKit.start(Seq(FixtureCart.descriptor), Seq(registered))
@@ -270,8 +318,9 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
         case Shape.Missing(method) => Seq(CartEndpoint(_, Some(method)), _ => StreamsEndpoint())
         case Shape.Twice           => Seq(CartEndpoint(_), CartEndpoint(_))
         case Shape.Unregistered    => Seq.empty
-      val plain  = GrpcServer.at("127.0.0.1", 0)(factories*)
-      val server = if deployed then plain.withTls(serverIdentity) else plain
+      val plain   = GrpcServer.at("127.0.0.1", 0)(factories*)
+      val secured = if deployed then plain.withTls(serverIdentity) else plain
+      val server  = reflectionAcl.fold(secured)(secured.withReflection)
       try
         server.start(testKit.service)
         started :+= (() => server.stop())
@@ -310,12 +359,87 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
       .writeTo(java.nio.file.Files.createTempDirectory("grpc-features-cart"))
 
   private def identityOf(service: String): RotatingTls =
-    RotatingTls(
-      authority
-        .issue(uris = Seq(s"ankka://shop/$service"))
-        .writeTo(java.nio.file.Files.createTempDirectory(s"grpc-features-$service")),
-      1.minute
+    RotatingTls(identityDirectory(projectOf.getOrElse(service, "shop"), service), 1.minute)
+
+  private def identityDirectory(project: String, service: String): java.nio.file.Path =
+    authority
+      .issue(uris = Seq(s"ankka://$project/$service"))
+      .writeTo(java.nio.file.Files.createTempDirectory(s"grpc-features-$service"))
+
+  // ── one service calling another, through GrpcClients ──────────────────────────
+
+  private def definitionOf(method: String): String = method match
+    case "GetOrder"                               => "OrderService"
+    case "WatchCart" | "ImportItems" | "Converse" => "CartStreams"
+    case _                                        => "CartService"
+
+  /** Where each name is: the scenario's server, an impostor, a service without gRPC, or nothing. */
+  private val locate: GrpcClients.Locate = (project, name) =>
+    def at(port: Int) = Right(
+      GrpcClients.Located.Addresses(Vector(InetSocketAddress("127.0.0.1", port)), "localhost")
     )
+    impostor.filter(_._1 == name) match
+      case Some((_, port)) => at(port)
+      case None =>
+        if served.contains(name) then
+          start()
+          at(grpcPort.getOrElse(fail(s"the service did not start: $startFailure")))
+        else if withoutGrpc.contains(name) then Left(ServiceServesNoGrpc(s"$project/$name"))
+        else Left(ServiceUnresolvable(s"$project/$name", s"no service at $name"))
+
+  /** `caller`'s GrpcClients: its own certificate when deployed, none on a developer's machine. */
+  private def clientsOf(caller: String): GrpcClients =
+    val config =
+      if !deployed then ConfigFactory.load()
+      else
+        val directory = identityDirectory(projectOf.getOrElse(caller, "shop"), caller)
+        ConfigFactory
+          .parseString(s"""ankka.tls.service-directory = "$directory"""")
+          .withFallback(ConfigFactory.load())
+    val clients = GrpcClients.locatedBy(locate).configure(config)
+    started :+= (() => clients.stop())
+    clients
+
+  /** `caller` calls `method` of `target`, as itself, and the outcome is kept. */
+  private def callAs(
+      caller: String,
+      target: String,
+      method: String,
+      project: Option[String] = None
+  ): Unit =
+    val clients = clientsOf(caller)
+    val through = project.fold(clients(target))(clients(_, target))
+    val request = if method == "GetOrder" then GetOrderRequest("o1") else requestFor(method)
+    try
+      outcome = Some(
+        Right(
+          ClientCalls.blockingUnaryCall(
+            through,
+            methodOf(definitionOf(method), method),
+            CallOptions.DEFAULT.withDeadlineAfter(30, TimeUnit.SECONDS),
+            request
+          )
+        )
+      )
+    catch
+      case e: StatusRuntimeException =>
+        callFailure = Some(e)
+        outcome = Some(Left(e.getStatus))
+      case scala.util.control.NonFatal(e) => callFailure = Some(e)
+
+  // ── the spans a scenario recorded ─────────────────────────────────────────────
+
+  private def rootsOfThisScenario: Vector[RecordedSpan] =
+    def roots = observability.recorder
+      .snapshot()
+      .filterNot(span => spansBefore.contains(span.spanId))
+      .filter(span =>
+        span.parentSpanId == 0L && observability.names.nameOf(span.componentRef).contains("grpc")
+      )
+    // A span completes as its call ends, which the caller may hear first.
+    val deadline = System.nanoTime() + 5.seconds.toNanos
+    while roots.isEmpty && System.nanoTime() < deadline do Thread.sleep(20)
+    roots
 
   private def methodOf(definition: String, method: String): MethodDescriptor[Any, Any] =
     val descriptors: Map[String, io.grpc.ServiceDescriptor] = Map(
@@ -385,10 +509,11 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
       method: MethodDescriptor[Any, Any],
       parts: Iterator[Array[Byte]],
       end: Boolean,
-      awaitClose: Boolean
+      awaitClose: Boolean,
+      through: => Channel = channel()
   ): ClientCall[Array[Byte], Any] =
     val rebound = method.toBuilder(Binding.bytes, method.getResponseMarshaller).build()
-    val call    = channel().newCall(rebound, CallOptions.DEFAULT)
+    val call    = through.newCall(rebound, CallOptions.DEFAULT)
     val closed  = Promise[Status]()
     val ready   = Object()
     call.start(
@@ -535,7 +660,7 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
       assertEquals(endedWith.getDescription, message)
   }
   Given("a gRPC endpoint whose handler for the method {string} fails with the message {string}") {
-    (_: String, message: String) => failure = Some(message)
+    (method: String, message: String) => failure = Some(method -> message)
   }
   Then("the call does not end with the message {string}") { (message: String) =>
     assert(!Option(endedWith.getDescription).exists(_.contains(message)), endedWith.toString)
@@ -624,21 +749,24 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   }
   Given(
     "a deployed service {string} with a gRPC endpoint whose ACL admits only the service {string}"
-  ) { (_: String, admitted: String) =>
+  ) { (name: String, admitted: String) =>
     deployed = true
+    served += name
     endpointAcl = Acl.allowCallers(Callers.service(admitted))
   }
   When("the service {string} calls the method {string} of the service {string}") {
-    (calling: String, method: String, _: String) =>
+    (calling: String, method: String, target: String) =>
       deployedCaller = calling
-      call("CartService", method)
+      callAs(calling, target, method)
   }
   Given("a gRPC endpoint for the service definition {string} whose ACL denies all") { (_: String) =>
     endpointAcl = Acl.DenyAll
   }
   Given("a service {string} running on a developer's machine") { (_: String) => deployed = false }
   Given("the service {string} has a gRPC endpoint whose ACL admits only the service {string}") {
-    (_: String, admitted: String) => endpointAcl = Acl.allowCallers(Callers.service(admitted))
+    (name: String, admitted: String) =>
+      served += name
+      endpointAcl = Acl.allowCallers(Callers.service(admitted))
   }
   Then("the handler for the method {string} reads the calling workload as the local caller") {
     (_: String) => assertEquals(sawCaller, Some(Caller.Local))
@@ -783,4 +911,237 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
       end = true,
       awaitClose = true
     )
+  }
+
+  // ── calling.feature ───────────────────────────────────────────────────────────
+
+  Given("a deployed service {string} in the project {string} that serves gRPC") {
+    (name: String, project: String) =>
+      deployed = true
+      served += name
+      projectOf += name -> project
+  }
+  Given("a deployed service {string} in the project {string}") { (name: String, project: String) =>
+    deployed = true
+    projectOf += name -> project
+  }
+  When(
+    "the service {string} calls the method {string} of the service {string} of the project {string}"
+  ) { (calling: String, method: String, target: String, project: String) =>
+    callAs(calling, target, method, Some(project))
+  }
+  Then(
+    "the handler for the method {string} reads the calling workload as the service {string} of the project {string}"
+  ) { (_: String, name: String, project: String) =>
+    assertEquals(sawCaller, Some(Caller.Service(project, name)))
+  }
+  Given("a deployed service {string}") { (_: String) => deployed = true }
+  Given("a workload at the gRPC address of {string} whose certificate names the service {string}") {
+    (name: String, impersonated: String) =>
+      deployed = true
+      val directory = authority
+        .issue(uris = Seq(s"ankka://shop/$impersonated"), dnsNames = Seq("localhost"))
+        .writeTo(java.nio.file.Files.createTempDirectory("grpc-features-impostor"))
+      val server = GrpcServer.at("127.0.0.1", 0)(_ => Impostor()).withTls(directory)
+      server.start(testKit.service)
+      started :+= (() => server.stop())
+      impostor = Some(name -> server.boundPort.get)
+  }
+  Then(
+    "the call fails, and the service {string} is shown that the workload is not the service {string}"
+  ) { (_: String, name: String) =>
+    val cause = callFailure.flatMap(f => Option(f.getCause))
+    assert(
+      cause.exists(_.isInstanceOf[ServiceIdentityMismatch]),
+      s"failed with $callFailure, caused by $cause"
+    )
+    assert(cause.exists(_.getMessage.contains(name)), cause.toString)
+  }
+  Then("no request is sent to the workload")(() => assertEquals(impostorHandled.get, 0))
+  Given("no service {string}")((_: String) => ())
+  Then(
+    "the call fails, and the service {string} is shown that the service {string} cannot be found"
+  ) { (_: String, name: String) =>
+    assert(callFailure.exists(_.isInstanceOf[ServiceUnresolvable]), callFailure.toString)
+    assert(callFailure.exists(_.getMessage.contains(name)), callFailure.toString)
+  }
+  Given("a deployed service {string} whose descriptor does not declare gRPC") { (name: String) =>
+    deployed = true
+    withoutGrpc += name
+  }
+  Then(
+    "the call fails, and the service {string} is shown that the service {string} does not serve gRPC"
+  ) { (_: String, name: String) =>
+    assert(callFailure.exists(_.isInstanceOf[ServiceServesNoGrpc]), callFailure.toString)
+    assert(callFailure.exists(_.getMessage.contains(name)), callFailure.toString)
+  }
+  Given(
+    "a deployed service {string} whose handler for the method {string} answers with the refusal {string}"
+  ) { (name: String, _: String, refusal: String) =>
+    deployed = true
+    served += name
+    getCartRefusal = Some(refusals.getOrElse(refusal, fail(s"no refusal '$refusal'")))
+  }
+  When("a handler of the service {string} calls the method {string} of the service {string}") {
+    (calling: String, method: String, target: String) => callAs(calling, target, method)
+  }
+  Then("the handler of the service {string} is given the refusal {string}") {
+    (_: String, refusal: String) =>
+      // What the calling handler holds: a failed call whose cause is the refusal, which a handler
+      // that lets it pass answers its own caller with.
+      val handed = callFailure.flatMap(CommandError.from)
+      assertEquals(handed.map(_.code), refusals.get(refusal), callFailure.toString)
+      assertEquals(handed.map(_.message), Some("no such cart"))
+  }
+  Given(
+    "a deployed service {string} whose handler for the method {string} takes a stream and answers each part it reads with one part"
+  ) { (name: String, _: String) =>
+    deployed = true
+    served += name
+  }
+  When(
+    "the service {string} calls the method {string} of the service {string} and sends {string} part without ending the stream"
+  ) { (calling: String, method: String, target: String, n: String) =>
+    val lines   = Iterator.tabulate(n.toInt)(i => Line(s"line $i", i).toByteArray)
+    val through = clientsOf(calling)(target)
+    val call = send(
+      methodOf(definitionOf(method), method),
+      lines,
+      end = false,
+      awaitClose = false,
+      through = through
+    )
+    eventually(received.nonEmpty, "a part to come back while the stream is still open")
+    call.cancel("done", null)
+  }
+  Then("the service {string} is given {string} part") { (_: String, n: String) =>
+    assertEquals(received.size, n.toInt)
+  }
+  Given("a service {string} running on a developer's machine that serves gRPC") { (name: String) =>
+    deployed = false
+    served += name
+  }
+
+  /** Answers at an address it should not: a workload holding another service's certificate. */
+  private final class Impostor extends GrpcEndpoint(CartServiceGrpc.SERVICE):
+    val acl: Acl = Acl.AllowAll
+    unary(CartServiceGrpc.METHOD_GET_CART) { request =>
+      impostorHandled.incrementAndGet()
+      Cart(request.cartId)
+    }
+    unary(CartServiceGrpc.METHOD_ADD_ITEM)(request => Cart(request.cartId))
+
+  // ── traces.feature ────────────────────────────────────────────────────────────
+
+  Given(
+    "a gRPC endpoint for the service definition {string} whose handler for the method {string} calls a component"
+  )((_: String, _: String) => ())
+  Then("the service records a trace whose root is the call to the method {string} of {string}") {
+    (method: String, definition: String) =>
+      assertEquals(
+        rootsOfThisScenario.map(r => observability.names.nameOf(r.handlerRef)),
+        Vector(Some(s"ankka.fixtures.v1.$definition/$method"))
+      )
+  }
+  Then("the trace shows the call to the component under the root") { () =>
+    val root = rootsOfThisScenario.headOption.getOrElse(fail("no root was recorded"))
+    val beneath = observability.recorder
+      .spansOf(root.traceId)
+      .filter(_.parentSpanId == root.spanId)
+      .map(s => observability.names.nameOf(s.componentRef))
+    assert(beneath.contains(Some("fixture-cart")), beneath.toString)
+  }
+  Given("a gRPC endpoint whose handler for the method {string} answers with the refusal {string}") {
+    (_: String, refusal: String) =>
+      getCartRefusal = Some(refusals.getOrElse(refusal, fail(s"no refusal '$refusal'")))
+  }
+  Then("the service records a trace whose root is marked refused") { () =>
+    assertEquals(rootsOfThisScenario.map(_.outcome), Vector(SpanOutcome.Refused))
+  }
+  Then("the service records a trace whose root is marked failed") { () =>
+    assertEquals(rootsOfThisScenario.map(_.outcome), Vector(SpanOutcome.Failed))
+  }
+  Given(
+    "a gRPC endpoint whose handler for the method {string} answers with a stream that produces {string} parts"
+  ) { (_: String, n: String) => watchParts = Some(n.toInt) }
+  Then("the service records a trace with {string} root") { (n: String) =>
+    assertEquals(rootsOfThisScenario.size, n.toInt)
+  }
+
+  // ── reflection.feature ────────────────────────────────────────────────────────
+
+  /** One reflection request, as a tool sends it, and its one answer. */
+  private def askReflection(request: ServerReflectionRequest): ServerReflectionResponse =
+    val answer = Promise[ServerReflectionResponse]()
+    val requests = ServerReflectionGrpc
+      .newStub(channel())
+      .serverReflectionInfo(new StreamObserver[ServerReflectionResponse]:
+        def onNext(value: ServerReflectionResponse): Unit = answer.trySuccess(value): Unit
+        def onError(t: Throwable): Unit                   = answer.tryFailure(t): Unit
+        def onCompleted(): Unit                           = ())
+    requests.onNext(request)
+    requests.onCompleted()
+    Await.result(answer.future, 30.seconds)
+
+  /** Asks what the service serves, as a tool does, then asks it to describe each definition. */
+  private def reflect(): Unit =
+    val listing = ServerReflectionRequest.newBuilder().setListServices("").build()
+    Try(askReflection(listing)) match
+      case scala.util.Success(response) =>
+        outcome = Some(Right(response))
+        reflected = response.getListServicesResponse.getServiceList.asScala.map(_.getName).toVector
+        methodsTold = reflected.filterNot(_.startsWith("grpc.reflection")).flatMap { service =>
+          askReflection(
+            ServerReflectionRequest.newBuilder().setFileContainingSymbol(service).build()
+          ).getFileDescriptorResponse.getFileDescriptorProtoList.asScala.toVector
+            .map(com.google.protobuf.DescriptorProtos.FileDescriptorProto.parseFrom)
+            .flatMap(file =>
+              file.getServiceList.asScala
+                .filter(d => s"${file.getPackage}.${d.getName}" == service)
+                .flatMap(_.getMethodList.asScala.map(m => s"$service/${m.getName}"))
+            )
+        }
+      case scala.util.Failure(e: StatusRuntimeException) => outcome = Some(Left(e.getStatus))
+      case scala.util.Failure(other)                     => fail(s"reflection failed: $other")
+
+  Given("the service {string} has not opted into reflection") { (_: String) =>
+    reflectionAcl = None
+  }
+  When("a developer asks the service {string} for reflection")((_: String) => reflect())
+  Given("the service {string} opts into reflection with an ACL that allows all") { (_: String) =>
+    reflectionAcl = Some(Acl.AllowAll)
+  }
+  Then("the developer is told the service definition {string}") { (definition: String) =>
+    assert(reflected.contains(s"ankka.fixtures.v1.$definition"), reflected.toString)
+  }
+  Then("the developer is told the methods of {string}") { (definition: String) =>
+    Seq("GetCart", "AddItem").foreach(method =>
+      assert(methodsTold.contains(s"ankka.fixtures.v1.$definition/$method"), methodsTold.toString)
+    )
+  }
+  Given("a service {string} that opts into reflection and states no ACL for reflection") {
+    (_: String) => reflectionAcl = Some(null)
+  }
+  Given(
+    "a deployed service {string} that opts into reflection with an ACL that admits only the service {string}"
+  ) { (_: String, admitted: String) =>
+    deployed = true
+    reflectionAcl = Some(Acl.allowCallers(Callers.service(admitted)))
+  }
+  When("the service {string} asks the service {string} for reflection") {
+    (calling: String, _: String) =>
+      deployedCaller = calling
+      reflect()
+  }
+  Then("the service {string} is told nothing of what the service {string} serves") {
+    (_: String, _: String) => assertEquals((reflected, methodsTold), (Vector.empty, Vector.empty))
+  }
+  Given(
+    "a service {string} with a gRPC endpoint for the service definition {string} whose ACL denies all"
+  ) { (_: String, _: String) => endpointAcl = Acl.DenyAll }
+  When(
+    "a developer asks the service {string} for reflection and then calls the method {string} of {string}"
+  ) { (_: String, method: String, definition: String) =>
+    reflect()
+    call(definition, method)
   }

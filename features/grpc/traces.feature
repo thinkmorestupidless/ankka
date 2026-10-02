@@ -1,4 +1,3 @@
-@ignore
 Feature: gRPC calls in a service's traces
   A gRPC call is recorded as an HTTP request is: the root of the trace of what it caused, marked
   by how it ended. A refusal is the service working, so it is not recorded as failed.

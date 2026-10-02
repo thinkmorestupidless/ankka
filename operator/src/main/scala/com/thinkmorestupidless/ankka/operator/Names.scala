@@ -73,6 +73,14 @@ object Names:
   /** The Role and RoleBinding that let those pods read their own project's pods. */
   def peersRole(serviceName: String): String = s"$serviceName-peers"
 
+  /**
+   * The headless address a service that serves gRPC also has, which resolves to one address per
+   * ready instance so a caller balances per call rather than per connection. Every service's own
+   * address is named exactly after it, so this name could be another service's; the action that
+   * ensures it never takes over an object this resource does not own.
+   */
+  def grpcPeers(serviceName: String): String = s"$serviceName-grpc-peers"
+
   /** The service's route, named after it like its Service: one per service, in its namespace. */
   def httpRoute(serviceName: String): String = serviceName
 

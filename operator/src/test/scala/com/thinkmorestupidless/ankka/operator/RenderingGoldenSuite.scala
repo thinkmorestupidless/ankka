@@ -109,6 +109,7 @@ class RenderingGoldenSuite extends munit.FunSuite:
   private def objectOf(action: Action): Option[HasMetadata] = action match
     case Action.ApplyDeployment(d)        => Some(d)
     case Action.EnsureService(s)          => Some(s)
+    case Action.EnsureGrpcPeers(s, _)     => Some(s)
     case Action.EnsureHttpRoute(r)        => Some(r)
     case Action.EnsureServiceAccount(sa)  => Some(sa)
     case Action.EnsureRole(r)             => Some(r)

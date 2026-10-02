@@ -894,6 +894,8 @@
   }
 }
 
+# remove service ankka-checkout/cart-grpc-peers if owned
+
 # remove httproute ankka-checkout/cart if owned
 
 # remove backendtlspolicy ankka-checkout/cart if owned

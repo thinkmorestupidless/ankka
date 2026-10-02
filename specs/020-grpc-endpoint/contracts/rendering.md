@@ -26,7 +26,7 @@ ports:
   - {name: grpc, protocol: TCP, port: G, targetPort: G, appProtocol: kubernetes.io/h2c}
 ```
 
-## Service `<service>-grpc` (headless)
+## Service `<service>-grpc-peers` (headless)
 
 ```yaml
 spec:
@@ -38,6 +38,9 @@ spec:
 
 Owned by the resource. Only ready pods are published (the default), so a pod is in a caller's
 rotation exactly while it can answer.
+
+Applied by `EnsureGrpcPeers`, which reads first: an object of this name that the resource does
+not own is another service's address, and is left alone.
 
 ## NetworkPolicy `<service>-grpc`
 
@@ -69,7 +72,7 @@ unchanged.
 
 ## Removal
 
-When `G` is absent: `<service>-grpc` (Service) and `<service>-grpc` (NetworkPolicy) are removed if
+When `G` is absent: `<service>-grpc-peers` (Service) and `<service>-grpc` (NetworkPolicy) are removed if
 this resource owns them, by the read-first removal the route uses.
 
 ## Unchanged

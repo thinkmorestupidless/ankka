@@ -385,3 +385,18 @@ class DescriptorSuite extends munit.FunSuite:
         hosting
       )
   }
+
+  test("a service that serves gRPC has a name of at most 52 characters; one that does not, 63") {
+    val long = "a" * 53
+    assertEquals(
+      ServiceDescriptor(long, ServiceSpec("i:1", grpc = true)).problems,
+      Vector(
+        s"service name '$long' is 53 characters; a service that serves gRPC has a name of at most 52"
+      )
+    )
+    assertEquals(
+      ServiceDescriptor("a" * 52, ServiceSpec("i:1", grpc = true)).problems,
+      Vector.empty
+    )
+    assertEquals(ServiceDescriptor(long, ServiceSpec("i:1")).problems, Vector.empty)
+  }

@@ -283,7 +283,7 @@ renders byte-identically to today (FR-023, SC-006):
 - a container port named `grpc` and `ANKKA_GRPC_PORT`;
 - a second port, `grpc`, on the service's `ClusterIP` Service, with the `appProtocol` of R8 — and
   the Service now exists when either port does;
-- a headless Service `<service>-grpc` (R12);
+- a headless Service `<service>-grpc-peers` (R12);
 - a network policy `<service>-grpc`, admitting the same peers as `httpPolicy`
   (`ZeroTrust.scala:194-237`): any workload of the installation, and the gateway's proxies;
 - when exposed: the rule and the second `targetRef` of R8.
@@ -299,7 +299,7 @@ already carries its DNS names (`ZeroTrust.scala:118-139`).
 
 ## R12 — a service's own calls are balanced per call, through a headless Service
 
-**Decision**: the platform's gRPC client resolves `dns:///<service>-grpc.<namespace>.svc.cluster.local:<port>`
+**Decision**: the platform's gRPC client resolves `dns:///<service>-grpc-peers.<namespace>.svc.cluster.local:<port>`
 (the headless Service, so one address per ready pod) with the `round_robin` policy, and
 `overrideAuthority` set to the service's ordinary name so the certificate is checked against the
 name it carries. The port is read from the `_grpc._tcp` SRV record of the ordinary Service, as the
@@ -337,6 +337,18 @@ connection age.
 **Alternatives considered**: *`ClusterIP` only, short connection age* — probabilistic, above.
 *Several connections per channel* — still connection-level. *Discovery through the Kubernetes API*
 — a service's identity may read its own project's pods only (`Rendering.scala:282-292`).
+
+**Found during implementation — the headless address's name can collide.** Every service's own
+address is named exactly after it, and service names are any DNS label, so no derived name is safe:
+`cart`'s headless address, whatever its suffix, is a name another service could have. The operator
+applies Services with forced ownership, so a plain `EnsureService` would have taken over that other
+service's address. The decision taken: the name is `<service>-grpc-peers` (rarer than `-grpc`), it is
+applied by its own action, `EnsureGrpcPeers`, which reads first and leaves alone an object of that
+name this resource does not own (logging a warning; callers then balance per connection), and a
+service that serves gRPC has a name of at most 52 characters so the address is a DNS label.
+**Open for the user**: whether the control plane should also refuse the clash when a descriptor is
+applied — a service named `X-grpc-peers` beside a service `X` that serves gRPC, in either order.
+That is a cross-service check against the services listing, and a rule about which names exist.
 
 ## R13 — the calling side: a `Channel`, handed over like everything else
 

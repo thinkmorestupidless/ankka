@@ -126,6 +126,9 @@ final class ServiceBuilder private[ankka] (
       name: String = "ankka",
       config: Config = ClusterConfig.load()
   ): AnkkaService =
+    // Before the actor system exists, so a service that cannot serve what it was deployed to
+    // serve exits rather than idling with non-daemon threads holding the process open.
+    DeclaredGrpc.check(sys.env.get, extensions.map(_.name))
     // Idempotent for a config the loader produced; for one a caller assembled itself, this is
     // what supplies the overlay it does not have.
     val system = ActorSystem(Behaviors.empty, name, ClusterConfig.layered(config))
@@ -133,6 +136,7 @@ final class ServiceBuilder private[ankka] (
 
   /** Hosts every registered component on an existing actor system. */
   def startWith(system: ActorSystem[?]): AnkkaService =
+    DeclaredGrpc.check(sys.env.get, extensions.map(_.name))
     host(system, ownsSystem = false)
 
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =

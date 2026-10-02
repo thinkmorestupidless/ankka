@@ -357,8 +357,8 @@ final class TopologyJsonSuite extends FunSuite:
 
   // ── observed calls ───────────────────────────────────────────────────────────
 
-  private val cart = Vector(
-    component(
+  private val shoppingCart = Vector(
+    descriptor(
       "shopping-cart",
       ComponentKind.EventSourcedEntity,
       Vector(
@@ -367,7 +367,7 @@ final class TopologyJsonSuite extends FunSuite:
       )
     )
   )
-  private val carts = Vector(
+  private val cartRoutes = Vector(
     ServedRoute("POST", "/carts/{cartId}/items", streaming = false, "endpoint:/carts"),
     ServedRoute("GET", "/carts/{cartId}", streaming = false, "endpoint:/carts")
   )
@@ -378,7 +378,7 @@ final class TopologyJsonSuite extends FunSuite:
     counted.handled("endpoint:/carts", "GET /carts/{cartId}", "shopping-cart", "get-cart")
     counted.handled("endpoint:/carts", "GET /carts/{cartId}", "shopping-cart", "get-cart")
 
-    val document = read(render(cart, carts, counted = counted))
+    val document = read(render(shoppingCart, cartRoutes, counted = counted))
     assertEquals(
       document.calls.map(c => (c.from, c.to)),
       Vector("endpoint:/carts" -> "shopping-cart")
@@ -402,7 +402,7 @@ final class TopologyJsonSuite extends FunSuite:
     counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Failed)
     counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Failed)
 
-    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    val pair = read(render(shoppingCart, cartRoutes, counted = counted)).calls.head.pairs.head
     assertEquals(pair.handled, Handled(ok = 1, refused = 1, failed = 2))
     assertEquals(pair.unanswered, Unanswered(timedOut = 0, undelivered = 0))
   }
@@ -414,7 +414,7 @@ final class TopologyJsonSuite extends FunSuite:
     counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Failed)
     counted.unanswered(from._1, from._2, "shopping-cart", "add-item", runtime.Unanswered.TimedOut)
 
-    val json     = render(cart, carts, counted = counted)
+    val json     = render(shoppingCart, cartRoutes, counted = counted)
     val document = read(json)
     val pair     = document.calls.head.pairs.head
     assertEquals(pair.handled, Handled(0, 0, 1))
@@ -430,7 +430,7 @@ final class TopologyJsonSuite extends FunSuite:
     val counted = Counted()
     counted.handled(CallCounts.UnknownOrigin, CallCounts.UnknownOrigin, "shopping-cart", "add-item")
 
-    val document = read(render(cart, carts, counted = counted))
+    val document = read(render(shoppingCart, cartRoutes, counted = counted))
     assertEquals(
       document.nodes.find(_.id == "unknown"),
       Some(Node("unknown", "UnknownCaller", 0, platform = false, Vector.empty))
@@ -443,7 +443,7 @@ final class TopologyJsonSuite extends FunSuite:
     val counted = Counted()
     counted.handled("endpoint:/orders", "GET /orders/{id}", "shopping-cart", "get-cart")
 
-    val document = read(render(cart, carts, counted = counted))
+    val document = read(render(shoppingCart, cartRoutes, counted = counted))
     assertEquals(document.calls.map(c => (c.from, c.to)), Vector("unknown" -> "shopping-cart"))
   }
 
@@ -457,7 +457,7 @@ final class TopologyJsonSuite extends FunSuite:
       runtime.Unanswered.Undelivered
     )
 
-    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    val pair = read(render(shoppingCart, cartRoutes, counted = counted)).calls.head.pairs.head
     assertEquals(pair.callee, "(undeclared)")
     assertEquals(pair.unanswered, Unanswered(timedOut = 0, undelivered = 1))
     assertEquals(pair.handled, Handled(0, 0, 0))
@@ -468,7 +468,7 @@ final class TopologyJsonSuite extends FunSuite:
     counted.handled("shopping-cart", "add-item", "service:checkout/pricing", "POST /prices")
     counted.handled("shopping-cart", "add-item", "service:(other)", "(other)")
 
-    val document = read(render(cart, carts, counted = counted))
+    val document = read(render(shoppingCart, cartRoutes, counted = counted))
     assertEquals(
       document.nodes.filter(_.kind == "ExternalService").map(n => (n.id, n.layer)),
       Vector("service:(other)" -> 3, "service:checkout/pricing" -> 3)
@@ -477,12 +477,12 @@ final class TopologyJsonSuite extends FunSuite:
 
   test("when an entity and its view share an id, the handler says which one a call is to") {
     val components = Vector(
-      component(
+      descriptor(
         "cart",
         ComponentKind.EventSourcedEntity,
         Vector(DeclaredHandler("get-cart", HandlerKind.Query))
       ),
-      component(
+      descriptor(
         "cart",
         ComponentKind.View,
         Vector(DeclaredHandler("on-change", HandlerKind.Update))
@@ -493,7 +493,7 @@ final class TopologyJsonSuite extends FunSuite:
     counted.handled("endpoint:/carts", "GET /carts/{cartId}", "cart", "where")
     counted.handled("cart", "on-change", "cart", "get-cart")
 
-    val document = read(render(components, carts, counted = counted))
+    val document = read(render(components, cartRoutes, counted = counted))
     assertEquals(
       document.calls.map(c => (c.from, c.to)),
       Vector(
@@ -513,7 +513,7 @@ final class TopologyJsonSuite extends FunSuite:
     )
     counted.handled(from._1, from._2, "shopping-cart", "get-cart", nanos = 1_500_000_000L)
 
-    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    val pair = read(render(shoppingCart, cartRoutes, counted = counted)).calls.head.pairs.head
     assertEquals(pair.histogram.size, CallCounts.HistogramBuckets)
     assertEquals(pair.histogram.sum, 100L)
     // 1.5 ms is in the bucket [1, 2) ms, whose upper edge is 2; 1.5 s is in [1.024, 2.048) s.
@@ -529,7 +529,7 @@ final class TopologyJsonSuite extends FunSuite:
       "get-cart",
       streaming = true
     )
-    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    val pair = read(render(shoppingCart, cartRoutes, counted = counted)).calls.head.pairs.head
     assertEquals(pair.handled.ok, 1L)
     assert(pair.streaming)
   }
@@ -538,11 +538,11 @@ final class TopologyJsonSuite extends FunSuite:
     "the window says how far back it reaches: to the start, until the service is older than it"
   ) {
     val young = Counted()
-    assertEquals(read(render(cart, carts, counted = young)).window.since, Started)
+    assertEquals(read(render(shoppingCart, cartRoutes, counted = young)).window.since, Started)
 
     val old = Counted(now = StartedMillis + 3_600_000L)
     assertEquals(
-      read(render(cart, carts, counted = old)).window.since,
+      read(render(shoppingCart, cartRoutes, counted = old)).window.since,
       java.time.Instant.ofEpochMilli(StartedMillis + 3_000_000L).toString
     )
   }
@@ -551,8 +551,8 @@ final class TopologyJsonSuite extends FunSuite:
     val counted = Counted()
     counted.handled("endpoint:/carts", "GET /carts/{cartId}", "shopping-cart", "get-cart")
     val later = counted.copy(now = counted.now + 601_000L)
-    assertEquals(read(render(cart, carts, counted = later)).calls, Vector.empty)
-    assertEquals(read(render(cart, carts, counted = later)).window.calls, 0L)
+    assertEquals(read(render(shoppingCart, cartRoutes, counted = later)).calls, Vector.empty)
+    assertEquals(read(render(shoppingCart, cartRoutes, counted = later)).window.calls, 0L)
   }
 
 object TopologyJsonSuite:

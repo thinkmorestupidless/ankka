@@ -3,7 +3,8 @@ package com.thinkmorestupidless.ankka.sidecar
 import ankka.protocol.v1.discovery.{AutonomousAgentDetail, Component}
 import com.thinkmorestupidless.ankka.agent.{FunctionTool, Guardrail, Json, ToolSpec}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
-import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode}
+import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode, Metadata}
+import com.thinkmorestupidless.ankka.runtime.Trace
 import com.thinkmorestupidless.ankka.runtime.remote.{
   Conversation,
   GuardrailStage,
@@ -122,7 +123,11 @@ object RemoteAutonomousAgent:
     val tools = detail.tools.toVector.map { t =>
       val schema = Json.parse(t.inputSchemaJson).getOrElse(Json.obj("type" -> Json.str("object")))
       FunctionTool.raw(ToolSpec(t.name, t.description, schema)) { arguments =>
-        await(conversation.invokeTool(id, session, t.name, arguments.render), toolTimeout)
+        await(
+          conversation
+            .invokeTool(id, session, t.name, arguments.render, Trace.outbound(Metadata.empty)),
+          toolTimeout
+        )
       }
     }
 

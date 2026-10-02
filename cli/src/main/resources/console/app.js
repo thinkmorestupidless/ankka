@@ -13,7 +13,7 @@ const state = { services: [], selected: null, tab: 'traces' };
 
 // What the reader asked to see of the selected service's topology. Kept across refreshes, so the
 // picture does not jump back while they are reading it; reset when another service is selected.
-const topology = { name: null, json: null, doc: null, showPlatform: false, kinds: null, focus: null, selected: null };
+const topology = { name: null, json: null, doc: null, showPlatform: false, kinds: null, focus: null, selected: null, call: null };
 
 const $ = (id) => document.getElementById(id);
 
@@ -642,7 +642,7 @@ const GRID = { column: 184, row: 54, width: 152, height: 38, margin: 8 };
 
 async function loadTopology(name) {
   if (topology.name !== name) {
-    Object.assign(topology, { name, json: null, doc: null, showPlatform: false, kinds: null, focus: null, selected: null });
+    Object.assign(topology, { name, json: null, doc: null, showPlatform: false, kinds: null, focus: null, selected: null, call: null });
   }
   let doc;
   try {
@@ -681,8 +681,19 @@ function drawTopology() {
   });
   drawControls(doc, shown);
   drawGraph(shown);
+  drawObserved(doc, shown);
   drawText(shown);
   drawDetail(shown);
+}
+
+// Wherever observed calls are shown, so is how far back they reach: what is drawn is what the
+// service did in that time, and a call it did not make then is not there.
+function drawObserved(doc, shown) {
+  const line = $('topology-observed');
+  const any = shown.calls.length > 0;
+  line.hidden = !any;
+  $('topology-legend-calls').hidden = !any;
+  line.textContent = any ? AnkkaTopology.observedLine(doc.window, Date.now()) : '';
 }
 
 function drawControls(doc, shown) {
@@ -779,6 +790,47 @@ function drawGraph(shown) {
     picture.appendChild(svg('circle', { class: 'edge-end', cx: x2, cy: y2, r: 3 }));
   }
 
+  // An observed call is dashed, heavier the more it was made, and a little below the middle so
+  // that a declared connection between the same two components is not drawn over.
+  for (const call of shown.calls) {
+    const from = at.get(call.from);
+    const to = at.get(call.to);
+    // A component calling itself has no line to draw; it is in the table below, like every call.
+    if (!from || !to || call.from === call.to) continue;
+    const forwards = to.x >= from.x;
+    const x1 = forwards ? from.x + GRID.width : from.x;
+    const x2 = forwards ? to.x : to.x + GRID.width;
+    const y1 = from.y + GRID.height / 2 + 7;
+    const y2 = to.y + GRID.height / 2 + 7;
+    const bend = (x2 - x1) / 2;
+    const d = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+    const key = callKey(call);
+    const warning = AnkkaTopology.edgeMark(call.pairs) === 'warning';
+    const classes = ['edge', 'call'];
+    if (warning) classes.push('warning');
+    if (key === topology.call) classes.push('selected');
+    const line = svg('path', {
+      class: classes.join(' '),
+      d,
+      // As a style, not an attribute: the stylesheet's own width for a line would win over one.
+      style: `stroke-width: ${0.75 + AnkkaTopology.weight(call.pairs) * 0.75}px`,
+    });
+    // The line is thin and dashed; what is chosen is a wider one over it that cannot be seen.
+    const hit = svg('path', { class: 'edge-hit', d, tabindex: 0 });
+    const title = svg('title');
+    title.textContent = describeCall(shown, call);
+    hit.appendChild(title);
+    const choose = () => { topology.call = key; topology.selected = null; drawTopology(); };
+    hit.onclick = choose;
+    hit.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') choose(); };
+    picture.append(line, hit);
+    if (warning) {
+      const mark = svg('text', { class: 'edge-mark', x: (x1 + x2) / 2 - 3, y: (y1 + y2) / 2 - 4 });
+      mark.textContent = '!';
+      picture.appendChild(mark);
+    }
+  }
+
   for (const node of shown.nodes) {
     const { x, y } = at.get(node.id);
     const classes = ['node'];
@@ -794,12 +846,58 @@ function drawGraph(shown) {
     const title = svg('title');
     title.textContent = `${node.label}: ${describeKind(node)}`;
     group.append(title, name, kind);
-    const choose = () => { topology.selected = node.id; drawTopology(); };
+    const choose = () => { topology.selected = node.id; topology.call = null; drawTopology(); };
     group.onclick = choose;
     group.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') choose(); };
     picture.appendChild(group);
   }
   container.appendChild(picture);
+}
+
+function callKey(call) {
+  return `${call.from}>${call.to}`;
+}
+
+// An observed call in a sentence: who called whom, and the two counts, which are never added.
+function describeCall(shown, call) {
+  const counts = AnkkaTopology.totals(call.pairs);
+  const unanswered = counts.unanswered ? `, ${counts.unanswered} unanswered` : '';
+  return `${nameOf(shown, call.from)} calls ${nameOf(shown, call.to)}: ${counts.handled} handled${unanswered}`;
+}
+
+// One handler calling another, as the facts a reader wants of it. The two groups are two views of
+// the same calls and are shown apart: a call can be in both.
+function describeHandled(pair) {
+  const h = pair.handled || {};
+  return `${h.ok || 0} ok, ${h.refused || 0} refused, ${h.failed || 0} failed`;
+}
+
+function describeUnanswered(pair) {
+  const u = pair.unanswered || {};
+  return `${u.timedOut || 0} timed out, ${u.undelivered || 0} undelivered`;
+}
+
+// Read from a histogram, so each is the edge of a bucket: about, not exactly.
+function describeDuration(pair) {
+  const d = pair.durationMillis;
+  const handled = pair.handled || {};
+  if (!d || (handled.ok || 0) + (handled.refused || 0) + (handled.failed || 0) === 0) return '';
+  return `about ${millis(d.p50)} / ${millis(d.p99)} / ${millis(d.max)}`;
+}
+
+function millis(value) {
+  if (value >= 1000) return `${Math.round(value / 100) / 10}s`;
+  if (value >= 1) return `${Math.round(value)}ms`;
+  return `${Math.round(value * 1000)}µs`;
+}
+
+function describePair(pair) {
+  const parts = [`${pair.caller} → ${pair.callee}${pair.streaming ? ' (stream)' : ''}`, describeHandled(pair)];
+  const u = pair.unanswered || {};
+  if ((u.timedOut || 0) + (u.undelivered || 0) > 0) parts.push(`unanswered: ${describeUnanswered(pair)}`);
+  const duration = describeDuration(pair);
+  if (duration) parts.push(`p50 / p99 / max ${duration}`);
+  return parts.join('; ');
 }
 
 function clip(text, length) {
@@ -828,6 +926,20 @@ function drawText(shown) {
       'Declared connections',
       ['From', 'To', 'As'],
       shown.declared.map((edge) => [nameOf(shown, edge.from), nameOf(shown, edge.to), describeConnection(edge.kind)]),
+    ));
+  }
+  if (shown.calls.length) {
+    container.appendChild(table(
+      'Observed calls',
+      ['From', 'To', 'Handler to handler', 'Handled', 'Unanswered', 'p50 / p99 / max'],
+      shown.calls.flatMap((call) => call.pairs.map((pair) => [
+        nameOf(shown, call.from),
+        nameOf(shown, call.to),
+        `${pair.caller} → ${pair.callee}${pair.streaming ? ' (stream)' : ''}`,
+        describeHandled(pair),
+        describeUnanswered(pair),
+        describeDuration(pair),
+      ])),
     ));
   }
 }
@@ -868,8 +980,13 @@ function table(caption, headings, rows) {
 function drawDetail(shown) {
   const panel = $('topology-detail');
   const node = shown.nodes.find((n) => n.id === topology.selected);
-  panel.hidden = !node;
+  const call = shown.calls.find((c) => callKey(c) === topology.call);
+  panel.hidden = !node && !call;
   panel.innerHTML = '';
+  if (call && !node) {
+    drawCallDetail(panel, shown, call);
+    return;
+  }
   if (!node) return;
 
   const heading = document.createElement('h3');
@@ -884,6 +1001,10 @@ function drawDetail(shown) {
     .map((e) => `${nameOf(shown, e.from)}, as ${describeConnection(e.kind)}`));
   list(panel, 'Read by', shown.declared.filter((e) => e.from === node.id)
     .map((e) => `${nameOf(shown, e.to)}, as ${describeConnection(e.kind)}`));
+  list(panel, 'Calls', shown.calls.filter((c) => c.from === node.id)
+    .flatMap((c) => c.pairs.map((pair) => `${nameOf(shown, c.to)}: ${describePair(pair)}`)));
+  list(panel, 'Called by', shown.calls.filter((c) => c.to === node.id)
+    .flatMap((c) => c.pairs.map((pair) => `${nameOf(shown, c.from)}: ${describePair(pair)}`)));
   list(panel, 'Through platform components', node.through.map(describeThrough));
 
   if (topology.focus !== node.id) {
@@ -892,6 +1013,31 @@ function drawDetail(shown) {
     focus.textContent = 'Focus on this';
     focus.onclick = () => { topology.focus = node.id; drawTopology(); };
     panel.appendChild(focus);
+  }
+}
+
+// An observed call that was chosen: every pair of handlers in it, each with what was handled,
+// what went unanswered, and how long the handled ones took.
+function drawCallDetail(panel, shown, call) {
+  const heading = document.createElement('h3');
+  heading.textContent = `${nameOf(shown, call.from)} → ${nameOf(shown, call.to)}`;
+  const kind = document.createElement('p');
+  kind.className = 'dim';
+  kind.textContent = AnkkaTopology.edgeMark(call.pairs) === 'warning'
+    ? 'an observed call, with failures or calls nothing answered'
+    : 'an observed call';
+  panel.append(heading, kind);
+  for (const pair of call.pairs) {
+    const name = document.createElement('h4');
+    name.className = 'pair';
+    name.textContent = `${pair.caller} → ${pair.callee}${pair.streaming ? ' (stream)' : ''}`;
+    panel.appendChild(name);
+    const facts = document.createElement('ul');
+    const lines = [`handled: ${describeHandled(pair)}`, `unanswered: ${describeUnanswered(pair)}`];
+    const duration = describeDuration(pair);
+    if (duration) lines.push(`p50 / p99 / max: ${duration}`);
+    for (const line of lines) facts.appendChild(document.createElement('li')).textContent = line;
+    panel.appendChild(facts);
   }
 }
 

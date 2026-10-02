@@ -140,6 +140,7 @@ Each is one munit case whose name is the identifier below, so a failure names th
 
 **Topology** (feature 019; each target is one row of an outline in `features/topology/languages.feature`)
 - `topology.declared-sources` — the topology the runtime renders for the target shows exactly the connections the reference service declares, `cart-rows` and `checkout-recorder` each reading the events of `shopping-cart`, and no other: the scenario "a service declares the same connections in every language".
+- `topology.call-attributed` — a call made through the client from a handler in the target's language is counted as that handler's: the consumer's `checkout-recorder#on-message → conformance#record` and the workflow step's `checkout#reserve → shopping-cart#total-quantity` each show handled ok, with no such call from the unknown caller; a refused call counts as refused and a failed one as failed, from the route that made it: the scenario "a call is attributed to its caller in every language".
 
 ## The encoding fixtures
 

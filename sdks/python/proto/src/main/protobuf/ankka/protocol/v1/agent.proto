@@ -39,7 +39,9 @@ message AgentPlan {                             // AgentEffect, as data
   }
 }
 
-message ToolRequest  { string component_id = 1; string session_id = 2; string tool = 3; string arguments_json = 4; }
+// `metadata` (1.3): the trace the tool runs in and the agent's handler as the caller of whatever
+// the tool calls, for the process to forward on those calls.
+message ToolRequest  { string component_id = 1; string session_id = 2; string tool = 3; string arguments_json = 4; Metadata metadata = 5; }
 message ToolResult   { oneof result { string ok = 1; string error = 2; } }   // FunctionTool.invoke's Either
 
 message GuardrailRequest {

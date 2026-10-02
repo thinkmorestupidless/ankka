@@ -19,6 +19,8 @@ its name.
 | `document` | a topology, as a service renders it |
 | `options` | what the reader asked to see: `showPlatform`, `kinds`, `focus` |
 | `services` | the names of the services running on the reader's machine, when the case is about links |
+| `now` | when the topology is read, for a case about its window; when absent, the moment the window begins |
+| `timeZone` | where it is read, for a time of day in a sentence; `UTC` when absent |
 | `expected` | what the view must come to, by the keys in the next table |
 
 ## What `expected` may say
@@ -33,6 +35,9 @@ Only the keys a fixture gives are compared, each for equality.
 | `declared` | the declared connections shown, each as `from>to:kind` |
 | `calls` | the observed calls shown, each as `from>to` |
 | `counts` | for each observed call shown, its handled and its unanswered totals |
+| `marks` | for each observed call shown, `"warning"` when it is going wrong and `null` when it is not |
+| `weights` | for each observed call shown, how heavily it is drawn, from 1 to 5 |
+| `observedLine` | the sentence that says how far back the observed calls reach |
 | `through` | for each shown node, what it does through a platform component that is left out |
 | `hiddenPlatform` | how many platform components were left out |
 | `links` | for each node outside the service, the local service it opens and the note beside it |

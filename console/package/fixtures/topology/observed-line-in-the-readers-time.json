@@ -1,0 +1,49 @@
+{
+  "scenario": null,
+  "about": "the time a service started is said in the reader's time of day, and a short window in seconds",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 45,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0,
+      "unanswered": 0
+    },
+    "nodes": [
+      {
+        "id": "endpoint:/carts",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shopping-cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "wallet",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": []
+  },
+  "options": {},
+  "now": "2026-10-01T09:12:30Z",
+  "timeZone": "Europe/Helsinki",
+  "expected": {
+    "observedLine": "Calls observed in the last 45 seconds (since 12:12 when the service started). Calls not made in that time are not shown."
+  }
+}

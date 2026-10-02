@@ -2,7 +2,7 @@ package shoppingcart
 
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json}
 import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ComponentRegistry}
-import com.thinkmorestupidless.ankka.runtime.TopologyJson
+import com.thinkmorestupidless.ankka.runtime.{CallCounts, TopologyJson}
 import shoppingcart.application.*
 
 import java.nio.file.{Files, Path}

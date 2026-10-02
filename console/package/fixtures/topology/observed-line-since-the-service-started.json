@@ -1,0 +1,110 @@
+{
+  "scenario": null,
+  "about": "a service younger than its window says its observed calls reach back to when it started",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 1,
+      "unanswered": 0
+    },
+    "nodes": [
+      {
+        "id": "endpoint:/carts",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shopping-cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "wallet",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "endpoint:/carts",
+        "to": "shopping-cart",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "add-item",
+            "handled": {
+              "ok": 1,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "now": "2026-10-01T09:15:00Z",
+  "timeZone": "UTC",
+  "expected": {
+    "observedLine": "Calls observed in the last 10 minutes (since 09:12 when the service started). Calls not made in that time are not shown."
+  }
+}

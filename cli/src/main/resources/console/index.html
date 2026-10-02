@@ -63,7 +63,13 @@
           <p class="legend">
             <span class="swatch declared" aria-hidden="true"></span> a declared connection:
             what a view or a consumer reads, and what a consumer publishes to
+            <span id="topology-legend-calls" hidden>
+              <br><span class="swatch call" aria-hidden="true"></span> an observed call: one
+              component calling another, as the service saw it happen
+              (<span class="call-mark" aria-hidden="true">!</span> a handler failed, or a call got no answer)
+            </span>
           </p>
+          <p class="observed" id="topology-observed" hidden></p>
           <!-- The same facts as the picture, for a reader who cannot see it and for one who
                would rather read them. Always here, never a fallback. -->
           <div id="topology-text"></div>

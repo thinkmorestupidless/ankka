@@ -310,13 +310,12 @@ final class WasmConversation(
       componentId: ComponentId,
       sessionId: String,
       tool: String,
-      argumentsJson: String
+      argumentsJson: String,
+      metadata: Metadata
   ): Future[Either[String, String]] =
-    orFail(
-      fresh("invoke_tool", ToolRequest(componentId, sessionId, tool, argumentsJson), stepTime)(
-        ToolResult.parseFrom
-      )
-    ).map(fromToolResult)
+    val request =
+      ToolRequest(componentId, sessionId, tool, argumentsJson, Some(Translate.toMetadata(metadata)))
+    orFail(fresh("invoke_tool", request, stepTime)(ToolResult.parseFrom)).map(fromToolResult)
 
   def checkGuardrail(
       componentId: ComponentId,

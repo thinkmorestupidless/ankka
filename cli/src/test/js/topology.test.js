@@ -23,6 +23,18 @@ function observed(fixture) {
     counts: Object.fromEntries(
       shown.calls.map((call) => [`${call.from}>${call.to}`, topology.totals(call.pairs)]),
     ),
+    marks: Object.fromEntries(
+      shown.calls.map((call) => [`${call.from}>${call.to}`, topology.edgeMark(call.pairs)]),
+    ),
+    weights: Object.fromEntries(
+      shown.calls.map((call) => [`${call.from}>${call.to}`, topology.weight(call.pairs)]),
+    ),
+    // A fixture says when it is read and where, so the sentence is the same on every machine.
+    observedLine: topology.observedLine(
+      fixture.document.window,
+      Date.parse(fixture.now || fixture.document.window.since),
+      fixture.timeZone || 'UTC',
+    ),
     through: Object.fromEntries(
       shown.nodes.filter((node) => node.through.length).map((node) => [node.id, node.through]),
     ),

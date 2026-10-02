@@ -214,17 +214,21 @@ final class ClientLogic(
             database,
             settings.commandTimeout
           )
-        val rows: Future[Vector[Array[Byte]]] = request.name match
-          case "get" | "by-id" | "by-key" =>
-            queries.getAsync(String(payload(request.payload), "UTF-8")).map(_.toVector)
-          case "all" => queries.allAsync(1000)
-          case other =>
-            Future.failed(
-              CommandError(
-                s"unknown view query '$other'; a remote view answers 'get' and 'all'",
-                ErrorCode.NotFound
+        // Asked as the handler the process was running, as a call is: the query is counted when it
+        // is made, on this thread.
+        val rows: Future[Vector[Array[Byte]]] = asCaller(metadata(request.metadata)) {
+          request.name match
+            case "get" | "by-id" | "by-key" =>
+              queries.getAsync(String(payload(request.payload), "UTF-8")).map(_.toVector)
+            case "all" => queries.allAsync(1000)
+            case other =>
+              Future.failed(
+                CommandError(
+                  s"unknown view query '$other'; a remote view answers 'get' and 'all'",
+                  ErrorCode.NotFound
+                )
               )
-            )
+        }
         rows
           .map { rs =>
             val json = rs.map(r => String(r, "UTF-8")).mkString("[", ",", "]")

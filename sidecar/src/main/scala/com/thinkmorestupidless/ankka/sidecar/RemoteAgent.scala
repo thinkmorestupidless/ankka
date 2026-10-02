@@ -105,7 +105,13 @@ final class RemoteAgent(
     val session   = sessionId
     val component = spec.componentId
     FunctionTool.raw(ToolSpec(name, declared.description, declared.inputSchema)) { arguments =>
-      Await.result(conversation.invokeTool(component, session, name, arguments.render), toolTimeout)
+      // Run by the loop, on the thread the host made the agent's: the tool is told the trace and
+      // the handler it runs for, so that a call it makes is the agent's.
+      Await.result(
+        conversation
+          .invokeTool(component, session, name, arguments.render, Trace.outbound(Metadata.empty)),
+        toolTimeout
+      )
     }
 
   private def guardrail(guardName: String): Guardrail =

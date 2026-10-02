@@ -556,7 +556,9 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
         return agent_pb2.PlanReply(plan=effect.to_pb())
 
     async def InvokeTool(self, request: agent_pb2.ToolRequest, context: Any) -> agent_pb2.ToolResult:
-        agent = self._agent(request.component_id, request.session_id)
+        # What the sidecar says about the tool's run: its trace, and the agent's handler as the caller of
+        # whatever the tool calls. A sidecar before 1.3 sends none.
+        agent = self._agent(request.component_id, request.session_id, Metadata.from_pb(request.metadata))
         if agent is None or request.tool not in type(agent).tools:
             return agent_pb2.ToolResult(error=f"no tool named {request.tool!r} on {request.component_id!r}")
         try:

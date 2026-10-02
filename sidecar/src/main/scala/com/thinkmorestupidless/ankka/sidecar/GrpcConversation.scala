@@ -425,9 +425,20 @@ final class GrpcConversation(
       componentId: ComponentId,
       sessionId: String,
       tool: String,
-      argumentsJson: String
+      argumentsJson: String,
+      metadata: Metadata
   ): Future[Either[String, String]] =
-    agent.invokeTool(ToolRequest(componentId, sessionId, tool, argumentsJson)).map(fromToolResult)
+    agent
+      .invokeTool(
+        ToolRequest(
+          componentId,
+          sessionId,
+          tool,
+          argumentsJson,
+          Some(Translate.toMetadata(metadata))
+        )
+      )
+      .map(fromToolResult)
 
   def checkGuardrail(
       componentId: ComponentId,

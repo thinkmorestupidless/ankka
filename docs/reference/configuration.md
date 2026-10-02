@@ -219,6 +219,14 @@ These are overridden in the service's `application.conf` or with a system proper
   by default.
 - `ankka.observability.ring-capacity` is how many spans each instance keeps in memory for the local
   console and the metrics endpoint, `4096` by default. The oldest are overwritten; nothing is persisted.
+- `ankka.observability.call-window` is how far back a service's topology counts the calls between its
+  components, `10m` by default. A call made before the window is forgotten, and two handlers that have not
+  called each other inside it are not shown as calling each other.
+- `ankka.observability.call-buckets` is how many slices the window is kept as, `60` by default. A call
+  leaves the window when its slice does, so more slices forget in finer steps and use more memory for each
+  pair of handlers.
+- `ankka.observability.max-external-services` is how many other services a topology shows by name, `32`
+  by default. Calls to any service beyond that are counted together as other services.
 - `ankka.cluster.formation` and `ankka.cluster.seed-nodes` are set by the cluster overlays. Leave them to
   the overlay.
 - `ankka.join-self-if-no-seed-nodes` is `on` in `local` mode and `off` in `kubernetes` mode, where joining

@@ -108,10 +108,11 @@ final class Observability(
       kind: Unanswered
   ): Unit =
     if !origin.contains(CallOrigin.Console) then
+      val caller = believed(origin)
       val key =
-        if declaredNames.validate(callee, method) then keyOf(origin, callee, method)
+        if declaredNames.validate(callee, method) then keyOf(caller, callee, method)
         else if declaredNames.registered(callee) then
-          keyOf(origin, names.intern(callee), undeclared)
+          keyOf(caller, names.intern(callee), undeclared)
         else None
       key.foreach(calls.unanswered(_, kind, System.currentTimeMillis()))
 
@@ -128,7 +129,7 @@ final class Observability(
       durationNanos: Long
   ): Unit =
     if !origin.contains(CallOrigin.Console) then
-      keyOf(origin, callee, handler)
+      keyOf(believed(origin), callee, handler)
         .foreach(calls.handled(_, outcome, durationNanos, false, System.currentTimeMillis()))
 
   /** As `made`, for a call that got no answer: another service that timed out or was not there. */
@@ -139,8 +140,16 @@ final class Observability(
       kind: Unanswered
   ): Unit =
     if !origin.contains(CallOrigin.Console) then
-      keyOf(origin, callee, handler)
+      keyOf(believed(origin), callee, handler)
         .foreach(calls.unanswered(_, kind, System.currentTimeMillis()))
+
+  /**
+   * An origin, when it is one this service declared. A thread's own origin was set by a host and
+   * always is; it is checked all the same, so that no way of counting a call can put a name in the
+   * table that the service did not declare, whatever set the origin.
+   */
+  private def believed(origin: Option[CallOrigin]): Option[CallOrigin] =
+    origin.filter(o => declaredNames.validate(o.component, o.handler))
 
   private def keyOf(origin: Option[CallOrigin], callee: String, handler: String): Option[Long] =
     keyOf(origin, names.intern(callee), names.intern(handler))

@@ -263,7 +263,8 @@ trait Conversation:
       componentId: ComponentId,
       sessionId: String,
       tool: String,
-      argumentsJson: String
+      argumentsJson: String,
+      metadata: Metadata
   ): Future[Either[String, String]]
 
   def checkGuardrail(

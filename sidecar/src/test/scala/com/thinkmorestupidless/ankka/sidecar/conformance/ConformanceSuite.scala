@@ -1164,6 +1164,85 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(kinds.get("shopping-cart"), Some("EventSourcedEntity"))
   }
 
+  /** The observed calls of the target's topology: who called whom, handler to handler. */
+  private final case class Observed(
+      from: String,
+      to: String,
+      caller: String,
+      callee: String,
+      ok: Long,
+      refused: Long,
+      failed: Long
+  )
+
+  private def observedCalls(): Vector[Observed] =
+    val document = Json.parse(target.topology).fold(p => fail(s"not JSON: $p"), identity)
+    def text(of: Json, field: String) = of(field).flatMap(_.asString).getOrElse(fail(s"$of"))
+    def count(of: Json, field: String) =
+      of("handled").flatMap(_(field)).flatMap(_.asDouble).map(_.toLong).getOrElse(fail(s"$of"))
+    for
+      call <- document("calls").flatMap(_.asArray).getOrElse(fail(target.topology))
+      pair <- call("pairs").flatMap(_.asArray).getOrElse(fail(target.topology))
+    yield Observed(
+      text(call, "from"),
+      text(call, "to"),
+      text(pair, "caller"),
+      text(pair, "callee"),
+      count(pair, "ok"),
+      count(pair, "refused"),
+      count(pair, "failed")
+    )
+
+  // `features/topology/languages.feature`: this target is one row of the outline's Examples. The
+  // reference service's consumer and its workflow step each call another component through the
+  // client, from a handler that runs in the target's own language: the call is attributed only if
+  // the target carries on what its handler was given. A target that drops it is not papered over
+  // as an unknown caller; it fails here.
+  test("topology.call-attributed: a call is attributed to its caller in every language") {
+    postJson("/carts/ta1/items", cartJson("p1", "Pen", 1))
+    assertEquals(post("/carts/ta1/checkout").status, 200)
+    eventually()(Some(count("ta1")).filter(_ >= 1))
+    post("/conformance/checkout/ta2", "ok")
+    eventually()(Some(checkoutStatus("ta2")).filter(_ == "charged"))
+    assertEquals(post("/conformance/ta3/refuse", "").status, 409)
+    assertEquals(post("/conformance/ta3/misbehave").status, 500)
+
+    def from(caller: String, handler: String, to: String, callee: String)(of: Vector[Observed]) =
+      of.find(c => c.from == caller && c.caller == handler && c.to == to && c.callee == callee)
+
+    // Waited for on the counts themselves: a call is counted where it ends.
+    val calls = eventually() {
+      val seen = observedCalls()
+      Option.when(
+        from("checkout-recorder", "on-message", "conformance", "record")(seen).exists(_.ok >= 1) &&
+          from("checkout", "reserve", "shopping-cart", "total-quantity")(seen).exists(_.ok >= 1) &&
+          seen.exists(c => c.to == "conformance" && c.callee == "refuse" && c.refused >= 1) &&
+          seen.exists(c => c.to == "conformance" && c.callee == "misbehave" && c.failed >= 1)
+      )(seen)
+    }
+
+    // The consumer's call and the step's are theirs, and nobody's else.
+    assertEquals(
+      calls.filter(c => c.from == "unknown" && c.to == "conformance" && c.callee == "record"),
+      Vector.empty,
+      "a call to the recorder came from nobody"
+    )
+    assertEquals(
+      calls.filter(c =>
+        c.from == "unknown" && c.to == "shopping-cart" && c.callee == "total-quantity"
+      ),
+      Vector.empty,
+      "a call from the step came from nobody"
+    )
+    // A refusal and a failure are counted as what they were, and from the route that made them.
+    val refusal = calls.find(c => c.to == "conformance" && c.callee == "refuse").get
+    assert(refusal.from.startsWith("endpoint:"), refusal.toString)
+    assertEquals(refusal.failed, 0L, "a refusal is not a failure")
+    val failure = calls.find(c => c.to == "conformance" && c.callee == "misbehave").get
+    assert(failure.from.startsWith("endpoint:"), failure.toString)
+    assertEquals(failure.refused, 0L, "a failure is not a refusal")
+  }
+
   // ── Observability ──────────────────────────────────────────────────────────
 
   test("obs.one-span-per-invocation") {

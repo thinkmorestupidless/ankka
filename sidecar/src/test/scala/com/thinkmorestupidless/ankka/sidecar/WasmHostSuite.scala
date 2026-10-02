@@ -617,7 +617,10 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       val plan =
         await(talk.plan(PlanRequest(cartId, "session", MethodName("ask"), json("unit", ""), at)))
       assertEquals(plan.map(_.user), Right(Some("hello")))
-      assertEquals(await(talk.invokeTool(cartId, "session", "lookup", "{}")), Right("tool ran"))
+      assertEquals(
+        await(talk.invokeTool(cartId, "session", "lookup", "{}", Metadata.empty)),
+        Right("tool ran")
+      )
       assertEquals(
         await(talk.checkGuardrail(cartId, "session", "polite", GuardrailStage.Input, "hi")),
         Right(())

@@ -140,6 +140,25 @@ object Trace:
     scoped(Working(0L, 0L, origin))(body)
 
   /**
+   * What a thread was working for, taken so that the same work can go on somewhere else.
+   *
+   * A thread-local does not follow work to another thread, and that is the rule: a call made there
+   * is from nobody. This is for the one case where the code itself knows better, because it built
+   * the work here and only starts it there. A stream is that case: the handler asks for it, and it
+   * is sent when something starts reading. It is the handler's call wherever it is sent from.
+   *
+   * Never a way to give a call to the nearest handler: only code that was run by the handler, on
+   * the handler's thread, can take one of these.
+   */
+  final class Scope private[Trace] (private[Trace] val working: Working | Null)
+
+  def capture(): Scope = Scope(current.get())
+
+  /** Runs `body` as the work that was captured, restoring whatever was current before. */
+  def resume[A](scope: Scope)(body: => A): A =
+    if scope.working eq null then body else scoped(scope.working.nn)(body)
+
+  /**
    * What a call carries about where it came from: the trace it belongs to and the handler making
    * it, both as the calling thread knows them.
    *

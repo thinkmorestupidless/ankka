@@ -17,7 +17,7 @@ is unchanged, so the local console from an older CLI still works.
 {
   "service": { "name": "cart", "runtime": "0.10.0", "instance": "48213",
                "startedAt": "2026-10-01T09:12:03Z" },
-  "window": { "seconds": 600, "since": "2026-10-01T09:12:03Z", "calls": 14 },
+  "window": { "seconds": 600, "since": "2026-10-01T09:12:03Z", "calls": 10, "unanswered": 0 },
   "nodes": [
     { "id": "endpoint:/carts", "kind": "Endpoint", "layer": 0, "platform": false,
       "handlers": [ { "name": "GET /carts/{cartId}", "type": "route", "streaming": false },
@@ -76,7 +76,7 @@ method; a component's handlers are in order of name.
    handler never ran: the platform answered instead, or no host was reached. Unanswered counts are
    attempts, so a retried call counts once per attempt. A handler that threw counts
    once in `handled.failed` and once in `unanswered.timedOut`. The document has no field that adds
-   them together.
+   them together: `window.calls` is the handled total and `window.unanswered` the unanswered one.
 6. **`histogram`** has a fixed number of log-scale buckets. Bucket `i` covers
    `[2^(i-10), 2^(i-9))` ms, and bucket 0 also takes everything below. It is present so that
    instances can be merged. Percentiles are read from it and are marked `bucketed`.
@@ -90,6 +90,16 @@ method; a component's handlers are in order of name.
     the window, and a reader says "since the service started" in that case.
 11. **Reading is not calling.** A read the local console makes of an entity or a session appears
     on no edge. A reader may poll this document and query entities without changing what it shows.
+
+## Names a reader will meet
+
+- An endpoint's calls are from its node, `endpoint:<prefix>`, and the caller handler is the route
+  with its whole path, `POST /carts/{cartId}/items`. A request's *span* keeps the names it has
+  always had (component `http`, the route within its endpoint), so no metric's labels change.
+- A query of a view is a call to the view, and the callee handler is the way it was asked: `get`,
+  `where`, `ordered` or `count` (`all` is `where` with no condition).
+- An autonomous agent's own work is from the handler `iteration`.
+- A view's and a consumer's one handler is `on-change` and `on-message`.
 
 ## Errors
 

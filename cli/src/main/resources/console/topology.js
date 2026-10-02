@@ -26,6 +26,55 @@
     return sum;
   }
 
+  // Whether an observed call is going wrong, which is what a reader is warned about: a handler
+  // that failed, or a call nothing answered. A refusal is a handler saying no, which is the
+  // handler working, so refusals alone never mark a call however many there are.
+  function edgeMark(pairs) {
+    for (const pair of pairs || []) {
+      const handled = pair.handled || {};
+      const unanswered = pair.unanswered || {};
+      if ((handled.failed || 0) > 0) return 'warning';
+      if ((unanswered.timedOut || 0) + (unanswered.undelivered || 0) > 0) return 'warning';
+    }
+    return null;
+  }
+
+  // How heavily an observed call is drawn, from 1 to 5: one step for each power of ten of the
+  // calls that were handled, so a busy call stands out and a line never grows without limit.
+  function weight(pairs) {
+    const handled = totals(pairs).handled;
+    return 1 + Math.min(4, Math.floor(Math.log10(Math.max(1, handled))));
+  }
+
+  // The sentence that goes wherever observed calls are shown. It says how far back they reach,
+  // and that a call not made in that time is not there: what is shown is what happened, never
+  // everything the service can do. `now` is in milliseconds; `timeZone` is the reader's unless
+  // one is given.
+  function observedLine(window, now, timeZone) {
+    const seconds = (window && window.seconds) || 0;
+    const since = window ? Date.parse(window.since) : NaN;
+    // The window reaches back to the service's start when the service is younger than it.
+    const sinceStart = Number.isFinite(since) && since > now - seconds * 1000;
+    const from = sinceStart ? ` (since ${clock(since, timeZone)} when the service started)` : '';
+    return `Calls observed in the last ${inWords(seconds)}${from}. Calls not made in that time are not shown.`;
+  }
+
+  function inWords(seconds) {
+    const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    if (seconds >= 3600 && seconds % 3600 === 0) return count(seconds / 3600, 'hour', 'hours');
+    if (seconds >= 60 && seconds % 60 === 0) return count(seconds / 60, 'minute', 'minutes');
+    return count(seconds, 'second', 'seconds');
+  }
+
+  function clock(millis, timeZone) {
+    return new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone,
+    }).format(new Date(millis));
+  }
+
   // What a node is called on the page. Its id says what kind of thing it is; a reader wants its name.
   function label(node) {
     if (node.kind === 'UnknownCaller') return 'unknown caller';
@@ -182,5 +231,5 @@
     return compare(a.component, b.component) || compare(a.relation, b.relation);
   }
 
-  return { view, linkFor, label, totals, describe };
+  return { view, linkFor, label, totals, describe, edgeMark, weight, observedLine };
 });

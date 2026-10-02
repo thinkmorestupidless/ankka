@@ -56,8 +56,8 @@ Produced by `TopologyJson.render` from the registry, the routes and a `CallCount
 exact shape is in `contracts/topology.md`.
 
 - **service**: name, runtime version, instance id, `startedAt`.
-- **window**: `seconds`, `since` (the later of window start and process start), and `calls` (the
-  total observed).
+- **window**: `seconds`, `since` (the later of window start and process start), `calls` (the
+  handled total) and `unanswered` (the unanswered total): two numbers, as on every pair.
 - **nodes**: `Node[]`.
 - **declared**: `DeclaredEdge[]`.
 - **calls**: `CallEdge[]`.

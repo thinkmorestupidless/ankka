@@ -9,7 +9,8 @@ import com.thinkmorestupidless.ankka.runtime.{
   MetaEntry,
   Observability,
   RuntimeExtension,
-  SpanOutcome
+  SpanOutcome,
+  Trace
 }
 import org.apache.pekko.NotUsed
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, HandlerBinding}
@@ -564,6 +565,10 @@ final class AgentCalls private[agent] (
    * whole reply.
    */
   def stream[A <: Agent, I](handle: StreamHandle[A, I])(input: I): Source[String, NotUsed] =
+    // The call is made when the source is run, which is often on another thread: an endpoint
+    // hands the source back and the server runs it. It is still the call of whoever asked for the
+    // stream, so who that is is taken here, where they asked.
+    val asked = Trace.capture()
     ActorSource
       .actorRef[EntityProtocol.StreamToken](
         completionMatcher = { case EntityProtocol.StreamCompleted => () },
@@ -574,16 +579,18 @@ final class AgentCalls private[agent] (
         overflowStrategy = OverflowStrategy.fail
       )
       .mapMaterializedValue { tokens =>
-        transport.tell(
-          handle.componentId,
-          EntityId(sessionId),
-          EntityProtocol.InvokeStream(
-            handle.name,
-            handle.inputSerializer.toBytes(input),
-            Vector.empty,
-            tokens
+        Trace.resume(asked) {
+          transport.tell(
+            handle.componentId,
+            EntityId(sessionId),
+            EntityProtocol.InvokeStream(
+              handle.name,
+              handle.inputSerializer.toBytes(input),
+              Vector.empty,
+              tokens
+            )
           )
-        )
+        }
         NotUsed
       }
       .collect { case EntityProtocol.Token(text) => text }

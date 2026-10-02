@@ -883,6 +883,7 @@ impl<C: Agent> AgentTestKit<C> {
                             session_id: self.session_id.clone(),
                             tool: tool.clone(),
                             arguments_json: arguments.to_string(),
+                            metadata: None,
                         };
                         let registration = &self.registration;
                         match hosted(&self.runtime, || registration.invoke_tool(request))
@@ -954,6 +955,7 @@ impl<C: AutonomousAgent> AutonomousAgentTestKit<C> {
             session_id: self.session(),
             tool: name.to_string(),
             arguments_json: arguments.to_string(),
+            metadata: None,
         };
         let registration = &self.registration;
         match hosted(&self.runtime, || registration.invoke_tool(request)).and_then(|r| r.result) {

@@ -70,6 +70,32 @@ lookup in a set built once at startup, so it costs nothing that grows.
   current, so this would attribute a call to the nearest open span, which is the guessing the spec
   forbids. It would also lose edges whenever the ring overwrote their spans.
 
+### R1, as built
+
+Decided while implementing, and where the code differs from the text above:
+
+- The type is `CallOrigin` (`RT/CallOrigin.scala`), read with `Trace.currentOrigin`, because `http`
+  already has a `Caller`: who a request is from, read off a certificate. The metadata key is still
+  `ankka-caller`.
+- An endpoint's origin is its node id and the route's whole path (`endpoint:/carts`,
+  `POST /carts/{cartId}/items`), not the span's `http` and the route within the endpoint. The
+  span's names are unchanged (FR-027), and the document needs no mapping from `http` to a node.
+- The console's origin is **not** a declared name. It is set only by the runtime's own thread
+  (`Trace.asOrigin(CallOrigin.Console)`), so a process that sends it is not believed.
+- `Trace.asOrigin` is a handler at work in no trace: an autonomous agent's worker between
+  iterations, and the sidecar making a call a process asked for.
+- `Trace.capture` and `Trace.resume` carry a scope to another thread, for the one case where the
+  code knows the work is the same: an agent's stream, and an autonomous agent's notifications, are
+  sent when the source is run, which is on the server's thread, and are the call of the handler
+  that asked for them. Without this a streaming route's call came from the unknown caller.
+- A workflow step in another language is told its trace and its own name: `WorkflowIn.RunStep`
+  gains `metadata`, and so do `ToolRequest` (a tool an agent in another language runs, which the
+  reference service's own tool showed up as a call from nobody) and `QueryRequest` (a view query
+  from another language). The protocol is `1.3`. A guardrail and a task rule are still told
+  nothing, so a call one of them makes is from the unknown caller.
+- The limit on declared names is 60,000, short of the key's 65,535, to leave room for the names
+  that are not a service's own.
+
 ## R2. Where a call is counted, and what its outcome is
 
 **Finding.** A handler that throws in an entity host propagates out of the Pekko command handler.

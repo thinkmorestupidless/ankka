@@ -904,6 +904,9 @@ object Main:
             1
 
   def main(args: Array[String]): Unit =
+    // Before anything can load the JDK's HTTP client, which reads this once: `ankka local web`
+    // passes a request's `Host` on to the developer's process.
+    System.setProperty("jdk.httpclient.allowRestrictedHeaders", "host")
     sys.exit(run(args.toIndexedSeq, System.out, System.err))
 
 /**

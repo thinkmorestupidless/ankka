@@ -60,6 +60,8 @@ jobs:
               - 'modules/**'
               - 'protocol/**'
               - 'sidecar/**'
+              - 'proxy/**'
+              - 'proxy-core/**'
               - 'samples/**'
               - 'kustomization/components/postgres/ddl/**'
             scala:

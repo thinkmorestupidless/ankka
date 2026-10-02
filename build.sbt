@@ -566,10 +566,56 @@ lazy val sidecar = project
     Test / testOnly := (Test / testOnly).dependsOn(sidecarImageForClusterTests).evaluated
   )
 
+/**
+ * The rules of a web-hosted service's proxy (feature 021): who is admitted, what a process is told,
+ * where a mount or a call goes, and the engine that applies them over the JDK's own HTTP server and
+ * client. It depends on nothing of ankka's and nothing of Pekko's, so the CLI's native image can
+ * carry it: `ankka local web` and the proxy in a cluster are the same code, as a build fact.
+ */
+lazy val proxyCore = project
+  .in(file("proxy-core"))
+  .settings(commonSettings)
+  .settings(
+    name                        := "ankka-proxy-core",
+    publish / skip              := true,
+    libraryDependencies += munit % Test,
+    // The JDK's client reads its restricted-header list once, when its classes load, so the proxy's
+    // `Host` is allowed by an option every JVM that runs the engine is started with.
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host"
+  )
+
+/**
+ * The proxy beside a web-hosted service's process (feature 021): `proxy-core`'s engine with the
+ * cluster's half, mutual TLS from `RotatingTls` and the caller from `Caller.fromCertificate`. An
+ * image, `ankka-proxy`, that the operator runs in every web-hosted pod; never published.
+ */
+lazy val proxy = project
+  .in(file("proxy"))
+  // http test->test for PreFeatureCaller, the frozen reading of a certificate the features use.
+  .dependsOn(
+    proxyCore,
+    runtime,
+    http    % "compile->compile;test->test",
+    testPki % Test,
+    testkit % Test
+  )
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                := "ankka-proxy",
+    publish / skip      := true,
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.proxy.Main"),
+    dockerExposedPorts  := Seq(9000, 7627),
+    libraryDependencies += logback,
+    Universal / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host"
+  )
+
 /** The `ankka` command-line client. */
 lazy val cli = project
   .in(file("cli"))
-  .dependsOn(controlPlaneApi)
+  .dependsOn(controlPlaneApi, proxyCore)
   .settings(commonSettings)
   .enablePlugins(JavaAppPackaging, GraalVMNativeImagePlugin)
   .settings(
@@ -592,6 +638,8 @@ lazy val cli = project
     Docker / publishLocal := {},
     Docker / publish      := {},
     libraryDependencies ++= Seq(decline, munit % Test),
+    // `ankka local web` runs the proxy's engine; see proxyCore.
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a
     // jar cannot be listed.
@@ -742,9 +790,8 @@ lazy val multiAgentPlanner = project
  * Format check first because it is nearly free and should fail before anything slower runs;
  * `docker:publishLocal` last because it only does useful work once compilation and tests have
  * already passed. Root aggregation means this needs no per-module wiring — `docker:publishLocal` at
- * root already builds exactly the two images that have `DockerPlugin` enabled (`operator`,
- * `controlPlane`) and silently skips every other project, the same way `compile` and `test` already
- * do.
+ * root builds the image of every project with `DockerPlugin` enabled and skips every other project,
+ * the same way `compile` and `test` already do.
  */
 addCommandAlias(
   "buildAll",
@@ -770,6 +817,8 @@ lazy val root = project
     cli,
     protocol,
     sidecar,
+    proxyCore,
+    proxy,
     shoppingCart,
     shoppingCartApi,
     multiAgentPlanner

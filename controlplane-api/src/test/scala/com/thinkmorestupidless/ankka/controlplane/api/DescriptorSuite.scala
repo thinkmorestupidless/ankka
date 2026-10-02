@@ -357,7 +357,8 @@ class DescriptorSuite extends munit.FunSuite:
       )
   }
 
-  test("a gRPC port that is the HTTP port is refused, and is not when HTTP is not served") {
+  test("a descriptor whose gRPC port is its HTTP port is refused") {
+    // And it is not refused when HTTP is not served: then there is no HTTP port to collide with.
     assertEquals(
       ServiceSpec("i:1", grpc = true, grpcPort = 9000).problems,
       Vector("grpcPort 9000 is also the service port; gRPC and HTTP are served on different ports")
@@ -368,7 +369,8 @@ class DescriptorSuite extends munit.FunSuite:
     )
   }
 
-  test("ANKKA_GRPC_PORT in env is refused: the grpcPort field is the only way to set it") {
+  test("a descriptor that sets the platform's gRPC port variable itself is refused") {
+    // The grpcPort field is the only way to set it.
     assertEquals(
       ServiceSpec("i:1", env = Vector(EnvVar("ANKKA_GRPC_PORT", value = Some("1")))).problems,
       Vector(
@@ -377,7 +379,8 @@ class DescriptorSuite extends munit.FunSuite:
     )
   }
 
-  test("gRPC declared for a process or a module is refused") {
+  test("a descriptor that declares gRPC for a service that is not embedded is refused") {
+    // Hosted as a process, or as a module.
     for hosting <- Vector("process", "wasm") do
       assertEquals(
         ServiceSpec("i:1", hosting = hosting, protocol = Some("1.0"), grpc = true).problems,

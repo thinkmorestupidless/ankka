@@ -35,6 +35,19 @@ class GrpcDocumentationSuite extends munit.FunSuite:
     // how an exposed service's gRPC endpoint is called from outside the cluster
     says("deploy/expose.md", "## gRPC at the same hostname")
     says("deploy/expose.md", "grpcurl -cacert ~/.ankka/local-ca.crt")
+    // what the gateway does to a long or idle call, and the server's own limits and times
+    says(
+      "platform/networking.md",
+      "puts no limit of its own on how long a gRPC call lasts or stays idle"
+    )
+    Seq(
+      "max-message-size",
+      "max-connection-age",
+      "shutdown-grace",
+      "keepalive-time",
+      "keepalive-timeout"
+    )
+      .foreach(key => says("reference/configuration.md", s"ankka.grpc.$key"))
     // how a service opts into reflection, and that it lists the methods of every endpoint
     says("build/grpc-endpoints.md", ".withReflection(")
     says(

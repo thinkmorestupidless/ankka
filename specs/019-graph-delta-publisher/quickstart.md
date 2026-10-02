@@ -108,14 +108,14 @@ Record what was run, and the result, in the sample's README.
 
 ## Reviewer's checklist
 
-- [ ] `consumer.proto`'s `Produce` is byte for byte what it was; `git diff` of the message shows
+- [x] `consumer.proto`'s `Produce` is byte for byte what it was; `git diff` of the message shows
       only additions around it
-- [ ] the three SDK copies of `protocol/` are identical to the canonical one
-- [ ] `protocol/fixtures/` at its top level is untouched; `EncodingFixturesSuite` passes
-- [ ] no module gained a dependency; `runtime` and `sidecar` contain no reference to graphs
-- [ ] the suite pinning `StateRecord` was committed before the hosts changed
-- [ ] each new conformance case was seen to fail without the feature
-- [ ] `sbt compile` is warning-free; `scalafmtCheckAll`; `cargo clippy -D warnings`; `mypy`; `tsc`
-- [ ] the sample and the three examples contain no literal `node:` or `edge:` key and no version
-- [ ] the guide states the writer's rules, who creates the topic, and what expiry does not do
-- [ ] release notes: protocol 1.3; key value deletion now a recorded change; Rust's new enum variant
+- [x] the three SDK copies of `protocol/` are identical to the canonical one
+- [x] `protocol/fixtures/` at its top level is untouched; `EncodingFixturesSuite` passes
+- [x] no module gained a dependency; `runtime` and `sidecar` contain no reference to graphs
+- [x] the suite pinning `StateRecord` was committed before the hosts changed
+- [x] each new conformance case was seen to fail without the feature
+- [x] `sbt compile` is warning-free; `scalafmtCheckAll`; `cargo clippy -D warnings`; `mypy`; `tsc`
+- [x] the sample and the three examples contain no literal `node:` or `edge:` key and no version
+- [x] the guide states the writer's rules, who creates the topic, and what expiry does not do
+- [x] release notes: protocol 1.3; key value deletion now a recorded change; Rust's new enum variant

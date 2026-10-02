@@ -216,9 +216,9 @@ and the guide reaches a graph.
 ## Phase 9: Polish & Cross-Cutting Concerns
 
 - [X] T056 Add to `CLAUDE.md`, where each belongs (Architecture, Traps): a record's key and its subject are separate, and `MessagePublisher`'s keyed method fails by default; a key value deletion is a persisted state, never a row delete, and why; `protocol/fixtures/graph-deltas/` is copied from ankka-flow and is not `EncodingFixturesSuite`'s; `ankka.protocol` and the guard; `runtime` and `sidecar` hold no graph code.
-- [ ] T057 The whole build, from the worktree: `sbt scalafmtCheckAll scalafmtSbtCheck`, `sbt compile` warning-free, `caffeinate -i sbt test`, the three SDK command lines of quickstart tier 5 including each conformance run, `sbt shoppingCart/test`, `just docs`, `python3 .github/ci-coverage.py`. Tick the reviewer's checklist in `quickstart.md`, checking each item rather than assuming it.
-- [ ] T058 Compare `FX/keys.json` and `FX/deltas.json` with ankka-flow's at the tag that contains T001, update `FX/SOURCE.md` to name that tag, and re-run the copy scripts if anything moved.
-- [ ] T059 Write "Found during implementation" in `research.md` (each V-item's answer, anything the plan had wrong) and the pull request description: protocol 1.3 and what a 1.2 runtime does with a newer SDK; a key value deletion is now a recorded change and a view's row goes with it; a Scala consumer over a key value entity now reads the revision; Rust's `ConsumerEffect` has a new variant; the ankka-flow pull request this depends on.
+- [X] T057 The whole build, from the worktree: `sbt scalafmtCheckAll scalafmtSbtCheck`, `sbt compile` warning-free, `caffeinate -i sbt test`, the three SDK command lines of quickstart tier 5 including each conformance run, `sbt shoppingCart/test`, `just docs`, `python3 .github/ci-coverage.py`. Tick the reviewer's checklist in `quickstart.md`, checking each item rather than assuming it.
+- [X] T058 Compare `FX/keys.json` and `FX/deltas.json` with ankka-flow's at the tag that contains T001, update `FX/SOURCE.md` to name that tag, and re-run the copy scripts if anything moved.
+- [X] T059 Write "Found during implementation" in `research.md` (each V-item's answer, anything the plan had wrong) and the pull request description: protocol 1.3 and what a 1.2 runtime does with a newer SDK; a key value deletion is now a recorded change and a view's row goes with it; a Scala consumer over a key value entity now reads the revision; Rust's `ConsumerEffect` has a new variant; the ankka-flow pull request this depends on.
 
 ---
 

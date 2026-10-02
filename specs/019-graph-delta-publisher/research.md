@@ -612,3 +612,32 @@ What it found:
   been killed, and started a second beside it. For eleven minutes two builds shared the machine.
   The sidecar cluster suite's first re-run fell in that window and two of its "a restart refuses
   no request" cases each saw one refused request; it was run again alone.
+- **The cluster suites, in the end**: `operator`'s (16 suites) and `controlPlane`'s
+  `EndToEndClusterSuite`, `ZeroTrustClusterSuite`, `ControlPlaneClusterSuite` and
+  `SampleDeploymentClusterSuite` passed as first run. `MultiNodeClusterSuite` and
+  `ExposureClusterSuite` each failed one "every request answered during a restart" case — a
+  different case of the first on each of two runs — with the local kind cluster holding half of
+  Docker's memory beside them; with that cluster paused both pass whole (8 of 8, 9 of 9).
+  `SidecarClusterSuite`'s four WebAssembly cases pass with the module's fix.
+- **`SidecarClusterSuite` S2.3 is unreliable on the base commit too.** "A restart replaces pods
+  one at a time with no refused request" passed twice and failed twice on this branch, by one
+  request each time (of 204 and of 646), the second with the machine to itself. Run twice on the
+  branch's base commit, `dd0a603`, it failed once — 91 of 393 requests refused — and passed
+  once. So it is not this feature's; it is a case that does not hold reliably, here at least, and
+  is reported rather than touched.
+- **A baseline worktree needs the SDKs' generated code**: the first baseline run failed six
+  cases because a fresh checkout has no `sdks/python/src/ankka/_proto`, so the Python image the
+  suite builds cannot start. `uv run python scripts/proto.py` first.
+- **Every new conformance case but one has been seen to fail**: four with the fan-out reduced to
+  one message, two with the references' deletion handlers removed, and five with the references
+  stating a wrong version. `consumer.single-produce-unchanged` holds the path that did not
+  change, and has nothing to be broken by.
+- **The fixtures**: `keys.json` and `deltas.json` are byte for byte ankka-flow's at commit
+  `9905de1` on its branch `graph-delta-fixtures`, which is not yet merged or tagged. `SOURCE.md`
+  names the commit; it should name the tag once there is one.
+- **The reviewer's checklist** was gone through item by item: `Produce` unchanged on the wire (the
+  diff's two removed lines are a comment and the `oneof`'s line breaks); the three copies
+  identical; the top-level fixtures untouched; no dependency file changed in any language;
+  `runtime` and `sidecar` without a reference to graph types; the pinning suite committed
+  (`70b0521`) before the hosts changed (`3f78493`); no literal key or version in the sample or the
+  examples.

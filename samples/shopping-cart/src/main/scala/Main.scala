@@ -1,8 +1,15 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
-import com.thinkmorestupidless.ankka.grpc.GrpcServer
-import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.grpc.{GrpcClients, GrpcServer}
+import com.thinkmorestupidless.ankka.http.{Acl, Callers, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
-import shoppingcart.api.{CallersEndpoint, CartGrpcEndpoint, QuestionsEndpoint, ShoppingCartEndpoint}
+import shoppingcart.api.{
+  CallersEndpoint,
+  CartGrpcEndpoint,
+  CartStreamsEndpoint,
+  GrpcCallersEndpoint,
+  QuestionsEndpoint,
+  ShoppingCartEndpoint
+}
 import shoppingcart.application.*
 
 /**
@@ -57,8 +64,24 @@ import shoppingcart.application.*
     if sys.env.get("CART_GRPC").contains("off") then withNotices
     else
       // docs:start grpc-registration
-      withNotices.withExtension(GrpcServer.of(clients => CartGrpcEndpoint(clients)))
+      val server = GrpcServer.of(
+        clients => CartGrpcEndpoint(clients),
+        clients => CartStreamsEndpoint(clients)
+      )
       // docs:end grpc-registration
+      // docs:start reflection
+      // A tool such as grpcurl may ask what the cart serves: from this machine, and through the
+      // gateway when the cart is exposed. CART_REFLECTION=off leaves it out.
+      val reflecting =
+        if sys.env.get("CART_REFLECTION").contains("off") then server
+        else server.withReflection(Acl.allowCallers(Callers.internet))
+      // docs:end reflection
+      withNotices.withExtension(reflecting)
+
+  // Channels to other services' gRPC endpoints, created once and handed to what calls them.
+  // docs:start grpc-clients
+  val grpcClients = GrpcClients()
+  // docs:end grpc-clients
 
   val service = sys.env
     .get("ANTHROPIC_API_KEY")
@@ -73,9 +96,11 @@ import shoppingcart.application.*
       HttpServer.of(
         clients => ShoppingCartEndpoint(clients.componentClient),
         clients => CallersEndpoint(clients.services),
-        clients => QuestionsEndpoint(clients.componentClient)
+        clients => QuestionsEndpoint(clients.componentClient),
+        _ => GrpcCallersEndpoint(grpcClients)
       )
     )
+    .withExtension(grpcClients)
     .start()
   // docs:end registration
 

@@ -1,4 +1,3 @@
-@ignore
 Feature: Asking a service what it serves
   A service that opts into reflection tells a tool its service definitions and their methods.
   Reflection has an ACL of its own, and a service that has not opted in answers none.

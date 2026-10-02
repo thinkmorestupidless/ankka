@@ -426,7 +426,10 @@ lazy val controlPlane = project
     // 004 both modules' suites must deploy a real ankka image to see a service go Ready.
     operator % "test->test;test->compile",
     testkit  % Test,
-    testPki  % Test
+    testPki  % Test,
+    // GrpcClusterSuite calls the deployed sample over gRPC from the host, through the gateway.
+    grpc            % Test,
+    shoppingCartApi % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)

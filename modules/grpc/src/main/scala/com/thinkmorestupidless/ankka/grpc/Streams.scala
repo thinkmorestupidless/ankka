@@ -168,15 +168,8 @@ private[grpc] object Streams:
       materializer: Materializer,
       failed: Throwable => (Status, Metadata)
   ): Unit =
-    // A failure travels as the stream's last element rather than as the stream failing: a queue
-    // sink fails its next pull the moment the stream fails, overtaking parts it had already taken,
-    // and a stream that ends in a refusal must deliver every part before it.
     val parts = source
-      .map(Right(_))
-      .recover { case NonFatal(failure) => Left(failure) }
-      .runWith(Sink.queue[Either[Throwable, Any]]().withAttributes(Attributes.inputBuffer(1, 1)))(
-        using materializer
-      )
+      .runWith(Sink.queue[Any]().withAttributes(Attributes.inputBuffer(1, 1)))(using materializer)
     try
       var done = false
       while !done do
@@ -186,11 +179,7 @@ private[grpc] object Streams:
           done = true
         else
           Await.result(parts.pull(), Duration.Inf) match
-            case Some(Right(part)) => out.send(part)
-            case Some(Left(failure)) =>
-              val (status, trailers) = failed(failure)
-              out.close(status, trailers)
-              done = true
+            case Some(part) => out.send(part)
             case None =>
               out.close(Status.OK, Metadata())
               done = true

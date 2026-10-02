@@ -1361,9 +1361,11 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   a handler a refusal nobody made. Only a status with no local cause — one the service sent — is a
   refusal. And under BoringSSL a trust manager's "peer identity" reason sits beneath a handshake failure
   whose own message is "General OpenSslEngine problem", so the whole cause chain is read.
-- **A queue sink fails its next pull the moment its stream fails**, overtaking parts it already took.
-  A stream that ends in a refusal must deliver every part first, so the failure travels as the stream's
-  last element (`Streams.drain`).
+- **`concat(Source.failed(…))` fails the stream before the parts ahead of it exist.** `concat`
+  materializes its second source at once, and a failed source fails at once; in Pekko a failure also
+  travels ahead of parts still in flight. A fixture that means "these parts, then a refusal" refuses when
+  the next part is asked for — throwing in a `map` over one more element — as a stream over a component
+  that refuses mid-stream does. Two runs were spent blaming the platform's queue sink for this.
 - **The HTTP/2 window is counted in bytes and grows to megabytes.** A stream of tiny parts can rightly be
   produced whole before anyone reads it, so a backpressure test that counts tiny parts fails a correct
   server. The flow-control cases use 16 KiB parts.

@@ -198,15 +198,23 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     val acl: Acl = endpointAcl
 
     serverStream(CartStreamsGrpc.METHOD_WATCH_CART) { request =>
-      val pad  = padding(watchParts.getOrElse(0))
-      val base = watchParts.fold(Source.repeat(0).zipWithIndex.map(_._2.toInt))(n => Source(1 to n))
+      val pad = padding(watchParts.getOrElse(0))
+      // A stream that ends in a refusal refuses when its next part is asked for, as one built over a
+      // component refuses mid-stream. (A `Source.failed` joined on with `concat` fails the stream at
+      // once, before the parts ahead of it exist: Pekko's semantics, not the platform's.)
+      val base = (watchParts, watchEndsIn) match
+        case (None, _)          => Source.repeat(0).zipWithIndex.map(_._2.toInt)
+        case (Some(n), Some(_)) => Source(1 to n + 1)
+        case (Some(n), None)    => Source(1 to n)
       val paced = watchEvery.fold(base)(every => base.throttle(1, every))
-      val carts = paced.map { i =>
-        produced.incrementAndGet()
-        Cart(cartId = s"${request.cartId}-$i$pad")
-      }
-      watchEndsIn
-        .fold(carts)(code => carts.concat(Source.failed(CommandError("the cart went away", code))))
+      paced
+        .map { i =>
+          watchEndsIn
+            .filter(_ => watchParts.exists(i > _))
+            .foreach(code => throw CommandError("the cart went away", code))
+          produced.incrementAndGet()
+          Cart(cartId = s"${request.cartId}-$i$pad")
+        }
         .watchTermination() { (_, done) =>
           done.onComplete(_ => streamEnded.set(true))(using ExecutionContext.global)
           NotUsed

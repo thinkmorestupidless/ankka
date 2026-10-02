@@ -181,6 +181,23 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
     assertEquals(http, named(actions(spec), "cart-http").getOrElse(fail("no http policy")))
   }
 
+  test("an exposed service's backend TLS policy targets each port it has") {
+    def sections(s: AnkkaServiceSpec) = actions(s)
+      .collectFirst { case Action.EnsureBackendTlsPolicy(p) => p }
+      .getOrElse(fail("no backend TLS policy"))
+      .getSpec
+      .getTargetRefs
+      .asScala
+      .map(_.getSectionName)
+      .toList
+    assertEquals(sections(spec.copy(exposed = true)), List("http"))
+    assertEquals(sections(spec.copy(exposed = true, grpcPort = Some(9090))), List("http", "grpc"))
+    assertEquals(
+      sections(spec.copy(exposed = true, port = None, grpcPort = Some(9090))),
+      List("grpc")
+    )
+  }
+
   test("without gRPC the grpc policy is removed if owned, and never ensured") {
     val without = actions(spec)
     assert(without.exists {

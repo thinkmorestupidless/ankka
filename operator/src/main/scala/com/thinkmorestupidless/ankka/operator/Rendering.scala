@@ -2,6 +2,9 @@ package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.{
   HTTPBackendRefBuilder,
+  HTTPHeaderMatchBuilder,
+  HTTPRouteMatchBuilder,
+  HTTPRouteTimeoutsBuilder,
   HTTPRoute,
   HTTPRouteBuilder,
   HTTPRouteRuleBuilder,
@@ -238,7 +241,7 @@ object Rendering:
       namespace: String,
       baseDomain: Option[String]
   ): Action =
-    (spec.exposed, spec.port, baseDomain) match
+    (spec.exposed, spec.port.orElse(spec.grpcPort), baseDomain) match
       case (true, Some(_), Some(_)) =>
         Action.EnsureBackendTlsPolicy(ZeroTrust.backendTlsPolicy(resource, spec, namespace))
       case _ =>
@@ -343,9 +346,9 @@ object Rendering:
 
   /**
    * The route, after the address it points at. Rendered only when the service is exposed, has a
-   * port, and the operator knows the base domain; in every other case the route is removed if this
-   * resource owns one — so unexposing, or dropping to `http: false`, takes the route away without
-   * touching the service.
+   * port — HTTP or gRPC — and the operator knows the base domain; in every other case the route is
+   * removed if this resource owns one — so unexposing, or dropping both ports, takes the route away
+   * without touching the service.
    */
   private def routeAction(
       resource: AnkkaService,
@@ -353,9 +356,9 @@ object Rendering:
       namespace: String,
       baseDomain: Option[String]
   ): Action =
-    (spec.exposed, spec.port, baseDomain) match
-      case (true, Some(port), Some(base)) =>
-        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, port, base))
+    (spec.exposed, spec.port.orElse(spec.grpcPort), baseDomain) match
+      case (true, Some(_), Some(base)) =>
+        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, base))
       case _ =>
         Action.RemoveHttpRoute(
           namespace,
@@ -368,14 +371,52 @@ object Rendering:
    * never read from the resource, so no writer of the resource can point a route at a name the
    * service does not own; the backend carries no namespace, so the API itself forbids it reaching
    * another project's service (contracts/route-object.md).
+   *
+   * One rule per protocol the service serves, gRPC's first. A gRPC call is told from an HTTP
+   * request by its content type, so the platform needs to know nothing of a service's methods; the
+   * match is a full match, so it admits `application/grpc` and `application/grpc+proto` and not
+   * `application/grpc-web`. The gateway applies a fifteen-second timeout to a route that names
+   * none, which would cut every stream, so the gRPC rule says it has none. The HTTP rule is
+   * rendered exactly as it was before gRPC endpoints existed.
    */
   def httpRoute(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      port: Int,
       baseDomain: String
   ): HTTPRoute =
+    val grpcRule = spec.grpcPort.map { port =>
+      new HTTPRouteRuleBuilder()
+        .withMatches(
+          new HTTPRouteMatchBuilder()
+            .withHeaders(
+              new HTTPHeaderMatchBuilder()
+                .withName("content-type")
+                .withType("RegularExpression")
+                .withValue(GrpcContentType)
+                .build()
+            )
+            .build()
+        )
+        .withTimeouts(new HTTPRouteTimeoutsBuilder().withRequest("0s").build())
+        .withBackendRefs(
+          new HTTPBackendRefBuilder()
+            .withName(Names.service(spec.serviceName))
+            .withPort(port)
+            .build()
+        )
+        .build()
+    }
+    val httpRule = spec.port.map { port =>
+      new HTTPRouteRuleBuilder()
+        .withBackendRefs(
+          new HTTPBackendRefBuilder()
+            .withName(Names.service(spec.serviceName))
+            .withPort(port)
+            .build()
+        )
+        .build()
+    }
     new HTTPRouteBuilder()
       .withMetadata(identityMeta(resource, spec, namespace, Names.httpRoute(spec.serviceName)))
       .withSpec(
@@ -390,19 +431,13 @@ object Rendering:
               .build()
           )
           .withHostnames(Hostnames.of(spec.serviceName, spec.projectId, baseDomain))
-          .withRules(
-            new HTTPRouteRuleBuilder()
-              .withBackendRefs(
-                new HTTPBackendRefBuilder()
-                  .withName(Names.service(spec.serviceName))
-                  .withPort(port)
-                  .build()
-              )
-              .build()
-          )
+          .withRules((grpcRule.toVector ++ httpRule.toVector)*)
           .build()
       )
       .build()
+
+  /** What a gRPC call's content type is, as Envoy matches a header: the whole value. */
+  val GrpcContentType: String = """application/grpc(\+.+)?"""
 
   /** The headless gRPC address when the service serves gRPC; its removal, if owned, when not. */
   private def grpcPeersAction(

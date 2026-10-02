@@ -42,6 +42,17 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(spec.paused, false)
   }
 
+  test("a service in a project with the platform's own id is not projected") {
+    // A project created before the id was reserved: no resource is written for it again, so the
+    // operator is never asked for a certificate in the platform's name.
+    val Left(problems) =
+      ServiceProjection.project(service(projectId = "platform"), config): @unchecked
+    assertEquals(
+      problems,
+      Vector("project id 'platform' is reserved for the platform's own workloads")
+    )
+  }
+
   test("an unchanged service projects identically") {
     // The projector relies on this to decide there is nothing to write.
     assertEquals(

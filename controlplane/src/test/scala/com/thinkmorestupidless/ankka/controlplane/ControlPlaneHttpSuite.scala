@@ -189,6 +189,17 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     assert(body.contains("no such organization 'ghost'"), body)
   }
 
+  test("a project cannot take the platform's own id") {
+    val (status, body) =
+      send("POST", "/projects/platform", Some("""{"name":"Platform","organizationId":"acme"}"""))
+    assertEquals(status, 400, body)
+    assert(
+      body.contains("project id 'platform' is reserved for the platform's own workloads"),
+      body
+    )
+    assertEquals(send("GET", "/projects/platform")._1, 404)
+  }
+
   test("a project is created under its organization") {
     assertEquals(
       send(

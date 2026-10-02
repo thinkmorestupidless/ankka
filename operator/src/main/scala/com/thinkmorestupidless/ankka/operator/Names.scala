@@ -25,6 +25,19 @@ object Names:
    */
   def namespace(prefix: String, projectId: String): String = s"$prefix-$projectId"
 
+  /**
+   * Project ids nothing is rendered for, because the platform's own workloads use them.
+   *
+   * A workload's certificate carries `ankka://<project>/<service>`, and that URI is the identity
+   * every ACL and every platform listener reads. The control plane's is
+   * `ankka://platform/controlplane`, issued by the same authority, so a resource in a project
+   * called `platform` could ask for a certificate naming the control plane. The control plane
+   * refuses to create such a project; the operator refuses again here, because the resource is the
+   * only thing it knows about its writer, and anything with the right to write one could write this
+   * one.
+   */
+  val ReservedProjectIds: Set[String] = Set("platform")
+
   /** Problems with a rendered namespace name, reported all at once. */
   def namespaceProblems(prefix: String, projectId: String): Vector[String] =
     val rendered = namespace(prefix, projectId)
@@ -32,6 +45,10 @@ object Names:
       Option.when(projectId.isEmpty)("project id must not be empty"),
       Option.when(projectId.nonEmpty && !isLabel(projectId))(
         s"project id '$projectId' is not a DNS label"
+      ),
+      Option.when(ReservedProjectIds.contains(projectId))(
+        s"project id '$projectId' is reserved for the platform's own workloads; " +
+          "no certificate is issued in its name"
       ),
       Option.when(rendered.length > MaxLabelLength)(
         s"namespace '$rendered' is ${rendered.length} characters, over the $MaxLabelLength limit"

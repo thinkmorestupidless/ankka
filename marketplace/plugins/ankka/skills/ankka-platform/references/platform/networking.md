@@ -127,6 +127,10 @@ writes. It never reads a private key itself.
 | `<service>-service` | `ankka://<project>/<service>`, and the Service's DNS names | `/var/run/secrets/ankka/service` | always: it is also who the service is when it calls another |
 | `<service>-database` | common name `<service>`, the database role | `/var/run/secrets/ankka/database` | the platform provisions its database |
 
+The identity is built from the project's id, so the project id `platform`, which the control plane's
+and the console's own identities are in, cannot be created, and the operator issues no certificate
+for a service in a project of that id.
+
 Each directory holds `tls.key`, `tls.crt` and `ca.crt`. A certificate is valid for 24 hours and renewed
 every 8, so the one being replaced stays valid for another 16 while every instance picks up its successor.
 A running instance reads the renewed files for new connections within a minute and keeps its open ones;

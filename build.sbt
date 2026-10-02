@@ -146,7 +146,10 @@ lazy val commonSettings = Seq(
     "ankka.conformance.shape",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
-    "ankka.docs.update"
+    "ankka.docs.update",
+    // The operator's rendering record (RenderingGoldenSuite): with `true` it is rewritten instead
+    // of compared, which is only ever right for a change meant to alter what a service renders.
+    "ankka.golden.update"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")

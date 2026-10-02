@@ -42,6 +42,12 @@ generated code uses only descriptor builders, `ServerCalls`/`ClientCalls` and th
 suppliers.
 
 **Not confirmed**: no statement that ScalaPB 0.11.x code runs against grpc-java 1.84 was found.
+**Confirmed 2026-10-02**: on grpc-java 1.84.0 and ScalaPB 0.11.20 the sidecar's 172 cases pass;
+the sidecar image carries `grpc-netty-shaded-1.84.0` and no other; against it the Python SDK's 98
+tests and the TypeScript SDK's 139 pass, and both conformance runs pass 66 cases with 5 skipped.
+The Rust SDK was not run (no toolchain on the machine), and exercises no grpc-java: a module is
+loaded into the sidecar's own JVM. Resolving also brought `grpc-util`, which carries the
+`round_robin` balancer R12 needs.
 **Proof**: the existing sidecar suites and the three SDK conformance runs, green on the bumped
 versions, before anything else is built (task 1 of the plan). **Fallback**: pin grpc-java at the
 newest line those suites pass on, no lower than 1.66.0.

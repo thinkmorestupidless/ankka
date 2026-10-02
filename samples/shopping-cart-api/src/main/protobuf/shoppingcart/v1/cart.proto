@@ -1,0 +1,23 @@
+// The shopping cart's gRPC API: the same cart its HTTP endpoint serves, as a service definition
+// another service, or a client generated in any language, calls.
+syntax = "proto3";
+
+package shoppingcart.v1;
+
+// docs:start service-definition
+service CartService {
+  rpc GetCart (GetCartRequest) returns (Cart);
+  rpc AddItem (AddItemRequest) returns (Cart);
+  // Who the service read the call as having come from, and which instance answered: what the
+  // platform's own tests ask a deployed cart.
+  rpc WhoCalled (WhoCalledRequest) returns (WhoCalledReply);
+}
+
+message GetCartRequest { string cart_id = 1; }
+message AddItemRequest { string cart_id = 1; LineItem item = 2; }
+message LineItem       { string product_id = 1; string name = 2; int32 quantity = 3; }
+message Cart           { string cart_id = 1; repeated LineItem items = 2; bool checked_out = 3; }
+// docs:end service-definition
+
+message WhoCalledRequest {}
+message WhoCalledReply   { string caller = 1; string instance = 2; }

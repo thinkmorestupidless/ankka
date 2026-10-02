@@ -42,7 +42,8 @@ feature also says what that feature does not do.
   identity-provider tokens; a deployed service's endpoints are protected only by the ACL their author
   wrote. The platform provisions no identity realm, client or token check for a service's users.
 - **Python and TypeScript services cannot call another service as themselves.** They can be called, and
-  read the caller; only a Scala service has a service client that presents its certificate.
+  read the caller; only a Scala service has a service client that presents its certificate, for HTTP or
+  for gRPC.
 - **Protection depends on the cluster enforcing network policy.** On a network plugin that accepts
   policies and ignores them, every connection is still mutual TLS and every caller still named, but
   nothing is refused before the handshake. `deploy-local.sh` checks; a cloud cluster must be checked by
@@ -64,12 +65,20 @@ feature also says what that feature does not do.
   cover memory, CPU or storage, there is no per-project quota, and a quota lowered below what an
   organization holds refuses new things but stops nothing that runs.
 - **Nothing at the gateway but routing.** There is no authentication, rate limiting or header policy at the
-  gateway. HTTP/1.1 only through it, with no gRPC or HTTP/2 to services, and one gateway per installation.
-- **One port, HTTP only.** A service has a single HTTP port and no other protocol.
+  gateway, and one gateway per installation.
+- **Two protocols: HTTP and gRPC.** A service has at most an HTTP port and a gRPC port, and serves no other
+  protocol. A web page cannot call a gRPC endpoint: gRPC-Web is not routed.
+- **A gRPC service's peers address is skipped if its name is taken.** A service that serves gRPC has a
+  headless address named `<service>-grpc-peers`. If another service in the project is called that, the
+  platform leaves that service's address alone and does not create the peers address, and callers then
+  balance by connection rather than by call.
 - **No custom hostnames.** An exposed service's hostname is derived by the platform as
   `<service>-<project>.<base domain>`. A domain of your own is not supported.
 
 ## Observability
+
+- **A call between services starts a new trace.** A call to another service, over HTTP or gRPC, is the root
+  of a trace in the service called; the two traces are not joined.
 
 - **The installation's console shows the control plane's records only.** [The console](../operate/console.md)
   at `console.<base domain>` manages organizations, projects, members, deploy tokens and services, and shows
@@ -135,6 +144,11 @@ feature also says what that feature does not do.
   guardrails for anything that must never be shown.
 
 ## SDKs and releases
+
+- **gRPC endpoints are for Scala services.** A Python, TypeScript or Rust service cannot declare one, and a
+  descriptor that declares gRPC with process or wasm hosting is refused.
+- **The local console does not call gRPC methods.** It lists them beside a service's routes; call them with
+  `grpcurl` or a client generated from the service definition.
 
 - **The TypeScript SDK declares and calls autonomous agents but cannot script one in its unit testkit.**
   Test one through a sidecar with `ANKKA_MODEL_SCRIPT`, as the Python SDK's integration testkit does.

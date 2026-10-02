@@ -382,6 +382,7 @@ modules/core      effects, ids, codecs, component descriptors — no Pekko, no I
 modules/sdk       the component API: entities, workflows, views, consumers, timers, client
 modules/runtime   interprets effects: sharding, persistence, projections, timers
 modules/http      endpoint DSL and server
+modules/grpc      gRPC endpoints, their server and the client for calling other services' gRPC
 modules/agent     model providers, session memory, function tools, the agent loop
 modules/testkit   unit and integration test support
 controlplane-api  descriptors, statuses and validation shared by the server and the CLI

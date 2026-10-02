@@ -62,8 +62,15 @@ The route's status is reported back. A route the gateway has not accepted, or ha
 resolve to a backend, shows on `ankka services get` as `route pending` or `route rejected: <reason>` in
 the `detail` line. See [Expose a service](../deploy/expose.md).
 
-The gateway routes HTTP/1.1. It forwards no gRPC or HTTP/2 to services, and applies no authentication,
-rate limit or header policy of its own: who may call an endpoint is decided by the endpoint's ACL.
+For a service whose descriptor declares gRPC, the route has a second rule, ahead of the first: a call whose
+`content-type` is `application/grpc`, alone or with a codec such as `+proto`, goes to the service's `grpc`
+port, and everything else to its HTTP port as before. One hostname therefore answers HTTP requests and gRPC
+calls alike. The gateway speaks HTTP/2 to the gRPC port, over TLS with the same backend TLS policy, and
+puts no limit of its own on how long a gRPC call lasts or stays idle, so a stream runs for as long as its
+caller and the service keep it open. gRPC-Web is not routed.
+
+The gateway applies no authentication, rate limit or header policy of its own: who may call an endpoint is
+decided by the endpoint's ACL.
 
 ## In-cluster addresses
 
@@ -82,6 +89,25 @@ the port by name. See [HTTP endpoints](../build/http-endpoints.md#call-another-s
 The port is the descriptor's `port`, 9000 by default. From that one value the platform renders the
 container port, `ANKKA_HTTP_PORT` for the runtime, and the Service's target, so the three cannot
 disagree. A descriptor with `"http": false` gets none of them.
+
+### gRPC addresses
+
+A service whose descriptor declares gRPC has a second port on the same Service, named `grpc`, the
+descriptor's `grpcPort` (9090 by default), and Kubernetes publishes its SRV record, `_grpc._tcp`. It also
+has a headless Service, `<service>-grpc-peers`, with no cluster IP, whose name resolves to one address per
+ready instance. A cluster IP balances connections, and a gRPC caller keeps one connection for minutes, so
+the platform's gRPC client resolves the headless name and balances its calls across instances one by one.
+The server asks each connection to reconnect every two minutes, which brings an instance added to the
+service into every caller's rotation within about that.
+
+A connection whose caller went away without closing it is found within forty seconds: the service asks an
+idle connection whether its caller is still there every thirty seconds, and waits ten for the answer. For a
+caller outside the cluster the gateway holds the connection, and when it gives up on a silent client is the
+gateway's own rule.
+
+The practical way to call another service's gRPC endpoint is `GrpcClients`, which presents the calling
+service's certificate and accepts only the service it asked for. See
+[gRPC endpoints](../build/grpc-endpoints.md#call-another-services-grpc-endpoint).
 
 ## Every connection is mutual TLS
 
@@ -165,6 +191,7 @@ Each workload also gets network policies, which refuse a connection before any T
 | Port | Admitted from |
 |---|---|
 | The service's HTTP port | the installation gateway's proxy pods, and any pod of an ankka workload in any ankka namespace |
+| The service's gRPC port | the same two |
 | 17355 (remoting) and 7626 (management) | the service's own pods only |
 | 7627 (readiness) | anywhere |
 | 5432 on a project's database | that project's ankka workloads, the database's own instances and the database operator |
@@ -173,8 +200,8 @@ Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-s
 `Gateway`'s. The policy therefore names those pods by the labels Envoy Gateway gives them, for the gateway
 `ankka` in `ankka-gateway`. A proxy for any other gateway in the cluster is not admitted.
 
-A project is not a network boundary for HTTP: a service in one project can open a connection to a service
-in another. Whether the request is served is the callee's ACL's decision, from the caller's certificate.
+A project is not a network boundary for HTTP or gRPC: a service in one project can open a connection to
+a service in another. Whether the request is served is the callee's ACL's decision, from the caller's certificate.
 That is deliberate — the network decides only that the caller is an ankka workload at all — and a
 project's cluster ports and database are closed to every other project either way.
 
@@ -183,6 +210,7 @@ project's cluster ports and database are closed to every other project either wa
 | Port | Name | Transport | Used for |
 |---|---|---|---|
 | 9000, or the descriptor's `port` | `http` | mutual TLS | the service's HTTP endpoints |
+| 9090, or the descriptor's `grpcPort` | `grpc` | mutual TLS, HTTP/2 | the service's gRPC endpoints, when the descriptor declares gRPC |
 | 17355 | `remoting` | mutual TLS | cluster remoting between the service's own instances |
 | 7626 | `management` | mutual TLS | cluster bootstrap, `/ankka/version` and `/ankka/metrics` |
 | 7627 | `probe` | plain HTTP | `GET /ready`, and nothing else |

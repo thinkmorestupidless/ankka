@@ -34,6 +34,7 @@ jobs:
       sdk-rust: ${{ steps.filter.outputs.sdk-rust == 'true' || github.event_name == 'workflow_dispatch' }}
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
+      features: ${{ steps.filter.outputs.features == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       # The map below is only as good as its coverage: a tracked file no filter claims is a file whose
       # change runs nothing, and a pattern that matches no file can never fire. Both would pass
@@ -78,6 +79,8 @@ jobs:
               - 'docker-compose.yml'
               # The wire fixtures the console's client is held to are written by a controlplane-api suite.
               - 'console/package/fixtures/**'
+              # The platform's living features: `GherkinSuite` runs them as tests, each scenario as written.
+              - 'features/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow
@@ -148,6 +151,15 @@ jobs:
               - 'cli/src/main/scala/**/mcp/McpInstall.scala'
               - 'cli/src/test/scala/**/cli/TemplateSuite.scala'
               - 'cli/src/test/scala/**/cli/TemplateSwitch.scala'
+            # The living features, the glossary their steps are held to, the specs that name their
+            # scenarios, and the config that says where each is and which specs are read.
+            features:
+              - *workflow
+              - '.github/features-check.sh'
+              - 'features/**'
+              - 'GLOSSARY.md'
+              - 'specs/**'
+              - '.specify/extensions/bdd/**'
             # Files no job reads, each for a reason. No job uses this output; it exists so that
             # `ci-coverage.py` can tell a file left out on purpose from one nobody thought about.
             unchecked:
@@ -160,7 +172,6 @@ jobs:
               - 'assets/**'                       # images for the repository's own pages, not the site's
               - '.claude/**'                      # spec-kit's commands for developing ankka
               - '.specify/**'
-              - 'specs/**'                        # feature records; nothing builds from them
 
   build:
     needs: changes
@@ -232,6 +243,20 @@ jobs:
   # The documentation: every page's rules, every included sample against its source, every generated
   # table against the code, the rendered skill, and a strict site build. The JVM-generated reference
   # pages and the descriptors shown in the docs are checked by the `build` job's suites.
+  # The living features, in the glossary's words, and the specs that name their scenarios, checked
+  # against each other by speckit-bdd: an undefined word, a refused synonym, two scenarios that give
+  # one situation different outcomes, a spec naming a scenario no feature has. The script reads the
+  # extension's own config, so it checks what `/speckit-bdd-check` checks, with the same checker, and
+  # it fails when nothing was read: a check that read no spec and no scenario has found nothing.
+  features:
+    needs: changes
+    if: needs.changes.outputs.features == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+      - run: .github/features-check.sh
+
   docs:
     needs: changes
     if: needs.changes.outputs.docs == 'true'

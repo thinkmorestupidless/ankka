@@ -167,6 +167,26 @@ class GherkinSuiteSuite extends munit.FunSuite:
     assert(run.failed.values.exists(_.contains("no scenarios under")), run.toString)
   }
 
+  test("a suite given one feature file runs that file's scenarios and no other's") {
+    val other = cart.replace("Feature: Cart", "Feature: Another cart")
+    val dir   = features("cart/add.feature" -> cart, "cart/other.feature" -> other)
+    val suite = new CartSteps(s"$dir/cart/add.feature") {}
+    val run   = this.run(classOf[CartSteps], () => suite)
+    val names = run.passed ++ run.failed.keys
+    // Two scenarios and one more Examples row: this file's three, and none of the other's.
+    assertEquals(names.size, 3, run.toString)
+    assert(names.forall(_.contains("cart/add.feature:")), run.toString)
+  }
+
+  test("a path that names no feature fails rather than passing having run nothing") {
+    val dir = features("cart/add.feature" -> cart, "cart/notes.txt" -> "not a feature")
+    for path <- Vector(s"$dir/cart/missing.feature", s"$dir/cart/notes.txt") do
+      val suite = new CartSteps(path) {}
+      val run   = this.run(classOf[CartSteps], () => suite)
+      assertEquals(run.passed, Vector.empty, path)
+      assert(run.failed.values.exists(_.contains("no scenarios under")), run.toString)
+  }
+
   test("a feature that does not parse fails, at its line") {
     val broken = "Feature: f\n  Scenario: s\n    Given an empty cart\n    this is not a step\n"
     val suite  = new CartSteps(features("broken.feature" -> broken)) {}

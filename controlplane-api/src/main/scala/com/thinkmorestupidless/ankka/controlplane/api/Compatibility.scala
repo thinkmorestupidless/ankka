@@ -46,9 +46,11 @@ object ProtocolVersion:
 object Protocol:
   /**
    * 1.1 added the caller to forwarded requests and caller-naming ACLs to discovery. 1.2 added the
-   * autonomous agent: a component kind, its definition in discovery, and the task-rule check.
+   * autonomous agent: a component kind, its definition in discovery, and the task-rule check. 1.3
+   * added a consumer's reply of several messages, each under its own record key, and the
+   * `ankka.protocol` entry on a consumer's request that says the runtime accepts it.
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 2)
+  val version: ProtocolVersion = ProtocolVersion(1, 3)
 
 object Compatibility:
 

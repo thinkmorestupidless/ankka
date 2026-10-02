@@ -15,7 +15,12 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName,
   Serializer
 }
-import com.thinkmorestupidless.ankka.runtime.remote.{Payload, PayloadKeys}
+import com.thinkmorestupidless.ankka.runtime.remote.{
+  Payload,
+  PayloadKeys,
+  RemoteProjection,
+  WireProtocol
+}
 import com.thinkmorestupidless.ankka.runtime.{
   Database,
   InMemoryBroker,
@@ -231,6 +236,31 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     // The topic-sourced remote view counted what the remote consumer produced.
     val counted = eventually()(row("notified-rows", "c1").filter(_.contains("\"count\":3")))
     assertEquals(counted, """{"count":3}""")
+  }
+
+  test("P3b every consumer request says what the runtime speaks, with its subject and sequence") {
+    record("c2", "a")
+    eventually()(Some(consumed("c2")).filter(_.nonEmpty))
+    assertEquals(invoke("conformance", "c2", "delete"), Right("done"))
+    val requests = eventually() {
+      val forC2 = double
+        .messagesOf { case r: PbConsumerRequest => r }
+        .filter(
+          _.metadata.exists(_.entries.exists(e => e.key == Metadata.CeSubject && e.value == "c2"))
+        )
+      Some(forC2).filter(_.exists(_.deleted))
+    }
+    assert(requests.exists(!_.deleted) && requests.exists(_.deleted), requests.toString)
+    requests.foreach { request =>
+      val entries = request.metadata.toList.flatMap(_.entries).map(e => e.key -> e.value).toMap
+      assertEquals(entries.get(WireProtocol.MetadataKey), Some("1.3"), request.toString)
+      assert(entries.get(RemoteProjection.SequenceKey).exists(_.toLong >= 1), request.toString)
+    }
+    // The deletion is a change after the event it follows.
+    val sequences = requests.sortBy(_.deleted).map { r =>
+      r.metadata.get.entries.find(_.key == RemoteProjection.SequenceKey).get.value.toLong
+    }
+    assert(sequences.last > sequences.head, sequences.toString)
   }
 
   test("P4 offsets survive a restart of the service") {

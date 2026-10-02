@@ -141,10 +141,28 @@ final case class ConsumerRequest(
     metadata: Metadata
 )
 
+/** One message of several a consumer produced. `key` absent means the message's subject. */
+final case class ProducedMessage(payload: Payload, metadata: Metadata, key: Option[String])
+
 enum ConsumerOutcome:
   case Produce(payload: Payload, metadata: Metadata)
+
+  /** Protocol 1.3: published in order, and the change is handled when all are accepted. */
+  case ProduceAll(messages: Vector[ProducedMessage])
   case Done
   case Ignore
+
+/**
+ * The version of the protocol this runtime speaks, and where it says so to a consumer.
+ *
+ * Written here for the runtime and the sidecar, and once more in `controlplane-api`
+ * (`Protocol.version`), which cannot see this module. A consumer's request carries it as metadata
+ * because a runtime that does not know a reply drops it: an SDK reads the entry before it answers
+ * with anything an earlier runtime would not understand.
+ */
+object WireProtocol:
+  val Version: String     = "1.3"
+  val MetadataKey: String = "ankka.protocol"
 
 /**
  * `payload` is what the process itself scheduled — the serialized `Payload` message, opaque to the

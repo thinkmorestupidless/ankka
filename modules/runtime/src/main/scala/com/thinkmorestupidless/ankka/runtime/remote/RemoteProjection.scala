@@ -51,6 +51,13 @@ private[ankka] object RemoteProjection:
   def changeMetadata(subject: String, sequence: Long): Metadata =
     Metadata.empty.withSubject(subject).set(SequenceKey, sequence.toString)
 
+  /**
+   * What a consumer is told about a change: a view's, and what this runtime speaks, so the process
+   * knows whether it may answer with several messages.
+   */
+  def consumerMetadata(subject: String, sequence: Long): Metadata =
+    changeMetadata(subject, sequence).set(WireProtocol.MetadataKey, WireProtocol.Version)
+
   def payloadOf(record: JournalRecord): Payload =
     Payload(Payload.contentTypeFor(record.manifest), record.manifest, record.payload)
 
@@ -209,7 +216,7 @@ private[ankka] final class RemoteConsumer(
         ConsumerRequest(
           descriptor.componentId,
           change,
-          Trace.into(changeMetadata(subject, sequence), span.traceId, span.id)
+          Trace.into(consumerMetadata(subject, sequence), span.traceId, span.id)
         )
       )
       .transform { result =>
@@ -218,6 +225,13 @@ private[ankka] final class RemoteConsumer(
         result
       }
       .flatMap {
+        case ConsumerOutcome.ProduceAll(_) =>
+          Future.failed(
+            IllegalStateException(
+              s"consumer '${descriptor.componentId}' produced several messages, which this " +
+                "runtime does not publish yet"
+            )
+          )
         case ConsumerOutcome.Produce(payload, metadata) =>
           (descriptor.producesTo, publisher) match
             case (Some(topic), Some(target)) =>

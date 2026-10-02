@@ -423,3 +423,20 @@ history; the new page in `nav` and a skill or `docs check` fails.
   64-bit integer) counts as refused there.
 - **The ankka-flow change is commit `9905de1` on its branch `graph-delta-fixtures`**, not yet
   pushed; `SOURCE.md` names it.
+- **V4, a reply the runtime does not know** — confirmed, as a case of `TranslateSuite`: an effect
+  with no case set translates to `Ignore`. The suite is a new pure one beside `ProtocolSuite`,
+  which starts an actor system and a process double and is the wrong place for five cases that
+  need neither.
+- **The protocol version is written twice in Scala, not three times.** The sidecar's
+  `Discovery.ProtocolVersion` now reads `WireProtocol.Version` in `runtime/remote`, where the
+  stamp also lives; `controlplane-api`'s `Protocol.version` stays the second place, since that
+  module cannot see `runtime`.
+- **`ankka.protocol` is set by `RemoteConsumer`, on consumer requests only**, not on a view's.
+  There is no case for it in `WasmHostSuite`: that suite calls the conversation directly, below
+  where the entry is added. The module path is covered when the Rust module's guard meets the
+  conformance cases — a missing entry would fail every several-message reply.
+- **`protocol/WASM-ABI.md` states no version**; it gained the sentence about the two entries a
+  consumer's request carries.
+- **The build was not warning-free before this branch**: `operator` (`ZeroTrust.scala:297`, an
+  unused parameter), `operator`'s and `controlplane-api`'s tests (discarded values) warn on `main`.
+  Not this feature's; nothing this feature touches warns.

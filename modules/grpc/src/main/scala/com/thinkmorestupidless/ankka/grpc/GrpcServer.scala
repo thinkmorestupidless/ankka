@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.grpc
 
-import com.thinkmorestupidless.ankka.http.EndpointClients
+import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients}
 import com.thinkmorestupidless.ankka.runtime.{
   DeclaredGrpc,
   Observability,
@@ -42,7 +42,8 @@ final class GrpcServer private (
     factories: Seq[EndpointClients => GrpcEndpoint],
     interface: Option[String],
     port: Option[Int],
-    tlsDirectory: Option[Path] = None
+    tlsDirectory: Option[Path] = None,
+    reflection: Option[Acl] = None
 ) extends RuntimeExtension:
 
   /**
@@ -50,7 +51,18 @@ final class GrpcServer private (
    * suite that needs a caller read from a real certificate without a cluster.
    */
   private[ankka] def withTls(directory: Path): GrpcServer =
-    new GrpcServer(factories, interface, port, Some(directory))
+    new GrpcServer(factories, interface, port, Some(directory), reflection)
+
+  /**
+   * Answers the standard reflection service — v1 and the v1alpha tools fall back to — so a tool
+   * such as `grpcurl` can list this service's definitions, their methods and their messages with no
+   * `.proto` file, for the callers `acl` admits.
+   *
+   * Opting in describes the whole service: every endpoint's methods are listed to whoever `acl`
+   * admits, whatever that endpoint's own ACL. It changes nothing about who may call them.
+   */
+  def withReflection(acl: Acl): GrpcServer =
+    new GrpcServer(factories, interface, port, tlsDirectory, Some(acl))
 
   private val log = LoggerFactory.getLogger(classOf[GrpcServer])
 
@@ -80,6 +92,10 @@ final class GrpcServer private (
       hosting: Hosting = Hosting()
   ): Unit =
     GrpcServer.validate(endpoints)
+    if reflection.contains(null) then
+      throw IllegalArgumentException(
+        "invalid ankka grpc configuration:\n  - reflection states no acl"
+      )
     grace = duration(config, "ankka.grpc.shutdown-grace")
 
     val tls       = serviceTls(config)
@@ -104,6 +120,7 @@ final class GrpcServer private (
     endpoints.foreach(endpoint =>
       builder.addService(Binding.definition(endpoint, admission, hosting))
     )
+    reflection.foreach(acl => Reflection.services(acl, admission).foreach(builder.addService))
 
     val started =
       try builder.build().start()

@@ -54,7 +54,7 @@ first, read by its own sink, before they are copied here (R12).
 planning found absent.
 
 **⚠️ CRITICAL**: the protocol group (T004–T006) blocks every user story. The key value group
-(T007–T012) blocks only US3's key value scenarios and the conformance cases that use `log-graph`;
+(T007–T012) blocks only US3's key value scenarios and the conformance cases that use `profile-graph`;
 it has nothing to do with graphs, ends green on its own, and can be merged first as its own
 change.
 
@@ -151,10 +151,10 @@ and create it again and read the versions published: they rise throughout.
 
 - [ ] T036 [US3] `TKT/GraphComponents.scala` (graph consumers over an event sourced entity, a key value entity and a topic) and `TKT/GraphVersionsSuite.scala` over Postgres with `InMemoryBroker`, one case per US3 scenario: a change handled twice (forced with `failNext`) publishes equal `(key, version, delta)`; event sourced versions are the events' sequence numbers; key value versions are revisions, never 0; a tombstone from `onDelete` is above every earlier version, for both kinds of entity; delete then create again publishes above the tombstone, for both kinds; a topic source with no stated version fails the message with the "no sequence number" error and with one publishes; a stated version replaces the sequence number.
 - [ ] T037 [US3] Fix what T036 shows, in the file it points at (`SDK/graph/` for version resolution, `RT/ProjectionRuntime.scala` or `RT/KeyValueEntityHost.scala` for sequence numbers), until it is green; record anything that was not as the plan assumed in `research.md`.
-- [ ] T038 [US3] Conformance: add `log-graph` to `CONF/ConformanceReference.scala`; add `consumer.graph-delete-and-recreate`, `consumer.graph-replay-is-equal`, `consumer.kv-sequence`, `kv.delete-is-a-change` and `kv.delete-then-write` to `CONF/ConformanceSuite.scala` and `specs/009-polyglot-runtimes/contracts/conformance.md`, as `contracts/protocol.md` specifies. Show each failing without the piece it tests.
-- [ ] T039 [P] [US3] Python: add `log-graph` to `PY/examples/shopping_cart/conformance.py`; cases in `PY/tests/test_graph.py` for a stated version, the no-sequence refusal from a topic source, and equal output for the same change twice. `uv run conformance` green on the five new cases.
-- [ ] T040 [P] [US3] TypeScript: add `log-graph` to `TS/examples/shopping-cart/conformance.ts`; the same cases in `TS/test/graph.test.ts`. `npm run conformance` green on the five new cases.
-- [ ] T041 [P] [US3] Rust: add `log-graph` to `RS/examples/shopping-cart/src/conformance.rs`; the same cases in `RS/ankka/tests/graph.rs`. `./conformance.sh` green on the five new cases in both shapes.
+- [ ] T038 [US3] Conformance: add `profile-graph` to `CONF/ConformanceReference.scala`; add `consumer.graph-delete-and-recreate`, `consumer.graph-replay-is-equal`, `consumer.kv-sequence`, `kv.delete-is-a-change` and `kv.delete-then-write` to `CONF/ConformanceSuite.scala` and `specs/009-polyglot-runtimes/contracts/conformance.md`, as `contracts/protocol.md` specifies. Show each failing without the piece it tests.
+- [ ] T039 [P] [US3] Python: add `profile-graph` to `PY/examples/shopping_cart/conformance.py`; cases in `PY/tests/test_graph.py` for a stated version, the no-sequence refusal from a topic source, and equal output for the same change twice. `uv run conformance` green on the five new cases.
+- [ ] T040 [P] [US3] TypeScript: add `profile-graph` to `TS/examples/shopping-cart/conformance.ts`; the same cases in `TS/test/graph.test.ts`. `npm run conformance` green on the five new cases.
+- [ ] T041 [P] [US3] Rust: add `profile-graph` to `RS/examples/shopping-cart/src/conformance.rs`; the same cases in `RS/ankka/tests/graph.rs`. `./conformance.sh` green on the five new cases in both shapes.
 
 **Checkpoint**: all eleven conformance cases of `contracts/protocol.md` pass against all four targets.
 

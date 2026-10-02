@@ -102,7 +102,7 @@ Each reference service adds:
 |---|---|---|---|---|
 | `checkout-fanout` | consumer | the cart's events | `conformance-fanout` | `ItemAdded`: an empty list. `ItemRemoved`: a single `produce` of `{n: 0}`. `CheckedOut`: three messages `{n: 1}`, `{n: 2}`, `{n: 3}`; the second with key `second:<cartId>`; the third with metadata `x-n: 3`. `Discarded`: ignore. The messages are JSON under the manifest `fanned`. |
 | `cart-graph` | graph consumer | the cart's events | `conformance-graph` | the table in [graph-builder.md](graph-builder.md#the-cart-graph) |
-| `log-graph` | graph consumer | the key value entity | `conformance-log-graph` | each state: node `log:<id>`, label `Log`. Deletion: its tombstone. |
+| `profile-graph` | graph consumer | the key value entity `profile` | `conformance-profile-graph` | each state: node `profile:<id>`, labels `[Profile]`, properties `{name: <the state's name>}`. Deletion: a tombstone for node `profile:<id>`. |
 
 | Case | Asserts |
 |---|---|
@@ -114,6 +114,6 @@ Each reference service adds:
 | `consumer.graph-deltas` | for the scripted history, the records read back equal the expected `(key, delta)` list, with versions equal to the sequence numbers and `ce-type` `ankka.graph-delta.v1` |
 | `consumer.graph-delete-and-recreate` | discard, then add: a tombstone above every earlier version, then a node above the tombstone |
 | `consumer.graph-replay-is-equal` | the same change handled twice publishes equal `(key, delta)` |
-| `consumer.kv-sequence` | `log-graph`'s deltas carry revisions 1, 2, … and never 0 |
-| `kv.delete-is-a-change` | deleting the key value entity publishes `log-graph`'s tombstone at the next revision, and removes the row of a view over it |
+| `consumer.kv-sequence` | `profile-graph`'s deltas carry revisions 1, 2, … and never 0 |
+| `kv.delete-is-a-change` | deleting the key value entity publishes `profile-graph`'s tombstone at the next revision. (That a view's row goes with it is held by `KeyValueDeletionSuite` and `RemoteProjectionSuite`; no reference has a view over the key value entity.) |
 | `kv.delete-then-write` | a write after a deletion succeeds, reads back, and publishes at a revision above the tombstone's |

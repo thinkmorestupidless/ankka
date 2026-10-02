@@ -329,7 +329,7 @@ nothing; every target builds `ProjectionRuntime()` with no broker (`ConformanceT
 **Decision**: the targets are given an `InMemoryBroker`, and one that can be told to fail the
 next publication to a topic. Each reference service gains three components: `checkout-fanout`
 (several plain messages, one keyed, one not), `cart-graph` (a graph consumer over the cart) and
-`log-graph` (a graph consumer over the key value entity). New cases, listed in
+`profile-graph` (a graph consumer over the key value entity). New cases, listed in
 [contracts/protocol.md](contracts/protocol.md): order; named and default keys with the subject
 unchanged; the empty list; redelivery when a publication fails; the graph's records for a
 scripted history, compared as read deltas; the revision as a key value consumer's sequence; a key

@@ -143,7 +143,10 @@ lazy val commonSettings = Seq(
     "ankka.conformance.target",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
-    "ankka.docs.update"
+    "ankka.docs.update",
+    // The operator's rendering as it was before web hosting (feature 021): with `true`,
+    // `RenderingUnchangedSuite` rewrites its fixtures. Its own switch, so that nothing else repins it.
+    "ankka.rendering.pin"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")

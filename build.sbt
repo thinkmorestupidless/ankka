@@ -149,7 +149,10 @@ lazy val commonSettings = Seq(
     "ankka.docs.update",
     // The operator's rendering record (RenderingGoldenSuite): with `true` it is rewritten instead
     // of compared, which is only ever right for a change meant to alter what a service renders.
-    "ankka.golden.update"
+    "ankka.golden.update",
+    // The operator's rendering as it was before web hosting (feature 021): with `true`,
+    // `RenderingUnchangedSuite` rewrites its fixtures. Its own switch, so that nothing else repins it.
+    "ankka.rendering.pin"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")

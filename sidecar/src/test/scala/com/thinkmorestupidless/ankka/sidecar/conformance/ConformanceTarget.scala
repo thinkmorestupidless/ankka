@@ -239,7 +239,13 @@ object ConformanceTarget:
       )
     private val module =
       ModuleLoader.load(path).fold(p => throw IllegalStateException(p.mkString("; ")), identity)
-    private val overrides = Map("ANKKA_CONFORMANCE_SHAPE" -> shape)
+    // The shape the module runs in, and a broker named: the reference registers the components
+    // that publish only where there is one, and here there is — `broker`, in this JVM. The value
+    // is read by the module alone; nothing connects to it.
+    private val overrides = Map(
+      "ANKKA_CONFORMANCE_SHAPE"       -> shape,
+      "ANKKA_KAFKA_BOOTSTRAP_SERVERS" -> "the conformance suite's in-memory broker"
+    )
     private val imports =
       HostImports(
         settings.commandTimeout,

@@ -368,7 +368,7 @@ lines as a property. It is kept out of `CartGraph` and out of conformance becaus
 publishes depends on how far the entity has got, and the conformance case compares exact records.
 
 **The pipeline**: `samples/shopping-cart/graph/` holds an ankka-flow blueprint whose one streamlet
-is `builtin/neo4j-merge` and whose one topic is managed, named `cart-graph` — the name the
+is `builtin/neo4j-merge-sink` and whose one topic is managed, named `cart-graph` — the name the
 consumer publishes to — with the steps to run it. ankka's local overlay has no Kafka
 (`kustomization/` names none); the run uses the broker and the graph database ankka-flow's local
 deployment installs, as its checkout samples do.
@@ -593,3 +593,22 @@ What it found:
   named, with `recordKeys` for what a broker is given. It first reported the latter, and the docs
   had to explain the difference.
 - **`drive.sh` broke on bash 3.2** with an apostrophe inside `${1:?…}`; reworded.
+
+## The whole build (2026-10-02)
+
+- **The Rust conformance module broke `SidecarClusterSuite`.** That suite deploys the module into
+  a cluster with no broker, and the reference registered its three publishing consumers
+  unconditionally, so the runtime refused to start it and four cases timed out. The reference now
+  registers them only where a broker is named, as the examples do, and the conformance target
+  names one in the module's configuration. The crate's test kit gained `with_config`, so a test
+  can set what `ankka::config` reads; the example's unit tests hold both cases.
+- **Passing, each run after the last change to it**: formatting; `core` 139, `sdk` 11, `runtime`
+  81, `testkit` 306, the sample 90, `cli` 141, and in `sidecar` the conformance, translation,
+  remote projection and fan-out suites; Python 243 with mypy clean; TypeScript 250; Rust's fmt,
+  clippy, tests and docs; all 82 conformance cases against the Scala reference, the Python and
+  TypeScript processes and the Rust module in both shapes; the docs build, 78 pages; the CI
+  coverage check. `operator`'s 16 suites, its cluster suite among them, passed in the first run.
+- **A mistake of mine in running it**: I read a truncated process listing as the first run having
+  been killed, and started a second beside it. For eleven minutes two builds shared the machine.
+  The sidecar cluster suite's first re-run fell in that window and two of its "a restart refuses
+  no request" cases each saw one refused request; it was run again alone.

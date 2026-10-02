@@ -818,16 +818,24 @@ pub fn shape() -> Shape {
 /// against, in the shape `ANKKA_CONFORMANCE_SHAPE` names.
 pub fn build() -> Service {
     let shape = shape();
-    Service::new("ankka-rust")
+    let service = Service::new("ankka-rust")
         .register_as(ShoppingCart, shape)
         .register(CartRows)
         .register_as(CheckoutWorkflow, shape)
         .register_as(Conformance, shape)
         .register_as(Profile, shape)
-        .register(CheckoutRecorder)
-        .register(CheckoutFanout)
-        .register(ConformanceCartGraph)
-        .register(ProfileGraph)
+        .register(CheckoutRecorder);
+    // The three that publish need a broker, and a runtime with none refuses a module that has
+    // them. So they are registered where one is named, as the example's own are: the conformance
+    // suite names one, and a cluster this module is deployed to without one does not.
+    let service = match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service
+            .register(CheckoutFanout)
+            .register(ConformanceCartGraph)
+            .register(ProfileGraph),
+        None => service,
+    };
+    service
         .register(Reminder)
         .register(ConformanceAssistant)
         .register(ConformanceAnswerer)

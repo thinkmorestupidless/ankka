@@ -21,7 +21,7 @@ pub use kinds::{
     StepNext, TimedActionTestKit, ViewTestKit, WorkflowTestKit,
 };
 #[cfg(not(target_arch = "wasm32"))]
-pub use unit::{CommandOutcome, EndpointTestKit, EventSourcedTestKit};
+pub use unit::{CommandOutcome, EndpointTestKit, EventSourcedTestKit, with_config};
 
 use serde::de::DeserializeOwned;
 

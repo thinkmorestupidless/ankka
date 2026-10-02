@@ -64,6 +64,10 @@ larger integers are `bigint`.
 | the same kind and id twice in one result | `duplicate` |
 | no stated version and the change's sequence number is below 1 | `no-sequence` |
 
+Every SDK's refusal carries the reason's name as the fixture has it (`GraphElementRefused.why`,
+`RefusedElement.why`, `GraphError.why`, `Refused` with a `Why`), so a test asserts the rule and not
+the wording.
+
 A refusal is an error raised in the handler. The change is not handled and is delivered again; no
 part of the result is published.
 

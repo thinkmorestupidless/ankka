@@ -140,3 +140,20 @@ class GraphConsumerTestKit(Generic[Src]):
 
 The kits set `ankka.protocol` to the SDK's own version, so the guard passes; a test of the guard
 builds the request without it.
+
+## As built
+
+Where the SDK settled what this contract left open, or went further:
+
+- A refusal is `graph.RefusedElement`, a `ValueError` with `.why`, the reason's name as
+  `refused.json` has it. A non-string property name is refused as `property-name`.
+- `graph.CODEC` is the delta's codec (manifest `ankka.graph-delta.v1`), for a consumer that reads
+  a delta topic; `graph.resolve` settles a result's versions and duplicates.
+- `GraphConsumer` is not a subclass of `Consumer`. It carries an `out_codec` the SDK sets, so one
+  servicer and one registry serve both; declaring an `out_codec` on one is a `RegistrationError`.
+- `read` returns properties as the sink stores them: a whole-valued number is an `int`.
+- An empty `ProduceAll` is answered as `done`, and one un-keyed message as `produce`, on any
+  runtime; the guard fires for two or more messages or any keyed one, and fails the call with
+  `FAILED_PRECONDITION` and the contract's message.
+- `ConsumerTestKit.of` takes no client; `GraphConsumerTestKit.of` does.
+- `GraphConsumer` and `graph` are exported from `ankka`.

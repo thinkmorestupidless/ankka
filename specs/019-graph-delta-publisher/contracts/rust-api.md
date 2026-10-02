@@ -141,3 +141,21 @@ impl<G: GraphConsumer> GraphConsumerTestKit<G> {
 ```
 
 The kits set `ankka.protocol` to the crate's own version.
+
+## As built
+
+Where the crate settled what this contract left open, or went further:
+
+- A refusal is `graph::Refused` with a `Why`; `graph::resolve` is what dispatch runs and what a
+  test asserts a reason through. There is one reason the other SDKs cannot reach, `misplaced`: the
+  one chainable `Element` can be given a label on an edge or a property on a tombstone.
+- `Value` equality is the reader's: `Float(2.0) == Integer(2)`.
+- `Outgoing::of(payload)` takes an already-encoded payload and `into_parts()` takes one apart. The
+  conformance reference needs the first to publish under the manifest `fanned`, since the crate's
+  default manifest for a JSON type is the type's name.
+- An empty list is answered as `done` and one un-keyed message as `produce`.
+- Test kit: `ConsumerTestKit::speaking(Option<&str>)` sets or removes `ankka.protocol`, for a test
+  of the guard; `Published::read::<T>()` decodes a message; `GraphConsumerTestKit::records(..)`
+  returns the raw records.
+- A foreign delta carrying exactly -2⁶³-1 reads as `i64::MIN`: the JSON parser rounds it without
+  arbitrary precision. The builder cannot write it.

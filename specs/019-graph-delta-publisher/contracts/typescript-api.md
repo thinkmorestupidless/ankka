@@ -143,3 +143,18 @@ class GraphConsumerTestKit<M> {
 ```
 
 The kits set `ankka.protocol` to the SDK's own version.
+
+## As built
+
+Where the SDK settled what this contract left open, or went further:
+
+- A refusal is `GraphError`, with `why`, the reason's name as `refused.json` has it. An integral
+  `number` between 2⁵³ and 2⁶³ is refused as `integer-range`, saying to pass a `bigint`.
+- `graphDeltaCodec` and `elementKey` are exported; `readDelta` returns a `Delta`, an element with
+  its version. With no `key` argument it makes no key check.
+- An element is validated where `Graph` builds it and again when a result is resolved, because
+  `Element` is a public union an author can write by hand.
+- A graph consumer that declares a static `out` is refused at registration.
+- An empty list is answered as `done`; the guard fails the request with `Code.Internal` and the
+  contract's message.
+- `GraphConsumerTestKit`'s options also take `metadata`.

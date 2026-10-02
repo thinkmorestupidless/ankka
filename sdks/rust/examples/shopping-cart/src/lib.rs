@@ -80,17 +80,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_conformance_reference_declares_what_the_suite_expects() {
+    fn conformance_ids() -> Vec<String> {
         let service = super::conformance::build().build().expect("no problems");
         let spec = service.discover(&SidecarInfo::default());
-        let ids: Vec<String> = spec
-            .spec
+        // No shape is named: the module is stateless.
+        assert!(spec.stateful.is_empty());
+        spec.spec
             .unwrap()
             .components
             .into_iter()
             .map(|c| c.id)
-            .collect();
+            .collect()
+    }
+
+    #[test]
+    fn the_conformance_reference_declares_what_the_suite_expects() {
+        // A broker named, as the conformance suite names one and a descriptor would.
+        let ids = ankka::testkit::with_config(
+            &[("ANKKA_KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")],
+            conformance_ids,
+        );
         assert_eq!(
             ids,
             vec![
@@ -108,8 +117,19 @@ mod tests {
                 "shopping-cart"
             ]
         );
-        // No config import natively: the shape defaults to stateless.
-        assert!(spec.stateful.is_empty());
+    }
+
+    #[test]
+    fn with_no_broker_named_the_reference_registers_nothing_that_publishes() {
+        // A runtime with no broker refuses a module with a publishing consumer, and the cluster
+        // suite deploys this module where there is none.
+        let ids = conformance_ids();
+        assert!(
+            !ids.iter()
+                .any(|id| ["cart-graph", "checkout-fanout", "profile-graph"].contains(&id.as_str())),
+            "{ids:?}"
+        );
+        assert_eq!(ids.len(), 9, "{ids:?}");
     }
 
     use crate::conformance::{

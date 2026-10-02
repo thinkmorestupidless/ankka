@@ -319,3 +319,14 @@ fn a_graph_consumers_elements_are_read_back_and_its_calls_are_answered_in_memory
         r#"{"kind":"node","id":"tally:apples","version":5,"labels":["Tally"],"properties":{"name":"apples","total":0}}"#
     );
 }
+
+#[test]
+fn a_test_sets_the_variables_a_service_reads_from_its_descriptor() {
+    // Outside `with_config` a test reads every variable as unset.
+    assert_eq!(ankka::config("GREETING"), None);
+    let read = ankka::testkit::with_config(&[("GREETING", "hello")], || {
+        (ankka::config("GREETING"), ankka::config("OTHER"))
+    });
+    assert_eq!(read, (Some("hello".to_string()), None));
+    assert_eq!(ankka::config("GREETING"), None);
+}

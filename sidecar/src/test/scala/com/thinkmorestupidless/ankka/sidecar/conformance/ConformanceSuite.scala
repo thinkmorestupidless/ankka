@@ -396,6 +396,75 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assert(journal("conformance|k1").exists(_._3.contains("checkout")))
   }
 
+  // ── A consumer's several messages ──────────────────────────────────────────
+
+  /** What `checkout-fanout` published about one cart: (record key, n, the message's metadata). */
+  private def fanned(
+      cart: String
+  ): Vector[(Option[String], Int, com.thinkmorestupidless.ankka.core.Metadata)] =
+    target.broker
+      .publishedTo("conformance-fanout")
+      .toVector
+      .filter(_.message.metadata.subject.contains(cart))
+      .map { d =>
+        val n = Json.parse(d.text).toOption.flatMap(_("n")).flatMap(_.asDouble).map(_.toInt)
+        (d.message.key, n.getOrElse(fail(s"not a fanned message: ${d.text}")), d.message.metadata)
+      }
+
+  private def checkedOut(cart: String): Unit =
+    postJson(s"/carts/$cart/items", cartJson("p1", "Pen", 1))
+    assertEquals(post(s"/carts/$cart/checkout").status, 200)
+
+  test("consumer.produce-all-in-order") {
+    checkedOut("fan1")
+    val records = eventually()(Some(fanned("fan1")).filter(_.sizeIs >= 3))
+    assertEquals(records.map(_._2), Vector(1, 2, 3))
+  }
+
+  test("consumer.produce-all-keys") {
+    checkedOut("fan2")
+    val records = eventually()(Some(fanned("fan2")).filter(_.sizeIs >= 3))
+    // The key named, else the subject; the subject is the cart's id whatever the key.
+    assertEquals(records.map(_._1), Vector(Some("fan2"), Some("second:fan2"), Some("fan2")))
+    assertEquals(records.map(_._3.subject).distinct, Vector(Some("fan2")))
+    assertEquals(records.map(_._3.get("x-n")), Vector(None, None, Some("3")))
+  }
+
+  test("consumer.produce-all-empty") {
+    postJson("/carts/fan3/items", cartJson("p1", "Pen", 1))
+    postJson("/carts/fan3/items", cartJson("p2", "Ink", 1))
+    assertEquals(post("/carts/fan3/checkout").status, 200)
+    // The two items added published nothing and were handled: the checkout after them is here,
+    // and it is all that is here.
+    val records = eventually()(Some(fanned("fan3")).filter(_.sizeIs >= 3))
+    assertEquals(records.map(_._2), Vector(1, 2, 3))
+  }
+
+  test("consumer.produce-all-redelivers") {
+    // The consumer is running and has nothing in flight before a publication is made to fail.
+    checkedOut("fan4")
+    eventually()(Some(fanned("fan4")).filter(_.sizeIs >= 3))
+
+    postJson("/carts/fan5/items", cartJson("p1", "Pen", 1))
+    target.broker.failNext("conformance-fanout", after = 1)
+    assertEquals(post("/carts/fan5/checkout").status, 200)
+    val records = eventually(90.seconds)(Some(fanned("fan5")).filter(_.exists(_._2 == 2)))
+    assert(
+      records.count(_._2 == 1) >= 2,
+      s"the first message was published again: ${records.map(_._2)}"
+    )
+    assertEquals(records.takeRight(3).map(_._2), Vector(1, 2, 3))
+  }
+
+  test("consumer.single-produce-unchanged") {
+    postJson("/carts/fan6/items", cartJson("p1", "Pen", 1))
+    assertEquals(send("DELETE", "/carts/fan6/items/p1").status, 204)
+    val (key, n, metadata) = eventually()(fanned("fan6").headOption)
+    assertEquals(n, 0)
+    assertEquals(key, Some("fan6"))
+    assertEquals(metadata.subject, Some("fan6"))
+  }
+
   // ── Timed action ───────────────────────────────────────────────────────────
 
   test("timer.fires") {

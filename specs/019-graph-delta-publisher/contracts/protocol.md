@@ -100,17 +100,17 @@ Each reference service adds:
 
 | Component | Kind | Source | Topic | Behaviour |
 |---|---|---|---|---|
-| `checkout-fanout` | consumer | the cart's events | `conformance-fanout` | `ItemAdded`: an empty list. `CheckedOut`: three messages `{n: 1}`, `{n: 2}`, `{n: 3}`; the second with key `second:<cartId>`; the third with metadata `x-n: 3`. Others: ignore. |
+| `checkout-fanout` | consumer | the cart's events | `conformance-fanout` | `ItemAdded`: an empty list. `ItemRemoved`: a single `produce` of `{n: 0}`. `CheckedOut`: three messages `{n: 1}`, `{n: 2}`, `{n: 3}`; the second with key `second:<cartId>`; the third with metadata `x-n: 3`. `Discarded`: ignore. The messages are JSON under the manifest `fanned`. |
 | `cart-graph` | graph consumer | the cart's events | `conformance-graph` | the table in [graph-builder.md](graph-builder.md#the-cart-graph) |
 | `log-graph` | graph consumer | the key value entity | `conformance-log-graph` | each state: node `log:<id>`, label `Log`. Deletion: its tombstone. |
 
 | Case | Asserts |
 |---|---|
 | `consumer.produce-all-in-order` | three records for a checkout, payloads in order |
-| `consumer.produce-all-keys` | record keys `<cartId>`, `second:<cartId>`, `<cartId>`; `ce-subject` is `<cartId>` on all three; `x-n` on the third only; three different `ce-id`s |
+| `consumer.produce-all-keys` | record keys `<cartId>`, `second:<cartId>`, `<cartId>`; `ce-subject` is `<cartId>` on all three; `x-n` on the third only. (That each record is its own CloudEvent, with a `ce-id` of its own, is the Kafka publisher's and is held by `KafkaSuite`; the in-memory broker adds no headers.) |
 | `consumer.produce-all-empty` | an `ItemAdded` publishes nothing and a later checkout is still published: the change was handled |
 | `consumer.produce-all-redelivers` | with the second publication made to fail once, all three payloads are eventually in the topic, and the first is there at least twice |
-| `consumer.single-produce-unchanged` | the existing single-message consumer's record: key = subject, headers as in 1.2 |
+| `consumer.single-produce-unchanged` | `checkout-fanout`'s single `produce` for an item removed: record key and subject both the cart's id |
 | `consumer.graph-deltas` | for the scripted history, the records read back equal the expected `(key, delta)` list, with versions equal to the sequence numbers and `ce-type` `ankka.graph-delta.v1` |
 | `consumer.graph-delete-and-recreate` | discard, then add: a tombstone above every earlier version, then a node above the tombstone |
 | `consumer.graph-replay-is-equal` | the same change handled twice publishes equal `(key, delta)` |

@@ -52,20 +52,55 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
 
   private val subscriptions = ConcurrentHashMap[String, CopyOnWriteArrayList[Subscription]]()
   private val delivered     = CopyOnWriteArrayList[InMemoryBroker.Delivered]()
+  // Per topic: how many more publications succeed before one is refused. Absent: none is.
+  private val failures = ConcurrentHashMap[String, java.lang.Integer]()
 
   private given ExecutionContext = ExecutionContext.parasitic
 
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
-    val message = IncomingMessage(metadata.subject, payload, metadata)
-    delivered.add(InMemoryBroker.Delivered(topic, message)): Unit
+    publish(topic, None, payload, metadata)
 
-    val listeners = Option(subscriptions.get(topic)).map(_.asScala.toVector).getOrElse(Vector.empty)
-    if listeners.isEmpty then Future.successful(Done)
+  /** The record key is the one named, else the subject, as on a real broker. */
+  override def publish(
+      topic: String,
+      key: Option[String],
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[Done] =
+    if refuses(topic) then
+      Future.failed(InMemoryBroker.Refused(s"the broker refused a publication to '$topic'"))
     else
-      // Every group gets its own copy, as a broker would.
-      Future
-        .sequence(listeners.map(_.handle(message)))
-        .map(_ => Done)
+      val message = IncomingMessage(key.orElse(metadata.subject), payload, metadata)
+      delivered.add(InMemoryBroker.Delivered(topic, message)): Unit
+
+      val listeners =
+        Option(subscriptions.get(topic)).map(_.asScala.toVector).getOrElse(Vector.empty)
+      if listeners.isEmpty then Future.successful(Done)
+      else
+        // Every group gets its own copy, as a broker would.
+        Future
+          .sequence(listeners.map(_.handle(message)))
+          .map(_ => Done)
+
+  /**
+   * Refuses one publication to `topic`: the next, or the one after `after` more have succeeded. For
+   * testing what a consumer does when the broker accepts some of a change's messages and not the
+   * rest. Publications after the refused one succeed.
+   */
+  def failNext(topic: String, after: Int = 0): Unit =
+    failures.put(topic, after): Unit
+
+  private def refuses(topic: String): Boolean =
+    var refused = false
+    failures.computeIfPresent(
+      topic,
+      (_, remaining) =>
+        if remaining == 0 then
+          refused = true
+          null
+        else remaining - 1
+    ): Unit
+    refused
 
   def subscribe(topic: String, groupId: String, handle: IncomingMessage => Future[Done]): Unit =
     subscriptions
@@ -80,8 +115,14 @@ final class InMemoryBroker extends MessagePublisher with MessageSubscriber:
   def publishedTo(topic: String): Seq[InMemoryBroker.Delivered] =
     published.filter(_.topic == topic)
 
-  def clear(): Unit = delivered.clear()
+  def clear(): Unit =
+    delivered.clear()
+    failures.clear()
 
 object InMemoryBroker:
+
+  /** What `failNext` fails a publication with. */
+  final case class Refused(message: String) extends RuntimeException(message)
+
   final case class Delivered(topic: String, message: IncomingMessage):
     def text: String = String(message.payload, "UTF-8")

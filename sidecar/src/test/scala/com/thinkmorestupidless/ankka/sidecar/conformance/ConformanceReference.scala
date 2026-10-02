@@ -254,6 +254,40 @@ object ConformanceReference:
       ):
     def create(ctx: ConsumerContext) = new CheckoutRecorder(ctx)
 
+  /** What `checkout-fanout` publishes: the n-th message of a change. */
+  final case class Fanned(n: Int)
+
+  /**
+   * Several messages for one change: three for a checkout — the second under a key of its own, the
+   * third with a header — none for an item added, and a single one, the old way, for an item
+   * removed.
+   */
+  final class CheckoutFanout extends Consumer[ShoppingCartEvent, Fanned]:
+    def onMessage(event: ShoppingCartEvent): Effect = event match
+      case _: ItemAdded   => effects.produceAll(Nil)
+      case _: ItemRemoved => effects.produce(Fanned(0))
+      case CheckedOut =>
+        effects.produceAll(
+          Seq(
+            effects.message(Fanned(1)),
+            effects.message(Fanned(2)).withKey(s"second:${messageContext.subject}"),
+            effects.message(Fanned(3)).withMetadata(Metadata.empty.set("x-n", "3"))
+          )
+        )
+      case Discarded => effects.ignore()
+
+  object CheckoutFanout
+      extends Consumer.Companion[CheckoutFanout, ShoppingCartEvent, Fanned](
+        componentId = ComponentId("checkout-fanout"),
+        source = ChangeSource.eventsOf(ShoppingCartEntity)
+      ):
+    def create(ctx: ConsumerContext) = new CheckoutFanout
+
+    override val outputSerializer: Option[Serializer[Fanned]] =
+      Some(Codecs.serializer[Fanned]("fanned"))
+
+    override val produceTo: Option[String] = Some("conformance-fanout")
+
   // ── reminder: a timed action ──
 
   final class Reminder(context: TimedActionContext) extends TimedAction:
@@ -547,6 +581,7 @@ object ConformanceReference:
     "checkout",
     "cart-rows",
     "checkout-recorder",
+    "checkout-fanout",
     "reminder",
     "assistant",
     "answerer"
@@ -559,6 +594,7 @@ object ConformanceReference:
     Checkout.descriptor,
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
+    CheckoutFanout.descriptor,
     Reminder.descriptor,
     Assistant.descriptor,
     Answerer.descriptor

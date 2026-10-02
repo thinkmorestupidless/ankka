@@ -467,3 +467,30 @@ history; the new page in `nav` and a skill or `docs check` fails.
   consumer is sent `deleted = true` at the revision after the state's, and a state set again
   arrives one above that. `RemoteEntitySuite` needed nothing: the entity's own behaviour after a
   delete was already covered and did not change.
+- **V3, redelivery** — confirmed for an event sourced source, a key value source and a remote
+  consumer (`ProduceAllEntitySourceSuite`, `RemoteProjectionSuite` P3f, conformance
+  `consumer.produce-all-redelivers`): with one publication refused, the projection restarts and
+  the change's messages are all published again, within a few seconds. For a topic source the
+  in-memory broker has no redelivery of its own; the case there asserts what makes a real one
+  redeliver — the handler's result fails — and then delivers again by hand.
+- **V5, a reply over the transport's limit** — the sidecar's channel fails the call with
+  grpc-java's `RESOURCE_EXHAUSTED`, whose message carries the limit, `4194304`. `RemoteConsumer`
+  now wraps whatever fails between it and the process as
+  `consumer '<id>' could not handle the change of '<subject>' at sequence <n>: <cause>`, so the
+  projection's log says whose change it was (P3g). In process and for a module the bound is
+  `ProjectionSupport.MaxResultBytes`, held by the pure `PublishAllSuite`, not by a consumer made
+  to exceed it in a running service: such a consumer is redelivered for ever and would stall its
+  slice of the projection for every test after it.
+- **`PublishAllSuite` is new and pure**, in `runtime`'s tests: nine cases on the one function all
+  three hosting paths share, with no actor system. It is where "a publisher that was never taught
+  keys refuses a keyed message" is shown.
+- **The conformance suite's `ce-id` assertion moved to `KafkaSuite`.** The in-memory broker the
+  conformance targets are given adds no CloudEvents headers; the Kafka publisher does.
+- **`consumer.single-produce-unchanged` needed a single-message producer**, which no reference
+  service had. `checkout-fanout` answers an item removed with one `produce`.
+- **The four several-message cases were seen to fail** with `checkout-fanout`'s checkout reduced
+  to a single `produce`, and `-- *consumer.produce-all-keys` runs exactly one case. The filter is
+  a glob over the full test name, so it needs its leading `*`.
+- **Adding a component to the Scala reference breaks `discovery.lists-every-component` for every
+  other reference** until it has the same component. Between this point and the SDKs' tasks the
+  three SDK conformance runs fail that one case.

@@ -27,6 +27,7 @@ import org.apache.pekko.projection.r2dbc.scaladsl.{R2dbcHandler, R2dbcSession}
 import org.apache.pekko.projection.scaladsl.Handler
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 /**
  * Views and consumers whose handlers live in another process.
@@ -227,14 +228,44 @@ private[ankka] final class RemoteConsumer(
           .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
         result
       }
-      .flatMap {
-        case ConsumerOutcome.ProduceAll(_) =>
-          Future.failed(
-            IllegalStateException(
-              s"consumer '${descriptor.componentId}' produced several messages, which this " +
-                "runtime does not publish yet"
-            )
+      // Whatever went wrong between here and the process — a reply too large for the transport
+      // among them — say whose change it was: the projection only logs what it is given.
+      .recoverWith { case NonFatal(failure) =>
+        Future.failed(
+          IllegalStateException(
+            s"consumer '${descriptor.componentId}' could not handle the change of '$subject' " +
+              s"at sequence $sequence: ${failure.getMessage}",
+            failure
           )
+        )
+      }
+      .flatMap {
+        case ConsumerOutcome.ProduceAll(messages) if messages.isEmpty => Future.successful(Done)
+        case ConsumerOutcome.ProduceAll(messages) =>
+          (descriptor.producesTo, publisher) match
+            case (Some(topic), Some(target)) =>
+              ProjectionSupport.publishAll(
+                descriptor.componentId,
+                subject,
+                topic,
+                target,
+                messages.map(m =>
+                  ProjectionSupport.Encoded(
+                    m.payload.data,
+                    m.metadata
+                      .set(PayloadKeys.Manifest, m.payload.manifest)
+                      .set(PayloadKeys.ContentType, m.payload.contentType),
+                    m.key
+                  )
+                )
+              )
+            case _ =>
+              Future.failed(
+                IllegalStateException(
+                  s"consumer '${descriptor.componentId}' produced ${messages.size} messages " +
+                    "but has no publish target configured"
+                )
+              )
         case ConsumerOutcome.Produce(payload, metadata) =>
           (descriptor.producesTo, publisher) match
             case (Some(topic), Some(target)) =>

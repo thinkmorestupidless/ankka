@@ -400,3 +400,42 @@ class DescriptorSuite extends munit.FunSuite:
     )
     assertEquals(ServiceDescriptor(long, ServiceSpec("i:1")).problems, Vector.empty)
   }
+
+  // The rule is read against the constant, never a literal: it moves when the release is cut.
+  private val since = Compatibility.GrpcSince
+  private val below = Version(since.major, since.minor - 1, 0)
+
+  test(
+    "once the platform serves gRPC, a runtime older than the first that does is refused for gRPC"
+  ) {
+    assert(!Compatibility.servesGrpc(platform = since, runtime = below))
+    assertEquals(
+      Compatibility.grpcRefusal(below),
+      s"runtime $below does not serve gRPC; it is served from $since"
+    )
+    assert(Compatibility.servesGrpc(platform = since, runtime = since))
+    assert(
+      Compatibility.servesGrpc(platform = Version(since.major, since.minor + 1, 0), runtime = since)
+    )
+  }
+
+  test(
+    "before the platform serves gRPC itself, no runtime is refused for it — its own builds included"
+  ) {
+    assert(Compatibility.servesGrpc(platform = below, runtime = below))
+  }
+
+  test("an undeclared runtime is unchecked for gRPC, as for everything else") {
+    assertEquals(ServiceSpec("i:1", grpc = true).problems, Vector.empty)
+  }
+
+  test("the first version that serves gRPC is at most the next minor after this build") {
+    // A constant nobody updated when the release was cut would be found here, not by a refused
+    // deploy: once this build passes it, it is either set or wrong.
+    val Right(platform) =
+      Version.parse(com.thinkmorestupidless.ankka.core.BuildInfo.version): @unchecked
+    assert(
+      Ordering[(Int, Int)].lteq((since.major, since.minor), (platform.major, platform.minor + 1)),
+      s"GrpcSince $since is beyond the next minor after $platform"
+    )
+  }

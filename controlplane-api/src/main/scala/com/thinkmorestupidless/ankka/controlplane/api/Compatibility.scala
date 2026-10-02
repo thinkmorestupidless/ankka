@@ -74,6 +74,21 @@ object Compatibility:
    */
   val MinimumRuntime: Version = Version(0, 8, 0)
 
+  /**
+   * The first runtime that serves gRPC (feature 020). An older one ignores `ANKKA_GRPC_PORT`, binds
+   * nothing and is never ready — and does not even refuse to start, since that check is in the
+   * runtime that knows the variable — so a descriptor that declares gRPC with one is refused when
+   * it is applied. Set to the release that first carries gRPC endpoints, in the change that cuts
+   * it. Applied, as `MinimumRuntime` is, only once the platform is itself at or past it.
+   */
+  val GrpcSince: Version = Version(0, 10, 0)
+
+  def servesGrpc(platform: Version, runtime: Version): Boolean =
+    !atLeast(platform, GrpcSince) || atLeast(runtime, GrpcSince)
+
+  def grpcRefusal(runtime: Version): String =
+    s"runtime $runtime does not serve gRPC; it is served from $GrpcSince"
+
   private def atLeast(v: Version, floor: Version): Boolean =
     Ordering[(Int, Int, Int)]
       .gteq((v.major, v.minor, v.patch), (floor.major, floor.minor, floor.patch))

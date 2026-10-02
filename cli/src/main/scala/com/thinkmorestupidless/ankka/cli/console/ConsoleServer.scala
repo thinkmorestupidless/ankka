@@ -129,16 +129,18 @@ object ConsoleServer:
           case _                       => Vector.empty,
         body = str(body, "body").filter(_.nonEmpty)
       )
-      source.invoke(name, request) match
-        case None => notFound(exchange)
-        case Some(response) =>
-          json200(
-            exchange,
-            s"""{"status":${response.status},"body":${quote(response.body)},""" +
-              s""""headers":${response.headers
-                  .map((k, v) => s"""{"name":${quote(k)},"value":${quote(v)}}""")
-                  .mkString("[", ",", "]")}}"""
-          )
+      if request.method == GrpcMethod then refuseGrpc(exchange)
+      else
+        source.invoke(name, request) match
+          case None => notFound(exchange)
+          case Some(response) =>
+            json200(
+              exchange,
+              s"""{"status":${response.status},"body":${quote(response.body)},""" +
+                s""""headers":${response.headers
+                    .map((k, v) => s"""{"name":${quote(k)},"value":${quote(v)}}""")
+                    .mkString("[", ",", "]")}}"""
+            )
 
     /**
      * One string field from the panel's own JSON.
@@ -192,6 +194,9 @@ object ConsoleServer:
         body = str(body, "body").filter(_.nonEmpty)
       )
 
+      if request.method == GrpcMethod then
+        refuseGrpc(exchange)
+        return
       exchange.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
       exchange.sendResponseHeaders(200, 0)
       val out = exchange.getResponseBody
@@ -262,6 +267,20 @@ object ConsoleServer:
     val out = exchange.getResponseBody
     try out.write(bytes)
     finally out.close()
+
+  /** How a running service lists a gRPC method among its routes. */
+  private val GrpcMethod = "GRPC"
+
+  /**
+   * The console lists a service's gRPC methods and calls none: it has no client generated from the
+   * service definition, and a form that sent HTTP to a gRPC method would teach the wrong thing.
+   */
+  private def refuseGrpc(exchange: HttpExchange): Unit =
+    json(
+      exchange,
+      400,
+      """{"error":"the console does not call gRPC methods; call them with a client generated from the service definition"}"""
+    )
 
   private def notFound(exchange: HttpExchange): Unit =
     val bytes = """{"error":"not found"}""".getBytes(StandardCharsets.UTF_8)

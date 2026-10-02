@@ -25,8 +25,26 @@ import scala.util.control.NonFatal
  */
 private[grpc] final case class Hosting(
     materializer: Option[Materializer] = None,
-    observability: Option[Observability] = None
+    observability: Option[Observability] = None,
+    /** The calls in progress, which a stopping server ends itself once their grace is spent. */
+    live: Option[Live] = None
 )
+
+/** The calls a server has in progress. */
+private[grpc] final class Live:
+  private val calls = java.util.concurrent.ConcurrentHashMap.newKeySet[Outgoing]()
+
+  def add(call: Outgoing): Unit    = calls.add(call): Unit
+  def remove(call: Outgoing): Unit = calls.remove(call): Unit
+
+  /**
+   * Ends every call still in progress as unavailable, so a caller is told the service stopped and
+   * may retry elsewhere — rather than the `CANCELLED` grpc-java's forced shutdown would tell it.
+   */
+  def endAll(): Unit =
+    calls.forEach(
+      _.close(Status.UNAVAILABLE.withDescription("the service is stopping"), Metadata())
+    )
 
 /**
  * An endpoint as grpc-java serves it.
@@ -145,7 +163,7 @@ private[grpc] object Binding:
     val spans = Spans(hosting.observability, declared.fullName)
     declared.handler match
       case Handler.Unary(run) =>
-        calls(declared, acl, admission, spans) { (call, context, out, _, listener, span) =>
+        calls(declared, acl, admission, spans, hosting) { (call, context, out, _, listener, span) =>
           // Two, not one, as grpc-java's own unary handler asks: a second message is how a client
           // that sent too many is noticed.
           call.request(2)
@@ -163,21 +181,22 @@ private[grpc] object Binding:
           }
         }
       case Handler.ServerStream(run) =>
-        calls(declared, acl, admission, spans) { (call, context, out, readiness, listener, span) =>
-          call.request(2)
-          listener.onRequest { message =>
-            span.within {
-              parse(declared, message) match
-                case Left(status) => out.close(status, Metadata())
-                case Right(request) =>
-                  answerWith(declared, out, readiness, listener, hosting)(
-                    RequestScope.withContext(context)(run(request))
-                  )
+        calls(declared, acl, admission, spans, hosting) {
+          (call, context, out, readiness, listener, span) =>
+            call.request(2)
+            listener.onRequest { message =>
+              span.within {
+                parse(declared, message) match
+                  case Left(status) => out.close(status, Metadata())
+                  case Right(request) =>
+                    answerWith(declared, out, readiness, listener, hosting)(
+                      RequestScope.withContext(context)(run(request))
+                    )
+              }
             }
-          }
         }
       case Handler.ClientStream(run) =>
-        calls(declared, acl, admission, spans) { (call, context, out, _, listener, span) =>
+        calls(declared, acl, admission, spans, hosting) { (call, context, out, _, listener, span) =>
           val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
           AnkkaExecutors.virtual.execute { () =>
             span.within {
@@ -190,15 +209,16 @@ private[grpc] object Binding:
           }
         }
       case Handler.BidiStream(run) =>
-        calls(declared, acl, admission, spans) { (call, context, out, readiness, listener, span) =>
-          val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
-          AnkkaExecutors.virtual.execute { () =>
-            span.within {
-              answerWith(declared, out, readiness, listener, hosting)(
-                RequestScope.withContext(context)(run(inbound))
-              )
+        calls(declared, acl, admission, spans, hosting) {
+          (call, context, out, readiness, listener, span) =>
+            val inbound = listener.inbound(Streams.Inbound(call, out, parse(declared, _)))
+            AnkkaExecutors.virtual.execute { () =>
+              span.within {
+                answerWith(declared, out, readiness, listener, hosting)(
+                  RequestScope.withContext(context)(run(inbound))
+                )
+              }
             }
-          }
         }
 
   /** What a call's listener does, filled in by the kind of method it serves. */
@@ -251,7 +271,13 @@ private[grpc] object Binding:
    * One call of any kind: admitted before anything is read — a refusal recorded and answered there
    * — then handed to `begin` with the pieces it needs, on the call's own thread.
    */
-  private def calls(declared: DeclaredMethod, acl: Acl, admission: Admission, spans: Spans)(
+  private def calls(
+      declared: DeclaredMethod,
+      acl: Acl,
+      admission: Admission,
+      spans: Spans,
+      hosting: Hosting
+  )(
       begin: (
           ServerCall[Array[Byte], Any],
           RequestContext,
@@ -272,8 +298,14 @@ private[grpc] object Binding:
             call.close(status, trailers)
             new ServerCall.Listener[Array[Byte]] {}
           case Right(context) =>
-            val span      = spans.call()
-            val out       = Outgoing(call, span.complete)
+            val span = spans.call()
+            lazy val out: Outgoing = Outgoing(
+              call,
+              status =>
+                hosting.live.foreach(_.remove(out))
+                span.complete(status)
+            )
+            hosting.live.foreach(_.add(out))
             val readiness = Readiness()
             val listener  = CallListener(readiness, out)
             begin(call, context, out, readiness, listener, span)

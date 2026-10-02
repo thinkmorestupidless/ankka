@@ -68,6 +68,7 @@ final class GrpcServer private (
 
   @volatile private var server: Option[Server]      = None
   @volatile private var served: Vector[ServedRoute] = Vector.empty
+  private val live                                  = Live()
   @volatile private var grace: FiniteDuration       = FiniteDuration(5000, MILLISECONDS)
 
   def name: String = GrpcServer.Name
@@ -116,9 +117,25 @@ final class GrpcServer private (
       .forAddress(InetSocketAddress(host, bindPort), credentials)
       .executor(AnkkaExecutors.virtual.execute(_))
       .maxInboundMessageSize(config.getBytes("ankka.grpc.max-message-size").toInt)
+      // A caller's connection is renewed on this schedule, which is what makes a caller resolve the
+      // service's instances again and bring an added one into its rotation; calls in progress are
+      // given the shutdown grace. grpc-java adds ±10% so a service's callers do not reconnect at once.
+      .maxConnectionAge(
+        duration(config, "ankka.grpc.max-connection-age").toMillis,
+        TimeUnit.MILLISECONDS
+      )
+      .maxConnectionAgeGrace(grace.toMillis, TimeUnit.MILLISECONDS)
+      // An idle connection is asked whether its caller is still there; one that does not answer is
+      // closed and its calls cancelled, so a stream is not produced for a caller that is gone.
+      .keepAliveTime(duration(config, "ankka.grpc.keepalive-time").toMillis, TimeUnit.MILLISECONDS)
+      .keepAliveTimeout(
+        duration(config, "ankka.grpc.keepalive-timeout").toMillis,
+        TimeUnit.MILLISECONDS
+      )
       .fallbackHandlerRegistry(Binding.fallback(endpoints, admission))
+    val serving = hosting.copy(live = Some(live))
     endpoints.foreach(endpoint =>
-      builder.addService(Binding.definition(endpoint, admission, hosting))
+      builder.addService(Binding.definition(endpoint, admission, serving))
     )
     reflection.foreach(acl => Reflection.services(acl, admission).foreach(builder.addService))
 
@@ -194,6 +211,7 @@ final class GrpcServer private (
     server.foreach { s =>
       s.shutdown()
       if !s.awaitTermination(grace.toMillis, TimeUnit.MILLISECONDS) then
+        live.endAll()
         s.shutdownNow()
         s.awaitTermination(5, TimeUnit.SECONDS): Unit
     }

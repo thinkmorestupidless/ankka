@@ -17,8 +17,8 @@ pub use integration::{AnkkaTestKit, Http, Module, TestkitError};
 #[cfg(not(target_arch = "wasm32"))]
 pub use kinds::{
     AgentReply, AgentTestKit, Answered, AutonomousAgentTestKit, ConsumerTestKit,
-    KeyValueEntityTestKit, KeyValueOutcome, ScriptedModel, StepNext, TimedActionTestKit,
-    ViewTestKit, WorkflowTestKit,
+    GraphConsumerTestKit, KeyValueEntityTestKit, KeyValueOutcome, Published, ScriptedModel,
+    StepNext, TimedActionTestKit, ViewTestKit, WorkflowTestKit,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use unit::{CommandOutcome, EndpointTestKit, EventSourcedTestKit};

@@ -517,3 +517,35 @@ history; the new page in `nav` and a skill or `docs check` fails.
   reduced to one message (four cases), and the two references' deletion handlers removed
   (`consumer.graph-delete-and-recreate`, `kv.delete-is-a-change`). 82 cases pass against the
   Scala reference.
+- **The three other SDKs were built side by side against the contracts**, each in its own
+  directory, and then run through the conformance suite: all 82 cases pass against the Python
+  process, the TypeScript process and the Rust module. Their own suites went from 98 to 240
+  (Python), 139 to 247 (TypeScript) and 84 to 104 with 14 to 17 in the example (Rust). Each tests
+  every row of the three fixture files.
+- **`ankka.conformance.shape` was never forwarded to the test JVM**, on `main` either, so the
+  second run of `sdks/rust/conformance.sh` — the stateful guest shape — had always been a second
+  stateless one, and said so in its own output. It is forwarded now (`build.sbt`), and the module
+  passes all 82 in the stateful shape for real. Found because the feature's claim was "both
+  shapes" and the log named one.
+- **There is no several-message case in `WasmHostSuite`.** Its guests are prebuilt spike modules
+  that answer `done`; a module that answers `produce_all` is the conformance reference, and the
+  eleven new cases run through the same host in both shapes.
+- **What the SDKs settled that the contracts had not**: an empty list is sent as `done` and a
+  single un-keyed message as `produce`, so the guard fires only where the runtime really must
+  understand something new (now in `contracts/protocol.md`); each refusal carries the fixture's
+  reason name (`RefusedElement.why`, `GraphError.why`, `Refused`/`Why`), as Scala's does; each
+  SDK's delta codec is public, for a consumer that *reads* a delta topic; none sets `ce-subject`
+  on a delta — the runtime's default, the source's id, is the rule.
+- **Rust has one more reason, `misplaced`**: its one chainable `Element` can be given a label on
+  an edge or a property on a tombstone, which the other three cannot express. Refused at dispatch.
+- **A foreign delta carrying exactly -2⁶³-1 as a property reads as `i64::MIN` in Rust**: without
+  arbitrary precision the JSON parser rounds it. The builder cannot write such a value and the
+  sink would refuse it; noted, not handled.
+- **Each example registers `CartGraph` only where a broker is named**, as the Scala sample does,
+  because a publishing consumer is refused at startup without one. The Python and TypeScript
+  examples read `ANKKA_KAFKA_BOOTSTRAP_SERVERS` from the process's environment and the Rust one
+  through `ankka::config`. **Whether the platform gives that variable to a process container or a
+  module, and not only to the sidecar, is unconfirmed** and is the first thing the cluster run
+  with those two must settle.
+- **The Rust tutorial page shows the example's registration**, which now ends in that condition;
+  `docs sync` carried it into `get-started/first-service-rust.md`.

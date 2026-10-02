@@ -232,6 +232,7 @@ class EndpointTestKit:
 
 from ankka.consumer import Consumer  # noqa: E402
 from ankka.effects.consumer import ConsumerEffect  # noqa: E402
+from ankka.graph import Element, GraphConsumer  # noqa: E402
 from ankka.effects.key_value import KeyValueEffect  # noqa: E402
 from ankka.effects.timed_action import TimedActionEffect  # noqa: E402
 from ankka.effects.view import ViewEffect  # noqa: E402
@@ -406,32 +407,100 @@ class ViewTestKit(Generic[Row]):
         return self.rows.get(key)
 
 
+@dataclass(frozen=True)
+class Produced:
+    """One message a consumer produced: its payload after the wire's round trip, the record key it
+    named (None: its subject), and its metadata."""
+
+    payload: Any
+    key: str | None
+    metadata: Metadata
+
+
+def _change_metadata(subject: str, sequence: int | None) -> Metadata:
+    """As the runtime sends a change: the source's id, its sequence number when it has one, and
+    the protocol the runtime speaks — this SDK's own, so several messages are accepted."""
+    from ankka.service import PROTOCOL_VERSION
+
+    metadata = Metadata().set("ce-subject", subject)
+    if sequence is not None:
+        metadata = metadata.set("ankka.sequence", str(sequence))
+    return metadata.set("ankka.protocol", PROTOCOL_VERSION)
+
+
 class ConsumerTestKit:
+    """Hands a consumer a change and collects what it produced, with no sidecar and no broker.
+    ``produced`` holds each message's payload, one entry per message; ``messages`` holds the same
+    messages with the record key each named and its metadata."""
+
     def __init__(self, consumer_cls: type[Consumer[Any, Any]]) -> None:
         self.consumer_cls = consumer_cls
         self.produced: list[Any] = []
+        self.messages: list[Produced] = []
 
     @classmethod
     def of(cls, consumer_cls: type[Consumer[Any, Any]]) -> ConsumerTestKit:
         return cls(consumer_cls)
 
-    def on_message(self, message: Any, subject: str = "test") -> ConsumerEffect:
+    def on_message(self, message: Any, subject: str = "test", *, sequence: int | None = None) -> ConsumerEffect:
+        """``sequence`` is the change's sequence number, as ``self.metadata.sequence_number``."""
         mc = self.consumer_cls.message_codec
-        return self._handle(mc.encode(message), subject)
+        return self._handle(mc.encode(message), subject, sequence)
 
-    def on_delete(self, subject: str = "test") -> ConsumerEffect:
-        return self._handle(None, subject)
+    def on_delete(self, subject: str = "test", *, sequence: int | None = None) -> ConsumerEffect:
+        return self._handle(None, subject, sequence)
 
-    def _handle(self, message_bytes: bytes | None, subject: str) -> ConsumerEffect:
+    def _handle(self, message_bytes: bytes | None, subject: str, sequence: int | None) -> ConsumerEffect:
         consumer = self.consumer_cls(_NoClient())
-        effect = _run(consumer._handle(message_bytes, Metadata().set("ce-subject", subject)))
-        from ankka.effects.consumer import Produce
+        effect = _run(consumer._handle(message_bytes, _change_metadata(subject, sequence)))
+        from ankka.effects.consumer import Produce, ProduceAll
 
+        oc = self.consumer_cls.out_codec
         if isinstance(effect, Produce):
-            oc = self.consumer_cls.out_codec
             assert oc is not None
-            self.produced.append(oc.decode(oc.encode(effect.payload)))
+            self._record(Produced(oc.decode(oc.encode(effect.payload)), None, effect.metadata))
+        elif isinstance(effect, ProduceAll) and effect.messages:
+            assert oc is not None, f"{self.consumer_cls.__name__} produced messages and declares no out_codec"
+            for message in effect.messages:
+                self._record(Produced(oc.decode(oc.encode(message.payload)), message.key, message.metadata))
         return typing.cast(ConsumerEffect, effect)
+
+    def _record(self, produced: Produced) -> None:
+        self.produced.append(produced.payload)
+        self.messages.append(produced)
+
+
+class GraphConsumerTestKit:
+    """Hands a graph consumer a change and returns the elements it published: each read back from
+    the bytes that would be on the topic, under the key it would have. No sidecar, no broker."""
+
+    def __init__(self, consumer_cls: type[GraphConsumer[Any]], client: ComponentClient | None = None) -> None:
+        self.consumer_cls = consumer_cls
+        self.client = client if client is not None else _NoClient()
+
+    @classmethod
+    def of(cls, consumer_cls: type[GraphConsumer[Any]], client: ComponentClient | None = None) -> GraphConsumerTestKit:
+        return cls(consumer_cls, client)
+
+    def on_message(self, message: Any, subject: str = "test", *, sequence: int = 1) -> list[Element]:
+        """``sequence`` is the change's sequence number: the version of every element that states
+        none. Zero is what a topic's message has, and such a change needs versions stated."""
+        mc = self.consumer_cls.message_codec
+        return self._handle(mc.encode(message), subject, sequence)
+
+    def on_delete(self, subject: str = "test", *, sequence: int = 1) -> list[Element]:
+        return self._handle(None, subject, sequence)
+
+    def _handle(self, message_bytes: bytes | None, subject: str, sequence: int) -> list[Element]:
+        from ankka.effects.consumer import ProduceAll
+        from ankka.graph import read
+
+        consumer = self.consumer_cls(self.client)
+        effect = _run(consumer._handle(message_bytes, _change_metadata(subject, sequence)))
+        if not isinstance(effect, ProduceAll):
+            return []
+        codec = self.consumer_cls.out_codec
+        return [read(codec.encode(message.payload), message.key) for message in effect.messages]
 
 
 @dataclass(frozen=True)

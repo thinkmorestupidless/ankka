@@ -18,6 +18,7 @@ from ankka.autonomous import AutonomousAgent
 from ankka.consumer import Consumer
 from ankka.endpoint import Endpoint
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError
+from ankka.graph import GraphConsumer
 from ankka.key_value_entity import KeyValueEntity
 from ankka.timed_action import TimedAction
 from ankka.view import View
@@ -35,7 +36,8 @@ class Registry:
     key_values: dict[str, type[KeyValueEntity[Any]]] = field(default_factory=dict)
     workflows: dict[str, type[Workflow[Any]]] = field(default_factory=dict)
     views: dict[str, type[View[Any, Any]]] = field(default_factory=dict)
-    consumers: dict[str, type[Consumer[Any, Any]]] = field(default_factory=dict)
+    # A graph consumer is a consumer to the runtime: one registry, one id space, one servicer.
+    consumers: dict[str, type[Consumer[Any, Any]] | type[GraphConsumer[Any]]] = field(default_factory=dict)
     timed_actions: dict[str, type[TimedAction]] = field(default_factory=dict)
     agents: dict[str, type[Agent]] = field(default_factory=dict)
     autonomous: dict[str, type[AutonomousAgent]] = field(default_factory=dict)
@@ -77,7 +79,7 @@ class ServiceBuilder:
             self._add(self._registry.workflows, "workflow", component)
         elif isinstance(component, type) and issubclass(component, View):
             self._add(self._registry.views, "view", component)
-        elif isinstance(component, type) and issubclass(component, Consumer):
+        elif isinstance(component, type) and issubclass(component, (Consumer, GraphConsumer)):
             self._add(self._registry.consumers, "consumer", component)
         elif isinstance(component, type) and issubclass(component, TimedAction):
             self._add(self._registry.timed_actions, "timed action", component)

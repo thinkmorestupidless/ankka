@@ -396,14 +396,20 @@ emit the module's exports once:
 ```rust
 /// Everything the module hosts, registered by value; `service!` emits the exports once.
 pub fn build() -> Service {
-    Service::new("ankka-rust")
+    let service = Service::new("ankka-rust")
         .register(entity::ShoppingCart)
         .register(cart_rows::CartRows)
         .register(checkout_workflow::CheckoutWorkflow)
         .register(checkout_notifier::CheckoutNotifier)
         .register(checkout_log::CheckoutLog)
         .register(assistant::CartAssistant)
-        .endpoint(endpoint::CartApi)
+        .endpoint(endpoint::CartApi);
+    // The carts' graph is published to a topic, and a component that publishes needs a broker:
+    // it is registered when the service's descriptor names one.
+    match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
+        Some(_) => service.register(cart_graph::CartGraph),
+        None => service,
+    }
 }
 
 #[cfg(not(feature = "conformance"))]

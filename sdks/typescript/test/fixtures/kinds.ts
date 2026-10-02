@@ -95,6 +95,27 @@ export class Ponger extends Consumer<Infer<typeof Ping>, Infer<typeof Pong>> {
   }
 }
 
+// ── consumer, producing several messages for one message ──
+
+export const Fan = s.record("Fan", { n: s.int })
+
+export class Fanout extends Consumer<Infer<typeof Ping>, Infer<typeof Fan>> {
+  static readonly componentId = "fanout"
+  static readonly topic = "fan-pings"
+  static readonly message = jsonCodec(Ping, "ping")
+  static readonly out = jsonCodec(Fan, "fan")
+  static readonly producesTo = "fans"
+  onMessage(ping: Infer<typeof Ping>) {
+    // None at all, the single message of old, and three: the second under its own key, the third with a header.
+    if (ping.n === 0) return this.effects.produceAll([])
+    if (ping.n === 1) return this.effects.produce({ n: 1 })
+    return this.effects.produceAll([{ payload: { n: 1 } }, { payload: { n: 2 }, key: `second:${this.subject}` }, { payload: { n: 3 }, metadata: { "x-n": "3" } }])
+  }
+  override onDelete() {
+    return this.effects.produceAll([{ payload: { n: -1 }, key: `gone:${this.subject}` }])
+  }
+}
+
 // ── timed action ──
 
 export class Reminder extends TimedAction {

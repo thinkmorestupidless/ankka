@@ -10,10 +10,12 @@
 use std::collections::BTreeMap;
 
 use ankka::client::NewTask;
+use ankka::codec::Auto;
 use ankka::effects::{agent, consumer};
 use ankka::prelude::*;
 use ankka::serde_json::Value;
 
+use crate::cart_graph::CartGraph;
 use crate::cart_rows::CartRows;
 use crate::checkout_workflow::{Checkout, CheckoutWorkflow};
 use crate::domain::ShoppingCartEvent;
@@ -181,6 +183,101 @@ impl Consumer for CheckoutRecorder {
                 .invoke(Conformance, cart_id, "record", "checkout".to_string());
         recorded.expect("the conformance entity records the checkout");
         consumer::done()
+    }
+}
+
+// ── checkout-fanout: a consumer that publishes several messages for one change ──
+
+/// What `checkout-fanout` publishes: the n-th message of a change.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fanned {
+    pub n: i32,
+}
+
+/// One fanned message, encoded under the manifest every reference gives it.
+fn fanned(n: i32) -> Outgoing {
+    Outgoing::of(Auto::<Fanned>::named("fanned").to_payload(&Fanned { n }))
+}
+
+/// Three messages for a checkout — the second under a key of its own, the third with a header —
+/// none for an item added, and a single one, the old way, for an item removed.
+pub struct CheckoutFanout;
+
+impl Consumer for CheckoutFanout {
+    type Message = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "checkout-fanout";
+
+    fn source() -> Source {
+        Source::of(ShoppingCart)
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("conformance-fanout")
+    }
+
+    fn on_message(event: ShoppingCartEvent, ctx: &Context) -> ConsumerEffect {
+        match event {
+            ShoppingCartEvent::ItemAdded { .. } => consumer::produce_all([]),
+            ShoppingCartEvent::ItemRemoved { .. } => {
+                let (payload, _, metadata) = fanned(0).into_parts();
+                ConsumerEffect::Produce(payload, metadata)
+            }
+            ShoppingCartEvent::CheckedOut => consumer::produce_all([
+                fanned(1),
+                fanned(2).key(format!("second:{}", ctx.entity_id())),
+                fanned(3).metadata(Metadata::new().set("x-n", "3")),
+            ]),
+            ShoppingCartEvent::Discarded => consumer::ignore(),
+        }
+    }
+}
+
+// ── cart-graph and profile-graph: graph consumers over each kind of entity ──
+
+/// The example's cart graph, published to the topic the suite reads.
+pub struct ConformanceCartGraph;
+
+impl GraphConsumer for ConformanceCartGraph {
+    type Message = ShoppingCartEvent;
+    const COMPONENT_ID: &'static str = "cart-graph";
+    const TOPIC: &'static str = "conformance-graph";
+
+    fn source() -> Source {
+        Source::of(ShoppingCart)
+    }
+
+    fn on_message(event: ShoppingCartEvent, ctx: &Context) -> GraphEffect {
+        CartGraph::on_message(event, ctx)
+    }
+
+    fn on_deleted(ctx: &Context) -> GraphEffect {
+        CartGraph::on_deleted(ctx)
+    }
+}
+
+/// A node per profile, at the state's revision, and its tombstone when the profile is deleted.
+pub struct ProfileGraph;
+
+impl GraphConsumer for ProfileGraph {
+    type Message = ProfileState;
+    const COMPONENT_ID: &'static str = "profile-graph";
+    const TOPIC: &'static str = "conformance-profile-graph";
+
+    fn source() -> Source {
+        Source::of(Profile)
+    }
+
+    fn on_message(profile: ProfileState, ctx: &Context) -> GraphEffect {
+        graph::publish([graph::node(format!("profile:{}", ctx.entity_id()))
+            .label("Profile")
+            .property("name", profile.name)])
+    }
+
+    fn on_deleted(ctx: &Context) -> GraphEffect {
+        graph::publish([graph::tombstone_node(format!(
+            "profile:{}",
+            ctx.entity_id()
+        ))])
     }
 }
 
@@ -726,6 +823,9 @@ pub fn build() -> Service {
         .register_as(Conformance, shape)
         .register_as(Profile, shape)
         .register(CheckoutRecorder)
+        .register(CheckoutFanout)
+        .register(ConformanceCartGraph)
+        .register(ProfileGraph)
         .register(Reminder)
         .register(ConformanceAssistant)
         .register(ConformanceAnswerer)

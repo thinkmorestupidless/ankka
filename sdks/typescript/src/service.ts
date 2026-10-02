@@ -10,6 +10,7 @@ import { KeyValueEntity, type KeyValueEntityClass } from "./keyValueEntity.ts"
 import { Workflow, type WorkflowClass } from "./workflow.ts"
 import { View, type ViewClass } from "./view.ts"
 import { Consumer, type ConsumerClass } from "./consumer.ts"
+import { GraphConsumer, graphDeltaCodec, type GraphConsumerClass } from "./graph.ts"
 import { TimedAction, type TimedActionClass } from "./timedAction.ts"
 import { Agent, type AgentClass } from "./agent.ts"
 import { AutonomousAgent, COMPLETE_TASK, FAIL_TASK, type AutonomousAgentClass, type TaskType } from "./autonomous.ts"
@@ -68,11 +69,13 @@ export interface RegisteredView {
 export interface RegisteredConsumer {
   readonly kind: "consumer"
   readonly id: string
-  readonly cls: ConsumerClass<any, any, any>
+  readonly cls: ConsumerClass<any, any, any> | GraphConsumerClass<any, any>
   readonly source: Source
   readonly messageCodec: Codec<any>
   readonly outCodec: Codec<any> | undefined
   readonly producesTo: string | undefined
+  /** A graph consumer: its handlers return elements, each published as a delta under its element key. */
+  readonly graph: boolean
 }
 
 export interface RegisteredTimedAction {
@@ -199,6 +202,7 @@ export class ServiceBuilder {
   register<S, C extends Workflow<S>>(cls: WorkflowClass<S, C>): this
   register<E, Row, C extends View<E, Row>>(cls: ViewClass<E, Row, C>): this
   register<M, Out, C extends Consumer<M, Out>>(cls: ConsumerClass<M, Out, C>): this
+  register<M, C extends GraphConsumer<M>>(cls: GraphConsumerClass<M, C>): this
   register<C extends TimedAction>(cls: TimedActionClass<C>): this
   register<C extends Agent>(cls: AgentClass<C>): this
   register<C extends AutonomousAgent>(cls: AutonomousAgentClass<C>): this
@@ -227,6 +231,7 @@ export class ServiceBuilder {
       else if (extendsBase(cls, Workflow)) add(registerWorkflow(cls as WorkflowClass<any, any>, problems), cls)
       else if (extendsBase(cls, View)) add(registerView(cls as ViewClass<any, any, any>, problems), cls)
       else if (extendsBase(cls, Consumer)) add(registerConsumer(cls as ConsumerClass<any, any, any>, problems), cls)
+      else if (extendsBase(cls, GraphConsumer)) add(registerGraphConsumer(cls as GraphConsumerClass<any, any>, problems), cls)
       else if (extendsBase(cls, TimedAction)) add(registerTimedAction(cls as TimedActionClass<any>, problems), cls)
       else if (extendsBase(cls, Agent)) add(registerAgent(cls as AgentClass<any>, problems), cls)
       else if (extendsBase(cls, AutonomousAgent)) add(registerAutonomousAgent(cls as AutonomousAgentClass<any>, problems), cls)
@@ -243,7 +248,7 @@ export class ServiceBuilder {
           else endpoints.set(r.id, r)
         }
       } else {
-        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, Consumer, TimedAction, Agent, AutonomousAgent or Endpoint`)
+        problems.push(`${nameOf(cls)} is not a component class: it must extend EventSourcedEntity, KeyValueEntity, Workflow, View, Consumer, GraphConsumer, TimedAction, Agent, AutonomousAgent or Endpoint`)
       }
     }
 
@@ -396,6 +401,28 @@ function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[])
     messageCodec: codecFor(cls.message),
     outCodec: cls.out ? codecFor(cls.out) : undefined,
     producesTo: cls.producesTo,
+    graph: false,
+  })
+}
+
+/** A graph consumer is a consumer to discovery and to the runtime: one that produces deltas to its topic. */
+function registerGraphConsumer(cls: GraphConsumerClass<any, any>, problems: string[]): RegisteredConsumer | undefined {
+  const { fail, ok } = checker(cls, problems)
+  requireId(cls, fail)
+  const source = sourceOf(cls, fail)
+  requireShape(cls.message, "message: a schema or codec for the source's messages", fail)
+  if (typeof cls.producesTo !== "string" || cls.producesTo.trim() === "") fail("needs a static producesTo: the topic its deltas are published to")
+  if ((cls as { out?: unknown }).out !== undefined) fail("declares a static out, which a graph consumer does not have: what it produces is graph deltas")
+  if (!ok() || !source) return undefined
+  return Object.freeze({
+    kind: "consumer",
+    id: cls.componentId,
+    cls,
+    source,
+    messageCodec: codecFor(cls.message),
+    outCodec: graphDeltaCodec,
+    producesTo: cls.producesTo,
+    graph: true,
   })
 }
 

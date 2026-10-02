@@ -24,6 +24,7 @@ pub mod components;
 pub mod config;
 pub mod context;
 pub mod effects;
+pub mod graph;
 pub mod prelude;
 pub mod proto;
 pub mod service;

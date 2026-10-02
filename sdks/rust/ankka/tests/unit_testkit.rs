@@ -1,9 +1,12 @@
 //! The unit testkits, on a counter entity and the endpoint in front of it: what a command did,
 //! what the state became, what a refusal looks like, and an endpoint answering from its entities
-//! in memory.
+//! in memory — and on two consumers of the counter: what one published, under which keys, and the
+//! elements of the graph the other publishes.
 
+use ankka::effects::consumer;
+use ankka::graph::{ElementKind, Value};
 use ankka::prelude::*;
-use ankka::testkit::{EndpointTestKit, EventSourcedTestKit};
+use ankka::testkit::{ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 struct Tally {
@@ -201,4 +204,118 @@ fn a_literal_segment_outranks_a_parameter_and_no_route_is_a_404() {
 fn with_nothing_behind_it_an_endpoint_calls_nothing() {
     let kit = EndpointTestKit::<CounterApi>::new();
     assert_eq!(kit.get("/counters/limes").status, 503);
+}
+
+// ── consumers: the change's sequence number, what was published, and a graph ──
+
+/// Publishes the sequence number it was handed, twice: once keyed by the subject, once by a key
+/// of its own.
+struct Echo;
+
+impl Consumer for Echo {
+    type Message = TallyEvent;
+    const COMPONENT_ID: &'static str = "echo";
+
+    fn source() -> Source {
+        Source::of(Counter)
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("echoes")
+    }
+
+    fn on_message(_: TallyEvent, ctx: &Context) -> ConsumerEffect {
+        consumer::produce_all([
+            consumer::message(ctx.sequence()),
+            consumer::message(ctx.sequence()).key(format!("seq:{}", ctx.entity_id())),
+        ])
+    }
+
+    fn on_deleted(ctx: &Context) -> ConsumerEffect {
+        consumer::produce(ctx.sequence())
+    }
+}
+
+#[test]
+fn a_consumer_is_handed_the_sequence_number_the_kit_states_and_its_messages_are_read_back() {
+    let kit = ConsumerTestKit::<Echo>::new().at(7);
+    let effect = kit.on_message("apples", TallyEvent::Added { amount: 1 });
+    let messages = ConsumerTestKit::<Echo>::messages(&effect);
+    let sequences: Vec<i64> = messages.iter().map(|m| m.read()).collect();
+    assert_eq!(sequences, vec![7, 7]);
+    let keys: Vec<Option<&str>> = messages.iter().map(|m| m.key.as_deref()).collect();
+    assert_eq!(keys, vec![None, Some("seq:apples")]);
+
+    // A single produce is one message, with no key.
+    let deleted = ConsumerTestKit::<Echo>::messages(&kit.on_deleted("apples"));
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0].read::<i64>(), 7);
+    assert_eq!(deleted[0].key, None);
+
+    // Without `at`, a change carries no sequence number, as a topic's message does.
+    let unsequenced = ConsumerTestKit::<Echo>::new();
+    let messages = ConsumerTestKit::<Echo>::messages(&unsequenced.on_deleted("apples"));
+    assert_eq!(messages[0].read::<i64>(), 0);
+}
+
+/// A graph of tallies, each node built from the counter's state read through the client.
+struct TallyGraph;
+
+impl GraphConsumer for TallyGraph {
+    type Message = TallyEvent;
+    const COMPONENT_ID: &'static str = "tally-graph";
+    const TOPIC: &'static str = "tallies";
+
+    fn source() -> Source {
+        Source::of(Counter)
+    }
+
+    fn on_message(_: TallyEvent, ctx: &Context) -> GraphEffect {
+        let name = ctx.entity_id();
+        let tally: Tally = ctx
+            .client()
+            .invoke(Counter, name, "get", ())
+            .expect("the counter answers");
+        graph::publish([graph::node(format!("tally:{name}"))
+            .label("Tally")
+            .property("name", tally.name)
+            .property("total", tally.total)])
+    }
+
+    fn on_deleted(ctx: &Context) -> GraphEffect {
+        graph::publish([graph::tombstone_node(format!("tally:{}", ctx.entity_id()))])
+    }
+}
+
+#[test]
+fn a_graph_consumers_elements_are_read_back_and_its_calls_are_answered_in_memory() {
+    let service = Service::new("test").register(Counter).register(TallyGraph);
+    let kit = GraphConsumerTestKit::<TallyGraph>::new().with_service(service);
+
+    let elements = kit.on_message("apples", 3, TallyEvent::Added { amount: 2 });
+    assert_eq!(elements.len(), 1);
+    let node = &elements[0];
+    assert_eq!(node.kind(), ElementKind::Node);
+    assert_eq!(node.id(), "tally:apples");
+    assert_eq!(node.key(), "node:tally:apples");
+    // The change's sequence number, with nothing in the consumer saying so.
+    assert_eq!(node.version(), Some(3));
+    assert_eq!(node.labels(), ["Tally".to_string()]);
+    // The counter's state came from the service in memory: its empty state carries its name.
+    assert_eq!(node.get("name"), Some(&Value::from("apples")));
+    assert_eq!(node.get("total"), Some(&Value::Integer(0)));
+
+    let gone = kit.on_deleted("apples", 4);
+    assert_eq!(gone[0].kind(), ElementKind::NodeTombstone);
+    assert_eq!(gone[0].key(), "node:tally:apples");
+    assert_eq!(gone[0].version(), Some(4));
+
+    // The records behind them: a delta's bytes, its key and its type.
+    let records = kit.records("apples", 5, TallyEvent::Reset {});
+    assert_eq!(records[0].key.as_deref(), Some("node:tally:apples"));
+    assert_eq!(records[0].payload.manifest, "ankka.graph-delta.v1");
+    assert_eq!(
+        String::from_utf8_lossy(&records[0].payload.data),
+        r#"{"kind":"node","id":"tally:apples","version":5,"labels":["Tally"],"properties":{"name":"apples","total":0}}"#
+    );
 }

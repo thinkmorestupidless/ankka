@@ -7,11 +7,13 @@ export {
   WorkflowTestKit,
   ViewTestKit,
   ConsumerTestKit,
+  GraphConsumerTestKit,
   TimedActionTestKit,
   AgentTestKit,
   ScriptedModel,
   type WorkflowProgress,
   type ModelResponse,
   type ModelCall,
+  type GraphChange,
 } from "./kinds.ts"
 export { AnkkaTestKit, PUBLISHED_SIDECAR, sidecarImage, type AnkkaTestKitOptions, type HttpResponse, type Http, type Beside } from "./integration.ts"

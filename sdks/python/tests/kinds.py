@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import timedelta
 
-from ankka import DONE, Done, ErrorCode, ReadOnlyEffect, command, json_codec, query
+from ankka import DONE, Done, ErrorCode, Metadata, ReadOnlyEffect, command, json_codec, query
 from ankka.consumer import Consumer
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
@@ -147,6 +147,39 @@ class BigIncrements(Consumer[CounterEvent, Alert]):
             case Incremented(_):
                 return self.effects.done()
         return self.effects.ignore()
+
+
+class Fanout(Consumer[CounterEvent, Alert]):
+    """Several messages for one change: three for an increment — the second under a key of its
+    own, the third with a header — none for an increment of nothing, one with no key for an
+    increment of one, and one under a key when the counter is deleted."""
+
+    component_id = "fanout"
+    source = CounterEntity
+    message_codec = CounterEntity.event_codec
+    produces_to = "fanned"
+    out_codec = json_codec(Alert, "alert")
+
+    def on_message(self, message: CounterEvent) -> ConsumerEffect:
+        subject = self.metadata.subject or ""
+        match message:
+            case Incremented(0):
+                return self.effects.produce_all([])
+            case Incremented(1):
+                return self.effects.produce_all([self.effects.message(Alert("only"))])
+            case Incremented(by):
+                return self.effects.produce_all(
+                    [
+                        self.effects.message(Alert(f"{by}:1")),
+                        self.effects.message(Alert(f"{by}:2"), key=f"second:{subject}"),
+                        self.effects.message(Alert(f"{by}:3"), metadata=Metadata().set("x-n", "3")),
+                    ]
+                )
+        return self.effects.ignore()
+
+    def on_delete(self) -> ConsumerEffect:
+        gone = Alert(f"gone at {self.metadata.sequence_number}")
+        return self.effects.produce_all([self.effects.message(gone, key=f"gone:{self.metadata.subject}")])
 
 
 class Reminder(TimedAction):

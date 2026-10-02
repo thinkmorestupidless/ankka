@@ -141,6 +141,9 @@ lazy val commonSettings = Seq(
     "ankka.spikes",
     // The conformance suite's target (feature 009): a process speaking the sidecar protocol.
     "ankka.conformance.target",
+    // The guest shape a module target is run in (feature 016): `stateless` or `stateful`. Without
+    // it here the second run of `sdks/rust/conformance.sh` was a second stateless one.
+    "ankka.conformance.shape",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
     "ankka.docs.update"

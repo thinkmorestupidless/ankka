@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from ankka import DONE, Acl, Callers, Done, Gateway, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
+from ankka import DONE, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import ComponentClient
@@ -21,13 +21,15 @@ from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
 from ankka.effects.timed_action import TimedActionEffect
+from ankka.graph import GraphEffect
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import Ankka, ServiceBuilder
 from ankka.timed_action import TimedAction, action
 
+from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRows
 from examples.shopping_cart.checkout_workflow import Checkout, CheckoutWorkflow
-from examples.shopping_cart.domain import CheckedOut, ShoppingCartEvent
+from examples.shopping_cart.domain import CheckedOut, ItemAdded, ItemRemoved, ShoppingCartEvent
 from examples.shopping_cart.endpoint import ShoppingCartEndpoint
 from examples.shopping_cart.entity import ShoppingCartEntity
 
@@ -134,6 +136,65 @@ class CheckoutRecorder(Consumer[ShoppingCartEvent, None]):
         assert self.client is not None
         await self.client.for_event_sourced_entity("conformance", self.metadata.subject or "").call("record").invoke("checkout", reply=str)
         return self.effects.done()
+
+
+# ── checkout-fanout: a consumer that publishes several messages for one change ──
+
+
+@dataclass(frozen=True)
+class Fanned:
+    n: int
+
+
+class CheckoutFanout(Consumer[ShoppingCartEvent, Fanned]):
+    """Three messages for a checkout — the second under a key of its own, the third with a header —
+    none for an item added, and a single one, the old way, for an item removed."""
+
+    component_id = "checkout-fanout"
+    source = ShoppingCartEntity
+    message_codec = ShoppingCartEntity.event_codec
+    produces_to = "conformance-fanout"
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, event: ShoppingCartEvent) -> ConsumerEffect:
+        match event:
+            case ItemAdded():
+                return self.effects.produce_all([])
+            case ItemRemoved():
+                return self.effects.produce(Fanned(0))
+            case CheckedOut():
+                return self.effects.produce_all(
+                    [
+                        self.effects.message(Fanned(1)),
+                        self.effects.message(Fanned(2), key=f"second:{self.metadata.subject}"),
+                        self.effects.message(Fanned(3), metadata=Metadata().set("x-n", "3")),
+                    ]
+                )
+        return self.effects.ignore()
+
+
+# ── cart-graph and profile-graph: graph consumers, over events and over a key value entity ──
+
+
+class ConformanceCartGraph(CartGraph):
+    """The example's cart graph, published where the suite reads it."""
+
+    produces_to = "conformance-graph"
+
+
+class ProfileGraph(GraphConsumer[ProfileState]):
+    """A profile as a node at its revision, and its tombstone when it is deleted."""
+
+    component_id = "profile-graph"
+    source = Profile
+    produces_to = "conformance-profile-graph"
+    message_codec = Profile.state_codec
+
+    def on_message(self, state: ProfileState) -> GraphEffect:
+        return self.effects.publish([self.graph.node(f"profile:{self.metadata.subject}", labels=["Profile"], properties={"name": state.name})])
+
+    def on_delete(self) -> GraphEffect:
+        return self.effects.publish([self.graph.tombstone_node(f"profile:{self.metadata.subject}")])
 
 
 # ── reminder: a timed action ──
@@ -447,6 +508,9 @@ def reference_service() -> ServiceBuilder:
         .register(Conformance)
         .register(Profile)
         .register(CheckoutRecorder)
+        .register(CheckoutFanout)
+        .register(ConformanceCartGraph)
+        .register(ProfileGraph)
         .register(Reminder)
         .register(ConformanceAssistant)
         .register(ConformanceAnswerer)

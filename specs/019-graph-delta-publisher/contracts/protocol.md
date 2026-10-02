@@ -73,7 +73,11 @@ it is absent or below `1.3`, do not reply `produce_all`; fail the request with
 this runtime speaks protocol <version, or "1.2 or earlier">; several messages or a record key need 1.3
 ```
 
-A handler that returns exactly one message with no key replies `produce`, whatever the runtime.
+A handler that returns exactly one message with no key replies `produce`, whatever the runtime,
+and one that returns no messages replies `done`: neither is several messages nor a key, so
+neither has a reason to fail on an earlier runtime. `produce_all` is sent for two or more
+messages, or for any message that names a key — which is every graph delta. The runtime accepts
+an empty `produce_all` all the same, as `done`.
 
 ## Key value sources
 

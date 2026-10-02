@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.grpc
 
 import com.thinkmorestupidless.ankka.http.EndpointClients
 import com.thinkmorestupidless.ankka.runtime.{
+  DeclaredGrpc,
   AnkkaExecutors,
   AnkkaService,
   RotatingTls,
@@ -170,7 +171,7 @@ object GrpcServer:
   /**
    * The extension's name, which the runtime's check for a declared but unserved gRPC port reads.
    */
-  val Name: String = "grpc-server"
+  val Name: String = DeclaredGrpc.ServerName
 
   /** Serves `factories` on the configured interface and port. */
   def of(factories: (EndpointClients => GrpcEndpoint)*): GrpcServer =

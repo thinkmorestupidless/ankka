@@ -154,6 +154,27 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
         client.resource(roleBinding).fieldManager(FieldManager).forceConflicts().serverSideApply()
       log.debug("ensured rolebinding {}", roleBinding.getMetadata.getName)
 
+    case Action.EnsureGrpcPeers(service, ownerUid) =>
+      val namespace = service.getMetadata.getNamespace
+      val name      = service.getMetadata.getName
+      val existing  = Option(client.services().inNamespace(namespace).withName(name).get())
+      val ours = existing.forall { found =>
+        ownerUid.nonEmpty &&
+        Option(found.getMetadata.getOwnerReferences).exists(_.asScala.exists(_.getUid == ownerUid))
+      }
+      if ours then
+        val _ =
+          client.resource(service).fieldManager(FieldManager).forceConflicts().serverSideApply()
+        log.debug("ensured grpc peers {}/{}", namespace, name)
+      else
+        // Another service's address, by the name this one derives. Leaving it is the only safe
+        // answer; callers of this service then balance per connection, through its own address.
+        log.warn(
+          "left service {}/{} alone: it is not this resource's, so the gRPC peers address was not created",
+          namespace,
+          name
+        )
+
     case Action.RemoveService(namespace, name, ownerUid) =>
       // Read first, for two reasons. This is rendered on *every* pass for a service that serves
       // no HTTP, and an unconditional DELETE each time would break "an unchanged service writes

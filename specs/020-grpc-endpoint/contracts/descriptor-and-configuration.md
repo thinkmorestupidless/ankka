@@ -31,6 +31,7 @@ is a service that serves gRPC only.
 | `grpcPort` < 1 or > 65535 | `service grpcPort <n> is outside the range 1-65535` |
 | `grpc` and `http`, `grpcPort == port` | `grpcPort <n> is also the service port; gRPC and HTTP are served on different ports` |
 | an env var named `ANKKA_GRPC_PORT` | `env var 'ANKKA_GRPC_PORT' conflicts with the service grpcPort; declare the grpcPort instead` |
+| `grpc` and a name over 52 characters | `service name '<n>' is <len> characters; a service that serves gRPC has a name of at most 52` |
 | `grpc` with `hosting` `process` or `wasm` | `only an embedded service serves gRPC; remove "grpc" or use embedded hosting` |
 | `grpc` with a declared `runtime` below `Compatibility.GrpcSince` | `runtime <declared> does not serve gRPC; it is served from <GrpcSince>` |
 

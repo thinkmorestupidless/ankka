@@ -22,11 +22,23 @@ final case class ServiceDescriptor(name: String, service: ServiceSpec):
             "starting with a letter"
         )
       else Vector.empty
-    nameProblems ++ service.problems
+    // A service that serves gRPC has a second, headless address, `<name>-grpc-peers`, and an
+    // address is a DNS label of at most 63 characters.
+    val grpcNameProblems =
+      Option
+        .when(service.grpc && name.length > ServiceDescriptor.MaxGrpcName)(
+          s"service name '$name' is ${name.length} characters; a service that serves gRPC has a " +
+            s"name of at most ${ServiceDescriptor.MaxGrpcName}"
+        )
+        .toVector
+    nameProblems ++ grpcNameProblems ++ service.problems
 
   def isValid: Boolean = problems.isEmpty
 
 object ServiceDescriptor:
+
+  /** 63, less `-grpc-peers`: the longest name whose headless gRPC address is still a DNS label. */
+  val MaxGrpcName: Int = 52
 
   /** Why a name cannot be a service name, or nothing — the one rule, shared with `ankka init`. */
   def nameProblems(name: String): Vector[String] =

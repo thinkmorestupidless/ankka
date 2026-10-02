@@ -190,6 +190,7 @@ object Rendering:
             )
           ) :+
           addressAction(resource, spec, namespace) :+
+          grpcPeersAction(resource, spec, namespace) :+
           routeAction(resource, spec, namespace, settings.baseDomain) :+
           backendTlsAction(resource, spec, namespace, settings.baseDomain)
       )
@@ -397,6 +398,57 @@ object Rendering:
                   .withPort(port)
                   .build()
               )
+              .build()
+          )
+          .build()
+      )
+      .build()
+
+  /** The headless gRPC address when the service serves gRPC; its removal, if owned, when not. */
+  private def grpcPeersAction(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): Action =
+    val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    spec.grpcPort match
+      case Some(port) =>
+        Action.EnsureGrpcPeers(grpcPeers(resource, spec, namespace, port), ownerUid)
+      case None => Action.RemoveService(namespace, Names.grpcPeers(spec.serviceName), ownerUid)
+
+  /**
+   * The headless address a service that serves gRPC also has: no cluster IP, so its DNS name
+   * resolves to one address per ready instance, and the platform's own gRPC client balances its
+   * calls across them. A cluster IP balances connections, and a gRPC channel holds one connection
+   * for minutes, so without this a caller would send everything to one instance and a new one would
+   * see nothing. Only ready instances are published, so an instance is in a caller's rotation
+   * exactly while it can answer. Exposed so tests can assert on the object.
+   */
+  def grpcPeers(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      port: Int
+  ): Service =
+    new ServiceBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(Names.grpcPeers(spec.serviceName))
+          .withNamespace(namespace)
+          .withLabels(Labels.merged(spec.projectId, spec.serviceName, spec.labels).asJava)
+          .withOwnerReferences(Labels.ownerReference(resource))
+          .build()
+      )
+      .withSpec(
+        new ServiceSpecBuilder()
+          .withClusterIP("None")
+          .withSelector(selectorLabels(spec).asJava)
+          .withPorts(
+            new ServicePortBuilder()
+              .withName(GrpcPortName)
+              .withProtocol("TCP")
+              .withPort(port)
+              .withTargetPort(new IntOrString(port))
               .build()
           )
           .build()

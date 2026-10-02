@@ -803,6 +803,8 @@
   }
 }
 
+# remove service ankka-checkout/cart-grpc-peers if owned
+
 # ensure httproute ankka-checkout/cart
 {
   "apiVersion" : "gateway.networking.k8s.io/v1",

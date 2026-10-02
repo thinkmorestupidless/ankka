@@ -1,16 +1,22 @@
 package com.thinkmorestupidless.ankka.grpc
 
 import com.thinkmorestupidless.ankka.http.EndpointClients
-import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, AnkkaService, RuntimeExtension}
+import com.thinkmorestupidless.ankka.runtime.{
+  AnkkaExecutors,
+  AnkkaService,
+  RotatingTls,
+  RuntimeExtension
+}
 import com.typesafe.config.Config
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
-import io.grpc.{InsecureServerCredentials, Server, ServerCredentials}
+import io.grpc.{InsecureServerCredentials, Server, ServerCredentials, TlsServerCredentials}
 import org.slf4j.LoggerFactory
 
 import java.io.IOException
 import java.net.InetSocketAddress
+import java.nio.file.{Path, Paths}
 import java.util.concurrent.TimeUnit
-import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
+import scala.concurrent.duration.{FiniteDuration, MILLISECONDS, MINUTES}
 
 /**
  * Serves a set of gRPC endpoints, on a port of the service's own beside its HTTP port.
@@ -31,8 +37,16 @@ import scala.concurrent.duration.{FiniteDuration, MILLISECONDS}
 final class GrpcServer private (
     factories: Seq[EndpointClients => GrpcEndpoint],
     interface: Option[String],
-    port: Option[Int]
+    port: Option[Int],
+    tlsDirectory: Option[Path] = None
 ) extends RuntimeExtension:
+
+  /**
+   * This server alone serves mutual TLS from `directory`, whatever the configuration says — for a
+   * suite that needs a caller read from a real certificate without a cluster.
+   */
+  private[ankka] def withTls(directory: Path): GrpcServer =
+    new GrpcServer(factories, interface, port, Some(directory))
 
   private val log = LoggerFactory.getLogger(classOf[GrpcServer])
 
@@ -61,11 +75,26 @@ final class GrpcServer private (
     GrpcServer.validate(endpoints)
     grace = duration(config, "ankka.grpc.shutdown-grace")
 
+    val tls       = serviceTls(config)
+    val admission = tls.fold(Admission.local)(Admission.under)
+    val credentials: ServerCredentials = tls match
+      case None           => InsecureServerCredentials.create()
+      case Some(identity) =>
+        // The managers follow rotation: built once here, each handshake presents the certificate
+        // cert-manager wrote most recently.
+        TlsServerCredentials
+          .newBuilder()
+          .keyManager(identity.keyManager)
+          .trustManager(identity.trustManager)
+          .clientAuth(TlsServerCredentials.ClientAuth.REQUIRE)
+          .build()
+
     val builder = NettyServerBuilder
-      .forAddress(InetSocketAddress(host, bindPort), credentials())
+      .forAddress(InetSocketAddress(host, bindPort), credentials)
       .executor(AnkkaExecutors.virtual.execute(_))
       .maxInboundMessageSize(config.getBytes("ankka.grpc.max-message-size").toInt)
-    endpoints.foreach(endpoint => builder.addService(Binding.definition(endpoint)))
+      .fallbackHandlerRegistry(Binding.fallback(endpoints, admission))
+    endpoints.foreach(endpoint => builder.addService(Binding.definition(endpoint, admission)))
 
     val started =
       try builder.build().start()
@@ -82,9 +111,32 @@ final class GrpcServer private (
         log.info("grpc {} ({})", method.fullName, method.kind.declaration)
       )
     )
-    log.info("ankka grpc listening on {}:{}", host, started.getPort)
+    log.info(
+      "ankka grpc listening on {}:{}{}",
+      host,
+      started.getPort,
+      if tls.isDefined then " with mutual TLS" else ""
+    )
+    if tls.isEmpty && admission.namesCallers(endpoints) then
+      log.info("caller identity is not enforced outside a cluster: every call is Caller.Local")
 
-  private def credentials(): ServerCredentials = InsecureServerCredentials.create()
+  /**
+   * The service certificate when this process serves mutual TLS — the Kubernetes overlay's setting,
+   * shared with the HTTP server, never a local run's. A missing file fails startup naming it.
+   */
+  private def serviceTls(config: Config): Option[RotatingTls] =
+    val enabled =
+      config.hasPath("ankka.http.tls.enabled") && config.getBoolean("ankka.http.tls.enabled")
+    tlsDirectory
+      .map(RotatingTls(_, FiniteDuration(1, MINUTES)))
+      .orElse(Option.when(enabled) {
+        val directory = config.getString("ankka.tls.service-directory")
+        if directory.isEmpty then
+          throw IllegalStateException(
+            "ankka.http.tls.enabled is on but ankka.tls.service-directory is empty"
+          )
+        RotatingTls(Paths.get(directory), duration(config, "ankka.tls.reload-interval"))
+      })
 
   private def duration(config: Config, path: String): FiniteDuration =
     FiniteDuration(config.getDuration(path).toMillis, MILLISECONDS)
@@ -137,6 +189,7 @@ object GrpcServer:
 
     endpoints.foreach { endpoint =>
       val definition = endpoint.service.getName
+      if endpoint.acl == null then problems += s"the endpoint for '$definition' states no acl"
       val offered = endpoint.service.getMethods.toArray.toVector.collect {
         case m: io.grpc.MethodDescriptor[?, ?] => m
       }

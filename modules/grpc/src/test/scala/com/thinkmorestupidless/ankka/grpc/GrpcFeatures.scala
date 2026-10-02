@@ -2,10 +2,30 @@ package com.thinkmorestupidless.ankka.grpc
 
 import ankka.fixtures.v1.cart.*
 import com.thinkmorestupidless.ankka.core.{EntityId, ErrorCode}
-import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients, HttpEndpoint, HttpServer}
+import com.thinkmorestupidless.ankka.http.{
+  Acl,
+  AuthDecision,
+  Caller,
+  Callers,
+  EndpointClients,
+  HttpEndpoint,
+  HttpServer,
+  Principal
+}
+import com.thinkmorestupidless.ankka.runtime.RotatingTls
+import com.thinkmorestupidless.ankka.testpki.TestPki
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
 import io.grpc.stub.ClientCalls
-import io.grpc.{CallOptions, ManagedChannel, MethodDescriptor, Status, StatusRuntimeException}
+import io.grpc.stub.MetadataUtils
+import io.grpc.{
+  CallOptions,
+  Channel,
+  ClientInterceptors,
+  Metadata,
+  MethodDescriptor,
+  Status,
+  StatusRuntimeException
+}
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
@@ -44,6 +64,21 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   @volatile private var useRegistered                        = false
   private val handled                                        = AtomicInteger()
 
+  // Who may call, as the scenario states it.
+  @volatile private var endpointAcl: Acl                  = Acl.AllowAll
+  @volatile private var methodAcls: Map[String, Acl]      = Map.empty
+  @volatile private var answer: String                    = "allow"
+  @volatile private var establishes: String               = "someone"
+  @volatile private var sending: Vector[(String, String)] = Vector.empty
+  // Deployed: the server serves mutual TLS and a caller is who its certificate names.
+  @volatile private var deployed               = false
+  @volatile private var deployedCaller: String = "checkout"
+
+  // What the handler for GetCart saw.
+  @volatile private var sawPrincipal: Option[String]     = None
+  @volatile private var sawMetadata: Map[String, String] = Map.empty
+  @volatile private var sawCaller: Option[Caller]        = None
+
   private var started: Vector[AutoCloseable]       = Vector.empty
   private var grpcPort: Option[Int]                = None
   private var httpPort: Option[Int]                = None
@@ -57,6 +92,16 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     failure = None
     useRegistered = false
     handled.set(0)
+    endpointAcl = Acl.AllowAll
+    methodAcls = Map.empty
+    answer = "allow"
+    establishes = "someone"
+    sending = Vector.empty
+    deployed = false
+    deployedCaller = "checkout"
+    sawPrincipal = None
+    sawMetadata = Map.empty
+    sawCaller = None
     grpcPort = None
     httpPort = None
     startFailure = None
@@ -71,15 +116,24 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   /** A cart endpoint over `FixtureCart`, behaving as the running scenario says. */
   private final class CartEndpoint(clients: EndpointClients, omit: Option[String] = None)
       extends GrpcEndpoint(CartServiceGrpc.SERVICE):
-    val acl: Acl = Acl.AllowAll
+    val acl: Acl = endpointAcl
 
     private def cart(id: String) = clients.componentClient.forKeyValueEntity(EntityId(id))
 
+    /** Declares under the method's own ACL when the scenario gave it one. */
+    private def declaring(method: String)(declare: => Unit): Unit =
+      methodAcls.get(method).fold(declare)(acl => withAcl(acl)(declare))
+
     if !omit.contains("GetCart") then
-      unary(CartServiceGrpc.METHOD_GET_CART) { request =>
-        handled.incrementAndGet()
-        val state = cart(request.cartId).call(FixtureCart.get).invoke()
-        Cart(request.cartId, state.items.map(Item(_, 1)))
+      declaring("GetCart") {
+        unary(CartServiceGrpc.METHOD_GET_CART) { request =>
+          handled.incrementAndGet()
+          sawCaller = Some(caller)
+          sawPrincipal = Try(principal.subject).toOption
+          sawMetadata = metadata.toSeq.toMap
+          val state = cart(request.cartId).call(FixtureCart.get).invoke()
+          Cart(request.cartId, state.items.map(Item(_, 1)))
+        }
       }
     if !omit.contains("AddItem") then
       unary(CartServiceGrpc.METHOD_ADD_ITEM) { request =>
@@ -117,7 +171,8 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
         case Shape.Missing(method) => Seq(CartEndpoint(_, Some(method)))
         case Shape.Twice           => Seq(CartEndpoint(_), CartEndpoint(_))
         case Shape.Unregistered    => Seq.empty
-      val server = GrpcServer.at("127.0.0.1", 0)(factories*)
+      val plain  = GrpcServer.at("127.0.0.1", 0)(factories*)
+      val server = if deployed then plain.withTls(serverIdentity) else plain
       try
         server.start(testKit.service)
         started :+= (() => server.stop())
@@ -129,13 +184,39 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
         started :+= (() => http.stop())
         httpPort = http.boundPort
 
-  private def channel(): ManagedChannel =
+  private def channel(): Channel =
     start()
     val port =
       grpcPort.getOrElse(fail(s"the service did not start: ${startFailure.map(_.getMessage)}"))
-    val c = GrpcChannels.plaintext(port)
-    started :+= (() => c.shutdownNow().awaitTermination(5, TimeUnit.SECONDS): Unit)
-    c
+    val base =
+      if deployed then
+        GrpcChannels.tls(port, "localhost", identityOf(deployedCaller), "ankka://shop/cart")
+      else GrpcChannels.plaintext(port)
+    started :+= (() => base.shutdownNow().awaitTermination(5, TimeUnit.SECONDS): Unit)
+    if sending.isEmpty then base
+    else
+      val headers = Metadata()
+      sending.foreach((k, v) =>
+        headers.put(Metadata.Key.of(k, Metadata.ASCII_STRING_MARSHALLER), v)
+      )
+      ClientInterceptors.intercept(base, MetadataUtils.newAttachHeadersInterceptor(headers))
+
+  // ── certificates, for a scenario that says "deployed" ─────────────────────────
+
+  private val authority = TestPki.root("grpc-features")
+
+  private lazy val serverIdentity: java.nio.file.Path =
+    authority
+      .issue(uris = Seq("ankka://shop/cart"), dnsNames = Seq("localhost"))
+      .writeTo(java.nio.file.Files.createTempDirectory("grpc-features-cart"))
+
+  private def identityOf(service: String): RotatingTls =
+    RotatingTls(
+      authority
+        .issue(uris = Seq(s"ankka://shop/$service"))
+        .writeTo(java.nio.file.Files.createTempDirectory(s"grpc-features-$service")),
+      1.minute
+    )
 
   private def methodOf(definition: String, method: String): MethodDescriptor[Any, Any] =
     val descriptors: Map[String, io.grpc.ServiceDescriptor] = Map(
@@ -148,13 +229,21 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
     service.getMethods.toArray.toVector
       .collect { case m: MethodDescriptor[?, ?] => m.asInstanceOf[MethodDescriptor[Any, Any]] }
       .find(_.getBareMethodName == method)
-      .getOrElse(fail(s"'$definition' has no method '$method'"))
+      .getOrElse(
+        // A method the definition does not have: sent as bytes, under the name a caller chose.
+        MethodDescriptor
+          .newBuilder(Binding.bytes, Binding.bytes)
+          .setType(MethodDescriptor.MethodType.UNARY)
+          .setFullMethodName(MethodDescriptor.generateFullMethodName(service.getName, method))
+          .build()
+          .asInstanceOf[MethodDescriptor[Any, Any]]
+      )
 
   private def requestFor(method: String): Any = method match
     case "GetCart"  => GetCartRequest(s"cart-$scenarioId")
     case "AddItem"  => AddItemRequest(s"cart-$scenarioId", "Widget", 1)
     case "GetOrder" => GetOrderRequest("o1")
-    case other      => fail(s"no request fixture for '$other'")
+    case _ if !Set("GetCart", "AddItem").contains(method) => Array.emptyByteArray
 
   private def call(definition: String, method: String): Unit =
     val descriptor = methodOf(definition, method)
@@ -323,4 +412,64 @@ class GrpcFeatures extends GherkinSuite("../../features/grpc") with LogCapturing
   Then("the call is answered by the component of the service {string}") { (_: String) =>
     val items = outcome.flatMap(_.toOption).collect { case c: Cart => c.items.map(_.product) }
     assertEquals(items, Some(Seq("written-by-the-test")))
+  }
+
+  // ── access.feature ────────────────────────────────────────────────────────────
+
+  private val authenticator: Acl = Acl.Authenticate { _ =>
+    answer match
+      case "allow"           => AuthDecision.Allow(Principal(establishes))
+      case "unauthenticated" => AuthDecision.Unauthenticated("realm=\"cart\"")
+      case "forbidden"       => AuthDecision.Forbidden("not your cart")
+      case "unavailable"     => AuthDecision.Unavailable("the keys could not be fetched")
+      case other             => fail(s"no authenticator answer '$other'")
+  }
+
+  Given("a service {string} with a gRPC endpoint that states no ACL") { (_: String) =>
+    endpointAcl = null
+  }
+  Given("a gRPC endpoint whose ACL denies all") { () => endpointAcl = Acl.DenyAll }
+  Given("the method {string} states an ACL that allows all") { (method: String) =>
+    methodAcls += method -> Acl.AllowAll
+  }
+  Given("a gRPC endpoint whose ACL is an authenticator") { () => endpointAcl = authenticator }
+  Given("the authenticator answers {string}") { (a: String) => answer = a }
+  Then("the handler for the method {string} has run {string} times") { (_: String, runs: String) =>
+    assertEquals(handled.get, runs.toInt)
+  }
+  Given("the authenticator establishes the principal {string}") { (subject: String) =>
+    answer = "allow"
+    establishes = subject
+  }
+  Then("the handler for the method {string} reads the principal {string}") {
+    (_: String, subject: String) => assertEquals(sawPrincipal, Some(subject))
+  }
+  When("a developer calls the method {string} with the metadata {string} set to {string}") {
+    (method: String, key: String, value: String) =>
+      sending :+= key -> value
+      call("CartService", method)
+  }
+  Then("the handler for the method {string} reads the metadata {string} as {string}") {
+    (_: String, key: String, value: String) => assertEquals(sawMetadata.get(key), Some(value))
+  }
+  Given(
+    "a deployed service {string} with a gRPC endpoint whose ACL admits only the service {string}"
+  ) { (_: String, admitted: String) =>
+    deployed = true
+    endpointAcl = Acl.allowCallers(Callers.service(admitted))
+  }
+  When("the service {string} calls the method {string} of the service {string}") {
+    (calling: String, method: String, _: String) =>
+      deployedCaller = calling
+      call("CartService", method)
+  }
+  Given("a gRPC endpoint for the service definition {string} whose ACL denies all") { (_: String) =>
+    endpointAcl = Acl.DenyAll
+  }
+  Given("a service {string} running on a developer's machine") { (_: String) => deployed = false }
+  Given("the service {string} has a gRPC endpoint whose ACL admits only the service {string}") {
+    (_: String, admitted: String) => endpointAcl = Acl.allowCallers(Callers.service(admitted))
+  }
+  Then("the handler for the method {string} reads the calling workload as the local caller") {
+    (_: String) => assertEquals(sawCaller, Some(Caller.Local))
   }

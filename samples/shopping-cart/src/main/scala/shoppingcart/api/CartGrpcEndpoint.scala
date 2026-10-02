@@ -2,7 +2,7 @@ package shoppingcart.api
 
 import com.thinkmorestupidless.ankka.core.EntityId
 import com.thinkmorestupidless.ankka.grpc.GrpcEndpoint
-import com.thinkmorestupidless.ankka.http.{Acl, EndpointClients}
+import com.thinkmorestupidless.ankka.http.{Acl, Caller, Callers, EndpointClients}
 import shoppingcart.application.ShoppingCartEntity
 import shoppingcart.domain
 import shoppingcart.v1.cart.{Cart, CartServiceGrpc, LineItem, WhoCalledReply}
@@ -20,7 +20,14 @@ import shoppingcart.v1.cart.{Cart, CartServiceGrpc, LineItem, WhoCalledReply}
 final class CartGrpcEndpoint(clients: EndpointClients)
     extends GrpcEndpoint(CartServiceGrpc.SERVICE):
 
-  val acl: Acl = Acl.AllowAll
+  /**
+   * Any service of this project, and the internet through the gateway when the cart is exposed. A
+   * deployment that sets `CART_GRPC_CALLER` admits that one service and nobody else, which is how
+   * the platform's own tests show a refusal by name.
+   */
+  val acl: Acl = sys.env.get("CART_GRPC_CALLER").filter(_.nonEmpty) match
+    case Some(only) => Acl.allowCallers(Callers.service(only))
+    case None       => Acl.allowCallers(Callers.anyInProject, Callers.internet)
 
   unary(CartServiceGrpc.METHOD_GET_CART) { request =>
     toProto(cart(request.cartId).call(ShoppingCartEntity.getCart).invoke())
@@ -36,7 +43,11 @@ final class CartGrpcEndpoint(clients: EndpointClients)
   // docs:end grpc-endpoint
 
   unary(CartServiceGrpc.METHOD_WHO_CALLED) { _ =>
-    WhoCalledReply(caller = "local", instance = sys.env.getOrElse("HOSTNAME", "local"))
+    val who = caller match
+      case Caller.Gateway                => "gateway"
+      case Caller.Service(project, name) => s"service:$project/$name"
+      case Caller.Local                  => "local"
+    WhoCalledReply(caller = who, instance = sys.env.getOrElse("HOSTNAME", "local"))
   }
 
   private def cart(cartId: String) =

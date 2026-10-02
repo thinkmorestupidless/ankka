@@ -6,7 +6,14 @@ import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
 import io.grpc.{ManagedChannel, Status, StatusRuntimeException}
 import shoppingcart.api.{CartGrpcEndpoint, ShoppingCartEndpoint}
 import shoppingcart.application.ShoppingCartEntity
-import shoppingcart.v1.cart.{AddItemRequest, CartServiceGrpc, GetCartRequest, LineItem}
+import com.thinkmorestupidless.ankka.http.Caller
+import shoppingcart.v1.cart.{
+  AddItemRequest,
+  CartServiceGrpc,
+  GetCartRequest,
+  LineItem,
+  WhoCalledRequest
+}
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
@@ -79,4 +86,19 @@ class CartGrpcSuite extends munit.FunSuite with LogCapturing:
       )
     assertEquals(response.statusCode, 200)
     assert(response.body.contains("\"p1\""), response.body)
+  }
+
+  // Outside a cluster this service's own identity is local/local, so "any service of this project"
+  // is a service of the project `local`; one named in another project is refused, as over HTTP.
+  test("a call made as another service of the project is admitted, and the cart reads its caller") {
+    val as = GrpcChannels.plaintext(
+      grpc.boundPort.getOrElse(fail("not bound")),
+      Caller.Service("local", "checkout")
+    )
+    try
+      assertEquals(
+        CartServiceGrpc.blockingStub(as).whoCalled(WhoCalledRequest()).caller,
+        "service:local/checkout"
+      )
+    finally as.shutdownNow().awaitTermination(5, TimeUnit.SECONDS): Unit
   }

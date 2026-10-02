@@ -154,6 +154,12 @@ final class GrpcServer private (
   def boundPort: Option[Int] = server.map(_.getPort)
 
   /**
+   * Where a service on this machine calls this one's gRPC: loopback, since a caller on the same
+   * machine is the only one that reads it. Not `boundAddress`, which every reader takes for HTTP.
+   */
+  override def grpcAddress: Option[String] = boundPort.map(port => s"127.0.0.1:$port")
+
+  /**
    * Stops accepting calls, gives the calls in progress the shutdown grace, then ends what is left
    * as unavailable.
    */

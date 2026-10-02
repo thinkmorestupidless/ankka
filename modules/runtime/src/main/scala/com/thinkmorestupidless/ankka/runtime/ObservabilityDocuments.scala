@@ -22,18 +22,22 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
 
   /** Identity and inventory: what the console's Services and Components panels are built from. */
   def service(): String =
+    // Its gRPC address, when it has one, is beside the HTTP one.
+    val grpc = running.grpcAddresses.headOption
+      .map(a => s""","grpc":{"address":${Json.str(a)}}""")
+      .getOrElse("")
     val instances = running.boundAddresses match
       case addresses if addresses.nonEmpty =>
         addresses
           .map(a =>
             s"""{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)},""" +
-              s""""http":{"address":${Json.str(a)}}}"""
+              s""""http":{"address":${Json.str(a)}}$grpc}"""
           )
           .mkString("[", ",", "]")
-      // A service with `"http": false` serves nothing addressable. Say so, rather than offer an
-      // invoke panel that cannot work.
+      // A service with `"http": false` serves nothing addressable over HTTP. Say so, rather than
+      // offer an invoke panel that cannot work.
       case _ =>
-        s"""[{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)}}]"""
+        s"""[{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)}$grpc}]"""
 
     val components = running.registry.components
       .map { descriptor =>

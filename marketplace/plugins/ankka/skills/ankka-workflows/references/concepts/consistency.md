@@ -74,6 +74,17 @@ time:
 - A consumer that calls a command should call one the target can recognise as already done.
 - A consumer that produces to a topic may produce a duplicate, and the receiving side must tolerate it.
 
+A consumer that publishes several messages for one change publishes them **at least once, in order, and
+not atomically**. The change counts as handled when the broker has accepted every one of its messages. If
+one is refused, the change is delivered again and all of them are published again, so a reader may see a
+message twice and never sees one missing; the messages already accepted are not withdrawn. Progress
+through an entity's changes is saved in batches, so a failure redelivers every change since it was last
+saved, not only the one that failed.
+
+A [graph consumer](../build/graph.md) is built so that the repeats cost nothing: every record it
+publishes is one element's whole state at the version of the change, and a reader that keeps the highest
+version is unmoved by a record it has already seen.
+
 A view or consumer over a key value entity sees the entity's state as changes arrive. It is not a history,
 so it may not see every intermediate value when several changes happen close together. Use an event sourced
 entity when each individual change matters to what reacts to it.
@@ -83,9 +94,10 @@ entity when each individual change matters to what reacts to it.
 Changes from one entity reach a view or consumer in the order they happened. Changes from different
 entities have no defined order relative to each other.
 
-Messages from a broker topic keep their order per key. ankka keys each published message by its subject,
-the id of the entity it is about, so every message about one entity lands on the same partition and is
-delivered in order. A topic source cannot be rebuilt from history: a component reading one sees only what
+Messages from a broker topic keep their order per record key. ankka keys each published message by its
+subject, the id of the entity it is about, unless the message names a key of its own, so every message
+about one entity lands on the same partition and is delivered in order. The several messages of one
+change are handed to the broker in the order the handler returned them. A topic source cannot be rebuilt from history: a component reading one sees only what
 was published after it started consuming, because a broker's retention is not an event journal.
 [Broker topics](../build/topics.md) covers the details.
 

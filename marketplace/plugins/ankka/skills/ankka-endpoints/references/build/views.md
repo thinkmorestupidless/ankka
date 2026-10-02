@@ -193,11 +193,14 @@ change at a time, so the row is the only memory it has of the changes before.
 
 ## When the source is deleted
 
-When a source entity is deleted, the view's deletion handler runs. By default it removes the row, which
-is what the cart's view relies on: a discarded cart deletes itself, and its row leaves the listing with
-it. A view that must outlive its source, an order history reading entities that are deleted once an order
-is placed, say, overrides the handler to keep the row as a tombstone and mark it, rather than lose what
-the entity held.
+When a source entity is deleted, the view's deletion handler runs, for an event sourced entity and a key
+value entity alike: a deletion is a recorded change of the entity, delivered after every change before it.
+By default the handler removes the row, which is what the cart's view relies on: a discarded cart deletes
+itself, and its row leaves the listing with it. A view that must outlive its source, an order history
+reading entities that are deleted once an order is placed, say, overrides the handler to keep the row as a
+tombstone and mark it, rather than lose what the entity held.
+
+An entity whose state has expired is not deleted: no deletion is delivered, and its row stays as it was.
 
 ## Registering a view
 

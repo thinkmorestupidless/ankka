@@ -939,6 +939,10 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   as `sbt -Dfoo=bar test` is set in a JVM that runs no tests. `-Dankka.cluster.tests=off` was a
   documented no-op for two features — the "skipped" suites quietly took seven minutes — until
   `Test / javaOptions` started forwarding it. Any new test switch needs the same forwarding.
+  It happened again: `ankka.conformance.shape` was never forwarded, so the second run of
+  `sdks/rust/conformance.sh` — the stateful guest shape — was a second stateless one for two
+  features, and its own first line of output said so (`… (stateless)`). Read what a run says it
+  ran, not what the script says it runs.
 - **A service's default descriptor now asserts something.** Saying nothing means "serves HTTP on
   9000" and the pod is not `Ready` until that port opens. Right for an ankka service; an image that
   listens on nothing (`pause`) needs `"http": false` or it is `Failed` when the rollout deadline
@@ -1073,6 +1077,39 @@ the package and `package/test/fixture-host/` proves a second host works with no 
 - **`protocol/fixtures/` belongs to `core`'s `EncodingFixturesSuite`**, which refuses any file it did not
   generate. The autonomous agent's fixtures live in `protocol/fixtures/autonomous/`, written by
   `AutonomousFixturesSuite` in `testkit`.
+- **`protocol/fixtures/graph-deltas/` is not generated here at all.** `keys.json` and `deltas.json` are
+  ankka-flow's, copied byte for byte — its merge sink's suite reads the same rows, which is what makes
+  them proof that a graph consumer writes what the sink reads — and `refused.json` is ankka's own.
+  `SOURCE.md` there names the ankka-flow commit. Change neither copied file here; copy them again.
+  All four SDKs test against all three.
+- **A record's key and its subject are two things.** `ce-subject` says which entity a message is
+  about; the record key says which messages are ordered together and which one a compacted topic
+  keeps. They are the same unless a message names a key (`Outgoing.withKey`, and every graph delta
+  does). `MessagePublisher`'s keyed `publish` fails by default, on purpose: a publisher that keyed a
+  named-key message by its subject would hand a reader a different record and say nothing.
+- **`ProjectionSupport.publishAll` is the one place several messages are published**, for a
+  consumer in process, behind a sidecar or in a module, and the Scala `ConsumerTestKit` applies an
+  effect with `applyConsumer` too. A rule about keys, the subject default, the 4 MiB bound or
+  redelivery belongs there or nowhere.
+- **A consumer that must fail forever cannot be tested in a running service.** A change that
+  cannot be handled is redelivered for ever and stalls its slice of the projection for every test
+  after it in the suite. The size bound is held by the pure `PublishAllSuite`; a refused
+  publication is tested with `InMemoryBroker.failNext`, which refuses once.
+- **`runtime` and `sidecar` hold no graph code.** A delta is a value in `core`
+  (`core/graph`), the builder is in `sdk`, and what the runtime publishes is bytes under a key.
+  If a change needs the runtime to know what a delta is, the change is wrong.
+- **A key value deletion is a persisted state, never a row delete.** `Stored(empty, deleted = true)`
+  at the next revision. Removing the row (`PekkoEffect.delete`) is what it did before: the plugin
+  emits nothing for it, so no view's row was removed and no consumer's deletion handler ran, and
+  after a restart the revision began again from one — an entity created again looked older than
+  its own deletion. `KeyValueDeletionSuite` showed five of its eight cases failing on that code.
+  A deleted record is never decoded: a remote host writes one with no payload.
+- **A newer SDK on an older runtime would lose messages silently.** A runtime reads a reply case it
+  does not know as no case at all, and `Translate.fromConsumerEffect` reads that as `Ignore`. So the
+  runtime states its protocol on every consumer request (`ankka.protocol`, set in
+  `RemoteProjection.consumerMetadata`), and an SDK fails the change rather than answer
+  `produce_all` to a request that does not carry `1.3` or later. An SDK sends an empty list as
+  `done` and a single un-keyed message as `produce`, so the guard fires only where it must.
 - **`testkit` depends on `agent`,** so a suite that needs `EventSourcedTestKit`, `TestTransport` or
   `AnkkaTestKit` for an agent-module type lives in `testkit/src/test`. `EntityRouter` there routes real
   calls to real entity test kits by id, which is how client-side orderings are tested without a runtime.

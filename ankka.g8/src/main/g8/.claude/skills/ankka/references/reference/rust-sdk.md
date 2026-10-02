@@ -137,10 +137,40 @@ See [Views](../build/views.md).
 | Associated items | `type Message`, `COMPONENT_ID` |
 | Must define | `source() -> Source`, `on_message(message, ctx) -> ConsumerEffect` |
 | May define | `on_deleted(ctx)`, which ignores by default; `produces_to() -> Option<&str>`, a topic to publish to |
-| Effects | `consumer::produce(value)`, `consumer::done()`, `consumer::ignore()` |
+| In a handler | `ctx.entity_id()`, the source entity's id; `ctx.sequence()`, the change's sequence number; `ctx.client()` |
+| Effects | `consumer::produce(value)`, `consumer::produce_with(value, metadata)`, `consumer::produce_all(messages)`, `consumer::done()`, `consumer::ignore()` |
+| One of several messages | `consumer::message(value)`, then `.key(key)` to publish it under a record key other than its subject and `.metadata(metadata)` for its headers; `Outgoing::of(payload)` takes a payload already encoded |
 
 Delivery is at least once, and a handler that panics has the message delivered again. A consumer that
-produces needs `ANKKA_KAFKA_BOOTSTRAP_SERVERS` on the runtime. See [Consumers](../build/consumers.md).
+produces needs `ANKKA_KAFKA_BOOTSTRAP_SERVERS` on the runtime. `produce_all` publishes its messages in
+order, and the change is handled when the broker has accepted all of them; an empty list is handled at
+once. `ConsumerEffect` has a variant for it, `ProduceAll`, which a `match` on the effect must cover. See
+[Consumers](../build/consumers.md).
+
+## Graph consumer
+
+A consumer that publishes its source as graph deltas, in `ankka::graph`. It is registered as a consumer —
+`.register(CartGraph)` — and can publish nothing but deltas.
+
+| Part | API |
+|---|---|
+| Trait | `GraphConsumer` |
+| Associated items | `type Message`, `COMPONENT_ID`, `TOPIC` |
+| Must define | `source() -> Source`, `on_message(message, ctx) -> GraphEffect` |
+| May define | `on_deleted(ctx)`, which ignores by default |
+| Elements | `graph::node(id)`, `graph::edge(id, type, from, to)`, `graph::tombstone_node(id)`, `graph::tombstone_edge(id, type, from, to)`; then `.label(label)`, `.property(name, value)`, `.at(version)` |
+| Effects | `graph::publish(elements)`, `graph::done()`, `graph::ignore()` |
+| A refusal | a panic when the result is dispatched, naming the element and the fault; `graph::resolve(elements, sequence)` gives the same as a `Result` whose error is a `Refused` with its `why` |
+
+| In `ankka::graph` | What it is |
+|---|---|
+| `Element` | An element as described, and as read: `kind()`, `id()`, `version()`, `labels()`, `edge_type()`, `from()`, `to()`, `properties()`, `get(name)`, `key()` |
+| `Value` | A property value: `Text`, `Bool`, `Integer`, `Float`, `List`, with `From` for `&str`, `String`, `bool`, `i32`, `i64`, `f64` and `Vec` of them. `Float(2.0)` equals `Integer(2)`, as the reader of the topic stores it. |
+| `read(value, key)` | Reads a record's value into an `Element`; given a key, also checks it is the delta's element key |
+| `node_key(id)`, `edge_key(id)`, `SCHEMA_NAME` | The element keys and the contract's name |
+
+The builders are chainable and cannot fail: an element is checked when the result is dispatched. A label
+on an edge or a property on a tombstone is refused there too. See [Publish a graph](../build/graph.md).
 
 ## Workflow
 
@@ -420,7 +450,8 @@ runtime refuses a module with problems, logging each. Locally, the ankka reposit
 | `KeyValueEntityTestKit::<C>::new(id)` | One key value entity. |
 | `WorkflowTestKit::<C>::new(id)` | One workflow: `command`, `run_step`, `run_until_pause`, `run_to_end`, `resume`, `state`. |
 | `ViewTestKit::<C>::new()` | A view's `on_event(key, event)` and `on_deleted(key)`, and `row(key)`. |
-| `ConsumerTestKit::<C>::new()` | A consumer's `on_message` and `on_deleted`. |
+| `ConsumerTestKit::<C>::new()` | A consumer's `on_message(subject, message)` and `on_deleted(subject)`. `.at(sequence)` sets the change's sequence number, `.with_service(build())` answers its client calls in memory, and `ConsumerTestKit::<C>::messages(&effect)` reads what an effect publishes as `Published { payload, key, metadata }`. |
+| `GraphConsumerTestKit::<G>::new()` | A graph consumer's `on_message(subject, sequence, message)` and `on_deleted(subject, sequence)`, each returning the `Element`s published, read back from their bytes; `records(…)` gives the raw records. |
 | `TimedActionTestKit::<C>::new()` | A timed action's `fire(name, input)`. |
 | `AgentTestKit::<C>::new(session, ScriptedModel::new())` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out. |
 | `AutonomousAgentTestKit::<C>::new(task_id)` | An autonomous agent's tools, guardrails and task rules for one task, with no loop. |

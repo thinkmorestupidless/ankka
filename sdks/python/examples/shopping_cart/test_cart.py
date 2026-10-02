@@ -79,6 +79,7 @@ from dataclasses import replace
 
 from ankka.graph import Element
 from ankka.testkit import ConsumerTestKit, GraphConsumerTestKit, KeyValueTestKit, ViewTestKit, WorkflowTestKit
+from examples.shopping_cart.cart_contents_graph import CartContentsGraph
 from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRow, CartRows
 from examples.shopping_cart.checkout_log import CheckoutLog, CheckoutRecord
@@ -133,6 +134,52 @@ def test_a_discarded_cart_is_marked_gone_by_its_deletion_and_comes_back_above_it
     again = graph.on_message(ItemAdded(PEN), "c2", sequence=4)
     assert again[0].key == tombstone[0].key == "node:cart:c2" and again[0].version == 4
 # docs:end graph-test
+
+
+class _CartAsRead:
+    """A client double for a consumer that reads the cart: every `get-cart` answers this cart."""
+
+    def __init__(self, cart: ShoppingCart) -> None:
+        self.cart = cart
+        self.asked: list[tuple[str, str, str]] = []
+
+    def with_metadata(self, metadata: Any) -> "_CartAsRead":
+        return self
+
+    def for_event_sourced_entity(self, component_id: str, entity_id: str) -> "_CartAsRead":
+        self._target = (component_id, entity_id)
+        return self
+
+    def call(self, handler: str) -> "_CartAsRead":
+        self.asked.append((*self._target, handler))
+        return self
+
+    async def invoke(self, *args: Any, reply: Any = None) -> ShoppingCart:
+        return self.cart
+
+
+def test_the_carts_contents_are_published_from_the_cart_as_read() -> None:
+    client = _CartAsRead(ShoppingCart("c1", [PEN, INK], False))
+    graph = GraphConsumerTestKit.of(CartContentsGraph, client)  # type: ignore[arg-type]
+    contents = Element("node", "node", "cart-contents:c1", 2, ("CartContents",), properties={"cartId": "c1", "lines": 2, "quantity": PEN.quantity + INK.quantity})
+    # The element is the cart's state as read, at the version of the event being handled.
+    assert graph.on_message(ItemAdded(INK), "c1", sequence=2) == [contents]
+    assert client.asked == [("shopping-cart", "c1", "get-cart")]
+    # A cart read ahead of the event is published at the event's version; the later event publishes
+    # the same state at its own, which is what a graph keeps.
+    assert graph.on_message(ItemAdded(PEN), "c1", sequence=1) == [replace(contents, version=1)]
+
+
+def test_the_carts_contents_are_tombstoned_when_the_cart_is_deleted() -> None:
+    graph = GraphConsumerTestKit.of(CartContentsGraph, _CartAsRead(ShoppingCart.empty("c1")))  # type: ignore[arg-type]
+    assert graph.on_message(Discarded(), "c1", sequence=3) == []
+    assert graph.on_delete("c1", sequence=4) == [Element("tombstone", "node", "cart-contents:c1", 4)]
+
+
+def test_a_cart_that_cannot_be_read_fails_the_change() -> None:
+    # The unit kit's own client refuses, as a failed call does: the change is delivered again.
+    with pytest.raises(RuntimeError):
+        GraphConsumerTestKit.of(CartContentsGraph).on_message(ItemAdded(PEN), "c1", sequence=1)
 
 
 # docs:start key-value-test
@@ -443,12 +490,13 @@ def test_the_cart_publishes_its_graph_only_where_there_is_a_broker(monkeypatch: 
     monkeypatch.delenv("ANKKA_KAFKA_BOOTSTRAP_SERVERS", raising=False)
     assert consumers() == []
     monkeypatch.setenv("ANKKA_KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-    assert consumers() == ["cart-graph"]
+    assert consumers() == ["cart-graph", "cart-contents-graph"]
 
 
 # ── The conformance reference's publishing consumers, as the suite will find them ──
 
 
+# docs:start consumer-test
 def test_the_reference_fans_a_checkout_out_into_three_messages() -> None:
     from ankka import Metadata
     from ankka.effects.consumer import Produce, ProduceAll
@@ -468,6 +516,7 @@ def test_the_reference_fans_a_checkout_out_into_three_messages() -> None:
     assert kit.on_message(Discarded(), "k1").__class__.__name__ == "Ignore"
     assert CheckoutFanout.out_codec.encode(Fanned(2)) == b'{"n":2}'
     assert CheckoutFanout.out_codec.manifest == "fanned"
+# docs:end consumer-test
 
 
 def test_the_references_graph_consumers_publish_the_cart_and_the_profile() -> None:

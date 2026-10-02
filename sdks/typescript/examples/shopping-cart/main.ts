@@ -5,6 +5,7 @@ import { ShoppingCartEntity } from "./entity.ts"
 import { CartRows } from "./cartRows.ts"
 import { CheckoutNotifier } from "./checkoutNotifier.ts"
 import { CartGraph } from "./cartGraph.ts"
+import { CartContentsGraph } from "./cartContentsGraph.ts"
 import { CheckoutLog } from "./checkoutLog.ts"
 import { CheckoutWorkflow } from "./checkoutWorkflow.ts"
 import { CartAssistant } from "./assistant.ts"
@@ -24,7 +25,7 @@ export function service() {
     .register(CheckoutWorkflow)
     .register(CartAssistant)
     .register(ShoppingCartEndpoint)
-  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CartGraph) : cart
+  return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CartGraph).register(CartContentsGraph) : cart
 }
 
 if (import.meta.main) {

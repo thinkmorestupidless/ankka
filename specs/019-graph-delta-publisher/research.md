@@ -549,3 +549,47 @@ history; the new page in `nav` and a skill or `docs check` fails.
   with those two must settle.
 - **The Rust tutorial page shows the example's registration**, which now ends in that condition;
   `docs sync` carried it into `get-started/first-service-rust.md`.
+
+## Quickstart tier 7, on the local cluster (2026-10-02)
+
+The record is in `samples/shopping-cart/graph/README.md`. In short: the sink-only pipeline's topic
+was created compacted under the name the service publishes to; the scripted carts gave exactly the
+expected twelve nodes and two edges; all 60 records then on the topic were under their element
+key with `ce-type` `ankka.graph-delta.v1`; a restart straight after a second set gave an identical
+graph; a replay of both consumers from the start took the topic from 88 records to 176 while the
+sink wrote none (88 more stale, 0 failed) and the graph did not move; a rebuild with only the sink
+reset restored every live element and every deletion mark; and the Python example behind a
+sidecar and the Rust example as a module each produced the same graph for the same script.
+
+What it found:
+
+- **V7 — a sidecar-hosted service could not publish to a topic on a cluster at all.** The operator
+  splits a descriptor's variables between the two containers and gave
+  `ANKKA_KAFKA_BOOTSTRAP_SERVERS` to the process only, while it is the sidecar that connects to
+  the broker. The Python example registered its graph consumers, and its sidecar refused to
+  start: `consumer 'cart-graph' publishes to 'cart-graph' but no MessagePublisher was
+  configured`. This was so on `main` for any producing consumer behind a sidecar; the docs said
+  the platform routed the variable to the sidecar, and no suite deployed such a service to a
+  cluster with a broker. The operator now gives `ANKKA_KAFKA_*` to **both** containers
+  (`Rendering.SharedEnvPrefixes`, mirrored in `ServiceSpec`, held by
+  `ProcessHostingRenderingSuite`, which failed first): the sidecar to connect, the process so it
+  can register what publishes only where there is a broker.
+- **A module reads the variable through `ankka::config`**: it is not among the names the host
+  reserves, so the Rust example's condition works as written.
+- **A rolling update over a pod that never formed a cluster does not complete.** The new pod's
+  bootstrap kept probing the crash-looping old one. Deleting and re-applying the service cleared
+  it. Not this feature's, and not pursued.
+- **The released `ankka` CLI on this machine refuses `"hosting": "wasm"`** — it predates it. The
+  run used the CLI staged from this branch.
+- **A deleted element's leftover labels and properties depend on how the sink batched its
+  records**, in ankka-flow: a node and its tombstone read in one batch leave a bare marker, read in
+  two they leave the node's last properties under the marker. It showed as the only difference
+  between a graph and its rebuild (one long-deleted cart), and between the three languages' runs
+  (the one discarded cart). Ids, versions and deletion marks were identical throughout, and every
+  live element was. ankka-flow's guarantee is for the live graph, so this is within it; it is
+  worth that project's making a tombstone clear what it marks, so that two graphs compare equal
+  without a filter.
+- **The Scala test kit's `keys` now means what the other three kits' means**: the key a message
+  named, with `recordKeys` for what a broker is given. It first reported the latter, and the docs
+  had to explain the difference.
+- **`drive.sh` broke on bash 3.2** with an apostrophe inside `${1:?…}`; reworded.

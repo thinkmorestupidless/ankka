@@ -16,8 +16,8 @@ import scala.concurrent.duration.DurationInt
  * Nothing is started — no runtime, no database, no broker. The change is decoded as the runtime
  * decodes it, the handler runs with the subject and sequence number given, and its effect is
  * applied by the function the runtime applies it with, against a publisher that only records. So
- * what a test reads is what a broker would have been given: each message's record key, its headers,
- * and its payload as its bytes decode.
+ * what a test reads is what a broker would have been given: each message's key, its headers, and
+ * its payload as its bytes decode.
  *
  * A handler that fails, or a result the runtime would refuse — no topic to publish to, an empty key
  * — throws here, where in a running service the change would be delivered again.
@@ -63,7 +63,7 @@ final class ConsumerTestKit[Src, Out] private (
       publisher.published.toVector.map { published =>
         Produced(
           descriptor.outputSerializer.get.fromBytes(published.payload),
-          published.recordKey,
+          published.key,
           published.metadata,
           published.payload
         )
@@ -74,8 +74,8 @@ object ConsumerTestKit:
 
   /**
    * One message as it would be published: its payload, decoded from the bytes it was encoded to;
-   * the record key a broker is given — the one the message named, else its subject; and its
-   * metadata, with `ce-subject` set as the runtime sets it.
+   * the key it named, if it named one; and its metadata, with `ce-subject` set as the runtime sets
+   * it.
    */
   final case class Produced[Out](
       payload: Out,
@@ -85,10 +85,18 @@ object ConsumerTestKit:
   ):
     def text: String = String(bytes, "UTF-8")
 
+    /** What a broker is given as the record's key: the one named, else the subject. */
+    def recordKey: Option[String] = key.orElse(metadata.subject)
+
   /** What a change came to: the effect the handler returned and the messages it publishes. */
   final case class Result[Out](effect: ConsumerEffect[Out], messages: Vector[Produced[Out]]):
-    def payloads: Vector[Out]        = messages.map(_.payload)
+    def payloads: Vector[Out] = messages.map(_.payload)
+
+    /** The key each message named; `None` for one that is keyed by its subject. */
     def keys: Vector[Option[String]] = messages.map(_.key)
+
+    /** The key a broker is given for each message. */
+    def recordKeys: Vector[Option[String]] = messages.map(_.recordKey)
 
   /** A kit for a consumer, from its companion. Calls through `client` are refused by default. */
   def of[C <: Consumer[Src, Out], Src, Out](
@@ -129,7 +137,7 @@ final class GraphConsumerTestKit[Src] private[testkit] (kit: ConsumerTestKit[Src
   private def read(result: ConsumerTestKit.Result[GraphDelta]): Vector[GraphDelta] =
     result.messages.map { message =>
       GraphDelta
-        .read(message.key, message.bytes)
+        .read(message.recordKey, message.bytes)
         .fold(
           problem => throw IllegalStateException(s"published a delta the sink refuses: $problem"),
           identity

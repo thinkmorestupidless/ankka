@@ -118,6 +118,7 @@ export class CheckoutRecorder extends Consumer<ShoppingCartEvent> {
 
 // ── checkout-fanout: several messages for one change (protocol 1.3) ──
 
+// docs:start fanout
 export const Fanned = s.record("Fanned", { n: s.int })
 
 /**
@@ -144,6 +145,7 @@ export class CheckoutFanout extends Consumer<ShoppingCartEvent, Infer<typeof Fan
     }
   }
 }
+// docs:end fanout
 
 // ── cart-graph: the cart as graph deltas ──
 

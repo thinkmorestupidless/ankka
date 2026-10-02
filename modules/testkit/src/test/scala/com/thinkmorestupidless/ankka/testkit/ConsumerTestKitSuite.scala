@@ -10,12 +10,14 @@ import com.thinkmorestupidless.ankka.core.graph.GraphElementRefused
  */
 class ConsumerTestKitSuite extends munit.FunSuite:
 
-  test("several messages are read back in order, each with the record key a broker is given") {
+  test("several messages are read back in order, each with the key it named") {
     val kit    = ConsumerTestKit.of(LedgerFanout)
     val result = kit.onMessage(LedgerEvent.Added(7), subject = "l1", sequenceNumber = 5)
 
     assertEquals(result.payloads.map(_.n), Vector(1, 2, 3))
-    assertEquals(result.keys, Vector(Some("l1"), Some("second:l1"), Some("l1")))
+    // The second names a key; the others are keyed by their subject, the entity's id.
+    assertEquals(result.keys, Vector(None, Some("second:l1"), None))
+    assertEquals(result.recordKeys, Vector(Some("l1"), Some("second:l1"), Some("l1")))
     // The handler saw the subject and the sequence number it was handed.
     assertEquals(result.payloads.map(_.subject).distinct, Vector("l1"))
     assertEquals(result.payloads.map(_.sequence).distinct, Vector(5L))
@@ -28,7 +30,8 @@ class ConsumerTestKitSuite extends munit.FunSuite:
     val result =
       ConsumerTestKit.of(LowStockNotifier).onMessage(StockEvent("sku-1", -20, "w1"), "sku-1")
     assertEquals(result.payloads, Vector(LowStockAlert("sku-1", -20)))
-    assertEquals(result.keys, Vector(Some("sku-1")))
+    assertEquals(result.keys, Vector(None))
+    assertEquals(result.recordKeys, Vector(Some("sku-1")))
     assertEquals(result.messages.head.text, """{"sku":"sku-1","onHand":-20}""")
   }
 
@@ -54,7 +57,7 @@ class ConsumerTestKitSuite extends munit.FunSuite:
 
   test("the deletion handler is driven the same way") {
     val result = ConsumerTestKit.of(LedgerFanout).onDelete(subject = "l2", sequenceNumber = 9)
-    assertEquals(result.keys, Vector(Some("l2"), Some("gone:l2")))
+    assertEquals(result.recordKeys, Vector(Some("l2"), Some("gone:l2")))
     assertEquals(result.payloads.map(_.sequence).distinct, Vector(9L))
   }
 
@@ -88,6 +91,7 @@ class ConsumerTestKitSuite extends munit.FunSuite:
 
   test("a graph consumer's records carry the element key, the subject and the contract's name") {
     val result = ConsumerTestKit.graph(LedgerGraph).records.onMessage(LedgerEvent.Added(5), "l3", 2)
+    // A delta always names its key: its element's.
     assertEquals(result.keys, Vector(Some("node:ledger:l3"), Some("node:latest:l3")))
     assertEquals(result.messages.map(_.metadata.subject).distinct, Vector(Some("l3")))
     assertEquals(

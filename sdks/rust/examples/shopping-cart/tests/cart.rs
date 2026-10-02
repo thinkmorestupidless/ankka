@@ -8,6 +8,7 @@ use ankka::testkit::{
     EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, StepNext, ViewTestKit,
     WorkflowTestKit,
 };
+use shopping_cart::cart_contents_graph::CartContentsGraph;
 use shopping_cart::cart_graph::CartGraph;
 use shopping_cart::cart_rows::CartRows;
 use shopping_cart::checkout_workflow::CheckoutWorkflow;
@@ -93,6 +94,50 @@ fn the_carts_graph_follows_the_carts_events() {
     assert_eq!(gone[0].version(), Some(3));
 }
 // docs:end graph-test
+
+#[test]
+fn the_carts_contents_are_published_from_the_cart_as_read() {
+    // The kit answers the consumer's read from an in-memory cart, empty here.
+    let kit = GraphConsumerTestKit::<CartContentsGraph>::new().with_service(shopping_cart::build());
+
+    // The event says an item was added; the element says what the cart was read to hold, at the
+    // version of the event being handled.
+    let read = kit.on_message("cart-1", 2, ShoppingCartEvent::ItemAdded { item: pen(2) });
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0].key(), "node:cart-contents:cart-1");
+    assert_eq!(read[0].version(), Some(2));
+    assert_eq!(read[0].labels(), ["CartContents".to_string()]);
+    assert_eq!(read[0].get("cartId"), Some(&Value::from("cart-1")));
+    assert_eq!(read[0].get("lines"), Some(&Value::Integer(0)));
+    assert_eq!(read[0].get("quantity"), Some(&Value::Integer(0)));
+
+    // A later event publishes the cart as read again, at its own version: what a graph keeps.
+    let later = kit.on_message("cart-1", 3, ShoppingCartEvent::CheckedOut);
+    assert_eq!(later[0].version(), Some(3));
+    assert_eq!(later[0].get("lines"), read[0].get("lines"));
+
+    // A discard says nothing; the deletion that follows marks the element.
+    assert!(
+        kit.on_message("cart-1", 4, ShoppingCartEvent::Discarded)
+            .is_empty()
+    );
+    let gone = kit.on_deleted("cart-1", 5);
+    assert_eq!(gone[0].kind(), ElementKind::NodeTombstone);
+    assert_eq!(gone[0].key(), "node:cart-contents:cart-1");
+    assert_eq!(gone[0].version(), Some(5));
+}
+
+#[test]
+#[should_panic(expected = "the cart answers")]
+fn a_cart_that_cannot_be_read_fails_the_change() {
+    // With no service behind the kit the read is refused, as a failed call is: the change is not
+    // handled, and is delivered again.
+    GraphConsumerTestKit::<CartContentsGraph>::new().on_message(
+        "cart-1",
+        1,
+        ShoppingCartEvent::ItemAdded { item: pen(1) },
+    );
+}
 
 // docs:start workflow-test
 #[test]

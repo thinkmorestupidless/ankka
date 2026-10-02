@@ -141,6 +141,7 @@ class CheckoutRecorder(Consumer[ShoppingCartEvent, None]):
 # ── checkout-fanout: a consumer that publishes several messages for one change ──
 
 
+# docs:start fanout
 @dataclass(frozen=True)
 class Fanned:
     n: int
@@ -171,6 +172,7 @@ class CheckoutFanout(Consumer[ShoppingCartEvent, Fanned]):
                     ]
                 )
         return self.effects.ignore()
+# docs:end fanout
 
 
 # ── cart-graph and profile-graph: graph consumers, over events and over a key value entity ──

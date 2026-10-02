@@ -407,7 +407,9 @@ pub fn build() -> Service {
     // The carts' graph is published to a topic, and a component that publishes needs a broker:
     // it is registered when the service's descriptor names one.
     match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
-        Some(_) => service.register(cart_graph::CartGraph),
+        Some(_) => service
+            .register(cart_graph::CartGraph)
+            .register(cart_contents_graph::CartContentsGraph),
         None => service,
     }
 }

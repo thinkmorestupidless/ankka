@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.2"`;
+- its protocol version, `"1.3"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -114,6 +114,30 @@ A view, consumer or timed action is called once per change or timer, with a payl
 answers with one effect. An HTTP route is called once per request, or once per stream for a server-sent
 events route.
 
+A consumer's effect is one of four: `produce`, one message for the consumer's topic; `produce_all`,
+several; `done`; or `ignore`.
+
+```protobuf
+message ConsumerEffect {
+  oneof effect { Produce produce = 1; Empty done = 2; Empty ignore = 3; ProduceAll produce_all = 4; }
+  message Produce { Payload payload = 1; Metadata metadata = 2; }
+  message ProduceAll { repeated Message messages = 1; }
+  message Message { Payload payload = 1; Metadata metadata = 2; optional string key = 3; }
+}
+```
+
+| Reply | Published | The change is handled when |
+|---|---|---|
+| `produce` | one record, keyed by the message's subject | the broker accepts it |
+| `produce_all` with messages | one record each, in the order given; a message's record key is its `key`, and without one its subject | the broker has accepted all of them |
+| `produce_all` with none | nothing | at once, as `done` |
+| `done`, `ignore` | nothing | at once |
+
+Each message's `ce-subject` defaults to the source's id, whatever its key. If the broker refuses any
+message of a `produce_all`, the change is delivered again and every message is published again; those
+already accepted are not withdrawn. An empty `key` fails the change. A reply may be at most 4 MiB: a larger
+one fails the change, naming the consumer, and none of it is published.
+
 ## Payloads
 
 Every value crosses the protocol as a `Payload`: `content_type`, `manifest` and `data`. The sidecar never
@@ -144,8 +168,10 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.2`, and both sides state it in discovery. `1.1` added
-the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent.
+The protocol version is `MAJOR.MINOR`, currently `1.3`, and both sides state it in discovery. `1.1` added
+the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
+consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
+on a consumer's request.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.
@@ -181,7 +207,15 @@ These are part of the protocol, and an SDK that ignores one misbehaves in ways t
   into `fail`.
 - **A view or consumer learns of its source's deletion** by a request with `deleted = true` and no event. The
   default answer is to delete the row, for a view, or ignore it, for a consumer. The source's id travels as
-  the metadata entry `ce-subject`, and the change's sequence number as `ankka.sequence`.
+  the metadata entry `ce-subject`, and the change's sequence number as `ankka.sequence`: an event's sequence
+  number, a key value entity's revision, and `0` for a topic's message. A deletion has a sequence number
+  of its own, above every earlier change to the entity, for both kinds of entity.
+- **An SDK answers `produce_all` only to a runtime that says it accepts it.** A consumer's request carries
+  the metadata entry `ankka.protocol`, the protocol version the runtime speaks. A runtime that does not know
+  a reply reads it as no effect and records the change as handled, so an SDK about to answer `produce_all`
+  to a request with no `ankka.protocol`, or one below `1.3`, fails the request instead, saying which
+  version it was given and which it needs. A handler that returns one message with no key is answered as
+  `produce`, and one that returns none as `done`, on a runtime of any version.
 - **A timed action's payload is what the process scheduled**, carried through the timer table unread. The
   timer's name and the attempt count arrive as metadata `ankka.timer` and `ankka.attempts`. A `fail`, an
   exception or an unreachable process is retried on the sweeper's schedule with the count incremented.

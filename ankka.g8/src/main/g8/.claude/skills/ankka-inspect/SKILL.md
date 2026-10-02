@@ -146,7 +146,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy
 

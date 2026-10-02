@@ -188,6 +188,7 @@ impl Consumer for CheckoutRecorder {
 
 // ── checkout-fanout: a consumer that publishes several messages for one change ──
 
+// docs:start fanout
 /// What `checkout-fanout` publishes: the n-th message of a change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Fanned {
@@ -231,6 +232,7 @@ impl Consumer for CheckoutFanout {
         }
     }
 }
+// docs:end fanout
 
 // ── cart-graph and profile-graph: graph consumers over each kind of entity ──
 

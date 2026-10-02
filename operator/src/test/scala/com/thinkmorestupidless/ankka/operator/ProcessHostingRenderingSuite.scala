@@ -33,7 +33,8 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
       EnvEntry("GREETING", Some("hi"), None, None),
       EnvEntry("ANTHROPIC_API_KEY", None, Some("models"), Some("anthropic")),
       EnvEntry("ANKKA_MODEL_DEFAULT", Some("claude"), None, None),
-      EnvEntry("ANKKA_DB_HOST", Some("postgres"), None, None)
+      EnvEntry("ANKKA_DB_HOST", Some("postgres"), None, None),
+      EnvEntry("ANKKA_KAFKA_BOOTSTRAP_SERVERS", Some("kafka.kafka.svc:9092"), None, None)
     )
   )
   private val process = embedded.copy(hosting = "process")
@@ -85,7 +86,9 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     )
   }
 
-  test("the environment is split: model variables to the sidecar, the rest to the process") {
+  test(
+    "the environment is split: model variables to the sidecar, the rest to the process, the broker to both"
+  ) {
     val cs   = containers(process)
     val node = envOf(cs(0))
     val app  = envOf(cs(1))
@@ -94,6 +97,11 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     assert(!node.contains("GREETING"))
     assert(app.contains("GREETING"))
     assert(!app.contains("ANTHROPIC_API_KEY") && !app.contains("ANKKA_DB_HOST"))
+    // The broker is named to both: the sidecar is what connects to it — without it a consumer
+    // that publishes is refused at startup — and the process may register what needs one only
+    // where there is one.
+    assertEquals(node.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), Some("kafka.kafka.svc:9092"))
+    assertEquals(app.get("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), Some("kafka.kafka.svc:9092"))
     // How the two find each other, on loopback.
     assertEquals(node("ANKKA_PROCESS_ADDRESS"), "127.0.0.1:9010")
     assertEquals(node("ANKKA_SIDECAR_PORT"), "9011")

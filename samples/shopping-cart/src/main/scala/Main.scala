@@ -47,7 +47,12 @@ import shoppingcart.application.*
   val withNotices = sys.env
     .get(ProjectionRuntime.KafkaEnvVar)
     .filter(_.trim.nonEmpty)
-    .fold(base)(_ => base.register(CheckoutNotifier.descriptor).register(CartGraph.descriptor))
+    .fold(base) { _ =>
+      base
+        .register(CheckoutNotifier.descriptor)
+        .register(CartGraph.descriptor)
+        .register(CartContentsGraph.descriptor)
+    }
 
   val service = sys.env
     .get("ANTHROPIC_API_KEY")

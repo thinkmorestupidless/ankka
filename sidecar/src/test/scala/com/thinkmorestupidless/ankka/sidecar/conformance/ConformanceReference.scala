@@ -255,6 +255,7 @@ object ConformanceReference:
       ):
     def create(ctx: ConsumerContext) = new CheckoutRecorder(ctx)
 
+  // docs:start fanout
   /** What `checkout-fanout` publishes: the n-th message of a change. */
   final case class Fanned(n: Int)
 
@@ -288,6 +289,7 @@ object ConformanceReference:
       Some(Codecs.serializer[Fanned]("fanned"))
 
     override val produceTo: Option[String] = Some("conformance-fanout")
+  // docs:end fanout
 
   /**
    * The carts as a graph: the cart's node for an item added or removed, the cart checked out with

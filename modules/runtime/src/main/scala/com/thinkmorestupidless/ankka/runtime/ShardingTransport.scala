@@ -35,9 +35,16 @@ private[ankka] final class ShardingTransport(
   private given Timeout          = Timeout(askTimeout)
 
   def tell(componentId: ComponentId, entityId: EntityId, message: Any): Unit =
+    // A stream is a call like any other, and says who made it the same way.
+    val command = message.asInstanceOf[EntityProtocol.Command] match
+      case stream: EntityProtocol.InvokeStream =>
+        stream.copy(metadata =
+          MetaEntry.from(Trace.outbound(MetaEntry.toMetadata(stream.metadata)))
+        )
+      case other => other
     sharding
       .entityRefFor(EntityKeys.forComponent(componentId), entityId)
-      .tell(message.asInstanceOf[EntityProtocol.Command])
+      .tell(command)
 
   def ask(
       componentId: ComponentId,
@@ -49,14 +56,15 @@ private[ankka] final class ShardingTransport(
     // The caller's span becomes the callee's parent, carried in the metadata that already
     // crosses the sharding boundary. Nothing about the protocol changes: MetaEntry is already
     // serialized, so a trace spans nodes for free.
-    val outbound = Trace.currentTrace match
-      case Some((traceId, spanId)) => Trace.into(metadata, traceId, spanId)
-      case None                    => metadata
+    val carried = Trace.outbound(metadata)
+    // Taken here, on the calling thread: the reply is handled on another, which has no origin.
+    val origin        = Trace.currentOrigin
+    val observability = Observability(system)
 
     sharding
       .entityRefFor(EntityKeys.forComponent(componentId), entityId)
       .ask[EntityProtocol.Reply](replyTo =>
-        EntityProtocol.Invoke(method, payload, MetaEntry.from(outbound), replyTo)
+        EntityProtocol.Invoke(method, payload, MetaEntry.from(carried), replyTo)
       )
       .transform {
         case Success(EntityProtocol.Succeeded(reply, _)) =>
@@ -66,6 +74,9 @@ private[ankka] final class ShardingTransport(
           Failure(rejected.toCommandError)
 
         case Failure(_: java.util.concurrent.TimeoutException) =>
+          // Only the caller can see this. If a handler ran and threw, its host counted that too,
+          // as a failure: one call, seen from both ends, and the two are never added together.
+          observability.unanswered(origin, componentId, method, Unanswered.TimedOut)
           Failure(
             CommandError(
               s"$componentId#$method on '$entityId' did not reply within $askTimeout",
@@ -74,6 +85,9 @@ private[ankka] final class ShardingTransport(
           )
 
         case Failure(NonFatal(other)) =>
+          // No host was reached, so none counted it. Each attempt is one: a caller that tries
+          // three times made three calls that were not delivered.
+          observability.unanswered(origin, componentId, method, Unanswered.Undelivered)
           Failure(CommandError(other.getMessage, ErrorCode.Unavailable))
 
         case Failure(fatal) => Failure(fatal)

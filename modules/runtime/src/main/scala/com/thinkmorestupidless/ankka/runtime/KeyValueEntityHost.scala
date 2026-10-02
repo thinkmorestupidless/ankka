@@ -86,6 +86,12 @@ private[ankka] object KeyValueEntityHost:
       case invoke: EntityProtocol.Invoke =>
         descriptor.handler(MethodName(invoke.method)) match
           case None =>
+            // See the event sourced host: answered by the platform, so undelivered.
+            observability.undelivered(
+              MetaEntry.toMetadata(invoke.metadata),
+              descriptor.componentId.toString,
+              None
+            )
             PekkoEffect.reply(invoke.replyTo)(
               EntityProtocol.Rejected(
                 CommandError(
@@ -119,19 +125,29 @@ private[ankka] object KeyValueEntityHost:
               componentRef = componentRef,
               handlerRef = observability.names.intern(invoke.method)
             )
+            val started = System.nanoTime()
             // Failed until proven otherwise: if the handler throws, that is what is recorded.
             var spanOutcome = SpanOutcome.Failed
             try
               // Published as current for the duration of the handler, so a nested
               // ComponentClient call is recorded as this span's child rather than a root.
               val (effect, handlerOutcome) =
-                Trace.within(span.traceId, span.id)(
-                  interpret(binding, entity, invoke, visible, empty)
-                )
+                Trace.within(
+                  span.traceId,
+                  span.id,
+                  CallOrigin(descriptor.componentId.toString, invoke.method)
+                )(interpret(binding, entity, invoke, visible, empty))
               spanOutcome = handlerOutcome
               effect
             finally
               observability.recorder.complete(span, spanOutcome)
+              observability.handled(
+                metadata,
+                descriptor.componentId.toString,
+                invoke.method,
+                spanOutcome,
+                System.nanoTime() - started
+              )
               entity._setContext(None)
 
       case request: EntityProtocol.InvokeStream =>

@@ -210,7 +210,13 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
 
   private def row(view: String, key: String): Option[String] =
     given ActorSystem[?] = kit.service.system
-    ViewQueries(ViewDescriptor.tableFor(ComponentId(view)), Serializer.bytes, Database(), 5.seconds)
+    ViewQueries(
+      view,
+      ViewDescriptor.tableFor(ComponentId(view)),
+      Serializer.bytes,
+      Database(),
+      5.seconds
+    )
       .get(key)
       .map(bytes => String(bytes, "UTF-8"))
 

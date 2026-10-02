@@ -217,14 +217,22 @@ final class WasmConversation(
     def runStep(
         id: Long,
         step: String,
-        input: Option[Array[Byte]]
+        input: Option[Array[Byte]],
+        metadata: Metadata
     ): Future[Either[ProcessFailure, StepReply]] = Future {
       // A fresh instance holds nothing, so it is always handed the state, whatever the shape.
       val request = StepRequest(
         init.componentId,
         init.entityId,
         held.state,
-        Some(WorkflowIn.RunStep(id, step, input.map(pb.Payload.parseFrom)))
+        Some(
+          WorkflowIn.RunStep(
+            id,
+            step,
+            input.map(pb.Payload.parseFrom),
+            Some(Translate.toMetadata(metadata))
+          )
+        )
       )
       blocking.withFresh(fn("run_step"), stepTime)(
         ask(_, fn("run_step"), request)(PbStepReply.parseFrom)

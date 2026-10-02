@@ -310,7 +310,10 @@ class _WorkflowStream:
         step_spec = type(workflow).steps().get(run.step)
         if step_spec is None:
             return workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))
-        ctx = CommandContext(workflow.entity_id, type(workflow).component_id, Metadata(), 0, self.client)
+        # What the sidecar says about this step: its trace, and the step as the caller of whatever it
+        # calls. Carried on the step's calls as a command's is; a sidecar before 1.3 sends none.
+        metadata = Metadata.from_pb(run.metadata) if run.HasField("metadata") else Metadata()
+        ctx = CommandContext(workflow.entity_id, type(workflow).component_id, metadata, 0, self.client.with_metadata(metadata))
         try:
             step_effect = await workflow._run_step(step_spec, self.state, run.input.data if run.HasField("input") else None, ctx)
         except Exception as e:

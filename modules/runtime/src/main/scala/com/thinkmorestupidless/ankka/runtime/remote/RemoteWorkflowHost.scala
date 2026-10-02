@@ -5,9 +5,11 @@ import com.thinkmorestupidless.ankka.core.{
   CommandError,
   EntityId,
   ErrorCode,
+  Metadata,
   MethodName,
   Serializer
 }
+import com.thinkmorestupidless.ankka.runtime.Trace
 import com.thinkmorestupidless.ankka.sdk.{
   CommandHandle,
   HandlerBinding,
@@ -114,6 +116,10 @@ private[ankka] object RemoteWorkflowHost:
         .handler(name)
         .getOrElse(throw CommandError(s"no handler '$name'", ErrorCode.NotFound))
       val metadata = commandContext.metadata
+      // What the process is told: the engine's span for this command and this handler's name, set
+      // on this thread by the engine. The metadata the command arrived with names whoever sent it,
+      // and a call the process made with that would be put on them.
+      val carried = Trace.outbound(metadata)
       val payload = Payload(
         metadata.get(PayloadKeys.ContentType).getOrElse(Payload.Json),
         metadata.get(PayloadKeys.Manifest).getOrElse(""),
@@ -122,7 +128,7 @@ private[ankka] object RemoteWorkflowHost:
       val l  = live()
       val id = l.nextId
       Try(
-        Await.result(l.session.command(Command(id, name, payload, metadata, false)), commandTimeout)
+        Await.result(l.session.command(Command(id, name, payload, carried, false)), commandTimeout)
       ) match
         case Failure(e) =>
           drop()
@@ -166,7 +172,9 @@ private[ankka] object RemoteWorkflowHost:
       val id = l.nextId
       // The engine has its own step timeout and fires `StepTimedOut`; this cap only frees the
       // virtual thread if the process vanished without closing the conversation.
-      val result = Try(Await.result(l.session.runStep(id, name, input), 10.minutes))
+      // A step is told which step it is, as a command is: the engine set both on this thread.
+      val carried = Trace.outbound(Metadata.empty)
+      val result  = Try(Await.result(l.session.runStep(id, name, input, carried), 10.minutes))
       result.toEither match
         case Left(e) =>
           drop()

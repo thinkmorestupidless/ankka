@@ -145,6 +145,10 @@ final class ServiceBuilder private[ankka] (
     )
     val sharding = ClusterSharding(system)
 
+    // What the service declared, before anything can call anything: a name in a call's metadata is
+    // believed only when it is one of these. The routes are added once the endpoints have started.
+    Observability(system).declare(DeclaredNames.of(registry, Vector.empty))
+
     // Before formation: in Kubernetes the readiness check is served by the management endpoint
     // formation starts, and it must be able to see every extension's answer from its first call.
     ExtensionsReadiness(system).register(extensions.flatMap(_.readiness))
@@ -221,6 +225,7 @@ final class ServiceBuilder private[ankka] (
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)
     }
+    Observability(system).declare(DeclaredNames.of(registry, service.routes))
 
     // After the extensions, so the endpoint can report the address they bound. Local mode only:
     // in Kubernetes the pod is the registry and management is the exposure, and management is
@@ -309,8 +314,9 @@ final case class ServedRoute(method: String, path: String, streaming: Boolean, e
 
 object ServedRoute:
   /**
-   * An endpoint's id in a topology. An endpoint has no component id of its own; its prefix is its
-   * name.
+   * An endpoint's id in a topology. Its prefix is its name, in every language: a Scala endpoint has
+   * no id of its own, and one in another language is served by the same HTTP server under the same
+   * prefix.
    */
   def endpointId(name: String): String = s"endpoint:$name"
 

@@ -71,8 +71,16 @@ object ObservabilityEndpoint:
       server.createContext("/observability/service", exchange => handler.service(exchange))
       server.createContext("/observability/topology", exchange => handler.topology(exchange))
       server.createContext("/observability/traces", exchange => handler.traces(exchange))
-      server.createContext("/observability/sessions", exchange => handler.sessions(exchange))
-      server.createContext("/observability/query", exchange => handler.query(exchange))
+      // The console's own reads go through the same client a handler's calls do. They are marked
+      // as the console's, so that looking at an entity is not counted as the service calling it.
+      server.createContext(
+        "/observability/sessions",
+        exchange => Trace.asOrigin(CallOrigin.Console)(handler.sessions(exchange))
+      )
+      server.createContext(
+        "/observability/query",
+        exchange => Trace.asOrigin(CallOrigin.Console)(handler.query(exchange))
+      )
       server.setExecutor(null) // the JDK's default: a small pool, which is ample for one reader
       server.start()
 
@@ -147,13 +155,7 @@ object ObservabilityEndpoint:
       else
         respond(
           exchange,
-          TopologyJson.render(
-            serviceName,
-            instanceId,
-            startedAt,
-            service.registry,
-            service.routes
-          )
+          TopologyJson.of(service, serviceName, instanceId, startedAt)
         )
 
     /** The recent window, newest first, or one trace in full when asked for by id. */

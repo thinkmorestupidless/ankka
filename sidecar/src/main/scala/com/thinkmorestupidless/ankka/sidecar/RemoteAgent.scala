@@ -48,9 +48,9 @@ final class RemoteAgent(
 ) extends Agent:
 
   private[sidecar] def plan(name: MethodName, bytes: Array[Byte]): AgentEffect[String] =
-    val metadata = Trace.currentTrace
-      .map((traceId, spanId) => Trace.into(Metadata.empty, traceId, spanId))
-      .getOrElse(Metadata.empty)
+    // The agent's span and its name, as the host set them on this thread: what the process
+    // forwards when its handler calls another component.
+    val metadata = Trace.outbound(Metadata.empty)
     val request =
       PlanRequest(spec.componentId, sessionId, name, Payload(Payload.Json, "", bytes), metadata)
     Await.result(conversation.plan(request), planTimeout) match

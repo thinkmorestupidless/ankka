@@ -87,13 +87,7 @@ object ConformanceTarget:
 
   /** Rendered by the runtime hosting the target, whatever language the target is written in. */
   private def topologyOf(kit: AnkkaTestKit): String =
-    TopologyJson.render(
-      "conformance",
-      "conformance-1",
-      "2026-01-01T00:00:00Z",
-      kit.service.registry,
-      kit.service.routes
-    )
+    TopologyJson.of(kit.service, "conformance", "conformance-1", "2026-01-01T00:00:00Z")
 
   def fromProperty(model: TestModelProvider): ConformanceTarget =
     sys.props.get("ankka.conformance.target").filter(_.nonEmpty) match

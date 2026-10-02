@@ -128,7 +128,7 @@ reports.
 `protocol` is the protocol version, `MAJOR.MINOR`. It is required with `process` or `wasm` hosting
 (`protocol must be declared for process hosting`, and the same for `wasm`) and refused with `embedded`
 hosting (`protocol is meaningful only for process or wasm hosting`). The platform accepts a declaration with the same
-major as its own and a minor no later than its own. It currently speaks protocol `1.0`.
+major as its own and a minor no later than its own. It currently speaks protocol `1.3`.
 
 ### http and port
 

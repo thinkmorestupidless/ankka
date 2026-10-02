@@ -24,6 +24,7 @@ import com.thinkmorestupidless.ankka.sdk.{
   View,
   ViewDescriptor
 }
+import com.thinkmorestupidless.ankka.runtime
 import munit.FunSuite
 
 /**
@@ -51,14 +52,17 @@ final class TopologyJsonSuite extends FunSuite:
   private def render(
       components: Seq[ComponentDescriptor],
       routes: Vector[ServedRoute] = Vector.empty,
-      name: String = "cart"
+      name: String = "cart",
+      counted: Counted = Counted()
   ): String =
     TopologyJson.render(
       name,
       "48213",
-      "2026-10-01T09:12:03Z",
+      Started,
       ComponentRegistry.fromOrThrow(components),
-      routes
+      routes,
+      counted.counts.snapshot(counted.now),
+      counted.names.nameOf
     )
 
   private def read(json: String): Document = readFromString[Document](json)
@@ -69,7 +73,7 @@ final class TopologyJsonSuite extends FunSuite:
     assertEquals(document.nodes, Vector.empty)
     assertEquals(document.declared, Vector.empty)
     assertEquals(document.calls, Vector.empty)
-    assertEquals(document.window, Window(0, Started, 0))
+    assertEquals(document.window, Window(600, Started, 0, 0))
   }
 
   test("each kind of component is a node of that kind, in the layer every console draws it in") {
@@ -351,13 +355,243 @@ final class TopologyJsonSuite extends FunSuite:
     )
   }
 
+  // ── observed calls ───────────────────────────────────────────────────────────
+
+  private val cart = Vector(
+    component(
+      "shopping-cart",
+      ComponentKind.EventSourcedEntity,
+      Vector(
+        DeclaredHandler("add-item", HandlerKind.Command),
+        DeclaredHandler("get-cart", HandlerKind.Query)
+      )
+    )
+  )
+  private val carts = Vector(
+    ServedRoute("POST", "/carts/{cartId}/items", streaming = false, "endpoint:/carts"),
+    ServedRoute("GET", "/carts/{cartId}", streaming = false, "endpoint:/carts")
+  )
+
+  test("the pairs of handlers between two nodes are one observed call, in order") {
+    val counted = Counted()
+    counted.handled("endpoint:/carts", "POST /carts/{cartId}/items", "shopping-cart", "add-item")
+    counted.handled("endpoint:/carts", "GET /carts/{cartId}", "shopping-cart", "get-cart")
+    counted.handled("endpoint:/carts", "GET /carts/{cartId}", "shopping-cart", "get-cart")
+
+    val document = read(render(cart, carts, counted = counted))
+    assertEquals(
+      document.calls.map(c => (c.from, c.to)),
+      Vector("endpoint:/carts" -> "shopping-cart")
+    )
+    assertEquals(
+      document.calls.head.pairs.map(p => (p.caller, p.callee, p.handled.ok)),
+      Vector(
+        ("GET /carts/{cartId}", "get-cart", 2L),
+        ("POST /carts/{cartId}/items", "add-item", 1L)
+      )
+    )
+    assertEquals(document.window.calls, 3L)
+    assert(!document.nodes.exists(_.id == "unknown"), "nobody was unknown")
+  }
+
+  test("a call counts by how its handler ended, and a refusal is not a failure") {
+    val counted = Counted()
+    val from    = ("endpoint:/carts", "POST /carts/{cartId}/items")
+    counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Ok)
+    counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Refused)
+    counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Failed)
+    counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Failed)
+
+    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    assertEquals(pair.handled, Handled(ok = 1, refused = 1, failed = 2))
+    assertEquals(pair.unanswered, Unanswered(timedOut = 0, undelivered = 0))
+  }
+
+  test("handled and unanswered are two counts of the same calls, and nothing adds them up") {
+    val counted = Counted()
+    val from    = ("endpoint:/carts", "POST /carts/{cartId}/items")
+    // A handler that threw: failed where it ran, and timed out where it was called from.
+    counted.handled(from._1, from._2, "shopping-cart", "add-item", SpanOutcome.Failed)
+    counted.unanswered(from._1, from._2, "shopping-cart", "add-item", runtime.Unanswered.TimedOut)
+
+    val json     = render(cart, carts, counted = counted)
+    val document = read(json)
+    val pair     = document.calls.head.pairs.head
+    assertEquals(pair.handled, Handled(0, 0, 1))
+    assertEquals(pair.unanswered, Unanswered(timedOut = 1, undelivered = 0))
+    assertEquals(document.window, Window(600, Started, calls = 1, unanswered = 1))
+    assert(
+      !json.contains("\"total\""),
+      "there is one call here, and no number in the document says two"
+    )
+  }
+
+  test("a call from nobody is from the unknown caller, a node that is there only when it is used") {
+    val counted = Counted()
+    counted.handled(CallCounts.UnknownOrigin, CallCounts.UnknownOrigin, "shopping-cart", "add-item")
+
+    val document = read(render(cart, carts, counted = counted))
+    assertEquals(
+      document.nodes.find(_.id == "unknown"),
+      Some(Node("unknown", "UnknownCaller", 0, platform = false, Vector.empty))
+    )
+    assertEquals(document.calls.map(c => (c.from, c.to)), Vector("unknown" -> "shopping-cart"))
+    assertEquals(document.calls.head.pairs.map(_.callee), Vector("add-item"))
+  }
+
+  test("a caller that is no node of this service is the unknown caller, not the nearest one") {
+    val counted = Counted()
+    counted.handled("endpoint:/orders", "GET /orders/{id}", "shopping-cart", "get-cart")
+
+    val document = read(render(cart, carts, counted = counted))
+    assertEquals(document.calls.map(c => (c.from, c.to)), Vector("unknown" -> "shopping-cart"))
+  }
+
+  test("a handler nobody declared is shown as undeclared, never by the name that was sent") {
+    val counted = Counted()
+    counted.unanswered(
+      "endpoint:/carts",
+      "GET /carts/{cartId}",
+      "shopping-cart",
+      CallCounts.Undeclared,
+      runtime.Unanswered.Undelivered
+    )
+
+    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    assertEquals(pair.callee, "(undeclared)")
+    assertEquals(pair.unanswered, Unanswered(timedOut = 0, undelivered = 1))
+    assertEquals(pair.handled, Handled(0, 0, 0))
+  }
+
+  test("another service is a node one layer after whatever calls it, and the rest are one node") {
+    val counted = Counted()
+    counted.handled("shopping-cart", "add-item", "service:checkout/pricing", "POST /prices")
+    counted.handled("shopping-cart", "add-item", "service:(other)", "(other)")
+
+    val document = read(render(cart, carts, counted = counted))
+    assertEquals(
+      document.nodes.filter(_.kind == "ExternalService").map(n => (n.id, n.layer)),
+      Vector("service:(other)" -> 3, "service:checkout/pricing" -> 3)
+    )
+  }
+
+  test("when an entity and its view share an id, the handler says which one a call is to") {
+    val components = Vector(
+      component(
+        "cart",
+        ComponentKind.EventSourcedEntity,
+        Vector(DeclaredHandler("get-cart", HandlerKind.Query))
+      ),
+      component(
+        "cart",
+        ComponentKind.View,
+        Vector(DeclaredHandler("on-change", HandlerKind.Update))
+      )
+    )
+    val counted = Counted()
+    counted.handled("endpoint:/carts", "GET /carts/{cartId}", "cart", "get-cart")
+    counted.handled("endpoint:/carts", "GET /carts/{cartId}", "cart", "where")
+    counted.handled("cart", "on-change", "cart", "get-cart")
+
+    val document = read(render(components, carts, counted = counted))
+    assertEquals(
+      document.calls.map(c => (c.from, c.to)),
+      Vector(
+        "endpoint:/carts" -> "eventsourcedentity:cart",
+        "endpoint:/carts" -> "view:cart",
+        "view:cart"       -> "eventsourcedentity:cart"
+      )
+    )
+  }
+
+  test("durations are read from the histogram, and say so") {
+    val counted = Counted()
+    val from    = ("endpoint:/carts", "GET /carts/{cartId}")
+    // Ninety-nine calls of about a millisecond and one of about a second.
+    (1 to 99).foreach(_ =>
+      counted.handled(from._1, from._2, "shopping-cart", "get-cart", nanos = 1_500_000L)
+    )
+    counted.handled(from._1, from._2, "shopping-cart", "get-cart", nanos = 1_500_000_000L)
+
+    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    assertEquals(pair.histogram.size, CallCounts.HistogramBuckets)
+    assertEquals(pair.histogram.sum, 100L)
+    // 1.5 ms is in the bucket [1, 2) ms, whose upper edge is 2; 1.5 s is in [1.024, 2.048) s.
+    assertEquals(pair.durationMillis, Duration(p50 = 2.0, p99 = 2.0, max = 2048.0, bucketed = true))
+  }
+
+  test("a stream is one call, and marked as a stream") {
+    val counted = Counted()
+    counted.handled(
+      "endpoint:/carts",
+      "GET /carts/{cartId}",
+      "shopping-cart",
+      "get-cart",
+      streaming = true
+    )
+    val pair = read(render(cart, carts, counted = counted)).calls.head.pairs.head
+    assertEquals(pair.handled.ok, 1L)
+    assert(pair.streaming)
+  }
+
+  test(
+    "the window says how far back it reaches: to the start, until the service is older than it"
+  ) {
+    val young = Counted()
+    assertEquals(read(render(cart, carts, counted = young)).window.since, Started)
+
+    val old = Counted(now = StartedMillis + 3_600_000L)
+    assertEquals(
+      read(render(cart, carts, counted = old)).window.since,
+      java.time.Instant.ofEpochMilli(StartedMillis + 3_000_000L).toString
+    )
+  }
+
+  test("a call that left the window is not in the document") {
+    val counted = Counted()
+    counted.handled("endpoint:/carts", "GET /carts/{cartId}", "shopping-cart", "get-cart")
+    val later = counted.copy(now = counted.now + 601_000L)
+    assertEquals(read(render(cart, carts, counted = later)).calls, Vector.empty)
+    assertEquals(read(render(cart, carts, counted = later)).window.calls, 0L)
+  }
+
 object TopologyJsonSuite:
 
-  private val Started = "2026-10-01T09:12:03Z"
+  private val Started       = "2026-10-01T09:12:03Z"
+  private val StartedMillis = java.time.Instant.parse(Started).toEpochMilli
+
+  /** Calls counted as the hosts count them, at a time the test chooses. */
+  final case class Counted(
+      now: Long = StartedMillis + 5_000L,
+      names: Names = new Names,
+      counts: CallCounts = CallCounts(600_000L, 60, StartedMillis)
+  ):
+    private def key(from: String, caller: String, to: String, callee: String): Long =
+      CallCounts
+        .key(names.intern(from), names.intern(caller), names.intern(to), names.intern(callee))
+        .get
+
+    def handled(
+        from: String,
+        caller: String,
+        to: String,
+        callee: String,
+        outcome: SpanOutcome = SpanOutcome.Ok,
+        nanos: Long = 1_000_000L,
+        streaming: Boolean = false
+    ): Unit = counts.handled(key(from, caller, to, callee), outcome, nanos, streaming, now)
+
+    def unanswered(
+        from: String,
+        caller: String,
+        to: String,
+        callee: String,
+        kind: runtime.Unanswered
+    ): Unit = counts.unanswered(key(from, caller, to, callee), kind, now)
 
   // The document as a reader models it. A field the renderer drops or renames fails to decode.
   final case class Service(name: String, runtime: String, instance: String, startedAt: String)
-  final case class Window(seconds: Long, since: String, calls: Long)
+  final case class Window(seconds: Long, since: String, calls: Long, unanswered: Long)
   final case class Handler(name: String, `type`: String, streaming: Option[Boolean] = None)
   final case class Node(
       id: String,
@@ -371,8 +605,21 @@ object TopologyJsonSuite:
       window: Window,
       nodes: Vector[Node],
       declared: Vector[Edge],
-      calls: Vector[String]
+      calls: Vector[Call]
   )
   final case class Edge(from: String, to: String, kind: String)
+  final case class Call(from: String, to: String, pairs: Vector[Pair])
+  final case class Pair(
+      caller: String,
+      callee: String,
+      handled: Handled,
+      unanswered: Unanswered,
+      durationMillis: Duration,
+      histogram: Vector[Long],
+      streaming: Boolean
+  )
+  final case class Handled(ok: Long, refused: Long, failed: Long)
+  final case class Unanswered(timedOut: Long, undelivered: Long)
+  final case class Duration(p50: Double, p99: Double, max: Double, bucketed: Boolean)
 
   given JsonValueCodec[Document] = Codecs.make[Document]

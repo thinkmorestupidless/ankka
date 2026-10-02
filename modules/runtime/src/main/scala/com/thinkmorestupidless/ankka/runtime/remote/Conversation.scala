@@ -112,7 +112,8 @@ trait InstanceSession:
   def runStep(
       id: Long,
       step: String,
-      input: Option[Array[Byte]]
+      input: Option[Array[Byte]],
+      metadata: Metadata
   ): Future[Either[ProcessFailure, StepReply]]
 
   /** Passivation or a violation. The process releases the instance's state when it sees this. */

@@ -26,6 +26,8 @@ private[ankka] final class ViewTopicHandler(
 
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Taken at construction, where the system is safe to ask: `process` runs on the broker's threads.
+  private val observability = Observability(system)
 
   def process(message: IncomingMessage): Future[Done] =
     message.subject match
@@ -51,7 +53,12 @@ private[ankka] final class ViewTopicHandler(
             )
 
             val effect =
-              try view.onChange(descriptor.source.decoder.fromBytes(message.payload))
+              try
+                ProjectionSupport.handling(
+                  observability,
+                  descriptor.componentId.toString,
+                  ViewDescriptor.OnChange.name
+                )(view.onChange(descriptor.source.decoder.fromBytes(message.payload)))
               finally view._setContext(None)
 
             effect match
@@ -74,8 +81,11 @@ private[ankka] final class ViewTopicHandler(
 private[ankka] final class ConsumerTopicHandler(
     descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
     publisher: Option[MessagePublisher],
-    client: ComponentClient
+    client: ComponentClient,
+    observability: Observability
 ):
+
+  private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client))
@@ -85,7 +95,10 @@ private[ankka] final class ConsumerTopicHandler(
 
     consumer._setContext(Some(SimpleChangeContext(subject, 0L, localOrigin = true)))
     val effect =
-      try consumer.onMessage(descriptor.source.decoder.fromBytes(message.payload))
+      try
+        ProjectionSupport.handling(observability, id, ConsumerDescriptor.OnMessage.name) {
+          consumer.onMessage(descriptor.source.decoder.fromBytes(message.payload))
+        }
       catch
         case failure: Throwable =>
           consumer._setContext(None)

@@ -643,7 +643,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       ).fold(f => fail(f.toString), identity)
       assertEquals((http.status, String(http.body, "UTF-8")), (200, "hello"))
       val workflow = talk.open(Init(ComponentKind.Workflow, cartId, EntityId("w1"), None))
-      val step     = await(workflow.runStep(7, "first", None)).fold(f => fail(f.toString), identity)
+      val step = await(workflow.runStep(7, "first", None, Metadata.empty))
+        .fold(f => fail(f.toString), identity)
       assertEquals(
         (step.commandId, step.next),
         (7L, com.thinkmorestupidless.ankka.core.effect.StepOutcome.End)

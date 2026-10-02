@@ -276,6 +276,7 @@ impl<C: Workflow> WorkflowTestKit<C> {
                 id: self.commands,
                 step: step.step.clone(),
                 input: step.input,
+                metadata: None,
             }),
         };
         let registration = &self.registration;

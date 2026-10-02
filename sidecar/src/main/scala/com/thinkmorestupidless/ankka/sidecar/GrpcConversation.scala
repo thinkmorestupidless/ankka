@@ -17,7 +17,13 @@ import ankka.protocol.v1.payload as pb
 import ankka.protocol.v1.timed_action.{TimedActionEffect, TimedActionGrpc}
 import ankka.protocol.v1.view.{ViewEffect, ViewGrpc}
 import ankka.protocol.v1.workflow.{WorkflowGrpc, WorkflowIn, WorkflowOut}
-import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ComponentKind, ErrorCode}
+import com.thinkmorestupidless.ankka.core.{
+  CommandError,
+  ComponentId,
+  ComponentKind,
+  ErrorCode,
+  Metadata
+}
 import com.thinkmorestupidless.ankka.runtime.remote.*
 import io.grpc.stub.StreamObserver
 import io.grpc.ManagedChannel
@@ -204,7 +210,7 @@ final class GrpcConversation(
                   )
                 )
                 p.reply.future
-          def runStep(id: Long, step: String, input: Option[Array[Byte]]) =
+          def runStep(id: Long, step: String, input: Option[Array[Byte]], metadata: Metadata) =
             Future.failed(ProtocolViolation("an event sourced entity has no steps"))
           def close(): Unit =
             if !closed then
@@ -278,7 +284,7 @@ final class GrpcConversation(
                   )
                 )
                 p.reply.future
-          def runStep(id: Long, step: String, input: Option[Array[Byte]]) =
+          def runStep(id: Long, step: String, input: Option[Array[Byte]], metadata: Metadata) =
             Future.failed(ProtocolViolation("a key value entity has no steps"))
           def close(): Unit =
             if !closed then
@@ -362,7 +368,7 @@ final class GrpcConversation(
                   )
                 )
                 p.reply.future
-          def runStep(id: Long, step: String, input: Option[Array[Byte]]) =
+          def runStep(id: Long, step: String, input: Option[Array[Byte]], metadata: Metadata) =
             if closed then
               Future.successful(
                 Left(ProcessFailure(id, CommandError("conversation closed", ErrorCode.Unavailable)))
@@ -378,7 +384,12 @@ final class GrpcConversation(
                 out.onNext(
                   WorkflowIn(
                     WorkflowIn.Message.RunStep(
-                      WorkflowIn.RunStep(id, step, input.map(pb.Payload.parseFrom))
+                      WorkflowIn.RunStep(
+                        id,
+                        step,
+                        input.map(pb.Payload.parseFrom),
+                        Some(Translate.toMetadata(metadata))
+                      )
                     )
                   )
                 )

@@ -130,7 +130,10 @@ class WorkflowStream {
       return failure(run.id, { message: `${registered.id}/${run.step}: the input could not be decoded: ${messageOf(e)}`, code: ErrorCode.BadRequest })
     }
     let effect: StepEffect<unknown>
-    fresh._bindCommand(this.state, commandContext(registered.id, this.entityId, 0n, {}), ctx.client)
+    // What the sidecar says about this step: its trace, and the step as the caller of whatever it calls.
+    // Carried on the step's calls as a command's is; a sidecar before 1.3 sends none.
+    const metadata = metadataFromProto(run.metadata)
+    fresh._bindCommand(this.state, commandContext(registered.id, this.entityId, 0n, metadata), ctx.client.withMetadata(metadata))
     try {
       effect = (await step.run(fresh, input)) as StepEffect<unknown>
     } catch (e) {

@@ -39,7 +39,17 @@ class CartTopologySuite extends munit.FunSuite:
       ComponentRegistry.fromOrThrow(components.values.toSeq ++ AgentRuntime.descriptors)
     val document =
       Json
-        .parse(TopologyJson.render("cart", "1", "2026-10-01T09:12:03Z", registry, Vector.empty))
+        .parse(
+          TopologyJson.render(
+            "cart",
+            "1",
+            "2026-10-01T09:12:03Z",
+            registry,
+            Vector.empty,
+            CallCounts.Snapshot.empty(600, 0L),
+            _ => None
+          )
+        )
         .fold(problem => fail(s"the topology is not JSON: $problem"), identity)
     def string(of: Json, field: String) = of(field).flatMap(_.asString).getOrElse(fail(s"$of"))
     document("declared")

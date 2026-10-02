@@ -18,6 +18,8 @@ import com.thinkmorestupidless.ankka.runtime.{
   Database,
   EntityProtocol,
   MetaEntry,
+  Observability,
+  Trace,
   ViewQueries
 }
 import com.thinkmorestupidless.ankka.sdk.{DeferredCall, TimerScheduler, ViewDescriptor}
@@ -45,7 +47,22 @@ final class ClientLogic(
 
   private given ec: ExecutionContext = system.executionContext
   private val transport              = service.componentClient.transportRef
-  private val database               = Database()
+  private val observability          = Observability(system)
+
+  /**
+   * Makes a call the process asked for as the handler the process was running.
+   *
+   * The process forwards the metadata its handler was given, and the host that ran that handler put
+   * its own name there. That name is whatever the process sent, so it is believed only when it is a
+   * component and handler this service declared; then the call is made as that handler, exactly as
+   * a Scala handler's is. Anything else is made as nobody, and the transport takes the name out.
+   * The trace is left as the metadata has it: this thread is in no trace of its own.
+   */
+  private def asCaller[A](metadata: Metadata)(call: => A): A =
+    observability.declared.origin(metadata) match
+      case Some(origin) => Trace.asOrigin(origin)(call)
+      case None         => call
+  private val database = Database()
 
   private def payload(p: Option[pb.Payload]): Array[Byte] =
     p.map(_.data.toByteArray).getOrElse(Array.emptyByteArray)
@@ -77,7 +94,8 @@ final class ClientLogic(
       metadata: Metadata,
       attempt: Int = 0
   ): Future[Array[Byte]] =
-    transport.ask(componentId, entityId, method, bytes, metadata).recoverWith {
+    // Each attempt is a call, and is counted as one where it lands or where it goes unanswered.
+    asCaller(metadata)(transport.ask(componentId, entityId, method, bytes, metadata)).recoverWith {
       case e: CommandError if e.code == ErrorCode.Unavailable && attempt < RetryDelays.size =>
         val promise = scala.concurrent.Promise[Array[Byte]]()
         val _ = system.scheduler.scheduleOnce(
@@ -157,14 +175,17 @@ final class ClientLogic(
           },
           s"callback-stream-${java.util.UUID.randomUUID()}"
         )
-        transport.tell(
-          componentId,
-          entityId,
-          EntityProtocol.InvokeStream(
-            method,
-            payload(request.payload),
-            MetaEntry.from(metadata(request.metadata)),
-            tokens
+        val carried = metadata(request.metadata)
+        asCaller(carried)(
+          transport.tell(
+            componentId,
+            entityId,
+            EntityProtocol.InvokeStream(
+              method,
+              payload(request.payload),
+              MetaEntry.from(carried),
+              tokens
+            )
           )
         )
       case _ =>
@@ -187,6 +208,7 @@ final class ClientLogic(
         // they are stored. Query names: `get` (payload: the key as text), `all` (no payload).
         val queries =
           ViewQueries(
+            viewId.toString,
             ViewDescriptor.tableFor(viewId),
             Serializer.bytes,
             database,

@@ -1,6 +1,12 @@
 package com.thinkmorestupidless.ankka.http
 
-import com.thinkmorestupidless.ankka.runtime.{Observability, ServedRoute, SpanOutcome, Trace}
+import com.thinkmorestupidless.ankka.runtime.{
+  CallOrigin,
+  Observability,
+  ServedRoute,
+  SpanOutcome,
+  Trace
+}
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, AnkkaService, RuntimeExtension}
 import org.apache.pekko.actor.typed.ActorSystem
@@ -307,10 +313,25 @@ private final class Router(
       case Left(refused) => Future.successful(refused)
       case Right(context) =>
         found match
-          case Some(Matched.Plain(route, args)) => dispatch(route, request, context, args)
+          case Some(Matched.Plain(route, args)) =>
+            val origin = originOf(endpoint, route.method, route.template)
+            dispatch(route, request, context, args, origin)
           case Some(Matched.Streaming(route, args)) =>
-            dispatchStream(route, request, context, args)
+            val origin = originOf(endpoint, route.method, route.template)
+            dispatchStream(route, request, context, args, origin)
           case None => unmatched(endpoint, request, remaining)
+
+  /**
+   * Who a call made while serving this route is from: the endpoint, as a topology names it, and the
+   * route by its method and its whole path as a template. The request's span keeps the name it has
+   * always had, the route within its endpoint; this is the name a reader of the topology sees,
+   * where two endpoints may each have a `GET /{id}`.
+   */
+  private def originOf(endpoint: HttpEndpoint, method: String, template: PathTemplate): CallOrigin =
+    CallOrigin(
+      ServedRoute.endpointId(endpoint.prefix),
+      s"$method ${endpoint.prefix}${template.render}"
+    )
 
   /**
    * The route this request selects, if any.
@@ -418,7 +439,8 @@ private final class Router(
       route: Route,
       request: HttpRequest,
       context: RequestContext,
-      args: Vector[String]
+      args: Vector[String],
+      origin: CallOrigin
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
     val bodyBytes =
       if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
@@ -438,7 +460,7 @@ private final class Router(
             // this one. It is the same reason RequestScope sets its context here. This
             // is what makes the entity's span a child of the request instead of a root
             // of its own — the difference between a trace and a list.
-            Tracing.request(route.describe)(route.run(args, bytes))
+            Tracing.request(route.describe, origin)(route.run(args, bytes))
           )
         )(using AnkkaExecutors.virtual)
       }
@@ -479,7 +501,8 @@ private final class Router(
       route: StreamRoute,
       request: HttpRequest,
       context: RequestContext,
-      args: Vector[String]
+      args: Vector[String],
+      origin: CallOrigin
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
     val bodyBytes =
       if route.needsBody then request.entity.toStrict(bodyTimeout).map(_.data.toArray)
@@ -498,7 +521,7 @@ private final class Router(
             // this one. It is the same reason RequestScope sets its context here. This
             // is what makes the entity's span a child of the request instead of a root
             // of its own — the difference between a trace and a list.
-            Tracing.request(route.describe)(route.run(args, bytes))
+            Tracing.request(route.describe, origin)(route.run(args, bytes))
           )
         )(using AnkkaExecutors.virtual)
       }
@@ -587,7 +610,9 @@ private[http] object CallerSource:
  */
 private[http] object Tracing:
 
-  def request[A](describe: String)(body: => A)(using system: ActorSystem[?]): A =
+  def request[A](describe: String, origin: CallOrigin)(body: => A)(using
+      system: ActorSystem[?]
+  ): A =
     val observability = Observability(system)
     val span = observability.recorder.begin(
       traceId = Trace.mint(),
@@ -597,7 +622,7 @@ private[http] object Tracing:
     )
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span.traceId, span.id)(body)
+      val result = Trace.within(span.traceId, span.id, origin)(body)
       outcome = SpanOutcome.Ok
       result
     finally observability.recorder.complete(span, outcome)

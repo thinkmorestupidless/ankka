@@ -126,7 +126,7 @@ object LocalCallers:
   /** The header that makes a local request arrive as `caller`. */
   def header(caller: Caller): (String, String) = Header -> s"$token ${Caller.encode(caller)}"
 
-  private[http] def callerFrom(value: String): Caller =
+  private[ankka] def callerFrom(value: String): Caller =
     value.split(' ') match
       case Array(presented, encoded) if presented == token =>
         Caller.decode(encoded).getOrElse(Caller.Local)

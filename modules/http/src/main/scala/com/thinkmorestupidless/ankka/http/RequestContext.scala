@@ -121,7 +121,7 @@ private[ankka] final case class SimpleRequestContext(
  * The consequence to know about: work a handler hands to *another* thread cannot see the context.
  * Read what you need before fanning out.
  */
-private[http] object RequestScope:
+private[ankka] object RequestScope:
 
   private val current = ThreadLocal[RequestContext]()
 

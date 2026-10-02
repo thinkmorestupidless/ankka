@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "presets": {
+    "bdd": {
+      "version": "0.2.0",
+      "source": "local",
+      "manifest_hash": "sha256:0b1c99b3d03f935de23e632acec051ea55613b50a125a0d593b8faa2100f5a79",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {},
+      "registered_skills": {},
+      "installed_at": "2026-10-02T06:08:41.327869+00:00"
+    }
+  }
+}

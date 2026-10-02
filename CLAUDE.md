@@ -1727,6 +1727,21 @@ implemented, each acceptance scenario in its `spec.md` should end up as a test t
 the feature. `docs/build/testing.md` ("A test must be able to fail") is the same rule for people
 building services.
 
+**Specs written since feature 019 keep their acceptance scenarios in living features**, not in the
+spec. The [speckit-bdd](https://github.com/thinkmorestupidless/speckit-bdd) extension and preset are
+installed under `.specify/`: `/speckit-specify` writes a spec whose acceptance scenarios *name*
+scenarios, the `after_specify` hook runs `/speckit-bdd-features` to write them as Gherkin under
+`features/` with every word they use in the root `GLOSSARY.md`, and the `before_clarify` hook runs
+`/speckit-bdd-check`, which turns undefined words, refused synonyms, contradictions and untraced
+requirements into clarification questions. `specs-from: "019"` in
+`.specify/extensions/bdd/bdd-config.yml` is why the nineteen earlier specs are left alone: they
+record changes that were made, in the form they were made in, and the checker does not read them. Its
+report says how many specs it read and how many it did not, so a setting that skipped everything
+cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
+so `uv` must be on `PATH`. The shopping cart sample has features and a glossary of its own, under
+`samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the
+root ones the platform.
+
 **Every suite that can see `testkit` mixes in `LogCapturing`** (testkit's own tests, the control
 plane, the sidecar, the samples): its log is held in memory and printed only for a failing test, a
 test whose `beforeEach` failed, or a suite whose `beforeAll` failed. `ANKKA_TEST_LOGS=all` (or

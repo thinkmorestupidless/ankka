@@ -1,4 +1,3 @@
-@ignore
 Feature: How a gRPC call ends
   Every gRPC call ends with a status. A refusal ends the call with the status of its own kind and
   its message, so whoever called can act on it. A failure ends the call with a status that says

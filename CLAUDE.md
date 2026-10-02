@@ -35,7 +35,10 @@ sbt test                          # everything, including three suites that star
                                    # builds its image and imports ~650MB into the k3s node
 sbt -Dankka.cluster.tests=off test  # skip the three k3s suites AND the sample image build they
                                    # need; everything else still runs, in about a minute
-sbt agent/test                    # one module: core sdk runtime http agent testkit
+sbt agent/test                    # one module: core sdk runtime http grpc agent testkit
+sbt grpc/test                     # gRPC endpoints: offline suites, and features/grpc/ through GherkinSuite
+sbt -Dankka.spikes=on 'grpc/testOnly *GrpcTlsSpike'                  # mutual TLS from RotatingTls's managers
+caffeinate -i sbt -Dankka.spikes=on 'controlPlane/testOnly *GatewayGrpcSpike'   # gRPC through the gateway (k3s)
 sbt operator/test                 # the Kubernetes operator (one k3s suite)
 sbt controlPlane/test             # control plane: controlPlaneApi crd controlPlane cli operator
 sbt docker:publishLocal           # build all three images — aggregates to operator,
@@ -169,6 +172,7 @@ before computing the reply — is the reason that shape exists.
 
 ```
 core → sdk → runtime → {http, agent} → testkit → samples
+http → grpc → samples                                    (grpc-fixtures and testkit are Test-only deps)
 core → controlplane-api → cli
 crd → operator                                           (no ankka dependencies at all)
 controlplane-api + crd + sdk + runtime + http → controlplane
@@ -176,6 +180,12 @@ controlplane-api + crd + sdk + runtime + http → controlplane
 protocol → nothing                                       (generated ScalaPB; -Wunused off, -source:3.3)
 runtime + http + agent + protocol → sidecar              (testkit and operator are Test-only deps)
 ```
+
+`grpc` sits above `http` because it uses `Acl`, `Caller`, `Principal` and `EndpointClients` unchanged —
+one authenticator serves both kinds of endpoint — and `runtime` never names it: the runtime knows only
+`RuntimeExtension.grpcAddress` and the `grpc-server` extension name its startup check reads. Generated
+ScalaPB code lives in projects of its own (`grpc-fixtures`, `samples/shopping-cart-api`) for the reason
+`protocol` is one.
 
 `runtime/remote` holds the remote hosts and the `Conversation` trait they speak through, in plain
 Scala values, so `runtime` never sees the generated protocol; `sidecar` translates over grpc-java.
@@ -229,6 +239,7 @@ companion and anything it needs arrives that way.
 | Agent | Sharded per **session id**, serialized per conversation via a stash |
 | Autonomous agent | Sharded per **instance id**, `remember-entities`; its state an `ankka-agent-instance` entity, its tasks `ankka-task` entities |
 | HTTP Endpoint | pekko-http route tree |
+| gRPC Endpoint | grpc-java on its own port, every kind of method through one binding (`grpc/Binding`) |
 
 Entity and workflow hosts pre-serialize domain values into `JournalRecord` /
 `StateRecord` via Pekko event and snapshot adapters, so the journal holds ankka's JSON
@@ -1330,6 +1341,38 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   object is asserting something the builder does not do. That is also why adding the field changed
   nothing for an existing service: the rendered Deployment already carried the empty list.
 
+- **Envoy Gateway cuts every route at fifteen seconds unless the route says otherwise.** Envoy's
+  default route timeout applies to an `HTTPRoute` rule that names none, and it ends a gRPC stream or an
+  SSE stream mid-flight. The gRPC rule says `timeouts.request: "0s"`, which also turns off the route's
+  stream idle timeout. The HTTP rule still names none, so an SSE stream through the gateway is very
+  likely cut at fifteen seconds today; changing that changes what every exposed service renders.
+- **A cluster IP balances connections, and a gRPC channel keeps one for minutes.** Every call from one
+  caller would reach one instance, and a new instance would see none. The platform's client resolves
+  the headless `<service>-grpc-peers` and balances per call (`round_robin`); the server's two-minute
+  connection age is what makes it re-resolve. That name can be another service's address, and Services
+  are applied with forced ownership, so it goes through `EnsureGrpcPeers`, which reads first and never
+  takes over an object it does not own.
+- **grpc-java answers a request marshaller that throws with `UNKNOWN: Application error processing
+  RPC`.** Every method is re-bound with a pass-through byte marshaller and ankka parses, so a request
+  that is not one is `INVALID_ARGUMENT` and no handler runs. `ServerServiceDefinition` insists on the
+  descriptor's own method instances, so the descriptor is rebuilt, schema descriptor kept for reflection.
+- **An `UNAVAILABLE` raised by the transport is not the called service's refusal.** A handshake that
+  failed ends a call `UNAVAILABLE` too; reading every such status as `CommandError(Unavailable)` handed
+  a handler a refusal nobody made. Only a status with no local cause — one the service sent — is a
+  refusal. And under BoringSSL a trust manager's "peer identity" reason sits beneath a handshake failure
+  whose own message is "General OpenSslEngine problem", so the whole cause chain is read.
+- **A queue sink fails its next pull the moment its stream fails**, overtaking parts it already took.
+  A stream that ends in a refusal must deliver every part first, so the failure travels as the stream's
+  last element (`Streams.drain`).
+- **The HTTP/2 window is counted in bytes and grows to megabytes.** A stream of tiny parts can rightly be
+  produced whole before anyone reads it, so a backpressure test that counts tiny parts fails a correct
+  server. The flow-control cases use 16 KiB parts.
+- **A deadline spent connecting never reaches a handler.** A 200 ms deadline on a channel's first call
+  can expire during the handshake, so a case about a handler outliving its caller opens the connection
+  with one call first.
+- **A bound address is read as an HTTP address by every reader** — the local console's invoke panel, the
+  HTTP service client's local lookup — so gRPC's is `RuntimeExtension.grpcAddress`, beside it.
+
 ## Documentation
 
 One tree, `docs/`, of plain Markdown with YAML frontmatter; every way of reading it is a rendering
@@ -1375,18 +1418,19 @@ bite:
 
 ## Publishing
 
-Seven modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Six are libraries a
-*service* depends on — `core`, `sdk`, `runtime`, `http`, `agent`, `testkit`. The seventh,
+Eight modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Seven are libraries a
+*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `agent`, `testkit`; `ankka-grpc` names
+grpc-java directly in its POM and no ScalaPB, which is the developer's build's. The eighth,
 `controlplane-api`, is for a *client of the control plane*: the hosted product in `ankka-cloud`
 provisions organizations through it (feature 011), and a client that redefined the wire types by
 hand would drift from them. It still depends on `core` alone, and its POM's compile scope says so.
-`templateArtifacts` names only the six, because the template is a service. Everything else (`crd`,
+`templateArtifacts` names only six of them, because the template is a service that serves no gRPC. Everything else (`crd`,
 `operator`, `controlplane`, `cli`, the samples, root) carries `publish / skip := true`: a
 platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
 fact rather than a note.
 
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly seven artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly eight artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval

@@ -269,6 +269,14 @@ final case class ServiceSpec(
           .toVector ++
         // A process or a module has no gRPC endpoint to declare: the SDKs in other languages serve
         // HTTP routes only, and a port the platform opened for them would be one nothing answers.
+        // A runtime too old to know the gRPC port would never be ready, and never say why.
+        (for
+          case Right(runtime) <- declaredRuntime.toVector if grpc
+          case Right(platform) <- Vector(
+            Version.parse(com.thinkmorestupidless.ankka.core.BuildInfo.version)
+          )
+          if !Compatibility.servesGrpc(platform, runtime)
+        yield Compatibility.grpcRefusal(runtime)) ++
         Option
           .when(grpc && isPolyglot)(
             "only an embedded service serves gRPC; remove \"grpc\" or use embedded hosting"

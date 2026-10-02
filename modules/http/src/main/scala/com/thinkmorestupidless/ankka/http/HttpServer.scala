@@ -72,10 +72,11 @@ final class HttpServer private (
     validate(endpoints)
     // Kept so the local console can render a form per route. A description, not a door.
     served = endpoints.flatMap { endpoint =>
+      val id = ServedRoute.endpointId(endpoint.prefix)
       endpoint.routes.map(r =>
-        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = false)
+        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = false, id)
       ) ++ endpoint.streamRoutes.map(r =>
-        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = true)
+        ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = true, id)
       )
     }
 

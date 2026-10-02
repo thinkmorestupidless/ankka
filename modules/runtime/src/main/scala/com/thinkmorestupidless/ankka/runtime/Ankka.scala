@@ -300,8 +300,19 @@ final class ServiceBuilder private[ankka] (
  * `streaming` is not decoration: a streaming response has no end the panel can wait for, so it has
  * to be read as it arrives. An agent's stream may run for a minute, and a panel that buffers shows
  * nothing for the whole of the interesting part.
+ *
+ * `endpoint` names the endpoint that serves the route, as a topology names it (`endpoint:/carts`).
+ * A request's span says only that HTTP served it and by which route; this is what puts that route,
+ * and every call made from it, on the endpoint a developer wrote.
  */
-final case class ServedRoute(method: String, path: String, streaming: Boolean)
+final case class ServedRoute(method: String, path: String, streaming: Boolean, endpoint: String)
+
+object ServedRoute:
+  /**
+   * An endpoint's id in a topology. An endpoint has no component id of its own; its prefix is its
+   * name.
+   */
+  def endpointId(name: String): String = s"endpoint:$name"
 
 /** A running ankka service. */
 final class AnkkaService private[ankka] (

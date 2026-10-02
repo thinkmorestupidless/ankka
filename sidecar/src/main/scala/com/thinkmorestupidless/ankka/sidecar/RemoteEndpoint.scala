@@ -73,11 +73,13 @@ final class RemoteEndpoint private (
 
   /** What the local console lists for this endpoint. */
   def served: Vector[ServedRoute] =
+    // A remote endpoint is declared with an id, so that is its name; a Scala one has only a prefix.
+    val id = ServedRoute.endpointId(spec.id)
     plain.map(r =>
-      ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = false)
+      ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = false, id)
     ) ++
       streaming.map(r =>
-        ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = true)
+        ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = true, id)
       )
 
   private def forwardOf(r: RouteSpec, args: Vector[String], body: Array[Byte]): HttpForward =

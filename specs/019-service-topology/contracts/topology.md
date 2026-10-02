@@ -20,8 +20,8 @@ is unchanged, so the local console from an older CLI still works.
   "window": { "seconds": 600, "since": "2026-10-01T09:12:03Z", "calls": 14 },
   "nodes": [
     { "id": "endpoint:/carts", "kind": "Endpoint", "layer": 0, "platform": false,
-      "handlers": [ { "name": "POST /carts/{cartId}/items", "streaming": false },
-                    { "name": "GET /carts/{cartId}", "streaming": false } ] },
+      "handlers": [ { "name": "GET /carts/{cartId}", "type": "route", "streaming": false },
+                    { "name": "POST /carts/{cartId}/items", "type": "route", "streaming": false } ] },
     { "id": "shopping-cart", "kind": "EventSourcedEntity", "layer": 2, "platform": false,
       "handlers": [ { "name": "add-item", "type": "command" },
                     { "name": "get-cart", "type": "query" } ] },
@@ -45,6 +45,11 @@ is unchanged, so the local console from an older CLI still works.
   ]
 }
 ```
+
+A handler's `type` is one of `command`, `query`, `step`, `stream`, `action` (run by a timer),
+`update` (a view's or a consumer's one handler) and `route`. A route also says whether it is
+`streaming`. Nodes are in order of layer, then id; an endpoint's routes are in order of path, then
+method; a component's handlers are in order of name.
 
 ## Rules a reader may rely on
 

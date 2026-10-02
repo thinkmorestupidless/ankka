@@ -69,6 +69,7 @@ object ObservabilityEndpoint:
       val handler       = Handler(service, serviceName, observability)
 
       server.createContext("/observability/service", exchange => handler.service(exchange))
+      server.createContext("/observability/topology", exchange => handler.topology(exchange))
       server.createContext("/observability/traces", exchange => handler.traces(exchange))
       server.createContext("/observability/sessions", exchange => handler.sessions(exchange))
       server.createContext("/observability/query", exchange => handler.query(exchange))
@@ -123,7 +124,7 @@ object ObservabilityEndpoint:
       val routes = service.routes
         .map(r =>
           s"""{"method":${Json.str(r.method)},"path":${Json.str(r.path)},""" +
-            s""""streaming":${r.streaming}}"""
+            s""""streaming":${r.streaming},"endpoint":${Json.str(r.endpoint)}}"""
         )
         .mkString("[", ",", "]")
 
@@ -133,6 +134,27 @@ object ObservabilityEndpoint:
           s""""runtime":${Json.str(com.thinkmorestupidless.ankka.core.BuildInfo.version)},""" +
           s""""instances":$instances,"components":$components,"routes":$routes}"""
       )
+
+    /**
+     * What the service is made of and how the parts are connected. Read-only, so anything but a
+     * `GET` is refused: nothing here can be changed by asking.
+     */
+    def topology(exchange: HttpExchange): Unit =
+      if exchange.getRequestURI.getPath.stripSuffix("/") != "/observability/topology" then
+        respondError(exchange, 404, "no such route")
+      else if exchange.getRequestMethod != "GET" then
+        respondError(exchange, 405, "the topology is read with GET")
+      else
+        respond(
+          exchange,
+          TopologyJson.render(
+            serviceName,
+            instanceId,
+            startedAt,
+            service.registry,
+            service.routes
+          )
+        )
 
     /** The recent window, newest first, or one trace in full when asked for by id. */
     def traces(exchange: HttpExchange): Unit =
@@ -351,8 +373,8 @@ object ObservabilityEndpoint:
     try out.write(bytes)
     finally out.close()
 
-/** Just enough JSON to emit a string safely. A codec would be a dependency for six call sites. */
-private object Json:
+/** Just enough JSON to emit a string safely. A codec would be a dependency for a few call sites. */
+private[runtime] object Json:
   def str(value: String): String =
     val escaped = value.flatMap {
       case '"'                 => "\\\""

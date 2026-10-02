@@ -77,6 +77,14 @@ final case class ConsumerDescriptor[C <: Consumer[Src, Out], Src, Out](
     outputSerializer: Option[Serializer[Out]],
     produceTo: Option[String],
     create: ConsumerContext => C,
-    parallelism: Int
+    parallelism: Int,
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Consumer
+
+  override def declaredHandlers: Vector[DeclaredHandler] = Vector(ConsumerDescriptor.OnMessage)
+
+object ConsumerDescriptor:
+
+  /** A consumer has one handler, under one name in every language: what it does with a message. */
+  val OnMessage: DeclaredHandler = DeclaredHandler("on-message", HandlerKind.Update)

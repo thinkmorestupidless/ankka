@@ -45,5 +45,6 @@ object TaskCascade:
       outputSerializer = None,
       produceTo = None,
       create = context => new TaskCascade(context),
-      parallelism = 1
+      parallelism = 1,
+      platform = true
     )

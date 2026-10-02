@@ -157,6 +157,12 @@ final case class AgentDescriptor[A <: Agent](
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Agent
 
+  override def declaredHandlers: Vector[DeclaredHandler] =
+    DeclaredHandler.sorted(
+      HandlerBinding.declared(handlers.values) ++
+        streams.keys.map(m => DeclaredHandler(m.toString, HandlerKind.Stream))
+    )
+
   private[ankka] def handler(name: MethodName): Option[HandlerBinding[A]] = handlers.get(name)
 
   private[ankka] def streamHandler(name: MethodName): Option[StreamHandle[A, ?]] =

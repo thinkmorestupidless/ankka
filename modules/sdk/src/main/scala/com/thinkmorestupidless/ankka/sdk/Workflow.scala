@@ -297,5 +297,12 @@ final case class WorkflowDescriptor[W <: Workflow[S], S](
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Workflow
 
+  /** Its commands and queries, and its steps: a step is what a workflow's calls come from. */
+  override def declaredHandlers: Vector[DeclaredHandler] =
+    DeclaredHandler.sorted(
+      HandlerBinding.declared(handlers.values) ++
+        steps.keys.map(DeclaredHandler(_, HandlerKind.Step))
+    )
+
   private[ankka] def handler(name: MethodName): Option[HandlerBinding[W]] = handlers.get(name)
   private[ankka] def stepNamed(name: String): Option[StepHandleLike[W]]   = steps.get(name)

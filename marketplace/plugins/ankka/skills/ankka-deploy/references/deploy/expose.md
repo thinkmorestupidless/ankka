@@ -57,7 +57,7 @@ hostname.
 |---|---|---|
 | hostname label over 63 characters | a DNS label is at most 63 characters, and `<service>-<project>` is one label | a shorter service name or project id |
 | hostname already exposed by another service | `a-b` in project `c` and `a` in project `b-c` both derive `a-b-c` | unexpose the other, or rename one |
-| service serves no HTTP | the descriptor says `"http": false`, so there is nothing to route to | none needed |
+| service serves no HTTP and no gRPC | the descriptor says `"http": false` and does not declare gRPC, so there is nothing to route to | none needed |
 | no base domain configured | the control plane was started without `ANKKA_BASE_DOMAIN` | configure the installation's base domain |
 
 ## TLS, always
@@ -70,6 +70,23 @@ its root is exported to `~/.ankka/local-ca.crt`. Nothing on your machine is aske
 each client that needs it, as `curl --cacert` and `ankka config set ca` do. On a real installation the
 wildcard certificate comes from a public certificate authority, and clients need nothing. See
 [Networking and TLS](../platform/networking.md).
+
+## gRPC at the same hostname
+
+A service whose descriptor declares gRPC answers gRPC calls at the same hostname as its HTTP requests,
+on the same HTTPS port: the gateway sends a call whose content type is gRPC's to the service's gRPC port,
+and everything else to its HTTP port. A service that serves gRPC and no HTTP can be exposed too. Every
+call from outside the cluster has the gateway as its caller, exactly as an HTTP request does, so an
+endpoint's ACL admits it by `Callers.internet` and an authenticator tells callers apart.
+
+On a local platform, give a gRPC client the hostname, port 8443 and the exported root:
+
+```bash
+grpcurl -cacert ~/.ankka/local-ca.crt cart-demo.127.0.0.1.sslip.io:8443 list
+```
+
+`list` answers only for a service that has opted into reflection; any client generated from the service
+definition calls its methods the same way. See [gRPC endpoints](../build/grpc-endpoints.md).
 
 ## Local DNS
 

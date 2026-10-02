@@ -5,7 +5,8 @@
 Source: https://docs.ankka.cloud/build/http-endpoints/
 An HTTP endpoint is how the outside world reaches a service. It declares routes under a path prefix,
 turns each request into calls on components, and turns their replies into responses. Endpoints hold no
-state; the components behind them do.
+state; the components behind them do. A Scala service can also serve a `.proto` service definition, beside
+its HTTP endpoints or instead of them; see [gRPC endpoints](grpc-endpoints.md).
 
 Every endpoint declares an access control list (ACL) saying who may call it. A service is private to its
 cluster until it is exposed, but exposing it changes only who can reach the endpoint, never who is

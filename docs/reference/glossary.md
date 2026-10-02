@@ -133,8 +133,9 @@ descriptor's default `hosting`.
 
 ### Endpoint
 
-A component that turns HTTP requests into component calls. It declares a path prefix, an ACL and routes; the
-runtime serves them.
+A component that turns requests from outside the service into component calls, and holds no state. An HTTP
+endpoint declares a path prefix, an ACL and routes; a gRPC endpoint implements a service definition's methods
+under an ACL. The runtime serves both.
 
 ### Entity id
 
@@ -160,6 +161,11 @@ generation it describes, so a late report about an older generation is discarded
 
 A consumer that publishes its source as a graph. Its handlers return the elements a change leaves, and
 each is published as a delta under its element key, at the change's sequence number.
+
+### gRPC endpoint
+
+An endpoint that implements the methods of a service definition, served on the service's gRPC port. Scala
+services only. See [gRPC endpoints](../build/grpc-endpoints.md).
 
 ### Guardrail
 
@@ -287,6 +293,12 @@ The key a published message has on the broker, which decides which messages are 
 which record a compacted topic keeps. It is the key a message names, and the message's subject when it
 names none. Separate from the subject, which says which entity a message is about.
 
+### Reflection
+
+A service's answer to a tool that asks which service definitions it serves and what their methods and
+messages look like. A service answers it only when it opts in, and then only to the callers its own ACL for
+reflection admits.
+
 ### Refusal
 
 A handler's deliberate "no", returned as an error effect with a message and an error code. Nothing is persisted
@@ -300,6 +312,11 @@ One record of a view, keyed by its source's subject and stored as JSON in the vi
 
 The ankka version a service's image was built against, declared as `runtime` in its descriptor and served at
 `/ankka/version`. The platform accepts the same major and a minor equal to its own or one below.
+
+### Service definition
+
+A named set of gRPC methods written in a `.proto` file, which a gRPC endpoint implements and a client is
+generated from. A method's name in it is the method's wire name.
 
 ### Session
 

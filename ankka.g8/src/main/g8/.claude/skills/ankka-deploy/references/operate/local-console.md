@@ -89,6 +89,10 @@ The request goes to the service's own HTTP port as an ordinary client request. A
 therefore refuses the console exactly as it would refuse `curl`; there is no privileged path from the
 console to a handler. A service with `"http": false` serves no routes and has nothing here.
 
+A service's gRPC methods are listed beside its routes, marked gRPC, and are not offered as a form: the
+console has no client generated from the service definition, so it calls no gRPC method. Call one with
+`grpcurl` or a generated client; see [gRPC endpoints](../build/grpc-endpoints.md).
+
 ## Traces
 
 The Traces tab lists the recent requests the service handled. Opening one shows the

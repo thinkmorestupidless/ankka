@@ -9,7 +9,7 @@ event sourced entity already has, stated for the other kind.
 |---|---|---|
 | A handler returns `deleteEntity()` | the entity's row is removed | the row stays: the empty state, marked deleted, at the next revision |
 | A command after the deletion | sees the empty state | sees the empty state |
-| A write after the deletion | starts again at revision 1 (after a restart) | continues: the revision after the deletion's |
+| A write after the deletion | succeeds; after a restart the revision starts again from 1 | succeeds; the revision after the deletion's, restart or not |
 | `commandContext.sequenceNumber` after the deletion | 0 after a restart | the deletion's revision |
 | The state's data | gone | gone: the stored payload is the empty state's |
 | The entity's id and revision | gone | kept |

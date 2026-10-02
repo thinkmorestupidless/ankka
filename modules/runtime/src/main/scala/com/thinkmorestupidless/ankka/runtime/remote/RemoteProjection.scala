@@ -161,6 +161,9 @@ private[ankka] final class RemoteViewStateHandler(view: RemoteView, database: Da
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
     val (payload, revision) = change match
+      // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+      case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+        (None, updated.revision)
       case updated: UpdatedDurableState[StateRecord] =>
         (Some(payloadOf(updated.value)), updated.revision)
       case deleted: DeletedDurableState[StateRecord] => (None, deleted.revision)
@@ -274,6 +277,9 @@ private[ankka] final class RemoteConsumerStateHandler(consumer: RemoteConsumer)
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
     change match
+      // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+      case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+        consumer.handle(subject, updated.revision, None)
       case updated: UpdatedDurableState[StateRecord] =>
         consumer.handle(subject, updated.revision, Some(payloadOf(updated.value)))
       case deleted: DeletedDurableState[StateRecord] =>

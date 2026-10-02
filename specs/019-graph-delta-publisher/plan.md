@@ -241,9 +241,9 @@ Corrections made to the spec during planning, recorded in it under *Found in pla
 
 ## Reported with this plan, not part of it
 
-- **A write after a key value deletion may fail today** within one incarnation of the entity's
-  actor: the store is asked to update a row that was removed. Read from the dependency, not run.
-  Slice 1 starts with the test, and its fix is the slice's own.
+- **A write after a key value deletion was thought to fail** within one incarnation of the
+  entity's actor. It does not: the test written first passed on the code as it was. What was
+  wrong was the rest — see *Found during implementation* in `research.md`.
 - **Views over key value entities have never had a row removed on deletion.** Slice 1 repairs it;
   services that relied on the row staying will see it go.
 - **No suite uses a key value entity as the source of a view or a consumer.** Slice 1 adds them.

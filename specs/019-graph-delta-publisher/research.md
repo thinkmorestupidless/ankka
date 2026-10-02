@@ -150,8 +150,9 @@ consumer.
 **Decision**: deletion persists a state instead of deleting the row:
 `Stored(emptyState, deleted = true, expiryMillis = 0)` in process and
 `RemoteState(None, deleted = true, 0)` for a remote entity. The stored form already has the field
-(`StateRecord.deleted`, `wire.scala:163`; it has only ever been written `false`), so no stored
-form changes and there is no DDL. A command handler is shown the empty state when the stored one
+(`StateRecord.deleted`, `wire.scala:163`; a key value row has only ever had it `false`, while an
+event sourced entity's snapshot, which is the same record, carries its deleted flag there), so no
+stored form changes and there is no DDL. A command handler is shown the empty state when the stored one
 is deleted, as it is when it has expired. The four projection handlers treat an
 `UpdatedDurableState` whose record is marked deleted as the deletion: the view's row is removed,
 the consumer's deletion handler runs, both at that update's revision. The `DeletedDurableState`
@@ -440,3 +441,29 @@ history; the new page in `nav` and a skill or `docs check` fails.
 - **The build was not warning-free before this branch**: `operator` (`ZeroTrust.scala:297`, an
   unused parameter), `operator`'s and `controlplane-api`'s tests (discarded values) warn on `main`.
   Not this feature's; nothing this feature touches warns.
+- **V1, what a key value deletion did** — measured by `KeyValueDeletionSuite` on the code as it
+  was, 5 of 8 cases failing: the view's row was never removed (30 s wait); the consumer's
+  deletion handler never ran; the consumer was handed sequence number 0 for a state at revision
+  1; after a restart the deleted entity's revision read 0 where it had been 3. **Three cases
+  passed, one against the plan's expectation**: a write straight after a deletion succeeds, and
+  within one incarnation the revision does go on counting through it. The defect was what
+  happened to everyone else, and to the count across a restart. All eight pass now.
+- **V2, other readers of key value state** — there are none. Nothing in `controlplane`, `cli`,
+  the console or the conformance suite reads the durable state table or a `StateRecord`; only the
+  two hosts and the projection handlers do. `StateRecord` is also the record of an event sourced
+  entity's snapshot, which is untouched.
+- **A deleted record is never decoded.** The in-process host reads a record marked deleted as the
+  empty state without calling the state's serializer, because a remote host writes a deleted
+  record with no payload at all and the two read each other's rows. A runtime from before this
+  change would fail to decode a row a *remote* host deleted, if a service were ported from a
+  sidecar to in-process and then rolled back — a combination nobody is in; noted, not handled.
+- **Deleting an entity that was never written now writes a row**: the deleted marker, at
+  revision 1. Before, there was nothing to remove. Its views and consumers are told of a
+  deletion of something they never saw, which a view answers by deleting a row that is not there.
+- **The stored form is pinned as bytes**, in `journal/state-record.txt`: a live, an expiring, a
+  deleted and a remote-deleted record, written and read by the actor system's own serialization
+  (jackson-cbor), not by a codec of the suite's.
+- **The remote path** is held by `RemoteProjectionSuite` P3c: a remote view's row goes, the remote
+  consumer is sent `deleted = true` at the revision after the state's, and a state set again
+  arrives one above that. `RemoteEntitySuite` needed nothing: the entity's own behaviour after a
+  delete was already covered and did not change.

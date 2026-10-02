@@ -80,6 +80,22 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     Some("notified"),
     (row, _, _) => ViewAnswer.UpdateRow(s"""{"count":${countOf(row) + 1}}""")
   )
+  // Over the key value entity: a row per profile, gone when the profile is, and a consumer that
+  // only listens.
+  private val profileRows = ViewOf(
+    "profile-rows",
+    Some((Kind.KEY_VALUE_ENTITY, "profile")),
+    None,
+    (row, _, _) => ViewAnswer.UpdateRow(s"""{"count":${countOf(row) + 1}}""")
+  )
+  private val profileWatcher = ConsumerOf(
+    "profile-watcher",
+    Some((Kind.KEY_VALUE_ENTITY, "profile")),
+    None,
+    None,
+    (_, _) => ConsumerAnswer.Done,
+    _ => ConsumerAnswer.Done
+  )
   private val ticker = Action(
     "ticker",
     Map(
@@ -100,8 +116,8 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
       DoubleSpec(
         entities = Vector(recorder),
         keyValues = Vector(profile()),
-        views = Vector(rows, notifiedRows),
-        consumers = Vector(notifier),
+        views = Vector(rows, notifiedRows, profileRows),
+        consumers = Vector(notifier, profileWatcher),
         actions = Vector(ticker)
       )
     )
@@ -261,6 +277,39 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
       r.metadata.get.entries.find(_.key == RemoteProjection.SequenceKey).get.value.toLong
     }
     assert(sequences.last > sequences.head, sequences.toString)
+  }
+
+  /** What `profile-watcher` was told about one profile: (deleted, sequence), in arrival order. */
+  private def watched(subject: String): Vector[(Boolean, Long)] =
+    double
+      .messagesOf { case r: PbConsumerRequest if r.componentId == "profile-watcher" => r }
+      .flatMap { r =>
+        val entries = r.metadata.toList.flatMap(_.entries).map(e => e.key -> e.value).toMap
+        if entries.get(Metadata.CeSubject).contains(subject) then
+          Some(r.deleted -> entries(RemoteProjection.SequenceKey).toLong)
+        else None
+      }
+
+  test(
+    "P3c a key value entity's deletion is a change: the row goes, the consumer is told, the id goes on"
+  ) {
+    assertEquals(invoke("profile", "kv1", "set", "Ada"), Right("done"))
+    eventually()(row("profile-rows", "kv1"))
+    val (_, first) = eventually()(watched("kv1").find(!_._1))
+    assert(first >= 1, s"the state arrived at revision $first")
+
+    assertEquals(invoke("profile", "kv1", "delete"), Right("done"))
+    eventually()(if row("profile-rows", "kv1").isEmpty then Some(()) else None)
+    val (_, deleted) = eventually()(watched("kv1").find(_._1))
+    assertEquals(deleted, first + 1, "the deletion is the revision after the state")
+    assertEquals(invoke("profile", "kv1", "get"), Right("none"))
+
+    // Created again under the same id: the revisions go on from the deletion.
+    assertEquals(invoke("profile", "kv1", "set", "Grace"), Right("done"))
+    val (_, again) = eventually()(watched("kv1").find((gone, at) => !gone && at > deleted))
+    assertEquals(again, deleted + 1)
+    eventually()(row("profile-rows", "kv1"))
+    assertEquals(invoke("profile", "kv1", "get"), Right("Grace"))
   }
 
   test("P4 offsets survive a restart of the service") {

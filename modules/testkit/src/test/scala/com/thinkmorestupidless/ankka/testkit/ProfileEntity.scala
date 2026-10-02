@@ -34,6 +34,9 @@ final class ProfileEntity(context: KeyValueEntityContext) extends KeyValueEntity
 
   def get: ReadOnlyEffect[Profile] = effects.reply(currentState)
 
+  /** The revision the entity has reached: what a consumer of its changes is told. */
+  def revision: ReadOnlyEffect[Long] = effects.reply(commandContext.sequenceNumber)
+
   def close: Effect[Done] = effects.deleteEntity().thenReply(_ => Done)
 
 object ProfileEntity
@@ -49,4 +52,5 @@ object ProfileEntity
   val recordLogin = command("record-login")(_.recordLogin)
   val expireIn    = command("expire-in")(_.expireIn)
   val get         = query("get")(_.get)
+  val revision    = query("revision")(_.revision)
   val close       = command("close")(_.close)

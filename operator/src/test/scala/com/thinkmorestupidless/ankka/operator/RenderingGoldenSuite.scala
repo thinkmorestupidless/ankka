@@ -4,7 +4,7 @@ import com.thinkmorestupidless.ankka.crd.{AnkkaSerialization, AnkkaService, Ankk
 import io.fabric8.kubernetes.api.model.{HasMetadata, ObjectMetaBuilder}
 
 import java.nio.charset.StandardCharsets.UTF_8
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Files, Paths}
 
 /**
  * Everything the operator renders for six kinds of service, compared byte for byte with a record

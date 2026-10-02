@@ -77,8 +77,11 @@ jobs:
               - 'action/**'
               # `RemoteOverlaySuite` checks the compose file runs the release's images.
               - 'docker-compose.yml'
-              # The wire fixtures the console's client is held to are written by a controlplane-api suite.
+              # The wire fixtures the console's client is held to are written by a controlplane-api suite,
+              # and the topology fixtures are run through the local console's rules by a cli suite.
               - 'console/package/fixtures/**'
+              # The platform's living features: `GherkinSuite` runs them as tests, each scenario as written.
+              - 'features/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow
@@ -185,6 +188,11 @@ jobs:
           java-version: "21"
           cache: sbt
       - uses: sbt/setup-sbt@v1
+      # The local console's rules for reading a topology are JavaScript, and `ConsoleTopologyJsSuite`
+      # runs them under Node; with `CI` set it fails, rather than skips, when there is no Node.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off scalafmtCheckAll scalafmtSbtCheck compile test
 
   # The Scala template, the one `ankka init` expands with `sbt new`: this commit's six libraries

@@ -1,0 +1,104 @@
+{
+  "scenario": "platform components are left out until a developer asks for them",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0
+    },
+    "nodes": [
+      {
+        "id": "helper",
+        "kind": "Agent",
+        "layer": 1,
+        "platform": false,
+        "handlers": [
+          {
+            "name": "ask",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "id": "ankka-session-memory",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": true,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "helper",
+        "to": "ankka-session-memory",
+        "pairs": [
+          {
+            "caller": "ask",
+            "callee": "history",
+            "handled": {
+              "ok": 2,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 1.5,
+              "p99": 3.0,
+              "max": 3.0,
+              "bucketed": true
+            },
+            "streaming": false
+          },
+          {
+            "caller": "ask",
+            "callee": "append",
+            "handled": {
+              "ok": 1,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 1.5,
+              "p99": 3.0,
+              "max": 3.0,
+              "bucketed": true
+            },
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "expected": {
+    "shown": [
+      "helper"
+    ],
+    "calls": [],
+    "through": {
+      "helper": [
+        {
+          "component": "ankka-session-memory",
+          "relation": "calls",
+          "handled": 3,
+          "unanswered": 0
+        }
+      ]
+    },
+    "hiddenPlatform": 1
+  }
+}

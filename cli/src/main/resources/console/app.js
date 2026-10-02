@@ -11,6 +11,10 @@
 
 const state = { services: [], selected: null, tab: 'traces' };
 
+// What the reader asked to see of the selected service's topology. Kept across refreshes, so the
+// picture does not jump back while they are reading it; reset when another service is selected.
+const topology = { name: null, json: null, doc: null, showPlatform: false, kinds: null, focus: null, selected: null };
+
 const $ = (id) => document.getElementById(id);
 
 async function api(path) {
@@ -71,7 +75,7 @@ function render() {
   }
 
   $('detail-empty').hidden = state.selected !== null;
-  for (const panel of ['components', 'invoke', 'traces', 'agents']) {
+  for (const panel of ['components', 'topology', 'invoke', 'traces', 'agents']) {
     $(`panel-${panel}`).hidden = state.selected === null || state.tab !== panel;
   }
   document.querySelectorAll('.tab').forEach((tab) => {
@@ -628,11 +632,295 @@ function stat(value, label) {
   return box;
 }
 
+// ── Topology ────────────────────────────────────────────────────────────────
+//
+// What is shown, what is left out and where each node goes is decided in topology.js, which has
+// tests. This draws what it returns and decides nothing.
+
+const SVG = 'http://www.w3.org/2000/svg';
+const GRID = { column: 184, row: 54, width: 152, height: 38, margin: 8 };
+
+async function loadTopology(name) {
+  if (topology.name !== name) {
+    Object.assign(topology, { name, json: null, doc: null, showPlatform: false, kinds: null, focus: null, selected: null });
+  }
+  let doc;
+  try {
+    doc = await api(`/api/topology/${encodeURIComponent(name)}`);
+  } catch (e) {
+    // A service on a runtime older than the topology answers, and says it cannot report one.
+    topology.json = null;
+    topology.doc = null;
+    $('topology-body').hidden = true;
+    $('topology-none').hidden = false;
+    $('topology-none').textContent = e.detail || 'This service stopped answering.';
+    return;
+  }
+  // Redrawn only when the service says something new: a picture that is rebuilt every two seconds
+  // loses the reader's place for nothing.
+  const json = JSON.stringify(doc);
+  if (json === topology.json) return;
+  topology.json = json;
+  topology.doc = doc;
+  drawTopology();
+}
+
+function drawTopology() {
+  const doc = topology.doc;
+  if (!doc) return;
+  const none = (doc.nodes || []).length === 0;
+  $('topology-none').hidden = !none;
+  $('topology-none').textContent = none ? 'This service registers no components.' : '';
+  $('topology-body').hidden = none;
+  if (none) return;
+
+  const shown = AnkkaTopology.view(doc, {
+    showPlatform: topology.showPlatform,
+    kinds: topology.kinds,
+    focus: topology.focus,
+  });
+  drawControls(doc, shown);
+  drawGraph(shown);
+  drawText(shown);
+  drawDetail(shown);
+}
+
+function drawControls(doc, shown) {
+  const controls = $('topology-controls');
+  controls.innerHTML = '';
+
+  const kinds = [...new Set(doc.nodes.filter((n) => topology.showPlatform || !n.platform).map((n) => n.kind))].sort();
+  for (const kind of kinds) {
+    const on = !topology.kinds || topology.kinds.includes(kind);
+    controls.appendChild(toggle(kindInWords(kind), on, (checked) => {
+      const current = new Set(topology.kinds || kinds);
+      if (checked) current.add(kind); else current.delete(kind);
+      // Every kind on is no filter at all, which is how a kind that appears later is shown.
+      topology.kinds = kinds.every((k) => current.has(k)) ? null : [...current];
+      drawTopology();
+    }));
+  }
+
+  const platform = doc.nodes.filter((n) => n.platform).length;
+  if (platform > 0) {
+    const text = topology.showPlatform ? 'platform components' : `platform components (${platform} left out)`;
+    controls.appendChild(toggle(text, topology.showPlatform, (checked) => {
+      topology.showPlatform = checked;
+      drawTopology();
+    }));
+  }
+
+  if (topology.focus && shown.nodes.some((n) => n.id === topology.focus)) {
+    const all = document.createElement('button');
+    all.className = 'plain';
+    all.textContent = 'Show all';
+    all.onclick = () => { topology.focus = null; drawTopology(); };
+    controls.appendChild(all);
+  }
+}
+
+function toggle(text, checked, onChange) {
+  const label = document.createElement('label');
+  label.className = 'toggle';
+  const box = document.createElement('input');
+  box.type = 'checkbox';
+  box.checked = checked;
+  box.onchange = () => onChange(box.checked);
+  label.append(box, document.createTextNode(` ${text}`));
+  return label;
+}
+
+function svg(tag, attributes) {
+  const element = document.createElementNS(SVG, tag);
+  for (const [name, value] of Object.entries(attributes || {})) element.setAttribute(name, value);
+  return element;
+}
+
+function drawGraph(shown) {
+  const container = $('topology-graph');
+  container.innerHTML = '';
+  const columns = Math.max(...shown.nodes.map((n) => n.column), 0) + 1;
+  const rows = Math.max(...shown.nodes.map((n) => n.row), 0) + 1;
+  const width = GRID.margin * 2 + (columns - 1) * GRID.column + GRID.width;
+  const height = GRID.margin * 2 + (rows - 1) * GRID.row + GRID.height;
+  const picture = svg('svg', {
+    viewBox: `0 0 ${width} ${height}`,
+    width,
+    height,
+    role: 'img',
+    'aria-label': AnkkaTopology.describe(shown),
+  });
+
+  const at = new Map(shown.nodes.map((node) => [node.id, {
+    x: GRID.margin + node.column * GRID.column,
+    y: GRID.margin + node.row * GRID.row,
+  }]));
+
+  // Connections first, so a node is drawn over the line that reaches it.
+  for (const edge of shown.declared) {
+    const from = at.get(edge.from);
+    const to = at.get(edge.to);
+    if (!from || !to) continue;
+    // Out of the side that faces the other node: a topic a consumer reads is to its right.
+    const forwards = to.x >= from.x;
+    const x1 = forwards ? from.x + GRID.width : from.x;
+    const x2 = forwards ? to.x : to.x + GRID.width;
+    const y1 = from.y + GRID.height / 2;
+    const y2 = to.y + GRID.height / 2;
+    const bend = (x2 - x1) / 2;
+    const line = svg('path', {
+      class: 'edge declared',
+      d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+    });
+    const title = svg('title');
+    title.textContent = `${edge.from} to ${edge.to}: ${edge.kind}`;
+    line.appendChild(title);
+    picture.appendChild(line);
+    picture.appendChild(svg('circle', { class: 'edge-end', cx: x2, cy: y2, r: 3 }));
+  }
+
+  for (const node of shown.nodes) {
+    const { x, y } = at.get(node.id);
+    const classes = ['node'];
+    if (node.kind.startsWith('External') || node.kind === 'UnknownCaller') classes.push('outside');
+    if (node.platform) classes.push('platform');
+    if (node.id === topology.selected) classes.push('selected');
+    const group = svg('g', { class: classes.join(' '), transform: `translate(${x} ${y})`, tabindex: 0 });
+    group.appendChild(svg('rect', { width: GRID.width, height: GRID.height, rx: 6 }));
+    const name = svg('text', { x: 10, y: 16, class: 'name' });
+    name.textContent = clip(node.label, 20);
+    const kind = svg('text', { x: 10, y: 30, class: 'kind' });
+    kind.textContent = describeKind(node) + (node.through.length ? ' · via platform' : '');
+    const title = svg('title');
+    title.textContent = `${node.label}: ${describeKind(node)}`;
+    group.append(title, name, kind);
+    const choose = () => { topology.selected = node.id; drawTopology(); };
+    group.onclick = choose;
+    group.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') choose(); };
+    picture.appendChild(group);
+  }
+  container.appendChild(picture);
+}
+
+function clip(text, length) {
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+// A kind as a reader says it: "EventSourcedEntity" is the wire's word.
+function kindInWords(kind) {
+  return kind.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+}
+
+function describeKind(node) {
+  return node.platform ? `${kindInWords(node.kind)}, platform` : kindInWords(node.kind);
+}
+
+function drawText(shown) {
+  const container = $('topology-text');
+  container.innerHTML = '';
+  container.appendChild(table(
+    'Components',
+    ['Name', 'Kind', 'Handlers'],
+    shown.nodes.map((node) => [node.label, describeKind(node), node.handlers.map((h) => h.name).join(', ')]),
+  ));
+  if (shown.declared.length) {
+    container.appendChild(table(
+      'Declared connections',
+      ['From', 'To', 'As'],
+      shown.declared.map((edge) => [nameOf(shown, edge.from), nameOf(shown, edge.to), describeConnection(edge.kind)]),
+    ));
+  }
+}
+
+function nameOf(shown, id) {
+  const node = shown.nodes.find((n) => n.id === id);
+  return node ? node.label : id;
+}
+
+function describeConnection(kind) {
+  return {
+    'events': 'an event subscription',
+    'state': 'a state subscription',
+    'topic-subscription': 'a topic subscription',
+    'topic-publication': 'a topic publication',
+  }[kind] || kind;
+}
+
+function table(caption, headings, rows) {
+  const element = document.createElement('table');
+  element.className = 'facts';
+  element.createCaption().textContent = caption;
+  const head = element.createTHead().insertRow();
+  for (const heading of headings) {
+    const cell = document.createElement('th');
+    cell.scope = 'col';
+    cell.textContent = heading;
+    head.appendChild(cell);
+  }
+  const body = element.createTBody();
+  for (const row of rows) {
+    const line = body.insertRow();
+    for (const value of row) line.insertCell().textContent = value;
+  }
+  return element;
+}
+
+function drawDetail(shown) {
+  const panel = $('topology-detail');
+  const node = shown.nodes.find((n) => n.id === topology.selected);
+  panel.hidden = !node;
+  panel.innerHTML = '';
+  if (!node) return;
+
+  const heading = document.createElement('h3');
+  heading.textContent = node.label;
+  const kind = document.createElement('p');
+  kind.className = 'dim';
+  kind.textContent = describeKind(node);
+  panel.append(heading, kind);
+
+  list(panel, 'Handlers', node.handlers.map((h) => `${h.name} (${h.streaming ? 'streaming ' : ''}${h.type})`));
+  list(panel, 'Reads', shown.declared.filter((e) => e.to === node.id)
+    .map((e) => `${nameOf(shown, e.from)}, as ${describeConnection(e.kind)}`));
+  list(panel, 'Read by', shown.declared.filter((e) => e.from === node.id)
+    .map((e) => `${nameOf(shown, e.to)}, as ${describeConnection(e.kind)}`));
+  list(panel, 'Through platform components', node.through.map(describeThrough));
+
+  if (topology.focus !== node.id) {
+    const focus = document.createElement('button');
+    focus.className = 'plain';
+    focus.textContent = 'Focus on this';
+    focus.onclick = () => { topology.focus = node.id; drawTopology(); };
+    panel.appendChild(focus);
+  }
+}
+
+// What a component does with a platform component that is left out of the picture.
+function describeThrough(entry) {
+  const what = {
+    'reads': `reads ${entry.component}`,
+    'read-by': `is read by ${entry.component}`,
+    'calls': `calls ${entry.component}`,
+    'called-by': `is called by ${entry.component}`,
+  }[entry.relation] || `${entry.relation} ${entry.component}`;
+  return entry.handled === undefined ? what : `${what}: ${entry.handled} handled, ${entry.unanswered} unanswered`;
+}
+
+function list(panel, title, items) {
+  if (!items.length) return;
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  const element = document.createElement('ul');
+  for (const item of items) element.appendChild(document.createElement('li')).textContent = item;
+  panel.append(heading, element);
+}
+
 // ── Wiring ──────────────────────────────────────────────────────────────────
 
 function refreshDetail() {
   if (!state.selected) return;
   if (state.tab === 'components') loadComponents(state.selected);
+  else if (state.tab === 'topology') loadTopology(state.selected);
   else if (state.tab === 'invoke') loadRoutes(state.selected);
   else if (state.tab === 'agents') loadAgents(state.selected);
   else loadTraces(state.selected);
@@ -655,4 +943,6 @@ loadServices().then(() => {
   // Traces refresh on their own; the invoke panel does not, because re-rendering a form
   // someone is typing into is the fastest way to make a tool infuriating.
   setInterval(() => { if (state.tab === 'traces') refreshDetail(); }, 3000);
+  // The topology every two seconds, so that a call just made is on the page within three.
+  setInterval(() => { if (state.tab === 'topology') refreshDetail(); }, 2000);
 });

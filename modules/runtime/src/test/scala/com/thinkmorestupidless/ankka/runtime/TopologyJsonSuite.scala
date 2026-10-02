@@ -8,7 +8,21 @@ import com.thinkmorestupidless.ankka.core.{
   ComponentKind,
   ComponentRegistry,
   DeclaredHandler,
-  HandlerKind
+  HandlerKind,
+  MethodName,
+  Serializers
+}
+import com.thinkmorestupidless.ankka.runtime.remote.{
+  RemoteConsumerDescriptor,
+  RemoteSource,
+  RemoteViewDescriptor
+}
+import com.thinkmorestupidless.ankka.sdk.{
+  ChangeSource,
+  Consumer,
+  ConsumerDescriptor,
+  View,
+  ViewDescriptor
 }
 import munit.FunSuite
 
@@ -162,6 +176,181 @@ final class TopologyJsonSuite extends FunSuite:
     assertEquals(document.nodes.head.handlers.head.name, "GET /a\"b\\c")
   }
 
+  // ── declared connections ─────────────────────────────────────────────────────
+
+  private def events(of: String): ChangeSource[String] =
+    ChangeSource.EventSourced(ComponentId(of), Serializers.string)
+  private def state(of: String): ChangeSource[String] =
+    ChangeSource.KeyValue(ComponentId(of), Serializers.string)
+  private def topic(name: String): ChangeSource[String] =
+    ChangeSource.Topic(name, Serializers.string)
+
+  /** A real view descriptor: the renderer reads sources from the types a service registers. */
+  private def view(id: String, source: ChangeSource[String]): ComponentDescriptor =
+    ViewDescriptor[View[String, String], String, String](
+      ComponentId(id),
+      source,
+      Serializers.string,
+      _ => fail("a topology never creates a component"),
+      parallelism = 1
+    )
+
+  private def consumer(
+      id: String,
+      source: ChangeSource[String],
+      publishesTo: Option[String] = None
+  ): ComponentDescriptor =
+    ConsumerDescriptor[Consumer[String, String], String, String](
+      ComponentId(id),
+      source,
+      publishesTo.map(_ => Serializers.string),
+      publishesTo,
+      _ => fail("a topology never creates a component"),
+      parallelism = 1
+    )
+
+  private def remoteView(id: String, source: RemoteSource): ComponentDescriptor =
+    RemoteViewDescriptor(ComponentId(id), source, "row", Set(MethodName("by-id")))
+
+  private def remoteConsumer(
+      id: String,
+      source: RemoteSource,
+      publishesTo: Option[String] = None
+  ): ComponentDescriptor =
+    RemoteConsumerDescriptor(ComponentId(id), source, publishesTo)
+
+  private def remoteEntity(kind: ComponentKind, id: String): RemoteSource =
+    RemoteSource.Component(kind, ComponentId(id))
+
+  private val cart    = descriptor("cart", ComponentKind.EventSourcedEntity)
+  private val profile = descriptor("profile", ComponentKind.KeyValueEntity)
+
+  test("a view or a consumer is connected to what it reads, in either language") {
+    val readers = Vector[(ComponentDescriptor, Edge)](
+      view("v-events", events("cart"))     -> Edge("cart", "v-events", "events"),
+      view("v-state", state("profile"))    -> Edge("profile", "v-state", "state"),
+      view("v-topic", topic("orders"))     -> Edge("topic:orders", "v-topic", "topic-subscription"),
+      consumer("c-events", events("cart")) -> Edge("cart", "c-events", "events"),
+      consumer("c-state", state("profile")) -> Edge("profile", "c-state", "state"),
+      consumer("c-topic", topic("orders")) -> Edge("topic:orders", "c-topic", "topic-subscription"),
+      remoteView("rv-events", remoteEntity(ComponentKind.EventSourcedEntity, "cart")) ->
+        Edge("cart", "rv-events", "events"),
+      remoteView("rv-state", remoteEntity(ComponentKind.KeyValueEntity, "profile")) ->
+        Edge("profile", "rv-state", "state"),
+      remoteView("rv-topic", RemoteSource.Topic("orders")) ->
+        Edge("topic:orders", "rv-topic", "topic-subscription"),
+      remoteConsumer("rc-events", remoteEntity(ComponentKind.EventSourcedEntity, "cart")) ->
+        Edge("cart", "rc-events", "events"),
+      remoteConsumer("rc-state", remoteEntity(ComponentKind.KeyValueEntity, "profile")) ->
+        Edge("profile", "rc-state", "state"),
+      remoteConsumer("rc-topic", RemoteSource.Topic("orders")) ->
+        Edge("topic:orders", "rc-topic", "topic-subscription")
+    )
+    for (reader, edge) <- readers do
+      assertEquals(read(render(Seq(cart, profile, reader))).declared, Vector(edge), reader.toString)
+  }
+
+  test("a consumer that publishes is connected to both topics, and each topic is a node") {
+    for shipper <- Vector(
+        consumer("shipper", topic("orders"), publishesTo = Some("shipments")),
+        remoteConsumer("shipper", RemoteSource.Topic("orders"), publishesTo = Some("shipments"))
+      )
+    do
+      val document = read(render(Seq(shipper)))
+      assertEquals(
+        document.declared,
+        Vector(
+          Edge("shipper", "topic:shipments", "topic-publication"),
+          Edge("topic:orders", "shipper", "topic-subscription")
+        )
+      )
+      assertEquals(
+        document.nodes.filter(_.kind == "Topic").map(n => n.id -> n.layer),
+        Vector("topic:orders" -> 4, "topic:shipments" -> 4)
+      )
+  }
+
+  test("a topic two components use is one node") {
+    val document = read(
+      render(Seq(view("levels", topic("stock")), consumer("notifier", topic("stock"))))
+    )
+    assertEquals(document.nodes.count(_.id == "topic:stock"), 1)
+    assertEquals(document.declared.size, 2)
+  }
+
+  test("a source that is not registered is a node outside the service, never a local one") {
+    val document = read(render(Seq(view("orders-by-customer", events("order")))))
+    assertEquals(document.declared, Vector(Edge("external:order", "orders-by-customer", "events")))
+    val outside = document.nodes.find(_.id == "external:order").getOrElse(fail(document.toString))
+    assertEquals((outside.kind, outside.layer), ("ExternalComponent", 2))
+    assert(!document.nodes.exists(_.id == "order"), "nothing is invented as this service's")
+  }
+
+  test("a source is the entity of the kind that was named, not another component of that id") {
+    // The state of `cart` is asked for, and `cart` here keeps events: it is not the source.
+    val document = read(render(Seq(cart, view("carts", state("cart")))))
+    assertEquals(document.declared, Vector(Edge("external:cart", "carts", "state")))
+  }
+
+  test("every source and every destination is exactly one connection, and nothing else is") {
+    val components = Seq(
+      cart,
+      profile,
+      descriptor("checkout", ComponentKind.Workflow),
+      view("carts-by-customer", events("cart")),
+      view("profiles-by-city", state("profile")),
+      consumer("recorder", events("cart")),
+      consumer("shipper", topic("orders"), publishesTo = Some("shipments")),
+      remoteView("stock-levels", RemoteSource.Topic("stock"))
+    )
+    // Five readers and one publisher.
+    assertEquals(read(render(components)).declared.size, 6)
+  }
+
+  test("a remote source with no change stream is no connection: startup refuses that service") {
+    val document = read(
+      render(
+        Seq(
+          descriptor("checkout", ComponentKind.Workflow),
+          remoteView("odd", remoteEntity(ComponentKind.Workflow, "checkout"))
+        )
+      )
+    )
+    assertEquals(document.declared, Vector.empty)
+  }
+
+  test("an entity and the view over it may share an id, and are then named with their kinds") {
+    val document = read(render(Seq(cart, view("cart", events("cart")))))
+    assertEquals(
+      document.nodes.map(_.id).toSet,
+      Set("eventsourcedentity:cart", "view:cart")
+    )
+    assertEquals(
+      document.declared,
+      Vector(Edge("eventsourcedentity:cart", "view:cart", "events"))
+    )
+  }
+
+  test("connections are in one order, whatever order the service was registered in") {
+    val components = Vector(
+      cart,
+      profile,
+      view("b-view", events("cart")),
+      view("a-view", events("cart")),
+      consumer("shipper", topic("orders"), publishesTo = Some("shipments"))
+    )
+    assertEquals(render(components), render(components.reverse))
+    assertEquals(
+      read(render(components)).declared.map(e => (e.from, e.to)),
+      Vector(
+        "cart"         -> "a-view",
+        "cart"         -> "b-view",
+        "shipper"      -> "topic:shipments",
+        "topic:orders" -> "shipper"
+      )
+    )
+  }
+
 object TopologyJsonSuite:
 
   private val Started = "2026-10-01T09:12:03Z"
@@ -181,8 +370,9 @@ object TopologyJsonSuite:
       service: Service,
       window: Window,
       nodes: Vector[Node],
-      declared: Vector[String],
+      declared: Vector[Edge],
       calls: Vector[String]
   )
+  final case class Edge(from: String, to: String, kind: String)
 
   given JsonValueCodec[Document] = Codecs.make[Document]

@@ -1,0 +1,104 @@
+{
+  "scenario": null,
+  "about": "the node for services beyond the limit, and a source outside the service, open nothing",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0
+    },
+    "nodes": [
+      {
+        "id": "external:order",
+        "kind": "ExternalComponent",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "orders-by-customer",
+        "kind": "View",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "endpoint:/a",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "service:(other)",
+        "kind": "ExternalService",
+        "layer": 1,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [
+      {
+        "from": "external:order",
+        "to": "orders-by-customer",
+        "kind": "events"
+      }
+    ],
+    "calls": [
+      {
+        "from": "endpoint:/a",
+        "to": "service:(other)",
+        "pairs": [
+          {
+            "caller": "GET /a/b",
+            "callee": "GET",
+            "handled": {
+              "ok": 4,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 1.5,
+              "p99": 3.0,
+              "max": 3.0,
+              "bucketed": true
+            },
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "services": [
+    "order",
+    "other"
+  ],
+  "expected": {
+    "links": {
+      "external:order": {
+        "service": null,
+        "note": null
+      },
+      "service:(other)": {
+        "service": null,
+        "note": "other services"
+      }
+    },
+    "labels": {
+      "external:order": "order",
+      "service:(other)": "other services",
+      "endpoint:/a": "/a"
+    }
+  }
+}

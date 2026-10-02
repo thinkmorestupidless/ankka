@@ -30,6 +30,7 @@ final class ConsoleStreamSuite extends FunSuite:
     def service(name: String): Option[String]                                    = None
     def traces(name: String): Option[String]                                     = None
     def trace(name: String, id: String): Option[String]                          = None
+    def topology(name: String): Option[QueryResponse]                            = None
     def session(name: String, id: String): Option[String]                        = None
     def invoke(name: String, r: InvokeRequest): Option[InvokeResponse]           = None
     def query(n: String, c: String, i: String, m: String): Option[QueryResponse] = None

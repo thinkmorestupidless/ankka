@@ -30,6 +30,26 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
   def traces(name: String): Option[String] =
     forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/traces"))
 
+  def topology(name: String): Option[QueryResponse] =
+    forName(name).flatMap { e =>
+      try
+        val response = client.send(
+          HttpRequest
+            .newBuilder(URI.create(s"${e.observabilityAddress}/observability/topology"))
+            .timeout(Duration.ofSeconds(2))
+            .GET()
+            .build(),
+          HttpResponse.BodyHandlers.ofString()
+        )
+        response.statusCode() match
+          case 200 => Some(QueryResponse(200, response.body))
+          // The service answers, and has no such route: its runtime predates the topology. Said
+          // as that, not as a missing service.
+          case 404   => Some(QueryResponse(501, LocalSource.TopologyUnsupported))
+          case other => Some(QueryResponse(other, response.body))
+      catch case _: Throwable => None
+    }
+
   def trace(name: String, traceId: String): Option[String] =
     forName(name).flatMap(e => get(s"${e.observabilityAddress}/observability/traces/$traceId"))
 
@@ -216,6 +236,10 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
     catch case _: Throwable => None
 
 object LocalSource:
+
+  /** What the panel shows for a service whose runtime is older than the topology. */
+  val TopologyUnsupported: String =
+    """{"error":"this service's runtime does not report its topology"}"""
 
   /**
    * `-Dankka.running.dir`, else `~/.ankka/running`.

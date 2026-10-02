@@ -40,9 +40,9 @@ Feature: Declared connections in a service's topology
     And the topology shows a declared connection from "order" to "orders-by-customer" as an event subscription
 
   Scenario: a service with only an endpoint shows the endpoint and its routes
-    Given a service with an endpoint that serves the route "GET /health" and no other component
+    Given a service with an endpoint that serves the route "GET /status/health" and no other component
     When a developer reads the service's topology
-    Then the topology shows the endpoint with the route "GET /health"
+    Then the topology shows the endpoint with the route "GET /status/health"
     And the topology shows no declared connection
 
   Scenario: a service with no endpoint shows none

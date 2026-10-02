@@ -379,6 +379,12 @@ final class AnkkaService private[ankka] (
   private[runtime] def attachObservability(endpoint: Option[ObservabilityEndpoint]): Unit =
     observability = endpoint
 
+  /**
+   * Where the local console endpoint answers, when there is one. For a suite that reads what the
+   * console would read, without going by way of the registry directory to find the address.
+   */
+  private[ankka] def observabilityAddress: Option[String] = observability.map(_.address)
+
   /** Stops every extension, then terminates the actor system if this service created it. */
   def terminate(): Unit =
     // First, so the console stops listing a service that is on its way out — and so the registry

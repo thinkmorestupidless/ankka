@@ -1130,6 +1130,40 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
+  // ── Topology ───────────────────────────────────────────────────────────────
+
+  // `features/topology/languages.feature`: this target is one row of the outline's Examples, so
+  // the scenario holds in a language when this case passes against that language's reference.
+  test("topology.declared-sources: a service declares the same connections in every language") {
+    val document = Json.parse(target.topology).fold(p => fail(s"not JSON: $p"), identity)
+    def strings(of: Json, field: String) = of(field).flatMap(_.asString).getOrElse(fail(s"$of"))
+    val nodes = document("nodes").flatMap(_.asArray).getOrElse(fail(target.topology))
+    // The platform's own components are in every agent-capable service; what is compared is what
+    // the reference service declares.
+    val platform = nodes
+      .filter(_("platform").flatMap(_.asBoolean).contains(true))
+      .map(strings(_, "id"))
+      .toSet
+    val declared = document("declared")
+      .flatMap(_.asArray)
+      .getOrElse(fail(target.topology))
+      .map(e => (strings(e, "from"), strings(e, "to"), strings(e, "kind")))
+      .filterNot((from, to, _) => platform(from) || platform(to))
+
+    // Equal, not contained: a connection missing and a connection invented both fail.
+    assertEquals(
+      declared.toSet,
+      Set(
+        ("shopping-cart", "cart-rows", "events"),
+        ("shopping-cart", "checkout-recorder", "events")
+      )
+    )
+    val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap
+    assertEquals(kinds.get("cart-rows"), Some("View"))
+    assertEquals(kinds.get("checkout-recorder"), Some("Consumer"))
+    assertEquals(kinds.get("shopping-cart"), Some("EventSourcedEntity"))
+  }
+
   // ── Observability ──────────────────────────────────────────────────────────
 
   test("obs.one-span-per-invocation") {

@@ -38,10 +38,16 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 [ -n "$address" ] || fail "the local console did not start: $(cat "$work/console.out")"
-for file in / /app.js /style.css; do
+for file in / /app.js /topology.js /style.css; do
   status="$(curl -s -o /dev/null -w '%{http_code}' "$address$file" || true)"
   [ "$status" = "200" ] || fail "the console answered $status for $file: the image is missing console/"
 done
+# The page and the script it draws from are one release: a page with a Topology tab over a script
+# from before it is a tab that does nothing, and each file would still answer 200.
+curl -s "$address/" | grep -q 'id="panel-topology"' \
+  || fail "the console's page has no Topology panel: the image holds a stale index.html"
+curl -s "$address/app.js" | grep -q 'AnkkaTopology.view' \
+  || fail "the console's script does not draw the topology: the image holds a stale app.js"
 echo "console    serves its files"
 
 for language in python typescript rust; do

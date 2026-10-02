@@ -27,8 +27,8 @@ is unchanged, so the local console from an older CLI still works.
                     { "name": "get-cart", "type": "query" } ] },
     { "id": "carts-by-customer", "kind": "View", "layer": 3, "platform": false,
       "handlers": [ { "name": "on-change", "type": "update" } ] },
-    { "id": "topic:checkouts", "kind": "Topic", "layer": 4 },
-    { "id": "unknown", "kind": "UnknownCaller", "layer": 0 }
+    { "id": "topic:checkouts", "kind": "Topic", "layer": 4, "platform": false, "handlers": [] },
+    { "id": "unknown", "kind": "UnknownCaller", "layer": 0, "platform": false, "handlers": [] }
   ],
   "declared": [
     { "from": "shopping-cart", "to": "carts-by-customer", "kind": "events" }
@@ -45,6 +45,13 @@ is unchanged, so the local console from an older CLI still works.
   ]
 }
 ```
+
+Every node has the same five fields, whatever it is. A component's id is its component id. Ids
+are unique only within a kind, so when an entity and the view over it share one, each is named with
+its kind as well: `eventsourcedentity:cart` and `view:cart`. A component id cannot hold a colon, so
+neither form can be taken for the other, nor for a topic (`topic:<name>`), an endpoint
+(`endpoint:<prefix>`) or a source outside the service (`external:<id>`). A source outside the
+service is one layer before the component that reads it.
 
 A handler's `type` is one of `command`, `query`, `step`, `stream`, `action` (run by a timer),
 `update` (a view's or a consumer's one handler) and `route`. A route also says whether it is

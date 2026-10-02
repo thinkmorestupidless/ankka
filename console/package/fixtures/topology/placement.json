@@ -1,0 +1,116 @@
+{
+  "scenario": null,
+  "about": "a column for each layer that has something in it, a row for each node by id, whatever order the document lists them in",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0
+    },
+    "nodes": [
+      {
+        "id": "topic:shipments",
+        "kind": "Topic",
+        "layer": 4,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "wallet",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shipper",
+        "kind": "Consumer",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "endpoint:/carts",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "carts-by-customer",
+        "kind": "View",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [
+      {
+        "from": "shipper",
+        "to": "topic:shipments",
+        "kind": "topic-publication"
+      },
+      {
+        "from": "cart",
+        "to": "carts-by-customer",
+        "kind": "events"
+      }
+    ],
+    "calls": []
+  },
+  "options": {},
+  "expected": {
+    "shown": [
+      "endpoint:/carts",
+      "cart",
+      "wallet",
+      "carts-by-customer",
+      "shipper",
+      "topic:shipments"
+    ],
+    "positions": {
+      "endpoint:/carts": [
+        0,
+        0
+      ],
+      "cart": [
+        1,
+        0
+      ],
+      "wallet": [
+        1,
+        1
+      ],
+      "carts-by-customer": [
+        2,
+        0
+      ],
+      "shipper": [
+        2,
+        1
+      ],
+      "topic:shipments": [
+        3,
+        0
+      ]
+    },
+    "declared": [
+      "cart>carts-by-customer:events",
+      "shipper>topic:shipments:topic-publication"
+    ],
+    "describe": "6 components, 2 declared connections, 0 observed calls"
+  }
+}

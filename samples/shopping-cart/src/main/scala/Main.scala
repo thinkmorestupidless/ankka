@@ -39,11 +39,15 @@ import shoppingcart.application.*
    * would make Kafka a requirement for running the cart at all. Set `ANKKA_KAFKA_BOOTSTRAP_SERVERS`
    * in the descriptor's `env` and every checkout is published to `cart-checkouts`, where something
    * outside the service — an ankka-flow pipeline — can read it.
+   *
+   * The same goes for the carts as a graph: with a broker, every change to a cart is published to
+   * `cart-graph` as graph deltas, which an ankka-flow pipeline of the built-in merge sink alone
+   * writes into a graph database (`samples/shopping-cart/graph`).
    */
   val withNotices = sys.env
     .get(ProjectionRuntime.KafkaEnvVar)
     .filter(_.trim.nonEmpty)
-    .fold(base)(_ => base.register(CheckoutNotifier.descriptor))
+    .fold(base)(_ => base.register(CheckoutNotifier.descriptor).register(CartGraph.descriptor))
 
   val service = sys.env
     .get("ANTHROPIC_API_KEY")

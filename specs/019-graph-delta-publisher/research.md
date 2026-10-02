@@ -494,3 +494,26 @@ history; the new page in `nav` and a skill or `docs check` fails.
 - **Adding a component to the Scala reference breaks `discovery.lists-every-component` for every
   other reference** until it has the same component. Between this point and the SDKs' tasks the
   three SDK conformance runs fail that one case.
+- **`GraphDelta` is one flat case class**, not a case per kind as `contracts/scala-api.md` first
+  had it. A test reads `delta.key`, `delta.version`, `delta.properties` without a match; it is the
+  shape ankka-flow's Python reader returns and the shape the other SDKs' readers took. The
+  contract is corrected.
+- **The rules live in `core`, in `GraphRules`**, beside the delta and its reader, and the builder
+  in `sdk` only calls them. So the fixture suites are in `core`'s tests — `GraphDeltaSuite` (the
+  20 rows of ankka-flow's two files, each built, written and read back) and `GraphRulesSuite` (the
+  42 rows of `refused.json`, each for its reason) — and `sdk`'s `GraphElementsSuite` holds the
+  author's surface. `core` gained a small JSON tree (`GraphJson`) to read a delta's open-ended
+  properties with exact numbers; it is `private[ankka]`.
+- **A refusal carries its reason**: `GraphElementRefused.why` is the fixture's name for the rule,
+  so a test asserts the rule and not a message.
+- **The Scala test kit applies an effect with the runtime's own function.**
+  `ConsumerTestKit` calls `ProjectionSupport.applyConsumer` against an `InMemoryPublisher`, so
+  the subject default, the key, the bound and the "no topic" failure cannot differ between a
+  unit test and a running service.
+- **`effects.publish` takes varargs only.** A list is passed as `publish(elements*)`.
+- **A key value source may skip a state** (it delivers the latest), so the suites and the
+  conformance cases wait for the *last* state's delta and assert its revision, not a count.
+- **The conformance graph cases** were seen to fail in the two ways tried: `checkout-fanout`
+  reduced to one message (four cases), and the two references' deletion handlers removed
+  (`consumer.graph-delete-and-recreate`, `kv.delete-is-a-change`). 82 cases pass against the
+  Scala reference.

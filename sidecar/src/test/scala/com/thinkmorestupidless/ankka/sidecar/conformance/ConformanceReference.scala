@@ -6,6 +6,7 @@ import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.core.Serializers.given
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.sdk.*
+import com.thinkmorestupidless.ankka.sdk.graph.GraphConsumer
 import org.apache.pekko.stream.scaladsl.Source
 
 import scala.concurrent.duration.*
@@ -287,6 +288,56 @@ object ConformanceReference:
       Some(Codecs.serializer[Fanned]("fanned"))
 
     override val produceTo: Option[String] = Some("conformance-fanout")
+
+  /**
+   * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
+   * its checkout and the edge between them for a checkout, the cart's tombstone when it is deleted.
+   * A function of the event alone, so every reference publishes the same records.
+   */
+  final class CartGraph extends GraphConsumer[ShoppingCartEvent]:
+    private def cart(id: String, checkedOut: Boolean) =
+      graph.node(s"cart:$id", Seq("Cart"), Map("cartId" -> id, "checkedOut" -> checkedOut))
+
+    def onMessage(event: ShoppingCartEvent): Effect =
+      val id = messageContext.subject
+      event match
+        case _: ItemAdded | _: ItemRemoved => effects.publish(cart(id, checkedOut = false))
+        case CheckedOut =>
+          effects.publish(
+            cart(id, checkedOut = true),
+            graph.node(s"checkout:$id", Seq("Checkout"), Map("cartId" -> id)),
+            graph.edge(s"checked-out:$id", "CHECKED_OUT", from = s"cart:$id", to = s"checkout:$id")
+          )
+        case Discarded => effects.ignore()
+
+    override def onDelete: Effect =
+      effects.publish(graph.tombstoneNode(s"cart:${messageContext.subject}"))
+
+  object CartGraph
+      extends GraphConsumer.Companion[CartGraph, ShoppingCartEvent](
+        componentId = ComponentId("cart-graph"),
+        source = ChangeSource.eventsOf(ShoppingCartEntity),
+        topic = "conformance-graph"
+      ):
+    def create(ctx: ConsumerContext) = new CartGraph
+
+  /** The key value entity as a graph: its node at each state's revision, its tombstone after. */
+  final class ProfileGraph extends GraphConsumer[ProfileState]:
+    def onMessage(state: ProfileState): Effect =
+      effects.publish(
+        graph.node(s"profile:${messageContext.subject}", Seq("Profile"), Map("name" -> state.name))
+      )
+
+    override def onDelete: Effect =
+      effects.publish(graph.tombstoneNode(s"profile:${messageContext.subject}"))
+
+  object ProfileGraph
+      extends GraphConsumer.Companion[ProfileGraph, ProfileState](
+        componentId = ComponentId("profile-graph"),
+        source = ChangeSource.stateOf(Profile),
+        topic = "conformance-profile-graph"
+      ):
+    def create(ctx: ConsumerContext) = new ProfileGraph
 
   // ── reminder: a timed action ──
 
@@ -582,6 +633,8 @@ object ConformanceReference:
     "cart-rows",
     "checkout-recorder",
     "checkout-fanout",
+    "cart-graph",
+    "profile-graph",
     "reminder",
     "assistant",
     "answerer"
@@ -595,6 +648,8 @@ object ConformanceReference:
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
     CheckoutFanout.descriptor,
+    CartGraph.descriptor,
+    ProfileGraph.descriptor,
     Reminder.descriptor,
     Assistant.descriptor,
     Answerer.descriptor

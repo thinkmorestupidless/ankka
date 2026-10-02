@@ -72,16 +72,20 @@ object InMemoryPublisher:
 type Scalar        = String | Boolean | Int | Long | Double
 type PropertyValue = Scalar | Seq[Scalar]
 
-enum GraphDelta:
-  case Node(id: String, version: Long, labels: Seq[String], properties: Map[String, PropertyValue])
-  case Edge(id: String, version: Long, `type`: String, from: String, to: String,
-            properties: Map[String, PropertyValue])
-  case NodeTombstone(id: String, version: Long)
-  case EdgeTombstone(id: String, version: Long, `type`: String, from: String, to: String)
-
-  def id: String
-  def version: Long
-  def key: String                      // "node:<id>" or "edge:<id>"
+/** Always valid: made only by the builder and the reader. */
+final case class GraphDelta private[ankka] (
+    kind: GraphDelta.Kind,               // Node, Edge, Tombstone
+    element: GraphDelta.Element,         // Node, Edge: which id space
+    id: String,
+    version: Long,
+    labels: Vector[String],
+    edgeType: Option[String],            // an edge and an edge's tombstone
+    from: Option[String],
+    to: Option[String],
+    properties: Map[String, PropertyValue]   // normalised: integers are Long, a whole float is that Long
+):
+  def key: String                        // "node:<id>" or "edge:<id>"
+  def isTombstone: Boolean
 
 object GraphDelta:
   val SchemaName: String = "ankka.graph-delta.v1"
@@ -90,9 +94,14 @@ object GraphDelta:
   def edgeKey(id: String): String
   def read(value: Array[Byte]): Either[String, GraphDelta]
   def read(key: Option[String], value: Array[Byte]): Either[String, GraphDelta]   // also checks the key
+
+/** `why` is the name of the rule broken, as `refused.json` names them. */
+final class GraphElementRefused(val why: String, message: String) extends IllegalArgumentException
 ```
 
-A `GraphDelta` is always valid: its cases are built only by the builder and the reader.
+One flat case class rather than a case per kind: a test reads `delta.key`, `delta.version`,
+`delta.properties` without matching, and it is the shape the other three SDKs' readers return.
+Two deltas are equal when the sink would read them the same.
 
 ## Publishing a graph — `sdk.graph`
 
@@ -112,8 +121,7 @@ final class GraphElements:                     // `graph` inside a GraphConsumer
 
 sealed trait GraphEffect
 final class GraphEffects:                      // `effects` inside a GraphConsumer
-  def publish(elements: GraphElement*): GraphEffect
-  def publish(elements: Seq[GraphElement]): GraphEffect     // empty behaves as done
+  def publish(elements: GraphElement*): GraphEffect         // none at all behaves as done
   def done(): GraphEffect
   def ignore(): GraphEffect
 
@@ -175,27 +183,31 @@ would have, so the change fails before anything is published.
 
 ```scala
 object ConsumerTestKit:
-  def apply[Src, Out](companion: Consumer.Companion[?, Src, Out],
-                      client: ComponentClient = refusing): ConsumerTestKit[Src, Out]
-  def graph[Src](companion: GraphConsumer.Companion[?, Src],
-                 client: ComponentClient = refusing): GraphConsumerTestKit[Src]
+  def of[C <: Consumer[Src, Out], Src, Out](companion: Consumer.Companion[C, Src, Out],
+                                            client: ComponentClient = TestTransport.unroutedClient): ConsumerTestKit[Src, Out]
+  def graph[C <: GraphConsumer[Src], Src](companion: GraphConsumer.Companion[C, Src],
+                                          client: ComponentClient = TestTransport.unroutedClient): GraphConsumerTestKit[Src]
+
+  final case class Produced[Out](payload: Out, key: Option[String], metadata: Metadata, bytes: Array[Byte]):
+    def text: String                     // key: the record key a broker is given — the one named, else the subject
+  final case class Result[Out](effect: ConsumerEffect[Out], messages: Vector[Produced[Out]]):
+    def payloads: Vector[Out]; def keys: Vector[Option[String]]
 
 final class ConsumerTestKit[Src, Out]:
   def onMessage(message: Src, subject: String = "test", sequenceNumber: Long = 1): Result[Out]
   def onDelete(subject: String = "test", sequenceNumber: Long = 1): Result[Out]
 
-  final case class Result[Out](effect: ConsumerEffect[Out]):
-    def messages: Seq[Outgoing[Out]]     // one for Produce, n for ProduceAll, none otherwise;
-                                         // payloads round-tripped through the output serializer
-    def keys: Seq[Option[String]]
-
 final class GraphConsumerTestKit[Src]:
-  def onMessage(message: Src, subject: String = "test", sequenceNumber: Long = 1): Seq[GraphDelta]
-  def onDelete(subject: String = "test", sequenceNumber: Long = 1): Seq[GraphDelta]
+  def onMessage(message: Src, subject: String = "test", sequenceNumber: Long = 1): Vector[GraphDelta]
+  def onDelete(subject: String = "test", sequenceNumber: Long = 1): Vector[GraphDelta]
+  def records: ConsumerTestKit[Src, GraphDelta]     // the same consumer as the records it publishes
 ```
 
-Neither starts a runtime. The graph kit returns deltas as the reader gives them back from the
-bytes that would be published, so a test asserts on what a sink would read.
+Neither starts a runtime. The kit applies the handler's effect with the function the runtime
+applies it with (`ProjectionSupport.applyConsumer`), against a publisher that only records, so a
+result the runtime would refuse — no topic, an empty key, over the limit — throws here. The graph
+kit returns deltas read from the bytes that would be published, under the key they would be
+published under, so a test asserts on what a sink would read.
 
 ## What changes for an existing service
 

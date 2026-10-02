@@ -1,7 +1,8 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
+import com.thinkmorestupidless.ankka.grpc.GrpcServer
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
-import shoppingcart.api.{CallersEndpoint, QuestionsEndpoint, ShoppingCartEndpoint}
+import shoppingcart.api.{CallersEndpoint, CartGrpcEndpoint, QuestionsEndpoint, ShoppingCartEndpoint}
 import shoppingcart.application.*
 
 /**
@@ -45,10 +46,24 @@ import shoppingcart.application.*
     .filter(_.trim.nonEmpty)
     .fold(base)(_ => base.register(CheckoutNotifier.descriptor))
 
+  /**
+   * The gRPC API, on its own port beside HTTP (9090 unless `ANKKA_GRPC_PORT` says otherwise).
+   *
+   * `CART_GRPC=off` leaves it out. That is not something a real service wants; it is how the
+   * platform's own tests deploy a service whose descriptor declares gRPC and that serves none, to
+   * see the platform report it.
+   */
+  val withGrpc =
+    if sys.env.get("CART_GRPC").contains("off") then withNotices
+    else
+      // docs:start grpc-registration
+      withNotices.withExtension(GrpcServer.of(clients => CartGrpcEndpoint(clients)))
+      // docs:end grpc-registration
+
   val service = sys.env
     .get("ANTHROPIC_API_KEY")
-    .fold(withNotices) { key =>
-      withNotices
+    .fold(withGrpc) { key =>
+      withGrpc
         .register(CartAssistant.descriptor)
         .register(CartAnswerer.descriptor)
         .registerAll(AgentRuntime.descriptors)

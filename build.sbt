@@ -680,7 +680,7 @@ lazy val shoppingCart = project
   // `agent` because the cart carries an assistant, as the Python and TypeScript carts do — the three
   // samples are one service written three times, and a component missing from one makes its
   // documentation page unable to show all three.
-  .dependsOn(sdk, runtime, http, agent, testkit % Test)
+  .dependsOn(sdk, runtime, http, grpc, shoppingCartApi, agent, testkit % Test)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)
@@ -691,7 +691,31 @@ lazy val shoppingCart = project
     // for the reason on the operator's setting: discovery is one new @main from an ambiguous-main
     // failure unrelated to whatever changed.
     Compile / mainClass := Some("runShoppingCart"),
-    dockerExposedPorts  := Seq(9000)
+    dockerExposedPorts  := Seq(9000, 9090)
+  )
+
+/**
+ * The shopping cart's service definition and the code ScalaPB generates from it — a project of its
+ * own, as a service's should be, because generated code does not compile cleanly under the flags
+ * the cart's own code is held to. The documentation's gRPC page tells a developer to do the same.
+ */
+lazy val shoppingCartApi = project
+  .in(file("samples/shopping-cart-api"))
+  .settings(commonSettings)
+  .settings(
+    name           := "sample-shopping-cart-api",
+    publish / skip := true,
+    scalacOptions  := Seq("-encoding", "UTF-8", "-source:3.3"),
+    Compile / PB.targets := Seq(
+      scalapb.gen(grpc = true) -> (Compile / sourceManaged).value / "scalapb"
+    ),
+    libraryDependencies ++= Seq(
+      scalapbRuntime % "protobuf",
+      scalapbRuntime,
+      scalapbRuntimeGrpc,
+      grpcStub,
+      grpcProtobuf
+    )
   )
 
 lazy val multiAgentPlanner = project
@@ -735,6 +759,7 @@ lazy val root = project
     protocol,
     sidecar,
     shoppingCart,
+    shoppingCartApi,
     multiAgentPlanner
   )
   .settings(

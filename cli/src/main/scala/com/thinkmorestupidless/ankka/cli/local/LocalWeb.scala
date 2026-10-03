@@ -117,6 +117,13 @@ object LocalWeb:
         val stop    = new Thread(() => process.destroy())
         Runtime.getRuntime.addShutdownHook(stop)
         try process.waitFor()
+        catch
+          case _: InterruptedException =>
+            // Stopped from outside: the process and whatever it started go too (`npm start` runs
+            // the server as its child).
+            process.descendants().forEach(_.destroy(): Unit)
+            process.destroy()
+            130
         finally
           try Runtime.getRuntime.removeShutdownHook(stop): Unit
           catch case _: IllegalStateException => ()

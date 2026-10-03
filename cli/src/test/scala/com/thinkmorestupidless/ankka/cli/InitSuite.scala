@@ -63,13 +63,52 @@ class InitSuite extends munit.FunSuite:
     assert(!Init.sbtOnPath(Map("PATH" -> Files.createTempDirectory("nopath").toString)))
   }
 
-  test("a language is scala, python, typescript or rust, with short forms, and nothing else") {
+  test("a language is scala, python, typescript, rust or web, with short forms, and nothing else") {
     assertEquals(Language.parse("Python"), Right(Language.Python))
     assertEquals(Language.parse("ts"), Right(Language.TypeScript))
     assertEquals(Language.parse("scala"), Right(Language.Scala))
     assertEquals(Language.parse("Rust"), Right(Language.Rust))
     assertEquals(Language.parse("rs"), Right(Language.Rust))
-    assert(Language.parse("go").left.exists(_.contains("one of scala, python, typescript, rust")))
+    assertEquals(Language.parse("web"), Right(Language.Web))
+    assert(
+      Language.parse("go").left.exists(_.contains("one of scala, python, typescript, rust, web"))
+    )
+  }
+
+  test("a web project's descriptor is valid, web-hosted, and mounts its backend") {
+    val dir     = Files.createTempDirectory("init-web")
+    val request = Init.Request("shop-web", directory = dir, language = Language.Web)
+    assertEquals(Init.problems(request), Vector.empty)
+    val target = Scaffold.render(request, "9.9.9")
+    val descriptor = com.github.plokhotnyuk.jsoniter_scala.core.readFromString(
+      Files.readString(target.resolve("service.json"))
+    )(using com.thinkmorestupidless.ankka.controlplane.api.Wire.descriptorCodec)
+    assertEquals(descriptor.problems, Vector.empty)
+    assertEquals(descriptor.name, "shop-web")
+    assert(descriptor.service.isWebHosted)
+    assertEquals(
+      descriptor.service.mounts.map(m => m.path -> m.service),
+      Vector("/api" -> "backend")
+    )
+    // Every template's files, and none of a service's: a web-hosted service starts no sidecar.
+    assert(Files.exists(target.resolve(".mcp.json")))
+    assert(!Files.exists(target.resolve("docker-compose.yml")))
+    assert(Files.exists(target.resolve(".claude/skills/ankka/SKILL.md")))
+  }
+
+  test("--package and --template are refused for a web project") {
+    val dir = Files.createTempDirectory("init-web-options")
+    val problems = Init.problems(
+      Init.Request(
+        "w",
+        template = Some("x/y.g8"),
+        pkg = Some("a.b"),
+        directory = dir,
+        language = Language.Web
+      )
+    )
+    assert(problems.exists(_.contains("--template applies to scala only")), problems)
+    assert(problems.exists(_.contains("--package applies to scala and python only")), problems)
   }
 
   test("a rust crate keeps the name's hyphens, and is refused when cargo could not name it") {

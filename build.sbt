@@ -640,7 +640,7 @@ lazy val cli = project
           .filter(f => f.isFile && !litter(f))
           .flatMap(f => IO.relativize(dir, f).map(_ -> f))
       IO.delete(out)
-      Seq("python", "typescript", "rust").flatMap { language =>
+      Seq("python", "typescript", "rust", "web").flatMap { language =>
         // common/ is every template's; common-service/ (the compose file that starts the sidecar)
         // only a service's, which a web-hosted interface is not.
         val files = (

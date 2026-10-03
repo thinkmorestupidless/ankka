@@ -90,8 +90,14 @@ object RemoteAutonomousAgent:
     // The process decodes the result as its type and runs its rules, in one call. A process that
     // fails to answer has decided nothing: that throws, and the iteration is tried again, rather
     // than rejecting a result nobody looked at.
+    // The check is the iteration's work, as a tool's run is: the process is told the trace and
+    // the handler, so a call a rule makes is the iteration's call, not nobody's.
     def check(typeName: String)(resultJson: String): TaskType.Verdict =
-      await(conversation.checkTaskResult(id, taskId, typeName, resultJson), callTimeout) match
+      await(
+        conversation
+          .checkTaskResult(id, taskId, typeName, resultJson, Trace.outbound(Metadata.empty)),
+        callTimeout
+      ) match
         case TaskResultVerdict.Accept               => TaskType.Verdict.Accepted(resultJson)
         case TaskResultVerdict.Malformed(problem)   => TaskType.Verdict.Malformed(problem)
         case TaskResultVerdict.Reject(rule, reason) => TaskType.Verdict.Rejected(rule, reason)
@@ -110,12 +116,26 @@ object RemoteAutonomousAgent:
         val name: String = guardName
         override def checkInput(text: String): Either[String, Unit] =
           await(
-            conversation.checkGuardrail(id, session, guardName, GuardrailStage.Input, text),
+            conversation.checkGuardrail(
+              id,
+              session,
+              guardName,
+              GuardrailStage.Input,
+              text,
+              Trace.outbound(Metadata.empty)
+            ),
             callTimeout
           )
         override def checkOutput(text: String): Either[String, Unit] =
           await(
-            conversation.checkGuardrail(id, session, guardName, GuardrailStage.Output, text),
+            conversation.checkGuardrail(
+              id,
+              session,
+              guardName,
+              GuardrailStage.Output,
+              text,
+              Trace.outbound(Metadata.empty)
+            ),
             callTimeout
           )
     }

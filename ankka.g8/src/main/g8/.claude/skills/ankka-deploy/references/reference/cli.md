@@ -949,6 +949,7 @@ Usage:
     ankka services resume
     ankka services restart
     ankka services logs
+    ankka services topology
     ankka services history
     ankka services expose
     ankka services unexpose
@@ -977,6 +978,8 @@ Subcommands:
         Replace a service's instances.
     logs
         Print a deployed service's recent output.
+    topology
+        What a deployed service is made of and what calls what, merged across its instances.
     history
         Who did what to a service, newest first.
     expose
@@ -1149,6 +1152,26 @@ Options and flags:
         Only the last N lines.
     --since <integer>
         Only the last N seconds.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka services topology`
+
+```text
+Usage: ankka services topology [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+What a deployed service is made of and what calls what, merged across its instances.
+
+Options and flags:
+    --help
+        Display this help text.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

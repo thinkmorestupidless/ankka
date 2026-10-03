@@ -837,6 +837,10 @@ function drawGraph(shown) {
     if (node.kind.startsWith('External') || node.kind === 'UnknownCaller') classes.push('outside');
     if (node.platform) classes.push('platform');
     if (node.id === topology.selected) classes.push('selected');
+    // Another service running on this machine is opened from here; one that is not, or the
+    // services beyond the limit together, is said to be that and stays where it is.
+    const link = linkOf(node);
+    if (link.service) classes.push('link');
     const group = svg('g', { class: classes.join(' '), transform: `translate(${x} ${y})`, tabindex: 0 });
     group.appendChild(svg('rect', { width: GRID.width, height: GRID.height, rx: 6 }));
     const name = svg('text', { x: 10, y: 16, class: 'name' });
@@ -844,9 +848,13 @@ function drawGraph(shown) {
     const kind = svg('text', { x: 10, y: 30, class: 'kind' });
     kind.textContent = describeKind(node) + (node.through.length ? ' · via platform' : '');
     const title = svg('title');
-    title.textContent = `${node.label}: ${describeKind(node)}`;
+    title.textContent = link.service
+      ? `${node.label}: open its topology`
+      : `${node.label}: ${describeKind(node)}`;
     group.append(title, name, kind);
-    const choose = () => { topology.selected = node.id; topology.call = null; drawTopology(); };
+    const choose = link.service
+      ? () => openService(link.service)
+      : () => { topology.selected = node.id; topology.call = null; drawTopology(); };
     group.onclick = choose;
     group.onkeydown = (event) => { if (event.key === 'Enter' || event.key === ' ') choose(); };
     picture.appendChild(group);
@@ -856,6 +864,17 @@ function drawGraph(shown) {
 
 function callKey(call) {
   return `${call.from}>${call.to}`;
+}
+
+// Whether a node outside the service is one running here, by the names this console lists.
+function linkOf(node) {
+  return AnkkaTopology.linkFor(node, state.services.map((service) => service.name));
+}
+
+// Another service's topology, from a node that names it.
+function openService(name) {
+  state.tab = 'topology';
+  select(name);
 }
 
 // An observed call in a sentence: who called whom, and the two counts, which are never added.
@@ -910,7 +929,9 @@ function kindInWords(kind) {
 }
 
 function describeKind(node) {
-  return node.platform ? `${kindInWords(node.kind)}, platform` : kindInWords(node.kind);
+  const kind = node.platform ? `${kindInWords(node.kind)}, platform` : kindInWords(node.kind);
+  const note = node.kind === 'ExternalService' ? linkOf(node).note : null;
+  return note ? `${kind}, ${note}` : kind;
 }
 
 function drawText(shown) {
@@ -1007,6 +1028,14 @@ function drawDetail(shown) {
     .flatMap((c) => c.pairs.map((pair) => `${nameOf(shown, c.from)}: ${describePair(pair)}`)));
   list(panel, 'Through platform components', node.through.map(describeThrough));
 
+  const link = linkOf(node);
+  if (link.service) {
+    const open = document.createElement('button');
+    open.className = 'plain';
+    open.textContent = `Open ${link.service}`;
+    open.onclick = () => openService(link.service);
+    panel.appendChild(open);
+  }
   if (topology.focus !== node.id) {
     const focus = document.createElement('button');
     focus.className = 'plain';

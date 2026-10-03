@@ -310,6 +310,7 @@ button.plain:hover { border-color: var(--dim); }
 .node.selected rect { stroke: var(--accent); stroke-width: 2; }
 /* Outside the service: drawn as an outline that is not quite there. */
 .node.outside rect { stroke-dasharray: 4 3; }
+.node.link text.name { text-decoration: underline; fill: var(--accent); }
 .node.platform rect { fill: var(--line); }
 .node text { fill: var(--ink); font-size: 12px; }
 .node text.name { font-family: var(--mono); font-weight: 600; }

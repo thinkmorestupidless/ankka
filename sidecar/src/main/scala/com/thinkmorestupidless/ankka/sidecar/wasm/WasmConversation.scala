@@ -322,12 +322,13 @@ final class WasmConversation(
       sessionId: String,
       guardrail: String,
       stage: GuardrailStage,
-      text: String
+      text: String,
+      metadata: Metadata
   ): Future[Either[String, Unit]] =
     orFail(
       fresh(
         "check_guardrail",
-        toGuardrailRequest(componentId, sessionId, guardrail, stage, text),
+        toGuardrailRequest(componentId, sessionId, guardrail, stage, text, metadata),
         settings.commandTimeout
       )(GuardrailResult.parseFrom)
     ).map(fromGuardrailResult)
@@ -348,12 +349,19 @@ final class WasmConversation(
       componentId: ComponentId,
       taskId: String,
       taskType: String,
-      resultJson: String
+      resultJson: String,
+      metadata: Metadata
   ): Future[TaskResultVerdict] =
     orFail(
       fresh(
         "check_task_result",
-        TaskResultRequest(componentId, taskId, taskType, resultJson),
+        TaskResultRequest(
+          componentId,
+          taskId,
+          taskType,
+          resultJson,
+          Some(Translate.toMetadata(metadata))
+        ),
         settings.commandTimeout
       )(PbTaskResultVerdict.parseFrom)
     ).map(fromTaskResultVerdict)

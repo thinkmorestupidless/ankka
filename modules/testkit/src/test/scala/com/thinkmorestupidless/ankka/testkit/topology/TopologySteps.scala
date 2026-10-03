@@ -16,7 +16,7 @@ import com.thinkmorestupidless.ankka.runtime.{
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
 import com.typesafe.config.ConfigFactory
 
-import java.net.URI
+import java.net.{InetSocketAddress, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.time.Instant
 import scala.concurrent.Await
@@ -56,6 +56,10 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
   private var readers    = Map.empty[String, String]
   private var planned    = Vector.empty[Planned]
   private var settings   = Map.empty[String, String]
+  private var others     = Vector.empty[String]
+
+  // The other services a scenario's endpoint calls, all answering at one address.
+  private var callee: Option[com.sun.net.httpserver.HttpServer] = None
 
   // The service, once something has been done to it.
   private var kit: Option[AnkkaTestKit]    = None
@@ -81,6 +85,7 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
     agents = Map.empty
     readers = Map.empty
     planned = Vector.empty
+    others = Vector.empty
     // A scenario about the window passing cannot wait ten minutes for it. The window is the
     // service's configuration, read when it starts, so it is decided by which scenario this is.
     settings =
@@ -105,6 +110,8 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
       kit = None
       server = None
       timers = None
+      callee.foreach(_.stop(0))
+      callee = None
       settings.keys.foreach(sys.props.remove)
       ConfigFactory.invalidateCaches()
       super.afterEach(context)
@@ -127,6 +134,40 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
 
   /** A caller that waits less long than the service's own ten seconds, for a scenario about it. */
   private def impatient(): Unit = settings += "ankka.ask-timeout" -> s"${Patience.toSeconds}s"
+
+  /**
+   * The other services the scenario's endpoint calls, by name. Each is another process as far as
+   * this service is concerned: one plain HTTP server on loopback answers for all of them, and the
+   * service finds each by its name, as it finds a service announced on this machine. The endpoint
+   * gets one route that calls whichever service its path names.
+   */
+  private def callsServices(names: String*): Unit =
+    val server = callee.getOrElse {
+      val started =
+        com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+      started.createContext(
+        "/",
+        exchange =>
+          val body = "hello".getBytes("UTF-8")
+          exchange.sendResponseHeaders(200, body.length.toLong)
+          exchange.getResponseBody.write(body)
+          exchange.close()
+      )
+      started.start()
+      callee = Some(started)
+      plan(
+        ServicesRoute,
+        clients => KitEndpoint.Serve.Answer(args => clients.services(args.head).getText("/hello"))
+      )
+      started
+    }
+    names.foreach { name =>
+      settings += s"ankka.local-services.$name" -> s"http://127.0.0.1:${server.getAddress.getPort}"
+    }
+    others ++= names
+
+  private def callService(name: String): Unit =
+    assertEquals(request(ServicesRoute, name), "hello")
 
   /** An id no other call in this run uses, and one a `Then` can look for and not find. */
   private def instance(): String =
@@ -282,7 +323,7 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
    * component is named by its id, a topic and a component outside the service by theirs.
    */
   private def nodeNamed(name: String): Node =
-    val candidates = Vector(name, s"topic:$name", s"external:$name")
+    val candidates = Vector(name, s"topic:$name", s"external:$name", serviceNode(name))
     topology.document.nodes.filter(n => candidates.contains(n.id)) match
       case Vector(one) => one
       case Vector() =>
@@ -482,6 +523,19 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
       add(made.descriptor)
   }
 
+  Given("a service {string} with an endpoint that calls the service {string}") {
+    (_: String, other: String) => callsServices(other)
+  }
+
+  Given("a service {string} that shows at most {int} other services by name") {
+    (_: String, limit: Int) =>
+      settings += "ankka.observability.max-external-services" -> limit.toString
+  }
+
+  Given(
+    "an endpoint that calls the service {string}, the service {string} and the service {string}"
+  )((a: String, b: String, c: String) => callsServices(a, b, c))
+
   Given("the service has no component {string}") { (id: String) =>
     assert(!components.exists(_.componentId.toString == id), s"'$id' was registered: $components")
   }
@@ -590,11 +644,19 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
     val _ = (handler, request(route, instance()))
   }
 
-  When("the endpoint calls {string}") { (handler: String) =>
-    val route = planned.map(_.route).filter(_.startsWith("POST /calls/")) match
-      case Vector(one) => one
-      case other       => fail(s"the scenario's endpoint calls one component: $other")
-    val _ = (handler, request(route, instance()))
+  // What the endpoint calls is a handler of a component, or another service when the scenario
+  // said it calls one by that name.
+  When("the endpoint calls {string}") { (named: String) =>
+    if others.contains(named) then callService(named)
+    else
+      val route = planned.map(_.route).filter(_.startsWith("POST /calls/")) match
+        case Vector(one) => one
+        case other       => fail(s"the scenario's endpoint calls one component: $other")
+      val _ = (named, request(route, instance()))
+  }
+
+  When("the endpoint calls {string}, then {string}, then {string}") {
+    (a: String, b: String, c: String) => Vector(a, b, c).foreach(callService)
   }
 
   When("the endpoint calls {string} and the stream ends") { (handler: String) =>
@@ -755,6 +817,55 @@ abstract class TopologySteps(feature: String) extends GherkinSuite(feature) with
   Then("the topology shows an observed call from the unknown caller to {string}") { (to: String) =>
     val _ =
       observed(named(Unknown), to, s"an observed call from the unknown caller to $to")(_ => true)
+  }
+
+  // ── Then: other services ─────────────────────────────────────────────────────
+
+  Then("the topology of {string} shows {string} as a service outside it") {
+    (_: String, name: String) =>
+      val _ = eventually(s"$name as a service outside it")(
+        _.document.nodes.exists(_.id == serviceNode(name))
+      )
+      shows(name, "ExternalService")
+  }
+
+  Then("the topology of {string} shows {string} and {string} as services outside it") {
+    (_: String, a: String, b: String) =>
+      Vector(a, b).foreach { name =>
+        val _ = eventually(s"$name as a service outside it")(
+          _.document.nodes.exists(_.id == serviceNode(name))
+        )
+        shows(name, "ExternalService")
+      }
+  }
+
+  Then("the topology of {string} shows an observed call from the endpoint to {string}") {
+    (_: String, to: String) =>
+      val _ = observed(anyEndpoint, serviceNode(to), s"an observed call from the endpoint to $to")(
+        _ => true
+      )
+  }
+
+  Then("the topology of {string} shows an observed call from the endpoint to other services") {
+    (_: String) =>
+      val _ = observed(anyEndpoint, OtherServices, "an observed call to other services")(_ => true)
+  }
+
+  Then("the topology of {string} shows {int} calls from the endpoint in all") {
+    (_: String, count: Int) =>
+      // Handled and unanswered, counted apart and added here only to say that none was dropped.
+      val _ = eventually(s"$count calls from the endpoint in all") { reading =>
+        endpointOf(reading).exists { endpoint =>
+          reading.document.calls
+            .filter(_.from == endpoint)
+            .flatMap(_.pairs)
+            .map(p =>
+              p.handled.ok + p.handled.refused + p.handled.failed +
+                p.unanswered.timedOut + p.unanswered.undelivered
+            )
+            .sum == count
+        }
+      }
   }
 
   Then("the topology shows no observed call from a component to {string}") { (to: String) =>
@@ -920,6 +1031,15 @@ object TopologySteps:
 
   /** Who a call is from when nobody can say. */
   private val Unknown = "unknown"
+
+  /** The route a scenario's endpoint calls another service by. */
+  private val ServicesRoute = "GET /services/{name}"
+
+  /** Another service as the topology names it: locally, every service is in the project `local`. */
+  private def serviceNode(name: String): String = s"service:local/$name"
+
+  /** Every other service beyond the limit, as the topology names them together. */
+  private val OtherServices = "service:(other)"
 
   /** The window a scenario about the window passing runs with, a slice of it a second long. */
   private val ShortWindow: FiniteDuration = 3.seconds

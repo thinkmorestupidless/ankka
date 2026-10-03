@@ -15,7 +15,9 @@ import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
 import munit.FunSuite
 
-import java.net.URI
+import com.typesafe.config.ConfigFactory
+
+import java.net.{InetSocketAddress, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import scala.concurrent.Await
 import scala.concurrent.duration.*
@@ -82,7 +84,26 @@ final class TopologySuite extends FunSuite with LogCapturing:
   private var kit: AnkkaTestKit  = null
   private var server: HttpServer = null
 
+  // The other services this one calls: one plain HTTP server on loopback answers for every name.
+  private var others: com.sun.net.httpserver.HttpServer = null
+  private val otherNames = "orders" +: (1 to 100).map(i => s"many-$i")
+
   override def beforeAll(): Unit =
+    others = com.sun.net.httpserver.HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+    others.createContext(
+      "/",
+      exchange =>
+        val body = "hello".getBytes("UTF-8")
+        exchange.sendResponseHeaders(200, body.length.toLong)
+        exchange.getResponseBody.write(body)
+        exchange.close()
+    )
+    others.start()
+    otherNames.foreach(name =>
+      sys.props.put(s"ankka.local-services.$name", s"http://127.0.0.1:${others.getAddress.getPort}")
+    )
+    ConfigFactory.invalidateCaches()
+
     val broker = InMemoryBroker()
     val endpoint = (clients: EndpointClients) =>
       KitEndpoint(
@@ -92,7 +113,18 @@ final class TopologySuite extends FunSuite with LogCapturing:
           KitEndpoint.Route("GET", "/stock/{id}", answer(id => read(clients, id))),
           KitEndpoint.Route("GET", "/rows/{id}", answer(id => rows(clients).get(id).toString)),
           KitEndpoint.Route("GET", "/every/{id}", answer(_ => rows(clients).all().size.toString)),
-          KitEndpoint.Route("POST", "/ask/{session}", answer(session => ask(clients, session)))
+          KitEndpoint.Route("POST", "/ask/{session}", answer(session => ask(clients, session))),
+          // A path with something in it that must not reach the topology.
+          KitEndpoint.Route(
+            "GET",
+            "/service/{name}",
+            answer(name => clients.services(name).getText("/orders/not-a-handler-name"))
+          ),
+          KitEndpoint.Route(
+            "GET",
+            "/many/{name}",
+            answer(name => clients.services(name).getText("/hello"))
+          )
         )
       ): HttpEndpoint
     server = HttpServer.at("127.0.0.1", 0)(endpoint)
@@ -106,7 +138,12 @@ final class TopologySuite extends FunSuite with LogCapturing:
       )
     )
 
-  override def afterAll(): Unit = if kit != null then kit.stop()
+  override def afterAll(): Unit =
+    try if kit != null then kit.stop()
+    finally
+      if others != null then others.stop(0)
+      otherNames.foreach(name => sys.props.remove(s"ankka.local-services.$name"))
+      ConfigFactory.invalidateCaches()
 
   override def beforeEach(context: BeforeEach): Unit = model.reset()
 
@@ -262,6 +299,46 @@ final class TopologySuite extends FunSuite with LogCapturing:
     assertEquals(observability.names.size, names, "names")
     val (_, raw) = topology()
     assert(!raw.contains("bound-"), "and no id is in the topology")
+  }
+
+  test("a call to another service is counted by its method, and the path it took is not kept") {
+    assertEquals(request("GET", "/t/service/orders"), "hello")
+    val counted = pair("endpoint:/t", "service:local/orders", "GET /t/service/{name}", "GET")()
+    assertEquals(counted.handled.ok, 1L, counted.toString)
+    val (document, raw) = topology()
+    val node            = document.nodes.find(_.id == "service:local/orders")
+    assertEquals(node.map(_.kind), Some("ExternalService"), raw)
+    assert(!raw.contains("not-a-handler-name"), "a path reached the topology: " + raw)
+  }
+
+  test("services beyond the limit are counted together, and no name past it is kept") {
+    val observability              = Observability(kit.service.system)
+    val route                      = "GET /t/many/{name}"
+    def served(name: String): Unit = assertEquals(request("GET", s"/t/many/$name"), "hello")
+
+    // The first names have room, up to the limit; by the fortieth every name beyond it has been
+    // counted under the one name they share, and that name has been interned.
+    (1 to 40).foreach(i => served(s"many-$i"))
+    val _     = pair("endpoint:/t", "service:(other)", route, "GET")()
+    val names = observability.names.size
+    (41 to 100).foreach(i => served(s"many-$i"))
+
+    val (document, raw) = topology()
+    val outside         = document.nodes.filter(_.kind == "ExternalService").map(_.id)
+    assertEquals(outside.count(_ != "service:(other)"), 32, s"services named: $outside")
+    assert(outside.contains("service:(other)"), raw)
+    // Every call counts, named or not: handled and unanswered, added here only to say so.
+    val counted = document.calls
+      .filter(_.to.startsWith("service:"))
+      .flatMap(_.pairs)
+      .filter(_.caller == route)
+      .map(p =>
+        p.handled.ok + p.handled.refused + p.handled.failed +
+          p.unanswered.timedOut + p.unanswered.undelivered
+      )
+      .sum
+    assertEquals(counted, 100L, raw)
+    assertEquals(observability.names.size, names, "a name past the limit was kept")
   }
 
 object TopologySuite:

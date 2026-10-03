@@ -377,7 +377,13 @@ impl<C> Guardrails<C> {
         request: &proto::GuardrailRequest,
     ) -> proto::GuardrailResult {
         use proto::guardrail_result::Result as R;
-        let ctx = session_context(&request.component_id, &request.session_id, None);
+        // What the runtime says about this check: its trace, and the agent's handler as the caller
+        // of whatever the guardrail calls. A runtime before 1.3 sends none.
+        let ctx = session_context(
+            &request.component_id,
+            &request.session_id,
+            request.metadata.as_ref(),
+        );
         let stage = if request.stage == proto::guardrail_request::Stage::Output as i32 {
             Stage::Output
         } else {

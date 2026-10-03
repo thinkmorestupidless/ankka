@@ -10,7 +10,7 @@ import com.thinkmorestupidless.ankka.sdk.{
 import com.typesafe.config.Config
 
 import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.net.http.{HttpClient, HttpRequest, HttpResponse, HttpTimeoutException}
 import java.nio.file.Paths
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
@@ -38,7 +38,9 @@ final class HttpServiceClients(
     config: Config,
     self: Option[RotatingTls.Identity],
     /** Where `project/name` answers in a cluster; Kubernetes DNS unless a test says otherwise. */
-    locate: (String, String) => Option[(String, Int)] = HttpServiceClients.kubernetes
+    locate: (String, String) => Option[(String, Int)] = HttpServiceClients.kubernetes,
+    /** Where a call to another service is counted; none for a client outside a service. */
+    observability: Option[Observability] = None
 ) extends ServiceClients:
 
   private val tls: Option[RotatingTls] =
@@ -72,7 +74,7 @@ final class HttpServiceClients(
         body: Option[Array[Byte]],
         contentType: Option[String],
         headers: Seq[(String, String)]
-    ): ServiceResponse =
+    ): ServiceResponse = counted(project, name, method) {
       val (host, port) = locate(project, name).getOrElse(
         throw ServiceUnresolvable(
           target,
@@ -84,6 +86,7 @@ final class HttpServiceClients(
       catch
         case e: SSLHandshakeException if Option(e.getMessage).exists(_.contains("peer identity")) =>
           throw ServiceIdentityMismatch(target, e.getMessage)
+    }
 
     /** One client per identity generation: a renewed certificate reaches new connections. */
     private def clientFor(identity: RotatingTls): HttpClient =
@@ -111,7 +114,7 @@ final class HttpServiceClients(
         body: Option[Array[Byte]],
         contentType: Option[String],
         headers: Seq[(String, String)]
-    ): ServiceResponse =
+    ): ServiceResponse = counted(project, name, method) {
       val base = localAddress(name).getOrElse(
         throw ServiceUnresolvable(
           target,
@@ -119,6 +122,42 @@ final class HttpServiceClients(
         )
       )
       send(plain, URI(s"${base.stripSuffix("/")}$path"), method, body, contentType, headers)
+    }
+
+  /**
+   * A call to another service, counted where it is made: nothing in this service hosts the callee,
+   * so the caller's side is the only one that can count it. The callee is the service, admitted by
+   * name up to a limit, and its handler is the request's method and never its path, which may carry
+   * an id. Who made it is the calling thread's own origin, taken before anything is sent. A
+   * response is handled as its status says — refused when the callee said no, failed when it could
+   * not answer — and a call that got no response at all is unanswered: timed out, or never
+   * delivered, including one to a name that resolves to nothing.
+   */
+  private def counted(project: String, name: String, method: String)(
+      request: => ServiceResponse
+  ): ServiceResponse =
+    observability match
+      case None => request
+      case Some(o) =>
+        val origin  = Trace.currentOrigin
+        val callee  = o.externalServices.nameFor(project, name)
+        val handler = HttpServiceClients.methodName(method)
+        val started = System.nanoTime()
+        val response =
+          try request
+          catch
+            case e: HttpTimeoutException =>
+              o.madeUnanswered(origin, callee, handler, Unanswered.TimedOut)
+              throw e
+            case NonFatal(e) =>
+              o.madeUnanswered(origin, callee, handler, Unanswered.Undelivered)
+              throw e
+        val outcome = response.status / 100 match
+          case 4 => SpanOutcome.Refused
+          case 5 => SpanOutcome.Failed
+          case _ => SpanOutcome.Ok
+        o.made(origin, callee, handler, outcome, System.nanoTime() - started)
+        response
 
   private lazy val plain: HttpClient =
     HttpClient
@@ -161,6 +200,16 @@ final class HttpServiceClients(
     )
 
 object HttpServiceClients:
+
+  /**
+   * The methods a call is counted under; any other is `(other)`, so the table of names is bounded.
+   */
+  private val Methods = Set("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS")
+
+  /** A request's method as the handler its call is counted under. */
+  def methodName(method: String): String =
+    val upper = method.toUpperCase
+    if Methods.contains(upper) then upper else CallCounts.OtherServices
 
   /** How the operator names a project's namespace, which it tells every workload. */
   private def namespacePrefix: String = sys.env.getOrElse("ANKKA_NAMESPACE_PREFIX", "ankka")

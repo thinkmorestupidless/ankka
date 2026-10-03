@@ -486,6 +486,15 @@ object Main:
       }
     }
 
+    val topology = Opts.subcommand(
+      "topology",
+      "What a deployed service is made of and what calls what, merged across its instances."
+    ) {
+      (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+        Output.topology(ctx.client.serviceTopology(ctx.project, name), ctx.format)
+      }
+    }
+
     val history = Opts.subcommand("history", "Who did what to a service, newest first.") {
       (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
         Output.history(ctx.client.serviceHistory(ctx.project, name), ctx.format)
@@ -530,6 +539,7 @@ object Main:
       .orElse(resume)
       .orElse(restart)
       .orElse(logs)
+      .orElse(topology)
       .orElse(history)
       .orElse(expose)
       .orElse(unexpose)

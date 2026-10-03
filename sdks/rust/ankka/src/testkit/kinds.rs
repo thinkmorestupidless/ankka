@@ -819,6 +819,7 @@ impl<C: Agent> AgentTestKit<C> {
                 Stage::Output => proto::guardrail_request::Stage::Output as i32,
             },
             text: text.to_string(),
+            metadata: None,
         };
         match self.registration.check_guardrail(request)?.result {
             Some(proto::guardrail_result::Result::Block(reason)) => {
@@ -976,6 +977,7 @@ impl<C: AutonomousAgent> AutonomousAgentTestKit<C> {
                 Stage::Output => proto::guardrail_request::Stage::Output as i32,
             },
             text: text.to_string(),
+            metadata: None,
         };
         let registration = &self.registration;
         match hosted(&self.runtime, || registration.check_guardrail(request)).and_then(|r| r.result)
@@ -1021,7 +1023,7 @@ impl<C: AutonomousAgent> AutonomousAgentTestKit<C> {
     pub fn check_result_json(&self, task_type: &str, result_json: &str) -> ResultCheck {
         let registration = &self.registration;
         hosted(&self.runtime, || {
-            registration.check(task_type, result_json, &self.task_id)
+            registration.check(task_type, result_json, &self.task_id, None)
         })
     }
 }

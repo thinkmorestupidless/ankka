@@ -3,13 +3,6 @@ package com.thinkmorestupidless.ankka.runtime
 import com.sun.net.httpserver.{HttpExchange, HttpServer as JdkHttpServer}
 import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId, Metadata, MethodName}
 
-import com.thinkmorestupidless.ankka.sdk.{
-  EventSourcedEntityDescriptor,
-  HandlerBinding,
-  KeyValueEntityDescriptor,
-  WorkflowDescriptor
-}
-
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
@@ -59,14 +52,18 @@ object ObservabilityEndpoint:
    * service whose console endpoint fails to start is a service that works and cannot be browsed;
    * that is not a reason to fail startup.
    */
-  def start(service: AnkkaService, serviceName: String): Option[ObservabilityEndpoint] =
+  def start(
+      service: AnkkaService,
+      serviceName: String,
+      documents: ObservabilityDocuments
+  ): Option[ObservabilityEndpoint] =
     try
       val server = JdkHttpServer.create(
         InetSocketAddress(InetAddress.getLoopbackAddress, 0),
         0
       )
       val observability = Observability(service.system)
-      val handler       = Handler(service, serviceName, observability)
+      val handler       = Handler(service, documents, observability)
 
       server.createContext("/observability/service", exchange => handler.service(exchange))
       server.createContext("/observability/topology", exchange => handler.topology(exchange))
@@ -95,53 +92,12 @@ object ObservabilityEndpoint:
 
   private final class Handler(
       service: AnkkaService,
-      serviceName: String,
+      documents: ObservabilityDocuments,
       observability: Observability
   ):
 
     /** Identity and inventory: what the Services and Components panels are built from. */
-    def service(exchange: HttpExchange): Unit =
-      val instances = service.boundAddresses match
-        case addresses if addresses.nonEmpty =>
-          addresses
-            .map(a =>
-              s"""{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)},""" +
-                s""""http":{"address":${Json.str(a)}}}"""
-            )
-            .mkString("[", ",", "]")
-        // A service with `"http": false` serves nothing addressable. Say so, rather than offer an
-        // invoke panel that cannot work.
-        case _ =>
-          s"""[{"id":${Json.str(instanceId)},"startedAt":${Json.str(startedAt)}}]"""
-
-      val components = service.registry.components
-        .map { descriptor =>
-          // Only the queries. A command is not offered, because the console will not run one.
-          val queries = handlersOf(descriptor.componentId.toString).collect {
-            case (name, binding) if binding.readOnly => Json.str(name.toString)
-          }
-          s"""{"kind":${Json.str(descriptor.kind.toString)},""" +
-            s""""id":${Json.str(descriptor.componentId.toString)},""" +
-            s""""sharded":${descriptor.kind.sharded},""" +
-            s""""queries":${queries.mkString("[", ",", "]")}}"""
-        }
-        .mkString("[", ",", "]")
-
-      // The routes the console turns into a form. Reported by the extensions that serve them,
-      // because `runtime` knows nothing about HTTP and should not start now.
-      val routes = service.routes
-        .map(r =>
-          s"""{"method":${Json.str(r.method)},"path":${Json.str(r.path)},""" +
-            s""""streaming":${r.streaming},"endpoint":${Json.str(r.endpoint)}}"""
-        )
-        .mkString("[", ",", "]")
-
-      respond(
-        exchange,
-        s"""{"name":${Json.str(serviceName)},""" +
-          s""""runtime":${Json.str(com.thinkmorestupidless.ankka.core.BuildInfo.version)},""" +
-          s""""instances":$instances,"components":$components,"routes":$routes}"""
-      )
+    def service(exchange: HttpExchange): Unit = respond(exchange, documents.service())
 
     /**
      * What the service is made of and how the parts are connected. Read-only, so anything but a
@@ -152,11 +108,7 @@ object ObservabilityEndpoint:
         respondError(exchange, 404, "no such route")
       else if exchange.getRequestMethod != "GET" then
         respondError(exchange, 405, "the topology is read with GET")
-      else
-        respond(
-          exchange,
-          TopologyJson.of(service, serviceName, instanceId, startedAt)
-        )
+      else respond(exchange, documents.topology())
 
     /** The recent window, newest first, or one trace in full when asked for by id. */
     def traces(exchange: HttpExchange): Unit =
@@ -232,7 +184,7 @@ object ObservabilityEndpoint:
         .split("/")
         .toList match
         case component :: entityId :: method :: Nil =>
-          handlersOf(component).get(MethodName(method)) match
+          documents.handlersOf(component).get(MethodName(method)) match
             case None =>
               respondError(exchange, 404, s"no handler '$method' on component '$component'")
 
@@ -274,19 +226,6 @@ object ObservabilityEndpoint:
 
         case _ =>
           respondError(exchange, 400, "expected /observability/query/{component}/{id}/{method}")
-
-    /**
-     * The handlers a component declares, whatever kind of entity it is.
-     *
-     * Only the sharded kinds have handlers addressable by entity id; everything else answers with
-     * none, so the console offers nothing to click rather than a route that cannot work.
-     */
-    private def handlersOf(component: String): Map[MethodName, HandlerBinding[?]] =
-      service.registry.components.find(_.componentId.toString == component) match
-        case Some(d: EventSourcedEntityDescriptor[?, ?, ?]) => d.handlers
-        case Some(d: KeyValueEntityDescriptor[?, ?])        => d.handlers
-        case Some(d: WorkflowDescriptor[?, ?])              => d.handlers
-        case _                                              => Map.empty
 
     /**
      * An agent session's stored memory and the tokens it has cost.
@@ -332,9 +271,6 @@ object ObservabilityEndpoint:
       val handler   = observability.names.nameOf(span.handlerRef).getOrElse("?")
       s"$component#$handler"
 
-    private val instanceId = ProcessHandle.current().pid().toString
-    private val startedAt  = java.time.Instant.now().toString
-
   /** The platform's own session-memory component. Coupled by name, never by type. */
   private val SessionMemoryComponent = "ankka-session-memory"
 
@@ -346,7 +282,7 @@ object ObservabilityEndpoint:
     try out.write(bytes)
     finally out.close()
 
-  private def respondError(exchange: HttpExchange, status: Int, message: String): Unit =
+  private[runtime] def respondError(exchange: HttpExchange, status: Int, message: String): Unit =
     val bytes = s"""{"error":${Json.str(message)}}""".getBytes(StandardCharsets.UTF_8)
     exchange.getResponseHeaders.add("Content-Type", "application/json")
     exchange.getResponseHeaders.add("Access-Control-Allow-Origin", "*")
@@ -364,7 +300,7 @@ object ObservabilityEndpoint:
     try out.write(bytes)
     finally out.close()
 
-  private def respond(exchange: HttpExchange, body: String): Unit =
+  private[runtime] def respond(exchange: HttpExchange, body: String): Unit =
     val bytes = body.getBytes(StandardCharsets.UTF_8)
     exchange.getResponseHeaders.add("Content-Type", "application/json")
     // The console is served from a different origin (its own port), so it needs this to read us.

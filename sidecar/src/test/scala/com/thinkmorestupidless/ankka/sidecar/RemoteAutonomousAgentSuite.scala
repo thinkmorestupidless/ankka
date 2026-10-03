@@ -1,12 +1,12 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
-import ankka.protocol.v1.agent.{TaskResultRequest, ToolRequest}
+import ankka.protocol.v1.agent.{GuardrailRequest, TaskResultRequest, ToolRequest}
 import ankka.protocol.v1.discovery.AutonomousAgentDetail
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestModelProvider}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.ComponentId
-import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
+import com.thinkmorestupidless.ankka.runtime.{CallOrigin, ProjectionRuntime}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
@@ -42,6 +42,7 @@ class RemoteAutonomousAgentSuite extends munit.FunSuite with LogCapturing:
     Vector(answerType),
     Vector("answer" -> 4),
     tools = Map("lookup" -> ((_, arguments) => Right(s"looked up $arguments"))),
+    guardrails = Map("polite" -> ((_, _) => None)),
     rules = Map(
       "cites-sources" -> (json =>
         if json.contains("\"sources\":[]") then Left("sources must not be empty") else Right(())
@@ -111,6 +112,29 @@ class RemoteAutonomousAgentSuite extends munit.FunSuite with LogCapturing:
     assertEquals(tools.map(t => (t.tool, t.sessionId)), Vector("lookup" -> s"task:$id"))
     val checks = received(classOf[TaskResultRequest])
     assertEquals(checks.map(r => (r.taskId, r.taskType)), Vector((id, "answer")))
+  }
+
+  test("a tool's run, a guardrail check and a result check are told they are the iteration's") {
+    model
+      .expectToolCall("lookup", Json.obj("topic" -> Json.str("blue")))
+      .expectCompleteTaskJson("""{"answer":"2","sources":["lookup"]}""")
+    val id   = run("How many blue things?")
+    val done = kit.awaitTask(id, answer)
+    assertEquals(done.status, TaskStatus.Completed)
+
+    // What the process is told about each piece of work it does for the agent: the handler whose
+    // work it is, so that a call made from a rule or a guardrail in the process is the iteration's
+    // call and not nobody's. A process before 1.3 was told nothing and its rules called as nobody.
+    val iteration = CallOrigin("answerer", "iteration")
+    def origin(metadata: Option[ankka.protocol.v1.payload.Metadata]): Option[CallOrigin] =
+      CallOrigin.from(Translate.fromMetadata(metadata))
+    val tools  = received(classOf[ToolRequest])
+    val checks = received(classOf[TaskResultRequest])
+    val guards = received(classOf[GuardrailRequest])
+    assert(tools.nonEmpty && checks.nonEmpty && guards.nonEmpty, s"$tools $checks $guards")
+    assertEquals(tools.map(t => origin(t.metadata)), tools.map(_ => Some(iteration)))
+    assertEquals(checks.map(c => origin(c.metadata)), checks.map(_ => Some(iteration)))
+    assertEquals(guards.map(g => origin(g.metadata)), guards.map(_ => Some(iteration)))
   }
 
   test("the process's rule rejects a result, the model sees why, and the second attempt stands") {

@@ -301,6 +301,94 @@ object Output:
       rendered.mkString("\n")
 
   /**
+   * A deployed service's topology: its parts by layer, what feeds what, and who called whom, with
+   * the handled and the unanswered counts in separate columns because they are different facts. A
+   * partial result names the instances that did not contribute; the command still answers what it
+   * could.
+   */
+  def topology(response: ServiceTopology, format: Format): String =
+    format match
+      case Format.Json => writeToString(response)
+      case Format.Table =>
+        val instances =
+          s"${response.contributing} of ${response.running} instance" +
+            (if response.running == 1 then "" else "s") + " answered"
+        val missing = response.instances.filter(_.status != InstanceStatus.Ok).map { i =>
+          s"  ${i.pod}: ${i.status.wire}${i.problem.fold("")(p => s" ($p)")}"
+        }
+        val nodes = table(
+          Vector("LAYER", "COMPONENT", "KIND", "HANDLERS"),
+          response.nodes.sortBy(n => (n.layer, n.id)).map { n =>
+            val onSome = response.differences.find(_.node == n.id)
+            Vector(
+              n.layer.toString,
+              n.id,
+              n.kind + (if n.platform then " (platform)" else "") +
+                onSome.fold("")(d => s" [on ${d.presentOn.mkString(", ")} only]"),
+              n.handlers.map(_.name).mkString(", ")
+            )
+          }
+        )
+        val declared =
+          if response.declared.isEmpty then "no declared connections"
+          else
+            table(
+              Vector("FROM", "TO", "AS"),
+              response.declared.map(e => Vector(e.from, e.to, e.kind))
+            )
+        val calls =
+          if response.calls.isEmpty then "no observed calls in the window"
+          else
+            table(
+              Vector(
+                "FROM",
+                "TO",
+                "HANDLER -> HANDLER",
+                "OK",
+                "REFUSED",
+                "FAILED",
+                "TIMED OUT",
+                "UNDELIVERED",
+                "P50/P99/MAX MS"
+              ),
+              response.calls.flatMap(c =>
+                c.pairs.map(p =>
+                  Vector(
+                    c.from,
+                    c.to,
+                    s"${p.caller} -> ${p.callee}" + (if p.streaming then " (stream)" else ""),
+                    p.handled.ok.toString,
+                    p.handled.refused.toString,
+                    p.handled.failed.toString,
+                    p.unanswered.timedOut.toString,
+                    p.unanswered.undelivered.toString,
+                    s"~${p.durationMillis.p50}/${p.durationMillis.p99}/${p.durationMillis.max}"
+                  )
+                )
+              )
+            )
+        val window =
+          s"Calls observed in the last ${response.window.seconds / 60} minutes (since " +
+            s"${response.window.since}); calls are observed, not complete."
+        val partial =
+          if response.partial then
+            s"\nPartial: ${response.running - response.contributing} instance(s) did not " +
+              "contribute:\n" + missing.mkString("\n")
+          else ""
+        s"""$instances$partial
+           |
+           |Components
+           |$nodes
+           |
+           |Declared connections
+           |$declared
+           |
+           |Observed calls
+           |$calls
+           |
+           |$window""".stripMargin
+
+  /**
    * A service's output, unwrapped.
    *
    * Lines go out exactly as the service produced them, with no decoration: a developer piping this

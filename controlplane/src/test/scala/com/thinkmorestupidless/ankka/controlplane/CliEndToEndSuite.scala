@@ -2,7 +2,11 @@ package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.cli.{Main, Settings}
-import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  ControlPlaneAcl,
+  InstanceStatus,
+  InstanceTopology
+}
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.DeployConfig
 import com.thinkmorestupidless.ankka.http.HttpServer
@@ -38,13 +42,17 @@ class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
 
   private lazy val tokens = new DeployTokenIndex(identity.clock)
 
+  /** What each instance of a service answers when asked for its topology (feature 019). */
+  private val topologies = new ScriptedTopologies
+
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
         ControlPlaneAcl.composite(tokens, identity.acl(), identity.config()),
         DeployConfig.default.copy(baseDomain = Some("example.test")),
         clock = identity.clock,
-        tokens = Some(tokens)
+        tokens = Some(tokens),
+        topology = Some(topologies)
       )*
     )
     testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server, tokens))
@@ -643,4 +651,64 @@ class CliEndToEndSuite extends munit.FunSuite with LogCapturing:
       cli(connected("projects", "create", "cli-quota-two", "--name", "Two", "-O", "cli-quota")*)._1,
       0
     )
+  }
+
+  // ── services topology (feature 019) ─────────────────────────────────────────
+
+  test(
+    "services topology prints the merged topology, as a table and as JSON, and names what is missing"
+  ) {
+    val _ = cli(connected("organizations", "create", "topo-org", "--name", "Topo")*)
+    val _ = cli(connected("projects", "create", "topo-proj", "--name", "Topo", "-O", "topo-org")*)
+    val file = descriptorFile("""{"name":"cart","service":{"image":"cart:1.0"}}""")
+    try
+      val (applied, _, applyErr) =
+        cli(connected("services", "apply", "-f", file.toString, "-p", "topo-proj")*)
+      assertEquals(applied, 0, applyErr)
+    finally Files.deleteIfExists(file): Unit
+    topologies.script(
+      "topo-proj",
+      "cart",
+      Vector(
+        Topologies.ok("cart-a") -> Some(Topologies.cart("cart-a", 2L)),
+        Topologies.ok("cart-b") -> Some(Topologies.cart("cart-b", 3L))
+      )
+    )
+
+    val (code, out, err) = cli(connected("services", "topology", "cart", "-p", "topo-proj")*)
+    assertEquals(code, 0, err)
+    assert(out.contains("2 of 2 instances answered"), out)
+    assert(out.contains("endpoint:/carts"), out)
+    assert(out.contains("cart"), out)
+    assert(out.contains("POST /carts/{cartId}/items -> add-item"), out)
+    assert(out.contains("calls are observed, not complete"), out)
+    // Handled and unanswered in their own columns: the counts are never added together.
+    val row = out.linesIterator.find(_.contains("-> add-item")).getOrElse(fail(out))
+    assert(row.split("\\s{2,}").contains("5"), row)
+
+    val (jsonCode, json, _) =
+      cli(connected("services", "topology", "cart", "-p", "topo-proj", "-o", "json")*)
+    assertEquals(jsonCode, 0)
+    assert(json.contains("\"contributing\":2"), json)
+    assert(json.contains("\"handled\":{\"ok\":5"), json)
+
+    topologies.script(
+      "topo-proj",
+      "cart",
+      Vector(
+        Topologies.ok("cart-a") -> Some(Topologies.cart("cart-a", 2L)),
+        InstanceTopology("cart-b", InstanceStatus.Unreachable, Some("no answer within 2s")) -> None
+      )
+    )
+    val (partialCode, partialOut, _) =
+      cli(connected("services", "topology", "cart", "-p", "topo-proj")*)
+    assertEquals(partialCode, 0, "a partial result is still an answer")
+    assert(partialOut.contains("1 of 2 instances answered"), partialOut)
+    assert(partialOut.contains("Partial"), partialOut)
+    assert(partialOut.contains("cart-b: unreachable (no answer within 2s)"), partialOut)
+
+    val (missingCode, _, missingErr) =
+      cli(connected("services", "topology", "nope", "-p", "topo-proj")*)
+    assertEquals(missingCode, 1)
+    assert(missingErr.contains("not found") || missingErr.contains("no such"), missingErr)
   }

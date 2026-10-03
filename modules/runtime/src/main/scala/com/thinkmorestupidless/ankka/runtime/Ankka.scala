@@ -240,8 +240,11 @@ final class ServiceBuilder private[ankka] (
     // builder is a singleton that would keep only the most recently started endpoint. It was a
     // `var` on this object that nothing ever read, so nothing ever withdrew the registration and
     // every locally-run service leaked its entry into `~/.ankka/running` permanently.
+    val documents = ObservabilityDocuments(service, system.name)
     if runningLocally then
-      service.attachObservability(ObservabilityEndpoint.start(service, system.name))
+      service.attachObservability(ObservabilityEndpoint.start(service, system.name, documents))
+    // In a cluster the reader is the installation's control plane, over a port only it may open.
+    else service.attachObserve(ObserveServer.startIfEnabled(system, documents))
 
     service
 
@@ -340,7 +343,7 @@ final class AnkkaService private[ankka] (
    * calls another needs it, and in a cluster it reads the service's certificate.
    */
   lazy val services: com.thinkmorestupidless.ankka.sdk.ServiceClients =
-    HttpServiceClients(system.settings.config, None)
+    HttpServiceClients(system.settings.config, None, observability = Some(Observability(system)))
 
   /**
    * The names of the extensions this service runs — so one extension can say when another it relies
@@ -385,6 +388,14 @@ final class AnkkaService private[ankka] (
   private[runtime] def attachObservability(endpoint: Option[ObservabilityEndpoint]): Unit =
     observability = endpoint
 
+  /** The observe listener, when this service is running in a cluster that enables one. */
+  @volatile private var observe: Option[ObserveServer] = None
+
+  private[runtime] def attachObserve(server: Option[ObserveServer]): Unit = observe = server
+
+  /** The observe listener's port, for a suite that reads what the control plane would read. */
+  private[ankka] def observePort: Option[Int] = observe.map(_.port)
+
   /**
    * Where the local console endpoint answers, when there is one. For a suite that reads what the
    * console would read, without going by way of the registry directory to find the address.
@@ -398,6 +409,8 @@ final class AnkkaService private[ankka] (
     try observability.foreach(_.stop())
     catch
       case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
+    try observe.foreach(_.stop())
+    catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
     observability = None
 
     extensions.reverse.foreach { extension =>

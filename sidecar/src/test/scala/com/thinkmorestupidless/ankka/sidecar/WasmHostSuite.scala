@@ -622,11 +622,14 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
         Right("tool ran")
       )
       assertEquals(
-        await(talk.checkGuardrail(cartId, "session", "polite", GuardrailStage.Input, "hi")),
+        await(
+          talk
+            .checkGuardrail(cartId, "session", "polite", GuardrailStage.Input, "hi", Metadata.empty)
+        ),
         Right(())
       )
       assertEquals(
-        await(talk.checkTaskResult(cartId, "t-1", "answer", "{}")),
+        await(talk.checkTaskResult(cartId, "t-1", "answer", "{}", Metadata.empty)),
         TaskResultVerdict.Accept
       )
       val http = await(

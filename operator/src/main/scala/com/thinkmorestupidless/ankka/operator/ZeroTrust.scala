@@ -75,6 +75,22 @@ object ZeroTrust:
   val ProbePortName: String = "probe"
 
   /**
+   * The mutual TLS listener the control plane reads a deployed instance's topology over (feature
+   * 019). Rendered on every workload beside the cluster ports; its network rule admits the control
+   * plane's pods and nobody else, and the listener itself refuses any other identity.
+   */
+  val ObservePort: Int        = 7628
+  val ObservePortName: String = "observe"
+
+  /**
+   * The control plane's namespace and pod label, as `kustomization/components/controlplane` has
+   * them.
+   */
+  val ControlPlaneNamespace: String = "ankka-controlplane"
+  val ControlPlanePodLabels: Map[String, String] =
+    Map("app.kubernetes.io/name" -> "ankka-controlplane")
+
+  /**
    * A day's validity renewed every eight hours: the certificate being replaced stays valid for
    * sixteen more, far beyond the runtime's one-minute reload and the kubelet's Secret propagation,
    * and a leaked key is useful for a day rather than for the life of a deployment.
@@ -166,7 +182,26 @@ object ZeroTrust:
                   .build()
               )
               .build(),
-            new NetworkPolicyIngressRuleBuilder().withPorts(tcp(ProbePort)).build()
+            new NetworkPolicyIngressRuleBuilder().withPorts(tcp(ProbePort)).build(),
+            // The observe port: the control plane's pods, in the control plane's namespace, and
+            // nothing else — not this service's own pods, not the gateway, not another project.
+            new NetworkPolicyIngressRuleBuilder()
+              .withPorts(tcp(ObservePort))
+              .withFrom(
+                new NetworkPolicyPeerBuilder()
+                  .withNamespaceSelector(
+                    new LabelSelectorBuilder()
+                      .withMatchLabels(
+                        Map("kubernetes.io/metadata.name" -> ControlPlaneNamespace).asJava
+                      )
+                      .build()
+                  )
+                  .withPodSelector(
+                    new LabelSelectorBuilder().withMatchLabels(ControlPlanePodLabels.asJava).build()
+                  )
+                  .build()
+              )
+              .build()
           )
           .build()
       )

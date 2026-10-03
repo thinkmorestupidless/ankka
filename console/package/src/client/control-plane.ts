@@ -6,6 +6,7 @@ import {
   deployTokenSummarySchema,
   historyEntrySchema,
   logsResponseSchema,
+  serviceTopologySchema,
   membersResponseSchema,
   organizationSummarySchema,
   projectDetailSchema,
@@ -19,6 +20,7 @@ import {
   type DeployTokenSummary,
   type HistoryEntry,
   type LogsResponse,
+  type ServiceTopology,
   type MembersResponse,
   type OrganizationSummary,
   type ProjectDetail,
@@ -251,6 +253,13 @@ export class ControlPlaneClient {
     const q = params.size > 0 ? `?${params}` : "";
     return this.#call("GET", `/services/${segment(projectId)}/${segment(name)}/logs${q}`, {
       schema: logsResponseSchema,
+    });
+  }
+
+  /** Every instance's topology, merged by the control plane; 404 when no instance runs. */
+  topology(projectId: string, name: string): Promise<ServiceTopology> {
+    return this.#call("GET", `/services/${segment(projectId)}/${segment(name)}/topology`, {
+      schema: serviceTopologySchema,
     });
   }
 

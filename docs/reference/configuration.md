@@ -77,6 +77,12 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.probe.enabled` | `off` | every service |
 | `ankka.probe.port` | `7627` | every service |
 | `ankka.observability.ring-capacity` | `4096` | every service |
+| `ankka.observability.call-window` | `10m` | every service |
+| `ankka.observability.call-buckets` | `60` | every service |
+| `ankka.observability.observe.enabled` | `off` | every service |
+| `ankka.observability.observe.port` | `7628` | every service |
+| `ankka.observability.observe.peer` | `"ankka://platform/controlplane"` | every service |
+| `ankka.observability.max-external-services` | `32` | every service |
 | `ankka.http.body-timeout` | `10s` | every service |
 | `ankka.cluster.formation` | `join-self-or-seeds` | local mode |
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
@@ -86,6 +92,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.tls.service-directory` | `"/var/run/secrets/ankka/service"` | kubernetes mode |
 | `ankka.http.tls.enabled` | `on` | kubernetes mode |
 | `ankka.probe.enabled` | `on` | kubernetes mode |
+| `ankka.observability.observe.enabled` | `on` | kubernetes mode |
 <!-- generated:end configuration -->
 
 ## What each variable means

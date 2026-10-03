@@ -97,12 +97,12 @@ final class ServiceRecordingCostSuite extends FunSuite with LogCapturing:
   }
 
   test("a refusal is recorded as refused, not as a success and not as a failure") {
-    val client   = testKit.componentClient.forKeyValueEntity(EntityId("refused"))
-    val recorder = Observability(testKit.service.system).recorder
+    val client        = testKit.componentClient.forKeyValueEntity(EntityId("refused"))
+    val observability = Observability(testKit.service.system)
+    val recorder      = observability.recorder
 
     // `rename` on a profile that was never registered is a refusal: the platform working
     // correctly, saying no. It arrives as a value, not an exception.
-    val before = recorder.snapshot().size
     val failed =
       try
         val _ = client.call(ProfileEntity.rename).invoke("nobody")
@@ -111,7 +111,14 @@ final class ServiceRecordingCostSuite extends FunSuite with LogCapturing:
 
     assert(failed, "the call should have been refused")
 
-    val span = recorder.snapshot().take(recorder.snapshot().size - before).head
+    // The newest span of that handler: the ring may be full from the benchmark before this, so a
+    // position counted from before the call says nothing.
+    val renameRef = observability.names.intern(ProfileEntity.rename.name.toString)
+    val span = recorder
+      .snapshot()
+      .filter(_.handlerRef == renameRef)
+      .maxByOption(_.startedNanos)
+      .getOrElse(fail("the refused call produced no span"))
     assertEquals(
       span.outcome,
       SpanOutcome.Refused,
@@ -122,8 +129,8 @@ final class ServiceRecordingCostSuite extends FunSuite with LogCapturing:
 
   test("the service actually recorded what it was asked to (the measurement is of real work)") {
     val client = testKit.componentClient.forKeyValueEntity(EntityId("proof"))
-    val _  = client.call(ProfileEntity.register).invoke(Profile("Grace", "grace@example.com", 1))
-    val _2 = client.call(ProfileEntity.rename).invoke("recorded")
+    val _ = client.call(ProfileEntity.register).invoke(Profile("Grace", "grace@example.com", 1))
+    val _ = client.call(ProfileEntity.rename).invoke("recorded")
 
     // A benchmark whose subject was optimised away would measure nothing and pass. This is the
     // check that spans were genuinely produced by the path just measured.

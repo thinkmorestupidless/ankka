@@ -255,6 +255,7 @@ fn check(task_type: &str, result_json: &str) -> proto::task_result_verdict::Verd
         task_id: "t1".into(),
         task_type: task_type.into(),
         result_json: result_json.into(),
+        metadata: None,
     };
     let reply = service.call(Export::CheckTaskResult, &request.encode_to_vec());
     proto::TaskResultVerdict::decode(reply.as_slice())
@@ -320,6 +321,7 @@ fn a_tool_is_run_for_its_task() {
         session_id: "task:t9".into(),
         tool: "lookup".into(),
         arguments_json: r#"{"id":"x"}"#.into(),
+        metadata: None,
     };
     let reply = proto::ToolResult::decode(
         service

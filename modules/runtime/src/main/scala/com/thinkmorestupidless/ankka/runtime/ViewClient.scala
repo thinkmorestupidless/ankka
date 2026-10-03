@@ -60,7 +60,9 @@ final class ViewQueries[Row] private[ankka] (
 
   private given ExecutionContext = system.executionContext
 
-  private val observability = Observability(system)
+  // Lazy: an endpoint is built before it serves, and a suite that only lists its routes builds one
+  // with no actor system behind it. Nothing is counted until a query is made.
+  private lazy val observability = Observability(system)
 
   /**
    * A query, counted as a call to the view from whoever is asking.

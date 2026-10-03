@@ -445,20 +445,24 @@ final class GrpcConversation(
       sessionId: String,
       guardrail: String,
       stage: GuardrailStage,
-      text: String
+      text: String,
+      metadata: Metadata
   ): Future[Either[String, Unit]] =
     agent
-      .checkGuardrail(toGuardrailRequest(componentId, sessionId, guardrail, stage, text))
+      .checkGuardrail(toGuardrailRequest(componentId, sessionId, guardrail, stage, text, metadata))
       .map(fromGuardrailResult)
 
   def checkTaskResult(
       componentId: ComponentId,
       taskId: String,
       taskType: String,
-      resultJson: String
+      resultJson: String,
+      metadata: Metadata
   ): Future[TaskResultVerdict] =
     agent
-      .checkTaskResult(TaskResultRequest(componentId, taskId, taskType, resultJson))
+      .checkTaskResult(
+        TaskResultRequest(componentId, taskId, taskType, resultJson, Some(toMetadata(metadata)))
+      )
       .map(fromTaskResultVerdict)
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =

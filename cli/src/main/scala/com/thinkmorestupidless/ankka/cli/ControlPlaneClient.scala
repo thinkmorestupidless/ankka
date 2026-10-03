@@ -217,6 +217,10 @@ final class ControlPlaneClient(settings: Settings):
     val query = if params.isEmpty then "" else params.mkString("?", "&", "")
     get[LogsResponse](s"/services/${segment(projectId)}/${segment(name)}/logs$query")
 
+  /** Every instance's topology, merged by the control plane. */
+  def serviceTopology(projectId: String, name: String): ServiceTopology =
+    get[ServiceTopology](s"/services/${segment(projectId)}/${segment(name)}/topology")
+
   def serviceHistory(projectId: String, name: String): Vector[HistoryEntry] =
     get[Vector[HistoryEntry]](s"/services/${segment(projectId)}/${segment(name)}/history")
 

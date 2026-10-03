@@ -28,7 +28,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const query = new URL(request.url).searchParams;
   const follow = query.has("logs");
   const tail = Math.min(Math.max(Number(query.get("tail") ?? 200) || 200, 1), 5_000);
-  const logQuery = { instance: query.get("instance") || undefined, previous: query.get("previous") === "true", tail };
+  const logQuery = { instance: query.get("instance") || undefined, previous: query.get("previous") === "true", platform: query.get("platform") === "true", tail };
   const follower = new LogFollower(tail);
   const primed = new Set<string>();
   let last = "";

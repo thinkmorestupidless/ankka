@@ -51,7 +51,8 @@ final class ComponentDescriptorsSuite extends FunSuite:
         "get"          -> HandlerKind.Query,
         "record-login" -> HandlerKind.Command,
         "register"     -> HandlerKind.Command,
-        "rename"       -> HandlerKind.Command
+        "rename"       -> HandlerKind.Command,
+        "revision"     -> HandlerKind.Query
       )
     )
   }

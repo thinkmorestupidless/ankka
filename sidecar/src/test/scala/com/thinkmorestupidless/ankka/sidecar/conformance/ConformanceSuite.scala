@@ -1155,7 +1155,13 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       declared.toSet,
       Set(
         ("shopping-cart", "cart-rows", "events"),
-        ("shopping-cart", "checkout-recorder", "events")
+        ("shopping-cart", "checkout-recorder", "events"),
+        ("shopping-cart", "checkout-fanout", "events"),
+        ("checkout-fanout", "topic:conformance-fanout", "topic-publication"),
+        ("shopping-cart", "cart-graph", "events"),
+        ("cart-graph", "topic:conformance-graph", "topic-publication"),
+        ("profile", "profile-graph", "state"),
+        ("profile-graph", "topic:conformance-profile-graph", "topic-publication")
       )
     )
     val kinds = nodes.map(n => strings(n, "id") -> strings(n, "kind")).toMap

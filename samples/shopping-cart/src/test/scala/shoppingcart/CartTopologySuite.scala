@@ -27,7 +27,9 @@ class CartTopologySuite extends munit.FunSuite:
     "CartRows"           -> CartRows.descriptor,
     "CheckoutNotifier"   -> CheckoutNotifier.descriptor,
     "CartAssistant"      -> CartAssistant.descriptor,
-    "CartAnswerer"       -> CartAnswerer.descriptor
+    "CartAnswerer"       -> CartAnswerer.descriptor,
+    "CartGraph"          -> CartGraph.descriptor,
+    "CartContentsGraph"  -> CartContentsGraph.descriptor
   )
 
   private def registeredByMain: Set[String] =
@@ -69,6 +71,11 @@ class CartTopologySuite extends munit.FunSuite:
         ("shopping-cart", "cart-rows", "events"),
         ("shopping-cart", "checkout-notifier", "events"),
         ("checkout-notifier", "topic:cart-checkouts", "topic-publication"),
+        // Two graph consumers of the cart's events, both publishing to one topic.
+        ("shopping-cart", "cart-graph", "events"),
+        ("cart-graph", "topic:cart-graph", "topic-publication"),
+        ("shopping-cart", "cart-contents-graph", "events"),
+        ("cart-contents-graph", "topic:cart-graph", "topic-publication"),
         // The agent runtime's own: its cascade follows its tasks.
         ("ankka-task", "ankka-task-cascade", "events")
       )

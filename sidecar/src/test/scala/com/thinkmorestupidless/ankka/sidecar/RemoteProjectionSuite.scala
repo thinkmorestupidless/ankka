@@ -317,7 +317,11 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     assert(requests.exists(!_.deleted) && requests.exists(_.deleted), requests.toString)
     requests.foreach { request =>
       val entries = request.metadata.toList.flatMap(_.entries).map(e => e.key -> e.value).toMap
-      assertEquals(entries.get(WireProtocol.MetadataKey), Some("1.3"), request.toString)
+      assertEquals(
+        entries.get(WireProtocol.MetadataKey),
+        Some(WireProtocol.Version),
+        request.toString
+      )
       assert(entries.get(RemoteProjection.SequenceKey).exists(_.toLong >= 1), request.toString)
     }
     // The deletion is a change after the event it follows.

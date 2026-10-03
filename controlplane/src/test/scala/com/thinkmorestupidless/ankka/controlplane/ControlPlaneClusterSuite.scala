@@ -47,14 +47,23 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   // suite creates: the deployed control plane verifies against the in-cluster key set and expects
   // the issuer it derives from ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT — so this is also the proof
   // that the derivation agrees with what Keycloak writes into a token (research R3).
-  private lazy val Token: String =
-    KeycloakStack.mintToken(
-      GatewayStack.exportCa(k8s),
-      BaseDomain,
-      k3s.getMappedPort(GatewayStack.HttpsNodePort),
-      "e2e-cli",
-      "e2e-secret"
-    )
+  //
+  // The realm's tokens live five minutes and the suite runs for longer, so one is minted again once
+  // the last is four minutes old: a case that runs late must not fail on an expired credential.
+  @volatile private var minted: Option[(String, Long)] = None
+  private def Token: String =
+    minted.filter((_, at) => System.nanoTime() - at < 4.minutes.toNanos) match
+      case Some((token, _)) => token
+      case None =>
+        val token = KeycloakStack.mintToken(
+          GatewayStack.exportCa(k8s),
+          BaseDomain,
+          k3s.getMappedPort(GatewayStack.HttpsNodePort),
+          "e2e-cli",
+          "e2e-secret"
+        )
+        minted = Some(token -> System.nanoTime())
+        token
   private val Namespace = "ankka-controlplane"
   private val Project   = "checkout"
 
@@ -1071,21 +1080,41 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
           p.getMetadata.getDeletionTimestamp == null &&
             Option(p.getStatus.getContainerStatuses).exists(_.asScala.exists(_.getReady))
         )
-    waitFor(300.seconds)(cartPods.size == 2)
+    // Until the rollout is over, not merely until two pods are ready: going to two instances changes
+    // the pod template, so the first pod is replaced, and the calls it counted go with it. Requests
+    // sent while it still serves would be counted on an instance the topology will never read.
+    def rolledOut: Boolean =
+      Option(k8s.apps().deployments().inNamespace(workload).withName("svc1").get()).exists { d =>
+        val st = d.getStatus
+        st != null && st.getObservedGeneration == d.getMetadata.getGeneration &&
+        Option(st.getUpdatedReplicas).contains(2) && Option(st.getReplicas).contains(2) &&
+        Option(st.getAvailableReplicas).contains(2)
+      }
+    waitFor(300.seconds)(rolledOut && cartPods.size == 2)
 
     // Requests through the cart's own Service, from one of its pods with that pod's certificate.
     val from     = cartPods.head.getMetadata.getName
     val requests = 6
+    // Each request is sent until it is answered: a starved node can time a request out before it
+    // reaches the cart, which is no call at all. One that is answered is never sent again, so the
+    // count the topology must show is at least `requests`, and at most every attempt, since one
+    // that timed out may still have reached the cart and been counted there.
+    var attempts = 0
     (1 to requests).foreach { i =>
-      val (status, body) = InPod.curl(
-        k3s,
-        workload,
-        from,
-        s"https://svc1.$workload.svc.cluster.local:9000/carts/topo-$i/items",
-        method = "POST",
-        body = Some("""{"productId":"p1","name":"Pen","quantity":1}""")
-      )
-      assert(status / 100 == 2, s"request $i: $status $body")
+      var answer = (0, "")
+      waitFor(120.seconds) {
+        attempts += 1
+        answer = InPod.curl(
+          k3s,
+          workload,
+          from,
+          s"https://svc1.$workload.svc.cluster.local:9000/carts/topo-$i/items",
+          method = "POST",
+          body = Some("""{"productId":"p1","name":"Pen","quantity":1}""")
+        )
+        answer._1 != 0
+      }
+      assert(answer._1 / 100 == 2, s"request $i: ${answer._1} ${answer._2}")
     }
 
     def addItems(t: ServiceTopology): Long =
@@ -1098,13 +1127,18 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       waitFor(90.seconds) {
         val (code, body) = api("GET", s"/services/$Project/svc1/topology")
         raw = body
+        // `kubectl exec` adds its own notes to the output; the document is the object in it.
+        val json = body.substring(math.max(0, body.indexOf('{')), body.lastIndexOf('}') + 1)
         last =
-          if code == 0 then scala.util.Try(readFromString[ServiceTopology](body)).toOption
+          if code == 0 then scala.util.Try(readFromString[ServiceTopology](json)).toOption
           else None
-        last.exists(t => t.contributing == 2 && addItems(t) == requests.toLong)
+        last.exists(t =>
+          t.contributing == 2 && addItems(t) >= requests.toLong && addItems(t) <= attempts.toLong
+        )
       }
     catch
-      case failure: Throwable => fail(s"the topology never showed $requests calls: $raw", failure)
+      case failure: Throwable =>
+        fail(s"the topology never showed $requests to $attempts calls: $raw", failure)
     val topology = last.get
     assertEquals((topology.running, topology.contributing, topology.partial), (2, 2, false))
     assert(topology.nodes.exists(_.kind == "EventSourcedEntity"), raw)

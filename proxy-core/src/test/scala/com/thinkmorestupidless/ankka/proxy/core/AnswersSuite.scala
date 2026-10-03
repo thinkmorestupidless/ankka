@@ -54,10 +54,14 @@ class AnswersSuite extends munit.FunSuite:
     )
   }
 
-  test("the time an answer was waited for is in seconds") {
+  test("the time an answer was waited for is said as the duration says itself") {
     assertEquals(
       Answers.noAnswerInTime("the service shop/cart", 60.seconds).reason,
       "the service shop/cart did not answer within 60 seconds"
+    )
+    assertEquals(
+      Answers.noAnswerInTime("the process", 500.millis).reason,
+      "the process did not answer within 500 milliseconds"
     )
   }
 

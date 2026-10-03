@@ -213,6 +213,21 @@ loaded. With a registry you would tag each build with its own version, change th
 and `apply`, which rolls the instances by itself.
 [Scale and roll out](../deploy/scaling-and-rollouts.md) covers both.
 
+## Deploy the cart's interface
+
+The shopping cart sample has a user interface, `cart-web`, deployed as a web-hosted service that mounts
+the cart at `/api/cart`. The deploy script built its image and loaded it into the cluster. With the cart
+deployed as `cart` in the same project:
+
+```bash
+ankka services apply -f samples/shopping-cart-web/service.json
+ankka services get cart-web        # Ready; its mount of cart: ok
+ankka services expose cart-web
+```
+
+The interface adds an item to a cart and reads it back under `/api/cart` at its own hostname, so the cart
+itself is never exposed. See [Deploy a user interface](../deploy/web-hosting.md).
+
 ## Clean up
 
 ```bash

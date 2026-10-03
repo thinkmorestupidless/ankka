@@ -35,6 +35,7 @@ function send(res: http.ServerResponse, status: number, type: string, body: stri
   res.end(body);
 }
 
+// docs:start calling-a-service
 /** A cart's total, read the way any service is called: by name, at the calling address. */
 async function summary(servicesUrl: string, cart: string, res: http.ServerResponse): Promise<void> {
   try {
@@ -44,6 +45,7 @@ async function summary(servicesUrl: string, cart: string, res: http.ServerRespon
     send(res, 502, "application/json", JSON.stringify({ error: `the cart did not answer: ${String(error)}` }));
   }
 }
+// docs:end calling-a-service
 
 async function isFile(file: string): Promise<boolean> {
   try {

@@ -60,6 +60,20 @@ running in Kubernetes, including a kind cluster, does not announce itself; the c
 run directly on your machine. If a service you just started is missing, wait until it has finished
 starting: it announces itself after its extensions, such as the HTTP server, have started.
 
+### A web-hosted service is `Failed`: the process is not listening
+
+The proxy answers the platform's probe with whether the process accepts a connection on its port. When a
+rollout's deadline passes and it never did, the status says so and quotes the kubelet:
+
+```text
+detail      the process is not listening on port 8080: Readiness probe failed: HTTP probe failed with statuscode: 503
+```
+
+The process listens on another port than `PORT`, or crashed before listening. Read what it printed with
+`ankka services logs <name>`, and make it listen on the port the `PORT` variable names. A detail that
+quotes a refused connection to port 7627 is the proxy itself not running: read its log with
+`ankka services logs <name> --platform`.
+
 ## Tests
 
 ### An integration test times out after the laptop slept

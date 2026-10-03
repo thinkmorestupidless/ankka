@@ -60,7 +60,7 @@ object LifecycleRules:
       else if problems.nonEmpty then ("Failed", 0, 0, Some(problems.mkString("; ")))
       else if !snapshot.exists then ("UpdateInProgress", 0, Rendering.replicas(spec), None)
       else if snapshot.progressDeadlineExceeded then
-        ("Failed", snapshot.readyReplicas, snapshot.specReplicas, failureDetail(snapshot))
+        ("Failed", snapshot.readyReplicas, snapshot.specReplicas, failureDetail(spec, snapshot))
       else if snapshot.rolloutPending then
         ("UpdateInProgress", snapshot.readyReplicas, snapshot.specReplicas, problemDetail(snapshot))
       else if snapshot.updatedReplicas < snapshot.specReplicas then
@@ -104,10 +104,31 @@ object LifecycleRules:
    * unknown" tells an operator what to fix, where "ProgressDeadlineExceeded" only says that
    * something did not finish.
    */
-  private def failureDetail(snapshot: ClusterSnapshot): Option[String] =
-    problemDetail(snapshot)
+  private def failureDetail(spec: AnkkaServiceSpec, snapshot: ClusterSnapshot): Option[String] =
+    processNotListening(spec, snapshot)
+      .orElse(problemDetail(snapshot))
       .orElse(snapshot.progressing.map(_.message).filter(_.nonEmpty))
       .orElse(Some("the rollout did not complete within its progress deadline"))
+
+  /**
+   * What the kubelet's prober writes when the probe answered with a status it does not accept. A
+   * web-hosted service's proxy answers its probe 503 exactly when the process accepts no connection
+   * on its port (feature 021), so for that hosting the event names the port the process was meant
+   * to listen on. A refused connection is the proxy itself not answering, and reads as today.
+   */
+  private val ProbeAnswered503 = "statuscode: 503"
+
+  private def processNotListening(
+      spec: AnkkaServiceSpec,
+      snapshot: ClusterSnapshot
+  ): Option[String] =
+    snapshot.firstProblem
+      .filter(_ => spec.hosting == Rendering.WebHosting)
+      .filter(p => p.reason == "Unhealthy" && p.message.contains(ProbeAnswered503))
+      .map { p =>
+        val port = spec.processPort.getOrElse(Rendering.DefaultProcessPort)
+        s"the process is not listening on port $port: ${p.message}"
+      }
 
   /**
    * The first actionable pod problem, if any.

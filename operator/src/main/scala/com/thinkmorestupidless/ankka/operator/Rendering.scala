@@ -638,7 +638,7 @@ object Rendering:
         Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
       )
     plan match
-      case ProvisioningPlan.Supplied => Vector.empty
+      case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => Vector.empty
       case ProvisioningPlan.Waiting(_, needsCredentials, needsRole, needsDatabase, _) =>
         tls ++ Vector(
           Option.when(needsCredentials)(
@@ -681,7 +681,10 @@ object Rendering:
 
     // Nothing beyond the descriptor's own env on the escape hatch (FR-016): the caller supplied
     // its own connection details, so there is no schema to establish and no credential to mount.
-    val provisioned = databasePlan != ProvisioningPlan.Supplied
+    // Nor for a service that has no database at all.
+    val provisioned = databasePlan match
+      case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => false
+      case _                                                      => true
 
     val containers =
       containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage, namespacePrefix)

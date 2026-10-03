@@ -27,6 +27,38 @@ class ProvisioningSuite extends munit.FunSuite:
     assertEquals(plan.reportedPhase, "Supplied")
   }
 
+  test("a web-hosted service needs no database, whatever the resource says about provisioning") {
+    val web = spec.copy(hosting = Rendering.WebHosting)
+    // Even an observation that would otherwise decide Failed, and either value of the flag.
+    val failing = DatabaseObservation(
+      clusterReadyInstances = 1,
+      secretExists = true,
+      role = CnpgObjectState(exists = true, applied = false, message = Some("boom"))
+    )
+    assertEquals(Provisioning.decide(web, failing), ProvisioningPlan.NotNeeded)
+    assertEquals(
+      Provisioning.decide(web.copy(provisionDatabase = false), failing),
+      ProvisioningPlan.NotNeeded
+    )
+    assertEquals(Provisioning.decide(web, DatabaseObservation.empty), ProvisioningPlan.NotNeeded)
+  }
+
+  test("a web-hosted service's status reports no database at all, not a phase") {
+    assertEquals(LifecycleRules.databaseStatus(ProvisioningPlan.NotNeeded, "ankka-db", "web"), None)
+    // Every other plan still reports one, as before.
+    assertEquals(
+      LifecycleRules.databaseStatus(ProvisioningPlan.Supplied, "ankka-db", "cart").map(_.phase),
+      Some("Supplied")
+    )
+    assertEquals(
+      LifecycleRules
+        .databaseStatus(ProvisioningPlan.Ready(recovered = false), "ankka-db", "cart")
+        .map(s => (s.phase, s.name, s.cluster)),
+      Some(("Provisioned", "cart", "ankka-db"))
+    )
+    intercept[IllegalStateException](ProvisioningPlan.NotNeeded.reportedPhase)
+  }
+
   test("rule 3: no cluster yet asks for everything") {
     val plan = Provisioning.decide(spec, DatabaseObservation.empty)
     assertEquals(

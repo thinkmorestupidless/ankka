@@ -17,6 +17,8 @@ which tasks are done (`[X]`); this note records what the task list cannot.
   (FR-005), history and listings (FR-012) and a mounts change through the control plane (FR-029) are
   not asserted for a web-hosted service; SC-004 exercises two cart operations, not all; SC-006 runs the
   template locally and the sample on a cluster, not one interface in both.
+- **The `features` CI job was dropped** at the merge with `main` (research R17): specs that landed in
+  `main` fail the checker, none of them this feature's. `.github/features-check.sh` runs by hand.
 - **Left: T050's timing**, the first-interface guide followed once by someone who did not write it
   (SC-002). Its older-runtime proof is done (R3).
 - **Branch protection must require the new `web` job** once the pull request exists.

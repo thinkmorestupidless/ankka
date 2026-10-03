@@ -409,6 +409,13 @@ feature files one at a time.
 seeded from 019's copy, then merges with one small hunk. If 019 is delayed, the first task
 cherry-picks those four pieces from it, unchanged, so the later merge is a no-op for them.
 
+**At merge, 2026-10-03.** Feature 019 reached `main` without the `features` job, the glossary or the
+root `features/` directory, and the specs merged since (019's own, and 023 to 034, written before
+they are built) fail speckit-bdd's checker with about 280 findings, none in this feature's spec. The
+`features` job was dropped from this branch's `ci.yml` rather than fail on specs that are not its own;
+`.github/features-check.sh` stays for running by hand, and adopting the check for every spec is its
+own change.
+
 ## R18. What the proxy answers by itself
 
 **Decision**: every answer the proxy gives without the process or a service having answered

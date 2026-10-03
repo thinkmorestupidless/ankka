@@ -54,6 +54,7 @@ object PodProblem:
         .orElse(waiting(name, init))
         .orElse(waiting(name, containers))
         .orElse(exited(name, containers))
+        .orElse(restarted(name, containers))
     }
 
   /**
@@ -108,6 +109,35 @@ object PodProblem:
               said.getOrElse(s"container '${cs.getName}' exited ${t.getExitCode}")
             )
           }
+      }
+      .nextOption()
+
+  /**
+   * A container running again after exiting non-zero, and not yet ready: what it said as it last
+   * exited. A process that refuses to start spends most of each restart booting towards that
+   * refusal, and in that window no state but the last one explains it — without this, the kubelet's
+   * failed readiness probe was all the service reported until the next exit, so the reason came and
+   * went. Only when it said something: a bare exit code explains less than the probe's own words.
+   */
+  private def restarted(
+      pod: String,
+      statuses: Vector[io.fabric8.kubernetes.api.model.ContainerStatus]
+  ): Option[PodProblem] =
+    statuses.iterator
+      .filter(cs => Boolean.box(true) != cs.getReady)
+      .filter(cs => Option(cs.getState).flatMap(s => Option(s.getRunning)).isDefined)
+      .flatMap { cs =>
+        Option(cs.getLastState)
+          .flatMap(s => Option(s.getTerminated))
+          .filter(t => Option(t.getExitCode).exists(_ != 0))
+          .flatMap(t =>
+            Option(t.getMessage)
+              .map(_.trim)
+              .filter(_.nonEmpty)
+              .map(said =>
+                PodProblem(pod, Option(t.getReason).filter(_.nonEmpty).getOrElse("Error"), said)
+              )
+          )
       }
       .nextOption()
 

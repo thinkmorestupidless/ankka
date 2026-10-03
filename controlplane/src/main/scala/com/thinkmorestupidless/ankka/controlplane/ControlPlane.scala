@@ -79,7 +79,13 @@ object ControlPlane:
        * and a project's namespace is named from the same configuration. `None` — a control plane
        * with no cluster behind it — makes the registry routes answer unavailable.
        */
-      registry: Option[RegistryWriter] = None
+      registry: Option[RegistryWriter] = None,
+      /**
+       * Where a service's logs are read from (feature 021). `None` builds the real reader over the
+       * cluster, as this call always has; a suite passes one that records which container it was
+       * asked for.
+       */
+      logs: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PodLogReader] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -88,9 +94,19 @@ object ControlPlane:
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
       clients => ProjectEndpoint(clients, acl, clock, registry),
-      // `logs` keeps its own default rather than being built from `deploy`: that is the behaviour
-      // this call has always had, and changing it here would be an unrelated fix smuggled in.
-      clients => ServiceEndpoint(clients, acl, deploy, clock = clock),
+      // The real reader keeps its own default rather than being built from `deploy`: that is the
+      // behaviour this call has always had, and changing it here would be an unrelated fix smuggled in.
+      clients =>
+        ServiceEndpoint(
+          clients,
+          acl,
+          deploy,
+          logs = logs.getOrElse(
+            com.thinkmorestupidless.ankka.controlplane.deploy
+              .PodLogs(DeployConfig.default.namespacePrefix)
+          ),
+          clock = clock
+        ),
       clients => WhoamiEndpoint(clients, acl, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)

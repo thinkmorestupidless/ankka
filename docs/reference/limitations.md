@@ -90,9 +90,6 @@ feature also says what that feature does not do.
 - **`ankka services logs` is not a log store.** It reads what Kubernetes holds for each instance at the moment
   of asking: no search, no aggregation, no retention. A service that has restarted many times has lost all but
   its current and previous containers' output.
-- **`ankka services logs` cannot read a service with process hosting.** Its pods have two containers and the
-  command does not choose one, which Kubernetes refuses; read them with `kubectl logs -c` as
-  [Logs](../operate/logs.md) shows.
 - **Metrics are a window too.** The metrics endpoint reports counts over the current span window, not totals
   since start, and the platform ships no dashboards or alerts.
 

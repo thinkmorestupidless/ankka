@@ -206,11 +206,13 @@ final class ControlPlaneClient(settings: Settings):
       instance: Option[String],
       previous: Boolean,
       tail: Option[Int],
-      since: Option[Int]
+      since: Option[Int],
+      platform: Boolean = false
   ): LogsResponse =
     val params = Vector(
       instance.map(i => s"instance=${segment(i)}"),
       Option.when(previous)("previous=true"),
+      Option.when(platform)("platform=true"),
       tail.map(t => s"tail=$t"),
       since.map(s => s"since=$s")
     ).flatten

@@ -1139,7 +1139,7 @@ Options and flags:
 ### `ankka services logs`
 
 ```text
-Usage: ankka services logs [--instance <string>] [--previous] [--tail <integer>] [--since <integer>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+Usage: ankka services logs [--instance <string>] [--previous] [--tail <integer>] [--since <integer>] [--platform] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Print a deployed service's recent output.
 
@@ -1154,6 +1154,8 @@ Options and flags:
         Only the last N lines.
     --since <integer>
         Only the last N seconds.
+    --platform
+        Read the platform's container instead of yours: the sidecar of a process-hosted service, or the proxy of a web-hosted one.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>

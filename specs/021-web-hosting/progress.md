@@ -5,16 +5,13 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 
 ## State on 2026-10-03
 
-- **Done: T001–T023 and T025–T029.** Phase 3 (User Story 1) is done except T024, and Phase 4
-  (User Story 2) is done up to T029. Each task, or small group, is its own commit on
-  `021-web-hosting`, and every suite each touched was green when it was committed.
-- **In progress: T024**, `deploying.feature` on k3s. `controlplane/src/test/.../WebHostingClusterFeatures.scala`
-  (`DeployingWebHostingClusterFeatures`) is written and compiles but is **not committed**, nor is the
-  `@ignore` it puts on the feature's last scenario, because it has not yet passed on k3s. Its first
-  run failed its first scenario; the cause was being diagnosed when this note was written (see
-  below).
-- **Next after T024: T030** (the k3s isolation feature, which extends the same suite), then
-  Phase 5 (mounts, T031–T035).
+- **Done: T001–T029.** Phase 3 (User Story 1) is done, T024's k3s feature included (19 scenarios,
+  about six minutes, one ignored until T034). Phase 4 (User Story 2) is done up to T029.
+- **In progress: T030**, the isolation feature and a real call to the shopping cart on k3s.
+  `WebHostingClusterFeatures.scala` is now an abstract `WebHostingClusterSteps` with
+  `DeployingWebHostingClusterFeatures` and `IsolationWebHostingClusterFeatures`; the isolation half
+  is written, compiles, and was running for the first time when this note was written.
+- **Next: Phase 5** (mounts, T031–T035), then Phase 6 (`ankka local web`).
 
 ## What is established
 
@@ -30,6 +27,10 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 - **The proxy's engine** (`proxy-core`) has three listeners: public (the transport's), the probe
   (plain, every address) and the calling address (plain, loopback only). Every listener a test
   starts must be given port 0 for all three, `callingPort = 0` included, or it binds 7630.
+- **The proxy's allotment is 250m and 192Mi** with lean JVM flags in its image (research R19): at
+  100m its JVM took about ten seconds to start, and on a busy k3s node it missed its readiness
+  deadline, which is what made `deploying.feature` fail only when run whole.
+- **The kubelet's wording** for a probe answered 503 is confirmed on k3s (research R8).
 - **The operator's proxy variables are `Rendering.ProxyEnv`**, a copy of `ProxySettings.Variables`;
   `ProxyEnvironmentSuite` in the control plane's tests holds the two together.
 - **Logs name a container** through `PodLogReader`; `ControlPlane.endpoints` takes `logs = Some(…)`,
@@ -63,7 +64,7 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 git fetch origin && git switch 021-web-hosting
 python3 .github/ci-coverage.py && .github/features-check.sh
 sbt -Dankka.cluster.tests=off 'proxyCore/test' 'proxy/test' 'operator/test' 'controlPlaneApi/test'
-caffeinate -i sbt 'controlPlane/testOnly *WebHostingClusterFeatures'     # T024, k3s
+caffeinate -i sbt 'controlPlane/testOnly *WebHostingClusterFeatures'     # both k3s features
 ```
 
-Then `/speckit-implement` continues from T024.
+Then `/speckit-implement` continues from T030.

@@ -51,51 +51,52 @@ import scala.jdk.CollectionConverters.*
  *
  * Disable with `-Dankka.cluster.tests=off`, which also skips building the images.
  */
-class DeployingWebHostingClusterFeatures
-    extends GherkinSuite("../features/web-hosting/deploying.feature")
+abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = false)
+    extends GherkinSuite(feature)
     with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 10.minutes
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val K3sImage   = "rancher/k3s:v1.35.1-k3s1"
-  private val Tag        = com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')
-  private val ProxyImage = s"ankka-proxy:$Tag"
-  private val BaseDomain = "web.example.test"
-  private val Prefix     = "ankka"
-  private val Project    = "shop"
-  private val Namespace  = s"$Prefix-$Project"
+  protected val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
+  protected val Tag         = com.thinkmorestupidless.ankka.core.BuildInfo.version.replace('+', '-')
+  protected val ProxyImage  = s"ankka-proxy:$Tag"
+  protected val SampleImage = s"sample-shopping-cart:$Tag"
+  protected val BaseDomain  = "web.example.test"
+  protected val Prefix      = "ankka"
+  protected val Project     = "shop"
+  protected val Namespace   = s"$Prefix-$Project"
 
   /**
    * The stand-in process, three ways: two builds that say which they are, and one that never
    * listens.
    */
-  private val Images = Map(
+  protected val Images = Map(
     "shop-web"   -> s"web-echo-1:$Tag",
     "shop-web:1" -> s"web-echo-1:$Tag",
     "shop-web:2" -> s"web-echo-2:$Tag",
     "silent"     -> s"web-echo-silent:$Tag"
   )
 
-  private lazy val identity = TestIdentity()
-  private lazy val Token = identity.token(
+  protected lazy val identity = TestIdentity()
+  protected lazy val Token = identity.token(
     "tester",
     Some("tester@example.test"),
     roles = Set("platform-admin"),
     expiresIn = 2.hours
   )
 
-  private var k3s: K3sContainer     = null
-  private var k8s: KubernetesClient = null
-  private var operator: Operator    = null
-  private var testKit: AnkkaTestKit = null
-  private var url: String           = ""
-  private var config: Path          = null
-  private var ca: Path              = null
-  private var httpsPort: Int        = 0
+  protected var k3s: K3sContainer     = null
+  protected var k8s: KubernetesClient = null
+  protected var operator: Operator    = null
+  protected var testKit: AnkkaTestKit = null
+  protected var url: String           = ""
+  protected var config: Path          = null
+  protected var ca: Path              = null
+  protected var httpsPort: Int        = 0
 
-  private def repoRoot: Path =
+  protected def repoRoot: Path =
     var dir = Paths.get("").toAbsolutePath
     while !Files.exists(dir.resolve("build.sbt")) do dir = dir.getParent
     dir
@@ -115,9 +116,31 @@ class DeployingWebHostingClusterFeatures
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
       k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
-      // No CloudNativePG: a web-hosted service has no database, and nothing here asks for one.
       GatewayStack.install(k3s, k8s, repoRoot, BaseDomain)
       ca = GatewayStack.exportCa(k8s)
+      // A web-hosted service has no database; CloudNativePG is installed only for a suite that also
+      // deploys a service that has one.
+      if withDatabases then
+        ClusterImages.importInto(k3s, SampleImage)
+        k8s
+          .load(
+            java.net.URI
+              .create(
+                "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml"
+              )
+              .toURL
+              .openStream()
+          )
+          .serverSideApply(): Unit
+        waitFor(120.seconds, "CloudNativePG's controller") {
+          val d = k8s
+            .apps()
+            .deployments()
+            .inNamespace("cnpg-system")
+            .withName("cnpg-controller-manager")
+            .get()
+          d != null && Option(d.getStatus).flatMap(st => Option(st.getReadyReplicas)).exists(_ > 0)
+        }
 
       val operatorSettings = OperatorSettings.default.copy(
         resyncInterval = 2.seconds,
@@ -132,8 +155,9 @@ class DeployingWebHostingClusterFeatures
         namespacePrefix = Prefix,
         sweepInterval = 2.seconds,
         baseDomain = Some(BaseDomain),
-        // Short enough that a process that never listens is Failed within a scenario.
-        progressDeadline = 60.seconds
+        // Short enough that a process that never listens is Failed within a scenario; long enough,
+        // with a database, for a project's first one to be provisioned.
+        progressDeadline = if withDatabases then 240.seconds else 60.seconds
       )
       val projector = ServiceProjector.withClient(
         deployConfig,
@@ -173,7 +197,7 @@ class DeployingWebHostingClusterFeatures
   /**
    * Builds the stand-in's three images under this build's tag; nothing is named by a literal tag.
    */
-  private def buildImages(): Unit =
+  protected def buildImages(): Unit =
     val dir = repoRoot.resolve("controlplane/src/test/docker/echo-process").toString
     def build(image: String, args: String*): Unit =
       val command = Vector("docker", "build", "-q", "-t", image) ++
@@ -187,10 +211,10 @@ class DeployingWebHostingClusterFeatures
 
   // ── the CLI and the cluster ───────────────────────────────────────────────
 
-  private final case class Run(code: Int, out: String, err: String):
+  protected final case class Run(code: Int, out: String, err: String):
     def all: String = out + err
 
-  private def ankka(args: String*): Run =
+  protected def ankka(args: String*): Run =
     val out = ByteArrayOutputStream()
     val err = ByteArrayOutputStream()
     val code = Main.run(
@@ -200,11 +224,11 @@ class DeployingWebHostingClusterFeatures
     )
     Run(code, out.toString(StandardCharsets.UTF_8), err.toString(StandardCharsets.UTF_8))
 
-  private def ok(run: Run): Run =
+  protected def ok(run: Run): Run =
     assertEquals(run.code, 0, run.all)
     run
 
-  private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
+  protected def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
     val deadline = System.nanoTime() + timeout.toNanos
     var passed   = false
     while !passed && System.nanoTime() < deadline do
@@ -214,11 +238,11 @@ class DeployingWebHostingClusterFeatures
       if !passed then Thread.sleep(500)
     if !passed then fail(s"$what did not happen within $timeout${diagnosis()}")
 
-  private def statusOf(name: String, project: String = Project): Option[ServiceStatus] =
+  protected def statusOf(name: String, project: String = Project): Option[ServiceStatus] =
     val run = ankka("services", "get", name, "-p", project, "-o", "json")
     Option.when(run.code == 0)(readFromString[ServiceStatus](run.out))
 
-  private def pods(name: String): Vector[Pod] =
+  protected def pods(name: String): Vector[Pod] =
     k8s
       .pods()
       .inNamespace(Namespace)
@@ -229,16 +253,16 @@ class DeployingWebHostingClusterFeatures
       .toVector
       .filter(_.getMetadata.getDeletionTimestamp == null)
 
-  private def ready(pod: Pod): Boolean =
+  protected def ready(pod: Pod): Boolean =
     Option(pod.getStatus)
       .flatMap(s => Option(s.getConditions))
       .exists(_.asScala.exists(c => c.getType == "Ready" && c.getStatus == "True"))
 
-  private def resource(name: String): Option[AnkkaService] =
+  protected def resource(name: String): Option[AnkkaService] =
     Option(k8s.resources(classOf[AnkkaService]).inNamespace(Namespace).withName(name).get())
 
   /** What to read when a wait fails: the resource's status and each pod's containers. */
-  private def diagnosis(): String =
+  protected def diagnosis(): String =
     if k8s == null then ""
     else
       val status = resource(service).flatMap(r => Option(r.getStatus)).map(_.toString).getOrElse("")
@@ -279,19 +303,19 @@ class DeployingWebHostingClusterFeatures
 
   // ── the scenario's service ────────────────────────────────────────────────
 
-  private var service: String                                  = "web"
-  private var image: String                                    = Images("shop-web")
-  private var instances: Int                                   = 1
-  private var processPort: Option[Int]                         = None
-  private var instanceType: String                             = "small"
-  private var mounts: Vector[(String, String)]                 = Vector.empty
-  private var appliedAt: Instant                               = Instant.EPOCH
-  private var last: Run                                        = Run(0, "", "")
-  private var lastStatus: Option[ServiceStatus]                = None
-  private var restartedAt: Instant                             = Instant.EPOCH
-  private var stoppedPod: String                               = ""
-  private var survivingPod: String                             = ""
-  private var gatewayReply: (Int, Map[String, String], String) = (0, Map.empty, "")
+  protected var service: String                                  = "web"
+  protected var image: String                                    = Images("shop-web")
+  protected var instances: Int                                   = 1
+  protected var processPort: Option[Int]                         = None
+  protected var instanceType: String                             = "small"
+  protected var mounts: Vector[(String, String)]                 = Vector.empty
+  protected var appliedAt: Instant                               = Instant.EPOCH
+  protected var last: Run                                        = Run(0, "", "")
+  protected var lastStatus: Option[ServiceStatus]                = None
+  protected var restartedAt: Instant                             = Instant.EPOCH
+  protected var stoppedPod: String                               = ""
+  protected var survivingPod: String                             = ""
+  protected var gatewayReply: (Int, Map[String, String], String) = (0, Map.empty, "")
 
   override def beforeEach(context: BeforeEach): Unit =
     if !munitIgnore then
@@ -306,15 +330,17 @@ class DeployingWebHostingClusterFeatures
       lastStatus = None
       stoppedPod = ""
       survivingPod = ""
-      // Each scenario starts from no service at all: its own deployment, its own pods.
-      if statusOf("web").isDefined then
-        ok(ankka("services", "delete", "web", "-p", Project))
-        waitFor(90.seconds, "the previous scenario's web going away") {
-          k8s.apps().deployments().inNamespace(Namespace).withName("web").get() == null &&
-          pods("web").isEmpty
+      // Each scenario starts from no web-hosted service: its own deployment, its own pods. Other
+      // services a scenario deployed are deleted too; the cart, which takes a database a minute to
+      // provision, is kept for whoever asks for it next.
+      for name <- Vector("web", "orders") if statusOf(name).isDefined do
+        ok(ankka("services", "delete", name, "-p", Project))
+        waitFor(90.seconds, s"the previous scenario's $name going away") {
+          k8s.apps().deployments().inNamespace(Namespace).withName(name).get() == null &&
+          pods(name).isEmpty
         }
 
-  private def descriptor: String =
+  protected def descriptor: String =
     val fields = Vector(
       Some(s""""image":"$image""""),
       Some(""""hosting":"web""""),
@@ -330,7 +356,7 @@ class DeployingWebHostingClusterFeatures
     ).flatten
     s"""{"name":"$service","service":{${fields.mkString(",")}}}"""
 
-  private def apply(project: String = Project): Run =
+  protected def apply(project: String = Project): Run =
     val file = Files.createTempFile("ankka-web", ".json")
     try
       Files.writeString(file, descriptor): Unit
@@ -338,23 +364,23 @@ class DeployingWebHostingClusterFeatures
       ankka("services", "apply", "-f", file.toString, "-p", project)
     finally Files.deleteIfExists(file): Unit
 
-  private def readyWith(n: Int, within: FiniteDuration = 120.seconds): Unit =
+  protected def readyWith(n: Int, within: FiniteDuration = 120.seconds): Unit =
     waitFor(within, s"$service being Ready with $n instance(s)") {
       statusOf(service).exists(s =>
         s.lifecycle == ServiceLifecycle.Ready && s.readyInstances == n && s.confirmed
       ) && pods(service).count(ready) == n
     }
 
-  private def deploy(): Unit =
+  protected def deploy(): Unit =
     ok(apply())
     readyWith(instances)
 
   // ── the browser: curl on the host, through the gateway ────────────────────
 
-  private def hostname = s"$service-$Project.$BaseDomain"
+  protected def hostname = s"$service-$Project.$BaseDomain"
 
   /** The status, the headers in lower case, and the body. 0 when there was no answer at all. */
-  private def browse(path: String = "/"): (Int, Map[String, String], String) =
+  protected def browse(path: String = "/"): (Int, Map[String, String], String) =
     val command = Vector(
       "curl",
       "-sS",
@@ -388,24 +414,24 @@ class DeployingWebHostingClusterFeatures
         .toMap
       (status, headers, output.substring(split + 4))
 
-  private def expose(): Unit =
+  protected def expose(): Unit =
     ok(ankka("services", "expose", service, "-p", Project))
     waitFor(90.seconds, s"$hostname answering through the gateway") {
       val (status, headers, _) = browse()
       status == 200 && headers.contains("x-instance")
     }
 
-  private val browsing        = new AtomicBoolean(false)
-  private val answered        = new ConcurrentLinkedQueue[Int]()
-  private var browser: Thread = null
+  protected val browsing        = new AtomicBoolean(false)
+  protected val answered        = new ConcurrentLinkedQueue[Int]()
+  protected var browser: Thread = null
 
-  private def startBrowser(): Unit =
+  protected def startBrowser(): Unit =
     answered.clear()
     browsing.set(true)
     browser =
       Thread.ofVirtual().start(() => while browsing.get() do answered.add(browse()._1): Unit)
 
-  private def stopBrowser(): Unit =
+  protected def stopBrowser(): Unit =
     browsing.set(false)
     if browser != null then browser.join(15_000)
     browser = null
@@ -752,7 +778,7 @@ class DeployingWebHostingClusterFeatures
     }
   }
 
-  private def processEnv(name: String): Map[String, String] =
+  protected def processEnv(name: String): Map[String, String] =
     val pod = pods(name).headOption.getOrElse(fail(s"no pod of $name"))
     pod.getSpec.getContainers.asScala
       .find(_.getName == s"$name-app")
@@ -883,4 +909,159 @@ class DeployingWebHostingClusterFeatures
         ),
         statusOf(service).toString
       )
+  }
+
+/** `features/web-hosting/deploying.feature` on k3s. */
+class DeployingWebHostingClusterFeatures
+    extends WebHostingClusterSteps("../features/web-hosting/deploying.feature")
+
+/**
+ * `features/web-hosting/isolation.feature` on k3s: what the network refuses, which only a cluster
+ * can show, and a real call from a web-hosted service's process to the shopping cart sample, read
+ * from the cart's side.
+ */
+class IsolationWebHostingClusterFeatures
+    extends WebHostingClusterSteps(
+      "../features/web-hosting/isolation.feature",
+      withDatabases = true
+    ):
+
+  /** A web-hosted service the scenario deploys beside "web", holding a certificate of its own. */
+  private def deployAnother(name: String): Unit =
+    val file = Files.createTempFile("ankka-other", ".json")
+    try
+      Files.writeString(
+        file,
+        s"""{"name":"$name","service":{"image":"${Images("shop-web")}","hosting":"web"}}"""
+      ): Unit
+      ok(ankka("services", "apply", "-f", file.toString, "-p", Project))
+    finally Files.deleteIfExists(file): Unit
+    waitFor(120.seconds, s"$name being Ready") {
+      statusOf(name).exists(_.lifecycle == ServiceLifecycle.Ready) && pods(name).exists(ready)
+    }
+
+  /** curl's exit code and output, from the pod holding "orders"'s certificate. */
+  private def fromOrders(url: String): (Int, String) =
+    val prober = com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, "orders")
+    val r = k3s.execInContainer(
+      "kubectl",
+      "exec",
+      "-n",
+      Namespace,
+      prober,
+      "--",
+      "curl",
+      "-sS",
+      "-m",
+      "5",
+      "-o",
+      "/dev/null",
+      "-w",
+      "%{http_code}",
+      url
+    )
+    (r.getExitCode, r.getStdout + r.getStderr)
+
+  private def webPod: Pod = pods("web").find(ready).getOrElse(fail("no ready instance of web"))
+
+  private var connection: (Int, String) = (0, "")
+
+  Given("a service {string} deployed in the project {string}") { (name: String, project: String) =>
+    assertEquals(project, Project)
+    deployAnother(name)
+  }
+
+  When("the service {string} connects to the process of {string} without the proxy") {
+    (caller: String, name: String) =>
+      assertEquals((caller, name), ("orders", "web"))
+      val ip = webPod.getStatus.getPodIP
+      // The control: the same pod reaches the same instance on the port the network admits, so a
+      // refusal below is the policy's and not a prober, an address or a selector gone wrong.
+      assertEquals(fromOrders(s"http://$ip:7627/ready"), (0, "200"))
+      connection = fromOrders(s"http://$ip:8080/")
+  }
+
+  When("the service {string} connects to the calling address of an instance of {string}") {
+    (caller: String, name: String) =>
+      assertEquals((caller, name), ("orders", "web"))
+      val pod = webPod
+      assertEquals(fromOrders(s"http://${pod.getStatus.getPodIP}:7627/ready"), (0, "200"))
+      connection = fromOrders(s"http://${pod.getStatus.getPodIP}:7630/")
+      // And the calling address is there to be refused: the process beside the proxy reaches it,
+      // and is answered by the proxy itself.
+      val inside = k3s.execInContainer(
+        "kubectl",
+        "exec",
+        "-n",
+        Namespace,
+        pod.getMetadata.getName,
+        "-c",
+        "web-app",
+        "--",
+        "node",
+        "-e",
+        "fetch('http://127.0.0.1:7630/').then(r=>console.log(r.status, r.headers.get('x-ankka-answered-by')))"
+      )
+      assertEquals(inside.getStdout.trim, "400 proxy", inside.getStderr)
+  }
+
+  Then("the connection is refused") { () =>
+    val (code, output) = connection
+    // 7: refused; 28: timed out, which is how a policy that drops a connection shows. A missing
+    // curl, or a 2xx, is neither.
+    assert(code == 7 || code == 28, s"curl exited $code: $output")
+  }
+
+  When("an instance of {string} starts") { (name: String) =>
+    assertEquals(name, "web")
+    waitFor(60.seconds, "an instance of web")(pods("web").exists(ready))
+  }
+
+  Then("the process holds no certificate") { () =>
+    val app = webPod.getSpec.getContainers.asScala.find(_.getName == "web-app").get
+    assertEquals(app.getVolumeMounts.asScala.toVector, Vector.empty)
+    assert(
+      !app.getEnv.asScala.exists(e => Option(e.getValueFrom).exists(_.getSecretKeyRef != null)),
+      "the process is given a secret"
+    )
+  }
+
+  Then("the proxy holds the certificate of {string}") { (name: String) =>
+    val pod     = webPod
+    val proxy   = pod.getSpec.getContainers.asScala.find(_.getName == name).get
+    val mounted = proxy.getVolumeMounts.asScala.map(m => m.getName -> m.getMountPath).toMap
+    assertEquals(mounted.get("ankka-service-tls"), Some("/var/run/secrets/ankka/service"))
+    val volume = pod.getSpec.getVolumes.asScala.find(_.getName == "ankka-service-tls").get
+    assertEquals(volume.getSecret.getSecretName, s"$name-service-tls")
+  }
+
+  test(
+    "a web-hosted service's process calls the shopping cart as itself, and the cart's rule decides"
+  ) {
+    assume(!munitIgnore, "cluster tests are off")
+    // The cart: a real ankka service with a database, not exposed.
+    val file = Files.createTempFile("ankka-cart", ".json")
+    try
+      Files.writeString(file, s"""{"name":"cart","service":{"image":"$SampleImage"}}"""): Unit
+      ok(ankka("services", "apply", "-f", file.toString, "-p", Project))
+    finally Files.deleteIfExists(file): Unit
+    waitFor(300.seconds, "the cart being Ready") {
+      statusOf("cart").exists(_.lifecycle == ServiceLifecycle.Ready) && pods("cart").exists(ready)
+    }
+    service = "web"
+    deploy()
+    expose()
+    // Through the gateway, the echo process fetches the cart at the calling address.
+    def callThrough(path: String): String =
+      val (status, _, body) = browse(s"/call?path=$path")
+      assertEquals(status, 200, body)
+      body
+    val whoami = callThrough("/cart/callers/whoami")
+    assert(whoami.contains(""""status":200"""), whoami)
+    assert(whoami.contains(s"the web service in project $Project"), whoami)
+    val refused = callThrough("/cart/callers/only-orders")
+    assert(
+      refused.contains(""""status":403"""),
+      s"the cart's refusal did not reach the process: $refused"
+    )
   }

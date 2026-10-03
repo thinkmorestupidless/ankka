@@ -47,6 +47,36 @@ class PublishAllSuite extends munit.FunSuite:
     )
   }
 
+  test("a message is sent only once the one before it is answered") {
+    // A publisher that answers each message only when told to, as a broker client that hands a
+    // record over on a thread of its own does. Sent all at once, the second message would go out
+    // before the first was answered, and could reach its partition first.
+    val answers = new java.util.concurrent.ConcurrentLinkedQueue[scala.concurrent.Promise[Done]]()
+    val sent    = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val publisher = new MessagePublisher:
+      def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
+        sent.add(String(payload, "UTF-8"))
+        val answer = scala.concurrent.Promise[Done]()
+        answers.add(answer)
+        answer.future
+    val result = ProjectionSupport.publishAll(
+      consumer,
+      "cart-1",
+      "lines",
+      publisher,
+      Seq(Encoded(bytes("a"), Metadata.empty, None), Encoded(bytes("b"), Metadata.empty, None))
+    )
+    assertEquals(
+      sent.toArray.toSeq,
+      Seq[AnyRef]("a"),
+      "the second was sent before the first was answered"
+    )
+    answers.poll().success(Done)
+    assertEquals(sent.toArray.toSeq, Seq[AnyRef]("a", "b"))
+    answers.poll().success(Done)
+    assert(await(result).isSuccess)
+  }
+
   test("other metadata travels with its own message only") {
     val publisher = InMemoryPublisher()
     val _ = publish(

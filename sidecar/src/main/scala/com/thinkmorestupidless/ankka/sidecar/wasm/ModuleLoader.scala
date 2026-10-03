@@ -54,9 +54,25 @@ object ModuleLoader:
   /** Required of every module, whatever it declares. */
   val Required: Vector[String] = Vector("alloc", "free", "discover").map(Abi.Prefix + _)
 
-  /** The functions a module may import, all from the module named `ankka1`. */
+  /**
+   * The functions a module may import, all from the module named `ankka1`: exactly the ones
+   * `HostImports.values` provides, which `WasmHostSuite` holds. The secret store's three arrived
+   * with protocol 1.4; a module that does not use the store does not import them.
+   */
   val Imports: Set[String] =
-    Set("invoke", "send", "invoke_stream", "query", "schedule", "cancel", "config", "log")
+    Set(
+      "invoke",
+      "send",
+      "invoke_stream",
+      "query",
+      "schedule",
+      "cancel",
+      "config",
+      "log",
+      "get_secret",
+      "put_secret",
+      "delete_secret"
+    )
 
   private val Versioned = """ankka(\d+)_.*""".r
 

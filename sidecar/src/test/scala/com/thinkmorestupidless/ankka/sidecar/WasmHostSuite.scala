@@ -289,7 +289,9 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       "POD_IP",
       "ANKKA_HTTP_PORT",
       "ANKKA_BASE_DOMAIN",
-      "ANKKA_HTTPS_PORT"
+      "ANKKA_HTTPS_PORT",
+      "ANKKA_NAMESPACE_PREFIX",
+      "ANKKA_SECRET_KEY"
     )
     val env         = reserved.map(_ -> "secret").toMap + ("GREETING" -> "hello")
     val hostImports = imports(env)
@@ -313,6 +315,26 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     ask("ANKKA_DB_PASSWORD") match
       case RemoteOutcome.Error(CommandError(_, ErrorCode.NotFound)) => ()
       case other => fail(s"ANKKA_DB_PASSWORD answered $other")
+  }
+
+  test("every platform setting kept from a process is kept from a module") {
+    // By iteration over the declaration, so a variable added to it is held here with no edit.
+    import com.thinkmorestupidless.ankka.core.PlatformVariables as PV
+    val names =
+      PV.PlatformOnly.toVector ++ PV.RuntimeOnlyNames ++ PV.RuntimeReadNames ++
+        (PV.RuntimeOnlyPrefixes ++ PV.RuntimeReadPrefixes).map(_ + "ANY_SETTING")
+    val hostImports = imports(names.map(_ -> "set").toMap)
+    names.foreach(name => assertEquals(hostImports.lookup(name), None, name))
+  }
+
+  test("the imports a module may name are exactly the ones the runtime provides") {
+    val provided = imports().values.functions().map(_.name()).toSet
+    assertEquals(ModuleLoader.Imports, provided)
+  }
+
+  test("the config import answers the broker's variables, which a process is given too") {
+    val hostImports = imports(Map("ANKKA_KAFKA_BOOTSTRAP_SERVERS" -> "kafka:9092"))
+    assertEquals(hostImports.lookup("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), Some("kafka:9092"))
   }
 
   // ── Blocking in an import ──────────────────────────────────────────────────

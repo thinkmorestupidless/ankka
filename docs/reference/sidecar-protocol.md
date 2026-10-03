@@ -39,7 +39,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.3"`;
+- its protocol version, `"1.4"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -70,6 +70,9 @@ The table is generated from the `.proto` files.
 | `Client` | `Query` | `QueryRequest` | `QueryReply` | `client.proto` |
 | `Client` | `Schedule` | `ScheduleRequest` | `Empty` | `client.proto` |
 | `Client` | `Cancel` | `CancelRequest` | `Empty` | `client.proto` |
+| `Client` | `GetSecret` | `GetSecretRequest` | `GetSecretReply` | `client.proto` |
+| `Client` | `PutSecret` | `PutSecretRequest` | `PutSecretReply` | `client.proto` |
+| `Client` | `DeleteSecret` | `DeleteSecretRequest` | `DeleteSecretReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -176,10 +179,13 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.3`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.4`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
-on a consumer's request.
+on a consumer's request; `1.4` added the service's secret store, `GetSecret`, `PutSecret` and
+`DeleteSecret` on `Client`, each answering a refusal in its reply. A process built for `1.4` that calls the
+store on an earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runtime being too
+old for the store.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

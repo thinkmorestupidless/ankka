@@ -131,6 +131,7 @@ class WorkflowStream {
     }
     let effect: StepEffect<unknown>
     fresh._bindCommand(this.state, commandContext(registered.id, this.entityId, 0n, {}), ctx.client)
+    fresh._enterStep()
     try {
       effect = (await step.run(fresh, input)) as StepEffect<unknown>
     } catch (e) {

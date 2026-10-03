@@ -312,6 +312,31 @@ class ConformanceEndpoint(Endpoint):
 
         return list(PROBLEMS)
 
+    # The secret store. The name is a query parameter because it may hold a slash.
+    # docs:start secrets
+    def _secret_name(self) -> str:
+        return next((v for k, v in self.request.query if k == "name"), "")
+
+    @post("/secrets")
+    async def keep_secret(self, value: str) -> Done:
+        await self.secrets.put(self._secret_name(), value)
+        return DONE
+
+    @get("/secrets")
+    async def read_secret(self) -> str:
+        name = self._secret_name()
+        value = await self.secrets.get(name)
+        if value is None:
+            raise HttpProblem(404, f"no secret '{name}'")
+        return value
+
+    @delete("/secrets")
+    async def remove_secret(self) -> Done:
+        await self.secrets.delete(self._secret_name())
+        return DONE
+
+    # docs:end secrets
+
     @get("/echo")
     def echo(self) -> Echo:
         headers = {k.lower(): v for k, v in self.request.headers}

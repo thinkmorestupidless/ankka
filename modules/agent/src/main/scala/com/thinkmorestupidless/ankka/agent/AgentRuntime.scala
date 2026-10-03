@@ -9,7 +9,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   RuntimeExtension
 }
 import org.apache.pekko.NotUsed
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, HandlerBinding}
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, HandlerBinding, SecretStore}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.OverflowStrategy
@@ -115,7 +115,8 @@ final class AgentRuntime private (
               client,
               defaultModel,
               modelTimeout,
-              judgments
+              judgments,
+              service.secrets
             )
           }
         )
@@ -177,7 +178,8 @@ final class AgentRuntime private (
             descriptor.componentId,
             "(startup)",
             client,
-            defaultModel
+            defaultModel,
+            service.secrets
           )
         )
         val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools)
@@ -217,7 +219,8 @@ final class AgentRuntime private (
               client,
               defaultModel,
               modelTimeout,
-              judgments
+              judgments,
+              service.secrets
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -324,7 +327,8 @@ private[agent] object AgentHost:
       componentClient: ComponentClient,
       defaultModel: Option[ModelProvider],
       modelTimeout: FiniteDuration,
-      judgments: Judgments
+      judgments: Judgments,
+      secrets: SecretStore
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -332,7 +336,8 @@ private[agent] object AgentHost:
           sessionId,
           descriptor.componentId,
           componentClient,
-          defaultModel
+          defaultModel,
+          secrets
         )
 
         val loop = new AgentLoop(

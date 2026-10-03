@@ -94,6 +94,13 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
    */
   private val FieldManager = "ankka-operator"
 
+  /**
+   * The secret keys this process has made or found made, so that a reconcile pass, which renders
+   * `EnsureSecretKey` every time, asks the API server once per service and not once per pass.
+   */
+  private val secretKeysKnown = java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
+  private val random          = new java.security.SecureRandom()
+
   def execute(action: Action): Unit = action match
     case Action.NoAction => ()
 
@@ -244,6 +251,36 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
           secret.getMetadata.getNamespace,
           secret.getMetadata.getName
         )
+
+    case Action.EnsureSecretKey(namespace, name, labels) =>
+      // Created, never read: a create of a Secret that exists is a 409, which is the answer
+      // "already made" — so the operator never brings a key back over the wire, and never makes a
+      // second one under a service that has kept secrets with the first. The bytes are made here and
+      // nowhere else, and never logged.
+      if !secretKeysKnown.contains((namespace, name)) then
+        val bytes = new Array[Byte](32)
+        random.nextBytes(bytes)
+        val secret = new io.fabric8.kubernetes.api.model.SecretBuilder()
+          .withMetadata(
+            new ObjectMetaBuilder()
+              .withNamespace(namespace)
+              .withName(name)
+              .withLabels(labels.asJava)
+              .build()
+          )
+          .withType("Opaque")
+          .withStringData(
+            java.util.Map
+              .of(Names.SecretKeyEntry, java.util.Base64.getEncoder.encodeToString(bytes))
+          )
+          .build()
+        try
+          val _ = client.resource(secret).create()
+          log.info("made the secret key {}/{}", namespace, name)
+        catch
+          case e: KubernetesClientException if e.getCode == 409 =>
+            log.debug("the secret key {}/{} exists; leaving it as it is", namespace, name)
+        secretKeysKnown.add((namespace, name)): Unit
 
     case Action.EnsureDatabaseRole(role) =>
       val _ = client.resource(role).fieldManager(FieldManager).forceConflicts().serverSideApply()

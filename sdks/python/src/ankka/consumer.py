@@ -12,6 +12,7 @@ from ankka.context import Metadata
 from ankka.effects.consumer import ConsumerEffect, ConsumerEffects, Done, Ignore, Produce, ProduceAll
 from ankka.event_sourced_entity import RegistrationError
 from ankka.view import _source_pb
+from ankka.secrets import HasSecrets
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -20,7 +21,7 @@ Src = TypeVar("Src")
 Out = TypeVar("Out")
 
 
-class Consumer(Generic[Src, Out]):
+class Consumer(HasSecrets, Generic[Src, Out]):
     component_id: ClassVar[str]
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None

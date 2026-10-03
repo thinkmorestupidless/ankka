@@ -46,6 +46,7 @@ The table is generated from the runtime's configuration files.
 <!-- generated:start configuration -->
 | Variable | Configuration key | Default | Applies in |
 |---|---|---|---|
+| `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
 | `ANKKA_DB_NAME` | `pekko.persistence.r2dbc.connection-factory.database` | `"ankka"` | every service |
@@ -118,6 +119,15 @@ descriptor that sets any `ANKKA_DB_*` variable brings its own database instead.
 
 Never point two services at one database. Timers, view tables and projection offsets are not separated by
 service, so two services sharing a database delete each other's timers and overwrite each other's views.
+
+### Secret store
+
+- `ANKKA_SECRET_KEY` (`ankka.secrets.key`) is the key the service's secret store encrypts the values it
+  keeps with: the standard base64 of exactly 32 bytes, as `openssl rand -base64 32` writes it. On the
+  platform the operator makes one per service unless the descriptor sets it, and gives it only to the
+  platform's own program, never to a process or a module. Empty, the default, the service starts and
+  keeping or reading a secret fails naming the variable. Set to anything that is not 32 bytes of base64,
+  the service does not start. See [Secrets a service keeps](../build/secrets.md).
 
 ### Local clusters
 

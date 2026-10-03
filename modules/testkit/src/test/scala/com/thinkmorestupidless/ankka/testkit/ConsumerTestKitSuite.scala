@@ -10,6 +10,18 @@ import com.thinkmorestupidless.ankka.core.graph.GraphElementRefused
  */
 class ConsumerTestKitSuite extends munit.FunSuite:
 
+  test("a consumer's secret store is the kit's, in memory, with the runtime's rules") {
+    // docs:start unit-test
+    val kit = ConsumerTestKit.of(WarehouseCredentialKeeper)
+    kit.onMessage(StockEvent("sku-1", 1, "w9"), "sku-1"): Unit
+    assertEquals(kit.secrets.get("warehouse/w9"), Some("token-w9"))
+    // docs:end unit-test
+    val refused = intercept[com.thinkmorestupidless.ankka.core.CommandError](
+      kit.secrets.put("warehouse w9", "token")
+    )
+    assertEquals(refused.code, com.thinkmorestupidless.ankka.core.ErrorCode.BadRequest)
+  }
+
   test("several messages are read back in order, each with the key it named") {
     val kit    = ConsumerTestKit.of(LedgerFanout)
     val result = kit.onMessage(LedgerEvent.Added(7), subject = "l1", sequenceNumber = 5)

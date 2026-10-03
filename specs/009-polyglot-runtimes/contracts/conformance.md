@@ -28,7 +28,7 @@ Every SDK ships one, with these components, wire names and routes. The Scala one
 | endpoint | prefix | routes |
 |---|---|---|
 | `carts` | `/carts` | `POST /{cartId}/items`, `DELETE /{cartId}/items/{productId}`, `POST /{cartId}/checkout`, `GET /{cartId}`, `GET /{cartId}/rows` (the view), `GET /awkward` (a literal beside a parameter) |
-| `conformance` | `/conformance` | `POST /{id}/{handler}` (a generic forwarder to the `conformance` entity, body passed through), `GET /{id}/count`, `POST /profile/{id}`, `GET /profile/{id}`, `POST /checkout/{id}`, `GET /checkout/{id}`, `POST /remind/{id}`, `POST /ask/{session}`, `GET /stream/{session}` (SSE), `GET /echo` (returns query parameters and two request headers as JSON), `GET /status/{code}` (answers that status), `GET /boom` (throws) |
+| `conformance` | `/conformance` | `POST /{id}/{handler}` (a generic forwarder to the `conformance` entity, body passed through), `GET /{id}/count`, `POST /profile/{id}`, `GET /profile/{id}`, `POST /checkout/{id}`, `GET /checkout/{id}`, `POST /remind/{id}`, `POST /ask/{session}`, `GET /stream/{session}` (SSE), `GET /echo` (returns query parameters and two request headers as JSON), `GET /status/{code}` (answers that status), `GET /boom` (throws), `POST /secrets?name=` (keeps the text body as a service secret; 204), `GET /secrets?name=` (the value, or 404), `DELETE /secrets?name=` (204) — since protocol 1.4 |
 | `private` | `/private` | `GET /` with `acl = AUTHENTICATED` |
 
 ## Targets
@@ -134,6 +134,16 @@ Each is one munit case whose name is the identifier below, so a failure names th
 **Client**
 - `client.trace-propagates` — a call made from an endpoint handler (`POST /conformance/{id}/record-many`) has the request's span as parent, across the process boundary for a process target.
 - `client.error-code-crosses` — a refusal from `refuse` reaches a caller's `error` with its code.
+
+**Secrets** (protocol 1.4; the routes are `/conformance/secrets?name=…`)
+- `secret.put-then-get` — a value kept in one request is read in another.
+- `secret.absent` — a name never kept answers 404, with no error logged.
+- `secret.overwrite` — keeping again replaces the value; `ankka_secrets` holds one row for the name.
+- `secret.delete` — a removed secret answers 404, and its row is gone.
+- `secret.stored-encrypted` — no row of any table holds the value, as text or as `bytea` hex; one row in `ankka_secrets`.
+- `secret.refuses-bad-name` — a name with a space is 400, naming the rule.
+- `secret.refuses-empty-value` — an empty value is 400.
+- `secret.name-with-slash` — `provider/initech` is kept and read.
 
 **Observability**
 - `obs.one-span-per-invocation` — each behaviour above recorded exactly one component span per handler call and one request span per HTTP request (feature 007's double-span lesson).

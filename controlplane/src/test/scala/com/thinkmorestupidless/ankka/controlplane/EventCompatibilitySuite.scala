@@ -132,6 +132,37 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     )
   }
 
+  test("the control plane records that a project secret was set and never a value") {
+    // The field names are pinned exactly: a field that could carry a value must not exist at all.
+    val at = java.time.Instant.parse("2026-10-03T10:00:00Z")
+    val set = ProjectEvent.ProjectSecretEntriesSet(
+      "checkout",
+      Vector("STRIPE_KEY", "WEBHOOK_KEY"),
+      Some(Actor("alice", Some("alice@example.test"))),
+      Some(at)
+    )
+    val removed = ProjectEvent.ProjectSecretEntryRemoved("checkout", "WEBHOOK_KEY", None, None)
+    def fields(json: String): Set[String] =
+      val top = com.fasterxml.jackson.databind.ObjectMapper().readTree(json)
+      top.fieldNames().asScala.toSet
+    for (event, expected) <- Vector(
+        set     -> Set("type", "name", "entries", "actor", "at"),
+        removed -> Set("type", "name", "entry")
+      )
+    do
+      val bytes = ProjectEntity.eventSerializer.toBytes(event)
+      val json  = new String(bytes, "UTF-8")
+      assertEquals(ProjectEntity.eventSerializer.fromBytes(bytes), event)
+      assertEquals(fields(json), expected, json)
+      assert(!json.contains("sk_live"), s"a value reached the journal: $json")
+  }
+
+  test("a project's state from before project secrets decodes with none") {
+    val old   = """{"id":"checkout","name":"Checkout","organizationId":"acme","deleted":false}"""
+    val state = ProjectEntity.stateSerializer.fromBytes(old.getBytes("UTF-8"))
+    assertEquals(state.secrets, Map.empty)
+  }
+
   test("a project's state from before the registry decodes with none") {
     // The snapshot, not the events: a `Project` written by an earlier release has no `registry`
     // field at all, and must read as a project with no registry rather than failing to decode.

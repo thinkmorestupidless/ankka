@@ -83,6 +83,12 @@ class WasmHostingRenderingSuite extends munit.FunSuite:
     assertEquals((mount.getMountPath, mount.getReadOnly), ("/ankka/module", java.lang.Boolean.TRUE))
   }
 
+  test("a module's runtime holds the secret key; the module's config is answered absent for it") {
+    // The runtime withholds it when the module asks (WasmHostSuite); here, that it is there to hold.
+    val cs = pod(wasm).getContainers.asScala.toVector
+    assertEquals(envOf(cs.head).get("ANKKA_SECRET_KEY"), Some("<ref>"))
+  }
+
   test(
     "the service's image runs once, as an init container, copying the module into a shared volume"
   ) {

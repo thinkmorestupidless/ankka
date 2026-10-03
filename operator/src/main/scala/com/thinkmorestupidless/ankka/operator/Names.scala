@@ -9,6 +9,12 @@ package com.thinkmorestupidless.ankka.operator
  */
 object Names:
 
+  /** The Secret holding a service's secret key, under the entry `key`. */
+  def secretKeySecret(serviceName: String): String = s"$serviceName-secret-key"
+
+  /** The entry of that Secret the key is under. */
+  val SecretKeyEntry: String = "key"
+
   /** Kubernetes DNS label ceiling. Namespaces, Deployments and containers all obey it. */
   val MaxLabelLength: Int = 63
 

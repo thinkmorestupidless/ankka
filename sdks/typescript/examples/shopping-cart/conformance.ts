@@ -245,6 +245,23 @@ export class ConformanceEndpoint extends Endpoint {
 
   static readonly routes = {
     problems: get("/problems", s.list(s.string), () => [...sidecarProblems]),
+    // The secret store. The name is a query parameter because it may hold a slash.
+    // docs:start secrets
+    keepSecret: post("/secrets", s.string, Done, async (ep: ConformanceEndpoint, req, value) => {
+      await ep.secrets.put(req.query.get("name") ?? "", value)
+      return done
+    }),
+    readSecret: get("/secrets", s.string, async (ep: ConformanceEndpoint, req) => {
+      const name = req.query.get("name") ?? ""
+      const value = await ep.secrets.get(name)
+      if (value === undefined) throw new HttpProblem(404, `no secret '${name}'`)
+      return value
+    }),
+    removeSecret: del("/secrets", Done, async (ep: ConformanceEndpoint, req) => {
+      await ep.secrets.delete(req.query.get("name") ?? "")
+      return done
+    }),
+    // docs:end secrets
     echo: get("/echo", Echo, (ep: ConformanceEndpoint) => ({
       a: ep.request.query.getAll("a"),
       b: ep.request.query.get("b"),

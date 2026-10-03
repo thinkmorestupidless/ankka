@@ -258,6 +258,12 @@ the same pod. Declared with `"hosting": "process"` and a `protocol` version.
 A group of services within an organization, deployed to one namespace. Services are named per project, and
 each project has its own database cluster.
 
+### Project secret
+
+A named set of entries a member sets for a project, held in a Kubernetes Secret in the project's
+namespace, which a descriptor's variable takes by `secretKeyRef`. The control plane writes it and can never
+read it back. Not a service secret. See [Secrets on the platform](../platform/secrets.md).
+
 ### Protocol version
 
 The version of the sidecar protocol a process-hosted service's SDK speaks, `MAJOR.MINOR`, such as `1.0`. The
@@ -296,6 +302,23 @@ One record of a view, keyed by its source's subject and stored as JSON in the vi
 
 The ankka version a service's image was built against, declared as `runtime` in its descriptor and served at
 `/ankka/version`. The platform accepts the same major and a minor equal to its own or one below.
+
+### Secret key
+
+What a service's secret store encrypts its service secrets with: 32 bytes, given as `ANKKA_SECRET_KEY`.
+The platform makes one per deployed service and keeps it when the service is deleted; only the platform's
+own program holds it.
+
+### Secret store
+
+Where a service keeps its service secrets: a table in its own database, holding each value encrypted with
+the service's secret key. Not an entity or a view, and nothing a projection reads. Offered to endpoints,
+workflow steps, consumers, timed actions and agents, never to an entity or a view.
+
+### Service secret
+
+A named text value a service keeps in its secret store while it runs and reads back by that name, such as
+a credential a person gave it. See [Secrets a service keeps](../build/secrets.md).
 
 ### Session
 

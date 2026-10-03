@@ -161,6 +161,8 @@ jobs:
               - '.claude/**'                      # spec-kit's commands for developing ankka
               - '.specify/**'
               - 'specs/**'                        # feature records; nothing builds from them
+              - 'features/**'                     # the platform's living features; checked by spec-kit, not run
+              - 'GLOSSARY.md'                     # the words those features use
 
   build:
     needs: changes

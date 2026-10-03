@@ -50,6 +50,12 @@ final class ClientService(
 
   def cancel(request: CancelRequest): Future[pb.Empty] = logic.cancel(request).recoverWith(status)
 
+  // Refusals travel in the reply, as for `invoke`; these never fail the gRPC call.
+  def getSecret(request: GetSecretRequest): Future[GetSecretReply] = logic.getSecret(request)
+  def putSecret(request: PutSecretRequest): Future[PutSecretReply] = logic.putSecret(request)
+  def deleteSecret(request: DeleteSecretRequest): Future[DeleteSecretReply] =
+    logic.deleteSecret(request)
+
   private val status: PartialFunction[Throwable, Future[pb.Empty]] = { case e: CommandError =>
     val s = e.code match
       case ErrorCode.Unavailable => Status.UNAVAILABLE

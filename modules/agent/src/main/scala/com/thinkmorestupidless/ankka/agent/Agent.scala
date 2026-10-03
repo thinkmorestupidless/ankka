@@ -5,7 +5,8 @@ import com.thinkmorestupidless.ankka.sdk.{
   CommandHandle,
   ComponentClient,
   HandlerBinding,
-  NoArgHandle
+  NoArgHandle,
+  SecretStore
 }
 
 import scala.collection.mutable
@@ -52,11 +53,15 @@ trait AgentContext:
   /** The service-wide default model, if one is configured. */
   def defaultModel: Option[ModelProvider]
 
+  /** The service's secret store, for a tool that needs a credential. */
+  def secrets: SecretStore
+
 private[ankka] final case class SimpleAgentContext(
     sessionId: SessionId,
     componentId: ComponentId,
     componentClient: ComponentClient,
-    defaultModel: Option[ModelProvider]
+    defaultModel: Option[ModelProvider],
+    secrets: SecretStore
 ) extends AgentContext
 
 object Agent:

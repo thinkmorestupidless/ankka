@@ -97,6 +97,15 @@ enum Action:
   case EnsureCredentials(secret: Secret)
 
   /**
+   * Ensures a service's secret key exists: the Secret `name` in `namespace`, holding 32 random
+   * bytes under `key`, made once and never read, patched or deleted. It carries no key itself —
+   * this value is printed by `describe` and logged — so the executor makes the bytes when it
+   * creates the Secret, and an existing one is left as it is. No owner reference, so a service
+   * deleted and deployed again reads what it kept with the same key.
+   */
+  case EnsureSecretKey(namespace: String, name: String, labels: Map[String, String])
+
+  /**
    * Must be ensured before the [[EnsureDatabase]] it will own — CNPG rejects a database whose owner
    * role does not exist yet (research R4).
    */
@@ -164,6 +173,7 @@ enum Action:
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>
       s"ensure credentials ${s.getMetadata.getNamespace}/${s.getMetadata.getName} (create-if-absent)"
+    case EnsureSecretKey(ns, name, _) => s"ensure secret key $ns/$name (create-if-absent)"
     case EnsureDatabaseRole(r) =>
       s"ensure database role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureDatabase(d) =>

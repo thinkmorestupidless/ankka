@@ -80,8 +80,15 @@ call otherwise, because an earlier host reads a reply it does not know as no eff
 | `query(ptr, len) -> i64` | `QueryRequest` | `QueryReply` | |
 | `schedule(ptr, len) -> i64` | `ScheduleRequest` | `Empty` | |
 | `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | |
-| `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent |
+| `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
+| `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | `Client.GetSecret`: the service's secret store, since 1.4; blocks the calling instance |
+| `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | `Client.PutSecret`, since 1.4 |
+| `delete_secret(ptr, len) -> i64` | `DeleteSecretRequest` | `DeleteSecretReply` | `Client.DeleteSecret`, since 1.4 |
 | `log(level: i32, ptr, len)` | UTF-8 text | | to the runtime's log under the logger `ankka.module`; `level` is 0 trace, 1 debug, 2 info, 3 warn, 4 error (anything else is error) |
+
+The three secret imports answer every refusal and fault in the reply's `Error`, and answer
+`Error(UNAVAILABLE)` before the service has started, as `invoke` does. A module that never calls the
+secret store imports none of them, and so runs on a runtime that predates them.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

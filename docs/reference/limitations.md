@@ -106,6 +106,11 @@ feature also says what that feature does not do.
 - **A consumer's several messages are not published atomically.** They are published at least once and
   in order; when the broker refuses one, the change is delivered again and all are published again. One
   change's messages may be at most 4 MiB together.
+- **The secret store has no rotation, sharing or history.** A service's secret key cannot be changed in
+  place: values kept with one key fail to read under another. A service secret belongs to the service that
+  kept it, and another service asks for what it needs over HTTP. There are no versions of a value and no
+  audit of reads. A project secret reaches a pod as an environment variable only, not as a file, and the
+  console has no page for project secrets yet: the CLI and the control plane API set and list them.
 - **ankka creates no topics and checks none.** A topic a consumer publishes to must exist or be created by
   the broker on first use. A [graph consumer](../build/graph.md#the-topic)'s topic must be compacted, and
   it is the pipeline that reads it, not ankka, that creates it so and reports when it is not.

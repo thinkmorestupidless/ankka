@@ -14,6 +14,7 @@ import com.thinkmorestupidless.ankka.core.{
 }
 import com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys
 import com.thinkmorestupidless.ankka.runtime.{
+  AnkkaExecutors,
   AnkkaService,
   Database,
   EntityProtocol,
@@ -241,3 +242,36 @@ final class ClientLogic(
       case Some(scheduler) =>
         scheduler.delete(request.timerId)
         Future.successful(pb.Empty())
+
+  // ── The secret store (protocol 1.4) ─────────────────────────────────────────
+  //
+  // The service's own store, on a virtual thread: every call is a blocking database read or write,
+  // and the key it decrypts with never leaves this process. A refusal is the reply's `Error`, the same
+  // for a process and a module.
+
+  private def onStore[A](work: => A)(refused: pb.Error => A): Future[A] =
+    Future {
+      try work
+      catch
+        case e: CommandError => refused(error(e))
+        case e: Throwable    => refused(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL))
+    }(using AnkkaExecutors.virtual)
+
+  def getSecret(request: GetSecretRequest): Future[GetSecretReply] =
+    onStore(
+      GetSecretReply(
+        service.secrets.get(request.name) match
+          case Some(value) => GetSecretReply.Result.Value(value)
+          case None        => GetSecretReply.Result.Absent(pb.Empty())
+      )
+    )(e => GetSecretReply(GetSecretReply.Result.Error(e)))
+
+  def putSecret(request: PutSecretRequest): Future[PutSecretReply] =
+    onStore { service.secrets.put(request.name, request.value); PutSecretReply() }(e =>
+      PutSecretReply(Some(e))
+    )
+
+  def deleteSecret(request: DeleteSecretRequest): Future[DeleteSecretReply] =
+    onStore { service.secrets.delete(request.name); DeleteSecretReply() }(e =>
+      DeleteSecretReply(Some(e))
+    )

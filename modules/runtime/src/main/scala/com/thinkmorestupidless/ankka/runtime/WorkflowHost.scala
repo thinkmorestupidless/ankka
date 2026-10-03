@@ -54,11 +54,17 @@ private[ankka] object WorkflowHost:
   def behavior[W <: Workflow[S], S](
       descriptor: WorkflowDescriptor[W, S],
       workflowId: EntityId,
-      componentClient: ComponentClient
+      componentClient: ComponentClient,
+      secrets: SecretStore
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
-        val context = SimpleWorkflowContextImpl(workflowId, descriptor.componentId, componentClient)
+        val context = SimpleWorkflowContextImpl(
+          workflowId,
+          descriptor.componentId,
+          componentClient,
+          StepScope.stepsOnly(secrets)
+        )
 
         // One instance for settings and the empty state. Command handling and step
         // execution each get their own, because a step runs concurrently with the actor

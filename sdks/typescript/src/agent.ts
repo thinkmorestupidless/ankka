@@ -7,7 +7,7 @@
 //   static readonly handlers = { ask: command("ask", s.string, s.string, (a: Assistant, q) => a.ask(q)), chat: stream("chat", s.string, (a: Assistant, q) => a.ask(q)) }
 
 import type { Metadata } from "./effects/common.ts"
-import type { ComponentClient } from "./client.ts"
+import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { GuardrailRef, HandlerTable, ToolRef } from "./handlers.ts"
 import { AgentEffects } from "./effects/agent.ts"
 
@@ -30,6 +30,18 @@ export abstract class Agent {
   get client(): ComponentClient {
     if (!this.#client) throw new Error("client is only available inside a handler, a tool or a guardrail")
     return this.#client
+  }
+
+  #secrets: Secrets | undefined
+
+  /** The service's secret store: values kept encrypted in the service's own database, never in a journal or a view. */
+  get secrets(): Secrets {
+    return this.#secrets ?? secretsFor(this.client)
+  }
+
+  /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
+  set secrets(store: Secrets) {
+    this.#secrets = store
   }
 
   /** @internal */

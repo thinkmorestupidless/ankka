@@ -476,12 +476,14 @@ impl<C: Workflow> Registered for Registration<C> {
             },
             None => C::empty_state(&request.entity_id),
         };
+        // A step: the one place in a workflow that has the secret store.
         let ctx = Context::new(
             C::COMPONENT_ID,
             request.entity_id.clone(),
             0,
             Metadata::default(),
-        );
+        )
+        .with_secrets();
         let effect = match (entry.run)(&state, run_step.input.as_ref(), &ctx) {
             Ok(effect) => effect,
             Err(message) => return fault(run_step.id, message),

@@ -55,6 +55,20 @@ trait AnkkaServiceClient extends AutoCloseable:
    */
   def ensurePullSecret(namespace: String, server: String, username: String, password: String): Unit
 
+  /**
+   * Sets entries of a project secret, merged into what the Secret holds: the entries named are
+   * added or replaced and every other entry is kept. Creates the Secret, and the namespace, when
+   * they do not exist. Write-only as `ensurePullSecret` is: never a `get`, and whatever the API
+   * server answers a write with is discarded.
+   *
+   * Throws on failure; a refusal the cluster makes of the request itself (too large, invalid) is a
+   * `CommandError(BadRequest)`, anything else is the caller's to report as unavailable.
+   */
+  def setSecretEntries(namespace: String, name: String, entries: Map[String, String]): Unit
+
+  /** Removes one entry of a project secret. The Secret stays, empty if that was its last entry. */
+  def removeSecretEntry(namespace: String, name: String, entry: String): Unit
+
   /** Writes desired state. Idempotent: an unchanged spec performs no write at all. */
   def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit
 
@@ -96,3 +110,16 @@ trait RegistryWriter:
    * refused or is unreachable, which the caller reports as unavailable — nothing is recorded.
    */
   def writePullSecret(projectId: String, server: String, username: String, password: String): Unit
+
+/**
+ * The other thing an endpoint may do to the cluster: a project secret's entries. Two methods, for
+ * the reasons `RegistryWriter` is one: no access to desired state, and the projector already knows
+ * a project's namespace.
+ */
+trait ProjectSecretWriter:
+
+  /** Throws if the cluster refused or is unreachable; the caller records nothing. */
+  def setEntries(projectId: String, name: String, entries: Map[String, String]): Unit
+
+  /** Throws if the cluster refused or is unreachable; the caller records nothing. */
+  def removeEntry(projectId: String, name: String, entry: String): Unit

@@ -285,6 +285,20 @@ invocation.stream(input))` for a streaming agent handler. A refusal rejects with
 a child span; `client.withMetadata(md)` scopes a client by hand. See
 [Calling components](../build/component-client.md).
 
+## Secret store
+
+The service's secret store, for a value it must keep and never record, such as a credential a person
+gave it ([Secrets a service keeps](../build/secrets.md)). The consumer, graph consumer, timed action,
+agent, autonomous agent and endpoint classes have `secrets`, and a workflow has it in a step; the two
+entity classes and `View` have no such property, so reaching for one is a type error. `await
+this.secrets.put(name, value)`, `await this.secrets.get(name)` (the value, or `undefined`) and `await
+this.secrets.delete(name)`. A refusal is a `CommandError` with the runtime's code.
+
+The runtime beside the process holds the store and its key; the process never sees the key. For a unit
+test, assign `component.secrets = new InMemorySecrets()`; `noSecrets()` is a store whose every call
+throws. The integration test kit puts a generated `ANKKA_SECRET_KEY` on the runtime it starts. Needs
+protocol 1.4: an earlier runtime is reported as too old for the store.
+
 ## Running a service
 
 ```ts

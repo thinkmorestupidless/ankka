@@ -739,6 +739,7 @@ Usage:
     ankka projects rename
     ankka projects delete
     ankka projects registry
+    ankka projects secrets
 
 Manage projects.
 
@@ -759,6 +760,8 @@ Subcommands:
         Delete a project. It must have no services.
     registry
         Credentials the cluster pulls this project's private images with.
+    secrets
+        Project secrets: values a descriptor's variables take by secretKeyRef, which the control plane writes to the cluster and can never read back.
 ```
 
 ### `ankka projects list`
@@ -923,6 +926,89 @@ Options and flags:
 Usage: ankka projects registry clear [--url <string>] [--token <string>] [--project <string>] [--output <string>] <id>
 
 Stop using a registry credential for a project.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects secrets`
+
+```text
+Usage:
+    ankka projects secrets set
+    ankka projects secrets unset
+    ankka projects secrets list
+
+Project secrets: values a descriptor's variables take by secretKeyRef, which the control plane writes to the cluster and can never read back.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    set
+        Set entries of a project secret, keeping its others. KEY=- reads that value from standard input.
+    unset
+        Remove one entry of a project secret.
+    list
+        List a project's secrets: names and entries, never values.
+```
+
+### `ankka projects secrets set`
+
+```text
+Usage: ankka projects secrets set [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name> <KEY=VALUE>...
+
+Set entries of a project secret, keeping its others. KEY=- reads that value from standard input.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects secrets unset`
+
+```text
+Usage: ankka projects secrets unset [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name> <KEY>
+
+Remove one entry of a project secret.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects secrets list`
+
+```text
+Usage: ankka projects secrets list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+List a project's secrets: names and entries, never values.
 
 Options and flags:
     --help

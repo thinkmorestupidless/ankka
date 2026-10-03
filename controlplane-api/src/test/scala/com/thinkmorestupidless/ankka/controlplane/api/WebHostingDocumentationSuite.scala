@@ -109,7 +109,10 @@ class WebHostingDocumentationSuite extends munit.FunSuite:
       "deploy/web-hosting.md",
       "The mounted service is told the caller `Gateway`",
       "it serves the request only if its access rule admits the internet",
-      "Only a call the process makes is told to come from the web-hosted service"
+      "Only a call the process makes is told to come from the web-hosted service",
+      // FR-035's two further statements about mounts.
+      "A service that must know which person is asking has to check that itself",
+      "A web-hosted service mounted under a sibling is reachable from the internet through that sibling"
     )
   }
 

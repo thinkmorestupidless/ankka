@@ -142,7 +142,7 @@ class InitSuite extends munit.FunSuite:
   }
 
   test("each template renders every token, keeps GitHub's expressions, and carries its dotfiles") {
-    for language <- Seq(Language.Python, Language.TypeScript) do
+    for language <- Seq(Language.Python, Language.TypeScript, Language.Web) do
       val dir     = Files.createTempDirectory("init")
       val request = Init.Request("probe", directory = dir, language = language)
       val target  = Scaffold.render(request, "9.9.9")
@@ -155,5 +155,6 @@ class InitSuite extends munit.FunSuite:
       assert(!deploy.contains("{{name}}"), deploy)
       val descriptor = Files.readString(target.resolve("service.json"))
       assert(descriptor.contains("\"name\": \"probe\""), descriptor)
-      assert(descriptor.contains("\"hosting\": \"process\""), descriptor)
+      val hosting = if language == Language.Web then "web" else "process"
+      assert(descriptor.contains(s"\"hosting\": \"$hosting\""), descriptor)
   }

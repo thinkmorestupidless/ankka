@@ -79,8 +79,11 @@ POST \$ANKKA_SERVICES_URL/invoices.billing/issue   # the service invoices, in th
 
 The method, the headers and the body are sent as the process gave them, except that headers starting
 `X-Ankka-` and the hop-by-hop headers are removed and `Host` is the service's. The answer is returned as
-the service gave it, whatever its status, a refusal included. There are no retries, and no redirect is
-followed.
+the service gave it, whatever its status, a refusal included. No redirect is followed. A call the
+service answered is never sent again, and neither is any other call whose connection closed. The one
+exception is a `GET` or `HEAD` whose connection closed before any answer began: it is sent once more on
+a new connection, because the closed connection may be one the service had already let go idle. The
+same holds for a request passed to the process or under a mount.
 
 The service is told the caller `Service(<this project>, <this service>)`, so its access rule can admit
 the web-hosted service by name. The proxy also checks that whoever answers holds the identity of the

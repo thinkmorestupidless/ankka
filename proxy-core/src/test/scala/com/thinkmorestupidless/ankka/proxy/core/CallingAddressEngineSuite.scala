@@ -130,6 +130,28 @@ class CallingAddressEngineSuite extends munit.FunSuite:
     }
   }
 
+  test("a redirect comes back to the process, and is not followed") {
+    withFixture() { f =>
+      val response = f.call("/cart/redirect")
+      assertEquals(response.statusCode, 303)
+      assertEquals(response.headers.firstValue("Location").toScala, Some("/status/200"))
+      assert(!marked(response), "the redirect was marked as the proxy's")
+      assertEquals(f.cart.requests.map(_.target), Vector("/redirect"))
+    }
+  }
+
+  test("a call the service answered, or read and closed on, is not sent again") {
+    withFixture() { f =>
+      assertEquals(f.call("/cart/status/503", "POST", Some("x")).statusCode, 503)
+      assertEquals(f.call("/cart/close", "POST", Some("x")).statusCode, 502)
+      assertEquals(f.cart.requests.map(_.target), Vector("/status/503", "/close"))
+      // A GET or HEAD whose connection closed before any answer is the one exception: the client
+      // sends it once more on a new connection, as for a pooled connection the service had closed.
+      assertEquals(f.call("/cart/close").statusCode, 502)
+      assertEquals(f.cart.requests.count(_.target == "/close"), 3)
+    }
+  }
+
   test("a streamed answer comes back part by part") {
     withFixture() { f =>
       assertEquals(f.call("/cart/stream").body, "part 1\npart 2\npart 3\n")

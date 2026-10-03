@@ -47,8 +47,18 @@ final class StandInProcess(interval: FiniteDuration = 1.second):
   /** Every request given so far, in order. */
   def requests: Vector[StandInProcess.Received] = recorded.asScala.toVector
 
+  /** When `/trickle`'s first body byte arrived, as `System.nanoTime`; 0 until it has. */
+  @volatile var firstBodyByteAt: Long = 0L
+
   private def handle(exchange: HttpExchange): Unit =
-    val body = exchange.getRequestBody.readAllBytes()
+    val body =
+      if exchange.getRequestURI.getPath != "/trickle" then exchange.getRequestBody.readAllBytes()
+      else
+        // The first byte on its own, so a test can see it arrive before the rest is sent.
+        val in    = exchange.getRequestBody
+        val first = in.read()
+        firstBodyByteAt = System.nanoTime()
+        if first < 0 then Array.emptyByteArray else first.toByte +: in.readAllBytes()
     val headers = exchange.getRequestHeaders.asScala.toVector.flatMap { (name, values) =>
       values.asScala.map(name.toLowerCase -> _)
     }
@@ -88,7 +98,11 @@ final class StandInProcess(interval: FiniteDuration = 1.second):
           exchange.getResponseBody.close()
         case "/close" =>
           exchange.close()
-        case "/body" =>
+        case "/redirect" =>
+          // A redirect to a path this stand-in serves, so following it would be seen as a request.
+          exchange.getResponseHeaders.add("Location", "/status/200")
+          exchange.sendResponseHeaders(303, -1L)
+        case "/body" | "/trickle" =>
           exchange.getResponseHeaders.add("Content-Type", "application/octet-stream")
           exchange.sendResponseHeaders(200, if body.isEmpty then -1L else body.length.toLong)
           if body.nonEmpty then exchange.getResponseBody.write(body)

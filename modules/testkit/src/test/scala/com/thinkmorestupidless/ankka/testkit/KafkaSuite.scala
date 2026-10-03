@@ -405,6 +405,29 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
       kit.stop()
   }
 
+  test("messages under one key reach their partition in the order they were published") {
+    // A fresh publisher, so its producer is cold, and no waiting between publications: the shape
+    // in which sends handed to a dispatcher one by one overtook each other.
+    val topic = KafkaSuite.createTopic(bootstrap, "ordered")
+    val cold  = KafkaPublisher(bootstrap)
+    try
+      val sent = (1 to 200).map(n =>
+        cold.publish(topic, Some("one-key"), s"$n".getBytes("UTF-8"), Metadata.empty)
+      )
+      Await.result(
+        scala.concurrent.Future.sequence(sent)(using
+          implicitly,
+          scala.concurrent.ExecutionContext.parasitic
+        ),
+        60.seconds
+      ): Unit
+    finally cold.close()
+    val read = eventually("all two hundred are on the topic") {
+      Some(KafkaSuite.readAll(bootstrap, topic, "assert-ordered").map(_._2)).filter(_.size == 200)
+    }
+    assertEquals(read, (1 to 200).map(_.toString).toVector)
+  }
+
   test("CloudEvents attributes travel as Kafka headers") {
     publish(StockEvent("k-sku-5", 1, "w1"))
 

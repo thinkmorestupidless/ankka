@@ -9,7 +9,7 @@ from typing import Any, ClassVar, Generic, TypeVar
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.codec import Codec
 from ankka.context import Metadata
-from ankka.effects.consumer import ConsumerEffect, ConsumerEffects, Done, Ignore, Produce
+from ankka.effects.consumer import ConsumerEffect, ConsumerEffects, Done, Ignore, Produce, ProduceAll
 from ankka.event_sourced_entity import RegistrationError
 from ankka.view import _source_pb
 
@@ -66,6 +66,6 @@ class Consumer(Generic[Src, Out]):
         result = self.on_delete() if message_bytes is None else self.on_message(self.message_codec.decode(message_bytes))
         if isinstance(result, Awaitable):
             result = await typing.cast(Awaitable[ConsumerEffect], result)
-        if not isinstance(result, (Produce, Done, Ignore)):
+        if not isinstance(result, (Produce, ProduceAll, Done, Ignore)):
             raise TypeError(f"{type(self).__name__}.on_message returned {type(result).__name__}, not a consumer effect")
         return result

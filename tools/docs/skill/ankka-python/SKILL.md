@@ -5,6 +5,7 @@ pages:
   - concepts/polyglot.md
   - get-started/first-service-python.md
   - reference/python-sdk.md
+  - build/graph.md
   - build/autonomous-agents.md
   - reference/sidecar-protocol.md
   - build/serialization.md
@@ -70,7 +71,15 @@ skill holds what differs.
    platform's version. Environment is split by name: `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` go to
    the sidecar, everything else to the process. A topic-sourced view or producing consumer needs
    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` or the sidecar refuses to start, naming the component.
-10. **The process holds no durable state.** It may crash or restart freely; the sidecar re-opens entities
+10. **Several messages are one effect, and a graph is published by a graph consumer.** A consumer returns
+    `self.effects.produce_all([self.effects.message(x, key="k"), …])` to publish several messages for one
+    change, each under its own record key if it names one. To publish entities as a graph, subclass
+    `ankka.GraphConsumer` (`component_id`, `source`, `message_codec`, `produces_to`; no `out_codec`) and
+    return `self.effects.publish([self.graph.node(id, labels=[…], properties={…}), self.graph.edge(…), …])`.
+    Each element is its whole state; the SDK writes the delta's JSON, its `node:<id>`/`edge:<id>` key and
+    its version (the change's `sequence_number`, or `version=` when stated). Tombstones come from
+    `on_delete`. A fault raises `graph.RefusedElement`. Test with `GraphConsumerTestKit.of(Cls)`.
+11. **The process holds no durable state.** It may crash or restart freely; the sidecar re-opens entities
     when it returns and callers retry a brief `Unavailable`. Do not cache state in the process across
     commands.
 
@@ -88,3 +97,13 @@ See `references/get-started/first-service-python.md` for the first service and
 - A test parsing a `str` reply as JSON, or posting a `str` body as a JSON string.
 - Calls from an endpoint without `with_metadata`, leaving orphan traces.
 - Reading a session id inside a tool function instead of in the handler's plan.
+- A graph delta built by hand: JSON, a `node:`/`edge:` key or a version written in the handler. Return
+  elements from a graph consumer's builder; it writes all three.
+- A record key set on a delta, or a delta published through an ordinary consumer's `produce`.
+- A graph consumer that publishes an element another entity owns (a cart publishing the `product` node).
+  Publish the edge; the owning entity publishes the node.
+- An element built from a thin event, carrying only what changed. An element is its whole state: build it
+  from an event that carries it, or read the entity through the client.
+- A graph consumer over a topic with no version stated on its elements: a topic has no sequence number.
+- Expecting ankka to create the delta topic or make it compacted. Declare it in the ankka-flow pipeline
+  that reads it, and deploy that pipeline first.

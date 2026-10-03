@@ -27,6 +27,7 @@ import org.apache.pekko.projection.r2dbc.scaladsl.{R2dbcHandler, R2dbcSession}
 import org.apache.pekko.projection.scaladsl.Handler
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 /**
  * Views and consumers whose handlers live in another process.
@@ -50,6 +51,13 @@ private[ankka] object RemoteProjection:
 
   def changeMetadata(subject: String, sequence: Long): Metadata =
     Metadata.empty.withSubject(subject).set(SequenceKey, sequence.toString)
+
+  /**
+   * What a consumer is told about a change: a view's, and what this runtime speaks, so the process
+   * knows whether it may answer with several messages.
+   */
+  def consumerMetadata(subject: String, sequence: Long): Metadata =
+    changeMetadata(subject, sequence).set(WireProtocol.MetadataKey, WireProtocol.Version)
 
   def payloadOf(record: JournalRecord): Payload =
     Payload(Payload.contentTypeFor(record.manifest), record.manifest, record.payload)
@@ -154,6 +162,9 @@ private[ankka] final class RemoteViewStateHandler(view: RemoteView, database: Da
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
     val (payload, revision) = change match
+      // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+      case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+        (None, updated.revision)
       case updated: UpdatedDurableState[StateRecord] =>
         (Some(payloadOf(updated.value)), updated.revision)
       case deleted: DeletedDurableState[StateRecord] => (None, deleted.revision)
@@ -209,7 +220,7 @@ private[ankka] final class RemoteConsumer(
         ConsumerRequest(
           descriptor.componentId,
           change,
-          Trace.into(changeMetadata(subject, sequence), span.traceId, span.id)
+          Trace.into(consumerMetadata(subject, sequence), span.traceId, span.id)
         )
       )
       .transform { result =>
@@ -217,7 +228,44 @@ private[ankka] final class RemoteConsumer(
           .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
         result
       }
+      // Whatever went wrong between here and the process — a reply too large for the transport
+      // among them — say whose change it was: the projection only logs what it is given.
+      .recoverWith { case NonFatal(failure) =>
+        Future.failed(
+          IllegalStateException(
+            s"consumer '${descriptor.componentId}' could not handle the change of '$subject' " +
+              s"at sequence $sequence: ${failure.getMessage}",
+            failure
+          )
+        )
+      }
       .flatMap {
+        case ConsumerOutcome.ProduceAll(messages) if messages.isEmpty => Future.successful(Done)
+        case ConsumerOutcome.ProduceAll(messages) =>
+          (descriptor.producesTo, publisher) match
+            case (Some(topic), Some(target)) =>
+              ProjectionSupport.publishAll(
+                descriptor.componentId,
+                subject,
+                topic,
+                target,
+                messages.map(m =>
+                  ProjectionSupport.Encoded(
+                    m.payload.data,
+                    m.metadata
+                      .set(PayloadKeys.Manifest, m.payload.manifest)
+                      .set(PayloadKeys.ContentType, m.payload.contentType),
+                    m.key
+                  )
+                )
+              )
+            case _ =>
+              Future.failed(
+                IllegalStateException(
+                  s"consumer '${descriptor.componentId}' produced ${messages.size} messages " +
+                    "but has no publish target configured"
+                )
+              )
         case ConsumerOutcome.Produce(payload, metadata) =>
           (descriptor.producesTo, publisher) match
             case (Some(topic), Some(target)) =>
@@ -260,6 +308,9 @@ private[ankka] final class RemoteConsumerStateHandler(consumer: RemoteConsumer)
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
     change match
+      // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+      case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+        consumer.handle(subject, updated.revision, None)
       case updated: UpdatedDurableState[StateRecord] =>
         consumer.handle(subject, updated.revision, Some(payloadOf(updated.value)))
       case deleted: DeletedDurableState[StateRecord] =>

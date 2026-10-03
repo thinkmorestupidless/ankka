@@ -509,6 +509,9 @@ private final class ViewStateHandler(
         val effect =
           try
             change match
+              // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+              case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+                view.onDelete
               case updated: UpdatedDurableState[StateRecord] =>
                 view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
               case _: DeletedDurableState[StateRecord] => view.onDelete
@@ -569,10 +572,17 @@ private final class ConsumerStateHandler(
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
 
-    consumer._setContext(Some(SimpleChangeContext(subject, 0L, localOrigin = true)))
+    val revision = change match
+      case updated: UpdatedDurableState[StateRecord] => updated.revision
+      case deleted: DeletedDurableState[StateRecord] => deleted.revision
+
+    consumer._setContext(Some(SimpleChangeContext(subject, revision, localOrigin = true)))
     val effect =
       try
         change match
+          // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+          case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+            consumer.onDelete
           case updated: UpdatedDurableState[StateRecord] =>
             consumer.onMessage(descriptor.source.decoder.fromBytes(updated.value.payload))
           case _: DeletedDurableState[StateRecord] => consumer.onDelete

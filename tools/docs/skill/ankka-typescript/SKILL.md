@@ -5,6 +5,7 @@ pages:
   - concepts/polyglot.md
   - get-started/first-service-typescript.md
   - reference/typescript-sdk.md
+  - build/graph.md
   - reference/sidecar-protocol.md
   - build/serialization.md
   - build/testing.md
@@ -78,7 +79,16 @@ skill holds what differs.
 10. **Deploy as a process-hosted service.** The descriptor sets `hosting: "process"` and `protocol: "1.0"`;
     the image holds only your process (`node:24-slim`, `node main.ts`); the platform adds the sidecar.
     `ANTHROPIC_*`, `ANKKA_MODEL_*` and `ANKKA_DB_*` go to the sidecar, everything else to the process.
-11. **The process holds no durable state.** It may restart freely; the sidecar re-opens entities when it
+11. **Several messages are one effect, and a graph is published by a graph consumer.** A consumer returns
+    `this.effects.produceAll([{ payload, key: "k" }, …])` to publish several messages for one change, each
+    under its own record key if it names one. To publish entities as a graph, extend `GraphConsumer<M>`
+    (`componentId`, `source`, `message`, `producesTo`; no `out`) and return
+    `this.effects.publish([this.graph.node(id, { labels, properties }), this.graph.edge(id, { type, from, to }), …])`.
+    Each element is its whole state; the SDK writes the delta's JSON, its `node:<id>`/`edge:<id>` key and
+    its version (`this.sequenceNumber`, or `version` when stated). An integral `number` property must be a
+    safe integer; larger integers are `bigint`. Tombstones come from `onDelete`. A fault throws
+    `GraphError`. Test with `GraphConsumerTestKit.of(Cls)`.
+12. **The process holds no durable state.** It may restart freely; the sidecar re-opens entities when it
     returns. Do not cache state across commands.
 
 ## Development loop
@@ -97,3 +107,13 @@ service and `references/reference/typescript-sdk.md` for the map of every class,
 - A test parsing a `s.string` reply as JSON, or posting a string body as a JSON string.
 - Transitioning to a step name that is not in `steps`, or `settings` naming one.
 - Reading `this.sessionId` inside a tool after the plan; it is captured on the agent instance the tool runs on.
+- A graph delta built by hand: JSON, a `node:`/`edge:` key or a version written in the handler. Return
+  elements from a graph consumer's builder; it writes all three.
+- A record key set on a delta, or a delta published through an ordinary consumer's `produce`.
+- A graph consumer that publishes an element another entity owns (a cart publishing the `product` node).
+  Publish the edge; the owning entity publishes the node.
+- An element built from a thin event, carrying only what changed. An element is its whole state: build it
+  from an event that carries it, or read the entity through the client.
+- A graph consumer over a topic with no version stated on its elements: a topic has no sequence number.
+- Expecting ankka to create the delta topic or make it compacted. Declare it in the ankka-flow pipeline
+  that reads it, and deploy that pipeline first.

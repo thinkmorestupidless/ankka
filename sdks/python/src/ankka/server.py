@@ -428,14 +428,77 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         metadata = Metadata.from_pb(request.metadata)
         consumer = cls(self.client.with_metadata(metadata))
         effect = await consumer._handle(None if request.deleted else request.message.data, metadata)
-        if isinstance(effect, consumer_effects.Produce):
-            assert cls.out_codec is not None
-            return consumer_pb2.ConsumerEffect(
-                produce=consumer_pb2.ConsumerEffect.Produce(payload=_payload_of(cls.out_codec, effect.payload), metadata=effect.metadata.to_pb())
-            )
-        if isinstance(effect, consumer_effects.Done):
+        refusal = several_refusal(effect, metadata)
+        if refusal is not None:
+            # Failed, not answered: a runtime that does not know `produce_all` would read it as no
+            # effect and record the change as handled with nothing published.
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
+        return consumer_effect_pb(effect, cls.out_codec)
+
+
+SEVERAL_SINCE = (1, 3)
+"""The protocol version whose runtimes accept several messages for one change, and a record key."""
+
+
+def _protocol_of(metadata: Metadata) -> tuple[int, int] | None:
+    declared = metadata.protocol
+    if declared is None:
+        return None
+    try:
+        major, minor = declared.split(".")[:2]
+        return int(major), int(minor)
+    except ValueError:
+        return None
+
+
+def _needs_several(effect: consumer_effects.ConsumerEffect) -> bool:
+    """Whether the reply has to be `produce_all`: more than one message, or one under a key."""
+    if not isinstance(effect, consumer_effects.ProduceAll):
+        return False
+    return len(effect.messages) > 1 or any(m.key is not None for m in effect.messages)
+
+
+def several_refusal(effect: consumer_effects.ConsumerEffect, metadata: Metadata) -> str | None:
+    """Why this effect cannot be answered to the runtime that sent the request, or None. The
+    runtime says what it speaks in the request's ``ankka.protocol``; one that says nothing is 1.2
+    or earlier."""
+    if not _needs_several(effect):
+        return None
+    speaks = _protocol_of(metadata)
+    if speaks is not None and speaks >= SEVERAL_SINCE:
+        return None
+    declared = metadata.protocol if speaks is not None else "1.2 or earlier"
+    return f"this runtime speaks protocol {declared}; several messages or a record key need 1.3"
+
+
+def consumer_effect_pb(effect: consumer_effects.ConsumerEffect, out_codec: Any) -> consumer_pb2.ConsumerEffect:
+    """A consumer's effect as the wire carries it. One message with no key is `produce`, as it has
+    always been; no messages is `done`; anything else is `produce_all`."""
+    if isinstance(effect, consumer_effects.ProduceAll):
+        if not effect.messages:
             return consumer_pb2.ConsumerEffect(done=payload_pb2.Empty())
-        return consumer_pb2.ConsumerEffect(ignore=payload_pb2.Empty())
+        assert out_codec is not None
+        if not _needs_several(effect):
+            only = effect.messages[0]
+            return consumer_pb2.ConsumerEffect(
+                produce=consumer_pb2.ConsumerEffect.Produce(payload=_payload_of(out_codec, only.payload), metadata=only.metadata.to_pb())
+            )
+        return consumer_pb2.ConsumerEffect(
+            produce_all=consumer_pb2.ConsumerEffect.ProduceAll(
+                messages=[
+                    consumer_pb2.ConsumerEffect.Message(payload=_payload_of(out_codec, m.payload), metadata=m.metadata.to_pb(), key=m.key)
+                    for m in effect.messages
+                ]
+            )
+        )
+    if isinstance(effect, consumer_effects.Produce):
+        assert out_codec is not None
+        return consumer_pb2.ConsumerEffect(
+            produce=consumer_pb2.ConsumerEffect.Produce(payload=_payload_of(out_codec, effect.payload), metadata=effect.metadata.to_pb())
+        )
+    if isinstance(effect, consumer_effects.Done):
+        return consumer_pb2.ConsumerEffect(done=payload_pb2.Empty())
+    return consumer_pb2.ConsumerEffect(ignore=payload_pb2.Empty())
 
 
 class TimedActionServicer(timed_action_pb2_grpc.TimedActionServicer):

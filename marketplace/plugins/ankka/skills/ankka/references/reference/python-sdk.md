@@ -105,11 +105,39 @@ See [Views](../build/views.md).
 | Class attributes | `component_id`, `source` or `topic`, `message_codec`; to publish, `produces_to` and `out_codec` |
 | Must define | `async on_message(self, message) -> ConsumerEffect` |
 | May override | `on_delete(self)`, which ignores by default |
-| In a handler | `self.metadata`, `self.client`, `self.effects` |
-| Effects | `produce(out, metadata=None)`, `done()`, `ignore()` |
+| In a handler | `self.metadata` (`subject`, `sequence_number`), `self.client`, `self.effects` |
+| Effects | `produce(out, metadata=None)`, `produce_all(messages)`, `done()`, `ignore()` |
+| One of several messages | `self.effects.message(out, key=None, metadata=None)`; `key` is a record key other than the message's subject |
 
 Delivery is at least once. A consumer that produces needs `ANKKA_KAFKA_BOOTSTRAP_SERVERS` on the sidecar.
-See [Consumers](../build/consumers.md).
+`produce_all` publishes its messages in order, and the change is handled when the broker has accepted all
+of them; an empty list is handled at once. See [Consumers](../build/consumers.md).
+
+## Graph consumer
+
+A consumer that publishes its source as graph deltas. It is registered as a consumer and can publish
+nothing but deltas.
+
+| Part | API |
+|---|---|
+| Base class | `ankka.GraphConsumer[Src]`, in `ankka.graph` |
+| Class attributes | `component_id`, `source` or `topic`, `message_codec`, `produces_to`; no `out_codec` |
+| Must define | `on_message(self, message) -> GraphEffect`, which may be `async` |
+| May override | `on_delete(self)`, which ignores by default |
+| In a handler | `self.metadata`, `self.client`, `self.graph`, `self.effects` |
+| Elements | `self.graph.node(id, labels=(), properties=None, version=None)`, `edge(id, type=, from_id=, to_id=, properties=None, version=None)`, `tombstone_node(id, version=None)`, `tombstone_edge(id, type=, from_id=, to_id=, version=None)` |
+| Effects | `self.effects.publish(elements)`, `done()`, `ignore()` |
+| A refusal | `graph.RefusedElement`, a `ValueError` whose `why` names the rule broken |
+
+| In `ankka.graph` | What it is |
+|---|---|
+| `Element` | A frozen dataclass: `kind`, `element`, `id`, `version`, `labels`, `type`, `from_id`, `to_id`, `properties`, and `key`, the record key |
+| `read(value, key=None)` | Reads a record's value into an `Element`; given a key, also checks it is the delta's element key. Raises `ValueError` naming the fault. |
+| `CODEC` | The delta codec, under the manifest `ankka.graph-delta.v1`: a `message_codec` for a consumer that reads a delta topic |
+| `node_key(id)`, `edge_key(id)`, `SCHEMA_NAME` | The element keys and the contract's name |
+
+A property value is a `str`, an `int`, a `float`, a `bool`, or a list of one of those; a `bool` is not an
+integer. See [Publish a graph](../build/graph.md).
 
 ## Workflow
 
@@ -236,7 +264,8 @@ Locally, run the sidecar with `docker compose --profile polyglot up -d` from the
 | `KeyValueTestKit.of(Cls, id)` | `ankka.testkit` | One key value entity. |
 | `WorkflowTestKit.of(Cls, id)` | `ankka.testkit` | One workflow: `call`, `run_step`, `run_until_end`. |
 | `ViewTestKit.of(Cls)` | `ankka.testkit` | A view's `on_change` and `on_delete`, and the resulting rows. |
-| `ConsumerTestKit.of(Cls)` | `ankka.testkit` | A consumer's `on_message` and `on_delete`. |
+| `ConsumerTestKit.of(Cls)` | `ankka.testkit` | A consumer's `on_message(message, subject, sequence=None)` and `on_delete`. `produced` holds each payload it published and `messages` each `Produced(payload, key, metadata)`. |
+| `GraphConsumerTestKit.of(Cls, client=None)` | `ankka.testkit` | A graph consumer's `on_message(message, subject, sequence=1)` and `on_delete(subject, sequence=1)`, each returning the `Element`s published, read back from their bytes. |
 | `TimedActionTestKit.of(Cls)` | `ankka.testkit` | A timed action's handlers. |
 | `AgentTestKit.of(Cls, session_id, model=ScriptedModel())` | `ankka.testkit` | An agent's plan, tools and guardrails, against a scripted model. |
 | `EndpointTestKit.of(Cls, …)` | `ankka.testkit` | An endpoint's routes, with no sidecar. |

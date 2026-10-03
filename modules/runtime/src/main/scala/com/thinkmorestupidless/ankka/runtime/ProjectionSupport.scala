@@ -1,12 +1,13 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.Serializer
+import com.thinkmorestupidless.ankka.core.{ComponentId, Metadata, Serializer}
 import com.thinkmorestupidless.ankka.core.effect.{ConsumerEffect, ViewEffect}
 import com.thinkmorestupidless.ankka.sdk.*
 import org.apache.pekko.Done
 import org.apache.pekko.projection.r2dbc.scaladsl.R2dbcSession
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 /** Shared steps between the four projection handlers. */
 private[ankka] object ProjectionSupport:
@@ -87,6 +88,64 @@ private[ankka] object ProjectionSupport:
       case ViewEffect.Ignore    => Future.successful(Done)
 
   /**
+   * The most one change's messages may weigh together, as they are published. It is what a
+   * sidecar's reply may carry (the transport's limit), applied here too so that how a service is
+   * hosted does not decide how much a consumer may produce.
+   */
+  val MaxResultBytes: Int = 4 * 1024 * 1024
+
+  /** One of several messages, encoded: `key` absent means the message's subject. */
+  final case class Encoded(payload: Array[Byte], metadata: Metadata, key: Option[String])
+
+  /**
+   * Publishes the several messages a consumer produced for one change.
+   *
+   * The one place this is done, for a consumer in process, behind a sidecar or in a module. Each
+   * message's `ce-subject` defaults to the source's id, as a single message's does, and its record
+   * key is the one it names, else that subject. The messages are handed to the publisher in the
+   * order given — so records under one key keep their order — and the result completes when the
+   * broker has accepted all of them. If any is refused the result fails, the change is not recorded
+   * as handled, and it comes again with all its messages. Nothing is published when the result is
+   * over the limit or a key is empty.
+   */
+  def publishAll(
+      componentId: ComponentId,
+      subject: String,
+      topic: String,
+      target: MessagePublisher,
+      messages: Seq[Encoded]
+  ): Future[Done] =
+    val enriched = messages.map(m =>
+      if m.metadata.subject.isDefined then m else m.copy(metadata = m.metadata.withSubject(subject))
+    )
+    val size = enriched.iterator.map(weightOf).sum
+    if enriched.exists(_.key.contains("")) then
+      Future.failed(
+        IllegalStateException(
+          s"consumer '$componentId' named an empty record key for '$subject'; leave the key " +
+            "out to key a message by its subject"
+        )
+      )
+    else if size > MaxResultBytes then
+      Future.failed(
+        IllegalStateException(
+          s"consumer '$componentId' produced ${enriched.size} messages of $size bytes for " +
+            s"'$subject'; the messages of one change may be at most $MaxResultBytes bytes (4 MiB)"
+        )
+      )
+    else
+      given ExecutionContext = ExecutionContext.parasitic
+      val sent = enriched.map { m =>
+        try target.publish(topic, m.key, m.payload, m.metadata)
+        catch case NonFatal(failure) => Future.failed(failure)
+      }
+      Future.sequence(sent).map(_ => Done)
+
+  private def weightOf(message: Encoded): Long =
+    message.payload.length.toLong + message.key.fold(0)(_.length) +
+      message.metadata.toSeq.iterator.map((k, v) => k.length + v.length).sum
+
+  /**
    * Publishes whatever a consumer produced.
    *
    * `ce-subject` is set to the source entity id unless the consumer set it itself, so per-entity
@@ -101,6 +160,28 @@ private[ankka] object ProjectionSupport:
     effect match
       case ConsumerEffect.Done | ConsumerEffect.Ignore =>
         Future.successful(Done)
+
+      case ConsumerEffect.ProduceAll(messages) if messages.isEmpty =>
+        Future.successful(Done)
+
+      case ConsumerEffect.ProduceAll(messages) =>
+        (descriptor.produceTo, publisher, descriptor.outputSerializer) match
+          case (Some(topic), Some(target), Some(serializer)) =>
+            publishAll(
+              descriptor.componentId,
+              subject,
+              topic,
+              target,
+              messages.map(m => Encoded(serializer.toBytes(m.payload), m.metadata, m.key))
+            )
+
+          case _ =>
+            Future.failed(
+              IllegalStateException(
+                s"consumer '${descriptor.componentId}' produced ${messages.size} messages but " +
+                  "has no publish target configured"
+              )
+            )
 
       case ConsumerEffect.Produce(payload, metadata) =>
         (descriptor.produceTo, publisher, descriptor.outputSerializer) match

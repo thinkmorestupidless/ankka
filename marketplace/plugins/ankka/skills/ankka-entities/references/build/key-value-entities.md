@@ -135,7 +135,7 @@ and `this.entityId`.
 | `.thenReplyState` | `.then_reply_state()` | `.thenReplyState()` | Reply with the new state. |
 | `.thenNoReply` | `.then_no_reply()` | `.thenNoReply()` | Update and reply with nothing. |
 | `.expireAfter(duration)` | `.expire_after(timedelta)` | `.expireAfter(duration)` | Delete the entity once `duration` passes with no further update. |
-| `effects.deleteEntity()` | `self.effects.delete_entity()` | `this.effects.deleteEntity()` | Delete the stored value; then choose a reply. |
+| `effects.deleteEntity()` | `self.effects.delete_entity()` | `this.effects.deleteEntity()` | Delete the entity; then choose a reply. |
 | `effects.reply(value)` | `self.effects.reply(value)` | `this.effects.reply(value)` | Reply without changing anything. |
 | `effects.error(message, code)` | `self.effects.error(message, code)` | `this.effects.error(message, code)` | Refuse the command; nothing changes. The code defaults to `BadRequest`. |
 
@@ -143,6 +143,20 @@ A handler that replies without calling `updateState` leaves the value exactly as
 written.
 
 After a deletion the id starts again from the empty state on its next command.
+
+A deletion is a recorded change, not a removed row. The entity's value is replaced by its empty state and
+marked deleted, at the revision after its last update, and three things follow from that:
+
+- **Its views and consumers are told.** A [view](views.md#when-the-source-is-deleted)'s deletion handler
+  runs, which by default removes the entity's row, and a
+  [consumer](consumers.md#when-the-source-is-deleted)'s deletion handler runs, at the deletion's revision.
+- **Its revisions go on counting.** An entity created again under the same id continues from the
+  deletion's revision, so everything that follows its changes sees them in order across the deletion.
+- **Its id and revision stay stored.** What the entity held is gone; that an entity of that id existed,
+  and how many times it changed, is not.
+
+An entity whose value has expired is not deleted. Expiry is noticed when a command next arrives: the
+handler is shown the empty state, nothing is written until it updates, and no view or consumer is told.
 
 ## Registering and calling
 
@@ -178,7 +192,9 @@ const record = await client.of(CheckoutLog, "c1").call(CheckoutLog.handlers.get)
 A view or consumer can read a key value entity's changes. The source is
 `ChangeSource.stateOf(CheckoutLog)` in Scala, `source = CheckoutLog` in Python and
 `static readonly source = CheckoutLog` in TypeScript. Each change delivered is the entity's whole new
-value, not a difference. See [Views](views.md) and [Consumers](consumers.md).
+value, not a difference, with the entity's revision as its sequence number; the entity's deletion is
+delivered as a deletion. See [Views](views.md) and [Consumers](consumers.md). A whole value at a revision
+is also what a graph needs: see [Publish a graph](graph.md).
 
 ## Testing
 

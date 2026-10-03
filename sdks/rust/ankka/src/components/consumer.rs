@@ -12,7 +12,8 @@ use super::view::{Source, change_context};
 use super::{ComponentOf, Registered, Shape, kinds};
 use crate::codec::Auto;
 use crate::context::Context;
-use crate::effects::consumer::ConsumerEffect;
+use crate::context::Metadata;
+use crate::effects::consumer::{ConsumerEffect, Outgoing};
 use crate::proto::{self, Kind};
 
 /// A consumer. Implement it on a unit struct and register the struct's value.
@@ -26,8 +27,8 @@ pub trait Consumer: Sized + 'static {
     /// Where the messages come from.
     fn source() -> Source;
 
-    /// The topic `effects::consumer::produce` publishes to, if the consumer publishes. The runtime
-    /// needs a broker for one (`ANKKA_KAFKA_BOOTSTRAP_SERVERS`).
+    /// The topic `effects::consumer::produce` and `produce_all` publish to, if the consumer
+    /// publishes. The runtime needs a broker for one (`ANKKA_KAFKA_BOOTSTRAP_SERVERS`).
     fn produces_to() -> Option<&'static str> {
         None
     }
@@ -111,22 +112,95 @@ impl<C: Consumer> Registered for Registration<C> {
             }
             None => C::on_deleted(&ctx),
         };
-        use proto::consumer_effect::{Effect, Produce};
-        let effect = match effect {
-            ConsumerEffect::Done => Effect::Done(proto::Empty {}),
-            ConsumerEffect::Ignore => Effect::Ignore(proto::Empty {}),
-            ConsumerEffect::Produce(payload, metadata) => Effect::Produce(Produce {
-                payload: Some(payload.unwrap_or_else(|e| {
-                    panic!(
-                        "consumer '{}': what it produces does not encode: {e}",
-                        C::COMPONENT_ID
-                    )
-                })),
-                metadata: Some(metadata.to_proto()),
-            }),
-        };
-        Some(proto::ConsumerEffect {
-            effect: Some(effect),
+        Some(to_proto(C::COMPONENT_ID, effect, ctx.metadata()))
+    }
+}
+
+/// The first protocol version whose runtime publishes several messages for one change.
+const SEVERAL_SINCE: (u32, u32) = (1, 3);
+
+/// `major.minor` as numbers, if that is what `version` is.
+fn parsed(version: &str) -> Option<(u32, u32)> {
+    let (major, minor) = version.split_once('.')?;
+    Some((major.parse().ok()?, minor.parse().ok()?))
+}
+
+/// Refuses to answer with several messages, or a record key, to a runtime that has not said it
+/// accepts them: an earlier one reads the reply as no effect at all, records the change as handled
+/// and publishes nothing. Failing the change instead keeps the messages and says what is wrong.
+fn guard(request: &Metadata) {
+    let speaks = request.protocol();
+    if speaks.and_then(parsed).is_some_and(|v| v >= SEVERAL_SINCE) {
+        return;
+    }
+    panic!(
+        "this runtime speaks protocol {}; several messages or a record key need {}.{}",
+        speaks.unwrap_or("1.2 or earlier"),
+        SEVERAL_SINCE.0,
+        SEVERAL_SINCE.1
+    )
+}
+
+/// What a consumer decided, as the protocol carries it. `request` is the metadata of the request
+/// being answered, which says what the runtime speaks.
+///
+/// No messages at all are `done`, and one message that names no key is `produce` — both mean
+/// exactly what the several-message form would, and a runtime of any version takes them.
+pub(crate) fn to_proto(
+    component_id: &str,
+    effect: ConsumerEffect,
+    request: &Metadata,
+) -> proto::ConsumerEffect {
+    use proto::consumer_effect::{Effect, Message, Produce, ProduceAll};
+    let encoded = |payload: Result<proto::Payload, crate::codec::EncodingError>| {
+        payload.unwrap_or_else(|e| {
+            panic!("consumer '{component_id}': what it produces does not encode: {e}")
         })
+    };
+    let effect = match effect {
+        ConsumerEffect::Done => Effect::Done(proto::Empty {}),
+        ConsumerEffect::Ignore => Effect::Ignore(proto::Empty {}),
+        ConsumerEffect::Produce(payload, metadata) => Effect::Produce(Produce {
+            payload: Some(encoded(payload)),
+            metadata: Some(metadata.to_proto()),
+        }),
+        ConsumerEffect::ProduceAll(messages) => {
+            let mut messages: Vec<_> = messages.into_iter().map(Outgoing::into_parts).collect();
+            if messages
+                .iter()
+                .any(|(_, key, _)| key.as_deref() == Some(""))
+            {
+                panic!(
+                    "consumer '{component_id}': a record key must not be empty; leave it out to \
+                     key a message by its subject"
+                )
+            }
+            match messages.len() {
+                0 => Effect::Done(proto::Empty {}),
+                1 if messages[0].1.is_none() => {
+                    let (payload, _, metadata) = messages.remove(0);
+                    Effect::Produce(Produce {
+                        payload: Some(encoded(payload)),
+                        metadata: Some(metadata.to_proto()),
+                    })
+                }
+                _ => {
+                    guard(request);
+                    Effect::ProduceAll(ProduceAll {
+                        messages: messages
+                            .into_iter()
+                            .map(|(payload, key, metadata)| Message {
+                                payload: Some(encoded(payload)),
+                                metadata: Some(metadata.to_proto()),
+                                key,
+                            })
+                            .collect(),
+                    })
+                }
+            }
+        }
+    };
+    proto::ConsumerEffect {
+        effect: Some(effect),
     }
 }

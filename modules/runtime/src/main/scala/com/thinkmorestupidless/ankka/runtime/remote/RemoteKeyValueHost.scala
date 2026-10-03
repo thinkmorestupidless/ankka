@@ -178,7 +178,11 @@ private[ankka] object RemoteKeyValueHost:
                       case Right(answer) =>
                         observability.recorder.complete(span, SpanOutcome.Ok)
                         val stored = m.retention match
-                          case Some(Retention.DeleteNow) => PekkoEffect.delete[RemoteState]()
+                          // A recorded state, not a removed row: the deletion is a change at
+                          // the next revision, which views and consumers are told of, and the
+                          // revisions of an entity created again go on from it.
+                          case Some(Retention.DeleteNow) =>
+                            PekkoEffect.persist(RemoteState(None, deleted = true, 0L))
                           case Some(Retention.ExpireAfter(d)) =>
                             PekkoEffect.persist(
                               RemoteState(

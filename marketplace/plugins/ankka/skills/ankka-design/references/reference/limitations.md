@@ -99,6 +99,20 @@ feature also says what that feature does not do.
 - **Topic sources are at least once and cannot replay.** A view or consumer sourced from a topic sees only
   what was published after it started, must tolerate duplicates, and skips a message with no `ce-subject`.
   Only Kafka is supported; another broker needs its own implementation of the two-method broker interface.
+- **A consumer's several messages are not published atomically.** They are published at least once and
+  in order; when the broker refuses one, the change is delivered again and all are published again. One
+  change's messages may be at most 4 MiB together.
+- **ankka creates no topics and checks none.** A topic a consumer publishes to must exist or be created by
+  the broker on first use. A [graph consumer](../build/graph.md#the-topic)'s topic must be compacted, and
+  it is the pipeline that reads it, not ankka, that creates it so and reports when it is not.
+- **A graph consumer's rules are the author's.** That an element has one writing entity, and that an
+  element is its whole state, are not checked. A graph consumer writes tombstones and no delete markers,
+  so a tombstoned element's record stays in its topic; and there is no source that hands a consumer an
+  event sourced entity's state, only its events.
+- **Expiry tells nobody.** An entity whose state has expired is not deleted: no view's row is removed, no
+  consumer's deletion handler runs, and a graph consumer's elements for it are not tombstoned.
+- **A topic source has no sequence number.** A change from a topic reads as sequence zero, and a graph
+  consumer over a topic must state the version of each element it publishes.
 - **Only agents stream.** Entities and workflows refuse a streaming request.
 - **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
   timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is

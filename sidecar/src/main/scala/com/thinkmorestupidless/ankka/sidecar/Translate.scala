@@ -176,9 +176,18 @@ private[sidecar] object Translate:
   def fromConsumerEffect(effect: ConsumerEffect): ConsumerOutcome = effect.effect match
     case ConsumerEffect.Effect.Produce(p) =>
       ConsumerOutcome.Produce(fromPayload(p.getPayload), fromMetadata(p.metadata))
+    case ConsumerEffect.Effect.ProduceAll(all) =>
+      ConsumerOutcome.ProduceAll(
+        all.messages
+          .map(m => ProducedMessage(fromPayload(m.getPayload), fromMetadata(m.metadata), m.key))
+          .toVector
+      )
     case ConsumerEffect.Effect.Done(_)   => ConsumerOutcome.Done
     case ConsumerEffect.Effect.Ignore(_) => ConsumerOutcome.Ignore
-    case ConsumerEffect.Effect.Empty     => ConsumerOutcome.Ignore
+    // A case this runtime does not know arrives as no case at all, and is read as "ignore". It is
+    // why a runtime says what it speaks on the request (`WireProtocol.MetadataKey`) and an SDK
+    // must not answer with a case the runtime did not say it accepts.
+    case ConsumerEffect.Effect.Empty => ConsumerOutcome.Ignore
 
   def toTimedActionRequest(request: TimedActionRequest): PbTimedActionRequest =
     PbTimedActionRequest(

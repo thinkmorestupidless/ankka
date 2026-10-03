@@ -75,6 +75,10 @@ pub mod kinds {
     /// An autonomous agent.
     #[derive(Debug)]
     pub struct AutonomousAgent;
+    /// A consumer that publishes a graph ([`GraphConsumer`](crate::graph::GraphConsumer)): a
+    /// consumer to the runtime, a kind of its own here.
+    #[derive(Debug)]
+    pub struct GraphConsumer;
 }
 
 /// A type that is a component of some kind: what `Service::register` and the client take. It is

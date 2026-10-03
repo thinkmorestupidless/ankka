@@ -260,6 +260,154 @@ fn a_consumer_decides_per_message() {
     assert!(matches!(kit.on_deleted("a"), ConsumerEffect::Ignore));
 }
 
+// ── a consumer that publishes several messages for one message ──
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+struct Line {
+    n: i32,
+}
+
+struct Fanout;
+
+impl Consumer for Fanout {
+    type Message = Counted;
+    const COMPONENT_ID: &'static str = "fanout";
+
+    fn source() -> Source {
+        Source::topic("counts")
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("lines")
+    }
+
+    fn on_message(message: Counted, ctx: &Context) -> ConsumerEffect {
+        let Counted::Added { by } = message;
+        match by {
+            0 => consumer::produce_all([]),
+            1 => consumer::produce_all([consumer::message(Line { n: 1 })]),
+            -1 => consumer::produce_all([consumer::message(Line { n: 1 }).key("")]),
+            -2 => consumer::produce_with(Line { n: 0 }, Metadata::new().set("x-n", "0")),
+            _ => consumer::produce_all([
+                consumer::message(Line { n: 1 }),
+                consumer::message(Line { n: 2 }).key(format!("second:{}", ctx.entity_id())),
+                consumer::message(Line { n: 3 }).metadata(Metadata::new().set("x-n", "3")),
+            ]),
+        }
+    }
+
+    fn on_deleted(ctx: &Context) -> ConsumerEffect {
+        consumer::produce_all([
+            consumer::message(Line { n: -1 }).key(format!("gone:{}", ctx.entity_id()))
+        ])
+    }
+}
+
+/// What a handler's panic said.
+fn panic_of<T>(f: impl FnOnce() -> T) -> String {
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    let payload = caught.err().expect("it panics");
+    payload
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+        .expect("a panic with a message")
+}
+
+#[test]
+fn several_messages_keep_their_order_their_keys_and_their_headers() {
+    let kit = ConsumerTestKit::<Fanout>::new();
+    let effect = kit.on_message("cart-1", Counted::Added { by: 5 });
+    assert!(
+        matches!(effect, ConsumerEffect::ProduceAll(_)),
+        "{effect:?}"
+    );
+    let messages = ConsumerTestKit::<Fanout>::messages(&effect);
+    let lines: Vec<Line> = messages.iter().map(|m| m.read()).collect();
+    assert_eq!(lines, vec![Line { n: 1 }, Line { n: 2 }, Line { n: 3 }]);
+    // The key named, else none: the runtime keys that one by its subject.
+    let keys: Vec<Option<&str>> = messages.iter().map(|m| m.key.as_deref()).collect();
+    assert_eq!(keys, vec![None, Some("second:cart-1"), None]);
+    let headers: Vec<Option<&str>> = messages.iter().map(|m| m.metadata.get("x-n")).collect();
+    assert_eq!(headers, vec![None, None, Some("3")]);
+    // Naming a key says nothing about the subject: none of them sets one.
+    assert!(messages.iter().all(|m| m.metadata.subject().is_none()));
+}
+
+#[test]
+fn no_messages_at_all_is_done_and_a_deletion_may_publish_too() {
+    let kit = ConsumerTestKit::<Fanout>::new();
+    let nothing = kit.on_message("cart-1", Counted::Added { by: 0 });
+    assert!(matches!(nothing, ConsumerEffect::Done), "{nothing:?}");
+    assert!(ConsumerTestKit::<Fanout>::messages(&nothing).is_empty());
+    let gone = ConsumerTestKit::<Fanout>::messages(&kit.on_deleted("cart-1"));
+    assert_eq!(gone.len(), 1);
+    assert_eq!(gone[0].key.as_deref(), Some("gone:cart-1"));
+}
+
+#[test]
+fn an_empty_record_key_is_refused_when_the_effect_is_dispatched() {
+    let kit = ConsumerTestKit::<Fanout>::new();
+    let said = panic_of(|| kit.on_message("cart-1", Counted::Added { by: -1 }));
+    assert!(said.contains("consumer 'fanout'"), "{said}");
+    assert!(said.contains("a record key must not be empty"), "{said}");
+}
+
+#[test]
+fn several_messages_are_not_sent_to_a_runtime_that_has_not_said_it_takes_them() {
+    // A runtime from before 1.3 says nothing, and would read the reply as no effect at all.
+    let silent = ConsumerTestKit::<Fanout>::new().speaking(None);
+    assert_eq!(
+        panic_of(|| silent.on_message("cart-1", Counted::Added { by: 5 })),
+        "this runtime speaks protocol 1.2 or earlier; several messages or a record key need 1.3"
+    );
+    let earlier = ConsumerTestKit::<Fanout>::new().speaking(Some("1.2"));
+    assert_eq!(
+        panic_of(|| earlier.on_message("cart-1", Counted::Added { by: 5 })),
+        "this runtime speaks protocol 1.2; several messages or a record key need 1.3"
+    );
+    // One keyed message needs it as much as three do.
+    assert_eq!(
+        panic_of(|| earlier.on_deleted("cart-1")),
+        "this runtime speaks protocol 1.2; several messages or a record key need 1.3"
+    );
+    // Something that is not a version is not a promise.
+    let garbled = ConsumerTestKit::<Fanout>::new().speaking(Some("soon"));
+    assert!(panic_of(|| garbled.on_message("c", Counted::Added { by: 5 })).contains("soon"));
+    // Later minors and majors take them: the comparison is of numbers, not of text.
+    for later in ["1.3", "1.10", "2.0"] {
+        let kit = ConsumerTestKit::<Fanout>::new().speaking(Some(later));
+        let effect = kit.on_message("cart-1", Counted::Added { by: 5 });
+        assert!(matches!(effect, ConsumerEffect::ProduceAll(_)), "{later}");
+    }
+}
+
+#[test]
+fn what_any_runtime_takes_is_answered_the_old_way_whatever_the_runtime() {
+    let earlier = ConsumerTestKit::<Fanout>::new().speaking(None);
+    // One message that names no key is a single produce.
+    let one = earlier.on_message("cart-1", Counted::Added { by: 1 });
+    match &one {
+        ConsumerEffect::Produce(Ok(payload), _) => assert_eq!(payload.data, br#"{"n":1}"#),
+        other => panic!("{other:?}"),
+    }
+    // No messages is done; a single produce, with its headers, is what it always was.
+    let nothing = earlier.on_message("cart-1", Counted::Added { by: 0 });
+    assert!(matches!(nothing, ConsumerEffect::Done));
+    let with = earlier.on_message("cart-1", Counted::Added { by: -2 });
+    let published = ConsumerTestKit::<Fanout>::messages(&with);
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0].key, None);
+    assert_eq!(published[0].metadata.get("x-n"), Some("0"));
+    assert!(matches!(with, ConsumerEffect::Produce(..)));
+    // And the consumer that only ever produced one is untouched.
+    let relay = ConsumerTestKit::<Relay>::new().speaking(None);
+    assert!(matches!(
+        relay.on_message("a", Counted::Added { by: 11 }),
+        ConsumerEffect::Produce(Ok(_), _)
+    ));
+}
+
 struct Alarm;
 
 impl TimedAction for Alarm {

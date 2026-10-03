@@ -182,8 +182,16 @@ object ProcessDouble:
       queries: Vector[String] = Vector("get", "all")
   )
 
+  /** One of several messages a consumer answers with. */
+  final case class Fanned(
+      text: String,
+      key: Option[String] = None,
+      metadata: Map[String, String] = Map.empty
+  )
+
   enum ConsumerAnswer:
     case Produce(text: String)
+    case ProduceAll(messages: Vector[Fanned])
     case Done
     case Ignore
 
@@ -913,6 +921,22 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
                 ConsumerEffect(
                   ConsumerEffect.Effect.Produce(
                     ConsumerEffect.Produce(Some(json("double-out", t)), Some(pb.Metadata()))
+                  )
+                )
+              case ConsumerAnswer.ProduceAll(messages) =>
+                ConsumerEffect(
+                  ConsumerEffect.Effect.ProduceAll(
+                    ConsumerEffect.ProduceAll(
+                      messages.map(m =>
+                        ConsumerEffect.Message(
+                          Some(json("double-out", m.text)),
+                          Some(
+                            pb.Metadata(m.metadata.toSeq.map((k, v) => pb.Metadata.Entry(k, v)))
+                          ),
+                          m.key
+                        )
+                      )
+                    )
                   )
                 )
               case ConsumerAnswer.Done   => ConsumerEffect(ConsumerEffect.Effect.Done(pb.Empty()))

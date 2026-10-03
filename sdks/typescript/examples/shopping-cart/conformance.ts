@@ -19,6 +19,7 @@ import {
   Endpoint,
   ErrorCode,
   EventSourcedEntity,
+  GraphConsumer,
   HttpProblem,
   KeyValueEntity,
   TimedAction,
@@ -112,6 +113,86 @@ export class CheckoutRecorder extends Consumer<ShoppingCartEvent> {
     if (event.type !== "CheckedOut") return this.effects.ignore()
     await this.client.of(Conformance, this.subject).call(Conformance.handlers.record).invoke("checkout")
     return this.effects.done()
+  }
+}
+
+// ── checkout-fanout: several messages for one change (protocol 1.3) ──
+
+// docs:start fanout
+export const Fanned = s.record("Fanned", { n: s.int })
+
+/**
+ * Three messages for a checkout — the second under a key of its own, the third with a header — none
+ * for an item added, and a single one, the old way, for an item removed.
+ */
+export class CheckoutFanout extends Consumer<ShoppingCartEvent, Infer<typeof Fanned>> {
+  static readonly componentId = "checkout-fanout"
+  static readonly source = ShoppingCartEntity
+  static readonly message = ShoppingCartEntity.events
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = "conformance-fanout"
+
+  onMessage(event: ShoppingCartEvent) {
+    switch (event.type) {
+      case "ItemAdded":
+        return this.effects.produceAll([])
+      case "ItemRemoved":
+        return this.effects.produce({ n: 0 })
+      case "CheckedOut":
+        return this.effects.produceAll([{ payload: { n: 1 } }, { payload: { n: 2 }, key: `second:${this.subject}` }, { payload: { n: 3 }, metadata: { "x-n": "3" } }])
+      default:
+        return this.effects.ignore()
+    }
+  }
+}
+// docs:end fanout
+
+// ── cart-graph: the cart as graph deltas ──
+
+/** The cart graph every reference publishes, where the conformance suite reads it: the example's `CartGraph`, on another topic. */
+export class ConformanceCartGraph extends GraphConsumer<ShoppingCartEvent> {
+  static readonly componentId = "cart-graph"
+  static readonly source = ShoppingCartEntity
+  static readonly message = ShoppingCartEntity.events
+  static readonly producesTo = "conformance-graph"
+
+  onMessage(event: ShoppingCartEvent) {
+    const id = this.subject
+    const cart = (checkedOut: boolean) => this.graph.node(`cart:${id}`, { labels: ["Cart"], properties: { cartId: id, checkedOut } })
+    switch (event.type) {
+      case "ItemAdded":
+      case "ItemRemoved":
+        return this.effects.publish([cart(false)])
+      case "CheckedOut":
+        return this.effects.publish([
+          cart(true),
+          this.graph.node(`checkout:${id}`, { labels: ["Checkout"], properties: { cartId: id } }),
+          this.graph.edge(`checked-out:${id}`, { type: "CHECKED_OUT", from: `cart:${id}`, to: `checkout:${id}` }),
+        ])
+      default:
+        return this.effects.ignore()
+    }
+  }
+
+  override onDelete() {
+    return this.effects.publish([this.graph.tombstoneNode(`cart:${this.subject}`)])
+  }
+}
+
+// ── profile-graph: a graph consumer over a key value entity; its versions are revisions ──
+
+export class ProfileGraph extends GraphConsumer<Infer<typeof ProfileState>> {
+  static readonly componentId = "profile-graph"
+  static readonly source = Profile
+  static readonly message = Profile.state
+  static readonly producesTo = "conformance-profile-graph"
+
+  onMessage(state: Infer<typeof ProfileState>) {
+    return this.effects.publish([this.graph.node(`profile:${this.subject}`, { labels: ["Profile"], properties: { name: state.name } })])
+  }
+
+  override onDelete() {
+    return this.effects.publish([this.graph.tombstoneNode(`profile:${this.subject}`)])
   }
 }
 
@@ -327,6 +408,9 @@ export function referenceService() {
     .register(Conformance)
     .register(Profile)
     .register(CheckoutRecorder)
+    .register(CheckoutFanout)
+    .register(ConformanceCartGraph)
+    .register(ProfileGraph)
     .register(Reminder)
     .register(ConformanceAssistant)
     .register(ConformanceAnswerer)

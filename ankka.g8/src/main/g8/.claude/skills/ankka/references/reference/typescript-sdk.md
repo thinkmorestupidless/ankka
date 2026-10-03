@@ -142,11 +142,41 @@ See [Views](../build/views.md).
 | Statics | `componentId`, `source` or `topic`, `message`; to publish, `producesTo` and `out` |
 | Must define | `onMessage(message): ConsumerEffect<Out>` |
 | May override | `onDelete()`, which ignores by default |
-| In a handler | `this.subject`, `this.metadata`, `this.client`, `this.effects` |
-| Effects | `produce(out, metadata?)`, `done()`, `ignore()` |
+| In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.client`, `this.effects` |
+| Effects | `produce(out, metadata?)`, `produceAll(messages)`, `done()`, `ignore()` |
+| One of several messages | `{ payload, key?, metadata? }`; `key` is a record key other than the message's subject |
 
 Delivery is at least once. A consumer that produces needs `ANKKA_KAFKA_BOOTSTRAP_SERVERS` on the sidecar.
-See [Consumers](../build/consumers.md).
+`produceAll` publishes its messages in order, and the change is handled when the broker has accepted all
+of them; an empty list is handled at once. See [Consumers](../build/consumers.md).
+
+## Graph consumer
+
+A consumer that publishes its source as graph deltas. It is registered as a consumer and can publish
+nothing but deltas.
+
+| Part | API |
+|---|---|
+| Base class | `GraphConsumer<M>` |
+| Statics | `componentId`, `source` or `topic`, `message`, `producesTo`; no `out` |
+| Must define | `onMessage(message): GraphEffect`, which may be `async` |
+| May override | `onDelete()`, which ignores by default |
+| In a handler | `this.subject`, `this.sequenceNumber`, `this.metadata`, `this.client`, `this.graph`, `this.effects` |
+| Elements | `this.graph.node(id, { labels?, properties?, version? })`, `edge(id, { type, from, to, properties?, version? })`, `tombstoneNode(id, { version? })`, `tombstoneEdge(id, { type, from, to, version? })` |
+| Effects | `this.effects.publish(elements)`, `done()`, `ignore()` |
+| A refusal | `GraphError`, whose `why` names the rule broken |
+
+| Export | What it is |
+|---|---|
+| `Element`, `Delta` | An element as described, and an element at a version: what is published and read |
+| `readDelta(value, key?)` | Reads a record's value into a `Delta`; given a key, also checks it is the delta's element key. Throws, naming the fault. |
+| `graphDeltaCodec` | The delta codec, under the manifest `ankka.graph-delta.v1`: a `message` shape for a consumer that reads a delta topic |
+| `nodeKey(id)`, `edgeKey(id)`, `elementKey(element)`, `GRAPH_DELTA_SCHEMA` | The element keys and the contract's name |
+
+A property value is a `string`, a `boolean`, a `number`, a `bigint`, or an array of one of those. An
+integral `number` must be a safe integer and is published as an integer; larger integers are `bigint`,
+and the reader returns an integer past 2⁵³ as one. A version is a safe-integer `number` or a `bigint`. See
+[Publish a graph](../build/graph.md).
 
 ## Workflow
 
@@ -272,7 +302,8 @@ repository. `Ankka.service().spec()` returns what discovery will say without lis
 | `KeyValueTestKit.of(Cls, id)` | `ankka/testkit` | One key value entity. |
 | `WorkflowTestKit.of(Cls, id)` | `ankka/testkit` | One workflow: `call`, `runStep`, `runUntilEnd` (stops at a pause), `resume`, `progress`. |
 | `ViewTestKit.of(Cls)` | `ankka/testkit` | A view's `onChange(key, event)` and `onDelete(key)`, and the rows. |
-| `ConsumerTestKit.of(Cls)` | `ankka/testkit` | A consumer's `onMessage` and `onDelete`, and what it `produced`. |
+| `ConsumerTestKit.of(Cls, client?)` | `ankka/testkit` | A consumer's `onMessage(message, subject, metadata)` and `onDelete`, and what it `produced`: each message's `payload`, `metadata` and the record `key` it named. |
+| `GraphConsumerTestKit.of(Cls, client?)` | `ankka/testkit` | A graph consumer's `onMessage(message, { subject, sequence })` and `onDelete({ subject, sequence })`, each returning the `Delta`s published, read back from their bytes. |
 | `TimedActionTestKit.of(Cls)` | `ankka/testkit` | A timed action's handlers. |
 | `AgentTestKit.of(Cls, sessionId, new ScriptedModel())` | `ankka/testkit` | An agent's plan, tools and guardrails, against a scripted model that fails when the script runs out. |
 | `EndpointTestKit.of(Cls)` | `ankka/testkit` | An endpoint's routes by path, with no sidecar. |

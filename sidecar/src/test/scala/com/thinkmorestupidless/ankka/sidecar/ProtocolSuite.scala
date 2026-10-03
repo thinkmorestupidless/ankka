@@ -125,14 +125,17 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("discovery: an SDK on an earlier minor is admitted, since a minor only adds") {
-    // The double declares 1.0; the sidecar speaks 1.2 (1.1 added the caller, 1.2 the autonomous
-    // agent). Both earlier minors are admitted.
+    // The double declares 1.0; the sidecar speaks 1.3 (1.1 added the caller, 1.2 the autonomous
+    // agent, 1.3 a consumer's several messages). Earlier minors are admitted.
     assertEquals(spec.protocolVersion, "1.0")
     withDouble(spec)((double, _, _) => assert(Discovery.validate(double.toSpec).isRight))
     withDouble(spec.copy(protocolVersion = "1.1"))((double, _, _) =>
       assert(Discovery.validate(double.toSpec).isRight)
     )
-    assertEquals(Discovery.ProtocolVersion, "1.2")
+    withDouble(spec.copy(protocolVersion = "1.2"))((double, _, _) =>
+      assert(Discovery.validate(double.toSpec).isRight)
+    )
+    assertEquals(Discovery.ProtocolVersion, "1.3")
   }
 
   test(

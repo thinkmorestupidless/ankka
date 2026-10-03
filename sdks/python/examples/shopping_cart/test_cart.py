@@ -75,7 +75,12 @@ def test_the_json_is_the_scala_carts_json() -> None:
 
 from ankka.effects.view import DeleteRow, UpdateRow
 from ankka.effects.workflow import End, TransitionTo
-from ankka.testkit import ConsumerTestKit, KeyValueTestKit, ViewTestKit, WorkflowTestKit
+from dataclasses import replace
+
+from ankka.graph import Element
+from ankka.testkit import ConsumerTestKit, GraphConsumerTestKit, KeyValueTestKit, ViewTestKit, WorkflowTestKit
+from examples.shopping_cart.cart_contents_graph import CartContentsGraph
+from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRow, CartRows
 from examples.shopping_cart.checkout_log import CheckoutLog, CheckoutRecord
 from examples.shopping_cart.checkout_notifier import CheckoutNotifier
@@ -103,6 +108,78 @@ def test_notifier_only_cares_about_checkouts() -> None:
     kit = ConsumerTestKit.of(CheckoutNotifier)
     assert kit.on_message(ItemAdded(PEN)).__class__.__name__ == "Ignore"
     assert kit.on_delete().__class__.__name__ == "Ignore"
+
+
+# docs:start graph-test
+def test_the_cart_graph_follows_the_cart() -> None:
+    graph = GraphConsumerTestKit.of(CartGraph)
+    cart = Element("node", "node", "cart:c1", 1, ("Cart",), properties={"cartId": "c1", "checkedOut": False})
+    # The elements a change leaves, at the change's sequence number: read back from what would be
+    # on the topic, with nothing started.
+    assert graph.on_message(ItemAdded(PEN), "c1", sequence=1) == [cart]
+    assert graph.on_message(ItemRemoved("p1"), "c1", sequence=2) == [replace(cart, version=2)]
+    assert graph.on_message(CheckedOut(), "c1", sequence=3) == [
+        Element("node", "node", "cart:c1", 3, ("Cart",), properties={"cartId": "c1", "checkedOut": True}),
+        Element("node", "node", "checkout:c1", 3, ("Checkout",), properties={"cartId": "c1"}),
+        Element("edge", "edge", "checked-out:c1", 3, type="CHECKED_OUT", from_id="cart:c1", to_id="checkout:c1"),
+    ]
+
+
+def test_a_discarded_cart_is_marked_gone_by_its_deletion_and_comes_back_above_it() -> None:
+    graph = GraphConsumerTestKit.of(CartGraph)
+    assert graph.on_message(Discarded(), "c2", sequence=2) == []
+    tombstone = graph.on_delete("c2", sequence=3)
+    assert tombstone == [Element("tombstone", "node", "cart:c2", 3)]
+    # The same id takes items again: its node is published above the tombstone.
+    again = graph.on_message(ItemAdded(PEN), "c2", sequence=4)
+    assert again[0].key == tombstone[0].key == "node:cart:c2" and again[0].version == 4
+# docs:end graph-test
+
+
+class _CartAsRead:
+    """A client double for a consumer that reads the cart: every `get-cart` answers this cart."""
+
+    def __init__(self, cart: ShoppingCart) -> None:
+        self.cart = cart
+        self.asked: list[tuple[str, str, str]] = []
+
+    def with_metadata(self, metadata: Any) -> "_CartAsRead":
+        return self
+
+    def for_event_sourced_entity(self, component_id: str, entity_id: str) -> "_CartAsRead":
+        self._target = (component_id, entity_id)
+        return self
+
+    def call(self, handler: str) -> "_CartAsRead":
+        self.asked.append((*self._target, handler))
+        return self
+
+    async def invoke(self, *args: Any, reply: Any = None) -> ShoppingCart:
+        return self.cart
+
+
+def test_the_carts_contents_are_published_from_the_cart_as_read() -> None:
+    client = _CartAsRead(ShoppingCart("c1", [PEN, INK], False))
+    graph = GraphConsumerTestKit.of(CartContentsGraph, client)  # type: ignore[arg-type]
+    contents = Element("node", "node", "cart-contents:c1", 2, ("CartContents",), properties={"cartId": "c1", "lines": 2, "quantity": PEN.quantity + INK.quantity})
+    # The element is the cart's state as read, at the version of the event being handled.
+    assert graph.on_message(ItemAdded(INK), "c1", sequence=2) == [contents]
+    assert client.asked == [("shopping-cart", "c1", "get-cart")]
+    # A cart read ahead of the event is published at the event's version; the later event publishes
+    # the same state at its own, which is what a graph keeps.
+    assert graph.on_message(ItemAdded(PEN), "c1", sequence=1) == [replace(contents, version=1)]
+
+
+def test_the_carts_contents_are_tombstoned_when_the_cart_is_deleted() -> None:
+    graph = GraphConsumerTestKit.of(CartContentsGraph, _CartAsRead(ShoppingCart.empty("c1")))  # type: ignore[arg-type]
+    assert graph.on_message(Discarded(), "c1", sequence=3) == []
+    assert graph.on_delete("c1", sequence=4) == [Element("tombstone", "node", "cart-contents:c1", 4)]
+
+
+def test_a_cart_that_cannot_be_read_fails_the_change() -> None:
+    # The unit kit's own client refuses, as a failed call does: the change is delivered again.
+    with pytest.raises(RuntimeError):
+        GraphConsumerTestKit.of(CartContentsGraph).on_message(ItemAdded(PEN), "c1", sequence=1)
 
 
 # docs:start key-value-test
@@ -402,3 +479,63 @@ async def test_answerer_pieces_without_a_sidecar() -> None:
     assert await kit.check_result(ANSWER, Answer("3", ["cart_total"])) is None
 # docs:end unit-test
 
+
+# ── What is registered ─────────────────────────────────────────────────────────
+
+
+def test_the_cart_publishes_its_graph_only_where_there_is_a_broker(monkeypatch: pytest.MonkeyPatch) -> None:
+    def consumers() -> list[str]:
+        return [c.id for c in service().spec().components if c.consumer.HasField("produces_to")]
+
+    monkeypatch.delenv("ANKKA_KAFKA_BOOTSTRAP_SERVERS", raising=False)
+    assert consumers() == []
+    monkeypatch.setenv("ANKKA_KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+    assert consumers() == ["cart-graph", "cart-contents-graph"]
+
+
+# ── The conformance reference's publishing consumers, as the suite will find them ──
+
+
+# docs:start consumer-test
+def test_the_reference_fans_a_checkout_out_into_three_messages() -> None:
+    from ankka import Metadata
+    from ankka.effects.consumer import Produce, ProduceAll
+    from ankka.testkit import Produced
+    from examples.shopping_cart.conformance import CheckoutFanout, Fanned
+
+    kit = ConsumerTestKit.of(CheckoutFanout)
+    assert kit.on_message(ItemAdded(PEN), "k1") == ProduceAll(())
+    assert isinstance(kit.on_message(ItemRemoved("p1"), "k1"), Produce)
+    assert kit.messages == [Produced(Fanned(0), None, Metadata())]
+    kit.on_message(CheckedOut(), "k1")
+    assert kit.messages[1:] == [
+        Produced(Fanned(1), None, Metadata()),
+        Produced(Fanned(2), "second:k1", Metadata()),
+        Produced(Fanned(3), None, Metadata().set("x-n", "3")),
+    ]
+    assert kit.on_message(Discarded(), "k1").__class__.__name__ == "Ignore"
+    assert CheckoutFanout.out_codec.encode(Fanned(2)) == b'{"n":2}'
+    assert CheckoutFanout.out_codec.manifest == "fanned"
+# docs:end consumer-test
+
+
+def test_the_references_graph_consumers_publish_the_cart_and_the_profile() -> None:
+    from examples.shopping_cart.conformance import ConformanceCartGraph, ProfileGraph, ProfileState, reference_service
+
+    cart = GraphConsumerTestKit.of(ConformanceCartGraph)
+    # The scripted history of the conformance case: add, add, remove, check out.
+    history = [ItemAdded(PEN), ItemAdded(INK), ItemRemoved("p2"), CheckedOut()]
+    published = [(e.key, e.version, e.properties.get("checkedOut")) for n, event in enumerate(history, start=1) for e in cart.on_message(event, "g1", sequence=n)]
+    assert published == [
+        ("node:cart:g1", 1, False),
+        ("node:cart:g1", 2, False),
+        ("node:cart:g1", 3, False),
+        ("node:cart:g1", 4, True),
+        ("node:checkout:g1", 4, None),
+        ("edge:checked-out:g1", 4, None),
+    ]
+    profile = GraphConsumerTestKit.of(ProfileGraph)
+    assert profile.on_message(ProfileState("Ada"), "p1", sequence=1) == [Element("node", "node", "profile:p1", 1, ("Profile",), properties={"name": "Ada"})]
+    assert profile.on_delete("p1", sequence=2) == [Element("tombstone", "node", "profile:p1", 2)]
+    topics = {c.id: c.consumer.produces_to for c in reference_service().spec().components if c.consumer.HasField("produces_to")}
+    assert topics == {"checkout-fanout": "conformance-fanout", "cart-graph": "conformance-graph", "profile-graph": "conformance-profile-graph"}

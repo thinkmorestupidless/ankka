@@ -29,9 +29,9 @@ import scala.jdk.CollectionConverters.*
  *
  * The attributes travel as Kafka headers rather than being wrapped around the payload, so a
  * consumer written in another language reads a plain JSON body with metadata beside it.
- * `ce-subject` doubles as the record key, which is what preserves per-entity ordering: Kafka
- * guarantees order within a partition, and keying by subject puts every message about one entity on
- * the same partition.
+ * `ce-subject` doubles as the record key unless a message names a key of its own, which is what
+ * preserves per-entity ordering: Kafka guarantees order within a partition, and keying by subject
+ * puts every message about one entity on the same partition.
  */
 private[ankka] object CloudEvents:
 
@@ -62,8 +62,16 @@ final class KafkaPublisher private (
   private given ExecutionContext = system.executionContext
 
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
-    val subject = metadata.subject.orNull
-    val record  = ProducerRecord(topic, subject, payload)
+    publish(topic, None, payload, metadata)
+
+  /** The record key is the one named, else `ce-subject`. The subject is a header either way. */
+  override def publish(
+      topic: String,
+      key: Option[String],
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[Done] =
+    val record = ProducerRecord(topic, key.orElse(metadata.subject).orNull, payload)
 
     CloudEvents.headers(metadata, manifestOf(topic)).foreach { (key, value) =>
       record.headers().add(RecordHeader(key, value.getBytes(UTF_8))): Unit

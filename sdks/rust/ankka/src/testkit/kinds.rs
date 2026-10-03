@@ -22,11 +22,12 @@ use crate::components::{
     ResultCheck, TaskType, TimedAction, Verdict, View, Workflow, kinds,
 };
 use crate::context::Metadata;
-use crate::effects::consumer::ConsumerEffect;
+use crate::effects::consumer::{ConsumerEffect, Outgoing};
 use crate::effects::view::ViewEffect;
 use crate::effects::{CommandError, ErrorCode, Retention};
+use crate::graph::{self, Element, GraphConsumer};
 use crate::proto::{self, Kind, Payload};
-use crate::service::Service;
+use crate::service::{PROTOCOL_VERSION, Service};
 
 fn encoded<T: Serialize + 'static>(value: &T, what: &str) -> Payload {
     encode_payload(value).unwrap_or_else(|e| panic!("{what} does not encode: {e}"))
@@ -424,10 +425,69 @@ impl<C: View> ViewTestKit<C> {
 
 // ── Consumers ────────────────────────────────────────────────────────────────
 
+/// One message a consumer asked to have published, as a test reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Published {
+    /// The message, encoded as it would be published.
+    pub payload: Payload,
+    /// The record key it named; `None`: keyed by its subject.
+    pub key: Option<String>,
+    /// Its headers.
+    pub metadata: Metadata,
+}
+
+impl Published {
+    /// The message read back as `T`.
+    pub fn read<T: DeserializeOwned + 'static>(&self) -> T {
+        decode_payload(&self.payload).unwrap_or_else(|e| panic!("the message does not decode: {e}"))
+    }
+}
+
+/// What a change's request says beside its message: its subject, its sequence number, and the
+/// protocol version the runtime speaks.
+fn change_metadata(subject: &str, sequence: Option<i64>, protocol: Option<&str>) -> Metadata {
+    let mut metadata = Metadata::new().set("ce-subject", subject);
+    if let Some(sequence) = sequence {
+        metadata = metadata.set("ankka.sequence", sequence.to_string());
+    }
+    if let Some(protocol) = protocol {
+        metadata = metadata.set("ankka.protocol", protocol);
+    }
+    metadata
+}
+
+/// A consumer's answer on the wire, as the effect it was.
+fn consumer_effect(effect: proto::ConsumerEffect) -> ConsumerEffect {
+    use proto::consumer_effect::Effect;
+    match effect.effect {
+        Some(Effect::Done(_)) => ConsumerEffect::Done,
+        Some(Effect::Produce(p)) => ConsumerEffect::Produce(
+            Ok(p.payload.unwrap_or_default()),
+            Metadata::from_proto(p.metadata.as_ref()),
+        ),
+        Some(Effect::ProduceAll(all)) => ConsumerEffect::ProduceAll(
+            all.messages
+                .into_iter()
+                .map(|m| {
+                    let message = Outgoing::of(Ok(m.payload.unwrap_or_default()))
+                        .metadata(Metadata::from_proto(m.metadata.as_ref()));
+                    match m.key {
+                        Some(key) => message.key(key),
+                        None => message,
+                    }
+                })
+                .collect(),
+        ),
+        _ => ConsumerEffect::Ignore,
+    }
+}
+
 /// Hands a consumer messages.
 pub struct ConsumerTestKit<C: Consumer> {
     registration: Box<dyn Registered>,
     runtime: Option<Rc<InMemory>>,
+    sequence: Option<i64>,
+    protocol: Option<String>,
     marker: std::marker::PhantomData<C>,
 }
 
@@ -443,6 +503,8 @@ impl<C: Consumer> ConsumerTestKit<C> {
         ConsumerTestKit {
             registration: <C as ComponentOf<kinds::Consumer>>::registration(),
             runtime: None,
+            sequence: None,
+            protocol: Some(PROTOCOL_VERSION.to_string()),
             marker: std::marker::PhantomData,
         }
     }
@@ -453,25 +515,38 @@ impl<C: Consumer> ConsumerTestKit<C> {
         self
     }
 
+    /// The changes it is handed are at this sequence number (`ankka.sequence`): an event's, or a
+    /// key value state's revision. Without it they carry none, as a topic's messages do.
+    pub fn at(mut self, sequence: i64) -> ConsumerTestKit<C> {
+        self.sequence = Some(sequence);
+        self
+    }
+
+    /// The runtime it is answering speaks this protocol version (`ankka.protocol`) — this
+    /// library's own unless said otherwise — or, with `None`, is one from before runtimes said.
+    pub fn speaking(mut self, protocol: Option<&str>) -> ConsumerTestKit<C> {
+        self.protocol = protocol.map(str::to_string);
+        self
+    }
+
     fn feed(&self, subject: &str, message: Option<Payload>) -> ConsumerEffect {
+        let metadata = change_metadata(subject, self.sequence, self.protocol.as_deref());
         let request = proto::ConsumerRequest {
             component_id: C::COMPONENT_ID.to_string(),
             deleted: message.is_none(),
             message,
-            metadata: Some(Metadata::new().set("ce-subject", subject).to_proto()),
+            metadata: Some(metadata.to_proto()),
         };
         let registration = &self.registration;
         let effect =
             hosted(&self.runtime, || registration.consumer(request)).expect("a consumer answers");
-        use proto::consumer_effect::Effect;
-        match effect.effect {
-            Some(Effect::Done(_)) => ConsumerEffect::Done,
-            Some(Effect::Produce(p)) => ConsumerEffect::Produce(
-                Ok(p.payload.unwrap_or_default()),
-                Metadata::from_proto(p.metadata.as_ref()),
-            ),
-            _ => ConsumerEffect::Ignore,
-        }
+        consumer_effect(effect)
+    }
+
+    /// What `effect` asks to have published, in order: one message for a single `produce`, as
+    /// many as it holds for `produce_all`, none otherwise.
+    pub fn messages(effect: &ConsumerEffect) -> Vec<Published> {
+        published(effect)
     }
 
     /// One message about source entity `subject`.
@@ -482,6 +557,114 @@ impl<C: Consumer> ConsumerTestKit<C> {
     /// Source entity `subject` was deleted.
     pub fn on_deleted(&self, subject: &str) -> ConsumerEffect {
         self.feed(subject, None)
+    }
+}
+
+/// What an effect asks to have published, in order.
+fn published(effect: &ConsumerEffect) -> Vec<Published> {
+    let of = |payload: Result<Payload, crate::codec::EncodingError>, key, metadata| Published {
+        payload: payload.unwrap_or_else(|e| panic!("the message does not encode: {e}")),
+        key,
+        metadata,
+    };
+    match effect.clone() {
+        ConsumerEffect::Produce(payload, metadata) => vec![of(payload, None, metadata)],
+        ConsumerEffect::ProduceAll(messages) => messages
+            .into_iter()
+            .map(|m| {
+                let (payload, key, metadata) = m.into_parts();
+                of(payload, key, metadata)
+            })
+            .collect(),
+        ConsumerEffect::Done | ConsumerEffect::Ignore => Vec::new(),
+    }
+}
+
+// ── Graph consumers ──────────────────────────────────────────────────────────
+
+/// Hands a graph consumer changes and gives back the elements it published: each read back from
+/// the bytes that would be on the topic, under the key it would have there, so a test asserts on
+/// what a reader of the graph would see. An answer the library refuses — an element the reader
+/// would not accept, a change with no sequence number and no stated version — panics, as it does
+/// in a module.
+pub struct GraphConsumerTestKit<G: GraphConsumer> {
+    registration: Box<dyn Registered>,
+    runtime: Option<Rc<InMemory>>,
+    marker: std::marker::PhantomData<G>,
+}
+
+impl<G: GraphConsumer> Default for GraphConsumerTestKit<G> {
+    fn default() -> GraphConsumerTestKit<G> {
+        GraphConsumerTestKit::new()
+    }
+}
+
+impl<G: GraphConsumer> GraphConsumerTestKit<G> {
+    /// A graph consumer whose client calls are refused.
+    pub fn new() -> GraphConsumerTestKit<G> {
+        GraphConsumerTestKit {
+            registration: <G as ComponentOf<kinds::GraphConsumer>>::registration(),
+            runtime: None,
+            marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Its calls to the service's event sourced entities are answered in memory.
+    pub fn with_service(mut self, service: Service) -> GraphConsumerTestKit<G> {
+        self.runtime = Some(in_memory(service));
+        self
+    }
+
+    fn feed(&self, subject: &str, sequence: i64, message: Option<Payload>) -> Vec<Published> {
+        let metadata = change_metadata(subject, Some(sequence), Some(PROTOCOL_VERSION));
+        let request = proto::ConsumerRequest {
+            component_id: G::COMPONENT_ID.to_string(),
+            deleted: message.is_none(),
+            message,
+            metadata: Some(metadata.to_proto()),
+        };
+        let registration = &self.registration;
+        let effect = hosted(&self.runtime, || registration.consumer(request))
+            .expect("a graph consumer answers");
+        published(&consumer_effect(effect))
+    }
+
+    fn elements(records: Vec<Published>) -> Vec<Element> {
+        records
+            .iter()
+            .map(|record| {
+                graph::read(&record.payload.data, record.key.as_deref())
+                    .unwrap_or_else(|e| panic!("a published delta does not read back: {e}"))
+            })
+            .collect()
+    }
+
+    /// The elements published for one change to source entity `subject`, at `sequence`: an
+    /// event's sequence number, or a key value state's revision. `0` is a change with none, as a
+    /// topic's messages have.
+    pub fn on_message<M: Serialize + 'static>(
+        &self,
+        subject: &str,
+        sequence: i64,
+        message: M,
+    ) -> Vec<Element> {
+        Self::elements(self.records(subject, sequence, message))
+    }
+
+    /// The elements published when source entity `subject` is deleted, at `sequence`.
+    pub fn on_deleted(&self, subject: &str, sequence: i64) -> Vec<Element> {
+        Self::elements(self.feed(subject, sequence, None))
+    }
+
+    /// The same change as [`on_message`](Self::on_message), as the records that would be on the
+    /// topic: the delta's bytes, its record key and its headers.
+    pub fn records<M: Serialize + 'static>(
+        &self,
+        subject: &str,
+        sequence: i64,
+        message: M,
+    ) -> Vec<Published> {
+        self.feed(subject, sequence, Some(encoded(&message, "the message")))
     }
 }
 

@@ -91,6 +91,12 @@ The service that operates the platform: it records organizations, projects and s
 who may change them, and projects each service's desired state into an AnkkaService resource. It is itself an
 ankka service. The CLI is its client.
 
+### Delta
+
+One element of a graph as it now is, whole, at a version, or a tombstone marking it deleted: what a
+[graph consumer](#graph-consumer) publishes for each element a change leaves. Deltas follow the contract
+`ankka.graph-delta.v1`, and a reader applies one when its version is newer than what it holds.
+
 ### Descriptor
 
 The JSON document stating a service's desired state: its image, environment, port, size and instance count.
@@ -106,6 +112,15 @@ control plane when you change it, and reconciled towards by the operator.
 The value a handler returns: a description of what should happen, such as "persist this event, then reply
 with the new state". Building one performs no I/O; the runtime carries it out. This is why a component's logic
 can be tested with nothing running.
+
+### Element
+
+A node or an edge of a graph, identified by which of the two it is and its id. Nodes and edges are
+separate id spaces.
+
+### Element key
+
+The record key of every delta for one element: `node:<id>` or `edge:<id>`.
 
 ### Embedded hosting
 
@@ -136,6 +151,11 @@ expose`. A service is private until exposed.
 
 A counter on each service that increments on every apply and every restart. An observation states the
 generation it describes, so a late report about an older generation is discarded.
+
+### Graph consumer
+
+A consumer that publishes its source as a graph. Its handlers return the elements a change leaves, and
+each is published as a delta under its element key, at the change's sequence number.
 
 ### Guardrail
 
@@ -257,6 +277,12 @@ value declared once with a wire id, used both to ask and to read the typed answe
 
 An effect that can reply or refuse but cannot persist events or change state. A query must return one.
 
+### Record key
+
+The key a published message has on the broker, which decides which messages are ordered together and
+which record a compacted topic keeps. It is the key a message names, and the message's subject when it
+names none. Separate from the subject, which says which entity a message is about.
+
 ### Refusal
 
 A handler's deliberate "no", returned as an error effect with a message and an error code. Nothing is persisted
@@ -320,6 +346,11 @@ they outlive the process that set them, and a failed call is retried with backof
 
 A scheduled future call to a timed action, identified by a name. Scheduling again under the same name replaces
 it.
+
+### Tombstone
+
+A delta that marks an element deleted, at a version. The element stays in the graph, marked, so an older
+delta arriving late cannot bring it back.
 
 ### Tool
 

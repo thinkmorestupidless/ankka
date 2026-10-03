@@ -2,11 +2,15 @@
 // Docker, the whole service through the real sidecar and a throwaway Postgres.
 import { test, describe } from "node:test"
 import assert from "node:assert/strict"
-import { done } from "ankka"
-import { AnkkaTestKit, EventSourcedTestKit, KeyValueTestKit } from "ankka/testkit"
+import { done, type ComponentClient } from "ankka"
+import { AnkkaTestKit, ConsumerTestKit, EventSourcedTestKit, GraphConsumerTestKit, KeyValueTestKit } from "ankka/testkit"
+import { CartGraph } from "./cartGraph.ts"
+import { CartContentsGraph } from "./cartContentsGraph.ts"
+import type { ShoppingCart } from "./domain.ts"
 import { ShoppingCartEntity } from "./entity.ts"
 import { CheckoutLog } from "./checkoutLog.ts"
 import { service } from "./main.ts"
+import { CheckoutFanout } from "./conformance.ts"
 
 const slow = process.env.ANKKA_SLOW ? false : "set ANKKA_SLOW=1 to run the tests that need Docker"
 
@@ -103,6 +107,106 @@ describe("the checkout log, without a sidecar", () => {
     const kit = KeyValueTestKit.of(CheckoutLog, "c2")
     const got = await kit.call(CheckoutLog.handlers.get)
     assert.deepEqual(got.reply, { cartId: "c2", at: 0n, notified: false })
+  })
+})
+
+describe("a consumer that publishes several messages, without a sidecar or a broker", () => {
+  // docs:start consumer-test
+  test("a checkout fans out into three messages, the second under a key of its own", async () => {
+    const kit = ConsumerTestKit.of(CheckoutFanout)
+    // An item added answers with no messages; an item removed with one, keyed by its subject.
+    await kit.onMessage({ type: "ItemAdded", item: { productId: "p1", name: "Pen", quantity: 1 } }, "c1")
+    assert.deepEqual(kit.produced, [])
+    await kit.onMessage({ type: "CheckedOut" }, "c1", { "ankka.sequence": "4" })
+    assert.deepEqual(kit.produced, [
+      { payload: { n: 1 }, metadata: {} },
+      { payload: { n: 2 }, metadata: {}, key: "second:c1" },
+      { payload: { n: 3 }, metadata: { "x-n": "3" } },
+    ])
+  })
+  // docs:end consumer-test
+})
+
+describe("the cart's graph, without a sidecar or a broker", () => {
+  const pen = { productId: "p1", name: "Pen", quantity: 1 }
+
+  // docs:start graph-test
+  test("a checkout publishes the cart, its checkout and the edge between them, at the event's sequence number", async () => {
+    const kit = GraphConsumerTestKit.of(CartGraph)
+    const elements = await kit.onMessage({ type: "CheckedOut" }, { subject: "c1", sequence: 4 })
+    assert.deepEqual(elements, [
+      { kind: "node", id: "cart:c1", version: 4, labels: ["Cart"], properties: { cartId: "c1", checkedOut: true } },
+      { kind: "node", id: "checkout:c1", version: 4, labels: ["Checkout"], properties: { cartId: "c1" } },
+      { kind: "edge", id: "checked-out:c1", version: 4, type: "CHECKED_OUT", from: "cart:c1", to: "checkout:c1", properties: {} },
+    ])
+  })
+  // docs:end graph-test
+
+  test("a change to its items publishes the cart, not yet checked out", async () => {
+    const kit = GraphConsumerTestKit.of(CartGraph)
+    const cart = (version: number) => [{ kind: "node", id: "cart:c1", version, labels: ["Cart"], properties: { cartId: "c1", checkedOut: false } }]
+    assert.deepEqual(await kit.onMessage({ type: "ItemAdded", item: pen }, { subject: "c1", sequence: 1 }), cart(1))
+    assert.deepEqual(await kit.onMessage({ type: "ItemRemoved", productId: "p1" }, { subject: "c1", sequence: 2 }), cart(2))
+  })
+
+  test("a discarded cart publishes nothing until its deletion, which marks its node above everything before", async () => {
+    const kit = GraphConsumerTestKit.of(CartGraph)
+    assert.deepEqual(await kit.onMessage({ type: "Discarded" }, { subject: "c2", sequence: 2 }), [])
+    assert.deepEqual(await kit.onDelete({ subject: "c2", sequence: 3 }), [{ kind: "tombstone", element: "node", id: "cart:c2", version: 3 }])
+    // Taking items again, the cart is published above its tombstone.
+    const again = await kit.onMessage({ type: "ItemAdded", item: pen }, { subject: "c2", sequence: 4 })
+    assert.equal(again[0]!.version, 4)
+  })
+
+  test("the cart graph for a history: the versions are the sequence numbers", async () => {
+    const kit = GraphConsumerTestKit.of(CartGraph)
+    const history = [{ type: "ItemAdded", item: pen }, { type: "ItemAdded", item: { ...pen, productId: "p2" } }, { type: "ItemRemoved", productId: "p2" }, { type: "CheckedOut" }] as const
+    const published: [string, number | bigint][] = []
+    for (const [i, event] of history.entries()) {
+      for (const e of await kit.onMessage(event, { subject: "c3", sequence: i + 1 })) published.push([`${e.kind === "edge" ? "edge" : "node"}:${e.id}`, e.version])
+    }
+    assert.deepEqual(published, [["node:cart:c3", 1], ["node:cart:c3", 2], ["node:cart:c3", 3], ["node:cart:c3", 4], ["node:checkout:c3", 4], ["edge:checked-out:c3", 4]])
+  })
+
+  /** A client double for a consumer that reads the cart: every call answers this cart. */
+  function cartAsRead(cart: ShoppingCart): ComponentClient {
+    const client = { withMetadata: () => client, of: () => ({ call: () => ({ invoke: async () => cart }) }) }
+    return client as unknown as ComponentClient
+  }
+
+  test("the cart's contents are published from the cart as read, at the version of the event being handled", async () => {
+    const ink = { productId: "p2", name: "Ink", quantity: 3 }
+    const kit = GraphConsumerTestKit.of(CartContentsGraph, cartAsRead({ cartId: "c1", items: [pen, ink], checkedOut: false }))
+    const contents = (version: number) => [
+      { kind: "node", id: "cart-contents:c1", version, labels: ["CartContents"], properties: { cartId: "c1", lines: 2, quantity: 4 } },
+    ]
+    assert.deepEqual(await kit.onMessage({ type: "ItemAdded", item: ink }, { subject: "c1", sequence: 2 }), contents(2))
+    // A cart read ahead of the event is published at the event's version; the later event publishes the
+    // same state at its own, which is what a graph keeps.
+    assert.deepEqual(await kit.onMessage({ type: "ItemAdded", item: pen }, { subject: "c1", sequence: 1 }), contents(1))
+  })
+
+  test("the cart's contents are tombstoned when the cart is deleted, and a cart that cannot be read fails the change", async () => {
+    const kit = GraphConsumerTestKit.of(CartContentsGraph, cartAsRead({ cartId: "c1", items: [], checkedOut: false }))
+    assert.deepEqual(await kit.onMessage({ type: "Discarded" }, { subject: "c1", sequence: 3 }), [])
+    assert.deepEqual(await kit.onDelete({ subject: "c1", sequence: 4 }), [{ kind: "tombstone", element: "node", id: "cart-contents:c1", version: 4 }])
+    // The unit kit's own client refuses, as a failed call does: the change is delivered again.
+    await assert.rejects(GraphConsumerTestKit.of(CartContentsGraph).onMessage({ type: "ItemAdded", item: pen }, { subject: "c1" }))
+  })
+
+  test("it is registered where there is a broker to publish to, and only there", () => {
+    const ids = () => [...service().validate().components.keys()]
+    const before = process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS
+    try {
+      delete process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS
+      assert.equal(ids().includes("cart-graph"), false)
+      process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
+      assert.equal(ids().includes("cart-graph"), true)
+      assert.equal(ids().includes("cart-contents-graph"), true)
+    } finally {
+      if (before === undefined) delete process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS
+      else process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS = before
+    }
   })
 })
 

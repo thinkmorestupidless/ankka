@@ -37,7 +37,10 @@ object Answers:
 
   /** 502: whoever answered the service's address is not the service that was asked for. */
   def notTheServiceAskedFor(project: String, service: String): Answer =
-    Answer(502, s"the certificate presented is not the service $project/$service")
+    Answer(
+      502,
+      s"'$service' is not the service that answered: its certificate is not $project/$service's"
+    )
 
   /** 503: nothing accepts a connection on the process's port. */
   val notListening: Answer = Answer(503, "the process is not listening")
@@ -45,6 +48,21 @@ object Answers:
   /** 503: a mount's or a call's service has no address. */
   def cannotBeFound(project: String, service: String): Answer =
     Answer(503, s"the service $project/$service cannot be found")
+
+  /**
+   * 503: a call names a service nobody can find. The project is named only when it is not the
+   * process's own, as the process wrote the call.
+   */
+  def noService(project: String, service: String, ownProject: String): Answer =
+    Answer(
+      503,
+      if project == ownProject then s"no service '$service'"
+      else s"no service '$service' in the project '$project'"
+    )
+
+  /** 503: the service was found, and nothing accepted a connection at its address. */
+  def notReachable(project: String, service: String): Answer =
+    Answer(503, s"the service $project/$service is not listening")
 
   /**
    * 504: no status line within the proxy's bound, said as the duration says itself (`60 seconds`).

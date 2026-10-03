@@ -1,12 +1,14 @@
 package com.thinkmorestupidless.ankka.proxy
 
 import com.thinkmorestupidless.ankka.proxy.core.{
+  Located,
   Admitted,
   Answers,
   ProxyEngine,
   ProxySettings,
   StandInProcess
 }
+import com.thinkmorestupidless.ankka.http.{Acl, Caller, Callers, HttpEndpoint, TlsServing}
 import com.thinkmorestupidless.ankka.runtime.RotatingTls
 import com.thinkmorestupidless.ankka.testkit.{GherkinSuite, LogCapturing}
 import com.thinkmorestupidless.ankka.testpki.TestPki
@@ -19,6 +21,7 @@ import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.SSLContext
 import scala.concurrent.duration.*
+import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 /**
@@ -60,6 +63,9 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   protected var last: ProxySteps.Reply          = null
   protected var partArrivals: Vector[Long]      = Vector.empty
 
+  /** The services the scenario deployed beside "web", by project and name. */
+  protected val callees = scala.collection.mutable.Map.empty[(String, String), ProxySteps.Callee]
+
   override def beforeEach(context: munit.BeforeEach): Unit =
     project = "shop"
     service = "web"
@@ -74,10 +80,12 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     thatRequest = "/"
     last = null
     partArrivals = Vector.empty
+    callees.clear()
 
   override def afterEach(context: munit.AfterEach): Unit =
     if engine != null then engine.stop()
     if process != null then process.stop()
+    callees.values.foreach(_.stop())
 
   /** The proxy, started on the first request of the scenario from the settings its Givens built. */
   protected def proxy: ProxyEngine =
@@ -94,13 +102,21 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
         port = 0,
         processPort = process.port,
         probePort = 0,
+        callingPort = 0,
         callers = callers,
         publicAuthority = if exposed then Some(hostnameOf(service)) else None,
         responseTimeout = responseTimeout,
         drainTimeout = 1.second
       )
-      engine = ProxyEngine(settings, TlsTransport(serverTls, loopback), probeAddress = loopback)
+      engine = ProxyEngine(
+        settings,
+        TlsTransport(serverTls, loopback),
+        probeAddress = loopback,
+        locator = (p, s) =>
+          callees.get((p, s)).map(c => Located(java.net.URI.create(s"https://localhost:${c.port}")))
+      )
       engine.start()
+      process.servicesUrl = engine.callingUrl
     engine
 
   // ── clients ───────────────────────────────────────────────────────────────
@@ -324,7 +340,219 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     assertEquals(status, 200, "the probe did not answer ready")
   }
 
+  // ── calling other services ────────────────────────────────────────────────
+
+  /** A service of the platform: its own certificate, its own access rule, a real HTTP server. */
+  protected def deployCallee(
+      name: String,
+      inProject: String,
+      acl: Acl,
+      refuses: Boolean = false
+  ): Unit =
+    val directory = Files.createTempDirectory(s"callee-$name")
+    authority
+      .issue(uris = Seq(s"ankka://$inProject/$name"), dnsNames = Seq("localhost"))
+      .writeTo(directory)
+    callees((inProject, name)) = ProxySteps.Callee(name, inProject, directory, acl, refuses)
+
+  /** The answer the process was given by its last call, and how the call was made. */
+  protected var processCall: ProxySteps.Reply = null
+  protected val processHeaders: Vector[(String, String)] =
+    Vector("Accept" -> "application/json", "X-Request-Id" -> "r-1")
+
+  protected def callFromProcess(target: String): ProxySteps.Reply =
+    val builder = HttpRequest.newBuilder(java.net.URI.create(proxy.callingUrl + target))
+    processHeaders.foreach((n, v) => builder.header(n, v))
+    val response = HttpClient.newHttpClient().send(builder.build(), BodyHandlers.ofString())
+    ProxySteps.Reply(response.statusCode, response.headers, response.body)
+
+  Given("a service {string} deployed in the project {string}") { (name: String, inProject: String) =>
+    deployCallee(name, inProject, Acl.AllowAll)
+  }
+
+  Given(
+    "a service {string} deployed in the project {string} whose access rule admits only {string}"
+  ) { (name: String, inProject: String, admitted: String) =>
+    deployCallee(name, inProject, Acl.allowCallers(Callers.service(admitted)))
+  }
+
+  Given(
+    "a service {string} deployed in the project {string} that answers every call with a refusal"
+  ) { (name: String, inProject: String) =>
+    deployCallee(name, inProject, Acl.AllowAll, refuses = true)
+  }
+
+  Given("{string} is not exposed") { (name: String) =>
+    // A service other than "web" has no route on loopback whatever it is; for "web" the process is
+    // told no public address.
+    if name == service then exposed = false
+  }
+
+  Given("no service {string} in the project {string}") { (name: String, inProject: String) =>
+    assert(!callees.contains((inProject, name)))
+  }
+
+  When("the process of {string} calls {string} at the calling address") {
+    (name: String, callee: String) =>
+      assertEquals(name, service)
+      processCall = callFromProcess(s"/$callee/svc/whoami")
+  }
+
+  When("the process of {string} calls {string}, {string} and {string} at the calling address") {
+    (name: String, a: String, b: String, c: String) =>
+      assertEquals(name, service)
+      for callee <- Vector(a, b, c) do
+        val reply = callFromProcess(s"/$callee/svc/whoami")
+        assertEquals(reply.status, 200, reply.body)
+  }
+
+  When("the process of {string} calls {string} in the project {string} at the calling address") {
+    (name: String, callee: String, inProject: String) =>
+      assertEquals(name, service)
+      processCall = callFromProcess(s"/$callee.$inProject/svc/whoami")
+  }
+
+  When("the process of {string} sends a call to the calling address that names no service") {
+    (name: String) =>
+      assertEquals(name, service)
+      processCall = callFromProcess("/")
+  }
+
+  When("a person on the internet asks {string} for what its process reads from {string}") {
+    (name: String, callee: String) =>
+      assertEquals(name, service)
+      send(internet, s"/call?path=/$callee/svc/whoami")
+  }
+
+  When("the service {string} in the project {string} calls {string}") {
+    (caller: String, inProject: String, callee: String) =>
+      val target = callees.getOrElse((project, callee), fail(s"no service $callee"))
+      val response = serviceClient(inProject, caller).send(
+        HttpRequest
+          .newBuilder(java.net.URI.create(s"https://localhost:${target.port}/svc/whoami"))
+          .build(),
+        BodyHandlers.ofString()
+      )
+      last = ProxySteps.Reply(response.statusCode, response.headers, response.body)
+  }
+
+  Then("{string} is told that the call came from the service {string} in the project {string}") {
+    (callee: String, caller: String, inProject: String) =>
+      val c = callees.values.find(_.name == callee).getOrElse(fail(s"no service $callee"))
+      assertEquals(c.seen.map(_.caller), Vector(s"service:$inProject/$caller"))
+  }
+
+  Then("the process is given the answer of {string}") { (callee: String) =>
+    assertEquals(processCall.status, 200, processCall.body)
+    assertEquals(processCall.body, s"$callee saw service:$project/$service")
+    assert(!answeredByProxy(processCall))
+  }
+
+  Then("each of those services is given the call made to it") { () =>
+    for c <- callees.values do assertEquals(c.seen.map(_.path), Vector("/svc/whoami"), c.name)
+  }
+
+  Then("each is told that the call came from the service {string} in the project {string}") {
+    (caller: String, inProject: String) =>
+      for c <- callees.values do
+        assertEquals(c.seen.map(_.caller), Vector(s"service:$inProject/$caller"), c.name)
+  }
+
+  Then("the person is shown what {string} answered") { (callee: String) =>
+    assertEquals(last.status, 200, last.body)
+    assertEquals(last.body, s"200 $callee saw service:$project/$service")
+  }
+
+  Then("a person on the internet who sends a request to {string} without {string} is refused") {
+    (callee: String, name: String) =>
+      assertEquals(name, service)
+      val target = callees.getOrElse((project, callee), fail(s"no service $callee"))
+      val response = internet.send(
+        HttpRequest
+          .newBuilder(java.net.URI.create(s"https://localhost:${target.port}/svc/whoami"))
+          .build(),
+        BodyHandlers.ofString()
+      )
+      assertEquals(response.statusCode, 403, response.body)
+      assertEquals(target.seen.count(_.caller == "gateway"), 0)
+  }
+
+  Then("{string} is refused") { (caller: String) =>
+    assertEquals(last.status, 403, s"$caller was not refused: ${last.body}")
+  }
+
+  Then("{string} is given the call as the process made it, with nothing added but who called") {
+    (callee: String) =>
+      val c = callees.values.find(_.name == callee).getOrElse(fail(s"no service $callee"))
+      val seen = c.seen match
+        case Vector(one) => one
+        case other       => fail(s"one call expected: $other")
+      assertEquals(seen.caller, s"service:$project/$service")
+      for (n, v) <- processHeaders do
+        assertEquals(
+          seen.headers.collectFirst { case (k, x) if k.equalsIgnoreCase(n) => x },
+          Some(v),
+          n
+        )
+      val added = seen.headers.map(_._1.toLowerCase).filter(_.startsWith("x-")).toSet --
+        processHeaders.map(_._1.toLowerCase).toSet
+      assertEquals(added, Set.empty[String], "headers the process did not send")
+  }
+
+  Then("the process is given the refusal as {string} made it") { (callee: String) =>
+    assertEquals(processCall.status, 403, processCall.body)
+    assert(processCall.body.contains(s"refused by $callee"), processCall.body)
+    assert(!answeredByProxy(processCall), "the refusal was the proxy's, not the service's")
+  }
+
+  Then("the process is told that there is no service {string}") { (name: String) =>
+    assertEquals(processCall.status, 503, processCall.body)
+    assert(answeredByProxy(processCall))
+    assert(processCall.body.contains(s"no service '$name'"), processCall.body)
+  }
+
+  Then("no call is sent to any service") { () =>
+    for c <- callees.values do assertEquals(c.seen, Vector.empty, c.name)
+  }
+
+  Then("the process is told that a call names a service") { () =>
+    assertEquals(processCall.status, 400, processCall.body)
+    assert(answeredByProxy(processCall))
+    assert(processCall.body.contains("a call names a service"), processCall.body)
+  }
+
 object ProxySteps:
 
   /** What a client was answered: the status, the headers, and the body as text. */
   final case class Reply(status: Int, headers: HttpHeaders, body: String)
+
+  /** One call a callee was given: who called, the path, and the headers. */
+  final case class Seen(caller: String, path: String, headers: Vector[(String, String)])
+
+  /** A service of the platform, served over its own certificate by the runtime's HTTP server. */
+  final class Callee(
+      val name: String,
+      val project: String,
+      directory: java.nio.file.Path,
+      acl: Acl,
+      refuses: Boolean
+  ):
+    private val calls = new java.util.concurrent.ConcurrentLinkedQueue[Seen]()
+
+    private final class Endpoint extends HttpEndpoint("/svc"):
+      val acl: Acl = Callee.this.acl
+      get("/whoami") { () =>
+        val who = Caller.encode(caller)
+        calls.add(Seen(who, request.path, request.headers))
+        if refuses then
+          throw com.thinkmorestupidless.ankka.core.CommandError(
+            s"refused by ${Callee.this.name}",
+            com.thinkmorestupidless.ankka.core.ErrorCode.Forbidden
+          )
+        s"${Callee.this.name} saw $who"
+      }
+
+    private val running    = TlsServing.start(s"callee-$name", directory, Vector(new Endpoint))
+    val port: Int          = running.port
+    def seen: Vector[Seen] = calls.asScala.toVector
+    def stop(): Unit       = running.stop()

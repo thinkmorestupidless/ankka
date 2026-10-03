@@ -29,7 +29,9 @@ final class ProxyEngine(
     settings: ProxySettings,
     transport: Transport,
     probeAddress: InetAddress = ProxyEngine.EveryAddress,
-    events: ProxyEngine.Events = ProxyEngine.Events.None
+    events: ProxyEngine.Events = ProxyEngine.Events.None,
+    /** Where the services the process calls are found. */
+    locator: Locator = ProxyEngine.Nowhere
 ):
   import ProxyEngine.*
 
@@ -46,14 +48,19 @@ final class ProxyEngine(
   private val processAddress  = s"http://127.0.0.1:${settings.processPort}"
   private val responseTimeout = Duration.ofMillis(settings.responseTimeout.toMillis)
 
-  @volatile private var listeners: Option[(HttpServer, HttpServer)] = None
+  @volatile private var listeners: Option[Listeners] = None
 
   /**
    * The settings with the port the public listener was given, which a setting of 0 chose at start.
    */
   @volatile private var effective: ProxySettings = settings
 
-  /** Binds and starts both listeners. Fails before binding when the JVM cannot set `Host`. */
+  /**
+   * Binds and starts the three listeners. Fails before binding when the JVM cannot set `Host`.
+   *
+   * The calling address is bound to the loopback address and nothing else: it sends a call on as
+   * the web-hosted service, so only the process beside the proxy may reach it.
+   */
   def start(): Unit = synchronized {
     require(listeners.isEmpty, "the proxy is already started")
     requireHostHeaderAllowed()
@@ -63,25 +70,47 @@ final class ProxyEngine(
     val probe = HttpServer.create(new InetSocketAddress(probeAddress, settings.probePort), 0)
     probe.createContext("/", exchange => readiness(exchange))
     probe.setExecutor(executor)
+    val calling = HttpServer.create(new InetSocketAddress(Loopback, settings.callingPort), 0)
+    calling.createContext("/", exchange => call(exchange))
+    calling.setExecutor(executor)
     public.start()
     probe.start()
-    effective = settings.copy(port = public.getAddress.getPort)
-    listeners = Some((public, probe))
+    calling.start()
+    effective = settings.copy(
+      port = public.getAddress.getPort,
+      callingPort = calling.getAddress.getPort
+    )
+    listeners = Some(Listeners(public, probe, calling))
   }
 
   /** The ports the listeners are bound to, which a setting of 0 chose at start. */
   def ports: Ports = listeners match
-    case Some((public, probe)) => Ports(public.getAddress.getPort, probe.getAddress.getPort)
-    case None                  => throw new IllegalStateException("the proxy is not started")
+    case Some(l) =>
+      Ports(l.public.getAddress.getPort, l.probe.getAddress.getPort, l.calling.getAddress.getPort)
+    case None => throw new IllegalStateException("the proxy is not started")
+
+  /** The calling address as the process is told it: `ANKKA_SERVICES_URL`. */
+  def callingUrl: String = s"http://127.0.0.1:${effective.callingPort}"
+
+  /** The address the calling listener is bound to, which is the loopback address. */
+  def callingAddress: InetAddress = listeners
+    .map(_.calling.getAddress.getAddress)
+    .getOrElse(throw new IllegalStateException("the proxy is not started"))
 
   /**
    * Stops accepting, lets the exchanges in flight finish for up to `drainTimeout`, then closes what
    * remains and releases the client.
    */
   def stop(): Unit = synchronized {
-    listeners.foreach { (public, probe) =>
-      probe.stop(0)
-      public.stop(settings.drainTimeout.toSeconds.toInt.max(1))
+    listeners.foreach { l =>
+      l.probe.stop(0)
+      val drain = settings.drainTimeout.toSeconds.toInt.max(1)
+      // In flight on either side: a request from outside, and the process's own calls it may be
+      // making to answer one.
+      val calls = new Thread(() => l.calling.stop(drain))
+      calls.start()
+      l.public.stop(drain)
+      calls.join()
       client.shutdownNow()
       executor.shutdown()
     }
@@ -103,23 +132,91 @@ final class ProxyEngine(
 
   private def passOn(exchange: HttpExchange, sender: Sender): Unit =
     val received = flatten(exchange)
-    val target   = URI.create(processAddress + requestTarget(exchange))
-    val request  = HttpRequest.newBuilder(target).timeout(responseTimeout)
-    Headers
-      .inbound(sender, effective, received)
+    send(
+      exchange,
+      Some(sender),
+      URI.create(processAddress + requestTarget(exchange)),
+      Headers.inbound(sender, effective, received),
+      received,
+      client,
+      "the process",
+      Answers.notListening,
+      None
+    )
+
+  /**
+   * A call at the calling address: parsed, located and sent on as the web-hosted service, with the
+   * same streaming pass-through as a request to the process. An answer the service gave is returned
+   * as it gave it, whatever its status; the proxy's own are only for a call it could not send.
+   */
+  private def call(exchange: HttpExchange): Unit =
+    try
+      CallingAddress.parse(requestTarget(exchange), settings.project, callingUrl) match
+        case Left(reason) => answer(exchange, None, Answer(400, reason))
+        case Right(target) =>
+          locator.locate(target.project, target.service) match
+            case None =>
+              answer(
+                exchange,
+                None,
+                Answers.noService(target.project, target.service, settings.project)
+              )
+            case Some(located) =>
+              val received = flatten(exchange)
+              val who      = s"the service ${target.project}/${target.service}"
+              send(
+                exchange,
+                None,
+                URI.create(located.uri.toString.stripSuffix("/") + target.rest),
+                Headers.outbound(received),
+                received,
+                transport.client(target).getOrElse(client),
+                who,
+                Answers.notReachable(target.project, target.service),
+                Some(target)
+              )
+    catch
+      case NonFatal(_) =>
+        try answer(exchange, None, Answers.closedBeforeAnswering("the service"))
+        catch case NonFatal(_) => ()
+    finally exchange.close()
+
+  /**
+   * Sends one request on and returns what came back, part by part. A connection refused before any
+   * byte was sent is `refused`; a connection closed before a status line, or a handshake that
+   * failed, is 502; no status line within the bound is 504.
+   */
+  private def send(
+      exchange: HttpExchange,
+      sender: Option[Sender],
+      target: URI,
+      headers: Vector[(String, String)],
+      received: Vector[(String, String)],
+      via: HttpClient,
+      who: String,
+      refused: Answer,
+      callTarget: Option[CallingAddress.Target]
+  ): Unit =
+    val request = HttpRequest.newBuilder(target).timeout(responseTimeout)
+    headers
       .filterNot((name, _) => ClientSets(name.toLowerCase))
       .foreach((name, value) => request.header(name, value))
     request.method(exchange.getRequestMethod, body(exchange, received))
 
     val response: Either[Answer, HttpResponse[InputStream]] =
-      try Right(client.send(request.build(), BodyHandlers.ofInputStream()))
+      try Right(via.send(request.build(), BodyHandlers.ofInputStream()))
       catch
-        case _: ConnectException => Left(Answers.notListening)
+        case _: ConnectException => Left(refused)
         case _: HttpTimeoutException =>
-          Left(Answers.noAnswerInTime("the process", settings.responseTimeout))
-        case _: IOException => Left(Answers.closedBeforeAnswering("the process"))
+          Left(Answers.noAnswerInTime(who, settings.responseTimeout))
+        case e: IOException =>
+          Left(
+            callTarget
+              .flatMap(transport.failure(_, e))
+              .getOrElse(Answers.closedBeforeAnswering(who))
+          )
     response match
-      case Left(answer)    => this.answer(exchange, Some(sender), answer)
+      case Left(answer)    => this.answer(exchange, sender, answer)
       case Right(response) => deliver(exchange, response)
 
   /** The process's response, status and headers as given, the body as it arrives. */
@@ -187,7 +284,14 @@ final class ProxyEngine(
 
 object ProxyEngine:
 
-  final case class Ports(public: Int, probe: Int)
+  final case class Ports(public: Int, probe: Int, calling: Int)
+
+  private final case class Listeners(public: HttpServer, probe: HttpServer, calling: HttpServer)
+
+  /** A locator that finds nothing: an engine with no services to call. */
+  val Nowhere: Locator = (_, _) => None
+
+  val Loopback: InetAddress = InetAddress.getLoopbackAddress
 
   /** What the engine tells whoever runs it; the image logs one line per answer of its own. */
   trait Events:

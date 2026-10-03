@@ -6,3 +6,5 @@ package com.thinkmorestupidless.ankka.proxy
  * reached from `proxy/`.
  */
 class RequestsFeature extends ProxySteps("../features/web-hosting/requests.feature")
+
+class CallingServicesFeature extends ProxySteps("../features/web-hosting/calling-services.feature")

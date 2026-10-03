@@ -47,6 +47,7 @@ class ProxyEngineSuite extends munit.FunSuite:
         port = 0,
         processPort = process.port,
         probePort = 0,
+        callingPort = 0,
         drainTimeout = 5.seconds
       )
     )
@@ -307,7 +308,7 @@ class ProxyEngineSuite extends munit.FunSuite:
   test("the proxy's own answers are reported, and passed requests are not") {
     val reported = new java.util.concurrent.ConcurrentLinkedQueue[(String, Int)]()
     val process  = StandInProcess().start()
-    val settings = ProxySettings("shop", "web", 0, process.port, probePort = 0)
+    val settings = ProxySettings("shop", "web", 0, process.port, probePort = 0, callingPort = 0)
     val events = new ProxyEngine.Events:
       def answered(sender: Option[Sender], method: String, target: String, answer: Answer): Unit =
         reported.add(target -> answer.status): Unit

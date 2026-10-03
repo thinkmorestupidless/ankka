@@ -57,7 +57,9 @@ addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
 libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"
 ```
 
-And in `build.sbt`, the subproject beside the service, which depends on it and on `ankka-grpc`:
+And in `build.sbt`, the subproject beside the service, which depends on it and on `ankka-grpc`. Both
+must be built with the same Scala version, so set it for the whole build (`ThisBuild / scalaVersion`)
+rather than on the service's project alone; a service made with `ankka init` already does:
 
 ```scala
 lazy val api = project
@@ -83,7 +85,7 @@ none of it.
 
 An endpoint names the service definition it implements, states its access control list (ACL), and
 declares a handler for each method. This is the excerpt of the sample's endpoint that answers the two
-cart methods; the whole file is `samples/shopping-cart/src/main/scala/shoppingcart/api/CartGrpcEndpoint.scala`:
+cart methods; the whole file is the shopping cart sample's `CartGrpcEndpoint.scala`:
 
 ```scala
 /**

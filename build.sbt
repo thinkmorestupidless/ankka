@@ -469,6 +469,16 @@ lazy val controlPlane = project
             .Process(Seq("docker", "build", "-q", "-t", "ankka-console:latest", console.getPath))
             .!
           if (built != 0) sys.error(s"docker build of $console failed ($built)")
+          // The shopping cart's interface (feature 021): a Node image Docker builds, under this
+          // build's tag, as a suite names every image.
+          val web = (ThisBuild / baseDirectory).value / "samples" / "shopping-cart-web"
+          val tag = version.value.replace('+', '-')
+          val webBuilt = scala.sys.process
+            .Process(
+              Seq("docker", "build", "-q", "-t", s"sample-shopping-cart-web:$tag", web.getPath)
+            )
+            .!
+          if (webBuilt != 0) sys.error(s"docker build of $web failed ($webBuilt)")
           ()
         }
     }.value,

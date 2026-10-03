@@ -182,7 +182,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
       sys.props("ankka.config") = config.toString
 
       ok(ankka("organizations", "create", "acme", "--name", "Acme"))
-      ok(ankka("projects", "create", Project, "--name", "Shop", "--organization", "acme"))
+      ok(ankka("projects", "create", Project, "--name", "Shop", "--organization", "acme")): Unit
 
   override def afterAll(): Unit =
     stopBrowser()
@@ -414,12 +414,23 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
         .toMap
       (status, headers, output.substring(split + 4))
 
-  protected def expose(): Unit =
+  /**
+   * Exposes the service and waits for its process to answer through the gateway. By default that is
+   * the echo process, which names its instance; a process that does not passes what its own answer
+   * looks like.
+   */
+  protected def expose(
+      answers: ((Int, Map[String, String], String)) => Boolean = (status, headers, _) =>
+        status == 200 && headers.contains("x-instance")
+  ): Unit =
     ok(ankka("services", "expose", service, "-p", Project))
     waitFor(90.seconds, s"$hostname answering through the gateway") {
-      val (status, headers, _) = browse()
-      status == 200 && headers.contains("x-instance")
+      answers(browse())
     }
+
+  /** A page from the process itself, not an answer of the proxy's. */
+  protected val aPage: ((Int, Map[String, String], String)) => Boolean = (status, headers, _) =>
+    status == 200 && !headers.contains("x-ankka-answered-by")
 
   protected val browsing        = new AtomicBoolean(false)
   protected val answered        = new ConcurrentLinkedQueue[Int]()
@@ -1063,5 +1074,134 @@ class IsolationWebHostingClusterFeatures
     assert(
       refused.contains(""""status":403"""),
       s"the cart's refusal did not reach the process: $refused"
+    )
+  }
+
+  // ── features/web-hosting/template.feature, the two scenarios only a cluster can show ─────────
+
+  private val SampleWebImage = s"sample-shopping-cart-web:$Tag"
+
+  /** A request through the gateway with a JSON body: the status and the body. */
+  private def post(path: String, json: String): (Int, String) =
+    val command = Vector(
+      "curl",
+      "-sS",
+      "-m",
+      "10",
+      "-o",
+      "-",
+      "-w",
+      "\n%{http_code}",
+      "--cacert",
+      ca.toString,
+      "--resolve",
+      s"$hostname:$httpsPort:127.0.0.1",
+      "-H",
+      "Content-Type: application/json",
+      "--data",
+      json,
+      s"https://$hostname:$httpsPort$path"
+    )
+    val process = new ProcessBuilder(command*).redirectErrorStream(true).start()
+    val output  = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+    process.waitFor()
+    val at = output.lastIndexOf('\n')
+    (output.substring(at + 1).trim.toIntOption.getOrElse(0), output.substring(0, math.max(at, 0)))
+
+  /** Applies a descriptor file, its image replaced by one this build made. */
+  private def applyWithImage(descriptor: Path, image: String): Unit =
+    val text =
+      Files.readString(descriptor).replaceAll(""""image"\s*:\s*"[^"]*"""", s""""image": "$image"""")
+    val file = Files.createTempFile("ankka-applied", ".json")
+    try
+      Files.writeString(file, text): Unit
+      ok(ankka("services", "apply", "-f", file.toString, "-p", Project)): Unit
+    finally Files.deleteIfExists(file): Unit
+
+  private def ensureCart(): Unit =
+    if !statusOf("cart").exists(_.lifecycle == ServiceLifecycle.Ready) then
+      val file = Files.createTempFile("ankka-cart", ".json")
+      try
+        Files.writeString(file, s"""{"name":"cart","service":{"image":"$SampleImage"}}"""): Unit
+        ok(ankka("services", "apply", "-f", file.toString, "-p", Project))
+      finally Files.deleteIfExists(file): Unit
+      waitFor(300.seconds, "the cart being Ready") {
+        statusOf("cart").exists(_.lifecycle == ServiceLifecycle.Ready) && pods("cart").exists(ready)
+      }
+
+  test("the shopping cart sample has an interface") {
+    assume(!munitIgnore, "cluster tests are off")
+    ClusterImages.importInto(k3s, SampleWebImage)
+    ensureCart()
+    service = "cart-web"
+    applyWithImage(repoRoot.resolve("samples/shopping-cart-web/service.json"), SampleWebImage)
+    readyWith(1)
+    expose(aPage)
+    // Under the mount: the cart, reached at the interface's own address.
+    val (added, addedBody) =
+      post("/api/cart/carts/sample/items", """{"productId":"tea","name":"Tea","quantity":2}""")
+    assert(
+      added >= 200 && added < 300,
+      s"adding an item under the mount answered $added: $addedBody"
+    )
+    val (read, _, cartBody) = browse("/api/cart/carts/sample")
+    assertEquals(read, 200, cartBody)
+    assert(cartBody.contains("Tea"), cartBody)
+    // The interface's server, reading the cart at the calling address.
+    val (summarised, _, summary) = browse("/summary?cart=sample")
+    assertEquals(summarised, 200, summary)
+    assert(summary.contains(""""status":200"""), summary)
+    assert(summary.contains("2"), s"the total the server read: $summary")
+    // The cart has no address of its own: it is not exposed and no route names it. Its endpoint
+    // admits every caller, so it would answer another service too; a real application's backend
+    // would admit only the internet and its interface.
+    assert(ankka("services", "get", "cart", "-p", Project).out.contains("not exposed"))
+    assertEquals(
+      k8s
+        .resources(classOf[io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute])
+        .inNamespace(Namespace)
+        .withName("cart")
+        .get(),
+      null
+    )
+    assertEquals(
+      statusOf("cart-web").map(_.mounts.map(m => m.service -> m.state)),
+      Some(Vector("cart" -> "ok"))
+    )
+  }
+
+  test("a web-hosted service started from the template is deployed to a local platform") {
+    assume(!munitIgnore, "cluster tests are off")
+    val workspace = Files.createTempDirectory("ankka-web-template-cluster")
+    val rendered  = workspace.resolve("shop-web")
+    // `init` talks to no control plane, so it takes none of the connection flags `ankka` adds.
+    val rendering = ByteArrayOutputStream()
+    assertEquals(
+      Main.run(
+        Seq("init", "shop-web", "--language", "web", "--dir", workspace.toString),
+        PrintStream(rendering, true, StandardCharsets.UTF_8),
+        PrintStream(rendering, true, StandardCharsets.UTF_8)
+      ),
+      0,
+      rendering.toString(StandardCharsets.UTF_8)
+    )
+    def inProject(command: String*): Unit =
+      val process = new ProcessBuilder(command*).directory(rendered.toFile).inheritIO().start()
+      assertEquals(process.waitFor(), 0, command.mkString(" "))
+    // The lockfile its Dockerfile installs from, then the image, built with its own Dockerfile.
+    inProject("npm", "install", "--no-audit", "--no-fund")
+    val image = s"shop-web:$Tag"
+    inProject("docker", "build", "-q", "-t", image, ".")
+    ClusterImages.importInto(k3s, image)
+    service = "shop-web"
+    applyWithImage(rendered.resolve("service.json"), image)
+    readyWith(1)
+    expose(aPage)
+    val (status, _, page) = browse("/")
+    assertEquals(status, 200, page)
+    assert(page.contains("""<div id="root">"""), page)
+    assertEquals(
+      statusOf("shop-web").map(_.mounts.map(m => m.service -> m.state)),
+      Some(Vector("backend" -> "no service"))
     )
   }

@@ -138,6 +138,15 @@ calls and to what calls it.
 ### test kit
 What a developer's test starts a whole service with, on the developer's machine.
 
+### control plane
+The part of the platform that members operate their organizations, projects and
+services through.
+
+### module
+A service built as a WebAssembly module that the platform's own program loads. It has
+no environment of its own and reads its configuration from the platform, which withholds its own
+settings.
+
 ## People
 
 
@@ -164,6 +173,9 @@ Something that proves who its holder is and lets them reach what that identity m
 
 ### documentation
 What the platform publishes for the people who build on it.
+
+### deploy token
+A credential a machine holds to act as a member of an organization.
 
 ## Topology
 
@@ -498,6 +510,67 @@ version of the platform it was made with.
 ### browser
 What a person on the internet sends requests with and is shown the answers in.
 
+## Identity
+
+### issuer
+An identity provider that signs tokens for people and publishes the keys to check them
+with. A service lists the issuers whose tokens it accepts, each with the audience it expects. The
+installation's issuer is the one the control plane lists.
+
+Avoid: IdP, realm
+
+### token
+A signed statement from an issuer of who a person is, sent with a request to prove it.
+
+Avoid: JWT, bearer token
+
+### keys
+What an issuer publishes so that the tokens it signed can be checked without asking it
+about each one. A service fetches an issuer's keys and keeps them.
+
+### audience
+Who a token says it is for. A service accepts a token only for the audience it listed
+with the token's issuer.
+
+### subject
+The issuer's own id for the person a token names.
+
+### role
+A name an issuer gives a person's standing, carried in the token. A handler decides what
+a role allows.
+
+### claim
+One named value a token carries. The subject, the roles and the audience are claims; a
+service reads its own claims by name.
+
+### verified
+Of a token: its signature checks against the keys of the issuer it names, that issuer is
+one the service lists, it is for that issuer's audience, it has a subject, and it is within its
+dates.
+
+### authenticated route
+A route whose ACL admits only a request with a verified token.
+
+### challenged
+Of a request: answered that a verified token is needed and none was accepted, so the
+handler was not run.
+
+### unavailable
+Of a request: answered that the service cannot verify tokens at present and the request
+should be sent again later.
+
+### tolerance
+How long a service goes on verifying with the keys it already holds when an issuer's
+keys cannot be fetched.
+
+### fetch timeout
+How long a service waits for an issuer to answer for its keys.
+
+### shared secret
+A key that both signs and checks a token, so that anyone who can check it can also forge
+it. A service never accepts a token signed with one.
+
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
@@ -518,4 +591,10 @@ building, believed, establishes, established, decides, replaced, alone, test, se
 reached, reason, why, web, page, alike, arrives, ending, holds, told, unfinished, chooses, sending,
 opts, opted, into, tool, still, send, tell, which, keep, keeps, come, comes, came, listen, listens,
 listening, printed, allow, said, never, hold, tests, use, uses, used, give, gain, gains, change,
-changes, changed, take, taken
+changes, changed, take, taken, signs, signed, for, from, that, listed, carries, carrying, not, no,
+value, expired, valid, fetched, fetch, unreachable, been, has, had, having, rather, problem,
+problems, twice, attached, ignored, settings, its, their, this, these, those, it, them, they, of,
+and, or, a, an, the, to, in, on, by, as, at, up, down, so, if, everyone, while, when, again, go,
+going, do, done, fails, failed, failure, be, being, was, were, now, also, later, over, other's,
+issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less,
+first, installation's, organization's, type, admitted, asking, reachable

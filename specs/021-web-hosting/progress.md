@@ -5,15 +5,20 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 
 ## State on 2026-10-03
 
-- **Done: T001–T049.** Every user story is built: the proxy, the operator's rendering, status,
-  logs, the console, `ankka local web`, the web template, the sample's interface (`cart-web`), the
-  cloud overlay's proxy image, the `web` CI job, and the documentation (three new pages, the skill
-  `ankka-web`, `WebHostingDocumentationSuite`).
-- **Left:** T050's last part, timing the first-interface guide once, followed by someone who did not
-  write it (SC-002); its older-runtime proof is done and recorded in R3. T051's full `caffeinate -i
-  sbt test`; every other check it lists has passed (offline tests, features check, docs, console,
-  native image and smoke test with GraalVM 25, `deploy-local.sh` on a fresh kind cluster with the cart
-  and `cart-web` serving). T049 measured 0.051 ms added and 88 MiB resident (R19).
+- **Done: T001–T049 and T051.** Every check that gates a merge has passed: formatting, the offline
+  tests, the full `sbt test` with the k3s suites (its three failures were a repository path in a
+  shipped docs page, fixed, and two k3s timeouts that passed rerun alone), the features check, the
+  docs, the console, the native image and its smoke test (GraalVM 25; 21 builds an image without the
+  docs), and `deploy-local.sh` on a fresh kind cluster with the cart and `cart-web` serving.
+- **Re-reading the requirements against the suites** found the proxy holding a request body back until
+  more of it arrived (FR-019); `StreamingBody` fixes it. It also found that the JDK client sends a
+  `GET` or `HEAD` once more when its connection closed before any answer; that is kept, pinned by a
+  test and stated in the reference, where FR-024 says no retries. Gaps left: labels and annotations
+  (FR-005), history and listings (FR-012) and a mounts change through the control plane (FR-029) are
+  not asserted for a web-hosted service; SC-004 exercises two cart operations, not all; SC-006 runs the
+  template locally and the sample on a cluster, not one interface in both.
+- **Left: T050's timing**, the first-interface guide followed once by someone who did not write it
+  (SC-002). Its older-runtime proof is done (R3).
 - **Branch protection must require the new `web` job** once the pull request exists.
 
 ## What is established

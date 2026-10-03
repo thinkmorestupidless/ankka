@@ -184,6 +184,34 @@ class ProxyEngineSuite extends munit.FunSuite:
     }
   }
 
+  test("a request body reaches the process as it arrives, not once it has all arrived") {
+    withProxy() { proxy =>
+      val out = new java.io.PipedOutputStream()
+      val in  = new java.io.PipedInputStream(out)
+      val sent = proxy.client.sendAsync(
+        // Sent with the engine's own publisher: the JDK's ofInputStream holds back a part it has
+        // read until the next read returns, which would stall this request before the proxy.
+        proxy
+          .request("/trickle")
+          .POST(BodyPublishers.fromPublisher(StreamingBody(() => in)))
+          .build(),
+        BodyHandlers.ofByteArray()
+      )
+      out.write('a'.toInt)
+      out.flush()
+      // The rest is held back until the process has the first byte. A proxy that read the whole
+      // body before passing it on would never pass that byte, and this would time out.
+      val deadline = System.nanoTime() + 10.seconds.toNanos
+      while proxy.process.firstBodyByteAt == 0L && System.nanoTime() < deadline do Thread.sleep(20)
+      assert(proxy.process.firstBodyByteAt != 0L, "the process saw nothing before the body ended")
+      out.write("bc".getBytes("UTF-8"))
+      out.close()
+      val response = sent.get(10, java.util.concurrent.TimeUnit.SECONDS)
+      assertEquals(response.statusCode, 200)
+      assertEquals(new String(response.body, "UTF-8"), "abc")
+    }
+  }
+
   test("the first streamed part is read before the last is written") {
     withProxy() { proxy =>
       val response =

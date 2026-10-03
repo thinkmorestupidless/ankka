@@ -85,7 +85,14 @@ import shoppingcart.application.*
         if sys.env.get("CART_REFLECTION").contains("off") then server
         else server.withReflection(Acl.allowCallers(Callers.internet))
       // docs:end reflection
-      withNotices.withExtension(reflecting)
+      // A deployment that sets CART_REFLECTION_CALLER admits that one service to reflection, and
+      // nobody else: how the platform's own tests see reflection answered at the gRPC address, judged
+      // by the calling service's certificate.
+      val admittingCaller = sys.env.get("CART_REFLECTION_CALLER").filter(_.nonEmpty) match
+        case Some(only) if !sys.env.get("CART_REFLECTION").contains("off") =>
+          server.withReflection(Acl.allowCallers(Callers.service(only)))
+        case _ => reflecting
+      withNotices.withExtension(admittingCaller)
 
   // Channels to other services' gRPC endpoints, created once and handed to what calls them.
   // docs:start grpc-clients

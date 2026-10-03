@@ -34,6 +34,21 @@ Feature: A deployed service that serves gRPC
     When the service "checkout" calls the method "GetCart" of the service "cart" with metadata that says the call is from the service "billing"
     Then the handler for the method "GetCart" reads the calling workload as the service "checkout"
 
+  Scenario: a service that opts into reflection answers another service at its gRPC address
+    Given a deployed service "cart" that serves gRPC
+    And the service "cart" opts into reflection with an ACL that admits only the service "checkout"
+    And a deployed service "checkout"
+    When the service "checkout" asks the service "cart" for reflection
+    Then the service "checkout" is told the service definition "CartService"
+
+  Scenario: a service that reflection's ACL does not admit is refused at the gRPC address
+    Given a deployed service "cart" that serves gRPC
+    And the service "cart" opts into reflection with an ACL that admits only the gateway
+    And a deployed service "checkout"
+    When the service "checkout" asks the service "cart" for reflection
+    Then the call ends with the status "permission denied"
+    And the service "checkout" is told nothing of what the service "cart" serves
+
   Scenario: a workload that is not of the installation cannot connect to a gRPC address
     Given a deployed service "cart" that serves gRPC
     And a workload in the cluster that is not of the installation

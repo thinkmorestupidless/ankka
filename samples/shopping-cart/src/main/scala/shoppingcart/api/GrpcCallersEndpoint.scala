@@ -3,11 +3,21 @@ package shoppingcart.api
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.grpc.GrpcClients
 import com.thinkmorestupidless.ankka.http.*
-import io.grpc.stub.MetadataUtils
+import io.grpc.reflection.v1.{
+  ServerReflectionGrpc,
+  ServerReflectionRequest,
+  ServerReflectionResponse
+}
+import io.grpc.stub.{MetadataUtils, StreamObserver}
 import io.grpc.{ClientInterceptors, Metadata, StatusRuntimeException}
 import shoppingcart.v1.cart.{CartServiceGrpc, WhoCalledRequest}
 
+import java.util.concurrent.TimeUnit
+import scala.concurrent.duration.DurationInt
+import scala.concurrent.{Await, Promise}
+import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /**
  * Calls another service's gRPC endpoint as this service, and says what came back. Not part of the
@@ -42,6 +52,27 @@ final class GrpcCallersEndpoint(grpc: GrpcClients) extends HttpEndpoint("/caller
     val byInstance = answers.collect { case Right(instance) => instance }.groupBy(identity)
     val counts = byInstance.toSeq.sortBy(_._1).map((i, all) => s"\"$i\":${all.size}").mkString(",")
     s"""{"instances":{$counts},"failures":${answers.count(_.isLeft)}}"""
+  }
+
+  // Asks another service what it serves, as this service. Reflection at a gRPC address is judged by
+  // that service's own reflection ACL, reading this service from its certificate: the answer is the
+  // service definitions it listed, or the status it refused with.
+  get("/{service}/reflection") { (service: String) =>
+    val answer = Promise[ServerReflectionResponse]()
+    val requests = ServerReflectionGrpc
+      .newStub(grpc(service))
+      .withDeadlineAfter(10, TimeUnit.SECONDS)
+      .serverReflectionInfo(new StreamObserver[ServerReflectionResponse]:
+        def onNext(value: ServerReflectionResponse): Unit = answer.trySuccess(value): Unit
+        def onError(t: Throwable): Unit                   = answer.tryFailure(t): Unit
+        def onCompleted(): Unit                           = ())
+    requests.onNext(ServerReflectionRequest.newBuilder().setListServices("").build())
+    requests.onCompleted()
+    Try(Await.result(answer.future, 15.seconds)) match
+      case Success(response) =>
+        response.getListServicesResponse.getServiceList.asScala.map(_.getName).mkString(",")
+      case Failure(e: StatusRuntimeException) => s"failed: ${e.getStatus.getCode}"
+      case Failure(e)                         => s"failed: ${e.getMessage}"
   }
 
   // The same call, claiming in its metadata to come from `other`. In a cluster the called service

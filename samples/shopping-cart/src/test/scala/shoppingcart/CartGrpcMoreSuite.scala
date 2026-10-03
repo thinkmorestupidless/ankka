@@ -123,3 +123,25 @@ class CartGrpcMoreSuite extends munit.FunSuite with LogCapturing:
       )
     assertEquals((response.statusCode, response.body), (200, "local"))
   }
+
+  test("the cart asks a service for reflection through GrpcClients, and is told what it serves") {
+    // The same route the cluster suite drives from another service's pod; here the service asks
+    // itself, and a local caller is admitted by every ACL.
+    val port = http.boundPort.getOrElse(fail("no HTTP port"))
+    val response = HttpClient
+      .newHttpClient()
+      .send(
+        HttpRequest
+          .newBuilder(
+            URI.create(
+              s"http://127.0.0.1:$port/callers/grpc/${testKit.service.system.name}/reflection"
+            )
+          )
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      )
+    assertEquals(response.statusCode, 200, response.body)
+    val listed = response.body.split(",").toSeq
+    assert(listed.contains("shoppingcart.v1.CartService"), response.body)
+    assert(listed.contains("shoppingcart.v1.CartStreams"), response.body)
+  }

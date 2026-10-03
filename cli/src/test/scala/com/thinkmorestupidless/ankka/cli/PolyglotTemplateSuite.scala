@@ -94,6 +94,17 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
     ).foreach(path => assert(Files.exists(project.resolve(path)), s"missing $path"))
   }
 
+  test("a project made from a template states its service's name") {
+    // On both services a compose file can start: the sidecar for a process, the runtime for a
+    // module. The name is what keeps two local services on one broker from sharing a group.
+    val compose = Files.readString(project.resolve("docker-compose.yml"))
+    assertEquals(
+      compose.linesIterator.map(_.trim).count(_ == s"ANKKA_SERVICE_NAME: $Name"),
+      2,
+      compose
+    )
+  }
+
   test("the project's .mcp.json starts ankka mcp, by name, as `ankka mcp install` would write it") {
     val written = mcp.Json.parse(Files.readString(project.resolve(".mcp.json")))
     assertEquals(

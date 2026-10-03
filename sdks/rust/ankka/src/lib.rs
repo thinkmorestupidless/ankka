@@ -28,6 +28,7 @@ pub mod graph;
 pub mod prelude;
 pub mod proto;
 pub mod service;
+pub mod start_from;
 pub mod testkit;
 
 pub use client::Client;
@@ -36,6 +37,7 @@ pub use codec::{Bytes, Done};
 pub use config::config;
 pub use context::{Context, Metadata};
 pub use service::{Problem, Service};
+pub use start_from::StartFrom;
 
 /// serde, as this library uses it: the derives a service's types need.
 pub use serde;

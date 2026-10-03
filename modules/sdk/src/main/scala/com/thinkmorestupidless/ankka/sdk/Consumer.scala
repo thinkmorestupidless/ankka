@@ -54,6 +54,13 @@ object Consumer:
 
     def parallelism: Int = 4
 
+    /**
+     * Raise it to have this consumer read its topic again from its start position, under a consumer
+     * group of its own. `None` is version 1. Only for a topic source: a version on one that reads
+     * an entity is refused when the service starts.
+     */
+    def version: Option[Int] = None
+
     final def descriptor: ConsumerDescriptor[C, Src, Out] =
       if produceTo.isDefined && outputSerializer.isEmpty then
         throw IllegalArgumentException(
@@ -67,7 +74,8 @@ object Consumer:
           outputSerializer,
           produceTo,
           create,
-          parallelism
+          parallelism,
+          version
         )
 
 /** The registered form of a consumer. */
@@ -77,6 +85,7 @@ final case class ConsumerDescriptor[C <: Consumer[Src, Out], Src, Out](
     outputSerializer: Option[Serializer[Out]],
     produceTo: Option[String],
     create: ConsumerContext => C,
-    parallelism: Int
+    parallelism: Int,
+    version: Option[Int] = None
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Consumer

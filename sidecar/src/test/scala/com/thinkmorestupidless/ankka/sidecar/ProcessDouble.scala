@@ -179,7 +179,9 @@ object ProcessDouble:
       onChange: (Option[String], String, pb.Metadata) => ViewAnswer,
       onDelete: Option[String] => ViewAnswer = _ => ViewAnswer.DeleteRow,
       rowManifest: String = "double-row",
-      queries: Vector[String] = Vector("get", "all")
+      queries: Vector[String] = Vector("get", "all"),
+      startFrom: Option[StartFrom] = None,
+      version: Option[Int] = None
   )
 
   /** One of several messages a consumer answers with. */
@@ -201,7 +203,9 @@ object ProcessDouble:
       sourceTopic: Option[String],
       producesTo: Option[String],
       onMessage: (String, pb.Metadata) => ConsumerAnswer,
-      onDelete: pb.Metadata => ConsumerAnswer = _ => ConsumerAnswer.Ignore
+      onDelete: pb.Metadata => ConsumerAnswer = _ => ConsumerAnswer.Ignore,
+      startFrom: Option[StartFrom] = None,
+      version: Option[Int] = None
   )
 
   /**
@@ -452,7 +456,12 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           v.id,
           Vector.empty,
           Component.Detail.View(
-            ViewDetail(sourceOf(v.sourceComponent, v.sourceTopic), v.rowManifest, v.queries)
+            ViewDetail(
+              sourceOf(v.sourceComponent, v.sourceTopic).map(_.copy(startFrom = v.startFrom)),
+              v.rowManifest,
+              v.queries,
+              v.version
+            )
           )
         )
       } ++ spec.consumers.map { c =>
@@ -461,7 +470,11 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           c.id,
           Vector.empty,
           Component.Detail.Consumer(
-            ConsumerDetail(sourceOf(c.sourceComponent, c.sourceTopic), c.producesTo)
+            ConsumerDetail(
+              sourceOf(c.sourceComponent, c.sourceTopic).map(_.copy(startFrom = c.startFrom)),
+              c.producesTo,
+              c.version
+            )
           )
         )
       } ++ spec.actions.map { a =>

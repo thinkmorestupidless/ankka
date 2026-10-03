@@ -39,6 +39,7 @@ from ankka._proto.ankka.protocol.v1 import (
     workflow_pb2,
     workflow_pb2_grpc,
 )
+from ankka import start_from
 from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient
@@ -52,7 +53,7 @@ from ankka.effects.workflow import End, Pause, StepFail, StepRef, TransitionTo
 from ankka.endpoint import HttpProblem
 from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
-from ankka.service import Registry
+from ankka.service import PROTOCOL_VERSION, Registry
 from ankka.workflow import Workflow
 
 log = logging.getLogger("ankka")
@@ -71,7 +72,31 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
 
     async def Discover(self, request: discovery_pb2.SidecarInfo, context: Any) -> discovery_pb2.Spec:
         log.info("sidecar %s (protocol %s) discovering", request.runtime_version, request.protocol_version)
+        refusal = self.refusal(request.protocol_version)
+        if refusal is not None:
+            log.error(refusal)
+            PROBLEMS.append(refusal)
+            await context.abort(grpc.StatusCode.FAILED_PRECONDITION, refusal)
         return self.registry.spec()
+
+    def refusal(self, sidecar_protocol: str) -> str | None:
+        """A sidecar older than 1.4 would ignore where a topic source starts and its version: a
+        consumer declared ``latest`` would read everything, and a raised version would rebuild nothing.
+        Refused, naming what declares them, rather than served wrong."""
+        if not start_from.older_than_start_positions(sidecar_protocol):
+            return None
+        declaring = [
+            cls.__name__
+            for cls in (*self.registry.views.values(), *self.registry.consumers.values())
+            if start_from.declares_any(cls)
+        ]
+        if not declaring:
+            return None
+        return (
+            f"{', '.join(declaring)} declare where a topic source starts or its version, which the sidecar "
+            f"ignores: it speaks protocol {sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. Run a sidecar "
+            "speaking 1.4 or later."
+        )
 
     async def ReportError(self, request: discovery_pb2.Problem, context: Any) -> payload_pb2.Empty:
         log.error("the sidecar refused this service:\n%s", request.message)

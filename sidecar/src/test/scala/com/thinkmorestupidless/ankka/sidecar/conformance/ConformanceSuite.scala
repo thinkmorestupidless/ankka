@@ -390,6 +390,56 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(get("/carts/v4").json("items").flatMap(_.asArray).map(_.size), Some(0))
   }
 
+  // ── Topic sources: where each starts ──
+
+  private def topicRows(): Long =
+    import com.thinkmorestupidless.ankka.runtime.{Database, SqlFragment}
+    scala.concurrent.Await
+      .result(
+        Database()(using target.system).queryOne(
+          SqlFragment.raw("SELECT count(*) AS n FROM ankka_view_topic_rows")
+        )(_.get("n", classOf[java.lang.Long]).longValue),
+        10.seconds
+      )
+      .getOrElse(0L)
+
+  private def relayed(): Vector[String] =
+    target.broker.publishedTo(ConformanceReference.Relayed).flatMap(_.message.subject).toVector
+
+  test("topic.view-starts-earliest") {
+    // A view that declares no start reads what the topic held before the service started.
+    val _ = eventually()(Option.when(topicRows() == 3L)(()))
+  }
+
+  test("topic.consumer-starts-latest") {
+    // Declared `latest`: none of what the topic held when it started is relayed, and what is
+    // published after is.
+    val _ = target.broker.publish(
+      ConformanceReference.Topic,
+      """{"n":4}""".getBytes("UTF-8"),
+      com.thinkmorestupidless.ankka.core.Metadata.empty
+        .withSubject("t-4")
+        .set(com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.Manifest, "fanned")
+        .set(
+          com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.ContentType,
+          com.thinkmorestupidless.ankka.runtime.remote.Payload.Json
+        )
+    )
+    val _ = eventually()(Option.when(relayed().contains("t-4"))(()))
+    assertEquals(relayed().filterNot(_ == "t-4"), Vector.empty)
+  }
+
+  test("topic.version-names-the-group") {
+    // Declared at version 2, so it reads under a group whose kind says so; a target that ignored
+    // the version would read under the plain one. Waits for the view to have read, not for a
+    // count: the case before this one publishes to the topic too.
+    val _      = eventually()(Option.when(topicRows() >= 3L)(()))
+    val groups = target.broker.positions(ConformanceReference.Topic).keySet
+    // The target states no service name, so its groups are named for their component alone.
+    assert(groups.contains("ankka-view.v2-topic-rows"), groups)
+    assert(!groups.contains("ankka-view-topic-rows"), groups)
+  }
+
   test("consumer.at-least-once-in-order") {
     postJson("/carts/k1/items", cartJson("p1", "Pen", 1))
     assertEquals(post("/carts/k1/checkout").status, 200)

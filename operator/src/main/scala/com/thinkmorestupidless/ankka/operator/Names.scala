@@ -35,8 +35,13 @@ object Names:
    * refuses to create such a project; the operator refuses again here, because the resource is the
    * only thing it knows about its writer, and anything with the right to write one could write this
    * one.
+   *
+   * `local` is reserved because a project's id is also part of the consumer group a deployed
+   * service reads a topic under, and a service run on a developer's machine that states its name
+   * reads under `ankka.local.<service>.…`. The control plane's list is the same
+   * (`ReservedProjectIdsSuite`).
    */
-  val ReservedProjectIds: Set[String] = Set("platform")
+  val ReservedProjectIds: Set[String] = Set("platform", "local")
 
   /** Problems with a rendered namespace name, reported all at once. */
   def namespaceProblems(prefix: String, projectId: String): Vector[String] =
@@ -47,8 +52,12 @@ object Names:
         s"project id '$projectId' is not a DNS label"
       ),
       Option.when(ReservedProjectIds.contains(projectId))(
-        s"project id '$projectId' is reserved for the platform's own workloads; " +
-          "no certificate is issued in its name"
+        if projectId == "local" then
+          s"project id '$projectId' is reserved for services run locally, whose consumer groups " +
+            "it names; no certificate is issued in its name"
+        else
+          s"project id '$projectId' is reserved for the platform's own workloads; " +
+            "no certificate is issued in its name"
       ),
       Option.when(rendered.length > MaxLabelLength)(
         s"namespace '$rendered' is ${rendered.length} characters, over the $MaxLabelLength limit"

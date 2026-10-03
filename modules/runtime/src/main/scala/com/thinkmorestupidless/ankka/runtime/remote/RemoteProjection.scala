@@ -11,7 +11,9 @@ import com.thinkmorestupidless.ankka.runtime.{
   ProjectionSupport,
   SpanOutcome,
   StateRecord,
+  SqlFragment,
   Trace,
+  ViewGuard,
   ViewStore
 }
 import com.thinkmorestupidless.ankka.sdk.ViewDescriptor
@@ -117,12 +119,19 @@ private[ankka] final class RemoteView(
       }
 
   /** Applies an outcome through the view's own connection — for the at-least-once sources. */
-  def apply(database: Database, subject: String, outcome: ViewOutcome): Future[Done] =
+  def apply(
+      database: Database,
+      subject: String,
+      outcome: ViewOutcome,
+      write: Option[SqlFragment => Future[Done]] = None
+  ): Future[Done] =
+    val writing =
+      write.getOrElse((fragment: SqlFragment) => database.execute(fragment).map(_ => Done))
     outcome match
       case ViewOutcome.UpdateRow(row) =>
-        database.execute(ViewStore.upsert(table, subject, String(row.data, "UTF-8"))).map(_ => Done)
+        writing(ViewStore.upsert(table, subject, String(row.data, "UTF-8")))
       case ViewOutcome.DeleteRow =>
-        database.execute(ViewStore.delete(table, subject)).map(_ => Done)
+        writing(ViewStore.delete(table, subject))
       case ViewOutcome.Ignore =>
         Future.successful(Done)
 
@@ -172,8 +181,15 @@ private[ankka] final class RemoteViewStateHandler(view: RemoteView, database: Da
       view.decide(subject, revision, payload, row).flatMap(view.apply(database, subject, _))
     }
 
-/** At-least-once over a broker topic; the offset lives with the broker. */
-private[ankka] final class RemoteViewTopicHandler(view: RemoteView, database: Database)(using
+/**
+ * At-least-once over a broker topic; the offset lives with the broker. Every write goes through
+ * `guard`, as an in-process view's does.
+ */
+private[ankka] final class RemoteViewTopicHandler(
+    view: RemoteView,
+    database: Database,
+    guard: ViewGuard
+)(using
     ec: ExecutionContext
 ):
 
@@ -189,7 +205,9 @@ private[ankka] final class RemoteViewTopicHandler(view: RemoteView, database: Da
           message.payload
         )
         view.loadRow(database, subject).flatMap { row =>
-          view.decide(subject, 0L, Some(payload), row).flatMap(view.apply(database, subject, _))
+          view
+            .decide(subject, 0L, Some(payload), row)
+            .flatMap(view.apply(database, subject, _, Some(guard.write)))
         }
 
 /** One remote consumer, over any source. */

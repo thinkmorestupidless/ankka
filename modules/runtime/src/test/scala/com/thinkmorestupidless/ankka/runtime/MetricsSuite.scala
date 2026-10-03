@@ -95,3 +95,80 @@ final class MetricsSuite extends FunSuite:
     assert(rendered.contains("""component="unknown""""), rendered)
     assert(!rendered.contains("""component="""""), rendered)
   }
+
+  // ── Topic sources ──────────────────────────────────────────────────────────
+
+  import com.thinkmorestupidless.ankka.core.ComponentKind
+  import com.thinkmorestupidless.ankka.sdk.StartFrom
+
+  private def source(
+      kind: ComponentKind,
+      id: String,
+      version: Int,
+      recorded: Option[Int],
+      behind: Boolean
+  ) =
+    val word = if kind == ComponentKind.View then "view" else "consumer"
+    TopicSourceStatus(
+      kind,
+      id,
+      "order-changes",
+      s"ankka.shop.orders.$word.$id",
+      StartFrom.Earliest,
+      version,
+      recorded,
+      behind
+    )
+
+  test("a service with no topic source lists none in its metrics") {
+    val rendered = Metrics.render(observability())
+    assert(rendered.contains("# TYPE ankka_topic_source_info gauge"), rendered)
+    assert(rendered.contains("# TYPE ankka_topic_source_behind gauge"), rendered)
+    assert(!rendered.contains("ankka_topic_source_info{"), rendered)
+    assert(!rendered.contains("ankka_topic_source_behind{"), rendered)
+  }
+
+  test("a service's metrics list each topic source") {
+    val rendered = Metrics.render(
+      observability(),
+      Vector(
+        source(ComponentKind.View, "summary", 2, Some(2), behind = false),
+        source(ComponentKind.Consumer, "notifier", 1, None, behind = false)
+      )
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_info{kind="view",component="summary",topic="order-changes",""" +
+          """group="ankka.shop.orders.view.summary",start="earliest",version="2"} 1"""
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_info{kind="consumer",component="notifier",topic="order-changes",""" +
+          """group="ankka.shop.orders.consumer.notifier",start="earliest",version="1"} 1"""
+      ),
+      rendered
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_behind{component="summary",declared="2",recorded="2"} 0"""
+      ),
+      rendered
+    )
+    // A consumer has no recorded version, and so no behind series.
+    assert(!rendered.contains("""ankka_topic_source_behind{component="notifier""""), rendered)
+  }
+
+  test("a view behind its recorded version is shown as behind in the metrics") {
+    val rendered = Metrics.render(
+      observability(),
+      Vector(source(ComponentKind.View, "summary", 1, Some(2), behind = true))
+    )
+    assert(
+      rendered.contains(
+        """ankka_topic_source_behind{component="summary",declared="1",recorded="2"} 1"""
+      ),
+      rendered
+    )
+  }

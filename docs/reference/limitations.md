@@ -98,11 +98,18 @@ feature also says what that feature does not do.
 
 ## Components
 
-- **Views read one source into one table.** Multi-table views, rebuilding a view on deploy, and Akka's
-  snapshot-handler projection optimisation are not built.
-- **Topic sources are at least once and cannot replay.** A view or consumer sourced from a topic sees only
-  what was published after it started, must tolerate duplicates, and skips a message with no `ce-subject`.
-  Only Kafka is supported; another broker needs its own implementation of the two-method broker interface.
+- **Views read one source into one table.** Multi-table views and Akka's snapshot-handler projection
+  optimisation are not built.
+- **A view over an entity is not rebuilt when its code changes.** A changed handler applies to changes
+  from then on. A view over a topic is, by raising its version.
+- **A topic source's rebuild is bounded by what the broker retains.** Raising a topic-sourced view's
+  version empties it and reads its topic again, but a topic's retention is a window, not a record: what
+  the broker has dropped is not read, and the rebuilt view holds only what the window still holds. While
+  it runs the view serves an empty or partial table. See
+  [Rebuilding by version](../build/topics.md#rebuilding-by-version).
+- **Topic sources are at least once.** A view or consumer sourced from a topic must tolerate duplicates,
+  and a view skips a message with no `ce-subject`. Only Kafka is supported; another broker needs its own
+  implementation of the broker interface.
 - **A consumer's several messages are not published atomically.** They are published at least once and
   in order; when the broker refuses one, the change is delivered again and all are published again. One
   change's messages may be at most 4 MiB together.

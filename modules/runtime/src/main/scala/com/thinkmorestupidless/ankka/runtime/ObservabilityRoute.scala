@@ -33,14 +33,22 @@ final class ObservabilityRoute(system: ExtendedActorSystem) extends ManagementRo
   def routes(settings: ManagementRouteProviderSettings): Route =
     path("ankka" / "metrics") {
       get {
-        complete(HttpEntity(ContentTypes.`text/plain(UTF-8)`, Metrics.render(Observability(typed))))
+        complete(
+          HttpEntity(
+            ContentTypes.`text/plain(UTF-8)`,
+            Metrics.render(Observability(typed), TopicSources(typed).all)
+          )
+        )
       }
     }
 
 /** Prometheus text exposition, hand-rolled. */
 private[runtime] object Metrics:
 
-  def render(observability: Observability): String =
+  def render(
+      observability: Observability,
+      topicSources: Vector[TopicSourceStatus] = Vector.empty
+  ): String =
     val spans = observability.recorder.snapshot()
     val names = observability.names
 
@@ -86,7 +94,44 @@ private[runtime] object Metrics:
     builder ++= "# TYPE ankka_recorder_capacity gauge\n"
     builder ++= s"ankka_recorder_capacity ${observability.recorder.capacity}\n"
 
+    // Each topic source, from the list the runtime keeps of them: never through the recorder's
+    // name table. Bounded, because a component id is declared and each has one group.
+    builder ++= "# HELP ankka_topic_source_info A view or consumer reading a topic, and the group " +
+      "it reads under.\n"
+    builder ++= "# TYPE ankka_topic_source_info gauge\n"
+    topicSources.foreach { s =>
+      val labels = Vector(
+        "kind"      -> s.kindWord,
+        "component" -> s.componentId,
+        "topic"     -> s.topic,
+        "group"     -> s.group,
+        "start"     -> s.startFrom.toString,
+        "version"   -> s.version.toString
+      )
+      builder ++= s"ankka_topic_source_info${labelSet(labels)} 1\n"
+    }
+    builder ++= "# HELP ankka_topic_source_behind 1 when this instance declares a lower version " +
+      "of a view than the one recorded, and is not updating it.\n"
+    builder ++= "# TYPE ankka_topic_source_behind gauge\n"
+    topicSources.filter(_.kind == com.thinkmorestupidless.ankka.core.ComponentKind.View).foreach {
+      s =>
+        val labels = Vector(
+          "component" -> s.componentId,
+          "declared"  -> s.version.toString,
+          "recorded"  -> s.recordedVersion.getOrElse(s.version).toString
+        )
+        builder ++= s"ankka_topic_source_behind${labelSet(labels)} ${if s.behind then 1 else 0}\n"
+    }
+
     builder.toString
+
+  private def labelSet(labels: Vector[(String, String)]): String =
+    labels
+      .map((name, value) =>
+        val escaped = value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+        s"$name=\"$escaped\""
+      )
+      .mkString("{", ",", "}")
 
   /**
    * A label value, with the characters Prometheus reserves escaped.

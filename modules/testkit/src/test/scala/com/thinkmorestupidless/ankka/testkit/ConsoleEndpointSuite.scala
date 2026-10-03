@@ -29,7 +29,12 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
   override def beforeAll(): Unit =
     registryDir = Files.createTempDirectory("ankka-console-suite")
     sys.props.put("ankka.running.dir", registryDir.toString)
-    testKit = AnkkaTestKit.start(ProfileEntity.descriptor, SessionMemoryEntity.descriptor)
+    // A view over a topic too, so the service document has a topic source to describe.
+    val broker = com.thinkmorestupidless.ankka.runtime.InMemoryBroker()
+    testKit = AnkkaTestKit.start(
+      Seq(ProfileEntity.descriptor, SessionMemoryEntity.descriptor, StockLevels.descriptor),
+      Seq(com.thinkmorestupidless.ankka.runtime.ProjectionRuntime.withBroker(broker, broker))
+    )
 
   override def afterAll(): Unit =
     if testKit != null then testKit.stop()
@@ -68,6 +73,19 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
     assert(body.contains("profile"), "the registered entity is listed")
     assert(body.contains("\"instances\""), "instances is a list, even holding one")
     assert(body.contains("\"routes\""), "routes is present, even when empty")
+  }
+
+  test("the service document lists each topic source, where it reads and at which version") {
+    val expected =
+      "\"topicSources\":[{\"kind\":\"view\",\"component\":\"stock-levels\"," +
+        "\"topic\":\"stock-events\",\"group\":\"ankka-view-stock-levels\"," +
+        "\"start\":\"earliest\",\"version\":1,\"recordedVersion\":1,\"behind\":false}]"
+    val deadline = System.nanoTime() + 20.seconds.toNanos
+    var body     = get("/observability/service")._2
+    while !body.contains(expected) && System.nanoTime() < deadline do
+      Thread.sleep(200)
+      body = get("/observability/service")._2
+    assert(body.contains(expected), body)
   }
 
   test("a request produces a trace, and the window says it is a window") {

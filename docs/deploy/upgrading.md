@@ -61,6 +61,45 @@ Within a supported range, ankka's schema only ever gains tables and columns. A r
 a table or column it needs, which is what lets services on the older supported minor version keep
 running on a platform that has moved to the newer one.
 
+## Consumer groups are named for the service
+
+Each view or consumer that reads a topic reads under a Kafka consumer group named for the service it
+belongs to: `ankka.<project>.<service>.view.<component>` for a deployed service, and the same with
+`local` in the project's place for a service run locally that states its name. Releases before this one
+named a group for its component alone, `ankka-view-<component>`, so two services on one broker with a
+component of the same name shared a group and each received part of the topic.
+
+An upgraded service's groups are therefore new, and hold no offsets: each topic source reads from its
+start position, the earliest message the broker holds unless it says otherwise. A view applies its handler
+again to rows it already holds. The old groups are left on the broker with their offsets, and the broker
+expires them as it does any idle group. See [Broker topics](../build/topics.md#consumer-groups).
+
+**A consumer over a topic must now declare where it starts**, since starting at the earliest message would
+put everything the broker holds through its action again. A Scala service declares it when it moves to
+this release. A service on an SDK that predates start positions cannot declare one; the platform starts
+such a consumer at the earliest message, as it always did, and logs a warning naming it, until its SDK is
+upgraded.
+
+A process-hosted service's runtime is the platform's sidecar, so upgrading the platform restarts its
+consumers under their new groups before its developer has deployed anything. For a consumer whose actions
+must not be repeated, cut over at a moment of your choosing:
+
+1. Pause the service: `ankka services pause <service>`.
+2. Upgrade the platform.
+3. Upgrade the service's SDK, declare each topic consumer's start position as a time — the moment it was
+   paused — and deploy it.
+4. Resume it: `ankka services resume <service>`.
+
+The consumer then reads from the moment it stopped. Declaring latest instead would skip whatever was
+published while it was paused.
+
+A view's first version bump should follow the runtime upgrade, not ride with it: an instance still on an
+older runtime cannot see a view's version, and keeps writing until it stops.
+
+`local` is now a reserved project id, because a project of that name would give its services the same
+groups as services run locally. An installation that has a project called `local` can no longer deploy to
+it.
+
 ## Which versions a platform runs
 
 A platform at version `MAJOR.MINOR.PATCH` runs a service whose declared `runtime` has the same major

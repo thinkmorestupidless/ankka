@@ -42,6 +42,8 @@ from ankka.codec import JSON, Codec, write_json
 from ankka.context import Metadata
 from ankka.effects.consumer import ConsumerEffect, Done, Ignore, Message, ProduceAll
 from ankka.event_sourced_entity import RegistrationError
+from ankka import start_from as _start_from
+from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 
 if typing.TYPE_CHECKING:
@@ -457,6 +459,10 @@ class GraphConsumer(Generic[Src]):
     component_id: ClassVar[str]
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None
+    # Where a topic source starts. A graph consumer over a topic must say: there is no default.
+    start_from: ClassVar[StartFrom | None] = None
+    # A new one reads its topic again from start_from, under a group of its own. Absent is 1.
+    version: ClassVar[int | None] = None
     produces_to: ClassVar[str]
     message_codec: ClassVar[Codec[Any]]
     out_codec: ClassVar[Codec[Any]] = CODEC
@@ -471,6 +477,9 @@ class GraphConsumer(Generic[Src]):
         if cls.out_codec is not CODEC:
             raise RegistrationError(f"{cls.__name__} publishes graph deltas and cannot declare an out_codec")
         _source_pb(cls)
+        found = _start_from.problems(cls, consumer=True)
+        if found:
+            raise RegistrationError("; ".join(found))
 
     def __init__(self, client: ComponentClient | None = None) -> None:
         self.graph = Graph()
@@ -491,7 +500,7 @@ class GraphConsumer(Generic[Src]):
 
     @classmethod
     def to_component(cls) -> discovery_pb2.Component:
-        detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls), produces_to=cls.produces_to)
+        detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls), produces_to=cls.produces_to, version=cls.version)
         return discovery_pb2.Component(kind=discovery_pb2.CONSUMER, id=cls.component_id, handlers=[], consumer=detail)
 
     async def _handle(self, message_bytes: bytes | None, metadata: Metadata) -> ConsumerEffect:

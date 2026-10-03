@@ -1271,6 +1271,11 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   contract's resume case read `a1..a5` again. The switch is shared and placed between the source and
   the handler: shutting it completes what is downstream, so the message in hand finishes and the
   committer flushes on completion.
+- **Pekko's `SendProducer` does not keep sends in order.** Its `send` is `producerFuture.flatMap(_.send(…))`
+  on a multi-threaded dispatcher, so sends issued in order are separate tasks that may reach Kafka in
+  either order — and a key only orders what reaches the producer in order. A consumer's several messages
+  under one key landed `3, 1` on CI, in a suite that had passed every local run. `KafkaPublisher` calls the
+  Kafka producer directly; `KafkaSuite`'s ordering case fails on every run against the old publisher.
 - **The in-memory broker's publication future is its groups' delivery.** It completes when every group on
   the topic has caught up, and fails with a handler that failed; a failed message stays at the head of its
   group until the next publication or `redeliver(topic)`. A test that republished to simulate redelivery

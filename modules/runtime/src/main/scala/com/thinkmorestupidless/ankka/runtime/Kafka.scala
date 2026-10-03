@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.core.Metadata
 import com.thinkmorestupidless.ankka.sdk.StartFrom
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
-import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.clients.producer.{Producer, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.header.internals.RecordHeader
 import org.apache.kafka.common.serialization.{
@@ -14,12 +14,7 @@ import org.apache.kafka.common.serialization.{
 }
 import org.apache.pekko.Done
 import org.apache.pekko.actor.typed.ActorSystem
-import org.apache.pekko.kafka.scaladsl.{
-  Committer,
-  Consumer,
-  PartitionAssignmentHandler,
-  SendProducer
-}
+import org.apache.pekko.kafka.scaladsl.{Committer, Consumer, PartitionAssignmentHandler}
 import org.apache.pekko.kafka.{
   CommitterSettings,
   ConsumerSettings,
@@ -35,7 +30,8 @@ import java.time.{Duration as JDuration, Instant}
 import java.util.{Properties, UUID}
 import java.util.concurrent.CopyOnWriteArrayList
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.concurrent.{ExecutionContext, Future, blocking}
+import scala.concurrent.{ExecutionContext, Future, Promise, blocking}
+import scala.util.control.NonFatal
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -66,14 +62,19 @@ private[ankka] object CloudEvents:
   def metadataFrom(headers: Iterable[(String, String)]): Metadata =
     Metadata(headers.toVector)
 
-/** Publishes to Kafka. */
+/**
+ * Publishes to Kafka.
+ *
+ * Calls the Kafka producer directly, so each `send` reaches it in the order `publish` was called:
+ * that, and the record key, is what keeps a change's messages in order on their partition. Pekko's
+ * `SendProducer` was used here until a change's messages were seen out of order on one partition:
+ * its `send` is a callback on the producer's future, run on a multi-threaded dispatcher, so two
+ * sends issued in order are two tasks that may run in either.
+ */
 final class KafkaPublisher private (
-    producer: SendProducer[String, Array[Byte]],
+    producer: Producer[String, Array[Byte]],
     manifestOf: String => String
-)(using system: ActorSystem[?])
-    extends MessagePublisher:
-
-  private given ExecutionContext = system.executionContext
+) extends MessagePublisher:
 
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
     publish(topic, None, payload, metadata)
@@ -91,9 +92,16 @@ final class KafkaPublisher private (
       record.headers().add(RecordHeader(key, value.getBytes(UTF_8))): Unit
     }
 
-    producer.send(record).map(_ => Done)
+    val sent = Promise[Done]()
+    try
+      producer.send(
+        record,
+        (_, failure) => if failure == null then sent.success(Done) else sent.failure(failure)
+      ): Unit
+    catch case NonFatal(failure) => sent.failure(failure)
+    sent.future
 
-  def close(): Unit = producer.close(): Unit
+  def close(): Unit = producer.close()
 
 object KafkaPublisher:
 
@@ -106,7 +114,7 @@ object KafkaPublisher:
   def apply(bootstrapServers: String)(using system: ActorSystem[?]): KafkaPublisher =
     val settings = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
       .withBootstrapServers(bootstrapServers)
-    new KafkaPublisher(SendProducer(settings)(using system), _ => "message")
+    new KafkaPublisher(settings.createKafkaProducer(), _ => "message")
 
   /** As above, with a per-topic CloudEvents `ce-type`. */
   def withTypes(bootstrapServers: String, typeFor: String => String)(using
@@ -114,7 +122,7 @@ object KafkaPublisher:
   ): KafkaPublisher =
     val settings = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
       .withBootstrapServers(bootstrapServers)
-    new KafkaPublisher(SendProducer(settings)(using system), typeFor)
+    new KafkaPublisher(settings.createKafkaProducer(), typeFor)
 
 /**
  * Consumes from Kafka.

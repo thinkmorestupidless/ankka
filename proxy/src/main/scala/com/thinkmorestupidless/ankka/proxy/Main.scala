@@ -24,6 +24,8 @@ object Main:
   /** Where the pod mounts the service certificate; a test points this at a directory of its own. */
   val ServiceDirectoryProperty: String = "ankka.proxy.service-directory"
   val DefaultServiceDirectory: String  = "/var/run/secrets/ankka/service"
+  val MountDirectoryProperty: String   = "ankka.proxy.mount-directory"
+  val DefaultMountDirectory: String    = "/var/run/secrets/ankka/mount"
 
   def main(args: Array[String]): Unit = sys.exit(run(args))
 
@@ -46,8 +48,19 @@ object Main:
               report(problem)
               1
             case None =>
-              val engine =
-                ProxyEngine(settings, TlsTransport(tls), events = logging, locator = ClusterLocator)
+              // The mount certificate is mounted only while there are mounts, and is needed then.
+              val mountTls = Option.when(settings.mounts.nonEmpty)(
+                RotatingTls(
+                  Paths.get(sys.props.getOrElse(MountDirectoryProperty, DefaultMountDirectory)),
+                  1.minute
+                )
+              )
+              val engine = ProxyEngine(
+                settings,
+                TlsTransport(tls, mountTls = mountTls),
+                events = logging,
+                locator = ClusterLocator
+              )
               engine.start()
               val stopped = new CountDownLatch(1)
               Runtime.getRuntime.addShutdownHook(new Thread(() =>

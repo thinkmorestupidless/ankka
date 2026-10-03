@@ -46,6 +46,7 @@ final class ProxyEngine(
     .build()
 
   private val processAddress  = s"http://127.0.0.1:${settings.processPort}"
+  private val mounts          = Mounts(settings.mounts)
   private val responseTimeout = Duration.ofMillis(settings.responseTimeout.toMillis)
 
   @volatile private var listeners: Option[Listeners] = None
@@ -123,7 +124,13 @@ final class ProxyEngine(
         case Left(reason) => answer(exchange, None, Answers.refused(reason))
         case Right(sender) if !Admission.admits(effective, sender) =>
           answer(exchange, Some(sender), Answers.notAdmitted(sender))
-        case Right(sender) => passOn(exchange, sender)
+        case Right(sender) =>
+          val target = requestTarget(exchange)
+          val path   = target.takeWhile(_ != '?')
+          mounts.find(path) match
+            case Some((service, rest)) =>
+              underMount(exchange, sender, service, rest + target.drop(path.length))
+            case None => passOn(exchange, sender)
     catch
       case NonFatal(_) =>
         try answer(exchange, None, Answers.closedBeforeAnswering("the process"))
@@ -143,6 +150,39 @@ final class ProxyEngine(
       Answers.notListening,
       None
     )
+
+  /**
+   * A request under a mount: to the mounted service, with the mount's path removed and the address
+   * the request was sent to stated as for the process, under the mount certificate, so the service
+   * reads it as the internet's. A service that cannot be found or does not accept a connection is
+   * answered here, and the process is given nothing.
+   */
+  private def underMount(
+      exchange: HttpExchange,
+      sender: Sender,
+      service: String,
+      rest: String
+  ): Unit =
+    val target = CallingAddress.Target(settings.project, service, rest)
+    locator.locate(settings.project, service) match
+      case None => answer(exchange, Some(sender), Answers.cannotBeReached(service))
+      case Some(located) =>
+        val received = flatten(exchange)
+        send(
+          exchange,
+          Some(sender),
+          URI.create(located.uri.toString.stripSuffix("/") + rest),
+          // What the process would be told of the address and the sender, less the platform's own
+          // header: the mounted service reads who sent it from the certificate.
+          Headers
+            .inbound(sender, effective, received)
+            .filterNot((n, _) => n.toLowerCase.startsWith(Headers.PlatformPrefix)),
+          received,
+          transport.mountClient(target).getOrElse(client),
+          s"the service ${settings.project}/$service",
+          Answers.cannotBeReached(service),
+          Some(target)
+        )
 
   /**
    * A call at the calling address: parsed, located and sent on as the web-hosted service, with the

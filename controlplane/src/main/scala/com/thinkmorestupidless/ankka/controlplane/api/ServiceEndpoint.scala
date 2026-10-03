@@ -64,7 +64,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
 
   get("/{projectId}/{name}") { (projectId: String, name: String) =>
     authz.project(principal, projectId, write = false)
-    withHostname(entity(projectId, name).call(ServiceEntity.get).invoke())
+    withMountStates(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
   }
 
   /**
@@ -166,6 +166,23 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   }
 
   /** The URL an exposed service answers at, added on the way out: the entity does not know it. */
+  /**
+   * What is behind each of a web-hosted service's mounts (feature 021), decided when one service is
+   * read, from the mounted service's own entity: a listing's row cannot ask another entity, and a
+   * row can lag. For people only; the proxy finds out for itself.
+   */
+  private def withMountStates(status: ServiceStatus): ServiceStatus =
+    if status.mounts.isEmpty then status
+    else
+      status.copy(mounts = status.mounts.map { m =>
+        val behind = entity(status.projectId, m.service).call(ServiceEntity.desiredState).invoke()
+        m.copy(state = behind match
+          case None                                            => "no service"
+          case Some(s) if !s.descriptor.exists(_.service.http) => "serves no HTTP"
+          case Some(s) if s.paused || s.suspended              => "paused"
+          case Some(_)                                         => "ok")
+      })
+
   private def withHostname(status: ServiceStatus): ServiceStatus =
     if status.exposed then status.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
     else status

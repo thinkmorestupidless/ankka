@@ -1812,7 +1812,10 @@ report says how many specs it read and how many it did not, so a setting that sk
 cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
 so `uv` must be on `PATH`. CI's `features` job runs the same check through
 `.github/features-check.sh` (`just features` locally), which reads that config and fails when it
-read no spec or no scenario. A feature file that one suite can run whole is run by `GherkinSuite`,
+read no spec or no scenario. **In CI it reports without failing for now** (`continue-on-error`, with a
+warning): `019-graph-delta-publisher` and specs 023 onwards keep their scenarios in the spec, and the
+checker can only skip specs below a number. Two specs share the number 019 until a renumbering;
+remove `continue-on-error` once every spec's scenarios live in `features/`. `just features` still fails. A feature file that one suite can run whole is run by `GherkinSuite`,
 which takes a directory or one file; a scenario no suite can reach is a test named after it. The
 shopping cart sample has features and a glossary of its own, under
 `samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the

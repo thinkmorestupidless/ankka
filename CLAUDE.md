@@ -317,7 +317,12 @@ bootstrap's client and `ServiceClients`; remoting uses Pekko's own rotating-keys
 same files. Two installation authorities (`ankka-cluster`, `ankka-service`, component `pki`) plus a
 per-project database authority the operator renders. The caller is read from the client
 certificate's `ankka://<project>/<service>` URI (`ankka://gateway` for the gateway); nothing the
-request says is trusted. Readiness has its own plain port, 7627 `probe`. The one non-rolling
+request says is trusted. That makes a project id part of an identity, so `platform`, the project the
+control plane's and the console's own certificates name, is reserved: `ProjectId.Reserved` refuses to
+create or project it, `Names.ReservedProjectIds` refuses to render it (the operator trusts no writer of
+the resource), and `ReservedProjectIdsSuite` holds the two lists to each other and to every
+`ankka://<project>/<service>` the manifests under `kustomization/` ask for, so a platform workload
+given an identity in an unreserved project fails the build. Readiness has its own plain port, 7627 `probe`. The one non-rolling
 deployment — a template without `ankka.thinkmorestupidless.com/transport=tls` — is `Transition`:
 delete, wait for no pods, apply.
 
@@ -1763,6 +1768,21 @@ it can fail is to break the behaviour once and watch it go red. When a spec-kit 
 implemented, each acceptance scenario in its `spec.md` should end up as a test that fails without
 the feature. `docs/build/testing.md` ("A test must be able to fail") is the same rule for people
 building services.
+
+**Specs written since feature 019 keep their acceptance scenarios in living features**, not in the
+spec. The [speckit-bdd](https://github.com/thinkmorestupidless/speckit-bdd) extension and preset are
+installed under `.specify/`: `/speckit-specify` writes a spec whose acceptance scenarios *name*
+scenarios, the `after_specify` hook runs `/speckit-bdd-features` to write them as Gherkin under
+`features/` with every word they use in the root `GLOSSARY.md`, and the `before_clarify` hook runs
+`/speckit-bdd-check`, which turns undefined words, refused synonyms, contradictions and untraced
+requirements into clarification questions. `specs-from: "019"` in
+`.specify/extensions/bdd/bdd-config.yml` is why the nineteen earlier specs are left alone: they
+record changes that were made, in the form they were made in, and the checker does not read them. Its
+report says how many specs it read and how many it did not, so a setting that skipped everything
+cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
+so `uv` must be on `PATH`. The shopping cart sample has features and a glossary of its own, under
+`samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the
+root ones the platform.
 
 **Every suite that can see `testkit` mixes in `LogCapturing`** (testkit's own tests, the control
 plane, the sidecar, the samples): its log is held in memory and printed only for a failing test, a

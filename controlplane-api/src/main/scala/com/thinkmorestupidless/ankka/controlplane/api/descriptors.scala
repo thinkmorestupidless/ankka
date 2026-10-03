@@ -65,6 +65,19 @@ object ProjectId:
    */
   val MaxLength: Int = 63 - "ankka".length - 1
 
+  /**
+   * Ids no project may take, because the platform's own workloads use them.
+   *
+   * A workload's identity is `ankka://<project>/<service>`, read from its certificate, and it is
+   * the whole of what another service's ACL or a platform listener trusts. The control plane is
+   * `ankka://platform/controlplane` and the console `ankka://platform/console`, so a tenant project
+   * called `platform` with a service called `controlplane` would be issued the control plane's
+   * identity. The operator refuses the same ids (`Names.ReservedProjectIds`), since a resource can
+   * be written by something other than the control plane, and `ReservedProjectIdsSuite` holds the
+   * two lists to each other and to the identities the platform's manifests ask for.
+   */
+  val Reserved: Set[String] = Set("platform")
+
   def problems(id: String): Vector[String] =
     if id.isEmpty then Vector("project id must not be empty")
     else if id.length > MaxLength then
@@ -73,6 +86,8 @@ object ProjectId:
       Vector(
         s"project id '$id' is invalid: lowercase letters, digits and '-', starting with a letter"
       )
+    else if Reserved.contains(id) then
+      Vector(s"project id '$id' is reserved for the platform's own workloads")
     else Vector.empty
 
   def isValid(id: String): Boolean = problems(id).isEmpty

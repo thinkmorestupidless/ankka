@@ -52,6 +52,37 @@ class RenderingSuite extends munit.FunSuite:
     assertEquals(actions.head, Action.EnsureNamespace("ankka-checkout"))
   }
 
+  test("nothing is rendered for a project with the platform's own id") {
+    // The certificate would carry ankka://platform/<service>, the namespace the control plane's own
+    // identity is in. Refused whole: no namespace, no certificate, no workload.
+    val forged = spec.copy(projectId = "platform", serviceName = "controlplane")
+    val result =
+      Rendering.render(
+        resource(forged, name = "controlplane", namespace = "ankka-platform"),
+        settings,
+        ProvisioningPlan.Supplied
+      )
+    assertEquals(
+      result,
+      Left(
+        Vector(
+          "project id 'platform' is reserved for the platform's own workloads; " +
+            "no certificate is issued in its name"
+        )
+      )
+    )
+  }
+
+  test("a project whose id only contains the platform's is rendered as any other") {
+    val result =
+      Rendering.render(
+        resource(spec.copy(projectId = "platform-tools"), namespace = "ankka-platform-tools"),
+        settings,
+        ProvisioningPlan.Supplied
+      )
+    assert(result.isRight, result)
+  }
+
   test("rendering is deterministic") {
     // Comparing desired against observed is only meaningful if the same input renders the
     // same output. An accidental Instant.now() would make every pass look like a change.

@@ -541,6 +541,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     requireWrite(org);
     const id = p.projectId;
     if (!NameRule.test(id)) throw new HttpError(400, `project id '${id}' is invalid: lowercase letters, digits and '-', starting with a letter`);
+    if (id === "platform") throw new HttpError(400, `project id '${id}' is reserved for the platform's own workloads`);
     if (!b.name) throw new HttpError(400, "project name must not be empty");
     if (tombstones.has(`project:${id}`)) throw new HttpError(409, `project '${id}' was deleted; its id is not reused`);
     if (projects.has(id)) throw new HttpError(409, `project '${id}' already exists`);

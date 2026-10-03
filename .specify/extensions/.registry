@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "extensions": {
+    "bdd": {
+      "version": "0.2.0",
+      "source": "local",
+      "manifest_hash": "sha256:8e669b9d823eef554330c637daec51907dc941d537faad95537d0ae9f8ba402d",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "claude": [
+          "speckit.bdd.features",
+          "speckit.bdd.check"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-10-02T06:08:31.515779+00:00"
+    }
+  }
+}

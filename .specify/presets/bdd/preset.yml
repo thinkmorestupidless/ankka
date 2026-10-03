@@ -1,0 +1,29 @@
+schema_version: "1.0"
+
+preset:
+  id: "bdd"
+  name: "Behaviour-Driven Specs"
+  version: "0.2.0"
+  description: "A spec template whose acceptance scenarios name scenarios in living Gherkin features instead of repeating them; install with the bdd extension."
+  author: "thinkmorestupidless"
+  repository: "https://github.com/thinkmorestupidless/speckit-bdd"
+  license: "Apache-2.0"
+
+requires:
+  speckit_version: ">=0.14.0"
+
+provides:
+  templates:
+    # Built by preset/build.py from spec-kit's own template, changing only its acceptance scenarios,
+    # its edge cases and its key entities. Replaced whole: prepend, append and wrap all keep the
+    # core's Given/When/Then prose, which is the part this preset exists to move into the features.
+    - type: "template"
+      name: "spec-template"
+      file: "templates/spec-template.md"
+      description: "Acceptance scenarios as references to scenarios in the living features"
+      replaces: "spec-template"
+
+tags:
+  - "bdd"
+  - "gherkin"
+  - "glossary"

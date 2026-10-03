@@ -25,6 +25,9 @@ final class StandInProcess(interval: FiniteDuration = 1.second):
   /** When `/stream`'s last part was written, as `System.nanoTime`; 0 until it was. */
   @volatile var lastPartWrittenAt: Long = 0L
 
+  /** When each of `/stream`'s parts was written, as `System.nanoTime`, in order. */
+  @volatile var partsWrittenAt: Vector[Long] = Vector.empty
+
   server.createContext("/", exchange => handle(exchange))
   server.setExecutor(Executors.newVirtualThreadPerTaskExecutor())
 
@@ -58,6 +61,7 @@ final class StandInProcess(interval: FiniteDuration = 1.second):
             if part > 1 then Thread.sleep(interval.toMillis)
             out.write(s"part $part\n".getBytes("UTF-8"))
             out.flush()
+            partsWrittenAt = partsWrittenAt :+ System.nanoTime()
             if part == 3 then lastPartWrittenAt = System.nanoTime()
           out.close()
         case "/stall" =>

@@ -137,6 +137,15 @@ stand-in for "a runtime from before this feature": the honest proof is the previ
 image as a mounted service, which is `quickstart.md`'s manual step, not a suite's, because a suite
 may not name an image by a literal tag.
 
+**Verified on a local installation, 2026-10-03.** A fresh kind cluster from `deploy-local.sh`, the
+cart and `cart-web` applied, then `sample-shopping-cart:0.8.0` deployed as `old-cart` and mounted at
+`/api/old-cart`. `GET /api/old-cart/carts/c1` through the gateway answered **403
+`{"status":403,"error":"unrecognised caller certificate"}`** from pekko-http, with no
+`X-Ankka-Answered-By`: the old runtime's own refusal, never a cart. The current cart under
+`/api/cart` answered 200 on the same request. The release used was 0.8.0, not the previous one
+(0.9.1), because only 0.8.0 was on the machine and ghcr.io refuses Docker clients there; both predate
+web hosting, so both read a mount URI the same way.
+
 ## R4. Admission is the proxy's, from three kinds of entry
 
 **Decision**: the descriptor's `callers` is a list of strings: `"<service>"` (a service of this

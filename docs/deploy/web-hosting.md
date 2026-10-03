@@ -87,8 +87,8 @@ under a mount, and so does a service whose runtime predates web hosting. A web-h
 under a sibling is reachable from the internet through that sibling, at the sibling's address, and is
 told the address the browser used.
 
-`ankka services get` shows each mount with what is behind it: `ok`, `no service`, `serves no HTTP` or
-`paused`. A request under a mount whose service cannot be reached is answered `503` by the proxy.
+`ankka services get` lists each mount, and beside one with nothing usable behind it says why: `no
+service`, `serves no HTTP` or `paused`. A request under a mount whose service cannot be reached is answered `503` by the proxy.
 
 ## Calling services from the process
 

@@ -1039,3 +1039,146 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       s"requests refused or redirected during the roll: $seen"
     )
   }
+
+  // ── A deployed service's topology (feature 019) ──────────────────────────────
+
+  test(
+    "11. a member reads a deployed service's topology through the control plane, merged across two instances"
+  ) {
+    import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+    import com.thinkmorestupidless.ankka.controlplane.api.ServiceTopology
+    import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
+    import com.thinkmorestupidless.ankka.operator.InPod
+
+    // Two instances of the real cart: two, not three, because a k3s node running several sample
+    // JVMs answers in seconds, and the three-instance timing is the HTTP suite's scripted case.
+    val two =
+      s"""{"name":"svc1","service":{"image":"$SampleImage","resources":{"autoscaling":{"minInstances":2}}}}"""
+    val (applied, appliedOut) = api("PUT", s"/services/$Project/svc1", Some(two))
+    assertEquals(applied, 0, appliedOut)
+
+    val workload = s"ankka-$Project"
+    def cartPods: Vector[Pod] =
+      k8s
+        .pods()
+        .inNamespace(workload)
+        .withLabel("app.kubernetes.io/name", "svc1")
+        .list()
+        .getItems
+        .asScala
+        .toVector
+        .filter(p =>
+          p.getMetadata.getDeletionTimestamp == null &&
+            Option(p.getStatus.getContainerStatuses).exists(_.asScala.exists(_.getReady))
+        )
+    waitFor(300.seconds)(cartPods.size == 2)
+
+    // Requests through the cart's own Service, from one of its pods with that pod's certificate.
+    val from     = cartPods.head.getMetadata.getName
+    val requests = 6
+    (1 to requests).foreach { i =>
+      val (status, body) = InPod.curl(
+        k3s,
+        workload,
+        from,
+        s"https://svc1.$workload.svc.cluster.local:9000/carts/topo-$i/items",
+        method = "POST",
+        body = Some("""{"productId":"p1","name":"Pen","quantity":1}""")
+      )
+      assert(status / 100 == 2, s"request $i: $status $body")
+    }
+
+    def addItems(t: ServiceTopology): Long =
+      t.calls.flatMap(_.pairs).filter(_.callee == "add-item").map(_.handled.ok).sum
+
+    // Waited for on the count itself: a call is counted where it ends, on whichever instance.
+    var last: Option[ServiceTopology] = None
+    var raw                           = ""
+    try
+      waitFor(90.seconds) {
+        val (code, body) = api("GET", s"/services/$Project/svc1/topology")
+        raw = body
+        last =
+          if code == 0 then scala.util.Try(readFromString[ServiceTopology](body)).toOption
+          else None
+        last.exists(t => t.contributing == 2 && addItems(t) == requests.toLong)
+      }
+    catch
+      case failure: Throwable => fail(s"the topology never showed $requests calls: $raw", failure)
+    val topology = last.get
+    assertEquals((topology.running, topology.contributing, topology.partial), (2, 2, false))
+    assert(topology.nodes.exists(_.kind == "EventSourcedEntity"), raw)
+    assert(topology.declared.nonEmpty, s"the cart's views read its events: $raw")
+    assert(!raw.contains("topo-1"), "an entity id reached the topology")
+    assert(!raw.contains("histogram"), "the merged response drops the histograms")
+
+    // The CLI, through the gateway, as a developer's machine reaches it.
+    val port   = k3s.getMappedPort(GatewayStack.HttpsNodePort)
+    val config = Files.createTempFile("ankka-cli-topology", ".json")
+    Files.delete(config)
+    val hosts = Files.createTempFile("ankka-hosts", ".txt")
+    Files.writeString(hosts, s"127.0.0.1 api.$BaseDomain\n")
+    assertEquals(
+      cliProcess(config, hosts, "config", "set", "url", s"https://api.$BaseDomain:$port")._1,
+      0
+    )
+    assertEquals(cliProcess(config, hosts, "config", "set", "token", Token)._1, 0)
+    assertEquals(
+      cliProcess(config, hosts, "config", "set", "ca", GatewayStack.exportCa(k8s).toString)._1,
+      0
+    )
+    val (cliCode, cliOut) = cliProcess(config, hosts, "services", "topology", "svc1", "-p", Project)
+    assertEquals(cliCode, 0, cliOut)
+    assert(cliOut.contains("2 of 2 instances answered"), cliOut)
+    assert(cliOut.contains("-> add-item"), cliOut)
+  }
+
+  test("12. only the control plane may open a workload's observe port") {
+    import com.thinkmorestupidless.ankka.operator.InPod
+    val workload = s"ankka-$Project"
+    val carts = k8s
+      .pods()
+      .inNamespace(workload)
+      .withLabel("app.kubernetes.io/name", "svc1")
+      .list()
+      .getItems
+      .asScala
+      .toVector
+      .filter(p => Option(p.getStatus.getContainerStatuses).exists(_.asScala.exists(_.getReady)))
+    assert(
+      carts.size >= 2,
+      s"case 11 leaves two cart instances: ${carts.map(_.getMetadata.getName)}"
+    )
+    val (one, other) = (carts(0), carts(1))
+    val otherIp      = other.getStatus.getPodIP
+
+    // The service's own certificate, presented to another instance of the same service: the
+    // network admits a pod of the workload, so the refusal is the listener's, in the handshake.
+    val (own, ownOut) = InPod.curl(
+      k3s,
+      workload,
+      one.getMetadata.getName,
+      s"https://$otherIp:7628/observability/topology",
+      verifyHost = false
+    )
+    assertEquals(own, 0, s"the service's own identity was admitted: $ownOut")
+
+    // A pod with no platform identity cannot even connect, though the same pod reaches readiness:
+    // the test cannot pass on a dead network.
+    def connects(port: Int) =
+      k3s
+        .execInContainer(
+          "kubectl",
+          "exec",
+          "-n",
+          "default",
+          "stranger",
+          "--",
+          "sh",
+          "-c",
+          s"echo | nc -w 3 $otherIp $port"
+        )
+        .getExitCode == 0
+    assert(!connects(7628), "the observe port admitted a pod with no platform identity")
+    assert(connects(7627), "the probe port must admit anyone, or this proves nothing")
+  }

@@ -202,6 +202,14 @@ local console, counts summed, "2 of 2 instances" (quickstart §5).
 
 **Checkpoint**: quickstart §5 passes on a kind cluster made by `just up`.
 
+**As built**: T053's cases are 11 and 12 of `CPT/ControlPlaneClusterSuite.scala`, not `EndToEndClusterSuite`.
+That suite runs its control plane on the host with no PKI, so it can reach no pod's observe port; the
+other runs the shipped control plane image inside k3s with its real certificate, which is the only way the
+read can be proven end to end. Case 12 refuses a cart's own identity at another cart's 7628 and a pod with no
+platform identity at the network, against a probe port the same pod reaches. T054 has no older image
+available to any suite; the scripted `unsupported` instance in `DeployedTopologyFeatures` and
+`ControlPlaneHttpSuite` is its automated proof, and a by-hand run per quickstart §6 is still owed.
+
 ---
 
 ## Phase 7: User Story 5 — The topology is documented and the limitation is updated (Priority: P3)
@@ -221,9 +229,9 @@ observed-not-complete rule and the unknown caller.
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T059 [P] `sbt scalafmtAll scalafmtSbt` and `sbt compile` warning-free (`-Wunused` is on: a parameter added in one task and first read in a later one must not be left unread at any commit).
+- [X] T059 [P] `sbt scalafmtAll scalafmtSbt` and `sbt compile` warning-free (`-Wunused` is on: a parameter added in one task and first read in a later one must not be left unread at any commit).
 - [ ] T060 `caffeinate -i sbt buildAll` green — format check, compile, every suite including the three k3s suites, every image. Read any failure with an absurd duration as the machine sleeping and rerun it awake.
-- [ ] T061 [P] `just test-console` green, and `cd sdks/python && uv run pytest -q && uv run mypy`, `cd sdks/typescript && npm test`, `cd sdks/rust && cargo test --workspace` green, confirming no SDK needed a change.
+- [X] T061 [P] `just test-console` green, and `cd sdks/python && uv run pytest -q && uv run mypy`, `cd sdks/typescript && npm test`, `cd sdks/rust && cargo test --workspace` green, confirming no SDK needed a change.
 - [X] T062 CI reads new paths: the Scala `build` job runs `node --test` (through `ConsoleTopologyJsSuite`), reads `console/package/fixtures/topology/` and runs the features under `features/` through `GherkinSuite`. In `.github/workflows/ci.yml` the job has a Node setup step, and its `changes` filter claims `features/**` beside `console/package/fixtures/**`, which was there already; `python .github/ci-coverage.py` confirms every tracked file is claimed and every pattern matches a file. Done with User Story 1, when the job first came to depend on them.
 - [ ] T063 Walk `quickstart.md` §1-§6 end to end on a fresh kind cluster and correct the quickstart wherever a command or an expected output differs from what the implementation does.
 

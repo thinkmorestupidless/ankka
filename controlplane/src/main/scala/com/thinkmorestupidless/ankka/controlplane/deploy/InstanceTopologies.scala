@@ -98,7 +98,9 @@ object InstanceTopologies:
 
   /** The reader that ships: pods from the API server, each read over the observe port. */
   def apply(namespacePrefix: String): InstanceTopologies =
-    val config = com.typesafe.config.ConfigFactory.load()
+    // Through the cluster overlay, as the runtime loads its own: the certificate's directory is the
+    // Kubernetes overlay's to set, and the plain loader never sees an overlay.
+    val config = com.thinkmorestupidless.ankka.runtime.ClusterConfig.load()
     val directory =
       Option
         .when(config.hasPath(ServiceDirectoryKey))(config.getString(ServiceDirectoryKey))

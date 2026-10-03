@@ -2,7 +2,7 @@ package com.thinkmorestupidless.ankka.controlplane.api
 
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, ServiceRows}
-import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, PodLogs}
+import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, PodLogReader, PodLogs}
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
@@ -28,7 +28,7 @@ final class ServiceEndpoint(
     clients: EndpointClients,
     val acl: Acl,
     deploy: DeployConfig = DeployConfig.default,
-    logs: PodLogs = PodLogs(DeployConfig.default.namespacePrefix),
+    logs: PodLogReader = PodLogs(DeployConfig.default.namespacePrefix),
     protected val clock: java.time.Clock = java.time.Clock.systemUTC()
 ) extends HttpEndpoint("/services")
     with Attributing:
@@ -53,7 +53,7 @@ final class ServiceEndpoint(
 
   get("/{projectId}/{name}") { (projectId: String, name: String) =>
     authz.project(principal, projectId, write = false)
-    withHostname(entity(projectId, name).call(ServiceEntity.get).invoke())
+    withMountStates(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
   }
 
   /**
@@ -155,6 +155,23 @@ final class ServiceEndpoint(
   }
 
   /** The URL an exposed service answers at, added on the way out: the entity does not know it. */
+  /**
+   * What is behind each of a web-hosted service's mounts (feature 021), decided when one service is
+   * read, from the mounted service's own entity: a listing's row cannot ask another entity, and a
+   * row can lag. For people only; the proxy finds out for itself.
+   */
+  private def withMountStates(status: ServiceStatus): ServiceStatus =
+    if status.mounts.isEmpty then status
+    else
+      status.copy(mounts = status.mounts.map { m =>
+        val behind = entity(status.projectId, m.service).call(ServiceEntity.desiredState).invoke()
+        m.copy(state = behind match
+          case None                                            => "no service"
+          case Some(s) if !s.descriptor.exists(_.service.http) => "serves no HTTP"
+          case Some(s) if s.paused || s.suspended              => "paused"
+          case Some(_)                                         => "ok")
+      })
+
   private def withHostname(status: ServiceStatus): ServiceStatus =
     if status.exposed then status.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
     else status
@@ -186,13 +203,25 @@ final class ServiceEndpoint(
     authz.project(principal, projectId, write = false)
     // Confirms the service exists, and 404s with the same message `services get` gives when it
     // does not — one vocabulary, rather than a second way of saying the same thing.
-    val _ = entity(projectId, name).call(ServiceEntity.get).invoke()
+    val status = entity(projectId, name).call(ServiceEntity.get).invoke()
 
     // Read on the handler's own thread, which is where the request context lives.
     val instance = query.optional[String]("instance")
     val previous = query.flag("previous")
+    val platform = query.flag("platform")
     val tail     = query.optional[Int]("tail")
     val since    = query.optional[Int]("since")
+
+    // Which container: the developer's unless the platform's is asked for. A process- or
+    // web-hosted pod has two, named as the operator names them — the platform's after the
+    // service, the developer's with `-app`; every other pod has the one, and asking for the
+    // platform's is refused rather than answered with the only one there is (feature 021).
+    val twoContainers = ServiceEndpoint.TwoContainerHostings.contains(status.hosting)
+    val container =
+      if platform && !twoContainers then
+        throw CommandError(ServiceEndpoint.PlatformRefusal, ErrorCode.BadRequest)
+      else if twoContainers && !platform then s"$name-app"
+      else name
 
     val instances = instance.map(Vector(_)).getOrElse(logs.instances(projectId, name))
 
@@ -206,7 +235,7 @@ final class ServiceEndpoint(
     else
       LogsResponse(
         instances.map { pod =>
-          logs.read(projectId, pod, tail, since, previous) match
+          logs.read(projectId, pod, container, tail, since, previous) match
             case Right(output) => InstanceLogs(pod, output, error = None)
             case Left(problem) => InstanceLogs(pod, "", error = Some(problem))
         }
@@ -229,3 +258,11 @@ final class ServiceEndpoint(
 
   private def entity(projectId: String, name: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))
+
+object ServiceEndpoint:
+
+  /** The hostings whose pods hold the platform's container beside the developer's (R11). */
+  val TwoContainerHostings: Set[String] = Set(ServiceSpec.Process, ServiceSpec.Web)
+
+  /** The CLI's flag is named, because the CLI shows this refusal verbatim. */
+  val PlatformRefusal: String = "--platform applies to a service with process or web hosting"

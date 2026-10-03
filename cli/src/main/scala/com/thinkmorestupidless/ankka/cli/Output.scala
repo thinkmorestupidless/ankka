@@ -154,9 +154,37 @@ object Output:
           "hosting"    -> row.hosting,
           "hostname"   -> hostname(row)
         ) ++ row.protocol.map("protocol" -> _) ++ row.database.map("database" -> _) ++
-          row.detail.map("detail" -> _)
+          row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
-        fields.map((label, value) => s"${label.padTo(width, ' ')}  $value").mkString("\n")
+        // A value of several lines (a web-hosted service's mounts) continues under the first.
+        fields
+          .map { (label, value) =>
+            val lines = value.split("\n", -1).toVector
+            (s"${label.padTo(width, ' ')}  ${lines.head}" +: lines.tail.map(" " * (width + 2) + _))
+              .mkString("\n")
+          }
+          .mkString("\n")
+
+  /**
+   * A web-hosted service's own facts (feature 021): the port its process listens on, who it admits
+   * — always the internet first, since the descriptor never writes it — and each mount, with what
+   * is behind it when that is anything but ok. Nothing for any other hosting.
+   */
+  private def webFields(row: ServiceStatus): Vector[(String, String)] =
+    if row.hosting != "web" then Vector.empty
+    else
+      val callers = "the internet" +: row.callers.map {
+        case "*"   => s"every service in ${row.projectId}"
+        case other => other
+      }
+      val pathWidth = row.mounts.map(_.path.length).maxOption.getOrElse(0)
+      val mounts = row.mounts.map { m =>
+        val state = if m.state.isEmpty || m.state == "ok" then "" else s"    (${m.state})"
+        s"${m.path.padTo(pathWidth, ' ')}  → ${m.service}$state"
+      }
+      row.processPort.map(port => "process" -> s"port $port").toVector ++
+        Vector("callers" -> callers.mkString(", ")) ++
+        Option.when(mounts.nonEmpty)("mounts" -> mounts.mkString("\n"))
 
   /**
    * Shows the effective settings with the token redacted in both formats.

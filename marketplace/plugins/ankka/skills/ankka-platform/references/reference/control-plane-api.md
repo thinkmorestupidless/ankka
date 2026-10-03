@@ -452,6 +452,7 @@ Members only. Query parameters:
 |---|---|
 | `instance` | One instance, by pod name; otherwise every instance. |
 | `previous` | Present, or `true`: the container before the last restart. |
+| `platform` | Present, or `true`: the platform's container instead of the developer's. A process-hosted service's pod holds the sidecar beside the process, and a web-hosted one's the proxy beside it; without this the developer's is read. Refused with `400` for a service whose pod has one container: `--platform applies to a service with process or web hosting`. |
 | `tail` | Only the last N lines. |
 | `since` | Only the last N seconds. |
 

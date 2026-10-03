@@ -65,6 +65,7 @@ object ZeroTrust:
   val ServiceMount: String    = "/var/run/secrets/ankka/service"
   val DatabaseMount: String   = "/var/run/secrets/ankka/database"
   val DatabaseCaMount: String = "/var/run/secrets/ankka/database-ca"
+  val MountMount: String      = "/var/run/secrets/ankka/mount"
 
   /**
    * A plain HTTP listener answering `GET /ready` and nothing else. The kubelet cannot present a
@@ -88,6 +89,34 @@ object ZeroTrust:
   def clusterSecretName(service: String): String      = s"$service-cluster-tls"
   def serviceCertificateName(service: String): String = s"$service-service"
   def serviceSecretName(service: String): String      = s"$service-service-tls"
+  def mountCertificateName(service: String): String   = s"$service-mount"
+  def mountSecretName(service: String): String        = s"$service-mount-tls"
+
+  /**
+   * `ankka://<project>/<service>/mount`: the identity requests under a mount are passed on with.
+   */
+  def mountUri(spec: AnkkaServiceSpec): String = s"${identityUri(spec)}/mount"
+
+  /**
+   * The certificate a web-hosted service's proxy passes requests under its mounts on with (feature
+   * 021). A client certificate only, with no DNS name: nothing is served under it. A runtime reads
+   * it as the internet when the request comes from its own project and refuses it otherwise; a
+   * runtime from before web hosting refuses it outright.
+   */
+  def mountCertificate(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): GenericKubernetesResource =
+    certificate(
+      metadata(resource, spec, namespace, mountCertificateName(spec.serviceName)),
+      Map(
+        "secretName" -> mountSecretName(spec.serviceName),
+        "uris"       -> List(mountUri(spec)).asJava,
+        "usages"     -> List("client auth").asJava,
+        "issuerRef"  -> issuer(ServiceIssuer, "ClusterIssuer")
+      )
+    )
 
   /**
    * The certificate a service's instances present to each other, for remoting and management. Every
@@ -183,6 +212,29 @@ object ZeroTrust:
 
   def clusterPolicyName(service: String): String = s"$service-cluster"
   def httpPolicyName(service: String): String    = s"$service-http"
+  def probePolicyName(service: String): String   = s"$service-probe"
+
+  /**
+   * Who may connect to a web-hosted service's probe port: anyone (feature 021). Every other service
+   * has that rule in its cluster policy, and a web-hosted service forms no cluster and has none, so
+   * the one bit the probe discloses is opened by a policy of its own.
+   */
+  def probePolicy(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): NetworkPolicy =
+    val identity = Labels.identity(spec.projectId, spec.serviceName)
+    new NetworkPolicyBuilder()
+      .withMetadata(metadata(resource, spec, namespace, probePolicyName(spec.serviceName)))
+      .withSpec(
+        new NetworkPolicySpecBuilder()
+          .withPodSelector(new LabelSelectorBuilder().withMatchLabels(identity.asJava).build())
+          .withPolicyTypes("Ingress")
+          .withIngress(new NetworkPolicyIngressRuleBuilder().withPorts(tcp(ProbePort)).build())
+          .build()
+      )
+      .build()
 
   /**
    * Who may connect to a service's HTTP port: the gateway's proxies, and any workload of this
@@ -274,13 +326,29 @@ object ZeroTrust:
       )
       .build()
 
-  /** One volume per identity the node container mounts; the database pair only when provisioned. */
-  def volumes(spec: AnkkaServiceSpec, provisioned: Boolean, clusterName: String): Vector[Volume] =
-    Vector(
-      secretVolume("ankka-cluster-tls", clusterSecretName(spec.serviceName), None),
-      secretVolume("ankka-service-tls", serviceSecretName(spec.serviceName), None)
-    ) ++
-      Option.when(provisioned)(
+  /**
+   * Which identities a pod holds. A node holds the cluster and service certificates, and the
+   * database pair when its database was provisioned; a web-hosted pod holds the service certificate
+   * alone, since it forms no cluster and has no database (feature 021).
+   */
+  final case class Held(
+      cluster: Boolean,
+      service: Boolean,
+      database: Boolean,
+      mount: Boolean = false
+  )
+
+  /** One volume per identity the pod holds. */
+  def volumes(held: Held, spec: AnkkaServiceSpec, clusterName: String): Vector[Volume] =
+    Option
+      .when(held.cluster)(
+        secretVolume("ankka-cluster-tls", clusterSecretName(spec.serviceName), None)
+      )
+      .toVector ++
+      Option.when(held.service)(
+        secretVolume("ankka-service-tls", serviceSecretName(spec.serviceName), None)
+      ) ++
+      Option.when(held.database)(
         secretVolume(
           "ankka-database-tls",
           Database.certificateSecret(spec.serviceName),
@@ -290,14 +358,20 @@ object ZeroTrust:
       ) ++
       // Only `ca.crt` from CNPG's own server authority: that Secret also holds its private key,
       // and nothing in the pod has any business with it.
-      Option.when(provisioned)(
+      Option.when(held.database)(
         secretVolume("ankka-database-ca", s"$clusterName-ca", Some("ca.crt"))
+      ) ++
+      Option.when(held.mount)(
+        secretVolume("ankka-mount-tls", mountSecretName(spec.serviceName), None)
       )
 
-  def mounts(spec: AnkkaServiceSpec, provisioned: Boolean): Vector[VolumeMount] =
-    Vector(mount("ankka-cluster-tls", ClusterMount), mount("ankka-service-tls", ServiceMount)) ++
-      Option.when(provisioned)(mount("ankka-database-tls", DatabaseMount)) ++
-      Option.when(provisioned)(mount("ankka-database-ca", DatabaseCaMount))
+  /** Where the platform's container reads each identity the pod holds. */
+  def mounts(held: Held): Vector[VolumeMount] =
+    Option.when(held.cluster)(mount("ankka-cluster-tls", ClusterMount)).toVector ++
+      Option.when(held.service)(mount("ankka-service-tls", ServiceMount)) ++
+      Option.when(held.database)(mount("ankka-database-tls", DatabaseMount)) ++
+      Option.when(held.database)(mount("ankka-database-ca", DatabaseCaMount)) ++
+      Option.when(held.mount)(mount("ankka-mount-tls", MountMount))
 
   /**
    * The database half: each provisioned service authenticates to its project's Postgres with a

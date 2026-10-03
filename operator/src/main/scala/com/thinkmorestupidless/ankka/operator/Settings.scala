@@ -37,7 +37,19 @@ final case class Settings(
      * Deployment, set by the manifests to the tag the same build produced; the operator has no
      * version of its own to derive one from.
      */
-    sidecarImage: String = "ankka-sidecar:latest"
+    sidecarImage: String = "ankka-sidecar:latest",
+    /**
+     * The platform's proxy, run beside a `hosting: web` service's process (feature 021). As the
+     * sidecar image: not in the resource, set on the operator's Deployment to the tag the same
+     * build produced.
+     */
+    proxyImage: String = "ankka-proxy:latest",
+    /**
+     * The port the gateway's HTTPS listener is reached on, so a web-hosted service's proxy can tell
+     * the process the address a browser used (feature 021). The same `ankka-platform` value the
+     * control plane reads; 443 when the overlay says nothing.
+     */
+    httpsPort: Int = 443
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -61,7 +73,9 @@ object Settings:
     retryMaxBackoff = 5.minutes,
     maxConcurrentReconciles = 16,
     databaseStorageSize = "1Gi",
-    sidecarImage = "ankka-sidecar:latest"
+    sidecarImage = "ankka-sidecar:latest",
+    proxyImage = "ankka-proxy:latest",
+    httpsPort = 443
   )
 
   /**
@@ -108,7 +122,9 @@ object Settings:
         "ankka.operator.sidecar-image",
         "ANKKA_SIDECAR_IMAGE",
         default.sidecarImage
-      )
+      ),
+      proxyImage = string("ankka.operator.proxy-image", "ANKKA_PROXY_IMAGE", default.proxyImage),
+      httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort)
     )
 
   private def raw(property: String, variable: String): Option[String] =

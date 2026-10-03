@@ -1,0 +1,20 @@
+# The operator runs the proxy beside every web-hosted service's process, so no manifest names the
+# image and kustomize's `images:` transformer cannot rename it; the operator reads it from here.
+# Keep the tag equal to the `images:` block's: the proxy is released with the operator.
+#
+# The container name must be the operator's own (components/operator/operator.yaml). A strategic
+# merge keys containers by name, so any other name adds a second container holding only this env
+# var and no image, and the API server refuses the whole Deployment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_PROXY_IMAGE
+              value: ghcr.io/thinkmorestupidless/ankka-proxy:0.0.0 # SET

@@ -139,6 +139,69 @@ class OutputSuite extends munit.FunSuite:
     assert(rendered.contains("exposed, but the control plane has no base domain"), rendered)
   }
 
+  test(
+    "a web-hosted service prints its process port, callers and mounts after the lines every service has"
+  ) {
+    val web =
+      status("web", database = Some("none"), hostname = Some("https://web-checkout.example.test"))
+        .copy(
+          hosting = "web",
+          processPort = Some(3000),
+          callers = Vector("orders", "billing/invoices", "*"),
+          mounts = Vector(
+            MountStatus("/api/cart", "cart", "ok"),
+            MountStatus("/api/orders", "orders", "no service"),
+            MountStatus("/admin", "admin")
+          )
+        )
+    val lines  = Output.service(web, Format.Table).split("\n").toVector
+    val labels = lines.map(_.takeWhile(_ != ' ')).filter(_.nonEmpty)
+    assertEquals(
+      labels,
+      Vector(
+        "name",
+        "project",
+        "status",
+        "instances",
+        "generation",
+        "image",
+        "hosting",
+        "hostname",
+        "database",
+        "process",
+        "callers",
+        "mounts"
+      )
+    )
+    assertEquals(
+      lines.dropWhile(!_.startsWith("hosting")),
+      Vector(
+        "hosting     web",
+        "hostname    https://web-checkout.example.test",
+        "database    none",
+        "process     port 3000",
+        "callers     the internet, orders, billing/invoices, every service in checkout",
+        "mounts      /api/cart    → cart",
+        "            /api/orders  → orders    (no service)",
+        "            /admin       → admin"
+      )
+    )
+  }
+
+  test("a web-hosted service with no callers and no mounts still says it admits the internet") {
+    val rendered =
+      Output.service(status("web").copy(hosting = "web", processPort = Some(8080)), Format.Table)
+    assert(rendered.contains("callers     the internet"), rendered)
+    assert(!rendered.contains("mounts"), rendered)
+  }
+
+  test("an embedded service prints none of a web-hosted service's lines") {
+    val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
+    for label <- Vector("process", "callers", "mounts") do
+      assert(!rendered.linesIterator.exists(_.startsWith(label)), rendered)
+    assertEquals(rendered.linesIterator.toVector.last, "database    provisioned")
+  }
+
   test("the token is never printed, in either format") {
     val settings = Settings("http://cp", Some("super-secret-token"), Some("checkout"))
 

@@ -783,3 +783,38 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
       404
     )
   }
+
+  test("a web-hosted service's status says what is behind each of its mounts (feature 021)") {
+    assertEquals(send("POST", "/organizations/mounting", Some("""{"name":"Mounting"}"""))._1, 204)
+    assertEquals(
+      send(
+        "POST",
+        "/projects/mounts",
+        Some("""{"name":"Mounts","organizationId":"mounting"}""")
+      )._1,
+      204
+    )
+    def apply(name: String, service: String): Unit =
+      val (status, body) =
+        send("PUT", s"/services/mounts/$name", Some(s"""{"name":"$name","service":$service}"""))
+      assertEquals(status, 200, s"$name: $body")
+    apply("cart", """{"image":"cart:1"}""")
+    apply("quiet", """{"image":"quiet:1","http":false}""")
+    apply("held", """{"image":"held:1"}""")
+    assertEquals(send("POST", "/services/mounts/held/pause")._1, 200)
+    apply(
+      "web",
+      """{"image":"web:1","hosting":"web","mounts":[""" +
+        """{"path":"/api/cart","service":"cart"},{"path":"/api/quiet","service":"quiet"},""" +
+        """{"path":"/api/held","service":"held"},{"path":"/api/ledger","service":"ledger"}]}"""
+    )
+    val (status, body) = send("GET", "/services/mounts/web")
+    assertEquals(status, 200, body)
+    val read = com.github.plokhotnyuk.jsoniter_scala.core.readFromString(body)(using
+      com.thinkmorestupidless.ankka.controlplane.api.Wire.statusCodec
+    )
+    assertEquals(
+      read.mounts.map(m => m.service -> m.state).toMap,
+      Map("cart" -> "ok", "quiet" -> "serves no HTTP", "held" -> "paused", "ledger" -> "no service")
+    )
+  }

@@ -168,7 +168,14 @@ object HttpServiceClients:
   def hostOf(project: String, name: String): String =
     s"$name.$namespacePrefix-$project.svc.cluster.local"
 
-  /** The Service's in-cluster name, and the port its SRV record publishes for `http`. */
+  /**
+   * The Service's in-cluster name, and the port its SRV record publishes for `http`.
+   *
+   * A web-hosted service's proxy finds the services its process calls, and the services it mounts,
+   * through this same function (feature 021), with the namespace prefix the operator gives every
+   * workload as `ANKKA_NAMESPACE_PREFIX`. Where a service is found in a cluster is therefore one
+   * rule: a change to it is a change to both callers.
+   */
   val kubernetes: (String, String) => Option[(String, Int)] = (project, name) =>
     val host = hostOf(project, name)
     srvPort(host).map(host -> _)

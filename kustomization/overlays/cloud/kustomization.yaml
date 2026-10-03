@@ -90,6 +90,11 @@ images:
   - name: ankka-sidecar
     newName: ghcr.io/thinkmorestupidless/ankka-sidecar
     newTag: "0.0.0" # SET
+  # The proxy, likewise: the operator runs it beside every web-hosted service's process, and learns
+  # its name from ANKKA_PROXY_IMAGE, set by the patch below.
+  - name: ankka-proxy
+    newName: ghcr.io/thinkmorestupidless/ankka-proxy
+    newTag: "0.0.0" # SET
   - name: ankka-console
     newName: ghcr.io/thinkmorestupidless/ankka-console
     newTag: "0.0.0" # SET
@@ -97,6 +102,11 @@ images:
 patches:
   # The sidecar image the operator injects, from the registry at this release's tag.
   - path: sidecar-image.yaml
+    target:
+      kind: Deployment
+      name: ankka-operator
+  # The proxy image the operator runs beside a web-hosted service's process, likewise.
+  - path: proxy-image.yaml
     target:
       kind: Deployment
       name: ankka-operator
@@ -270,3 +280,8 @@ replacements:
           name: ankka-controlplane
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HTTPS_PORT].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value

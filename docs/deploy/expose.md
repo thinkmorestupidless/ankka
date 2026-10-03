@@ -33,6 +33,10 @@ declares an `acl`, and that is the only check on who may call it: the gateway do
 its own. An endpoint whose ACL is `AllowAll` on an exposed service on a real installation is on the
 internet. Choose the ACL before running `expose`. See [HTTP endpoints](../build/http-endpoints.md).
 
+A service mounted under a web-hosted service needs no exposure: a browser reaches it under the
+web-hosted service's hostname, and its ACL decides as for any request from the internet. See [Deploy a
+user interface](web-hosting.md).
+
 ## The hostname
 
 The platform derives the hostname; you do not choose it:

@@ -13,6 +13,8 @@ pages:
   - deploy/deploy-a-service.md
   - operate/console.md
   - deploy/expose.md
+  - deploy/web-hosting.md
+  - reference/web-hosting.md
   - deploy/scaling-and-rollouts.md
   - deploy/ci.md
   - deploy/upgrading.md

@@ -149,6 +149,11 @@ Every request that reaches an endpoint carries its caller, read from the client 
 - **a service**, named by project and service, for a request from another workload;
 - **the local machine**, when the service runs outside a cluster, where there is no certificate to read.
 
+A request under a web-hosted service's mount arrives under that service's mount certificate,
+`ankka://<project>/<service>/mount`, and is read as **the gateway**: the internet, whose request the
+web-hosted service's proxy passed on. The mount identity is honoured only inside its project. A service of
+another project refuses it, and so does a runtime that predates web hosting.
+
 An endpoint names which callers it admits with `Acl.allowCallers`. See
 [HTTP endpoints](../build/http-endpoints.md#name-who-may-call). Because the caller comes from a
 certificate the platform issued, a request cannot choose who it is: a header claiming to be a service is
@@ -166,7 +171,7 @@ Each workload also gets network policies, which refuse a connection before any T
 |---|---|
 | The service's HTTP port | the installation gateway's proxy pods, and any pod of an ankka workload in any ankka namespace |
 | 17355 (remoting) and 7626 (management) | the service's own pods only |
-| 7627 (readiness) | anywhere |
+| 7627 (readiness) | anywhere; a web-hosted service's pod has a policy of its own for it, since it has no cluster ports |
 | 5432 on a project's database | that project's ankka workloads, the database's own instances and the database operator |
 
 Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-system`, not in the
@@ -186,6 +191,11 @@ project's cluster ports and database are closed to every other project either wa
 | 17355 | `remoting` | mutual TLS | cluster remoting between the service's own instances |
 | 7626 | `management` | mutual TLS | cluster bootstrap, `/ankka/version` and `/ankka/metrics` |
 | 7627 | `probe` | plain HTTP | `GET /ready`, and nothing else |
+
+A web-hosted service's pod has the HTTP port, served by the platform's proxy, and 7627 for readiness, and
+no cluster ports. Two more are on its loopback interface only: the process listens on its `processPort`,
+8080 by default, for the proxy, and the proxy on 7630 for the process's calls to other services. See
+[the web hosting reference](../reference/web-hosting.md#ports-in-a-web-hosted-pod).
 
 A Python or TypeScript service's pod has two more, on its loopback interface only: the process listens on
 9010 for the sidecar, and the sidecar on 9011 for the process. They carry plain gRPC, because the pod's

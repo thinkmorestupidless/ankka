@@ -29,6 +29,7 @@ import io.fabric8.kubernetes.api.model.{
   ContainerBuilder,
   ContainerPortBuilder,
   HTTPGetActionBuilder,
+  Lifecycle,
   LifecycleBuilder,
   LifecycleHandlerBuilder,
   SleepActionBuilder,
@@ -109,6 +110,47 @@ object Rendering:
    */
   val WasmHosting: String = "wasm"
 
+  /**
+   * `AnkkaServiceSpec.hosting`'s value for any program that serves HTTP, beside the platform's
+   * proxy (feature 021): no database, no cluster, two containers.
+   */
+  val WebHosting: String = "web"
+
+  /** `AnkkaServiceSpec.hosting`'s value, and its default, for an image that is an ankka node. */
+  val EmbeddedHosting: String = "embedded"
+
+  /**
+   * The proxy's settings, as the operator writes them into the proxy container's environment
+   * (feature 021). Mirrors `ProxySettings.Variables` in proxy-core, which the operator must not
+   * depend on; `ProxyEnvironmentSuite` in the control plane's tests, which has both, holds the two
+   * to each other.
+   */
+  object ProxyEnv:
+    val Project: String         = "ANKKA_PROXY_PROJECT"
+    val Service: String         = "ANKKA_PROXY_SERVICE"
+    val Port: String            = "ANKKA_PROXY_PORT"
+    val ProcessPort: String     = "ANKKA_PROXY_PROCESS_PORT"
+    val Mounts: String          = "ANKKA_PROXY_MOUNTS"
+    val Callers: String         = "ANKKA_PROXY_CALLERS"
+    val PublicAuthority: String = "ANKKA_PROXY_PUBLIC_AUTHORITY"
+
+  /** What a web-hosted service's process is told: where to listen, and where to call services. */
+  val ProcessPortEnvVar: String = "PORT"
+  val ServicesUrlEnvVar: String = "ANKKA_SERVICES_URL"
+  val DefaultProcessPort: Int   = 8080
+  val CallingPort: Int          = 7630
+
+  /**
+   * The proxy's own allotment (feature 021, research R19). It holds no request, so memory is small;
+   * CPU is not, because a JVM throttled to 100m took about ten seconds to start and, on a busy
+   * node, missed its readiness deadline. At 250m it serves within two seconds, using under 100Mi.
+   */
+  private val ProxyQuantities =
+    Map("cpu" -> new Quantity("250m"), "memory" -> new Quantity("192Mi")).asJava
+
+  /** Every hosting the operator knows; the CRD's enum is held to exactly these. */
+  val Hostings: Set[String] = Set(EmbeddedHosting, ProcessHosting, WasmHosting, WebHosting)
+
   /** The volume a module is copied into, where the init container writes and the runtime reads. */
   val ModuleVolume: String = "ankka-module"
   val ModuleMount: String  = "/ankka/module"
@@ -179,6 +221,16 @@ object Rendering:
         (if (spec.hosting == ProcessHosting || spec.hosting == WasmHosting) &&
            settings.sidecarImage.isEmpty
          then Vector("operator has no sidecar image")
+         else Vector.empty) ++
+        (if spec.hosting == WebHosting && settings.proxyImage.isEmpty
+         then Vector("operator has no proxy image")
+         else Vector.empty) ++
+        (if spec.hosting == WebHosting && spec.port.isEmpty
+         then Vector("a web-hosted service's proxy serves HTTP; the resource names no port")
+         else Vector.empty) ++
+        // Before this feature an unknown value rendered as embedded. A mode the operator does not
+        // know is a problem it reports, so the next mode added cannot be rendered as the wrong one.
+        (if !Hostings(spec.hosting) then Vector(s"unknown hosting \"${spec.hosting}\"")
          else Vector.empty)
 
     if problems.nonEmpty then Left(problems)
@@ -195,7 +247,10 @@ object Rendering:
               namespace,
               databasePlan,
               settings.sidecarImage,
-              settings.namespacePrefix
+              settings.namespacePrefix,
+              settings.proxyImage,
+              settings.baseDomain,
+              settings.httpsPort
             )
           ) :+
           addressAction(resource, spec, namespace) :+
@@ -214,20 +269,36 @@ object Rendering:
       namespace: String
   ): Vector[Action] =
     val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
-    // The service certificate always, not only with a port: it is the identity the service calls
-    // others with, and the runtime's HTTP server starts in every ankka service, exposed or not.
-    Vector(
-      Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
-      Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
-      Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
-    ) ++ (spec.port match
+    val http = spec.port match
       case Some(port) =>
         Vector(Action.EnsureNetworkPolicy(ZeroTrust.httpPolicy(resource, spec, namespace, port)))
       case None =>
         Vector(
           Action
             .RemoveNetworkPolicy(namespace, ZeroTrust.httpPolicyName(spec.serviceName), ownerUid)
-        ))
+        )
+    if spec.hosting == WebHosting then
+      // No cluster certificate and no cluster policy: a web-hosted service forms no cluster. The
+      // probe port, which the cluster policy opens for every other service, gets a policy of its
+      // own (feature 021).
+      // The mount certificate only while there are mounts. One whose last mount is removed is left,
+      // owned by the resource, as every certificate a service stops needing is (R7).
+      (Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)) +:
+        Option
+          .when(spec.mounts.nonEmpty)(
+            Action.EnsureCertificate(ZeroTrust.mountCertificate(resource, spec, namespace))
+          )
+          .toVector) ++
+        http :+
+        Action.EnsureNetworkPolicy(ZeroTrust.probePolicy(resource, spec, namespace))
+    else
+      // The service certificate always, not only with a port: it is the identity the service calls
+      // others with, and the runtime's HTTP server starts in every ankka service, exposed or not.
+      Vector(
+        Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
+        Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
+        Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
+      ) ++ http
 
   /**
    * Beside the route, with the same three conditions: the gateway reaches an exposed service over
@@ -260,11 +331,16 @@ object Rendering:
       spec: AnkkaServiceSpec,
       namespace: String
   ): Vector[Action] =
-    Vector(
-      Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)),
-      Action.EnsureRole(peersRole(resource, spec, namespace)),
-      Action.EnsureRoleBinding(peersRoleBinding(resource, spec, namespace))
-    )
+    // A web-hosted pod names the account and mounts no token for it; it has no peers to find, so
+    // it is granted nothing (feature 021).
+    if spec.hosting == WebHosting then
+      Vector(Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)))
+    else
+      Vector(
+        Action.EnsureServiceAccount(serviceAccount(resource, spec, namespace)),
+        Action.EnsureRole(peersRole(resource, spec, namespace)),
+        Action.EnsureRoleBinding(peersRoleBinding(resource, spec, namespace))
+      )
 
   private def identityMeta(
       resource: AnkkaService,
@@ -484,7 +560,7 @@ object Rendering:
         Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
       )
     plan match
-      case ProvisioningPlan.Supplied => Vector.empty
+      case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => Vector.empty
       case ProvisioningPlan.Waiting(_, needsCredentials, needsRole, needsDatabase, _) =>
         tls ++ Vector(
           Option.when(needsCredentials)(
@@ -519,7 +595,10 @@ object Rendering:
       namespace: String,
       databasePlan: ProvisioningPlan = ProvisioningPlan.Supplied,
       sidecarImage: String = Settings.default.sidecarImage,
-      namespacePrefix: String = Settings.default.namespacePrefix
+      namespacePrefix: String = Settings.default.namespacePrefix,
+      proxyImage: String = Settings.default.proxyImage,
+      baseDomain: Option[String] = None,
+      httpsPort: Int = Settings.default.httpsPort
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -527,12 +606,34 @@ object Rendering:
 
     // Nothing beyond the descriptor's own env on the escape hatch (FR-016): the caller supplied
     // its own connection details, so there is no schema to establish and no credential to mount.
-    val provisioned = databasePlan != ProvisioningPlan.Supplied
+    // Nor for a service that has no database at all.
+    val provisioned = databasePlan match
+      case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => false
+      case _                                                      => true
 
-    val containers =
-      containersFor(spec, identity, withDatabaseEnv = provisioned, sidecarImage, namespacePrefix)
+    val web = spec.hosting == WebHosting
+    val containers = containersFor(
+      spec,
+      identity,
+      withDatabaseEnv = provisioned,
+      sidecarImage,
+      namespacePrefix,
+      proxyImage,
+      baseDomain,
+      httpsPort
+    )
+    // A web-hosted pod holds the service certificate alone: no cluster to join, no database.
+    val held =
+      if web then
+        ZeroTrust.Held(
+          cluster = false,
+          service = true,
+          database = false,
+          mount = spec.mounts.nonEmpty
+        )
+      else ZeroTrust.Held(cluster = true, service = true, database = provisioned)
     val tlsVolumes =
-      ZeroTrust.volumes(spec, provisioned, CnpgRendering.projectClusterName) ++ moduleVolumes(spec)
+      ZeroTrust.volumes(held, spec, CnpgRendering.projectClusterName) ++ moduleVolumes(spec)
     val moduleInit = moduleInitContainers(spec)
 
     // The pull secret is *named*, never read. The Secret itself is the control plane's to write in
@@ -550,7 +651,17 @@ object Rendering:
       )
 
     val podSpec =
-      if provisioned then
+      if web then
+        // The account is named, as for every service, and its token is not mounted: nothing in a
+        // web-hosted pod has any business with the API server. No init container, no fsGroup.
+        withPullSecret(
+          new PodSpecBuilder()
+            .withServiceAccountName(Names.serviceAccount(spec.serviceName))
+            .withAutomountServiceAccountToken(false)
+            .withContainers(containers*)
+            .withVolumes(tlsVolumes*)
+        ).build()
+      else if provisioned then
         withPullSecret(
           new PodSpecBuilder()
             .withServiceAccountName(Names.serviceAccount(spec.serviceName))
@@ -574,13 +685,19 @@ object Rendering:
             .withVolumes(tlsVolumes*)
         ).build()
 
+    // The transport label on every pod: `Transition.needed` reads it, and without it the operator
+    // would stop the Deployment on every pass. The formation label marks a pod as a cluster contact
+    // point, which a web-hosted pod is not.
+    val templateLabels =
+      if web then labels + (Labels.TransportKey -> Labels.TransportTls)
+      else
+        labels + (Labels.FormationKey -> Labels.FormationBootstrap) +
+          (Labels.TransportKey        -> Labels.TransportTls)
+
     val podTemplate = new PodTemplateSpecBuilder()
       .withMetadata(
         new ObjectMetaBuilder()
-          .withLabels(
-            (labels + (Labels.FormationKey -> Labels.FormationBootstrap) +
-              (Labels.TransportKey         -> Labels.TransportTls)).asJava
-          )
+          .withLabels(templateLabels.asJava)
           // The restart count on the *pod template* is what makes a restart roll the pods: it
           // changes, the template changes, Kubernetes replaces them. NOT the generation, which is
           // on the Deployment's own metadata (where status reads it) — feature 001 put it here,
@@ -690,16 +807,18 @@ object Rendering:
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
       sidecarImage: String,
-      namespacePrefix: String
-  ): Vector[Container] =
-    if spec.hosting == WasmHosting then
+      namespacePrefix: String,
+      proxyImage: String,
+      baseDomain: Option[String],
+      httpsPort: Int
+  ): Vector[Container] = spec.hosting match
+    case WasmHosting =>
       val node = container(
         spec.copy(image = sidecarImage),
         identity,
         withDatabaseEnv,
         extraEnv = Vector(literal("ANKKA_WASM_MODULE", ModuleFile)),
-        namespacePrefix = namespacePrefix,
-        mountsFor = Some(spec)
+        namespacePrefix = namespacePrefix
       )
       Vector(
         new ContainerBuilder(node)
@@ -716,9 +835,11 @@ object Rendering:
           )
           .build()
       )
-    else if spec.hosting != ProcessHosting then
+    case EmbeddedHosting =>
       Vector(container(spec, identity, withDatabaseEnv, namespacePrefix = namespacePrefix))
-    else
+    case WebHosting =>
+      webContainers(spec, namespacePrefix, proxyImage, baseDomain, httpsPort)
+    case ProcessHosting =>
       // A descriptor's variables are split: a model's key and configuration belong to the sidecar,
       // which runs the agent loop; everything else is the process's, and the broker's are both's. By prefix, as
       // `ServiceSpec.SidecarEnvPrefixes` in controlplane-api says — duplicated here because the
@@ -735,11 +856,10 @@ object Rendering:
           literal("ANKKA_PROCESS_ADDRESS", s"127.0.0.1:$ProcessPort"),
           literal("ANKKA_SIDECAR_PORT", SidecarPort.toString)
         ),
-        namespacePrefix = namespacePrefix,
-        // The sidecar is the node: it holds every identity. The process beside it speaks only to
-        // the sidecar, over the pod's loopback, and needs none.
-        mountsFor = Some(spec)
+        namespacePrefix = namespacePrefix
       )
+      // The sidecar is the node: it holds every identity. The process beside it speaks only to the
+      // sidecar, over the pod's loopback, and needs none.
       val app = new ContainerBuilder()
         .withName(Names.container(spec.serviceName) + "-app")
         .withImage(spec.image)
@@ -767,18 +887,131 @@ object Rendering:
         )
         .build()
       Vector(node, app)
+    case other =>
+      // `render` refuses an unknown hosting before anything is rendered; this is for a caller that
+      // reached the Deployment directly.
+      throw IllegalArgumentException(s"unknown hosting \"$other\"")
+
+  /**
+   * A web-hosted pod (feature 021): the platform's proxy, named as the platform's container is in
+   * every two-container pod, and the developer's process beside it. The proxy is told everything it
+   * needs as its environment, holds the service certificate, serves the service's port and the
+   * probe, and is sized by the platform; the process is told its port and the calling address, gets
+   * the descriptor's whole environment, and is sized by the instance type.
+   */
+  private def webContainers(
+      spec: AnkkaServiceSpec,
+      namespacePrefix: String,
+      proxyImage: String,
+      baseDomain: Option[String],
+      httpsPort: Int
+  ): Vector[Container] =
+    val port = spec.port.getOrElse(
+      throw IllegalArgumentException("a web-hosted service's resource names no port")
+    )
+    val processPort = spec.processPort.getOrElse(DefaultProcessPort)
+    // Derived here, never read from the resource, as the route's hostname is; rendered whether or
+    // not the service is exposed, so exposing never changes the pod template and never rolls a pod.
+    // The port is the gateway's HTTPS port, omitted when it is the scheme's own.
+    val publicAuthority = baseDomain.map { base =>
+      val host = Hostnames.of(spec.serviceName, spec.projectId, base)
+      if httpsPort == 443 then host else s"$host:$httpsPort"
+    }
+    val proxyEnv = Vector(
+      literal(ProxyEnv.Project, spec.projectId),
+      literal(ProxyEnv.Service, spec.serviceName),
+      literal(ProxyEnv.Port, port.toString),
+      literal(ProxyEnv.ProcessPort, processPort.toString),
+      // Empty when there are none: the variable is always set, so the proxy reads one shape.
+      literal(ProxyEnv.Mounts, spec.mounts.map(m => s"${m.path}=${m.service}").mkString(",")),
+      literal(ProxyEnv.Callers, spec.callers.mkString(","))
+    ) ++ publicAuthority.map(literal(ProxyEnv.PublicAuthority, _)) :+
+      literal("ANKKA_NAMESPACE_PREFIX", namespacePrefix)
+    val proxy = new ContainerBuilder()
+      .withName(Names.container(spec.serviceName))
+      .withImage(proxyImage)
+      .withImagePullPolicy("IfNotPresent")
+      .withEnv(proxyEnv*)
+      .withPorts(
+        new ContainerPortBuilder()
+          .withName(PortName)
+          .withContainerPort(port)
+          .withProtocol("TCP")
+          .build(),
+        new ContainerPortBuilder()
+          .withName(ZeroTrust.ProbePortName)
+          .withContainerPort(ZeroTrust.ProbePort)
+          .withProtocol("TCP")
+          .build()
+      )
+      .withVolumeMounts(
+        ZeroTrust.mounts(
+          ZeroTrust
+            .Held(cluster = false, service = true, database = false, mount = spec.mounts.nonEmpty)
+        )*
+      )
+      .withResources(
+        new ResourceRequirementsBuilder()
+          .withRequests(ProxyQuantities)
+          .withLimits(ProxyQuantities)
+          .build()
+      )
+      // The proxy answers ready while the process accepts a connection; the process has no probe
+      // of its own, since no route of its is the platform's to call.
+      .withReadinessProbe(
+        new ProbeBuilder()
+          .withHttpGet(
+            new HTTPGetActionBuilder()
+              .withPath("/ready")
+              .withPort(new IntOrString(ZeroTrust.ProbePortName))
+              .build()
+          )
+          .withPeriodSeconds(5)
+          .build()
+      )
+      .withLifecycle(preStop)
+      .build()
+    val appQuantities = Map(
+      "cpu"    -> new Quantity(s"${spec.cpuMillis}m"),
+      "memory" -> new Quantity(s"${spec.memoryMiB}Mi")
+    ).asJava
+    val app = new ContainerBuilder()
+      .withName(Names.container(spec.serviceName) + "-app")
+      .withImage(spec.image)
+      .withImagePullPolicy("IfNotPresent")
+      .withEnv(
+        (spec.env.map(environment) ++ Vector(
+          literal(ProcessPortEnvVar, processPort.toString),
+          literal(ServicesUrlEnvVar, s"http://127.0.0.1:$CallingPort")
+        ))*
+      )
+      .withResources(
+        new ResourceRequirementsBuilder()
+          .withRequests(appQuantities)
+          .withLimits(appQuantities)
+          .build()
+      )
+      .withLifecycle(preStop)
+      .build()
+    Vector(proxy, app)
+
+  /** Keep serving through a replacement; see the node container's own hook for why. */
+  private def preStop: Lifecycle =
+    new LifecycleBuilder()
+      .withPreStop(
+        new LifecycleHandlerBuilder()
+          .withSleep(new SleepActionBuilder().withSeconds(PreStopSeconds).build())
+          .build()
+      )
+      .build()
 
   private def container(
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
       extraEnv: Vector[EnvVar] = Vector.empty,
-      namespacePrefix: String,
-      mountsFor: Option[AnkkaServiceSpec] = None
+      namespacePrefix: String
   ): Container =
-    // For a sidecar the image and env are the sidecar's, but the identities mounted are the
-    // service's own — its port decides whether it has a service certificate.
-    val owner = mountsFor.getOrElse(spec)
     // Requests equal limits. The descriptor models one size, and inventing a ratio between
     // request and limit would be a scheduling policy nobody asked for.
     val quantities = Map(
@@ -878,7 +1111,11 @@ object Rendering:
       )
       .withEnvFrom(envFrom*)
       .withPorts((containerPorts.toVector ++ clusterPorts)*)
-      .withVolumeMounts(ZeroTrust.mounts(owner, withDatabaseEnv)*)
+      .withVolumeMounts(
+        ZeroTrust.mounts(
+          ZeroTrust.Held(cluster = true, service = true, database = withDatabaseEnv)
+        )*
+      )
       .withResources(
         new ResourceRequirementsBuilder().withRequests(quantities).withLimits(quantities).build()
       )

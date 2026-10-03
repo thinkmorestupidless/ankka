@@ -146,7 +146,10 @@ lazy val commonSettings = Seq(
     "ankka.conformance.shape",
     // Reference pages the JVM generates (the CLI's commands, the control plane's routes): with
     // `true` the suites rewrite the page instead of failing on a stale one.
-    "ankka.docs.update"
+    "ankka.docs.update",
+    // The operator's rendering as it was before web hosting (feature 021): with `true`,
+    // `RenderingUnchangedSuite` rewrites its fixtures. Its own switch, so that nothing else repins it.
+    "ankka.rendering.pin"
   )
     .flatMap { key =>
       sys.props.get(key).map(v => s"-D$key=$v")
@@ -411,12 +414,24 @@ lazy val controlPlane = project
           // ControlPlaneClusterSuite (feature 004) deploys the control plane itself into k3s.
           (shoppingCart / Docker / publishLocal).value
           (Docker / publishLocal).value // this project's own image, unscoped to avoid self-reference
+          // The proxy the operator runs beside every web-hosted process (feature 021).
+          (proxy / Docker / publishLocal).value
           // The console (feature 017), deployed beside it: a Node image Docker builds, not sbt.
           val console = (ThisBuild / baseDirectory).value / "console"
           val built = scala.sys.process
             .Process(Seq("docker", "build", "-q", "-t", "ankka-console:latest", console.getPath))
             .!
           if (built != 0) sys.error(s"docker build of $console failed ($built)")
+          // The shopping cart's interface (feature 021): a Node image Docker builds, under this
+          // build's tag, as a suite names every image.
+          val web = (ThisBuild / baseDirectory).value / "samples" / "shopping-cart-web"
+          val tag = version.value.replace('+', '-')
+          val webBuilt = scala.sys.process
+            .Process(
+              Seq("docker", "build", "-q", "-t", s"sample-shopping-cart-web:$tag", web.getPath)
+            )
+            .!
+          if (webBuilt != 0) sys.error(s"docker build of $web failed ($webBuilt)")
           ()
         }
     }.value,
@@ -514,10 +529,66 @@ lazy val sidecar = project
     Test / testOnly := (Test / testOnly).dependsOn(sidecarImageForClusterTests).evaluated
   )
 
+/**
+ * The rules of a web-hosted service's proxy (feature 021): who is admitted, what a process is told,
+ * where a mount or a call goes, and the engine that applies them over the JDK's own HTTP server and
+ * client. It depends on nothing of ankka's and nothing of Pekko's, so the CLI's native image can
+ * carry it: `ankka local web` and the proxy in a cluster are the same code, as a build fact.
+ */
+lazy val proxyCore = project
+  .in(file("proxy-core"))
+  .settings(commonSettings)
+  .settings(
+    name                        := "ankka-proxy-core",
+    publish / skip              := true,
+    libraryDependencies += munit % Test,
+    // The JDK's client reads its restricted-header list once, when its classes load, so the proxy's
+    // `Host` is allowed by an option every JVM that runs the engine is started with.
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host"
+  )
+
+/**
+ * The proxy beside a web-hosted service's process (feature 021): `proxy-core`'s engine with the
+ * cluster's half, mutual TLS from `RotatingTls` and the caller from `Caller.fromCertificate`. An
+ * image, `ankka-proxy`, that the operator runs in every web-hosted pod; never published.
+ */
+lazy val proxy = project
+  .in(file("proxy"))
+  // proxyCore test->test for the stand-in process its engine suite drives; http test->test for
+  // PreFeatureCaller, the frozen reading of a certificate the features use.
+  .dependsOn(
+    proxyCore % "compile->compile;test->test",
+    runtime,
+    http    % "compile->compile;test->test",
+    testPki % Test,
+    testkit % Test
+  )
+  .enablePlugins(JavaAppPackaging, DockerPlugin)
+  .settings(commonSettings)
+  .settings(dockerSettings)
+  .settings(
+    name                := "ankka-proxy",
+    publish / skip      := true,
+    Compile / mainClass := Some("com.thinkmorestupidless.ankka.proxy.Main"),
+    dockerExposedPorts  := Seq(9000, 7627),
+    libraryDependencies += logback,
+    Universal / javaOptions ++= Seq(
+      "-Djdk.httpclient.allowRestrictedHeaders=host",
+      // A small fixed allotment (research R19): one GC thread, the C1 compiler alone and a JVM that
+      // sees one processor start faster and use less memory, and the proxy is I/O bound.
+      "-J-XX:+UseSerialGC",
+      "-J-XX:TieredStopAtLevel=1",
+      "-J-XX:ActiveProcessorCount=1"
+    ),
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
+    // Named, not discovered: ankka-testkit and http's tests both ship a logback-test.xml here.
+    Test / javaOptions += "-Dlogback.configurationFile=logback-proxy-test.xml"
+  )
+
 /** The `ankka` command-line client. */
 lazy val cli = project
   .in(file("cli"))
-  .dependsOn(controlPlaneApi)
+  .dependsOn(controlPlaneApi, proxyCore)
   .settings(commonSettings)
   .enablePlugins(JavaAppPackaging, GraalVMNativeImagePlugin)
   .settings(
@@ -540,6 +611,8 @@ lazy val cli = project
     Docker / publishLocal := {},
     Docker / publish      := {},
     libraryDependencies ++= Seq(decline, munit % Test),
+    // `ankka local web` runs the proxy's engine; see proxyCore.
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // The documentation this CLI's version was built with, for `ankka mcp` to serve: every public
     // page under docs/ onto the classpath at ankka/docs/, with an index, because a directory inside a
     // jar cannot be listed.
@@ -561,7 +634,7 @@ lazy val cli = project
     }.taskValue,
     // The Python, TypeScript and Rust templates `ankka init --language` renders (Scaffold): each language's
     // own files from cli/src/main/templates/<language>, the files every language shares from
-    // common/, and the agent skills a project carries, from the rendered copy in marketplace/ — the
+    // common/ (and every service's from common-service/), and the agent skills a project carries, from the rendered copy in marketplace/ — the
     // same skills the Scala template carries. Onto the classpath at ankka/templates/<language>/ with
     // an index, because a directory inside a jar cannot be listed. Walked by hand rather than through
     // unmanagedResources, whose default filter drops hidden files, and a template is mostly
@@ -580,9 +653,12 @@ lazy val cli = project
           .filter(f => f.isFile && !litter(f))
           .flatMap(f => IO.relativize(dir, f).map(_ -> f))
       IO.delete(out)
-      Seq("python", "typescript", "rust").flatMap { language =>
+      Seq("python", "typescript", "rust", "web").flatMap { language =>
+        // common/ is every template's; common-service/ (the compose file that starts the sidecar)
+        // only a service's, which a web-hosted interface is not.
         val files = (
           filesUnder(templates / "common") ++
+            (if (language == "web") Nil else filesUnder(templates / "common-service")) ++
             filesUnder(templates / language) ++
             filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f }
         ).sortBy(_._1)
@@ -663,9 +739,8 @@ lazy val multiAgentPlanner = project
  * Format check first because it is nearly free and should fail before anything slower runs;
  * `docker:publishLocal` last because it only does useful work once compilation and tests have
  * already passed. Root aggregation means this needs no per-module wiring — `docker:publishLocal` at
- * root already builds exactly the two images that have `DockerPlugin` enabled (`operator`,
- * `controlPlane`) and silently skips every other project, the same way `compile` and `test` already
- * do.
+ * root builds the image of every project with `DockerPlugin` enabled and skips every other project,
+ * the same way `compile` and `test` already do.
  */
 addCommandAlias(
   "buildAll",
@@ -689,6 +764,8 @@ lazy val root = project
     cli,
     protocol,
     sidecar,
+    proxyCore,
+    proxy,
     shoppingCart,
     multiAgentPlanner
   )

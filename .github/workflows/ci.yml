@@ -34,6 +34,7 @@ jobs:
       sdk-rust: ${{ steps.filter.outputs.sdk-rust == 'true' || github.event_name == 'workflow_dispatch' }}
       console: ${{ steps.filter.outputs.console == 'true' || github.event_name == 'workflow_dispatch' }}
       template-scala: ${{ steps.filter.outputs.template-scala == 'true' || github.event_name == 'workflow_dispatch' }}
+      web: ${{ steps.filter.outputs.web == 'true' || github.event_name == 'workflow_dispatch' }}
     steps:
       # The map below is only as good as its coverage: a tracked file no filter claims is a file whose
       # change runs nothing, and a pattern that matches no file can never fire. Both would pass
@@ -59,6 +60,8 @@ jobs:
               - 'modules/**'
               - 'protocol/**'
               - 'sidecar/**'
+              - 'proxy/**'
+              - 'proxy-core/**'
               - 'samples/**'
               - 'kustomization/components/postgres/ddl/**'
             scala:
@@ -78,6 +81,8 @@ jobs:
               - 'docker-compose.yml'
               # The wire fixtures the console's client is held to are written by a controlplane-api suite.
               - 'console/package/fixtures/**'
+              # The platform's living features: `GherkinSuite` runs them as tests, each scenario as written.
+              - 'features/**'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow
@@ -98,6 +103,7 @@ jobs:
             # proves its language's template against the SDK and sidecar it has just built.
             templates: &templates
               - 'cli/src/main/templates/common/**'
+              - 'cli/src/main/templates/common-service/**'
               - 'cli/src/main/scala/**/cli/Init.scala'
               - 'cli/src/main/scala/**/cli/Scaffold.scala'
               - 'cli/src/main/scala/**/cli/Main.scala'
@@ -120,6 +126,16 @@ jobs:
               - 'cli/src/test/scala/**/cli/TypeScriptTemplateSuite.scala'
             # The host is in `sidecar/`, which `scala-build` covers, so a change to it runs this job
             # as well as the Scala one: the module mode is proved against the crate that targets it.
+            # The web template and the shopping cart's interface (feature 021): Node projects whose
+            # own checks run, and the template's suite, which renders it through the CLI and runs it
+            # behind `ankka local web`.
+            web:
+              - *workflow
+              - *scala-build
+              - *templates
+              - 'cli/src/main/templates/web/**'
+              - 'samples/shopping-cart-web/**'
+              - 'cli/src/test/scala/**/cli/WebTemplateSuite.scala'
             sdk-rust:
               - *workflow
               - *scala-build
@@ -161,6 +177,8 @@ jobs:
               - '.claude/**'                      # spec-kit's commands for developing ankka
               - '.specify/**'
               - 'specs/**'                        # feature records; nothing builds from them
+              - 'GLOSSARY.md'                     # the words the living features use; GherkinSuite runs the features
+              - '.github/features-check.sh'       # speckit-bdd's checker, run by hand until every spec passes it
 
   build:
     needs: changes
@@ -363,6 +381,37 @@ jobs:
       # against this SDK (built above) and the sidecar image. See the Python job.
       - if: matrix.node == 24
         run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=typescript 'cli/testOnly *TypeScriptTemplateSuite'
+
+  # A user interface deployed as a web-hosted service (feature 021): the shopping cart's interface
+  # passes its own checks, and `ankka init --language web`'s project is rendered, made to pass its
+  # own, and run behind `ankka local web` beside a stand-in backend.
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: samples/shopping-cart-web/package-lock.json
+      - run: npm ci
+        working-directory: samples/shopping-cart-web
+      - run: npm run typecheck
+        working-directory: samples/shopping-cart-web
+      - run: npm test
+        working-directory: samples/shopping-cart-web
+      # Named, so a missing node or npm fails the suite rather than skipping it.
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'
 
   # The Rust crate for the WebAssembly hosting mode: its own tests (the unit testkit, the encoding
   # fixtures both ways), the example built to a module and run through the runtime image of this

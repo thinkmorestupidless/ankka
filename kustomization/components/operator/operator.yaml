@@ -192,6 +192,15 @@ spec:
             # deploy-local.sh, never pulled. A registry deployment sets it with the others.
             - name: ANKKA_SIDECAR_IMAGE
               value: ankka-sidecar:latest
+            # The platform's proxy, run beside a `hosting: web` service's process (feature 021). The
+            # same local tag and the same rule as the sidecar's.
+            - name: ANKKA_PROXY_IMAGE
+              value: ankka-proxy:latest
+            # The port the gateway's HTTPS listener is reached on, so a web-hosted service's proxy
+            # can tell the process the address a browser used. Replaced by the overlay from
+            # ankka-platform.httpsPort, as the control plane's is.
+            - name: ANKKA_HTTPS_PORT
+              value: "443"
           resources:
             requests:
               cpu: "100m"

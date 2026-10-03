@@ -34,8 +34,10 @@ import scala.jdk.OptionConverters.*
  * it has one, is the definition's last value, as a `String` or a `Seq[Seq[String]]`.
  *
  * @param features
- *   the directory of `.feature` files, relative to the working directory: a forked sbt test runs in
- *   its project's directory, so `"features"` is the project's own.
+ *   the directory of `.feature` files, or one `.feature` file, relative to the working directory: a
+ *   forked sbt test runs in its project's directory, so `"features"` is the project's own. One file
+ *   is for features kept by what they describe rather than by the module that tests them, where a
+ *   directory holds files no single suite can run.
  */
 abstract class GherkinSuite(features: String) extends munit.FunSuite:
 
@@ -194,6 +196,17 @@ object GherkinSuite:
       def run(body: (A, B, C, D) => R, values: Seq[Any]): Unit =
         body(a(values(0)), b(values(1)), c(values(2)), d(values(3))): Unit
 
+    given five[A, B, C, D, E, R](using
+        a: StepValue[A],
+        b: StepValue[B],
+        c: StepValue[C],
+        d: StepValue[D],
+        e: StepValue[E]
+    ): StepBody[(A, B, C, D, E) => R] with
+      def arity = 5
+      def run(body: (A, B, C, D, E) => R, values: Seq[Any]): Unit =
+        body(a(values(0)), b(values(1)), c(values(2)), d(values(3)), e(values(4))): Unit
+
   /** A step definition's parameter type, from what Cucumber Expressions matched. */
   trait StepValue[A]:
     def apply(value: Any): A
@@ -243,8 +256,14 @@ object GherkinSuite:
   private def slug(text: String): String =
     text.toLowerCase.replaceAll("[^a-z0-9]+", "-").stripPrefix("-").stripSuffix("-")
 
+  private def isFeature(path: Path): Boolean =
+    Files.isRegularFile(path) && path.toString.endsWith(".feature")
+
   private def parse(directory: Path): Parsed =
-    if !Files.isDirectory(directory) then return Parsed(Vector.empty, Vector.empty)
+    // A directory, walked, or one feature file: walking a file yields the file. Anything else holds
+    // no scenarios, which the suite reports as a failure rather than a pass.
+    if !Files.isDirectory(directory) && !isFeature(directory) then
+      return Parsed(Vector.empty, Vector.empty)
     val files =
       val stream = Files.walk(directory)
       try

@@ -29,6 +29,11 @@ The domain an installation serves under. The control plane answers at `api.<base
 provider at `auth.<base domain>`, and an exposed service at `<service>-<project>.<base domain>`. A local
 platform uses `127.0.0.1.sslip.io`.
 
+### Calling address
+
+The address, inside an instance of a web-hosted service, at which the process calls another service by
+name as the web-hosted service: `ANKKA_SERVICES_URL`. Nothing outside the instance can use it.
+
 ### Cluster
 
 The set of a service's instances that act as one: entity ids are sharded across them, each entity has one
@@ -208,6 +213,12 @@ reads it. Changing a manifest leaves existing data unreadable.
 A person or machine identity that belongs to an organization, as an owner or a member. The `member` role may
 create projects and deploy and operate services in them.
 
+### Mount
+
+A path of a web-hosted service together with the service of the same project that answers requests under
+it. The proxy passes such a request to the mounted service, which is told it came from the internet. A
+mount does not expose the mounted service.
+
 ### Observed state
 
 What the cluster reports about a service: its lifecycle, ready and desired instances, database and route. The
@@ -245,8 +256,9 @@ identity; its name and email are for display.
 
 ### Process
 
-In a process-hosted service, the container running your code in another language. It serves the sidecar
-protocol and never touches the database, the cluster or a model.
+The container running your own program beside the platform's: in a process-hosted service, your code in
+another language, serving the sidecar protocol and never touching the database, the cluster or a model; in
+a web-hosted service, any program that serves HTTP, beside the proxy.
 
 ### Process hosting
 
@@ -262,6 +274,13 @@ each project has its own database cluster.
 
 The version of the sidecar protocol a process-hosted service's SDK speaks, `MAJOR.MINOR`, such as `1.0`. The
 platform accepts the same major and a minor no later than its own.
+
+### Proxy
+
+In a web-hosted service's instance, the platform's program beside the process. It accepts every request
+from outside the instance, refuses one from a service the descriptor does not admit, tells the process who
+sent it and where it was sent, passes requests under a mount on, and sends the process's calls to other
+services. See [Deploy a user interface](../deploy/web-hosting.md).
 
 ### Query
 
@@ -375,6 +394,12 @@ usually time spent waiting on a database, a model, or work handed to another thr
 
 A component that maintains a queryable table from a source's changes, answering questions no single entity can,
 such as "every cart containing this product".
+
+### Web hosting
+
+`"hosting": "web"`: a service whose image is any program that serves HTTP, run beside the platform's
+proxy. It has no database, no components and no cluster. See [Deploy a user
+interface](../deploy/web-hosting.md).
 
 ### Wire name
 

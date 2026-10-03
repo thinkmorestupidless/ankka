@@ -28,6 +28,7 @@ cart-7d9f8b6c4-9wz4t: <a line the second instance printed>
 | `--previous` | Read the container that ran before the last restart instead of the current one. |
 | `--tail <n>` | Only the last `n` lines of each instance. |
 | `--since <seconds>` | Only lines from the last `n` seconds. |
+| `--platform` | Read the platform's container instead of yours, for a service with process or web hosting. |
 | `-o json` | The response as JSON: one entry per instance with its output, or the reason it could not be read. |
 
 `--project` (`-p`) selects the project, as for every service command. There is no option to follow the
@@ -46,18 +47,20 @@ An instance that has not restarted has no previous container, and says so rather
 `cart-7d9f8b6c4-2xkqp has no previous container — it has not restarted`. One instance that cannot be read
 does not stop the others from being printed; its line carries the reason instead.
 
-## A service in another language
+## A service with two containers
 
-`ankka services logs` does not yet read a service with process hosting. Its pods have two containers —
-the sidecar, named after the service, and your process, named `<service>-app` — and the logs command
-does not choose between them, which Kubernetes refuses for a pod with more than one container. Each
-instance's line carries that refusal instead of output. Until the command can choose, read the
-containers with `kubectl`, in the project's namespace:
+A service with process hosting runs your process beside the platform's sidecar, and a web-hosted
+service runs it beside the platform's proxy. Each pod holds two containers: the platform's, named after
+the service, and yours, named `<service>-app`. `ankka services logs` reads yours. Add `--platform` to read
+the platform's instead:
 
 ```bash
-kubectl -n ankka-checkout logs deploy/cart -c cart-app    # your process
-kubectl -n ankka-checkout logs deploy/cart -c cart        # the sidecar
+ankka services logs cart               # your process
+ankka services logs cart --platform    # the sidecar, or the proxy
 ```
+
+For a service whose pod has one container, `--platform` is refused:
+`--platform applies to a service with process or web hosting`.
 
 ## What it is not
 

@@ -1,0 +1,8 @@
+{
+  "name": "{{name}}",
+  "service": {
+    "image": "{{name}}:latest",
+    "hosting": "web",
+    "mounts": [{ "path": "/api", "service": "backend" }]
+  }
+}

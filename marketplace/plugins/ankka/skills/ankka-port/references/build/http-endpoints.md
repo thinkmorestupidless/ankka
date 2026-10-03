@@ -329,7 +329,7 @@ workload, so it cannot be forged by anything the request says about itself:
 
 | Caller | Admitted by |
 |---|---|
-| a request from outside the cluster, through the gateway | `Callers.internet` |
+| a request from outside the cluster, through the gateway, or under a mount of a web-hosted service of this project | `Callers.internet` |
 | the `orders` service in this service's project | `Callers.service("orders")` |
 | the `invoices` service in the `billing` project | `Callers.service("billing", "invoices")` |
 | any service in this service's project | `Callers.anyInProject` |

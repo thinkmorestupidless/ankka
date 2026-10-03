@@ -1,0 +1,12 @@
+<configuration>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{24} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  <logger name="ankka.proxy" level="INFO"/>
+  <logger name="com.thinkmorestupidless.ankka" level="INFO"/>
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+</configuration>

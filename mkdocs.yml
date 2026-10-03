@@ -142,6 +142,7 @@ nav:
       - Your first service in TypeScript: get-started/first-service-typescript.md
       - Your first service in Rust: get-started/first-service-rust.md
       - Deploy to a local platform: get-started/deploy-locally.md
+      - Your first interface: get-started/first-interface.md
       - Work with a coding agent: get-started/coding-agents.md
   - Concepts:
       - How ankka works: concepts/architecture.md
@@ -181,6 +182,7 @@ nav:
       - Build an image: deploy/images.md
       - Deploy a service: deploy/deploy-a-service.md
       - Expose a service: deploy/expose.md
+      - Deploy a user interface: deploy/web-hosting.md
       - Scale and roll out: deploy/scaling-and-rollouts.md
       - Deploy from GitHub Actions: deploy/ci.md
       - Upgrade ankka: deploy/upgrading.md
@@ -202,6 +204,7 @@ nav:
   - Reference:
       - CLI: reference/cli.md
       - Service descriptor: reference/service-descriptor.md
+      - Web hosting: reference/web-hosting.md
       - Service lifecycle states: reference/lifecycle-states.md
       - Control plane HTTP API: reference/control-plane-api.md
       - Runtime configuration: reference/configuration.md

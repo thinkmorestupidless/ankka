@@ -145,6 +145,12 @@ Python service, so the `images:` block never sees it. The operator learns its na
 `ANKKA_SIDECAR_IMAGE` variable on its own Deployment; patch that to the same registry and tag. Unset, a
 Python service fails with `operator has no sidecar image` rather than run a sidecar of the wrong version.
 
+The proxy the operator runs beside every web-hosted service is the same: no manifest names it, and the
+operator reads it from `ANKKA_PROXY_IMAGE` on its own Deployment, which the example overlay patches to the
+registry and tag. Unset, a web-hosted service fails with `operator has no proxy image`. The operator also
+reads `ANKKA_HTTPS_PORT`, the port the gateway is reached on, which the overlays set from the same value as
+the control plane's.
+
 Pin a release tag rather than `latest`. A cluster should run a version that was built, tested and
 published as one.
 

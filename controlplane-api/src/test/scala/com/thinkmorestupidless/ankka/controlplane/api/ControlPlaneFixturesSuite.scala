@@ -112,9 +112,17 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         suspended = true,
         paused = true,
         hosting = "process",
-        protocol = Some("1.0")
+        protocol = Some("1.0"),
+        mounts = Vector(MountStatus("/api/cart", "cart", "ok"), MountStatus("/admin", "admin")),
+        callers = Vector("orders", "billing/invoices", "*"),
+        processPort = Some(3000)
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
+    ),
+    fixture(
+      "MountStatus",
+      MountStatus("/api/cart", "cart", "no service"),
+      MountStatus("/api/cart", "cart")
     ),
     // History is only ever answered as a list, which is the one codec Wire has for it.
     fixture(

@@ -1,0 +1,8 @@
+{
+  "name": "cart-web",
+  "service": {
+    "image": "sample-shopping-cart-web:latest",
+    "hosting": "web",
+    "mounts": [{ "path": "/api/cart", "service": "cart" }]
+  }
+}

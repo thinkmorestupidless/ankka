@@ -55,7 +55,7 @@ final class TlsTransport(tls: RotatingTls, bind: InetAddress = ProxyEngine.Every
 
   def senderOf(exchange: HttpExchange): Either[String, Sender] = exchange match
     case https: HttpsExchange =>
-      peerCertificate(https).flatMap(Caller.fromCertificate).flatMap {
+      peerCertificate(https).flatMap(Caller.fromCertificate(_, tls.identity)).flatMap {
         case Caller.Gateway                => Right(Sender.Internet(None))
         case Caller.Service(project, name) => Right(Sender.Service(project, name))
         // `fromCertificate` never answers Local: a certificate always names someone or is refused.

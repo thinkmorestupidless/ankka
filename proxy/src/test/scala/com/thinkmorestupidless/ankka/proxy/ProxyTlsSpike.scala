@@ -94,7 +94,7 @@ class ProxyTlsSpike extends munit.FunSuite:
   private def callerOf(exchange: HttpExchange): String =
     val session = exchange.asInstanceOf[HttpsExchange].getSSLSession
     val leaf    = session.getPeerCertificates.head.asInstanceOf[java.security.cert.X509Certificate]
-    Caller.fromCertificate(leaf).fold(identity, _.toString)
+    Caller.fromCertificate(leaf, serverTls.identity).fold(identity, _.toString)
 
   private def clientContext(issuer: TestPki, uri: String): SSLContext =
     RotatingTls(

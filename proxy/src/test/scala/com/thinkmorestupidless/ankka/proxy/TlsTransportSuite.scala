@@ -143,11 +143,18 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
     assertEquals(process.requests.size, before)
   }
 
-  test("a mount identity is refused until the proxy learns to read one") {
-    // Today's reading of a certificate: the shape a runtime from before this feature refuses.
-    val response = get(presenting(authority, Seq("ankka://shop/web/mount")), "/under-a-mount")
+  test("a mount certificate of the proxy's own project is the internet") {
+    val response = get(presenting(authority, Seq("ankka://shop/admin/mount")), "/under-a-mount")
+    assertEquals(response.statusCode, 200, response.body)
+    assertEquals(lastCaller, Some("internet"))
+  }
+
+  test("a mount certificate of another project is refused by the proxy") {
+    val before   = process.requests.size
+    val response = get(presenting(authority, Seq("ankka://billing/portal/mount")), "/under-a-mount")
     assertEquals(response.statusCode, 403)
-    assertEquals(response.body, """{"error":"unrecognised caller certificate"}""")
+    assertEquals(response.body, """{"error":"a request under a mount of another project"}""")
+    assertEquals(process.requests.size, before)
   }
 
   test("a certificate whose identity differs from the settings makes run return 1 naming both") {

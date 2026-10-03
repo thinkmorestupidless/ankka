@@ -43,6 +43,7 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
     port = 0,
     processPort = process.port,
     probePort = 0,
+    callingPort = 0,
     callers = Vector(Admitted.Service("shop", "orders")),
     publicAuthority = Some("web-shop.example.test"),
     drainTimeout = 1.second
@@ -197,4 +198,85 @@ class TlsTransportSuite extends munit.FunSuite with LogCapturing:
     try assertEquals(Main.run(Array.empty, env.get, reported += _), 1)
     finally restore(property, previous)
     assert(reported.result().exists(_.contains("absent")), reported.result())
+  }
+
+  /**
+   * A service the process calls: the JDK's HTTPS server under a certificate the authority issued
+   * for `uri`, answering with the identity of whoever called and counting what it was sent.
+   */
+  private final class Callee(uri: String):
+    val received    = new java.util.concurrent.atomic.AtomicInteger()
+    private val dir = Files.createTempDirectory("proxy-callee")
+    authority.issue(uris = Seq(uri), dnsNames = Seq("localhost")).writeTo(dir)
+    private val server =
+      com.sun.net.httpserver.HttpsServer.create(java.net.InetSocketAddress(loopback, 0), 0)
+    server.setHttpsConfigurator(RotatingServerTls.configurator(RotatingTls(dir, 1.minute)))
+    server.createContext(
+      "/",
+      exchange =>
+        received.incrementAndGet()
+        val caller = exchange match
+          case https: com.sun.net.httpserver.HttpsExchange =>
+            RotatingTls
+              .ankkaUris(
+                https.getSSLSession.getPeerCertificates.head
+                  .asInstanceOf[java.security.cert.X509Certificate]
+              )
+              .mkString(",")
+          case _ => ""
+        val bytes = caller.getBytes("UTF-8")
+        exchange.sendResponseHeaders(200, bytes.length.toLong)
+        exchange.getResponseBody.write(bytes)
+        exchange.close()
+    )
+    server.start()
+    val located =
+      com.thinkmorestupidless.ankka.proxy.core
+        .Located(URI.create(s"https://localhost:${server.getAddress.getPort}"))
+    def stop(): Unit = server.stop(0)
+
+  private def calling(
+      locate: (String, String) => Option[com.thinkmorestupidless.ankka.proxy.core.Located]
+  )(body: ProxyEngine => Unit): Unit =
+    val engine = ProxyEngine(
+      settings,
+      TlsTransport(serverTls, loopback),
+      probeAddress = loopback,
+      locator = (p, s) => locate(p, s)
+    )
+    engine.start()
+    try body(engine)
+    finally engine.stop()
+
+  private def plainGet(url: String): HttpResponse[String] =
+    HttpClient
+      .newHttpClient()
+      .send(HttpRequest.newBuilder(URI.create(url)).build(), BodyHandlers.ofString())
+
+  test("a call is sent as the web-hosted service, to a service holding the identity asked for") {
+    val cart = Callee("ankka://shop/cart")
+    try
+      calling((p, s) => Option.when((p, s) == ("shop", "cart"))(cart.located)) { engine =>
+        val response = plainGet(s"${engine.callingUrl}/cart/whoami")
+        assertEquals(response.statusCode, 200, response.body)
+        assertEquals(response.body, "ankka://shop/web", "the callee saw the web-hosted service")
+        assertEquals(cart.received.get, 1)
+      }
+    finally cart.stop()
+  }
+
+  test("a callee holding another service's certificate is answered 502 and receives nothing") {
+    val impostor = Callee("ankka://shop/ledger")
+    try
+      calling((p, s) => Option.when((p, s) == ("shop", "cart"))(impostor.located)) { engine =>
+        val response = plainGet(s"${engine.callingUrl}/cart/whoami")
+        assertEquals(response.statusCode, 502, response.body)
+        assertEquals(response.headers.firstValue(Answers.MarkerName).toScala, Some("proxy"))
+        assertEquals(
+          response.body,
+          """{"error":"'cart' is not the service that answered: its certificate is not shop/cart's"}"""
+        )
+        assertEquals(impostor.received.get, 0)
+      }
+    finally impostor.stop()
   }

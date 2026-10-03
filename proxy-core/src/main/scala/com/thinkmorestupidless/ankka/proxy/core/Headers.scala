@@ -85,6 +85,17 @@ object Headers:
     s"${settings.service}.${settings.namespacePrefix}-${settings.project}.svc.cluster.local:${settings.port}"
 
   /**
+   * The headers a call at the calling address is sent on with: the process's own, less every header
+   * starting `X-Ankka-` (who called is the certificate's to say), the hop-by-hop headers, and
+   * `Host`, which is the called service's.
+   */
+  def outbound(received: Vector[(String, String)]): Vector[(String, String)] =
+    received.filterNot { (name, _) =>
+      val n = name.toLowerCase
+      n.startsWith(PlatformPrefix) || HopByHop(n) || n == "host"
+    }
+
+  /**
    * A response header the proxy does not pass back: the hop-by-hop ones, and the length it sets.
    */
   def droppedFromResponse(name: String): Boolean =

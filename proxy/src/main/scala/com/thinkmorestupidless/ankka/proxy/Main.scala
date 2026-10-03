@@ -46,7 +46,8 @@ object Main:
               report(problem)
               1
             case None =>
-              val engine = ProxyEngine(settings, TlsTransport(tls), events = logging)
+              val engine =
+                ProxyEngine(settings, TlsTransport(tls), events = logging, locator = ClusterLocator)
               engine.start()
               val stopped = new CountDownLatch(1)
               Runtime.getRuntime.addShutdownHook(new Thread(() =>

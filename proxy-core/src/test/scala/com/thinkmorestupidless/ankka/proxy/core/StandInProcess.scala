@@ -25,6 +25,9 @@ final class StandInProcess(interval: FiniteDuration = 1.second):
   /** When `/stream`'s last part was written, as `System.nanoTime`; 0 until it was. */
   @volatile var lastPartWrittenAt: Long = 0L
 
+  /** Where `/call` calls services: what the process is told as `ANKKA_SERVICES_URL`. */
+  @volatile var servicesUrl: String = ""
+
   /** When each of `/stream`'s parts was written, as `System.nanoTime`, in order. */
   @volatile var partsWrittenAt: Vector[Long] = Vector.empty
 
@@ -66,6 +69,23 @@ final class StandInProcess(interval: FiniteDuration = 1.second):
           out.close()
         case "/stall" =>
           stopped.await()
+        case "/call" =>
+          // What the process reads from a service: `?path=` at the calling address, its status and
+          // body returned as `<status> <body>`.
+          val path = Option(exchange.getRequestURI.getRawQuery)
+            .flatMap(_.split("&").collectFirst { case q if q.startsWith("path=") => q.drop(5) })
+            .map(java.net.URLDecoder.decode(_, "UTF-8"))
+            .getOrElse("/")
+          val called = java.net.http.HttpClient
+            .newHttpClient()
+            .send(
+              java.net.http.HttpRequest.newBuilder(java.net.URI.create(servicesUrl + path)).build(),
+              java.net.http.HttpResponse.BodyHandlers.ofString()
+            )
+          val text = s"${called.statusCode} ${called.body}".getBytes("UTF-8")
+          exchange.sendResponseHeaders(200, text.length.toLong)
+          exchange.getResponseBody.write(text)
+          exchange.getResponseBody.close()
         case "/close" =>
           exchange.close()
         case "/body" =>

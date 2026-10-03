@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.proxy.core
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
 
+import java.net.http.HttpClient
 import java.net.{InetAddress, InetSocketAddress}
 
 /**
@@ -16,6 +17,18 @@ trait Transport:
 
   /** Who sent an exchange, or why nobody the proxy knows did. */
   def senderOf(exchange: HttpExchange): Either[String, Sender]
+
+  /**
+   * The client a call to `target` is sent with, presenting the web-hosted service's identity.
+   * `None` is the engine's own plain client, which is what a developer's machine has.
+   */
+  def client(target: CallingAddress.Target): Option[HttpClient] = None
+
+  /**
+   * The proxy's own answer for a failure sending to `target` that only this transport can
+   * recognise, such as a handshake refused because the service answering is not the one asked for.
+   */
+  def failure(target: CallingAddress.Target, error: java.io.IOException): Option[Answer] = None
 
 object Transport:
 

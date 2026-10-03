@@ -124,6 +124,9 @@ kind load docker-image ankka-controlplane:latest --name "$CLUSTER_NAME"
 kind load docker-image sample-shopping-cart:latest --name "$CLUSTER_NAME"
 # The sidecar for services in another language (feature 009), the operator's to inject.
 kind load docker-image ankka-sidecar:latest --name "$CLUSTER_NAME"
+# The proxy the operator runs beside every web-hosted service's process (feature 021), the
+# operator's to inject as the sidecar is.
+kind load docker-image ankka-proxy:latest --name "$CLUSTER_NAME"
 # The installation's console (feature 017): a Node image, built by Docker rather than sbt.
 kind load docker-image ankka-console:latest --name "$CLUSTER_NAME"
 

@@ -34,17 +34,31 @@ enum Caller:
 object Caller:
 
   /**
-   * The caller a client certificate names: its `ankka://gateway` or `ankka://<project>/<service>`
-   * URI. A certificate the authority issued but that carries neither is refused rather than guessed
-   * at, because a caller the platform cannot name is not one an ACL can reason about.
+   * The caller a client certificate names, for the service whose own identity is `self`, in this
+   * order: its `ankka://gateway` URI is the internet; otherwise its first
+   * `ankka://<project>/<service>` URI is that service; otherwise an
+   * `ankka://<project>/<service>/mount` URI is the internet too, when its project is `self`'s.
+   *
+   * The last is a request under a web-hosted service's mount (feature 021): the browser's, passed
+   * on by that service's proxy, and so the internet's — within a project. A mount of another
+   * project is refused, as is any mount with no `self` to compare it with, and a certificate the
+   * authority issued that names none of these is refused rather than guessed at, because a caller
+   * the platform cannot name is not one an ACL can reason about.
    */
-  def fromCertificate(certificate: X509Certificate): Either[String, Caller] =
+  def fromCertificate(
+      certificate: X509Certificate,
+      self: Option[RotatingTls.Identity]
+  ): Either[String, Caller] =
     val uris = RotatingTls.ankkaUris(certificate)
     if uris.contains(RotatingTls.GatewayUri) then Right(Gateway)
     else
       uris.flatMap(RotatingTls.parseServiceUri).headOption match
         case Some(identity) => Right(Service(identity.project, identity.service))
-        case None           => Left("unrecognised caller certificate")
+        case None =>
+          uris.flatMap(RotatingTls.parseMountUri).headOption match
+            case Some(mount) if self.exists(_.project == mount.project) => Right(Gateway)
+            case Some(_) if self.nonEmpty => Left("a request under a mount of another project")
+            case _                        => Left("unrecognised caller certificate")
 
   /** `gateway` | `service:<project>/<name>` | `local` — the local impersonation header's form. */
   private[ankka] def encode(caller: Caller): String = caller match

@@ -294,6 +294,25 @@ object RotatingTls:
   def identityOf(certificate: X509Certificate): Option[Identity] =
     ankkaUris(certificate).flatMap(parseServiceUri).headOption
 
+  /** The last segment of a mount's identity: `ankka://<project>/<service>/mount` (feature 021). */
+  val MountSegment: String = "mount"
+
+  /**
+   * `ankka://<project>/<service>/mount` → the web-hosted service whose proxy passes requests under
+   * its mounts on with this certificate; anything else → none. Exactly that shape: no other extra
+   * segment, and nothing after it.
+   */
+  def parseMountUri(text: String): Option[Identity] =
+    try
+      val uri = URI(text)
+      Option(uri.getPath).getOrElse("").stripPrefix("/").split('/') match
+        case Array(service, MountSegment)
+            if uri.getScheme == "ankka" && Option(uri.getHost).exists(_.nonEmpty) &&
+              service.nonEmpty && uri.getQuery == null && uri.getFragment == null =>
+          Some(Identity(uri.getHost, service))
+        case _ => None
+    catch case _: Exception => None
+
   def parseServiceUri(text: String): Option[Identity] =
     try
       val uri  = URI(text)

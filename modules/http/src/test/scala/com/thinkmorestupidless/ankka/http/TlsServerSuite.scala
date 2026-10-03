@@ -45,8 +45,15 @@ class TlsServerSuite extends munit.FunSuite:
     val acl: Acl = Acl.allowCallers(Callers.internet, Callers.service("orders"))
     get("/whoami")(() => Caller.encode(caller))
 
+  /**
+   * Admits one named service and nothing else: not the internet, so not a request under a mount.
+   */
+  private final class OnlyWeb extends HttpEndpoint("/only-web"):
+    val acl: Acl = Acl.allowCallers(Callers.service("web"))
+    get("/whoami")(() => Caller.encode(caller))
+
   private val server = HttpServer.at("127.0.0.1", 0)()
-  server.serve(Vector(new Carts), "127.0.0.1", 0, 5.seconds)
+  server.serve(Vector(new Carts, new OnlyWeb), "127.0.0.1", 0, 5.seconds)
   private val port = server.boundPort.get
 
   override def afterAll(): Unit =
@@ -112,6 +119,27 @@ class TlsServerSuite extends munit.FunSuite:
     val response = fetch(Some(authority.issue(dnsNames = Seq("orders.svc")))).toTry.get
     assertEquals(response.statusCode, 403)
     assert(response.body.contains("unrecognised caller certificate"), response.body)
+  }
+
+  test("a request under a mount of this service's project is the internet's, and is served") {
+    val response = fetch(Some(authority.issue(uris = Seq("ankka://checkout/web/mount")))).toTry.get
+    assertEquals((response.statusCode, response.body), (200, "gateway"))
+  }
+
+  test("a request under a mount of another project is refused, though the internet is admitted") {
+    val response = fetch(Some(authority.issue(uris = Seq("ankka://shop/web/mount")))).toTry.get
+    assertEquals(response.statusCode, 403)
+    assert(response.body.contains("a request under a mount of another project"), response.body)
+  }
+
+  test("a request under a mount is not the web-hosted service: a rule naming it refuses one") {
+    val mounted =
+      fetch(Some(authority.issue(uris = Seq("ankka://checkout/web/mount"))), "/only-web/whoami")
+    assertEquals(mounted.map(_.statusCode), Right(403))
+    // The control: the service itself, calling with its own certificate, is admitted.
+    val itself =
+      fetch(Some(authority.issue(uris = Seq("ankka://checkout/web"))), "/only-web/whoami")
+    assertEquals(itself.map(r => (r.statusCode, r.body)), Right((200, "service:checkout/web")))
   }
 
   test("a renewed server certificate is presented to new connections without a restart") {

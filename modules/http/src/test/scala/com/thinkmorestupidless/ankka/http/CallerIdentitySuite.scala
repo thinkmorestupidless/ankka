@@ -23,46 +23,78 @@ class CallerIdentitySuite extends munit.FunSuite:
 
   private val unrecognised = Left("unrecognised caller certificate")
 
+  /** The callee's own identity: a service of the project "shop". */
+  private val shop = Some(RotatingTls.Identity("shop", "cart"))
+
   test("a service's URI names that service") {
     assertEquals(
-      Caller.fromCertificate(certificate("ankka://shop/web")),
+      Caller.fromCertificate(certificate("ankka://shop/web"), shop),
       Right(Caller.Service("shop", "web"))
     )
   }
 
   test("the gateway's URI is the internet") {
-    assertEquals(Caller.fromCertificate(certificate("ankka://gateway")), Right(Caller.Gateway))
+    assertEquals(
+      Caller.fromCertificate(certificate("ankka://gateway"), shop),
+      Right(Caller.Gateway)
+    )
   }
 
-  test("a mount's URI is refused today") {
-    assertEquals(Caller.fromCertificate(certificate("ankka://shop/web/mount")), unrecognised)
+  test("a mount's URI of the callee's own project is the internet") {
+    assertEquals(
+      Caller.fromCertificate(certificate("ankka://shop/web/mount"), shop),
+      Right(Caller.Gateway)
+    )
+  }
+
+  test("a mount's URI of another project is refused, naming why") {
+    assertEquals(
+      Caller.fromCertificate(certificate("ankka://billing/portal/mount"), shop),
+      Left("a request under a mount of another project")
+    )
+  }
+
+  test("with no identity of its own to compare with, a mount's URI is refused") {
+    assertEquals(Caller.fromCertificate(certificate("ankka://shop/web/mount"), None), unrecognised)
+  }
+
+  test("only the exact mount shape is a mount: another extra segment, or one more, is refused") {
+    for uri <- Vector("ankka://shop/web/other", "ankka://shop/web/mount/x") do
+      assertEquals(Caller.fromCertificate(certificate(uri), shop), unrecognised, uri)
+  }
+
+  test("a certificate with a service's URI and a mount's is the service") {
+    assertEquals(
+      Caller.fromCertificate(certificate("ankka://shop/web/mount", "ankka://shop/web"), shop),
+      Right(Caller.Service("shop", "web"))
+    )
   }
 
   test("a service's URI with a trailing slash, or with no service, is refused") {
-    assertEquals(Caller.fromCertificate(certificate("ankka://shop/web/")), unrecognised)
-    assertEquals(Caller.fromCertificate(certificate("ankka://shop")), unrecognised)
+    assertEquals(Caller.fromCertificate(certificate("ankka://shop/web/"), shop), unrecognised)
+    assertEquals(Caller.fromCertificate(certificate("ankka://shop"), shop), unrecognised)
   }
 
   test("a certificate with no ankka URI is refused") {
-    assertEquals(Caller.fromCertificate(certificate("spiffe://shop/web")), unrecognised)
-    assertEquals(Caller.fromCertificate(certificate()), unrecognised)
+    assertEquals(Caller.fromCertificate(certificate("spiffe://shop/web"), shop), unrecognised)
+    assertEquals(Caller.fromCertificate(certificate(), shop), unrecognised)
   }
 
   test("a query or a fragment is no part of the identity: both read as the service") {
     // Which is why the mount's identity is a path segment and never either of these.
     assertEquals(
-      Caller.fromCertificate(certificate("ankka://shop/web?mount")),
+      Caller.fromCertificate(certificate("ankka://shop/web?mount"), shop),
       Right(Caller.Service("shop", "web"))
     )
     assertEquals(
-      Caller.fromCertificate(certificate("ankka://shop/web#mount")),
+      Caller.fromCertificate(certificate("ankka://shop/web#mount"), shop),
       Right(Caller.Service("shop", "web"))
     )
   }
 
   test("the gateway's URI among several is the internet, wherever it is") {
     assertEquals(
-      Caller.fromCertificate(certificate("ankka://shop/web", "ankka://gateway")),
+      Caller.fromCertificate(certificate("ankka://shop/web", "ankka://gateway"), shop),
       Right(Caller.Gateway)
     )
   }
@@ -70,7 +102,8 @@ class CallerIdentitySuite extends munit.FunSuite:
   test("of two services' URIs, the first that parses is the caller") {
     assertEquals(
       Caller.fromCertificate(
-        certificate("ankka://shop/web/mount", "ankka://shop/orders", "ankka://shop/web")
+        certificate("ankka://shop/web/mount", "ankka://shop/orders", "ankka://shop/web"),
+        shop
       ),
       Right(Caller.Service("shop", "orders"))
     )

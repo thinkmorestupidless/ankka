@@ -546,7 +546,7 @@ private[http] final class CallerSource(val self: RotatingTls.Identity, tls: Bool
         case Some(info) =>
           info.peerCertificates.headOption match
             case Some(certificate: java.security.cert.X509Certificate) =>
-              Caller.fromCertificate(certificate)
+              Caller.fromCertificate(certificate, Some(self))
             case _ => Left("no client certificate")
         case None => Left("no client certificate")
     else

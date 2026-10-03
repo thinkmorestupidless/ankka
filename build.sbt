@@ -301,6 +301,20 @@ lazy val grpcFixtures = project
     )
   )
 
+/**
+ * Verifying a service's users' tokens: an `Acl.Authenticate` built from issuers the service lists
+ * (feature 022). A module of its own so that nimbus reaches a service only when it asks for it; the
+ * control plane and the sidecar depend on it, and the template does not.
+ */
+lazy val authOidc = project
+  .in(file("modules/auth-oidc"))
+  .dependsOn(http, testPki % Test)
+  .settings(commonSettings)
+  .settings(
+    name := "ankka-auth-oidc",
+    libraryDependencies += nimbusJoseJwt
+  )
+
 /** Agents: model providers, session memory, function tools, the tool loop. */
 lazy val agent = project
   .in(file("modules/agent"))
@@ -424,7 +438,10 @@ lazy val controlPlane = project
     sdk,
     runtime,
     http,
-    cli % Test,
+    // test->test as well: the control plane's suites mint tokens with the module's test issuer, so
+    // there is one test issuer as there is one verifier.
+    authOidc % "compile;test->test",
+    cli      % Test,
     // test->test as well: the cluster suites share the image-import helper, and since feature
     // 004 both modules' suites must deploy a real ankka image to see a service go Ready.
     operator % "test->test;test->compile",
@@ -442,7 +459,7 @@ lazy val controlPlane = project
     publish / skip      := true,
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.controlplane.runControlPlane"),
     dockerExposedPorts  := Seq(9000),
-    libraryDependencies ++= Seq(fabric8, nimbusJoseJwt, testcontainersK3s % Test),
+    libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test),
     // SampleDeploymentClusterSuite deploys the *real* shopping cart, so something has to build its
     // image before the suite starts, and `sbt test` has to keep working with no preparatory step.
     //
@@ -535,6 +552,7 @@ lazy val sidecar = project
   .dependsOn(
     runtime,
     http,
+    authOidc,
     agent,
     protocol,
     testkit  % Test,
@@ -833,6 +851,7 @@ lazy val root = project
     http,
     grpc,
     grpcFixtures,
+    authOidc,
     agent,
     testkit,
     controlPlaneApi,

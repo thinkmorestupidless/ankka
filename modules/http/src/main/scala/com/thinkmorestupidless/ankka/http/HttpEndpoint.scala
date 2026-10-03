@@ -48,7 +48,12 @@ final case class Principal(
     email: Option[String] = None,
     emailVerified: Boolean = false,
     roles: Set[String] = Set.empty,
-    claims: Map[String, String] = Map.empty
+    claims: Map[String, String] = Map.empty,
+    /**
+     * The configured name of the issuer that verified the token, when `ankka-auth-oidc` built this
+     * principal; `None` when another `Authenticate` did.
+     */
+    issuer: Option[String] = None
 )
 
 /**

@@ -46,9 +46,12 @@ object Answers:
   def cannotBeFound(project: String, service: String): Answer =
     Answer(503, s"the service $project/$service cannot be found")
 
-  /** 504: no status line within the proxy's bound. A response that has begun is never cut. */
+  /**
+   * 504: no status line within the proxy's bound, said as the duration says itself (`60 seconds`).
+   * A response that has begun is never cut.
+   */
   def noAnswerInTime(who: String, within: FiniteDuration): Answer =
-    Answer(504, s"$who did not answer within ${within.toSeconds} seconds")
+    Answer(504, s"$who did not answer within $within")
 
   /** `text` as the inside of a JSON string. */
   def escape(text: String): String =

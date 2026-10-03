@@ -432,11 +432,21 @@ served in 1.8 s and at 0.5 in 0.9 s. The JVM flags `-XX:+UseSerialGC -XX:TieredS
 140Mi to 88Mi. **The allotment is 250m and 192Mi, with those flags.** Latency and memory under
 load are still the benchmark's to measure.
 
-**Status before the measurement**: **a task.** The numbers are an estimate. A benchmark in `proxy`'s tests measures resident
-memory after 10,000 requests and the median added latency against a real process on loopback
-(SC-007's denominator is a request to the process directly, not an empty loop). If 192Mi is not
-enough the allotment changes; if the JVM's footprint is judged too high for a pod per interface, a
-native image of `proxy` is the next step, and R1's JDK-only engine is what keeps that open.
+**Measured, 2026-10-03, for latency and memory** (`ProxyBenchmark`, `sbt -Dankka.benchmarks=on
+'proxy/testOnly *ProxyBenchmark'`). The real `Main` in a JVM of its own with the image's flags and
+`-XX:MaxRAM=192m`, in front of a stand-in process on loopback, on an M-series laptop; 2,000 requests
+each to warm up, then 10,000 straight to the process and 10,000 through the proxy over mutual TLS as
+the gateway, one connection each, kept alive:
+
+| | median | p99 |
+|---|---|---|
+| direct | 0.093 ms | 1.015 ms |
+| through the proxy | 0.144 ms | 0.707 ms |
+
+**The proxy adds 0.051 ms to the median (SC-007: under 5 ms), and holds 88 MiB resident after the
+run, of 192 MiB.** Nothing was changed. The run is not CPU-throttled: what 250m does to startup is measured above on
+k3s, and what it does to the added latency under load is not measured.
+The benchmark asserts both limits, so a change that breaks either fails it.
 
 ## R20. Persisted descriptors replay
 

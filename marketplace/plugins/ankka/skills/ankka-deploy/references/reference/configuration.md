@@ -200,6 +200,21 @@ The Python and TypeScript integration testkits read `ANKKA_SIDECAR_IMAGE` to cho
 start. Without it, a released SDK starts `ghcr.io/thinkmorestupidless/ankka-sidecar` at its own version, and an
 unreleased one (version `0.0.0`, from a checkout of the repository) starts `ankka-sidecar:latest`.
 
+### Web-hosted services
+
+A web-hosted service's process is given two variables, and a descriptor may not declare either:
+
+- `PORT` is the port the process listens on: the descriptor's `processPort`, `8080` by default.
+- `ANKKA_SERVICES_URL` is where the process calls other services by name, `http://127.0.0.1:7630` in a
+  cluster.
+
+The platform's proxy beside the process is configured by the operator through variables starting
+`ANKKA_PROXY_`; they are the operator's to write. The operator itself reads two more on its own
+Deployment: `ANKKA_PROXY_IMAGE`, the proxy image it runs beside every web-hosted service, without which
+such a service fails with `operator has no proxy image`; and `ANKKA_HTTPS_PORT`, the port the gateway is
+reached on, from which the proxy states the address a request from the internet was sent to. The
+installation's overlays set both. [The web hosting reference](web-hosting.md) is what the process is told.
+
 ## Settings without a variable
 
 These are overridden in the service's `application.conf` or with a system property.

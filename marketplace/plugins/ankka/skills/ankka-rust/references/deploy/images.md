@@ -128,6 +128,19 @@ and `ankka services get` reports the reason. The image can be any base with a `c
 few hundred kilobytes more than the module. The descriptor says `"hosting": "wasm"` and the protocol the
 crate speaks. See [Deploy a service](deploy-a-service.md#services-in-another-language).
 
+## A web-hosted service
+
+A web-hosted service's image is any program that serves HTTP on the port the `PORT` variable names, with
+nothing of the platform's in it. The template `ankka init --language web` writes a multi-stage
+`Dockerfile` for a Node server that runs as an unprivileged user:
+
+```bash
+npm install && docker build -t shop-web:latest .
+```
+
+The platform runs its proxy beside the image in the same pod. See [Deploy a user
+interface](web-hosting.md).
+
 ## Get the image onto the cluster
 
 A cluster runs an image it can find. There are two ways for it to find yours.

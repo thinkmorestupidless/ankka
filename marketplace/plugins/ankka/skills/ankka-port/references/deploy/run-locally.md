@@ -146,6 +146,20 @@ another build. Rebuild the module and `docker compose --profile wasm restart run
 The runtime owns the journal and serves the routes the module declared, exactly as it does for a process.
 See [Services in other languages](../concepts/polyglot.md).
 
+## Run a web-hosted service
+
+`ankka local web` runs a web-hosted service's process on this machine behind the same proxy a cluster
+runs: its mounts answer at their paths, and it calls services by name at the calling address. Services
+are found as the local console finds them, or named with `--service`:
+
+```bash
+ankka local web --service cart=http://127.0.0.1:9000 -- npm run dev
+```
+
+With a command after `--`, the proxy runs it on a free port with `PORT` and `ANKKA_SERVICES_URL` set, and
+ends with its exit code. Without one, it prints both and waits for the process at the descriptor's
+`processPort`. See [Deploy a user interface](web-hosting.md#run-it-on-your-machine-first).
+
 ## Give agents a model key
 
 A service with agents needs a model provider. For the Anthropic provider the key comes from the

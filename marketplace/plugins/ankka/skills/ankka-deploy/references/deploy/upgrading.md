@@ -12,6 +12,15 @@ The platform itself, meaning the operator, control plane, sidecar and CLI, is re
 one tag. Services and the platform are upgraded separately, within the compatibility window described in
 [Which versions a platform runs](#which-versions-a-platform-runs).
 
+## Upgrade the operator before or with the control plane
+
+Upgrade the operator before the control plane, or with it, as a release's manifests do. A control plane
+accepts every hosting it knows and projects it into the service's resource, and an operator that predates
+a hosting refuses to render it rather than guess: such a service reports the operator's problem,
+`unknown hosting "<value>"`, until the operator is upgraded. An operator older still renders an unknown
+hosting as an embedded service, which for a web-hosted service would be a pod with a database and no
+proxy.
+
 ## Change the version in both places
 
 In a service created from the template:

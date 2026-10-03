@@ -5,13 +5,13 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 
 ## State on 2026-10-03
 
-- **Done: T001–T029.** Phase 3 (User Story 1) is done, T024's k3s feature included (19 scenarios,
-  about six minutes, one ignored until T034). Phase 4 (User Story 2) is done up to T029.
-- **In progress: T030**, the isolation feature and a real call to the shopping cart on k3s.
-  `WebHostingClusterFeatures.scala` is now an abstract `WebHostingClusterSteps` with
-  `DeployingWebHostingClusterFeatures` and `IsolationWebHostingClusterFeatures`; the isolation half
-  is written, compiles, and was running for the first time when this note was written.
-- **Next: Phase 5** (mounts, T031–T035), then Phase 6 (`ankka local web`).
+- **Done: T001–T035.** User Stories 1, 2 and 3 are done: the proxy, the operator's rendering,
+  the status, logs, the console, the descriptor feature, and three k3s features
+  (`DeployingWebHostingClusterFeatures`, 19 scenarios in about six minutes;
+  `IsolationWebHostingClusterFeatures`, 4 including a real call to the shopping cart) and three
+  loopback features (`RequestsFeature`, `CallingServicesFeature`, `MountsFeature`).
+- **Next: T036**, `ankka local web` (Phase 6), then Phase 7 (template, sample, CI, documentation).
+- Nothing is uncommitted.
 
 ## What is established
 
@@ -39,6 +39,11 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 - **`GherkinSuite` takes five values** per step now (T021 needed it).
 - **`TlsServing`** (http's test sources) serves real endpoints over the platform's TLS with no
   service behind them; its actor system is `local`, or several on one machine collide on remoting.
+- **`Caller.fromCertificate` takes the callee's own identity** (T031): a mount URI of its project
+  is `Gateway`, of another project refused. `PreFeatureCaller` stays the frozen reading.
+- **`ProxySteps`** runs all three loopback features: callees are real runtime HTTP servers
+  (`ProxySteps.Callee`), a pre-feature callee reads with `PreFeatureCaller` (`OldCallee`), and a
+  second web-hosted service is a second proxy (`others`, started when first reached).
 
 ## Things learned that the documents do not say
 
@@ -67,4 +72,4 @@ sbt -Dankka.cluster.tests=off 'proxyCore/test' 'proxy/test' 'operator/test' 'con
 caffeinate -i sbt 'controlPlane/testOnly *WebHostingClusterFeatures'     # both k3s features
 ```
 
-Then `/speckit-implement` continues from T030.
+Then `/speckit-implement` continues from T036.

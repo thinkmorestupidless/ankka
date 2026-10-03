@@ -36,7 +36,7 @@ class KafkaSuite extends munit.FunSuite with LogCapturing:
     bootstrap = kafka.getBootstrapServers
 
     testKit = AnkkaTestKit.start(
-      Seq(StockLevels.descriptor, LowStockNotifier.descriptor),
+      Seq(StockLevels.descriptor, LowStockNotifier.descriptor, StockFanout.descriptor),
       Seq(ProjectionRuntime.withKafka(bootstrap))
     )
 
@@ -113,6 +113,45 @@ class KafkaSuite extends munit.FunSuite with LogCapturing:
     assert(value.contains("\"sku\":\"k-sku-4\""), value)
     // ce-subject became the record key, preserving per-sku ordering downstream.
     assertEquals(key, "k-sku-4")
+  }
+
+  test("several messages for one message read: the record key is the one named, else the subject") {
+    Await.result(
+      publisher.publish(
+        "fanout-events",
+        eventSerializer.toBytes(StockEvent("k-fan-1", 5, "w1")),
+        Metadata.empty.withSubject("k-fan-1")
+      ),
+      10.seconds
+    )
+    // Read back with a plain consumer: what is on the wire, not what ankka recorded.
+    val records = eventually("three lines are on the topic") {
+      Some(
+        KafkaSuite
+          .readHeaders(bootstrap, "fanout-lines", "assert-fanout")
+          .filter((_, headers) => headers.get("ce-subject").contains("k-fan-1"))
+      ).filter(_.sizeIs >= 3)
+    }
+    // In order on the partition they share; the second is under a key of its own.
+    assertEquals(records.map(_._1).toSet, Set("k-fan-1", "second:k-fan-1"))
+    assertEquals(records.count(_._1 == "k-fan-1"), 2)
+    // The subject is the entity's id on every one, whatever the key.
+    assertEquals(records.map(_._2.get("ce-subject")).distinct, Vector(Some("k-fan-1")))
+    // Each is its own CloudEvent.
+    assertEquals(records.flatMap(_._2.get("ce-id")).distinct.size, 3)
+    assertEquals(records.count(_._2.get("x-n").contains("3")), 1)
+
+    val bodies = KafkaSuite
+      .readAll(bootstrap, "fanout-lines", "assert-fanout-bodies")
+      .filter(_._2.contains("k-fan-1"))
+    assertEquals(
+      bodies.filter(_._1 == "k-fan-1").map(_._2),
+      Vector(1, 3).map(n => s"""{"sku":"k-fan-1","n":$n}""")
+    )
+    assertEquals(
+      bodies.filter(_._1 == "second:k-fan-1").map(_._2),
+      Vector("""{"sku":"k-fan-1","n":2}""")
+    )
   }
 
   test("CloudEvents attributes travel as Kafka headers") {

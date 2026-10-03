@@ -79,6 +79,33 @@ Each is one munit case whose name is the identifier below, so a failure names th
 **View and consumer**
 - `view.row-updated`, `view.query-by-id`, `view.row-marked-on-checkout`, `view.row-removed-with-source` — a checked-out cart is kept and its row marked `checkedOut`; a discarded cart (`DELETE /carts/{id}`) is deleted, and the view's default deletion handler removes its row.
 - `consumer.at-least-once-in-order` — checkouts arrive in order per cart; `conformance/count` matches.
+- `consumer.produce-all-in-order` — `checkout-fanout` answers a checkout with three messages; they
+  are on `conformance-fanout` in the order given (feature 019, protocol 1.3).
+- `consumer.produce-all-keys` — their record keys are the cart's id, `second:<cart>` and the cart's
+  id; `ce-subject` is the cart's id on all three; `x-n` is on the third only.
+- `consumer.produce-all-empty` — an item added answers with no messages and is handled: the
+  checkout after it is published, and nothing else is.
+- `consumer.produce-all-redelivers` — with the second publication refused once, all three are
+  eventually there and the first is there at least twice.
+- `consumer.single-produce-unchanged` — an item removed answers with one `produce`; its record key
+  and its subject are the cart's id.
+- `consumer.graph-deltas` — `cart-graph` publishes a scripted cart's history to
+  `conformance-graph` as graph deltas: six records, each under its element key, at the sequence
+  number of its event, `ce-type` `ankka.graph-delta.v1`; read back, they are the expected nodes and
+  edge. The same expected list holds for every reference.
+- `consumer.graph-delete-and-recreate` — a discarded cart's node is tombstoned at the deletion's
+  sequence number, above every version before it; an item added afterwards publishes the node
+  above the tombstone.
+- `consumer.graph-replay-is-equal` — with one of a checkout's three records refused, the change is
+  handled again and the record published twice is equal each time.
+- `consumer.kv-sequence` — `profile-graph`'s deltas carry the key value entity's revisions, never
+  zero.
+
+**Key value deletion**
+- `kv.delete-is-a-change` — deleting the key value entity reaches `profile-graph`'s deletion
+  handler at the next revision: its tombstone is published at it.
+- `kv.delete-then-write` — a write after a deletion succeeds and is at the revision after the
+  deletion's, and the count survives a restart.
 
 **Timed action**
 - `timer.fires` — `remind` scheduled for 1s; `count` increments within 5s.

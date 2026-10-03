@@ -1,6 +1,6 @@
 # Broker topics
 
-> Read views and consumers from a Kafka topic and publish to one, with CloudEvents attributes as headers, per-entity ordering by subject, and a broker-free in-memory pair for tests.
+> Read views and consumers from a Kafka topic and publish to one, with CloudEvents attributes as headers, ordering by record key, which is the subject unless a message names one, and a broker-free in-memory pair for tests.
 
 Source: https://docs.ankka.cloud/build/topics/
 A view or a consumer can read from a broker topic instead of an entity, and a consumer can publish to one.
@@ -123,9 +123,12 @@ Ankka.service
 Set the variable in the service descriptor's `env`. The platform provides no broker of its own, so its value
 is the address of a Kafka the cluster can reach.
 
-A Python service's sidecar connects to the broker named by `ANKKA_KAFKA_BOOTSTRAP_SERVERS`. Set it in the
-service descriptor's `env`, where the platform routes it to the sidecar. Without it the sidecar refuses to
-start, naming the component that needs a broker.
+A service behind a sidecar reaches the broker through its sidecar, which connects to the one named by
+`ANKKA_KAFKA_BOOTSTRAP_SERVERS`. Set it in the service descriptor's `env`: the platform gives it to the
+sidecar and to the process as well, so a service can register a component that publishes only where
+there is a broker to publish to. Without it the sidecar refuses to start a service that has such a
+component, naming it. A service hosted as a WebAssembly module reads the same variable through its
+configuration.
 
 ## Message format
 
@@ -142,16 +145,39 @@ without ankka, reads an ordinary JSON body and finds the metadata in the headers
 | `content-type` | `application/json` |
 
 A header set through the metadata passed to `effects.produce(message, metadata)` replaces the default of
-the same name, and any other metadata is sent as additional headers.
+the same name, and any other metadata is sent as additional headers. Each message of a consumer that
+[publishes several for one change](consumers.md#publishing-several-messages-for-one-change) is framed the
+same way, with a `ce-id` of its own. A [graph consumer](graph.md)'s records carry
+`ce-type: ankka.graph-delta.v1`.
+
+## The record key and the subject
+
+A message has a **subject**, the entity it is about, and a **record key**, which decides which messages
+are ordered together and which record a compacted topic keeps. They are separate. The subject is always
+the `ce-subject` header. The record key is the key the message names, and when it names none, the
+subject:
+
+| Published with | Record key | `ce-subject` |
+|---|---|---|
+| `effects.produce(message)` | the source entity's id | the source entity's id |
+| `effects.produce(message, metadata)` setting `ce-subject` | that subject | that subject |
+| one of several messages, naming no key | its subject | the source entity's id, unless its metadata sets one |
+| one of several messages, naming a key | the key it names | the source entity's id, unless its metadata sets one |
+
+Naming a key never changes the subject. An ankka service that reads a keyed message back takes its
+subject from the header, so a view's row or a consumer's `subject` is still the entity's id.
 
 ## Ordering
 
-`ce-subject` is also the Kafka record key. Kafka keeps order only within a partition and assigns a key to
-one partition, so every message about one entity is published to one partition and read in the order it
-was written. Messages about different entities have no order relative to each other.
+Kafka keeps order only within a partition and assigns a record key to one partition, so messages under
+one key are published to one partition and read in the order they were written. By default the key is the
+subject, so every message about one entity is in order. Messages under different keys have no order
+relative to each other.
 
-This is why the subject matters when publishing. A consumer publishing about a cart publishes under the
-cart's id by default; one that sets its own `ce-subject` chooses the ordering unit by doing so.
+This is why the key matters when publishing. A consumer publishing about a cart publishes under the cart's
+id by default; one that sets its own `ce-subject`, or names a key for a message, chooses the ordering unit
+by doing so. The several messages of one change are handed to the broker in the order the handler returned
+them, so those that share a key keep that order.
 
 ## Delivery and offsets
 
@@ -182,8 +208,14 @@ val testKit = AnkkaTestKit.start(Seq(StockLevels.descriptor), Seq(ProjectionRunt
 broker.publish("stock-events", """{"productId":"p1","delta":5}""".getBytes("UTF-8"), Metadata.empty.withSubject("p1"))
 ```
 
-`broker.publishedTo(topic)` returns what components published, for assertions. `InMemoryPublisher` is the
-publishing half alone, for a service that only publishes.
+`broker.publishedTo(topic)` returns what components published, for assertions; each entry's
+`message.key` is the record key a broker would have been given. `broker.failNext(topic)` makes the next
+publication to a topic fail, to test what a consumer does when the broker refuses one of its messages.
+`InMemoryPublisher` is the publishing half alone, for a service that only publishes; its entries have
+`recordKey`.
 
 Other brokers plug in through the same two interfaces, `MessagePublisher` and `MessageSubscriber`, in
-`com.thinkmorestupidless.ankka.runtime`; pass implementations to `ProjectionRuntime.withBroker`.
+`com.thinkmorestupidless.ankka.runtime`; pass implementations to `ProjectionRuntime.withBroker`. A
+publisher implements `publish(topic, key, payload, metadata)` to publish a message under a key that is
+not its subject. One that implements only `publish(topic, payload, metadata)` keys every message by its
+subject, and a message that names a key fails rather than be published under the wrong one.

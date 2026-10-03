@@ -537,3 +537,36 @@ impl<E: Endpoint> TestRequest<'_, E> {
         }
     }
 }
+
+/// Answers `ankka::config` from a list of variables, and nothing else.
+struct Configured(Vec<(String, String)>);
+
+impl NativeHost for Configured {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        match import {
+            Import::Config => {
+                let name = proto::ConfigRequest::decode(request)
+                    .unwrap_or_else(|e| panic!("a config request that does not decode: {e}"))
+                    .name;
+                let value = self
+                    .0
+                    .iter()
+                    .find(|(variable, _)| *variable == name)
+                    .map(|(_, value)| value.clone());
+                proto::ConfigReply { value }.encode_to_vec()
+            }
+            other => panic!("with_config answers only config, not {other:?}"),
+        }
+    }
+}
+
+/// Runs `f` with the service's descriptor setting these variables, as [`crate::config()`] reads
+/// them: for testing what a service does with its configuration, such as registering a component
+/// only where a broker is named. Outside it, a test's `config` reads every variable as unset.
+pub fn with_config<T>(variables: &[(&str, &str)], f: impl FnOnce() -> T) -> T {
+    let variables = variables
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect();
+    with_native_host(Configured(variables), f)
+}

@@ -29,11 +29,14 @@ object Discovery:
 
   private val log = LoggerFactory.getLogger(getClass)
 
-  /** The sidecar's own protocol version. Written once here and once in `controlplane-api`. */
   /**
+   * The sidecar's own protocol version: the runtime's, which is also written once in
+   * `controlplane-api`.
+   *
    * 1.1: the caller on every forwarded request and caller-naming ACLs in discovery (feature 014).
+   * 1.3: a consumer may answer with several messages, each under its own record key (feature 019).
    */
-  val ProtocolVersion: String = "1.2"
+  val ProtocolVersion: String = WireProtocol.Version
 
   /**
    * What discovery hands the rest of the sidecar: validated descriptors plus the raw spec. `shapes`

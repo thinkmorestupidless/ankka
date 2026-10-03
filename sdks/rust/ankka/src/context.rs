@@ -64,6 +64,12 @@ impl Metadata {
         self.get("ankka.sequence").and_then(|s| s.parse().ok())
     }
 
+    /// `ankka.protocol`: the protocol version the runtime speaks, which it states on every
+    /// consumer's request from 1.3 on. `None` from a runtime earlier than that.
+    pub fn protocol(&self) -> Option<&str> {
+        self.get("ankka.protocol")
+    }
+
     /// The metadata as the protocol carries it.
     pub fn to_proto(&self) -> proto::Metadata {
         proto::Metadata {

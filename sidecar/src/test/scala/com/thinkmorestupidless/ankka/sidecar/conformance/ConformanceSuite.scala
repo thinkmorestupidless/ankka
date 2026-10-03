@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.sidecar.conformance
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.agent.{ChatMessage, Json, TestModelProvider}
+import com.thinkmorestupidless.ankka.core.graph.{GraphDelta, PropertyValue}
 import com.thinkmorestupidless.ankka.runtime.{
   Database,
   Observability,
@@ -394,6 +395,216 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(post("/carts/k1/checkout").status, 200)
     eventually()(Some(count("k1")).filter(_ >= 1))
     assert(journal("conformance|k1").exists(_._3.contains("checkout")))
+  }
+
+  // ── A consumer's several messages ──────────────────────────────────────────
+
+  /** What `checkout-fanout` published about one cart: (record key, n, the message's metadata). */
+  private def fanned(
+      cart: String
+  ): Vector[(Option[String], Int, com.thinkmorestupidless.ankka.core.Metadata)] =
+    target.broker
+      .publishedTo("conformance-fanout")
+      .toVector
+      .filter(_.message.metadata.subject.contains(cart))
+      .map { d =>
+        val n = Json.parse(d.text).toOption.flatMap(_("n")).flatMap(_.asDouble).map(_.toInt)
+        (d.message.key, n.getOrElse(fail(s"not a fanned message: ${d.text}")), d.message.metadata)
+      }
+
+  private def checkedOut(cart: String): Unit =
+    postJson(s"/carts/$cart/items", cartJson("p1", "Pen", 1))
+    assertEquals(post(s"/carts/$cart/checkout").status, 200)
+
+  test("consumer.produce-all-in-order") {
+    checkedOut("fan1")
+    val records = eventually()(Some(fanned("fan1")).filter(_.sizeIs >= 3))
+    assertEquals(records.map(_._2), Vector(1, 2, 3))
+  }
+
+  test("consumer.produce-all-keys") {
+    checkedOut("fan2")
+    val records = eventually()(Some(fanned("fan2")).filter(_.sizeIs >= 3))
+    // The key named, else the subject; the subject is the cart's id whatever the key.
+    assertEquals(records.map(_._1), Vector(Some("fan2"), Some("second:fan2"), Some("fan2")))
+    assertEquals(records.map(_._3.subject).distinct, Vector(Some("fan2")))
+    assertEquals(records.map(_._3.get("x-n")), Vector(None, None, Some("3")))
+  }
+
+  test("consumer.produce-all-empty") {
+    postJson("/carts/fan3/items", cartJson("p1", "Pen", 1))
+    postJson("/carts/fan3/items", cartJson("p2", "Ink", 1))
+    assertEquals(post("/carts/fan3/checkout").status, 200)
+    // The two items added published nothing and were handled: the checkout after them is here,
+    // and it is all that is here.
+    val records = eventually()(Some(fanned("fan3")).filter(_.sizeIs >= 3))
+    assertEquals(records.map(_._2), Vector(1, 2, 3))
+  }
+
+  test("consumer.produce-all-redelivers") {
+    // The consumer is running and has nothing in flight before a publication is made to fail.
+    checkedOut("fan4")
+    eventually()(Some(fanned("fan4")).filter(_.sizeIs >= 3))
+
+    postJson("/carts/fan5/items", cartJson("p1", "Pen", 1))
+    target.broker.failNext("conformance-fanout", after = 1)
+    assertEquals(post("/carts/fan5/checkout").status, 200)
+    val records = eventually(90.seconds)(Some(fanned("fan5")).filter(_.exists(_._2 == 2)))
+    assert(
+      records.count(_._2 == 1) >= 2,
+      s"the first message was published again: ${records.map(_._2)}"
+    )
+    assertEquals(records.takeRight(3).map(_._2), Vector(1, 2, 3))
+  }
+
+  test("consumer.single-produce-unchanged") {
+    postJson("/carts/fan6/items", cartJson("p1", "Pen", 1))
+    assertEquals(send("DELETE", "/carts/fan6/items/p1").status, 204)
+    val (key, n, metadata) = eventually()(fanned("fan6").headOption)
+    assertEquals(n, 0)
+    assertEquals(key, Some("fan6"))
+    assertEquals(metadata.subject, Some("fan6"))
+  }
+
+  // ── A graph consumer's deltas ──────────────────────────────────────────────
+
+  /**
+   * The deltas published to `topic` about one subject, each read under the key it was published
+   * under by the reader a consumer of the topic would use: what a merge sink would be given.
+   */
+  private def deltas(topic: String, subject: String): Vector[GraphDelta] =
+    target.broker
+      .publishedTo(topic)
+      .toVector
+      .filter(_.message.metadata.subject.contains(subject))
+      .map { d =>
+        assertEquals(d.message.metadata.eventType, Some(GraphDelta.SchemaName), d.text)
+        GraphDelta
+          .read(d.message.key, d.message.payload)
+          .fold(p => fail(s"$p: ${d.text}"), identity)
+      }
+
+  private def cartNode(cart: String, checkedOut: Boolean)(delta: GraphDelta): Unit =
+    assertEquals(delta.key, s"node:cart:$cart")
+    assertEquals(delta.labels, Vector("Cart"))
+    assertEquals(
+      delta.properties,
+      Map[String, PropertyValue]("cartId" -> cart, "checkedOut" -> checkedOut)
+    )
+
+  test("consumer.graph-deltas") {
+    postJson("/carts/g1/items", cartJson("p1", "Pen", 1))
+    postJson("/carts/g1/items", cartJson("p2", "Ink", 1))
+    assertEquals(send("DELETE", "/carts/g1/items/p2").status, 204)
+    assertEquals(post("/carts/g1/checkout").status, 200)
+
+    val published = eventually()(Some(deltas("conformance-graph", "g1")).filter(_.sizeIs >= 6))
+    // The whole history, in the order it was published: one record for each change to the cart,
+    // then the checkout's three, all at the sequence number of the event they came from.
+    assertEquals(
+      published.map(d => d.key -> d.version),
+      Vector(
+        "node:cart:g1"        -> 1L,
+        "node:cart:g1"        -> 2L,
+        "node:cart:g1"        -> 3L,
+        "node:cart:g1"        -> 4L,
+        "node:checkout:g1"    -> 4L,
+        "edge:checked-out:g1" -> 4L
+      )
+    )
+    published.take(3).foreach(cartNode("g1", checkedOut = false))
+    cartNode("g1", checkedOut = true)(published(3))
+    val checkout = published(4)
+    assertEquals(checkout.labels, Vector("Checkout"))
+    assertEquals(checkout.properties, Map[String, PropertyValue]("cartId" -> "g1"))
+    val edge = published(5)
+    assertEquals(
+      (edge.edgeType, edge.from, edge.to, edge.properties),
+      (Some("CHECKED_OUT"), Some("cart:g1"), Some("checkout:g1"), Map.empty[String, PropertyValue])
+    )
+    assert(published.forall(!_.isTombstone))
+  }
+
+  test("consumer.graph-delete-and-recreate") {
+    postJson("/carts/g2/items", cartJson("p1", "Pen", 1))
+    assertEquals(send("DELETE", "/carts/g2").status, 204)
+    val tombstone = eventually()(deltas("conformance-graph", "g2").find(_.isTombstone))
+    assertEquals(tombstone.key, "node:cart:g2")
+    // The item, the discard, then the deletion: above every version before it.
+    assertEquals(tombstone.version, 3L)
+
+    postJson("/carts/g2/items", cartJson("p9", "Cap", 1))
+    val again = eventually() {
+      deltas("conformance-graph", "g2").find(d => !d.isTombstone && d.version > tombstone.version)
+    }
+    assertEquals(again.version, 4L)
+    cartNode("g2", checkedOut = false)(again)
+    val versions = deltas("conformance-graph", "g2").map(_.version)
+    assertEquals(versions, versions.sorted)
+  }
+
+  test("consumer.graph-replay-is-equal") {
+    // The consumer is running and has nothing in flight before a publication is made to fail.
+    postJson("/carts/g3/items", cartJson("p1", "Pen", 1))
+    eventually()(deltas("conformance-graph", "g3").headOption)
+
+    postJson("/carts/g4/items", cartJson("p1", "Pen", 1))
+    eventually()(deltas("conformance-graph", "g4").headOption)
+    // Of the checkout's three records, the second is refused: the first is in the topic, the
+    // change is not handled, and it is handled again.
+    target.broker.failNext("conformance-graph", after = 1)
+    assertEquals(post("/carts/g4/checkout").status, 200)
+    val published = eventually(90.seconds) {
+      Some(deltas("conformance-graph", "g4")).filter(_.exists(_.key == "node:checkout:g4"))
+    }
+    val checkedOut = published.filter(d => d.key == "node:cart:g4" && d.version == 2)
+    assert(checkedOut.sizeIs >= 2, s"the cart's node was published again: ${published.map(_.key)}")
+    assertEquals(checkedOut.distinct.size, 1, "and equal each time, in key, version and value")
+    cartNode("g4", checkedOut = true)(checkedOut.head)
+  }
+
+  test("consumer.kv-sequence") {
+    post("/conformance/profile/kvg1", "Ada")
+    post("/conformance/profile/kvg1", "Bea")
+    // A key value source delivers the latest state and may skip one before it.
+    val last = eventually() {
+      deltas("conformance-profile-graph", "kvg1").find(_.properties.get("name").contains("Bea"))
+    }
+    assertEquals(last.key, "node:profile:kvg1")
+    assertEquals(last.labels, Vector("Profile"))
+    assertEquals(last.version, 2L, "the state's revision")
+    val versions = deltas("conformance-profile-graph", "kvg1").map(_.version)
+    assert(versions.forall(_ >= 1), s"never zero: $versions")
+    assertEquals(versions, versions.sorted)
+  }
+
+  test("kv.delete-is-a-change") {
+    post("/conformance/profile/kvg2", "Ada")
+    eventually()(deltas("conformance-profile-graph", "kvg2").headOption)
+    assertEquals(delete("/conformance/profile/kvg2").body, "done")
+    val tombstone = eventually()(deltas("conformance-profile-graph", "kvg2").find(_.isTombstone))
+    assertEquals(tombstone.key, "node:profile:kvg2")
+    assertEquals(tombstone.version, 2L, "the revision after the state's")
+  }
+
+  test("kv.delete-then-write") {
+    post("/conformance/profile/kvg3", "Ada")
+    assertEquals(delete("/conformance/profile/kvg3").body, "done")
+    assertEquals(get("/conformance/profile/kvg3").body, "none")
+    post("/conformance/profile/kvg3", "Cy")
+    assertEquals(get("/conformance/profile/kvg3").body, "Cy")
+    val again = eventually() {
+      deltas("conformance-profile-graph", "kvg3").find(_.properties.get("name").contains("Cy"))
+    }
+    assertEquals(again.version, 3L, "the revisions go on from the deletion")
+    // And they survive every instance leaving memory.
+    target.restart()
+    assertEquals(get("/conformance/profile/kvg3").body, "Cy")
+    post("/conformance/profile/kvg3", "Di")
+    val after = eventually() {
+      deltas("conformance-profile-graph", "kvg3").find(_.properties.get("name").contains("Di"))
+    }
+    assertEquals(after.version, 4L)
   }
 
   // ── Timed action ───────────────────────────────────────────────────────────

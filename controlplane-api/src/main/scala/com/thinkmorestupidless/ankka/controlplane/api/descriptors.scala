@@ -411,6 +411,12 @@ object ServiceSpec:
    */
   val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_")
 
+  /**
+   * A descriptor's variables that both containers of a process-hosted service are given: the
+   * broker's. The sidecar connects to it, and the process may want to know there is one.
+   */
+  val SharedEnvPrefixes: Vector[String] = Vector("ANKKA_KAFKA_")
+
 /**
  * A container environment variable, either literal or drawn from a secret.
  *

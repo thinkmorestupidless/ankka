@@ -13,7 +13,9 @@ import type { AgentEffect } from "../effects/agent.ts"
 import type { KeyValueEntity, KeyValueEntityClass } from "../keyValueEntity.ts"
 import type { Workflow, WorkflowClass } from "../workflow.ts"
 import type { View, ViewClass } from "../view.ts"
-import type { Consumer, ConsumerClass } from "../consumer.ts"
+import { PROTOCOL_KEY, requireSeveralMessages, type Consumer, type ConsumerClass } from "../consumer.ts"
+import { deltaRecords, readDelta, type Delta, type GraphConsumer, type GraphConsumerClass, type GraphEffect } from "../graph.ts"
+import { PROTOCOL_VERSION } from "../spec.ts"
 import type { TimedAction, TimedActionClass } from "../timedAction.ts"
 import type { Agent, AgentClass } from "../agent.ts"
 import type { HandlerRef } from "../handlers.ts"
@@ -263,8 +265,11 @@ export class ConsumerTestKit<M, Out, C extends Consumer<M, Out>> {
   readonly #registered: RegisteredConsumer
   readonly #cls: ConsumerClass<M, Out, C>
   readonly #client: ComponentClient
-  /** Everything `produce` sent, round-tripped through the out codec. */
-  readonly produced: { readonly payload: Out; readonly metadata: Metadata }[] = []
+  /**
+   * Everything the consumer produced, one entry per message, round-tripped through the out codec.
+   * `key` is the record key a message of `produceAll` named; absent, the message is keyed by its subject.
+   */
+  readonly produced: { readonly payload: Out; readonly metadata: Metadata; readonly key?: string }[] = []
 
   private constructor(cls: ConsumerClass<M, Out, C>, client: ComponentClient) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredConsumer
@@ -280,23 +285,89 @@ export class ConsumerTestKit<M, Out, C extends Consumer<M, Out>> {
     const consumer = new this.#cls()
     consumer._bind(metadata, this.#client.withMetadata(metadata))
     const effect = await fn(consumer)
+    const outCodec = (): Codec<Out> => {
+      const codec = this.#registered.outCodec as Codec<Out> | undefined
+      if (!codec) throw new Error(`${this.#registered.id} produced a message but declares no out shape`)
+      return codec
+    }
     if (effect.kind === "produce") {
-      const outCodec = this.#registered.outCodec as Codec<Out> | undefined
-      if (!outCodec) throw new Error(`${this.#registered.id} produced a message but declares no out shape`)
-      this.produced.push({ payload: roundTrip(outCodec, effect.payload), metadata: effect.metadata })
+      this.produced.push({ payload: roundTrip(outCodec(), effect.payload), metadata: effect.metadata })
+    } else if (effect.kind === "produceAll" && effect.messages.length > 0) {
+      // The server's rule: several messages go only to a runtime that said it accepts them.
+      requireSeveralMessages(metadata)
+      for (const m of effect.messages) {
+        this.produced.push({ payload: roundTrip(outCodec(), m.payload), metadata: m.metadata ?? {}, ...(m.key !== undefined ? { key: m.key } : {}) })
+      }
     }
     return effect
   }
 
-  /** A message from source instance `subject`. */
+  /**
+   * A message from source instance `subject`. The metadata says the runtime speaks this SDK's protocol
+   * version; pass `"ankka.protocol"` or `"ankka.sequence"` to say otherwise.
+   */
   onMessage(message: M, subject = "test", metadata: Metadata = {}): Promise<ConsumerEffect<Out>> {
     const wire = roundTrip(this.#registered.messageCodec as Codec<M>, message)
-    return this.#apply((c) => c.onMessage(wire), { "ce-subject": subject, ...metadata })
+    return this.#apply((c) => c.onMessage(wire), { "ce-subject": subject, [PROTOCOL_KEY]: PROTOCOL_VERSION, ...metadata })
   }
 
   onDelete(subject = "test", metadata: Metadata = {}): Promise<ConsumerEffect<Out>> {
-    return this.#apply((c) => c.onDelete(), { "ce-subject": subject, ...metadata })
+    return this.#apply((c) => c.onDelete(), { "ce-subject": subject, [PROTOCOL_KEY]: PROTOCOL_VERSION, ...metadata })
   }
+}
+
+/**
+ * Feeds a graph consumer changes and answers with the elements it published: each read back from the
+ * bytes that would be published, under the key it would be published under, so a test asserts on what
+ * a reader of the topic sees.
+ */
+export class GraphConsumerTestKit<M> {
+  readonly #registered: RegisteredConsumer
+  readonly #cls: GraphConsumerClass<M>
+  readonly #client: ComponentClient
+
+  private constructor(cls: GraphConsumerClass<M>, client: ComponentClient) {
+    this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredConsumer
+    this.#cls = cls
+    this.#client = client
+  }
+
+  static of<M>(cls: GraphConsumerClass<M>, client: ComponentClient = noClient()): GraphConsumerTestKit<M> {
+    return new GraphConsumerTestKit(cls, client)
+  }
+
+  async #apply(fn: (c: GraphConsumer<M>) => Promise<GraphEffect> | GraphEffect, options: GraphChange): Promise<Delta[]> {
+    const metadata: Metadata = {
+      "ce-subject": options.subject ?? "test",
+      "ankka.sequence": String(options.sequence ?? 1),
+      [PROTOCOL_KEY]: PROTOCOL_VERSION,
+      ...options.metadata,
+    }
+    const consumer = new this.#cls()
+    consumer._bind(metadata, this.#client.withMetadata(metadata))
+    const records = deltaRecords(await fn(consumer), metadata)
+    if (records.length > 0) requireSeveralMessages(metadata)
+    return records.map((r) => readDelta(r.value, r.key))
+  }
+
+  /** A change from source instance `subject` (default `"test"`) at `sequence` (default 1). */
+  onMessage(message: M, options: GraphChange = {}): Promise<Delta[]> {
+    const wire = roundTrip(this.#registered.messageCodec as Codec<M>, message)
+    return this.#apply((c) => c.onMessage(wire), options)
+  }
+
+  /** The source instance was deleted, at `sequence`. */
+  onDelete(options: GraphChange = {}): Promise<Delta[]> {
+    return this.#apply((c) => c.onDelete(), options)
+  }
+}
+
+/** The change a graph consumer is handed: whose it is and where in that instance's history. */
+export interface GraphChange {
+  readonly subject?: string
+  /** The change's sequence number; `0` is a source with none, as a topic is. */
+  readonly sequence?: number | bigint
+  readonly metadata?: Metadata
 }
 
 /** Invokes a timed action's handlers as the sweeper would. */

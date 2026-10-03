@@ -23,7 +23,12 @@ class TopicSourceSuite extends munit.FunSuite with LogCapturing:
 
   override def beforeAll(): Unit =
     testKit = AnkkaTestKit.start(
-      Seq(StockLevels.descriptor, LowStockNotifier.descriptor),
+      Seq(
+        StockLevels.descriptor,
+        LowStockNotifier.descriptor,
+        StockFanout.descriptor,
+        TopiclessFanout.descriptor
+      ),
       Seq(ProjectionRuntime.withBroker(broker, broker))
     )
 
@@ -98,6 +103,71 @@ class TopicSourceSuite extends munit.FunSuite with LogCapturing:
       Option.when(LowStockNotifier.seen.asScala.exists(_.startsWith("sku-5:")))(())
     }
     assertEquals(broker.publishedTo("stock-alerts"), Seq.empty)
+  }
+
+  // ── Several messages for one message read ─────────────────────────────────
+
+  /** As a broker delivers it; the result is what the consumer's handling came to. */
+  private def deliver(topic: String, event: StockEvent): scala.util.Try[org.apache.pekko.Done] =
+    scala.util.Try(
+      scala.concurrent.Await.result(
+        broker
+          .publish(topic, eventSerializer.toBytes(event), Metadata.empty.withSubject(event.sku)),
+        10.seconds
+      )
+    )
+
+  private def lines(sku: String) =
+    broker.publishedTo("fanout-lines").filter(_.message.subject.contains(sku))
+
+  test("several messages are published in the order returned") {
+    assert(deliver("fanout-events", StockEvent("fan-1", 5, "w1")).isSuccess)
+    assertEquals(
+      lines("fan-1").map(_.text),
+      Seq(1, 2, 3).map(n => s"""{"sku":"fan-1","n":$n}""")
+    )
+  }
+
+  test("a message that names a key is published under it; one that does not, under its subject") {
+    assert(deliver("fanout-events", StockEvent("fan-2", 5, "w1")).isSuccess)
+    assertEquals(
+      lines("fan-2").map(_.message.key),
+      Seq(Some("fan-2"), Some("second:fan-2"), Some("fan-2"))
+    )
+    // Naming a key does not change what the message is about.
+    assertEquals(lines("fan-2").map(_.message.metadata.subject).distinct, Seq(Some("fan-2")))
+    assertEquals(lines("fan-2").map(_.message.metadata.get("x-n")), Seq(None, None, Some("3")))
+  }
+
+  test("an empty list publishes nothing and the message is handled") {
+    assert(deliver("fanout-events", StockEvent("fan-3", 0, "w1")).isSuccess)
+    assertEquals(lines("fan-3"), Seq.empty)
+    // Handled, not stuck: the next message about the same subject is published.
+    assert(deliver("fanout-events", StockEvent("fan-3", 1, "w1")).isSuccess)
+    assertEquals(lines("fan-3").size, 3)
+  }
+
+  test(
+    "when the broker refuses one of several, the message is not handled, and comes again whole"
+  ) {
+    broker.failNext("fanout-lines", after = 1)
+    val refused = deliver("fanout-events", StockEvent("fan-4", 5, "w1"))
+    // The failure reaches whoever delivered the message, which is what stops a broker committing
+    // its offset.
+    assert(refused.failed.toOption.exists(_.isInstanceOf[InMemoryBroker.Refused]), refused.toString)
+    assertEquals(lines("fan-4").map(_.text.takeRight(2)), Seq("1}", "3}"))
+
+    // Redelivered, as a broker does with a message whose offset was not committed.
+    assert(deliver("fanout-events", StockEvent("fan-4", 5, "w1")).isSuccess)
+    val all = lines("fan-4").map(_.text.takeRight(2))
+    assertEquals(all.count(_ == "2}"), 1, "the refused message is there now")
+    assert(all.count(_ == "1}") >= 2, s"and the accepted ones were published again: $all")
+  }
+
+  test("several messages with no topic to publish to fail the message, naming the consumer") {
+    val failure = deliver("topicless-events", StockEvent("fan-5", 1, "w1")).failed.get
+    assert(failure.getMessage.contains("topicless-fanout"), failure.getMessage)
+    assert(failure.getMessage.contains("no publish target"), failure.getMessage)
   }
 
   test("rows can be queried by a field, as with any view") {

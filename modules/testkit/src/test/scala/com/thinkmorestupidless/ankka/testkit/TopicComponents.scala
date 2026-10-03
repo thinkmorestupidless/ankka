@@ -52,3 +52,49 @@ object LowStockNotifier
     Some(Codecs.serializer[LowStockAlert]("low-stock-alert"))
 
   override val produceTo: Option[String] = Some("stock-alerts")
+
+/** One line of what a fan-out consumer publishes: the n-th message about `sku`. */
+final case class FanLine(sku: String, n: Int)
+
+/**
+ * A consumer that publishes several messages for one message it reads: three for a movement of
+ * stock — the second under a key of its own, the third with a header — and none at all for a
+ * movement of nothing.
+ */
+final class StockFanout extends Consumer[StockEvent, FanLine]:
+
+  def onMessage(event: StockEvent): Effect =
+    if event.delta == 0 then effects.produceAll(Nil)
+    else
+      effects.produceAll(
+        Seq(
+          effects.message(FanLine(event.sku, 1)),
+          effects.message(FanLine(event.sku, 2)).withKey(s"second:${event.sku}"),
+          effects.message(FanLine(event.sku, 3)).withMetadata(Metadata.empty.set("x-n", "3"))
+        )
+      )
+
+object StockFanout
+    extends Consumer.Companion[StockFanout, StockEvent, FanLine](
+      componentId = ComponentId("stock-fanout"),
+      source = ChangeSource.fromTopic("fanout-events", Codecs.serializer[StockEvent]("stock-event"))
+    ):
+  def create(ctx: ConsumerContext) = new StockFanout
+
+  override val outputSerializer: Option[Serializer[FanLine]] =
+    Some(Codecs.serializer[FanLine]("fan-line"))
+
+  override val produceTo: Option[String] = Some("fanout-lines")
+
+/** Returns several messages and declares nowhere to publish them. */
+final class TopiclessFanout extends Consumer[StockEvent, FanLine]:
+  def onMessage(event: StockEvent): Effect =
+    effects.produceAll(Seq(effects.message(FanLine(event.sku, 1))))
+
+object TopiclessFanout
+    extends Consumer.Companion[TopiclessFanout, StockEvent, FanLine](
+      componentId = ComponentId("topicless-fanout"),
+      source =
+        ChangeSource.fromTopic("topicless-events", Codecs.serializer[StockEvent]("stock-event"))
+    ):
+  def create(ctx: ConsumerContext) = new TopiclessFanout

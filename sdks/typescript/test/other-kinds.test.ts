@@ -9,13 +9,17 @@ import { noClient } from "../src/client.ts"
 import { Workflow } from "../src/workflow.ts"
 import { command } from "../src/handlers.ts"
 import { jsonCodec } from "../src/codec.ts"
-import { Done, done, s } from "../src/schema.ts"
+import { Consumer } from "../src/consumer.ts"
+import { Done, done, s, type Infer } from "../src/schema.ts"
 import { workflowSettings } from "../src/effects/workflow.ts"
 import { KeyValueTestKit, WorkflowTestKit, ViewTestKit, ConsumerTestKit, TimedActionTestKit } from "../src/testkit/kinds.ts"
 import { Kind } from "../src/_proto/ankka/protocol/v1/discovery_pb.ts"
 import { Workflow as WorkflowService, WorkflowInSchema, type WorkflowIn, type WorkflowOut } from "../src/_proto/ankka/protocol/v1/workflow_pb.ts"
 import { AsyncQueue } from "../src/server/queue.ts"
-import { ApprovalWorkflow, Calculator, Ponger, Profile, Reminder } from "./fixtures/kinds.ts"
+import { Consumer as ConsumerService, ConsumerRequestSchema } from "../src/_proto/ankka/protocol/v1/consumer_pb.ts"
+import { ConsumerEffects } from "../src/effects/stateless.ts"
+import { PROTOCOL_VERSION } from "../src/spec.ts"
+import { ApprovalWorkflow, Calculator, Fanout, Ping, Ponger, Profile, Reminder } from "./fixtures/kinds.ts"
 import { Counter } from "./fixtures/counter.ts"
 import { CartRows } from "../examples/shopping-cart/cartRows.ts"
 import { payload, startServer, type Started } from "./helpers.ts"
@@ -192,12 +196,135 @@ describe("consumers and timed actions", () => {
     assert.deepEqual(kit.produced, [{ payload: { n: 2, from: "src-1" }, metadata: { "x-ping": "2" } }])
   })
 
+  test("a consumer produces several messages in order, each with its key and its metadata", async () => {
+    const kit = ConsumerTestKit.of(Fanout)
+    const effect = await kit.onMessage({ n: 7 }, "src-1")
+    assert.equal(effect.kind, "produceAll")
+    assert.deepEqual(kit.produced, [
+      { payload: { n: 1 }, metadata: {} },
+      { payload: { n: 2 }, metadata: {}, key: "second:src-1" },
+      { payload: { n: 3 }, metadata: { "x-n": "3" } },
+    ])
+    // The deletion handler may produce several too.
+    await kit.onDelete("src-1")
+    assert.deepEqual(kit.produced.at(-1), { payload: { n: -1 }, metadata: {}, key: "gone:src-1" })
+  })
+
+  test("an empty list produces nothing; a single produce is recorded as it always was", async () => {
+    const kit = ConsumerTestKit.of(Fanout)
+    const none = await kit.onMessage({ n: 0 })
+    assert.equal(none.kind, "produceAll")
+    assert.deepEqual(kit.produced, [])
+    assert.equal((await kit.onMessage({ n: 1 })).kind, "produce")
+    assert.deepEqual(kit.produced, [{ payload: { n: 1 }, metadata: {} }])
+  })
+
+  test("an empty record key is refused where it is named", () => {
+    const effects = new ConsumerEffects<{ n: number }>()
+    assert.throws(() => effects.produceAll([{ payload: { n: 1 }, key: "" }]), /empty record key/)
+    assert.throws(() => effects.produceAll([{ payload: { n: 1 }, key: 7 as unknown as string }]), /not a string/)
+    assert.throws(() => effects.produceAll({ payload: { n: 1 } } as never), /a list of messages/)
+    // Building several messages publishes nothing: the effect is a frozen value.
+    const effect = effects.produceAll([{ payload: { n: 1 }, key: "k" }])
+    assert.ok(Object.isFrozen(effect))
+    assert.deepEqual(effect, { kind: "produceAll", messages: [{ payload: { n: 1 }, key: "k" }] })
+  })
+
+  test("a consumer reads the change's sequence number", async () => {
+    const seen: (bigint | undefined)[] = []
+    class Watcher extends Consumer<Infer<typeof Ping>> {
+      static readonly componentId = "watcher"
+      static readonly topic = "pings"
+      static readonly message = jsonCodec(Ping, "ping")
+      onMessage() {
+        seen.push(this.sequenceNumber)
+        return this.effects.done()
+      }
+    }
+    const kit = ConsumerTestKit.of(Watcher)
+    await kit.onMessage({ n: 1 })
+    await kit.onMessage({ n: 1 }, "s", { "ankka.sequence": "12" })
+    await kit.onMessage({ n: 1 }, "s", { "ankka.sequence": "9007199254740993" })
+    assert.deepEqual(seen, [undefined, 12n, 9007199254740993n])
+  })
+
+  test("the test kit holds the server's rule: several messages only to a runtime that accepts them", async () => {
+    const kit = ConsumerTestKit.of(Fanout)
+    await assert.rejects(kit.onMessage({ n: 7 }, "s", { "ankka.protocol": "1.2" }), /this runtime speaks protocol 1\.2; several messages or a record key need 1\.3/)
+    // A single message and an empty list go to any runtime.
+    assert.equal((await kit.onMessage({ n: 1 }, "s", { "ankka.protocol": "1.2" })).kind, "produce")
+    assert.equal((await kit.onMessage({ n: 0 }, "s", { "ankka.protocol": "1.2" })).kind, "produceAll")
+    assert.deepEqual(kit.produced, [{ payload: { n: 1 }, metadata: {} }])
+  })
+
   test("a timed action is done or fails", async () => {
     const kit = TimedActionTestKit.of(Reminder)
     assert.equal((await kit.invoke(Reminder.actions.remind, "c1")).kind, "done")
     const failed = await kit.invoke("remind", "bad")
     assert.equal(failed.kind, "fail")
     assert.equal((await kit.invoke(Reminder.actions.ping)).kind, "done")
+  })
+})
+
+describe("the consumer servicer and several messages", () => {
+  let started: Started
+  let consumer: ReturnType<typeof createClient<typeof ConsumerService>>
+  before(async () => {
+    started = await startServer(Ankka.service({ client: noClient(), log: () => {} }).register(Fanout).register(Ponger))
+    consumer = createClient(ConsumerService, started.transport)
+  })
+  after(() => started.stop())
+
+  const request = (componentId: string, n: number, metadata: Record<string, string>, deleted = false) =>
+    create(ConsumerRequestSchema, {
+      componentId,
+      ...(deleted ? {} : { message: payload(jsonCodec(Ping, "ping"), { n }) }),
+      metadata: { entries: Object.entries(metadata).map(([key, value]) => ({ key, value })) },
+      deleted,
+    })
+  const text = (data: Uint8Array | undefined) => new TextDecoder().decode(data)
+
+  test("the reply is produce_all: the messages in order, the key only where one was named", async () => {
+    const reply = await consumer.handle(request("fanout", 7, { "ce-subject": "c1", "ankka.sequence": "3", "ankka.protocol": PROTOCOL_VERSION }))
+    assert.equal(reply.effect.case, "produceAll")
+    if (reply.effect.case !== "produceAll") return
+    const messages = reply.effect.value.messages
+    assert.deepEqual(messages.map((m) => text(m.payload?.data)), ['{"n":1}', '{"n":2}', '{"n":3}'])
+    assert.deepEqual(messages.map((m) => m.payload?.manifest), ["fan", "fan", "fan"])
+    assert.deepEqual(messages.map((m) => m.key), [undefined, "second:c1", undefined])
+    assert.deepEqual(messages.map((m) => m.metadata?.entries.map((e) => [e.key, e.value]) ?? []), [[], [], [["x-n", "3"]]])
+  })
+
+  test("a later minor, and a later major, are runtimes that accept several messages", async () => {
+    for (const version of ["1.3", "1.10", "2.0"]) {
+      const reply = await consumer.handle(request("fanout", 7, { "ce-subject": "c1", "ankka.protocol": version }))
+      assert.equal(reply.effect.case, "produceAll", version)
+    }
+  })
+
+  test("to a request that does not say the runtime accepts them, several messages fail the request", async () => {
+    const refused = (metadata: Record<string, string>, deleted = false) => consumer.handle(request("fanout", 7, { "ce-subject": "c1", ...metadata }, deleted))
+    // The message is the contract's, exactly: it is what the runtime's log shows.
+    await assert.rejects(refused({}), (e: Error) => e.message.endsWith('this runtime speaks protocol 1.2 or earlier; several messages or a record key need 1.3'))
+    await assert.rejects(refused({ "ankka.protocol": "1.2" }), (e: Error) => e.message.endsWith("this runtime speaks protocol 1.2; several messages or a record key need 1.3"))
+    await assert.rejects(refused({ "ankka.protocol": "1.0" }), /speaks protocol 1\.0;/)
+    await assert.rejects(refused({ "ankka.protocol": "nonsense" }), /speaks protocol nonsense;/)
+    // One keyed message is still a record key, and still needs 1.3.
+    await assert.rejects(refused({}, true), /several messages or a record key need 1\.3/)
+  })
+
+  test("a single un-keyed produce, and an empty list, are answered to any runtime", async () => {
+    const single = await consumer.handle(request("fanout", 1, { "ce-subject": "c1" }))
+    assert.equal(single.effect.case, "produce")
+    assert.equal(single.effect.case === "produce" && text(single.effect.value.payload?.data), '{"n":1}')
+    // No messages is `done`, which every runtime reads the same way.
+    const none = await consumer.handle(request("fanout", 0, { "ce-subject": "c1" }))
+    assert.equal(none.effect.case, "done")
+    // And the consumer of old is untouched.
+    const pong = await consumer.handle(request("ponger", 2, { "ce-subject": "src-1" }))
+    assert.equal(pong.effect.case, "produce")
+    assert.equal(pong.effect.case === "produce" && text(pong.effect.value.payload?.data), '{"n":2,"from":"src-1"}')
+    assert.deepEqual(pong.effect.case === "produce" && pong.effect.value.metadata?.entries.map((e) => [e.key, e.value]), [["x-ping", "2"]])
   })
 })
 

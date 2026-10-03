@@ -9,11 +9,25 @@ service Consumer { rpc Handle (ConsumerRequest) returns (ConsumerEffect); }
 message ConsumerRequest {
   string component_id = 1;
   Payload message = 2;                          // absent when deleted
-  Metadata metadata = 3;                        // ce-subject: the source's id; ankka.sequence
+  Metadata metadata = 3;                        // ce-subject: the source's id; ankka.sequence;
+                                                // ankka.protocol: what the runtime speaks (1.3)
   bool deleted = 4;                             // the source was deleted
 }
 
 message ConsumerEffect {
-  oneof effect { Produce produce = 1; Empty done = 2; Empty ignore = 3; }
+  oneof effect {
+    Produce produce = 1;
+    Empty done = 2;
+    Empty ignore = 3;
+    ProduceAll produce_all = 4;                 // 1.3: several messages for one change
+  }
   message Produce { Payload payload = 1; Metadata metadata = 2; }
+  // Published in order; the change is handled when the broker has accepted all of them. None at
+  // all is `done`. Send it only to a runtime whose request carried `ankka.protocol` >= 1.3.
+  message ProduceAll { repeated Message messages = 1; }
+  message Message {
+    Payload payload = 1;
+    Metadata metadata = 2;
+    optional string key = 3;                    // the record key; absent: the message's subject
+  }
 }

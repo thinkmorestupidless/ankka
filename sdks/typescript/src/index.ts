@@ -27,9 +27,13 @@ export {
   type WorkflowSettings, type StepSettings, type Recovery,
 } from "./effects/workflow.ts"
 export { Workflow, type WorkflowClass } from "./workflow.ts"
-export { ViewEffects, ConsumerEffects, TimedActionEffects, type ViewEffect, type ConsumerEffect, type TimedActionEffect } from "./effects/stateless.ts"
+export { ViewEffects, ConsumerEffects, TimedActionEffects, type ViewEffect, type ConsumerEffect, type OutgoingMessage, type TimedActionEffect } from "./effects/stateless.ts"
 export { View, type ViewClass } from "./view.ts"
-export { Consumer, type ConsumerClass } from "./consumer.ts"
+export { Consumer, ProtocolVersionError, type ConsumerClass } from "./consumer.ts"
+export {
+  GRAPH_DELTA_SCHEMA, Graph, GraphConsumer, GraphEffects, GraphError, edgeKey, elementKey, graphDeltaCodec, nodeKey, readDelta,
+  type Delta, type Element, type GraphConsumerClass, type GraphEffect, type GraphFault, type Properties, type PropertyValue, type Scalar, type Version,
+} from "./graph.ts"
 export { TimedAction, type TimedActionClass } from "./timedAction.ts"
 export { AgentEffects, type AgentEffect } from "./effects/agent.ts"
 export { Agent, type AgentClass } from "./agent.ts"

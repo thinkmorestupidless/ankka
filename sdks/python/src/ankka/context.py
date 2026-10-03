@@ -45,6 +45,12 @@ class Metadata:
         value = self.get("ankka.sequence")
         return int(value) if value is not None else None
 
+    @property
+    def protocol(self) -> str | None:
+        """``ankka.protocol``: on a consumer's change, the protocol version the runtime speaks. A
+        runtime that does not say accepts one message per change and no record key."""
+        return self.get("ankka.protocol")
+
     def to_pb(self) -> payload_pb2.Metadata:
         return payload_pb2.Metadata(entries=[payload_pb2.Metadata.Entry(key=k, value=v) for k, v in self.entries])
 

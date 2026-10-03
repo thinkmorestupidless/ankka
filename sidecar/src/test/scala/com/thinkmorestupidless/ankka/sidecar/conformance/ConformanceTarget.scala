@@ -3,7 +3,12 @@ package com.thinkmorestupidless.ankka.sidecar.conformance
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestModelProvider}
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.HttpServer
-import com.thinkmorestupidless.ankka.runtime.{ProjectionRuntime, ServedRoute, TimerRuntime}
+import com.thinkmorestupidless.ankka.runtime.{
+  InMemoryBroker,
+  ProjectionRuntime,
+  ServedRoute,
+  TimerRuntime
+}
 import com.thinkmorestupidless.ankka.sidecar.{
   Discovery,
   GrpcConversation,
@@ -45,6 +50,12 @@ trait ConformanceTarget:
   def baseUrl: String
   def system: ActorSystem[?]
   def model: TestModelProvider
+
+  /**
+   * Where the target's consumers publish, in this JVM: what a producing consumer wrote can be read
+   * back record by record, and a publication made to fail.
+   */
+  val broker: InMemoryBroker = InMemoryBroker()
 
   /** A new service on the same database: every instance is gone from memory. */
   def restart(): Unit
@@ -89,7 +100,7 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       reference.descriptors ++ AgentRuntime.descriptors,
       Seq(
-        ProjectionRuntime(),
+        ProjectionRuntime.withBroker(broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model),
         HttpServer.at("127.0.0.1", 0)(
@@ -169,7 +180,7 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
-        ProjectionRuntime(),
+        ProjectionRuntime.withBroker(broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model),
         HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),
@@ -228,7 +239,13 @@ object ConformanceTarget:
       )
     private val module =
       ModuleLoader.load(path).fold(p => throw IllegalStateException(p.mkString("; ")), identity)
-    private val overrides = Map("ANKKA_CONFORMANCE_SHAPE" -> shape)
+    // The shape the module runs in, and a broker named: the reference registers the components
+    // that publish only where there is one, and here there is — `broker`, in this JVM. The value
+    // is read by the module alone; nothing connects to it.
+    private val overrides = Map(
+      "ANKKA_CONFORMANCE_SHAPE"       -> shape,
+      "ANKKA_KAFKA_BOOTSTRAP_SERVERS" -> "the conformance suite's in-memory broker"
+    )
     private val imports =
       HostImports(
         settings.commandTimeout,
@@ -275,7 +292,7 @@ object ConformanceTarget:
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
       Seq(
-        ProjectionRuntime(),
+        ProjectionRuntime.withBroker(broker, broker),
         timers,
         AgentRuntime.withDefaultModel(model),
         HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*),

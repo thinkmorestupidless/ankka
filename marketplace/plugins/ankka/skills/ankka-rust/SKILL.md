@@ -60,7 +60,17 @@ Every component guide in the other ankka skills applies; this skill holds what d
     `ScriptedModel`, `EndpointTestKit::with_service(build())`. `AnkkaTestKit::start(Module::build()?)`
     (feature `testkit`, Docker) runs the module in the real runtime image; keep those tests behind a
     feature so plain `cargo test` needs no Docker.
-11. **Deploy as a wasm-hosted service.** The descriptor sets `"hosting": "wasm"` and `"protocol"`; the
+11. **Several messages are one effect, and a graph is published by a graph consumer.** A consumer returns
+    `consumer::produce_all([consumer::message(x).key("k"), …])` to publish several messages for one change,
+    each under its own record key if it names one; `ConsumerEffect` has a `ProduceAll` variant a `match`
+    must cover. To publish entities as a graph, implement `GraphConsumer` (`Message`, `COMPONENT_ID`,
+    `TOPIC`, `source()`) and return
+    `graph::publish([graph::node(id).label("Cart").property("cartId", id), graph::edge(id, "TYPE", from, to), …])`.
+    Each element is its whole state; the crate writes the delta's JSON, its `node:<id>`/`edge:<id>` key and
+    its version (`ctx.sequence()`, or `.at(version)` when stated). The builders cannot fail; an element is
+    checked when the result is dispatched, and a fault is a panic naming it. Tombstones come from
+    `on_deleted`. Test with `GraphConsumerTestKit::<G>::new()`.
+12. **Deploy as a wasm-hosted service.** The descriptor sets `"hosting": "wasm"` and `"protocol"`; the
     image holds only the module and a command copying it to `/ankka/module/service.wasm`; the platform
     runs it as an init container and its own runtime as the one container. `"http": false` is refused.
 
@@ -82,6 +92,16 @@ own checkout, `sdks/rust`: `cargo test --workspace`, `cargo test -p shopping-car
 - `ankka::service!` twice, or a component used but not registered.
 - A route or handler meant to stream: a module cannot; answer whole.
 - Reading `std::env::var` for configuration: the module has no environment; use `ankka::config`.
+- A graph delta built by hand: JSON, a `node:`/`edge:` key or a version written in the handler. Return
+  elements from a graph consumer's builder; it writes all three.
+- A record key set on a delta, or a delta published through an ordinary consumer's `produce`.
+- A graph consumer that publishes an element another entity owns (a cart publishing the `product` node).
+  Publish the edge; the owning entity publishes the node.
+- An element built from a thin event, carrying only what changed. An element is its whole state: build it
+  from an event that carries it, or read the entity through the client.
+- A graph consumer over a topic with no version stated on its elements: a topic has no sequence number.
+- Expecting ankka to create the delta topic or make it compacted. Declare it in the ankka-flow pipeline
+  that reads it, and deploy that pipeline first.
 
 ## Reference files
 
@@ -97,8 +117,9 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
+- `references/build/graph.md` — Publish a service's entities as nodes and edges with a graph consumer, which writes versioned graph deltas to a topic for a graph database to follow, with no key, version or JSON written by hand.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
-- `references/build/testing.md` — Test ankka components at two levels in Scala, Python and TypeScript — unit test kits that run a component with nothing else, and integration test kits that run the whole service against a real database — with scripted models for agents.
+- `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 
 ### Run and deploy
 

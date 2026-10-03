@@ -75,7 +75,11 @@ missing one it needs is refused at start, naming the export and what needs it.
 The host sets two kinds of metadata entry on every request that carries `Metadata`: `ankka.now`, the
 runtime's clock as epoch milliseconds, and the trace entries it sets for a process. A module has no
 clock of its own; `ankka.now` is the one it reads. An entity or workflow command's metadata also
-carries `ankka.sequence`, the journal sequence the state it is handed reflects.
+carries `ankka.sequence`, the journal sequence the state it is handed reflects. A consumer's request
+carries `ankka.sequence` for the change it is handed and `ankka.protocol`, the protocol version the host
+speaks. A guest answers `produce_all`, several messages for one change, only when that entry is `1.3` or
+later, and fails the call otherwise, because an earlier host reads a reply it does not know as no effect;
+see [the sidecar protocol](sidecar-protocol.md#stateless-conversations) for the reply.
 
 ## Imports the guest may use (module `ankka1`)
 

@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.2`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.3`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here.
 
 `MAJOR.MINOR`. Within a major:
@@ -54,7 +54,16 @@ loopback at `ANKKA_SIDECAR_PORT` (9011). Neither ever binds another interface.
   `StepOutcome.fail` ends the workflow, as it asked.
 - **A view or consumer learns of its source's deletion** by `deleted = true` with no event or
   message; the default answer is to drop the row (a view) or ignore (a consumer). The source's id
-  travels as `ce-subject` in the metadata and the change's sequence number as `ankka.sequence`.
+  travels as `ce-subject` in the metadata and the change's sequence number as `ankka.sequence`:
+  an event's sequence number, a key value state's revision, `0` for a topic's message.
+- **A consumer may answer with several messages**, `produce_all`, each with an optional record
+  `key`; a message without one is keyed by its subject, as `produce`'s is. They are published in
+  order and the change is handled when all are accepted; if one is refused the change comes again
+  and all are published again. A runtime that accepts `produce_all` says so on every consumer
+  request, in the metadata entry `ankka.protocol`. **An SDK must not answer `produce_all` to a
+  request without that entry, or with one below `1.3`**: an earlier runtime reads a case it does
+  not know as no effect and drops the messages. It fails the request instead, saying which
+  version it was given and which it needs. A reply is at most 4 MiB.
 - **A timed action's payload is what the process scheduled**, the `Payload` it put in
   `Client.Schedule`, carried through the timer table unread; the timer's name and the attempt
   count arrive as metadata `ankka.timer` and `ankka.attempts`. A `fail`, an exception or an

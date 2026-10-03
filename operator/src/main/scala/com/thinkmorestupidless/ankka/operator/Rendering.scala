@@ -176,6 +176,15 @@ object Rendering:
    */
   val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_")
 
+  /**
+   * Variables both containers are given. Mirrors `ServiceSpec.SharedEnvPrefixes`.
+   *
+   * The broker: the sidecar is what connects to it — it runs the projections, so without the
+   * variable a consumer that publishes is refused at startup — and the process is told too, so a
+   * service can register what needs a broker only where there is one.
+   */
+  val SharedEnvPrefixes: Vector[String] = Vector("ANKKA_KAFKA_")
+
   /** The developer's container, until the descriptor can size it: small, and bounded. */
   private val AppQuantities =
     Map("cpu" -> new Quantity("100m"), "memory" -> new Quantity("128Mi")).asJava
@@ -832,13 +841,15 @@ object Rendering:
       webContainers(spec, namespacePrefix, proxyImage, baseDomain, httpsPort)
     case ProcessHosting =>
       // A descriptor's variables are split: a model's key and configuration belong to the sidecar,
-      // which runs the agent loop; everything else is the process's. By prefix, as
+      // which runs the agent loop; everything else is the process's, and the broker's are both's. By prefix, as
       // `ServiceSpec.SidecarEnvPrefixes` in controlplane-api says — duplicated here because the
       // operator must not depend on that module, and pinned by RenderingSuite.
       val (forSidecar, forProcess) =
         spec.env.partition(e => SidecarEnvPrefixes.exists(e.name.startsWith))
+      // The broker is named to both; see `SharedEnvPrefixes`.
+      val shared = forProcess.filter(e => SharedEnvPrefixes.exists(e.name.startsWith))
       val node = container(
-        spec.copy(image = sidecarImage, env = forSidecar),
+        spec.copy(image = sidecarImage, env = forSidecar ++ shared),
         identity,
         withDatabaseEnv,
         extraEnv = Vector(

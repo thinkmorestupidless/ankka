@@ -24,8 +24,17 @@ import org.apache.pekko.persistence.typed.{PersistenceId, SnapshotAdapter}
  */
 private[ankka] object KeyValueEntityHost:
 
+  /**
+   * What the durable state row holds. `deleted` is how a deletion is recorded: the row stays, at
+   * the next revision, holding the empty state. Removing the row instead would tell no view and no
+   * consumer, and would start the entity's revisions again from one, so an entity created again
+   * under the same id would present changes older than its own deletion.
+   */
   final case class Stored[S](value: S, deleted: Boolean, expiryMillis: Long):
     def expired(nowMillis: Long): Boolean = expiryMillis > 0 && nowMillis >= expiryMillis
+
+    /** Deleted or expired: a handler is shown the empty state. */
+    def gone(nowMillis: Long): Boolean = deleted || expired(nowMillis)
 
   def behavior[C <: KeyValueEntity[S], S](
       descriptor: KeyValueEntityDescriptor[C, S],
@@ -59,7 +68,7 @@ private[ankka] object KeyValueEntityHost:
               componentRef
             )
         )
-        .snapshotAdapter(snapshotAdapter(descriptor))
+        .snapshotAdapter(snapshotAdapter(descriptor, empty))
     }
 
   private def onCommand[C <: KeyValueEntity[S], S](
@@ -88,7 +97,7 @@ private[ankka] object KeyValueEntityHost:
 
           case Some(binding) =>
             val visible =
-              if state.expired(System.currentTimeMillis()) then empty.value else state.value
+              if state.gone(System.currentTimeMillis()) then empty.value else state.value
 
             entity._setState(visible)
             entity._setContext(
@@ -116,7 +125,9 @@ private[ankka] object KeyValueEntityHost:
               // Published as current for the duration of the handler, so a nested
               // ComponentClient call is recorded as this span's child rather than a root.
               val (effect, handlerOutcome) =
-                Trace.within(span.traceId, span.id)(interpret(binding, entity, invoke, visible))
+                Trace.within(span.traceId, span.id)(
+                  interpret(binding, entity, invoke, visible, empty)
+                )
               spanOutcome = handlerOutcome
               effect
             finally
@@ -141,7 +152,8 @@ private[ankka] object KeyValueEntityHost:
       binding: HandlerBinding[C],
       entity: C,
       invoke: EntityProtocol.Invoke,
-      visibleState: S
+      visibleState: S,
+      empty: Stored[S]
   ): (ReplyEffect[Stored[S]], SpanOutcome) =
     val effect =
       binding.decodeAndInvoke(entity, invoke.payload).asInstanceOf[KeyValueEffect[S, Any]]
@@ -160,7 +172,7 @@ private[ankka] object KeyValueEntityHost:
         (PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error)), SpanOutcome.Refused)
 
       case Right(replyValue) =>
-        val builder = storageEffect(result)
+        val builder = storageEffect(result, empty)
         val effectOut = replyValue match
           case Some(value) =>
             builder.thenReply(invoke.replyTo) { _ =>
@@ -175,11 +187,13 @@ private[ankka] object KeyValueEntityHost:
   end interpret
 
   private def storageEffect[S](
-      result: KeyValueEffect.Materialised[S, ?]
+      result: KeyValueEffect.Materialised[S, ?],
+      empty: Stored[S]
   ): EffectBuilder[Stored[S]] =
     result.retention match
       case Some(Retention.DeleteNow) =>
-        PekkoEffect.delete[Stored[S]]()
+        // A recorded state, not a removed row: see `Stored`.
+        PekkoEffect.persist(Stored(empty.value, deleted = true, expiryMillis = 0L))
 
       case Some(Retention.ExpireAfter(duration)) =>
         PekkoEffect.persist(
@@ -192,7 +206,8 @@ private[ankka] object KeyValueEntityHost:
         else PekkoEffect.none[Stored[S]]
 
   private def snapshotAdapter[C <: KeyValueEntity[S], S](
-      descriptor: KeyValueEntityDescriptor[C, S]
+      descriptor: KeyValueEntityDescriptor[C, S],
+      empty: Stored[S]
   ): SnapshotAdapter[Stored[S]] =
     new SnapshotAdapter[Stored[S]]:
 
@@ -206,8 +221,12 @@ private[ankka] object KeyValueEntityHost:
 
       def fromJournal(from: Any): Stored[S] =
         val record = from.asInstanceOf[StateRecord]
-        Stored(
-          descriptor.stateSerializer.fromBytes(record.payload),
-          record.deleted,
-          record.expiryMillis
-        )
+        // A deleted record holds the empty state here and nothing at all when a remote host
+        // wrote it; either way there is nothing to decode.
+        if record.deleted then Stored(empty.value, deleted = true, record.expiryMillis)
+        else
+          Stored(
+            descriptor.stateSerializer.fromBytes(record.payload),
+            record.deleted,
+            record.expiryMillis
+          )

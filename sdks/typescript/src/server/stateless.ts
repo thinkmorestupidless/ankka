@@ -10,10 +10,15 @@ import { codecFor } from "../codec.ts"
 import { metadataFromProto, metadataToProto } from "../context.ts"
 import { ErrorCode } from "../effects/common.ts"
 import type { View } from "../view.ts"
-import type { Consumer } from "../consumer.ts"
+import { ProtocolVersionError, requireSeveralMessages, type Consumer } from "../consumer.ts"
+import { GRAPH_DELTA_SCHEMA, deltaRecords, type GraphConsumer } from "../graph.ts"
+import { JSON_CONTENT } from "../codec.ts"
+import type { Metadata } from "../effects/common.ts"
+import type { RegisteredConsumer } from "../service.ts"
 import type { TimedAction } from "../timedAction.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import { decodePayload, encodePayload } from "./payloads.ts"
+import { PayloadSchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import type { ServerContext } from "./server.ts"
 
 function messageOf(e: unknown): string {
@@ -46,29 +51,83 @@ export async function handleView(req: ViewRequest, ctx: ServerContext): Promise<
   }
 }
 
+const DONE = () => create(ConsumerEffectSchema, { effect: { case: "done", value: {} } })
+const IGNORE = () => create(ConsumerEffectSchema, { effect: { case: "ignore", value: {} } })
+
+/**
+ * Several messages as the reply `produce_all`, which only a runtime at protocol 1.3 understands: the
+ * request must have said so. None at all is `done`, which every runtime understands and means the same.
+ */
+function produceAll(request: Metadata, messages: { payload: ReturnType<typeof encodePayload>; metadata: Metadata; key?: string }[]): ProtoConsumerEffect {
+  if (messages.length === 0) return DONE()
+  requireSeveralMessages(request)
+  return create(ConsumerEffectSchema, {
+    effect: {
+      case: "produceAll",
+      value: { messages: messages.map((m) => ({ payload: m.payload, metadata: metadataToProto(m.metadata), ...(m.key !== undefined ? { key: m.key } : {}) })) },
+    },
+  })
+}
+
+async function graphEffect(registered: RegisteredConsumer, req: ConsumerRequest, metadata: Metadata, ctx: ServerContext): Promise<ProtoConsumerEffect> {
+  const consumer = new registered.cls() as GraphConsumer<unknown>
+  consumer._bind(metadata, ctx.client.withMetadata(metadata))
+  const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
+  switch (effect.kind) {
+    case "publish":
+      return produceAll(
+        metadata,
+        deltaRecords(effect, metadata).map((r) => ({
+          payload: create(PayloadSchema, { contentType: JSON_CONTENT, manifest: GRAPH_DELTA_SCHEMA, data: r.value }),
+          metadata: { "ce-type": GRAPH_DELTA_SCHEMA },
+          key: r.key,
+        })),
+      )
+    case "done":
+      return DONE()
+    case "ignore":
+      return IGNORE()
+    default:
+      throw new TypeError(`${registered.id}.onMessage returned something that is not a graph effect`)
+  }
+}
+
+async function consumerEffect(registered: RegisteredConsumer, req: ConsumerRequest, metadata: Metadata, ctx: ServerContext): Promise<ProtoConsumerEffect> {
+  const consumer = new registered.cls() as Consumer<unknown, unknown>
+  consumer._bind(metadata, ctx.client.withMetadata(metadata))
+  const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
+  const outCodec = () => {
+    if (!registered.outCodec) throw new Error(`${registered.id} produced a message but declares no out shape`)
+    return registered.outCodec
+  }
+  switch (effect.kind) {
+    case "produce":
+      return create(ConsumerEffectSchema, { effect: { case: "produce", value: { payload: encodePayload(outCodec(), effect.payload), metadata: metadataToProto(effect.metadata) } } })
+    case "produceAll":
+      return produceAll(
+        metadata,
+        effect.messages.map((m) => ({ payload: encodePayload(outCodec(), m.payload), metadata: m.metadata ?? {}, ...(m.key !== undefined ? { key: m.key } : {}) })),
+      )
+    case "done":
+      return DONE()
+    case "ignore":
+      return IGNORE()
+    default:
+      throw new TypeError(`${registered.id}.onMessage returned something that is not a consumer effect`)
+  }
+}
+
 export async function handleConsumer(req: ConsumerRequest, ctx: ServerContext): Promise<ProtoConsumerEffect> {
   const registered = ctx.registry.of("consumer", req.componentId)
   if (!registered) throw new ConnectError(`no consumer ${JSON.stringify(req.componentId)} is registered`, Code.NotFound)
   const metadata = metadataFromProto(req.metadata)
-  const consumer = new registered.cls() as Consumer<unknown, unknown>
   try {
-    consumer._bind(metadata, ctx.client.withMetadata(metadata))
-    const effect = req.deleted ? await consumer.onDelete() : await consumer.onMessage(decodePayload(registered.messageCodec, req.message))
-    switch (effect.kind) {
-      case "produce": {
-        if (!registered.outCodec) throw new Error(`${registered.id} produced a message but declares no out shape`)
-        return create(ConsumerEffectSchema, { effect: { case: "produce", value: { payload: encodePayload(registered.outCodec, effect.payload), metadata: metadataToProto(effect.metadata) } } })
-      }
-      case "done":
-        return create(ConsumerEffectSchema, { effect: { case: "done", value: {} } })
-      case "ignore":
-        return create(ConsumerEffectSchema, { effect: { case: "ignore", value: {} } })
-      default:
-        throw new TypeError(`${registered.id}.onMessage returned something that is not a consumer effect`)
-    }
+    return registered.graph ? await graphEffect(registered, req, metadata, ctx) : await consumerEffect(registered, req, metadata, ctx)
   } catch (e) {
     if (e instanceof ConnectError) throw e
     ctx.log(`ankka: consumer ${registered.id} on ${metadata["ce-subject"] ?? "?"} threw: ${messageOf(e)}`)
+    // The message alone, so the runtime's log says what the SDK needs and of which runtime.
+    if (e instanceof ProtocolVersionError) throw new ConnectError(e.message, Code.Internal)
     throw new ConnectError(messageOf(e), Code.Internal)
   }
 }

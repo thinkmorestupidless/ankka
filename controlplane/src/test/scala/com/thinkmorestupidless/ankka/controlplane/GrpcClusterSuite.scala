@@ -183,15 +183,32 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     )
     (code, out.toString(StandardCharsets.UTF_8) + err.toString(StandardCharsets.UTF_8))
 
-  private def waitFor(timeout: FiniteDuration)(check: => Boolean): Unit =
-    val deadline = System.nanoTime() + timeout.toNanos
-    var passed   = false
+  /**
+   * Retries `check` until it holds or `timeout` passes. A check that throws counts as not holding,
+   * and the last throw is in the failure, as is `diagnostics` when given — so a wait that never
+   * passed says what the cluster held at the time, not only that it waited.
+   */
+  private def waitFor(timeout: FiniteDuration, diagnostics: => String = "")(
+      check: => Boolean
+  ): Unit =
+    val deadline                = System.nanoTime() + timeout.toNanos
+    var passed                  = false
+    var last: Option[Throwable] = None
     while !passed && System.nanoTime() < deadline do
       passed =
-        try check
-        catch case _: Throwable => false
+        try
+          val held = check
+          if held then last = None
+          held
+        catch
+          case e: Throwable =>
+            last = Some(e)
+            false
       if !passed then Thread.sleep(500)
-    if !passed then fail(s"condition did not hold within $timeout")
+    if !passed then
+      val thrown = last.fold("")(e => s"; the last check threw $e")
+      val state  = if diagnostics.isEmpty then "" else s"\n$diagnostics"
+      fail(s"condition did not hold within $timeout$thrown$state")
 
   /** The sample, as a descriptor: gRPC, HTTP, instances and the sample's switches. */
   private def apply(
@@ -226,7 +243,15 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
         ready = s.lifecycle == "Ready" && s.readyInstances == instances
       }
       if !ready then Thread.sleep(500)
-    assert(ready, s"$name never reached $instances Ready; last: ${status(name)}")
+    if !ready then
+      // What the service's own process said, which is where a node that never joined, or an
+      // extension that never became ready, says why; the status alone is only the probe's answer.
+      val logs = pods(name).map { pod =>
+        val podName = pod.getMetadata.getName
+        val tail    = kubectl("logs", "-n", Namespace, podName, "--tail=40")._2
+        s"--- $podName ---\n$tail"
+      }
+      fail(s"$name never reached $instances Ready; last: ${status(name)}\n${logs.mkString("\n")}")
 
   private def delete(name: String): Unit =
     assertEquals(ankka("services", "delete", name, "-p", Project)._1, 0)
@@ -590,6 +615,22 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     assertEquals(methods.toSet, Set("GetCart", "AddItem", "WhoCalled"))
   }
 
+  test("a service that reflection's ACL does not admit is refused at the gRPC address") {
+    // The cart's reflection admits only the gateway; `checkout` asks at the in-cluster address.
+    val (status, said) = asService(Checkout, s"/callers/grpc/$Cart/reflection")
+    assertEquals((status, said.trim), (200, "failed: PERMISSION_DENIED"))
+  }
+
+  test("a service that opts into reflection answers another service at its gRPC address") {
+    val open = "open"
+    apply(open, grpc = true, env = Map("CART_REFLECTION_CALLER" -> Checkout))
+    waitReady(open, 1)
+    val (status, said) = asService(Checkout, s"/callers/grpc/$open/reflection")
+    assertEquals(status, 200, said)
+    assert(said.split(",").contains("shoppingcart.v1.CartService"), said)
+    delete(open)
+  }
+
   test("an exposed service that does not declare gRPC is exposed as it was before") {
     val before = podUids(Checkout)
     assertEquals(ankka("services", "expose", Checkout, "-p", Project)._1, 0)
@@ -727,46 +768,103 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
   test(
     "a stream on an instance that is stopping is given time to finish, then ends as unavailable"
   ) {
+    // A conversation, not a watch: the watch polls the entity, and with every instance stopping at
+    // once that call fails on its own before the server's grace has run — which is a fact about the
+    // cluster going away, not the one this scenario states. An echo depends on nothing but the
+    // server that holds it.
     val ended = Promise[(Status, Long)]()
-    val parts = AtomicInteger()
-    CartStreamsGrpc
+    val heard = ConcurrentLinkedQueue[Line]()
+    val requests = CartStreamsGrpc
       .stub(fromOutside(Cart))
-      .watchCart(
-        GetCartRequest("stopping"),
-        new StreamObserver[Cart]:
-          def onNext(value: Cart): Unit = parts.incrementAndGet(): Unit
-          def onError(t: Throwable): Unit =
-            ended.trySuccess(Status.fromThrowable(t) -> System.nanoTime()): Unit
-          def onCompleted(): Unit = ended.trySuccess(Status.OK -> System.nanoTime()): Unit
-      )
-    waitFor(30.seconds)(parts.get >= 1)
+      .converse(new StreamObserver[Line]:
+        def onNext(value: Line): Unit = heard.add(value): Unit
+        def onError(t: Throwable): Unit =
+          ended.trySuccess(Status.fromThrowable(t) -> System.nanoTime()): Unit
+        def onCompleted(): Unit = ended.trySuccess(Status.OK -> System.nanoTime()): Unit)
+    requests.onNext(Line("hello"))
+    waitFor(30.seconds)(heard.size == 1)
     // Which instance answers is the gateway's choice, so every instance is stopped at once.
     val stoppedAt = System.nanoTime()
-    pods(Cart).foreach(p =>
-      k8s.pods().inNamespace(Namespace).withName(p.getMetadata.getName).delete(): Unit
-    )
-    val (status, at) = Await.result(ended.future, 2.minutes)
-    assertEquals(status.getCode, Status.Code.UNAVAILABLE, status.toString)
-    // A stopping pod keeps serving for its preStop sleep (5s), then its server gives calls in
-    // progress the shutdown grace (5s) before ending them.
-    val lasted = (at - stoppedAt).nanos
-    assert(lasted >= 9.seconds, s"the stream ended after $lasted")
-    waitReady(Cart, 3)
+    try
+      pods(Cart).foreach(p =>
+        k8s.pods().inNamespace(Namespace).withName(p.getMetadata.getName).delete(): Unit
+      )
+      val (status, at) = Await.result(ended.future, 2.minutes)
+      assertEquals(status.getCode, Status.Code.UNAVAILABLE, status.toString)
+      // A stopping pod keeps serving for its preStop sleep (5s), then its server gives calls in
+      // progress the shutdown grace (5s) before ending them.
+      val lasted = (at - stoppedAt).nanos
+      assert(lasted >= 9.seconds, s"the stream ended after $lasted")
+    finally
+      waitReady(Cart, 3)
+      // Every instance was replaced at once, which is a crash rather than a rollout: a caller's
+      // channel still names the old addresses until grpc-java's DNS resolver looks again, which it
+      // caches for up to 30 seconds. The cases after this one start from a caller that reaches the
+      // cart again, rather than from that window.
+      waitFor(90.seconds)(asService(Checkout, s"/callers/grpc/$Cart")._1 == 200)
   }
 
   // ---- what a member is shown --------------------------------------------------------------------
 
   test("a member is shown why an exposed service's gRPC cannot be reached at its hostname") {
-    // The gateway admits routes only from namespaces labelled as the installation's.
-    val label = "app.kubernetes.io/managed-by"
-    assertEquals(kubectl("label", "namespace", Namespace, s"$label-")._1, 0)
+    // The gateway's HTTPS listener is made to admit routes from no namespace of the installation.
+    // The listener is the installation's, which the operator does not reconcile; the project's
+    // namespace label, the other half of the rule, is re-applied by the operator on every
+    // reconcile, so taking it away is a fault the platform heals before the gateway may notice.
+    val selector = "/spec/listeners/1/allowedRoutes/namespaces/selector/matchLabels"
+    def listener(labels: String) =
+      kubectl(
+        "patch",
+        "gateway",
+        "ankka",
+        "-n",
+        "ankka-gateway",
+        "--type=json",
+        s"""-p=[{"op":"replace","path":"$selector","value":$labels}]"""
+      )
+    val (patched, said) = listener("""{"ankka-test/admitted":"nobody"}""")
+    assertEquals(patched, 0, said)
+    def held =
+      s"""services get: ${ankka("services", "get", Cart, "-p", Project)._2}
+         |route conditions: ${kubectl(
+          "get",
+          "httproute",
+          Cart,
+          "-n",
+          Namespace,
+          "-o",
+          "jsonpath={.status.parents[*].conditions}"
+        )._2}
+         |listener selector: ${kubectl(
+          "get",
+          "gateway",
+          "ankka",
+          "-n",
+          "ankka-gateway",
+          "-o",
+          "jsonpath={.spec.listeners[1].allowedRoutes}"
+        )._2}
+         |resource status: ${kubectl(
+          "get",
+          "ankkaservice",
+          Cart,
+          "-n",
+          Namespace,
+          "-o",
+          "jsonpath={.status}"
+        )._2}""".stripMargin
     try
-      waitFor(120.seconds)(
+      waitFor(180.seconds, held)(
         ankka("services", "get", Cart, "-p", Project)._2.contains("route rejected")
       )
       val (_, shown) = ankka("services", "get", Cart, "-p", Project)
       assert(shown.contains("NotAllowedByListeners"), shown)
-    finally kubectl("label", "namespace", Namespace, s"$label=ankka", "--overwrite"): Unit
+    finally
+      val (restored, why) = listener("""{"app.kubernetes.io/managed-by":"ankka"}""")
+      assertEquals(restored, 0, why)
+      waitFor(120.seconds, held)(
+        !ankka("services", "get", Cart, "-p", Project)._2.contains("route rejected")
+      )
   }
 
   test("an unexposed service answers neither a gRPC call nor an HTTP request at its hostname") {

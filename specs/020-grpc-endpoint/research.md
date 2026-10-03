@@ -222,11 +222,14 @@ declares HTTP. The Service's `grpc` port carries `appProtocol: kubernetes.io/h2c
   every stream, and with it Envoy Gateway also disables the route's stream idle timeout
   (`internal/xds/translator/route.go:458-492` at v1.9.1).
 
-**Not confirmed**: all of the above is read from source and docs at v1.9.1; none of it was observed
-on a cluster. **Proof**: `GatewayGrpcSpike`, a k3s case under `-Dankka.spikes` that deploys a
-grpc-java server behind the installation's gateway and, from the host, makes a unary call, a
-bidirectional call and a server stream that outlives 15 seconds at one hostname, beside an HTTP
-request at the same hostname.
+**Confirmed 2026-10-03** on k3s with Envoy Gateway v1.9.1, by the exposed cases of
+`GrpcClusterSuite` against the operator's own rendering rather than by a hand-applied spike: at one
+hostname a unary call is answered and `WhoCalled` reads the gateway, an HTTP request is answered by
+the HTTP endpoint, a bidirectional exchange answers each part, and a server stream delivers its parts
+as they happen — a part sent at 25 seconds still arrives, so `timeouts.request: "0s"` does hold the
+stream open past Envoy's 15-second default. The header rule carries gRPC; the `GRPCRoute` fallback
+below was not needed. The spike this section first proposed (`GatewayGrpcSpike`) was not written,
+because those cases prove the same five points on the rendering that ships.
 
 **Alternatives considered**:
 - *A `GRPCRoute` beside the `HTTPRoute`.* Gateway API's released text says an implementation MUST
@@ -329,10 +332,10 @@ seconds and its calls are cancelled. That covers a caller connected directly. A 
 cluster is connected to the gateway, and the gateway's connection to the service is alive whatever
 happened to the caller; when Envoy gives up on a silent client is Envoy's to decide.
 
-**Not confirmed**: that grpc-netty-shaded carries the `round_robin` provider without `grpc-util`
-declared (add it if not), and how quickly grpc-java re-resolves after a connection ages out.
-**Proof**: the replacement cases of `GrpcClusterSuite`. **Fallback**: declare `grpc-util`; lower the
-connection age.
+**Confirmed 2026-10-03** by the replacement cases of `GrpcClusterSuite` on k3s: three instances
+replaced one at a time by `services restart` refused none of at least 1,000 calls, and an instance
+added to a service came to answer a caller that was already calling, without that caller restarting.
+`grpc-util` arrived by resolution (R1), so the `round_robin` provider was never missing.
 
 **Alternatives considered**: *`ClusterIP` only, short connection age* — probabilistic, above.
 *Several connections per channel* — still connection-level. *Discovery through the Kubernetes API*
@@ -477,6 +480,10 @@ without making it invocable (`app.js:201-247`).
 - **No fixed ports**: every suite binds `GrpcServer.at("127.0.0.1", 0)`.
 - **Benchmarks** for SC-007 and SC-008 sit behind `-Dankka.benchmarks`, measured against the real
   call path (CLAUDE.md: a benchmark's denominator must be the thing the criterion names).
+  Measured 2026-10-03 on the development Mac (OrbStack's Postgres), `GrpcBenchmark`: the median
+  of 2,000 `GetCart` calls was 513µs over gRPC and 671µs over HTTP (SC-007 holds). The heap after
+  1,000 parts and after 100,000 was 63.9MB and 42.9MB for a stream to the caller, and 52.2MB and
+  43.1MB for one from it: it does not grow with the parts (SC-008 holds).
 
 **The test kit's part** (FR-038) is `GrpcServer.boundPort` and `GrpcChannels.plaintext(port)` in
 `ankka-grpc` itself, so `ankka-testkit` does not carry grpc-java to every service that tests.

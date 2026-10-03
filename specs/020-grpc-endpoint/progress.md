@@ -17,45 +17,50 @@ unrun). `tasks.md` is the authority on what is ticked; this file says what the o
 - `docs` built clean (78 pages) when last run; the Python and TypeScript SDKs and their conformance
   suites passed against the sidecar (T003). Rust was not run (no cargo on that machine).
 
-## Written, compiled, never run
+## Picked up on 2026-10-03 (worktree `../ankka-020-grpc-endpoint`)
 
-- `controlplane/src/test/scala/com/thinkmorestupidless/ankka/controlplane/GrpcClusterSuite.scala`
-  (k3s) — one test per scenario of `features/grpc-deployed/`, and SC-010's unexpose case. Covers
-  T028, T033, T041, T049, T051, T058. Its one run failed in `beforeAll` because Docker Desktop
-  stopped under the k3s container, not because of the suite. Expect to fix some cases on the first
-  real run; the ones most likely to need adjusting:
-  - *a stream on an instance that is stopping…* deletes every cart pod and asserts the stream ends
-    `UNAVAILABLE` no sooner than preStop (5s) + shutdown grace (5s) − 1s, through the gateway.
-  - *an instance that cannot yet answer a gRPC call is not ready* compares the log line
-    `ankka grpc listening` with the pod's Ready transition (whole seconds).
-  - *a member is shown why…* removes the namespace's `app.kubernetes.io/managed-by` label and expects
-    `route rejected` with `NotAllowedByListeners` in `services get`; it restores the label after.
-  - *a service that declares gRPC and serves none…* uses the suite's 170s progress deadline, not the
-    60s T028 suggests, because a shorter deadline would mark the other services `Failed` while CNPG
-    provisions.
-- `modules/grpc/src/test/scala/com/thinkmorestupidless/ankka/grpc/GrpcBenchmark.scala` (T065),
-  ignored unless `-Dankka.benchmarks=on`. Record its two printed figures in `research.md`.
-- The sample's new route `/callers/grpc/{service}/explained` (used by the cluster suite).
+- **`GrpcClusterSuite` has run on k3s** (OrbStack). Run by run it found three things, all fixed:
+  - `InPod.prober` re-applied a pod holding another service's certificate, which a pod's
+    immutable volumes refuse; it now deletes a prober holding a different service's certificate.
+  - The route-rejection case removed the namespace's `managed-by` label, which the operator puts
+    back on every reconcile, so it passed or failed on timing. It now narrows the gateway's HTTPS
+    listener selector instead, and restores it in a `finally`.
+  - **A platform bug**: on SIGTERM, Pekko's coordinated shutdown terminated the actor system while
+    a gRPC stream was inside the server's shutdown grace, so the caller saw `INTERNAL`, not
+    `UNAVAILABLE`. Extensions are now stopped from coordinated shutdown's first phase
+    (`AnkkaService.registerShutdown`), and `ShutdownOrderSuite` (testkit) fails without that.
+    The stopping-stream case now uses the echo stream, which depends on nothing but its server.
+  - **An operator gap**: a container that refuses to start spends most of each restart booting,
+    and in that window its state is `Running`, so the member's detail fell back to the kubelet's
+    failed readiness probe and the refusal's own words came and went. A running, not-ready
+    container now reports what it said as it last exited (`PodProblem.restarted`); three cases in
+    `WasmHostingRenderingSuite`, the first failing without it.
+  - `waitReady` attaches the service's pod logs when it gives up, after one run where a service
+    never became ready with nothing to say why (that run shared the machine with offline suites).
+- **R8 and R12 confirmed** on the cluster; T029 and T048 are closed on the exposed cases, as
+  proposed, rather than a separate spike.
+- **FR-040 and FR-050 have tests**: `TemplateSuite` case 9 (a gRPC endpoint added to a fresh
+  expansion using the docs page's own build blocks) and two reflection scenarios in
+  `deployed.feature` run by the cluster suite. `templateArtifacts` now publishes `ankka-grpc`.
 
 ## Next, in order
 
-1. `caffeinate -i sbt 'controlPlane/testOnly *GrpcClusterSuite'` — then tick T028, T033, T041,
-   T049, T051, T058.
-2. T029/T048, the gateway spike: proposed to close them on the cluster suite's exposed and stream
-   cases instead of writing a separate hand-applied spike, since those run against the operator's own
-   rendering — **awaiting the user's decision**. If accepted, replace R8's "Not confirmed" in
-   `research.md` with what the run observed.
-3. `sbt -Dankka.benchmarks=on 'grpc/testOnly *GrpcBenchmark'` (T065).
-4. T068: two clauses still have no test (listed under *Gaps* in `tasks.md`): FR-040 and FR-050
-   (reflection at the in-cluster gRPC address — needs a gRPC client in a pod).
-5. T070 `sbt -Dankka.cluster.tests=off test`, then `caffeinate -i sbt test`.
-6. T071 by hand on kind (quickstart step 6), T072 final gates.
+1. A green `GrpcClusterSuite` run, then tick T028, T033, T041, T049, T051, T058.
+2. `sbt -Dankka.benchmarks=on 'grpc/testOnly *GrpcBenchmark'` (T065); record its two figures beside the benchmarks line in `research.md`.
+3. Tick T068 (the coverage table has no gaps).
+4. T070 `sbt -Dankka.cluster.tests=off test`, then `caffeinate -i sbt test`.
+5. T071 by hand on kind (quickstart step 6), T072 final gates.
 
 ## Open questions for the user
 
 - Should the control plane refuse a service name whose `<name>-grpc-peers` clashes with another
   service's name (research R12)? Today the operator's owner guard keeps it safe but silent.
+- When **every** instance of a service is replaced at once (a crash, not a rollout), a caller's
+  channel keeps the old addresses until grpc-java's DNS resolver looks again, cached up to about 30
+  seconds, and its calls fail in that window; seen twice on k3s. A rolling replacement never shows
+  it. Is that acceptable, or should a caller re-resolve sooner (a shorter DNS cache, or retrying
+  `UNAVAILABLE` once after re-resolution)?
 - research R9: the existing HTTP route sets no timeout, so Envoy's 15-second default likely cuts a
   server-sent-event stream through the gateway. Predates this feature; recorded, not fixed.
-- The branch's commits carry a `--global` author name because of the machine's git config; offered to
-  rewrite them once that is fixed.
+- The branch's commits carry a `--global` author name because of the machine's git config. Rewriting
+  them means a force push of a remote branch, so it waits for the user.

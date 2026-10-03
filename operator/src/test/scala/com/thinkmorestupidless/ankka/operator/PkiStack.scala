@@ -137,6 +137,19 @@ object InPod:
       Transferable.of(manifest.getBytes(StandardCharsets.UTF_8)),
       s"/tmp/prober-$namespace.yaml"
     )
+    // A pod's volumes are immutable, so a prober holding another service's certificate cannot be
+    // re-applied as this one: it is removed first, and a prober for the same service is kept.
+    val holding =
+      PkiStack.jsonPath(
+        k3s,
+        "pod",
+        "prober",
+        "-n",
+        namespace,
+        "{.spec.volumes[0].secret.secretName}"
+      )
+    if holding.nonEmpty && holding != s"$service-service-tls" then
+      PkiStack.kubectl(k3s, "delete", "pod", "prober", "-n", namespace, "--wait=true"): Unit
     PkiStack.kubectl(k3s, "apply", "-f", s"/tmp/prober-$namespace.yaml"): Unit
     PkiStack.kubectl(
       k3s,

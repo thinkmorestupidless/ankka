@@ -41,6 +41,9 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 image = descriptor.service.image,
                 hosting = descriptor.service.hosting,
                 protocol = descriptor.service.protocol,
+                mounts = descriptor.service.mounts.map(m => MountStatus(m.path, m.service)),
+                callers = descriptor.service.callers,
+                processPort = descriptor.service.resolvedProcessPort,
                 generation = generation,
                 lifecycle =
                   if row.paused then ServiceLifecycle.Paused

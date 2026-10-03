@@ -680,6 +680,13 @@ object ServiceLifecycle:
 
     def nullValue: ServiceLifecycle = null
 
+/**
+ * One of a web-hosted service's mounts, with what is behind it (feature 021). `state` is `ok`,
+ * `no service`, `serves no HTTP` or `paused` when one service is read, since the endpoint can ask
+ * the mounted service's entity; it is empty in a listing, whose rows cannot.
+ */
+final case class MountStatus(path: String, service: String, state: String = "")
+
 /** A service as the CLI sees it. */
 final case class ServiceStatus(
     name: String,
@@ -731,12 +738,20 @@ final case class ServiceStatus(
      */
     paused: Boolean = false,
     /**
-     * `embedded`, `process` (feature 009) or `wasm` (feature 016): where the developer's code runs.
-     * Display only.
+     * `embedded`, `process` (feature 009), `wasm` (feature 016) or `web` (feature 021): where the
+     * developer's code runs. Display only.
      */
     hosting: String = "embedded",
     /** The protocol the service declared, for a process- or module-hosted one. Display only. */
-    protocol: Option[String] = None
+    protocol: Option[String] = None,
+    /** A web-hosted service's mounts, each with what is behind it (feature 021). */
+    mounts: Vector[MountStatus] = Vector.empty,
+    /**
+     * The services a web-hosted service admits beside the internet, as the descriptor wrote them.
+     */
+    callers: Vector[String] = Vector.empty,
+    /** The port a web-hosted service's process listens on, stated or defaulted. */
+    processPort: Option[Int] = None
 )
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
@@ -1221,6 +1236,7 @@ object Wire:
   given descriptorCodec: JsonValueCodec[ServiceDescriptor] = Codecs.make[ServiceDescriptor]
   given specCodec: JsonValueCodec[ServiceSpec]             = Codecs.make[ServiceSpec]
   given statusCodec: JsonValueCodec[ServiceStatus]         = Codecs.make[ServiceStatus]
+  given mountStatusCodec: JsonValueCodec[MountStatus]      = Codecs.make[MountStatus]
   given projectCodec: JsonValueCodec[ProjectSummary]       = Codecs.make[ProjectSummary]
   given renameCodec: JsonValueCodec[Rename]                = Codecs.make[Rename]
   given orgDetailCodec: JsonValueCodec[OrganizationDetail] = Codecs.make[OrganizationDetail]

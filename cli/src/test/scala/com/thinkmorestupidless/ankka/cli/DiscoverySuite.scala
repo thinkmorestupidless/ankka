@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.cli
 
 import com.sun.net.httpserver.HttpServer
-import com.thinkmorestupidless.ankka.cli.console.LocalSource
+import com.thinkmorestupidless.ankka.cli.console.{LocalSource, QueryResponse}
 import munit.FunSuite
 
 import java.net.{InetAddress, InetSocketAddress}
@@ -103,6 +103,18 @@ final class DiscoverySuite extends FunSuite:
     Files.writeString(directory.resolve("notes.txt"), "not mine"): Unit
     assertEquals(LocalSource(directory).services(), Vector.empty)
     assert(Files.exists(directory.resolve("notes.txt")), "only .json entries are ours to remove")
+  }
+
+  test("a service on a runtime older than the topology is there, and says it cannot report one") {
+    // The stand-in answers the one route discovery probes and nothing else, as a runtime from
+    // before the topology does: asked for it, its server has no such route.
+    val _      = writeEntry("orders", runningService("orders"))
+    val source = LocalSource(directory)
+    assertEquals(
+      source.topology("orders"),
+      Some(QueryResponse(501, LocalSource.TopologyUnsupported))
+    )
+    assertEquals(source.topology("ghost"), None, "a service that is not there is not there")
   }
 
   test("the directory comes from a system property, so no test writes to \\$HOME") {

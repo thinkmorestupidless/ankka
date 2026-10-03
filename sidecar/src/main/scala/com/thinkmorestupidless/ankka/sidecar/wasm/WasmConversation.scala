@@ -217,14 +217,22 @@ final class WasmConversation(
     def runStep(
         id: Long,
         step: String,
-        input: Option[Array[Byte]]
+        input: Option[Array[Byte]],
+        metadata: Metadata
     ): Future[Either[ProcessFailure, StepReply]] = Future {
       // A fresh instance holds nothing, so it is always handed the state, whatever the shape.
       val request = StepRequest(
         init.componentId,
         init.entityId,
         held.state,
-        Some(WorkflowIn.RunStep(id, step, input.map(pb.Payload.parseFrom)))
+        Some(
+          WorkflowIn.RunStep(
+            id,
+            step,
+            input.map(pb.Payload.parseFrom),
+            Some(Translate.toMetadata(metadata))
+          )
+        )
       )
       blocking.withFresh(fn("run_step"), stepTime)(
         ask(_, fn("run_step"), request)(PbStepReply.parseFrom)
@@ -302,25 +310,25 @@ final class WasmConversation(
       componentId: ComponentId,
       sessionId: String,
       tool: String,
-      argumentsJson: String
+      argumentsJson: String,
+      metadata: Metadata
   ): Future[Either[String, String]] =
-    orFail(
-      fresh("invoke_tool", ToolRequest(componentId, sessionId, tool, argumentsJson), stepTime)(
-        ToolResult.parseFrom
-      )
-    ).map(fromToolResult)
+    val request =
+      ToolRequest(componentId, sessionId, tool, argumentsJson, Some(Translate.toMetadata(metadata)))
+    orFail(fresh("invoke_tool", request, stepTime)(ToolResult.parseFrom)).map(fromToolResult)
 
   def checkGuardrail(
       componentId: ComponentId,
       sessionId: String,
       guardrail: String,
       stage: GuardrailStage,
-      text: String
+      text: String,
+      metadata: Metadata
   ): Future[Either[String, Unit]] =
     orFail(
       fresh(
         "check_guardrail",
-        toGuardrailRequest(componentId, sessionId, guardrail, stage, text),
+        toGuardrailRequest(componentId, sessionId, guardrail, stage, text, metadata),
         settings.commandTimeout
       )(GuardrailResult.parseFrom)
     ).map(fromGuardrailResult)
@@ -341,12 +349,19 @@ final class WasmConversation(
       componentId: ComponentId,
       taskId: String,
       taskType: String,
-      resultJson: String
+      resultJson: String,
+      metadata: Metadata
   ): Future[TaskResultVerdict] =
     orFail(
       fresh(
         "check_task_result",
-        TaskResultRequest(componentId, taskId, taskType, resultJson),
+        TaskResultRequest(
+          componentId,
+          taskId,
+          taskType,
+          resultJson,
+          Some(Translate.toMetadata(metadata))
+        ),
         settings.commandTimeout
       )(PbTaskResultVerdict.parseFrom)
     ).map(fromTaskResultVerdict)

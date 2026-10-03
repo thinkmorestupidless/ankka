@@ -240,7 +240,8 @@ private[sidecar] object Translate:
       sessionId: String,
       guardrail: String,
       stage: GuardrailStage,
-      text: String
+      text: String,
+      metadata: Metadata
   ): GuardrailRequest =
     GuardrailRequest(
       componentId,
@@ -250,7 +251,8 @@ private[sidecar] object Translate:
         case GuardrailStage.Input  => GuardrailRequest.Stage.INPUT
         case GuardrailStage.Output => GuardrailRequest.Stage.OUTPUT
       ,
-      text
+      text,
+      Some(toMetadata(metadata))
     )
 
   def fromGuardrailResult(result: GuardrailResult): Either[String, Unit] = result.result match

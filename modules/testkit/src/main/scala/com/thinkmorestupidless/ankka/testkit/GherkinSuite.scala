@@ -27,15 +27,20 @@ import scala.jdk.OptionConverters.*
  * A scenario fails, naming the step and its line, when a step matches no definition (with a
  * definition to paste), matches two, or takes a different number of values than the definition
  * expects. A directory with no scenarios fails the suite rather than passing it: a feature that ran
- * nothing has proved nothing. A scenario tagged `@ignore` is reported ignored, never passed.
+ * nothing has proved nothing. A scenario tagged `@ignore` is reported ignored, never passed, and so
+ * is one this suite names in `ranElsewhere`: a scenario that needs something this suite's module
+ * cannot see is a test named after it in the suite that can, and is shown here as ignored with
+ * where it runs.
  *
  * The suite instance is shared by its scenarios, which run one at a time; `scenarioId` is unique to
  * the running scenario, for ids no other scenario uses. A step's `DocString` or `DataTable`, when
  * it has one, is the definition's last value, as a `String` or a `Seq[Seq[String]]`.
  *
  * @param features
- *   the directory of `.feature` files, relative to the working directory: a forked sbt test runs in
- *   its project's directory, so `"features"` is the project's own.
+ *   the directory of `.feature` files, or one `.feature` file, relative to the working directory: a
+ *   forked sbt test runs in its project's directory, so `"features"` is the project's own. One file
+ *   is for features kept by what they describe rather than by the module that tests them, where a
+ *   directory holds files no single suite can run.
  */
 abstract class GherkinSuite(features: String) extends munit.FunSuite:
 
@@ -52,6 +57,15 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
     running.getOrElse(
       throw IllegalStateException("scenarioId is only defined while a scenario runs")
     )
+
+  /**
+   * Scenarios of this feature that another suite runs, by name, each with the suite that does.
+   *
+   * For a scenario this suite cannot make happen where it runs: it is reported as ignored, naming
+   * the suite, never as passed. A name here that is no scenario of the feature fails the suite, so
+   * an entry cannot outlive the scenario it was written for.
+   */
+  protected def ranElsewhere: Map[String, String] = Map.empty
 
   final protected def Given[F](expression: String)(body: F)(using StepBody[F]): Unit =
     define("Given", expression, body)
@@ -88,9 +102,21 @@ abstract class GherkinSuite(features: String) extends munit.FunSuite:
       )
     }
 
+  locally {
+    val scenarios = parsed.pickles.map(_.pickle.getName).toSet
+    val stale     = ranElsewhere.keySet.diff(scenarios)
+    if stale.nonEmpty then
+      test(s"$features holds every scenario this suite leaves to another") {
+        fail(s"no scenario named ${stale.toVector.sorted.mkString("'", "', '", "'")}")
+      }
+  }
+
   parsed.pickles.foreach { case Located(pickle, uri, line, stepLines) =>
-    val name    = s"${pickle.getName} ($uri:$line)"
-    val ignored = pickle.getTags.asScala.exists(_.getName == "@ignore")
+    val elsewhere = ranElsewhere.get(pickle.getName)
+    val name = elsewhere.fold(s"${pickle.getName} ($uri:$line)")(suite =>
+      s"${pickle.getName} ($uri:$line) is run by $suite"
+    )
+    val ignored = elsewhere.isDefined || pickle.getTags.asScala.exists(_.getName == "@ignore")
     val options = if ignored then name.ignore else munit.TestOptions(name)
     test(options) {
       running = Some(slug(s"$uri-$line"))
@@ -243,8 +269,14 @@ object GherkinSuite:
   private def slug(text: String): String =
     text.toLowerCase.replaceAll("[^a-z0-9]+", "-").stripPrefix("-").stripSuffix("-")
 
+  private def isFeature(path: Path): Boolean =
+    Files.isRegularFile(path) && path.toString.endsWith(".feature")
+
   private def parse(directory: Path): Parsed =
-    if !Files.isDirectory(directory) then return Parsed(Vector.empty, Vector.empty)
+    // A directory, walked, or one feature file: walking a file yields the file. Anything else holds
+    // no scenarios, which the suite reports as a failure rather than a pass.
+    if !Files.isDirectory(directory) && !isFeature(directory) then
+      return Parsed(Vector.empty, Vector.empty)
     val files =
       val stream = Files.walk(directory)
       try

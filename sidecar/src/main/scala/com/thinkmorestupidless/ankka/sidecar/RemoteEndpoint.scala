@@ -73,11 +73,14 @@ final class RemoteEndpoint private (
 
   /** What the local console lists for this endpoint. */
   def served: Vector[ServedRoute] =
+    // Named by its prefix, as the HTTP server names every endpoint it serves: the server reports
+    // these same routes, and one endpoint under two names would be drawn twice.
+    val id = ServedRoute.endpointId(spec.prefix)
     plain.map(r =>
-      ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = false)
+      ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = false, id)
     ) ++
       streaming.map(r =>
-        ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = true)
+        ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = true, id)
       )
 
   private def forwardOf(r: RouteSpec, args: Vector[String], body: Array[Byte]): HttpForward =
@@ -98,7 +101,8 @@ final class RemoteEndpoint private (
         case Caller.Gateway          => RemoteCaller.Gateway
         case Caller.Service(p, name) => RemoteCaller.Service(p, name)
         case Caller.Local            => RemoteCaller.Local,
-      metadata = Trace.into(Metadata.empty, traceId, spanId)
+      // The request's span, and the route as the caller of whatever the process calls for it.
+      metadata = Trace.outbound(Trace.into(Metadata.empty, traceId, spanId))
     )
 
   private def forward(r: RouteSpec, args: Vector[String], body: Array[Byte]): EncodedResponse =

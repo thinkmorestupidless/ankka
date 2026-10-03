@@ -30,7 +30,52 @@ trait ComponentDescriptor:
   def componentId: ComponentId
   def kind: ComponentKind
 
+  /**
+   * The handlers this component declares, by wire name, in name order.
+   *
+   * What the platform can say about a component without knowing its type: the runtime reports them
+   * in a service's topology, and a name a caller sends is only ever taken at its word when it is
+   * one of these. Declared on a companion or in discovery, so the set is fixed when the service
+   * starts and bounded by what was registered.
+   */
+  def declaredHandlers: Vector[DeclaredHandler] = Vector.empty
+
+  /**
+   * Whether the platform registered this component for its own purposes, such as the entity that
+   * keeps an agent's sessions. Said by the component, never inferred from its id: nothing stops a
+   * service naming one of its own components `ankka-something`.
+   */
+  def platform: Boolean = false
+
   override def toString: String = s"$kind($componentId)"
+
+/** What a declared handler is for. It says how the handler is reported, never how it is run. */
+enum HandlerKind:
+  /** May change state. */
+  case Command
+
+  /** Only reads. */
+  case Query
+
+  /** A workflow's step. */
+  case Step
+
+  /** Answers a part at a time. */
+  case Stream
+
+  /** Run by a timer. */
+  case Action
+
+  /** Applies a change from a view's or a consumer's source. */
+  case Update
+
+/** A handler a component declares, by the name a caller uses for it. */
+final case class DeclaredHandler(name: String, kind: HandlerKind)
+
+object DeclaredHandler:
+  /** One order everywhere a component's handlers are listed, so two listings can be compared. */
+  def sorted(handlers: Iterable[DeclaredHandler]): Vector[DeclaredHandler] =
+    handlers.toVector.sortBy(h => (h.name, h.kind.ordinal))
 
 /**
  * The immutable, validated set of components making up a service.

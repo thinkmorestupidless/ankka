@@ -1,7 +1,13 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.thinkmorestupidless.ankka.agent.{FunctionTool, Guardrail, ModelProvider}
-import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ComponentId, ComponentKind}
+import com.thinkmorestupidless.ankka.core.{
+  ComponentDescriptor,
+  ComponentId,
+  ComponentKind,
+  DeclaredHandler,
+  HandlerKind
+}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -256,3 +262,29 @@ final case class AutonomousAgentDescriptor[A <: AutonomousAgent](
     create: AutonomousAgentContext => A
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.AutonomousAgent
+
+  /**
+   * The same for every autonomous agent: what a caller can ask of an instance, and the one thing an
+   * instance does of its own accord, which is where its calls come from.
+   */
+  override def declaredHandlers: Vector[DeclaredHandler] = AutonomousAgentDescriptor.Declared
+
+object AutonomousAgentDescriptor:
+
+  /** What an instance is doing when it works on a task: the handler its calls are attributed to. */
+  val Iteration: String = "iteration"
+
+  private val Declared: Vector[DeclaredHandler] =
+    DeclaredHandler.sorted(
+      Vector(
+        HostProtocol.Assign,
+        HostProtocol.RunSingleTask,
+        HostProtocol.Dequeue,
+        HostProtocol.Suspend,
+        HostProtocol.Resume,
+        HostProtocol.Terminate
+      ).map(method => DeclaredHandler(method.toString, HandlerKind.Command)) ++ Vector(
+        DeclaredHandler(HostProtocol.Notifications.toString, HandlerKind.Stream),
+        DeclaredHandler(Iteration, HandlerKind.Step)
+      )
+    )

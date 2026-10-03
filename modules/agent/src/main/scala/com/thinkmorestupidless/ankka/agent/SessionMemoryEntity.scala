@@ -165,6 +165,9 @@ object SessionMemoryEntity
       eventSerializer = Codecs.serializer[SessionMemoryEvent]("session-memory-event")
     ):
 
+  /** The platform's own: it keeps what the platform needs, and no service wrote it. */
+  override private[ankka] def platform: Boolean = true
+
   final case class AddAiMessage(message: SessionMessage.AiMessage, usage: TokenUsage)
 
   /** A turn's messages, what the text model cost, and what the turn's judgments cost. */

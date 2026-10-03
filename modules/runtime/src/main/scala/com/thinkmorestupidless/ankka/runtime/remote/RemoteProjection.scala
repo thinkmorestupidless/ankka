@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.runtime.remote
 import com.thinkmorestupidless.ankka.core.effect.ViewEffect
 import com.thinkmorestupidless.ankka.core.{Metadata, Serializer}
 import com.thinkmorestupidless.ankka.runtime.{
+  CallOrigin,
   Database,
   IncomingMessage,
   JournalRecord,
@@ -106,7 +107,10 @@ private[ankka] final class RemoteView(
         ViewRequest(
           descriptor.componentId,
           change,
-          Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
+          CallOrigin.into(
+            Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
+            CallOrigin(descriptor.componentId.toString, "on-change")
+          ),
           row.map(bytes => Payload(Payload.Json, descriptor.rowManifest, bytes))
         )
       )
@@ -220,7 +224,10 @@ private[ankka] final class RemoteConsumer(
         ConsumerRequest(
           descriptor.componentId,
           change,
-          Trace.into(consumerMetadata(subject, sequence), span.traceId, span.id)
+          CallOrigin.into(
+            Trace.into(consumerMetadata(subject, sequence), span.traceId, span.id),
+            CallOrigin(descriptor.componentId.toString, "on-message")
+          )
         )
       )
       .transform { result =>

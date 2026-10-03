@@ -446,20 +446,28 @@ impl<C: AutonomousAgent> Registration<C> {
             .task_type
     }
 
-    /// The context a result is checked in: the task's, as a tool's.
-    pub(crate) fn task_context(task_id: &str) -> Context {
+    /// The context a result is checked in: the task's, as a tool's. `metadata` is what the runtime
+    /// says about the check: its trace, and the agent's handler as the caller of whatever a rule
+    /// calls. A runtime before 1.3 sends none.
+    pub(crate) fn task_context(task_id: &str, metadata: Option<&proto::Metadata>) -> Context {
         Context::new(
             C::COMPONENT_ID,
             format!("task:{task_id}"),
             0,
-            Metadata::new(),
+            Metadata::from_proto(metadata),
         )
     }
 
     /// Checks one result as `ankka1_check_task_result` does.
-    pub(crate) fn check(&self, task_type: &str, result_json: &str, task_id: &str) -> ResultCheck {
+    pub(crate) fn check(
+        &self,
+        task_type: &str,
+        result_json: &str,
+        task_id: &str,
+        metadata: Option<&proto::Metadata>,
+    ) -> ResultCheck {
         self.task_type(task_type)
-            .check(result_json, &Self::task_context(task_id))
+            .check(result_json, &Self::task_context(task_id, metadata))
     }
 
     /// Runs one rule of `task_type` alone: `None` when there is no such rule, `Err` when the result
@@ -473,7 +481,7 @@ impl<C: AutonomousAgent> Registration<C> {
         task_id: &str,
     ) -> Option<Result<Verdict, String>> {
         self.task_type(task_type)
-            .rule(rule, result_json, &Self::task_context(task_id))
+            .rule(rule, result_json, &Self::task_context(task_id, None))
     }
 }
 
@@ -576,8 +584,13 @@ impl<C: AutonomousAgent> Registered for Registration<C> {
         request: proto::TaskResultRequest,
     ) -> Option<proto::TaskResultVerdict> {
         Some(
-            self.check(&request.task_type, &request.result_json, &request.task_id)
-                .to_proto(),
+            self.check(
+                &request.task_type,
+                &request.result_json,
+                &request.task_id,
+                request.metadata.as_ref(),
+            )
+            .to_proto(),
         )
     }
 }

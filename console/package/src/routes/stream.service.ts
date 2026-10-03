@@ -27,6 +27,8 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const name = params.name!;
   const query = new URL(request.url).searchParams;
   const follow = query.has("logs");
+  const topology = query.has("topology");
+  let lastTopology = "";
   const tail = Math.min(Math.max(Number(query.get("tail") ?? 200) || 200, 1), 5_000);
   const logQuery = { instance: query.get("instance") || undefined, previous: query.get("previous") === "true", tail };
   const follower = new LogFollower(tail);
@@ -46,6 +48,19 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
       } catch (e) {
         if (ended(sink, e)) return;
         throw e;
+      }
+      if (topology) {
+        try {
+          const now = await ctx.client.topology(projectId, name);
+          const json = JSON.stringify(now);
+          if (json !== lastTopology) {
+            lastTopology = json;
+            sink.send("topology", now);
+          }
+        } catch (e) {
+          if (e instanceof SignInRequired) return void ended(sink, e);
+          // No running instance has no topology; its status says why.
+        }
       }
       if (!follow) return;
       try {

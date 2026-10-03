@@ -47,14 +47,23 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   // suite creates: the deployed control plane verifies against the in-cluster key set and expects
   // the issuer it derives from ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT — so this is also the proof
   // that the derivation agrees with what Keycloak writes into a token (research R3).
-  private lazy val Token: String =
-    KeycloakStack.mintToken(
-      GatewayStack.exportCa(k8s),
-      BaseDomain,
-      k3s.getMappedPort(GatewayStack.HttpsNodePort),
-      "e2e-cli",
-      "e2e-secret"
-    )
+  //
+  // The realm's tokens live five minutes and the suite runs for longer, so one is minted again once
+  // the last is four minutes old: a case that runs late must not fail on an expired credential.
+  @volatile private var minted: Option[(String, Long)] = None
+  private def Token: String =
+    minted.filter((_, at) => System.nanoTime() - at < 4.minutes.toNanos) match
+      case Some((token, _)) => token
+      case None =>
+        val token = KeycloakStack.mintToken(
+          GatewayStack.exportCa(k8s),
+          BaseDomain,
+          k3s.getMappedPort(GatewayStack.HttpsNodePort),
+          "e2e-cli",
+          "e2e-secret"
+        )
+        minted = Some(token -> System.nanoTime())
+        token
   private val Namespace = "ankka-controlplane"
   private val Project   = "checkout"
 
@@ -1038,4 +1047,232 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       Vector.empty,
       s"requests refused or redirected during the roll: $seen"
     )
+  }
+
+  // ── A deployed service's topology (feature 019) ──────────────────────────────
+
+  test(
+    "11. a member reads a deployed service's topology through the control plane, merged across two instances"
+  ) {
+    import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+    import com.thinkmorestupidless.ankka.controlplane.api.ServiceTopology
+    import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
+    import com.thinkmorestupidless.ankka.operator.InPod
+
+    // Room first. Every instance reserves its CPU and memory whether it is busy or not, and case 5
+    // creates as many throwaway services as the API answers in its time; on a quiet machine that is
+    // enough to leave no room on the one k3s node for a second cart, which then waits unscheduled.
+    // Everything but svc1 was created only to be counted, so it goes.
+    val NamePattern  = """"name":"([^"]+)"""".r
+    val (_, listing) = api("GET", s"/services/$Project")
+    val throwaway =
+      NamePattern.findAllMatchIn(listing).map(_.group(1)).toVector.distinct.filterNot(_ == "svc1")
+    throwaway.foreach(name => api("DELETE", s"/services/$Project/$name"): Unit)
+    waitFor(300.seconds) {
+      k8s.pods().inNamespace(s"ankka-$Project").list().getItems.asScala.forall { p =>
+        val name =
+          Option(p.getMetadata.getLabels).flatMap(l => Option(l.get("app.kubernetes.io/name")))
+        name.forall(n => n == "svc1" || !throwaway.contains(n))
+      }
+    }
+
+    // Two instances of the real cart: two, not three, because a k3s node running several sample
+    // JVMs answers in seconds, and the three-instance timing is the HTTP suite's scripted case.
+    val two =
+      s"""{"name":"svc1","service":{"image":"$SampleImage","resources":{"autoscaling":{"minInstances":2}}}}"""
+    val (applied, appliedOut) = api("PUT", s"/services/$Project/svc1", Some(two))
+    assertEquals(applied, 0, appliedOut)
+
+    val workload = s"ankka-$Project"
+    def cartPods: Vector[Pod] =
+      k8s
+        .pods()
+        .inNamespace(workload)
+        .withLabel("app.kubernetes.io/name", "svc1")
+        .list()
+        .getItems
+        .asScala
+        .toVector
+        .filter(p =>
+          p.getMetadata.getDeletionTimestamp == null &&
+            Option(p.getStatus.getContainerStatuses).exists(_.asScala.exists(_.getReady))
+        )
+    // Until the rollout is over, not merely until two pods are ready: going to two instances changes
+    // the pod template, so the first pod is replaced, and the calls it counted go with it. Requests
+    // sent while it still serves would be counted on an instance the topology will never read.
+    def rolledOut: Boolean =
+      Option(k8s.apps().deployments().inNamespace(workload).withName("svc1").get()).exists { d =>
+        val st = d.getStatus
+        st != null && st.getObservedGeneration == d.getMetadata.getGeneration &&
+        Option(st.getUpdatedReplicas).contains(2) && Option(st.getReplicas).contains(2) &&
+        Option(st.getAvailableReplicas).contains(2)
+      }
+    // And until the replaced pod is gone, not merely marked for deletion: it serves through its
+    // preStop pause while the Service still routes to it, and calls it counts leave with it.
+    def noneLeaving: Boolean =
+      k8s
+        .pods()
+        .inNamespace(workload)
+        .withLabel("app.kubernetes.io/name", "svc1")
+        .list()
+        .getItems
+        .asScala
+        .forall(_.getMetadata.getDeletionTimestamp == null)
+    try waitFor(300.seconds)(rolledOut && cartPods.size == 2 && noneLeaving)
+    catch
+      case failure: Throwable =>
+        // What the rollout was doing, so a failure says why rather than only that it timed out.
+        val d     = Option(k8s.apps().deployments().inNamespace(workload).withName("svc1").get())
+        val every = k8s.pods().inNamespace(workload).withLabel("app.kubernetes.io/name", "svc1")
+        val states = every.list().getItems.asScala.map { p =>
+          val cs =
+            Option(p.getStatus.getContainerStatuses).map(_.asScala.toVector).getOrElse(Vector.empty)
+          s"${p.getMetadata.getName} ${p.getStatus.getPhase} " +
+            cs.map(c =>
+              s"${c.getName} ready=${c.getReady} restarts=${c.getRestartCount} ${c.getState}"
+            ).mkString("; ")
+        }
+        val logs = every.list().getItems.asScala.map { p =>
+          val tail = scala.util
+            .Try(
+              k8s
+                .pods()
+                .inNamespace(workload)
+                .withName(p.getMetadata.getName)
+                .inContainer("svc1")
+                .tailingLines(15)
+                .getLog(true)
+            )
+            .getOrElse("(no log)")
+          s"--- ${p.getMetadata.getName}\n$tail"
+        }
+        fail(
+          s"the rollout to two instances did not finish: spec ${d.map(_.getSpec.getReplicas)}, " +
+            s"status ${d.map(_.getStatus)}\npods:\n${states.mkString("\n")}\n${logs.mkString("\n")}",
+          failure
+        )
+
+    // Requests through the cart's own Service, from one of its pods with that pod's certificate.
+    val from     = cartPods.head.getMetadata.getName
+    val requests = 6
+    // Each request is sent until it is answered: a starved node can time a request out before it
+    // reaches the cart, which is no call at all. One that is answered is never sent again, so the
+    // count the topology must show is at least `requests`, and at most every attempt, since one
+    // that timed out may still have reached the cart and been counted there.
+    var attempts = 0
+    (1 to requests).foreach { i =>
+      var answer = (0, "")
+      waitFor(120.seconds) {
+        attempts += 1
+        answer = InPod.curl(
+          k3s,
+          workload,
+          from,
+          s"https://svc1.$workload.svc.cluster.local:9000/carts/topo-$i/items",
+          method = "POST",
+          body = Some("""{"productId":"p1","name":"Pen","quantity":1}""")
+        )
+        answer._1 != 0
+      }
+      assert(answer._1 / 100 == 2, s"request $i: ${answer._1} ${answer._2}")
+    }
+
+    def addItems(t: ServiceTopology): Long =
+      t.calls.flatMap(_.pairs).filter(_.callee == "add-item").map(_.handled.ok).sum
+
+    // Waited for on the count itself: a call is counted where it ends, on whichever instance.
+    var last: Option[ServiceTopology] = None
+    var raw                           = ""
+    try
+      waitFor(90.seconds) {
+        val (code, body) = api("GET", s"/services/$Project/svc1/topology")
+        raw = body
+        // `kubectl exec` adds its own notes to the output; the document is the object in it.
+        val json = body.substring(math.max(0, body.indexOf('{')), body.lastIndexOf('}') + 1)
+        last =
+          if code == 0 then scala.util.Try(readFromString[ServiceTopology](json)).toOption
+          else None
+        last.exists(t =>
+          t.contributing == 2 && addItems(t) >= requests.toLong && addItems(t) <= attempts.toLong
+        )
+      }
+    catch
+      case failure: Throwable =>
+        fail(s"the topology never showed $requests to $attempts calls: $raw", failure)
+    val topology = last.get
+    assertEquals((topology.running, topology.contributing, topology.partial), (2, 2, false))
+    assert(topology.nodes.exists(_.kind == "EventSourcedEntity"), raw)
+    assert(topology.declared.nonEmpty, s"the cart's views read its events: $raw")
+    assert(!raw.contains("topo-1"), "an entity id reached the topology")
+    assert(!raw.contains("histogram"), "the merged response drops the histograms")
+
+    // The CLI, through the gateway, as a developer's machine reaches it.
+    val port   = k3s.getMappedPort(GatewayStack.HttpsNodePort)
+    val config = Files.createTempFile("ankka-cli-topology", ".json")
+    Files.delete(config)
+    val hosts = Files.createTempFile("ankka-hosts", ".txt")
+    Files.writeString(hosts, s"127.0.0.1 api.$BaseDomain\n")
+    assertEquals(
+      cliProcess(config, hosts, "config", "set", "url", s"https://api.$BaseDomain:$port")._1,
+      0
+    )
+    assertEquals(cliProcess(config, hosts, "config", "set", "token", Token)._1, 0)
+    assertEquals(
+      cliProcess(config, hosts, "config", "set", "ca", GatewayStack.exportCa(k8s).toString)._1,
+      0
+    )
+    val (cliCode, cliOut) = cliProcess(config, hosts, "services", "topology", "svc1", "-p", Project)
+    assertEquals(cliCode, 0, cliOut)
+    assert(cliOut.contains("2 of 2 instances answered"), cliOut)
+    assert(cliOut.contains("-> add-item"), cliOut)
+  }
+
+  test("12. only the control plane may open a workload's observe port") {
+    import com.thinkmorestupidless.ankka.operator.InPod
+    val workload = s"ankka-$Project"
+    val carts = k8s
+      .pods()
+      .inNamespace(workload)
+      .withLabel("app.kubernetes.io/name", "svc1")
+      .list()
+      .getItems
+      .asScala
+      .toVector
+      .filter(p => Option(p.getStatus.getContainerStatuses).exists(_.asScala.exists(_.getReady)))
+    assert(
+      carts.size >= 2,
+      s"case 11 leaves two cart instances: ${carts.map(_.getMetadata.getName)}"
+    )
+    val (one, other) = (carts(0), carts(1))
+    val otherIp      = other.getStatus.getPodIP
+
+    // The service's own certificate, presented to another instance of the same service: the
+    // network admits a pod of the workload, so the refusal is the listener's, in the handshake.
+    val (own, ownOut) = InPod.curl(
+      k3s,
+      workload,
+      one.getMetadata.getName,
+      s"https://$otherIp:7628/observability/topology",
+      verifyHost = false
+    )
+    assertEquals(own, 0, s"the service's own identity was admitted: $ownOut")
+
+    // A pod with no platform identity cannot even connect, though the same pod reaches readiness:
+    // the test cannot pass on a dead network.
+    def connects(port: Int) =
+      k3s
+        .execInContainer(
+          "kubectl",
+          "exec",
+          "-n",
+          "default",
+          "stranger",
+          "--",
+          "sh",
+          "-c",
+          s"echo | nc -w 3 $otherIp $port"
+        )
+        .getExitCode == 0
+    assert(!connects(7628), "the observe port admitted a pod with no platform identity")
+    assert(connects(7627), "the probe port must admit anyone, or this proves nothing")
   }

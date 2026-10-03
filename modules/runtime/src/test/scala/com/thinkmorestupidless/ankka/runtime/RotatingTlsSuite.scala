@@ -158,6 +158,43 @@ class RotatingTlsSuite extends munit.FunSuite:
     assert(handshake(server, Some(other)).isLeft, "another service's identity must be refused")
   }
 
+  test("under Exactly only the named identity is admitted, as a server and as a client") {
+    val controlplane = root.issue(uris = Seq("ankka://platform/controlplane"))
+    val cart         = root.issue(uris = Seq("ankka://checkout/cart"))
+    def client(leaf: TestPki.Leaf): RotatingTls = RotatingTls(leaf.writeTo(dir()), 1.minute)
+
+    // A workload's observe listener: the control plane, and nobody else — not the service's own
+    // identity, not the gateway, not another service of the same project.
+    val listener = RotatingTls(
+      cart.writeTo(dir()),
+      1.minute,
+      RotatingTls.Peers.Exactly("ankka://platform/controlplane")
+    )
+    assert(handshake(listener, Some(client(controlplane))).isRight, "the control plane")
+    assert(handshake(listener, Some(client(cart))).isLeft, "the service's own identity")
+    assert(
+      handshake(listener, Some(client(root.issue(uris = Seq("ankka://gateway"))))).isLeft,
+      "the gateway"
+    )
+    assert(
+      handshake(listener, Some(client(root.issue(uris = Seq("ankka://checkout/orders"))))).isLeft,
+      "another service"
+    )
+
+    // The control plane's side: it expects exactly the service it asked for, reached by an address
+    // no certificate names, so the identity is the whole of the check.
+    val reader = RotatingTls(
+      controlplane.writeTo(dir()),
+      1.minute,
+      RotatingTls.Peers.Exactly("ankka://checkout/cart")
+    )
+    assert(handshake(client(cart), Some(reader)).isRight, "the service asked for")
+    assert(
+      handshake(client(root.issue(uris = Seq("ankka://checkout/orders"))), Some(reader)).isLeft,
+      "a service other than the one asked for"
+    )
+  }
+
   test("SameIdentity refuses to start from a certificate with no ankka identity") {
     val directory = root.issue(dnsNames = Seq("x.svc")).writeTo(dir())
     intercept[IllegalStateException](

@@ -92,6 +92,23 @@ class ServiceRenderingSuite extends munit.FunSuite:
     assertEquals(ports.head.getProtocol, "TCP")
   }
 
+  test(
+    "the container exposes the observe port once, by name and number, and no selector names it"
+  ) {
+    val deployment = deploymentFor(spec)
+    val ports      = deployment.getSpec.getTemplate.getSpec.getContainers.get(0).getPorts.asScala
+    val observe    = ports.filter(p => p.getName == "observe" || p.getContainerPort == 7628)
+    assertEquals(observe.size, 1, ports.map(p => s"${p.getName}:${p.getContainerPort}").toString)
+    assertEquals(observe.head.getName, "observe")
+    assertEquals(observe.head.getContainerPort.intValue, 7628)
+    assertEquals(observe.head.getProtocol, "TCP")
+    assert(!deployment.getSpec.getSelector.getMatchLabels.asScala.values.exists(_.contains("7628")))
+    assert(
+      !serviceFor(spec).getSpec.getPorts.asScala.exists(_.getPort == 7628),
+      "not a Service port"
+    )
+  }
+
   test("the Service's target is the very port the container exposes") {
     val containerPort = deploymentFor(spec).getSpec.getTemplate.getSpec.getContainers
       .get(0)

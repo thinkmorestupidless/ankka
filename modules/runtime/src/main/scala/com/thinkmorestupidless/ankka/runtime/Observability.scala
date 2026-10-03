@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import com.thinkmorestupidless.ankka.core.Metadata
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.Extension
 import org.apache.pekko.actor.typed.ExtensionId
@@ -18,7 +19,177 @@ import java.util.concurrent.atomic.AtomicInteger
  * `capacity` comes from `ankka.observability.ring-capacity`, so an application that wants a longer
  * window can have one without a code change.
  */
-final class Observability(val recorder: Recorder, val names: Names) extends Extension
+final class Observability(
+    val recorder: Recorder,
+    val names: Names,
+    val calls: CallCounts = CallCounts(600_000L, 60, System.currentTimeMillis()),
+    val externalServices: ExternalServices = ExternalServices(32)
+) extends Extension:
+
+  @volatile private var declaredNames: DeclaredNames = DeclaredNames.none
+
+  /**
+   * The names a call's metadata is checked against. Nothing until the service has said what it is
+   * made of, so a call that arrives before then is from an unknown origin, and never from whatever
+   * it claimed.
+   */
+  def declared: DeclaredNames = declaredNames
+
+  /**
+   * Refuses a service that declares more names than a call's key has room for, at startup and by
+   * name. Once that has passed, nothing a call carries can fail on the table: only a declared name
+   * is ever interned.
+   */
+  private[runtime] def declare(declaring: DeclaredNames): Unit =
+    if declaring.names > Observability.MaxDeclaredNames then
+      throw IllegalStateException(
+        s"this service declares ${declaring.names} component and handler names, and the " +
+          s"topology can count calls between at most ${Observability.MaxDeclaredNames}"
+      )
+    declaredNames = declaring
+
+  private val unknown    = names.intern(CallCounts.UnknownOrigin)
+  private val undeclared = names.intern(CallCounts.Undeclared)
+
+  /**
+   * A call a host ran a handler for. The one place a handled call is counted, so that no host can
+   * count differently: who made it is what the call's metadata names, when that is a name this
+   * service declared, and otherwise nobody in particular.
+   *
+   * @param callee
+   *   the component that ran the handler, and `handler` the handler: the host's own, so declared.
+   */
+  private[ankka] def handled(
+      incoming: Metadata,
+      callee: String,
+      handler: String,
+      outcome: SpanOutcome,
+      durationNanos: Long,
+      streaming: Boolean = false
+  ): Unit =
+    val named = CallOrigin.from(incoming)
+    // The console reading an entity is not the service doing anything.
+    if !named.contains(CallOrigin.Console) then
+      keyOf(named.filter(o => declaredNames.validate(o.component, o.handler)), callee, handler)
+        .foreach(calls.handled(_, outcome, durationNanos, streaming, System.currentTimeMillis()))
+
+  /**
+   * A call a host answered without running a handler: the method is not one the component declares,
+   * or the host was stopping. Counted as undelivered, and under no name that was sent: a method
+   * nobody declared is `(undeclared)`.
+   */
+  private[ankka] def undelivered(
+      incoming: Metadata,
+      callee: String,
+      handler: Option[String]
+  ): Unit =
+    val named = CallOrigin.from(incoming)
+    if !named.contains(CallOrigin.Console) then
+      val origin = named.filter(o => declaredNames.validate(o.component, o.handler))
+      val key = handler match
+        case Some(declared) => keyOf(origin, callee, declared)
+        case None           => keyOf(origin, names.intern(callee), undeclared)
+      key.foreach(calls.unanswered(_, Unanswered.Undelivered, System.currentTimeMillis()))
+
+  /**
+   * A call its caller got no answer to, counted where it was made: the only place that can see it.
+   *
+   * @param origin
+   *   the calling thread's own origin, taken before the call was sent.
+   * @param callee
+   *   what the call named, which from a process in another language is whatever it sent. Counted
+   *   under those names only when the service declared them; a declared component with another
+   *   method is `(undeclared)`, and a component nobody registered is not counted at all.
+   */
+  private[ankka] def unanswered(
+      origin: Option[CallOrigin],
+      callee: String,
+      method: String,
+      kind: Unanswered
+  ): Unit =
+    if !origin.contains(CallOrigin.Console) then
+      val caller = believed(origin)
+      val key =
+        if declaredNames.validate(callee, method) then keyOf(caller, callee, method)
+        else if declaredNames.registered(callee) then
+          keyOf(caller, names.intern(callee), undeclared)
+        else None
+      key.foreach(calls.unanswered(_, kind, System.currentTimeMillis()))
+
+  /**
+   * A call counted where it was made because nothing hosts what it calls: a view's rows are read
+   * straight from the database, and another service is another process. The callee's names are the
+   * caller's to give and are bounded by its own code, or by admission for a service.
+   */
+  private[ankka] def made(
+      origin: Option[CallOrigin],
+      callee: String,
+      handler: String,
+      outcome: SpanOutcome,
+      durationNanos: Long
+  ): Unit =
+    if !origin.contains(CallOrigin.Console) then
+      keyOf(believed(origin), callee, handler)
+        .foreach(calls.handled(_, outcome, durationNanos, false, System.currentTimeMillis()))
+
+  /** As `made`, for a call that got no answer: another service that timed out or was not there. */
+  private[ankka] def madeUnanswered(
+      origin: Option[CallOrigin],
+      callee: String,
+      handler: String,
+      kind: Unanswered
+  ): Unit =
+    if !origin.contains(CallOrigin.Console) then
+      keyOf(believed(origin), callee, handler)
+        .foreach(calls.unanswered(_, kind, System.currentTimeMillis()))
+
+  /**
+   * An origin, when it is one this service declared. A thread's own origin was set by a host and
+   * always is; it is checked all the same, so that no way of counting a call can put a name in the
+   * table that the service did not declare, whatever set the origin.
+   */
+  private def believed(origin: Option[CallOrigin]): Option[CallOrigin] =
+    origin.filter(o => declaredNames.validate(o.component, o.handler))
+
+  private def keyOf(origin: Option[CallOrigin], callee: String, handler: String): Option[Long] =
+    keyOf(origin, names.intern(callee), names.intern(handler))
+
+  private def keyOf(origin: Option[CallOrigin], callee: Int, handler: Int): Option[Long] =
+    origin match
+      case Some(o) =>
+        CallCounts.key(names.intern(o.component), names.intern(o.handler), callee, handler)
+      case None => CallCounts.key(unknown, unknown, callee, handler)
+
+  /**
+   * Runs `body` as one invocation of a declared handler: a span in the caller's trace, the origin
+   * of whatever `body` calls, and one handled call from whoever the metadata names.
+   *
+   * For a host whose handler runs on a thread of its own, which is every host but an entity's: the
+   * span and the origin are set on the thread this is called on, so it is called inside the
+   * `Future`, never around the creation of one.
+   */
+  private[ankka] def invocation[A](
+      component: String,
+      handler: String,
+      incoming: Metadata,
+      streaming: Boolean = false
+  )(outcomeOf: A => SpanOutcome)(body: => A): A =
+    val span = recorder.begin(
+      traceId = Trace.traceIdOf(incoming).getOrElse(Trace.mint()),
+      parentSpanId = Trace.parentSpanIdOf(incoming).getOrElse(0L),
+      componentRef = names.intern(component),
+      handlerRef = names.intern(handler)
+    )
+    val started = System.nanoTime()
+    // Failed until proven otherwise: if the handler throws, that is what is recorded.
+    var outcome = SpanOutcome.Failed
+    try
+      val result = Trace.within(span.traceId, span.id, CallOrigin(component, handler))(body)
+      outcome = outcomeOf(result)
+      result
+    finally
+      recorder.complete(span, outcome)
+      handled(incoming, component, handler, outcome, System.nanoTime() - started, streaming)
 
 object Observability extends ExtensionId[Observability]:
 
@@ -27,7 +198,44 @@ object Observability extends ExtensionId[Observability]:
       if system.settings.config.hasPath("ankka.observability.ring-capacity") then
         system.settings.config.getInt("ankka.observability.ring-capacity")
       else 4096
-    new Observability(Recorder(capacity), new Names)
+    val config = system.settings.config
+    def millis(path: String, otherwise: Long): Long =
+      if config.hasPath(path) then config.getDuration(path).toMillis else otherwise
+    def int(path: String, otherwise: Int): Int =
+      if config.hasPath(path) then config.getInt(path) else otherwise
+    new Observability(
+      Recorder(capacity),
+      new Names,
+      CallCounts(
+        millis("ankka.observability.call-window", 600_000L),
+        int("ankka.observability.call-buckets", 60),
+        System.currentTimeMillis()
+      ),
+      ExternalServices(int("ankka.observability.max-external-services", 32))
+    )
+
+  /**
+   * How a call ended, from the reply its host made. A refusal is a handler saying no; a reply that
+   * says the handler could not answer, because something it needed failed or was too slow, is not.
+   */
+  private[ankka] def outcomeOf(reply: EntityProtocol.Reply): SpanOutcome = reply match
+    case _: EntityProtocol.Succeeded       => SpanOutcome.Ok
+    case rejected: EntityProtocol.Rejected => outcomeOf(rejected.toCommandError)
+
+  private[ankka] def outcomeOf(
+      error: com.thinkmorestupidless.ankka.core.CommandError
+  ): SpanOutcome =
+    import com.thinkmorestupidless.ankka.core.ErrorCode
+    error.code match
+      case ErrorCode.Timeout                          => SpanOutcome.TimedOut
+      case ErrorCode.Internal | ErrorCode.Unavailable => SpanOutcome.Failed
+      case _                                          => SpanOutcome.Refused
+
+  /**
+   * A call's key holds each name in sixteen bits. Short of that, to leave room for the names the
+   * recorder interns that are not a service's own: the fixed ones, and the services it calls.
+   */
+  val MaxDeclaredNames: Int = 60_000
 
 /**
  * Names on the way in, integers on the way out.
@@ -52,6 +260,9 @@ final class Names:
   private val ids  = new ConcurrentHashMap[String, Integer]()
   private val back = new ConcurrentHashMap[Integer, String]()
   private val next = new AtomicInteger(0)
+
+  /** How many names are held. Bounded by what a service declares, so worth being able to assert. */
+  def size: Int = ids.size
 
   /** The integer for this name, assigning one the first time it is seen. */
   def intern(name: String): Int =

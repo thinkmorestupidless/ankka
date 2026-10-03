@@ -1,0 +1,70 @@
+{
+  "scenario": null,
+  "about": "a connection from a platform component stays on its reader; one between two platform components goes with them",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0
+    },
+    "nodes": [
+      {
+        "id": "ankka-task",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": true,
+        "handlers": []
+      },
+      {
+        "id": "ankka-task-cascade",
+        "kind": "Consumer",
+        "layer": 3,
+        "platform": true,
+        "handlers": []
+      },
+      {
+        "id": "task-board",
+        "kind": "View",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [
+      {
+        "from": "ankka-task",
+        "to": "ankka-task-cascade",
+        "kind": "events"
+      },
+      {
+        "from": "ankka-task",
+        "to": "task-board",
+        "kind": "events"
+      }
+    ],
+    "calls": []
+  },
+  "options": {},
+  "expected": {
+    "shown": [
+      "task-board"
+    ],
+    "declared": [],
+    "through": {
+      "task-board": [
+        {
+          "component": "ankka-task",
+          "relation": "reads",
+          "kind": "events"
+        }
+      ]
+    },
+    "hiddenPlatform": 2
+  }
+}

@@ -858,6 +858,12 @@ object Rendering:
         .withName(ZeroTrust.ProbePortName)
         .withContainerPort(ZeroTrust.ProbePort)
         .withProtocol("TCP")
+        .build(),
+      // The control plane's read of the topology (feature 019). Not in any selector.
+      new ContainerPortBuilder()
+        .withName(ZeroTrust.ObservePortName)
+        .withContainerPort(ZeroTrust.ObservePort)
+        .withProtocol("TCP")
         .build()
     )
 

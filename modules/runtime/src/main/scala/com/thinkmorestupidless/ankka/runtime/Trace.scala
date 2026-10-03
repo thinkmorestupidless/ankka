@@ -99,14 +99,89 @@ object Trace:
    * attribute. That shows up as unattributed time and an orphan span, which is the honest answer;
    * guessing a parent would produce a trace that reads correctly and is wrong.
    */
-  private val current = ThreadLocal[(Long, Long)]()
+  private val current = ThreadLocal[Working]()
 
-  def currentTrace: Option[(Long, Long)] = Option(current.get())
+  /** What a thread is working for: the trace, the span, and the handler that span is. */
+  private final class Working(val traceId: Long, val spanId: Long, val origin: CallOrigin)
 
-  /** Runs `body` as the work of this span, restoring whatever was current before. */
+  def currentTrace: Option[(Long, Long)] =
+    current.get() match
+      case null => None
+      // No trace is minted with id zero, so zero is a thread that is a handler and in no trace.
+      case working if working.traceId == 0L => None
+      case working                          => Some((working.traceId, working.spanId))
+
+  /**
+   * The handler the current thread is running, if a host said so.
+   *
+   * What a call made from this thread is attributed to. It follows the thread exactly as the trace
+   * does, and stops where the trace stops: work handed to another thread has no origin, and a call
+   * it makes is from an unknown one. It is never filled in from the nearest handler that might have
+   * been responsible.
+   */
+  def currentOrigin: Option[CallOrigin] =
+    current.get() match
+      case null    => None
+      case working => Option(working.origin)
+
+  /**
+   * Runs `body` as the work of this span and of this handler, restoring whatever was current
+   * before. The form a host uses: a call `body` makes is this span's child and this handler's call.
+   */
+  def within[A](traceId: Long, spanId: Long, origin: CallOrigin)(body: => A): A =
+    scoped(Working(traceId, spanId, origin))(body)
+
+  /**
+   * Runs `body` as a handler's work that belongs to no trace: what a handler does between the
+   * pieces of work it records, such as an agent reading its own record before it starts an
+   * iteration. A call made here is the handler's call, and the root of a trace of its own.
+   */
+  def asOrigin[A](origin: CallOrigin)(body: => A): A =
+    scoped(Working(0L, 0L, origin))(body)
+
+  /**
+   * What a thread was working for, taken so that the same work can go on somewhere else.
+   *
+   * A thread-local does not follow work to another thread, and that is the rule: a call made there
+   * is from nobody. This is for the one case where the code itself knows better, because it built
+   * the work here and only starts it there. A stream is that case: the handler asks for it, and it
+   * is sent when something starts reading. It is the handler's call wherever it is sent from.
+   *
+   * Never a way to give a call to the nearest handler: only code that was run by the handler, on
+   * the handler's thread, can take one of these.
+   */
+  final class Scope private[Trace] (private[Trace] val working: Working | Null)
+
+  def capture(): Scope = Scope(current.get())
+
+  /** Runs `body` as the work that was captured, restoring whatever was current before. */
+  def resume[A](scope: Scope)(body: => A): A =
+    if scope.working eq null then body else scoped(scope.working.nn)(body)
+
+  /**
+   * What a call carries about where it came from: the trace it belongs to and the handler making
+   * it, both as the calling thread knows them.
+   *
+   * An origin already in the metadata is never passed on. A handler may forward the metadata it was
+   * given, and that names whoever called *it*; left in place it would put this call on them. So the
+   * thread's own origin replaces it, and where the thread has none it is taken out: the call is
+   * then from an unknown origin, which is the truth.
+   */
+  def outbound(metadata: Metadata): Metadata =
+    val traced = currentTrace match
+      case Some((traceId, spanId)) => into(metadata, traceId, spanId)
+      case None                    => metadata
+    currentOrigin match
+      case Some(origin) => CallOrigin.into(traced, origin)
+      case None         => CallOrigin.strip(traced)
+
+  /** Runs `body` as the work of this span, for no handler in particular. */
   def within[A](traceId: Long, spanId: Long)(body: => A): A =
+    scoped(Working(traceId, spanId, null))(body)
+
+  private def scoped[A](working: Working)(body: => A): A =
     val previous = current.get()
-    current.set((traceId, spanId))
+    current.set(working)
     try body
     finally if previous eq null then current.remove() else current.set(previous)
 

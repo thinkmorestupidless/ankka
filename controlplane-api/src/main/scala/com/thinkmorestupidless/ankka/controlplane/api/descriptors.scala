@@ -722,6 +722,126 @@ final case class InstanceLogs(instance: String, output: String, error: Option[St
  */
 final case class LogsResponse(instances: Vector[InstanceLogs])
 
+// ── Topology (feature 019) ──────────────────────────────────────────────────
+
+/** One handler of a node: a command, a query, a step, a route, a tool. */
+final case class TopologyHandler(name: String, `type`: String, streaming: Option[Boolean] = None)
+
+/** One component, endpoint, topic or outside party of a service's topology. */
+final case class TopologyNode(
+    id: String,
+    kind: String,
+    layer: Int,
+    platform: Boolean,
+    handlers: Vector[TopologyHandler]
+)
+
+/** A connection the service declares: a subscription or a publication. */
+final case class DeclaredEdge(from: String, to: String, kind: String)
+
+/** The calls a handler ran for, by how each ended. */
+final case class HandledCounts(ok: Long, refused: Long, failed: Long)
+
+/** The calls nothing answered, by why. Never added to the handled ones. */
+final case class UnansweredCounts(timedOut: Long, undelivered: Long)
+
+/** Percentiles read from a bucketed histogram, so each is a bucket's upper edge and says so. */
+final case class DurationMillis(p50: Double, p99: Double, max: Double, bucketed: Boolean = true)
+
+/**
+ * One caller handler and one callee handler, and what the window saw between them. An instance
+ * sends its `histogram` so that a merge can recompute the percentiles; the merged response drops
+ * it.
+ */
+final case class CallPair(
+    caller: String,
+    callee: String,
+    handled: HandledCounts,
+    unanswered: UnansweredCounts,
+    durationMillis: DurationMillis,
+    streaming: Boolean = false,
+    histogram: Vector[Long] = Vector.empty
+)
+
+/** The observed calls between two nodes, a pair per two handlers. */
+final case class CallEdge(from: String, to: String, pairs: Vector[CallPair])
+
+/** How far back the observed calls reach, and how many there were. */
+final case class TopologyWindow(seconds: Long, since: String, calls: Long, unanswered: Long = 0L)
+
+/** The instance that wrote a topology document. */
+final case class TopologyService(name: String, runtime: String, instance: String, startedAt: String)
+
+/**
+ * What one instance serves at `/observability/topology`: the document as the local console reads
+ * it.
+ */
+final case class InstanceTopologyDocument(
+    service: TopologyService,
+    window: TopologyWindow,
+    nodes: Vector[TopologyNode],
+    declared: Vector[DeclaredEdge],
+    calls: Vector[CallEdge]
+)
+
+/** Whether an instance's topology was read, and if not, why not. */
+enum InstanceStatus:
+  /** The instance answered. */
+  case Ok
+
+  /** It did not answer in time. */
+  case Unreachable
+
+  /** The connection was refused: its runtime predates the topology. */
+  case Unsupported
+
+  /** It answered with an error, or with something that is not a topology. */
+  case Failed
+
+object InstanceStatus:
+  def byName(name: String): Option[InstanceStatus] = values.find(_.wire == name)
+
+  extension (status: InstanceStatus) def wire: String = status.toString.toLowerCase
+
+  /** A plain word on the wire, as `ServiceLifecycle`; in the companion so no site can miss it. */
+  given codec: JsonValueCodec[InstanceStatus] = new JsonValueCodec[InstanceStatus]:
+    def decodeValue(in: JsonReader, default: InstanceStatus): InstanceStatus =
+      val name = in.readString(null)
+      byName(name).getOrElse(in.decodeError(s"unknown instance status '$name'"))
+    def encodeValue(x: InstanceStatus, out: JsonWriter): Unit = out.writeVal(x.wire)
+    def nullValue: InstanceStatus                             = null
+
+/** One instance of a deployed service, as the control plane found it when asked. */
+final case class InstanceTopology(
+    pod: String,
+    status: InstanceStatus,
+    problem: Option[String] = None,
+    runtime: Option[String] = None,
+    readAt: Option[String] = None
+)
+
+/** A node that not every answering instance has, and which have it. */
+final case class TopologyDifference(node: String, presentOn: Vector[String])
+
+/**
+ * `GET /services/{projectId}/{name}/topology`: every instance's topology, merged.
+ *
+ * `partial` is true whenever an instance is not `ok`, and such an instance contributes nothing; the
+ * counts are the sum of the instances that answered. Handled and unanswered stay apart.
+ */
+final case class ServiceTopology(
+    service: String,
+    running: Int,
+    contributing: Int,
+    partial: Boolean,
+    instances: Vector[InstanceTopology],
+    window: TopologyWindow,
+    nodes: Vector[TopologyNode],
+    declared: Vector[DeclaredEdge],
+    calls: Vector[CallEdge],
+    differences: Vector[TopologyDifference]
+)
+
 // ── Deploy tokens (feature 013) ────────────────────────────────────────────
 
 /**
@@ -844,6 +964,12 @@ object Wire:
 
   given instanceLogsCodec: JsonValueCodec[InstanceLogs] = Codecs.make[InstanceLogs]
   given logsCodec: JsonValueCodec[LogsResponse]         = Codecs.make[LogsResponse]
+
+  // The three documents that cross the wire whole; the types inside them are written as parts.
+  given instanceTopologyDocumentCodec: JsonValueCodec[InstanceTopologyDocument] =
+    Codecs.make[InstanceTopologyDocument]
+  given instanceTopologyCodec: JsonValueCodec[InstanceTopology] = Codecs.make[InstanceTopology]
+  given serviceTopologyCodec: JsonValueCodec[ServiceTopology]   = Codecs.make[ServiceTopology]
 
   given authDiscoveryCodec: JsonValueCodec[AuthDiscovery]  = Codecs.make[AuthDiscovery]
   given whoamiCodec: JsonValueCodec[Whoami]                = Codecs.make[Whoami]

@@ -310,7 +310,10 @@ class _WorkflowStream:
         step_spec = type(workflow).steps().get(run.step)
         if step_spec is None:
             return workflow_pb2.WorkflowOut(failure=_failure(run.id, f"no step {run.step!r}", payload_pb2.NOT_FOUND))
-        ctx = CommandContext(workflow.entity_id, type(workflow).component_id, Metadata(), 0, self.client)
+        # What the sidecar says about this step: its trace, and the step as the caller of whatever it
+        # calls. Carried on the step's calls as a command's is; a sidecar before 1.3 sends none.
+        metadata = Metadata.from_pb(run.metadata) if run.HasField("metadata") else Metadata()
+        ctx = CommandContext(workflow.entity_id, type(workflow).component_id, metadata, 0, self.client.with_metadata(metadata))
         try:
             step_effect = await workflow._run_step(step_spec, self.state, run.input.data if run.HasField("input") else None, ctx)
         except Exception as e:
@@ -553,7 +556,9 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
         return agent_pb2.PlanReply(plan=effect.to_pb())
 
     async def InvokeTool(self, request: agent_pb2.ToolRequest, context: Any) -> agent_pb2.ToolResult:
-        agent = self._agent(request.component_id, request.session_id)
+        # What the sidecar says about the tool's run: its trace, and the agent's handler as the caller of
+        # whatever the tool calls. A sidecar before 1.3 sends none.
+        agent = self._agent(request.component_id, request.session_id, Metadata.from_pb(request.metadata))
         if agent is None or request.tool not in type(agent).tools:
             return agent_pb2.ToolResult(error=f"no tool named {request.tool!r} on {request.component_id!r}")
         try:
@@ -562,7 +567,10 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
             return agent_pb2.ToolResult(error=str(e) or type(e).__name__)
 
     async def CheckGuardrail(self, request: agent_pb2.GuardrailRequest, context: Any) -> agent_pb2.GuardrailResult:
-        agent = self._agent(request.component_id, request.session_id)
+        # What the sidecar says about the check: its trace, and the agent's handler as the caller of
+        # whatever the guardrail calls. A sidecar before 1.3 sends none.
+        told = Metadata.from_pb(request.metadata) if request.HasField("metadata") else None
+        agent = self._agent(request.component_id, request.session_id, told)
         if agent is None or request.guardrail not in type(agent).guardrails:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown guardrail {request.component_id}/{request.guardrail}")
         assert agent is not None
@@ -583,7 +591,10 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown autonomous agent {request.component_id}")
         assert cls is not None
         try:
-            verdict = await cls(self.client)._check_result(request.task_type, request.result_json, request.task_id)
+            # What the sidecar says about the check: its trace, and the agent's handler as the caller of
+            # whatever a rule calls. A sidecar before 1.3 sends none.
+            scoped = self.client.with_metadata(Metadata.from_pb(request.metadata)) if request.HasField("metadata") else self.client
+            verdict = await cls(scoped)._check_result(request.task_type, request.result_json, request.task_id)
         except LookupError as e:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(e))
             raise

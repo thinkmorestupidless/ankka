@@ -89,10 +89,15 @@ final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.View
 
+  override def declaredHandlers: Vector[DeclaredHandler] = Vector(ViewDescriptor.OnChange)
+
   /** The Postgres table holding this view's rows. */
   def tableName: String = ViewDescriptor.tableFor(componentId)
 
 object ViewDescriptor:
+
+  /** A view has one handler, under one name in every language: what it does with a change. */
+  val OnChange: DeclaredHandler = DeclaredHandler("on-change", HandlerKind.Update)
 
   /**
    * Derives a table name from a component id.

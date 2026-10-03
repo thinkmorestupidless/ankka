@@ -71,10 +71,14 @@ feature also says what that feature does not do.
 
 ## Observability
 
-- **The installation's console shows the control plane's records only.** [The console](../operate/console.md)
+- **The installation's console shows a deployed service's topology, not its traces.** [The console](../operate/console.md)
   at `console.<base domain>` manages organizations, projects, members, deploy tokens and services, and shows
-  a service's status, history and logs. It does not show a deployed service's traces, sessions or entity
-  state; [the local console](../operate/local-console.md) shows those for services on your own machine.
+  a service's status, history, logs and topology. It does not show a deployed service's traces, sessions or
+  entity state; [the local console](../operate/local-console.md) shows those for services on your own machine.
+- **Observed calls are a window.** A topology's observed calls are the calls made in a recent window, ten
+  minutes by default. A call a service can make but did not make in that time is absent, so the topology is
+  never a complete list of what calls what. Declared connections, read from what components register, are
+  complete.
 - **Traces are a window, not a history.** Each instance records every component invocation into a fixed ring
   of recent spans, 4096 by default, and overwrites the oldest. Nothing is persisted, there is no sampling and
   no query language, and a trace whose older spans are gone is reported as partial.

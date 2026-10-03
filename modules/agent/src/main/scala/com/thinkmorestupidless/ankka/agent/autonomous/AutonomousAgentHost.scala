@@ -4,7 +4,15 @@ import com.thinkmorestupidless.ankka.agent.AgentRuntime
 import com.thinkmorestupidless.ankka.agent.judgment.Judgments
 import com.thinkmorestupidless.ankka.agent.ModelProvider
 import com.thinkmorestupidless.ankka.core.*
-import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, EntityProtocol}
+import com.thinkmorestupidless.ankka.runtime.{
+  AnkkaExecutors,
+  CallOrigin,
+  EntityProtocol,
+  MetaEntry,
+  Observability,
+  SpanOutcome,
+  Trace
+}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, PostStop}
@@ -89,7 +97,8 @@ private[ankka] object AutonomousAgentHost:
             judgments,
             emit,
             idle => self ! WorkerIdle(idle),
-            () => self ! WorkerStopped
+            () => self ! WorkerStopped,
+            Observability(ctx.system)
           )
 
           // Announced on the first message, not here: sharding creates the actor before delivering
@@ -227,8 +236,18 @@ private[ankka] object AutonomousAgentHost:
       worker: Worker,
       invoke: EntityProtocol.Invoke
   ): Unit =
+    val observability = Observability(ctx.system)
+    val incoming      = MetaEntry.toMetadata(invoke.metadata)
     val work = Future {
-      val result = ops.run(MethodName(invoke.method), invoke.payload)
+      // An operation is a call to the agent like any other: a span, the origin of the records it
+      // reads and writes, and one handled call from whoever asked.
+      val result = observability.invocation[Either[CommandError, Array[Byte]]](
+        ops.componentName,
+        invoke.method,
+        incoming
+      )(_.fold(Observability.outcomeOf, _ => SpanOutcome.Ok))(
+        ops.run(MethodName(invoke.method), invoke.payload)
+      )
       worker.poke()
       result
     }(using AnkkaExecutors.virtual)
@@ -263,6 +282,8 @@ private[ankka] object AutonomousAgentHost:
     private def record(e: InstanceEvent): InstanceRecord =
       instance.call(InstanceEntity.record).invoke(e)
     private def task(id: String) = client.forEventSourcedEntity(EntityId(id))
+
+    val componentName: String = componentId.toString
 
     def run(method: MethodName, payload: Array[Byte]): Either[CommandError, Array[Byte]] =
       try
@@ -407,7 +428,8 @@ private[ankka] object AutonomousAgentHost:
       judgments: Judgments,
       emit: Notification => Unit,
       reportIdle: Boolean => Unit,
-      reportStopped: () => Unit
+      reportStopped: () => Unit,
+      observability: Observability
   ):
     private val definition  = descriptor.definition
     private val settings    = definition.settings
@@ -461,7 +483,26 @@ private[ankka] object AutonomousAgentHost:
     private def task(id: String)                   = client.forEventSourcedEntity(EntityId(id))
     private def taskRecord(id: String): TaskRecord = task(id).call(TaskEntity.get).invoke()
 
-    private def runLoop(): Unit =
+    // Everything the worker does, it does as this agent: reading its own record between
+    // iterations as much as the iterations themselves. So the thread is the agent's for as long as
+    // it runs, and a call it makes is never from nobody.
+    private val origin       = CallOrigin(componentId.toString, AutonomousAgentDescriptor.Iteration)
+    private val componentRef = observability.names.intern(origin.component)
+    private val handlerRef   = observability.names.intern(origin.handler)
+
+    /** One piece of work on a task, as a span of its own: a start, or an iteration. */
+    private def iteration[A](body: => A): A =
+      val span    = observability.recorder.begin(Trace.mint(), 0L, componentRef, handlerRef)
+      var outcome = SpanOutcome.Failed
+      try
+        val result = Trace.within(span.traceId, span.id, origin)(body)
+        outcome = SpanOutcome.Ok
+        result
+      finally observability.recorder.complete(span, outcome)
+
+    private def runLoop(): Unit = Trace.asOrigin(origin)(runRounds())
+
+    private def runRounds(): Unit =
       while running do
         try round()
         catch
@@ -494,7 +535,7 @@ private[ankka] object AutonomousAgentHost:
             idle(false)
             // Everything done for a task — guardrails at its start, tools and rules in its
             // iterations — runs knowing which task it is for.
-            AutonomousAgent.CurrentTask.within(w.taskId)(work(w))
+            AutonomousAgent.CurrentTask.within(w.taskId)(iteration(work(w)))
           case None =>
             nextRunnable(rec) match
               case Some(id) =>

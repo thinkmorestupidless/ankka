@@ -48,9 +48,11 @@ object Protocol:
    * 1.1 added the caller to forwarded requests and caller-naming ACLs to discovery. 1.2 added the
    * autonomous agent: a component kind, its definition in discovery, and the task-rule check. 1.3
    * added a consumer's reply of several messages, each under its own record key, and the
-   * `ankka.protocol` entry on a consumer's request that says the runtime accepts it.
+   * `ankka.protocol` entry on a consumer's request that says the runtime accepts it. 1.4 added
+   * metadata to a workflow step, a tool call, a guardrail check, a result check and a view query,
+   * so each is told its trace and the handler whose work it is, as a command is.
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 3)
+  val version: ProtocolVersion = ProtocolVersion(1, 4)
 
 object Compatibility:
 

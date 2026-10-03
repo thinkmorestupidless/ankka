@@ -60,6 +60,7 @@ sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka
                                    # against sdks/python (and typescript and rust likewise); needs uv, node and npm, or cargo
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
 sbt compile                       # should be warning-free; -Wunused is on
+just features                     # speckit-bdd check: the living features, the glossary and the specs that name them
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
@@ -123,7 +124,7 @@ Keep it that way — a recipe that reimplements a step becomes a second copy to 
 this file, and everything here still works without `just` installed.
 
 **CI builds pull requests, and only the parts a pull request touched.** `.github/workflows/ci.yml`
-opens with a `changes` job that maps changed paths onto the jobs (`build`, `docs`, `sdk-python`,
+opens with a `changes` job that maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
 `sdk-typescript`, `sdk-rust`, `console`, `template-scala`); an untouched job is skipped, which GitHub counts as a pass for a required check.
 A matrix job is the exception: skipped before it expands, it never reports its expanded names, so
 branch protection requires the `template-scala` summary job (always run; passes when both launcher
@@ -322,7 +323,8 @@ control plane's and the console's own certificates name, is reserved: `ProjectId
 create or project it, `Names.ReservedProjectIds` refuses to render it (the operator trusts no writer of
 the resource), and `ReservedProjectIdsSuite` holds the two lists to each other and to every
 `ankka://<project>/<service>` the manifests under `kustomization/` ask for, so a platform workload
-given an identity in an unreserved project fails the build. Readiness has its own plain port, 7627 `probe`. The one non-rolling
+given an identity in an unreserved project fails the build. Readiness has its own plain port, 7627 `probe`. The observe port, 7628, admits exactly the control
+plane's identity (`RotatingTls.Peers.Exactly`) and is not part of readiness. The one non-rolling
 deployment — a template without `ankka.thinkmorestupidless.com/transport=tls` — is `Transition`:
 delete, wait for no pods, apply.
 
@@ -357,6 +359,23 @@ steps can be written as ordinary sequential code.
 It is also what makes the HTTP `RequestContext` (query parameters, headers) sound as a
 `ThreadLocal`: one request per thread, cleared on the way out. The consequence is that
 work handed to *another* thread cannot see it.
+
+### Calls are attributed by the runtime and counted from two ends
+
+A service's topology (feature 019) has declared connections, read from the registry, and observed calls,
+counted over a window (`CallCounts`, `ankka.observability.call-window`). The caller is a `CallOrigin`
+(component and handler) held on the thread beside the trace (`Trace.within`, `Trace.currentOrigin`) and
+written into a call's metadata as `ankka-caller` by `Trace.outbound`, which *strips* any caller already
+there when nothing is current — a handler forwarding its own metadata must not put its call on whoever
+called it. A name in metadata is believed only when `DeclaredNames` holds it, so nothing a call carries can
+grow the names table. *Handled* (ok, refused, failed) is counted by the callee's host, *unanswered* (timed
+out, undelivered) by the caller's transport, and the two are never added together; a view query and a
+call to another service are counted where they are made, since nothing hosts the callee. Every host counts
+through one function on `Observability`. A remote host stamps its own caller on what it sends the process,
+and protocol 1.3 carries metadata on a step, a tool call, a guardrail check, a result check and a view query
+so a call made from any of them is attributed. A deployed service's topology is read by the control plane
+over port 7628 `observe` (`ObserveServer`, `InstanceTopologies`) and merged by `TopologyMerge`, which sums
+pairs and recomputes percentiles from the instances' histograms.
 
 ### Agents
 
@@ -1030,6 +1049,17 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   path.** It is deliberately not a `JudgmentFailed`: a test that added a question and forgot its answer
   must fail now, naming it, not back off for fifteen seconds as an outage would. `failNext` is how a test
   produces a real `JudgmentFailed`, on purpose, and each call queues exactly one.
+- **A module's fresh instance knows only what the request carries.** A Rust task rule calls the client from
+  a fresh instance with no context but the request, and a result check or guardrail check carried no
+  metadata, so every call a rule made was counted from the unknown caller. Only the Rust conformance run
+  saw it; the Python and TypeScript references passed because their rules call nothing. Anything the runtime
+  asks a process to do on a handler's behalf carries the handler's metadata.
+- **An extension looked up in a constructor breaks every suite that builds the class without a system.**
+  `ViewQueries` read `Observability(system)` eagerly, and `ControlPlaneRoutesReferenceSuite` builds the
+  endpoints with no actor system to list their routes, so it failed with a `NullPointerException` deep in
+  `OrganizationEndpoint`. A lookup that is only needed when a query runs is a `lazy val`.
+- **An SVG with `role="img"` may not contain anything focusable.** axe reports `nested-interactive` for a
+  topology picture whose nodes are buttons; the picture is a `group` with the same label.
 - **A `var` that is assigned and never read is a lifecycle that never runs.** The local console
   endpoint was held in a `@volatile var` on the `Ankka` builder object; nothing read it, so
   `stop()` — and with it `ServiceRegistration.withdraw` — was unreachable, and every locally-run
@@ -1780,7 +1810,14 @@ requirements into clarification questions. `specs-from: "019"` in
 record changes that were made, in the form they were made in, and the checker does not read them. Its
 report says how many specs it read and how many it did not, so a setting that skipped everything
 cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
-so `uv` must be on `PATH`. The shopping cart sample has features and a glossary of its own, under
+so `uv` must be on `PATH`. CI's `features` job runs the same check through
+`.github/features-check.sh` (`just features` locally), which reads that config and fails when it
+read no spec or no scenario. **In CI it reports without failing for now** (`continue-on-error`, with a
+warning): `019-graph-delta-publisher` and specs 023 onwards keep their scenarios in the spec, and the
+checker can only skip specs below a number. Two specs share the number 019 until a renumbering;
+remove `continue-on-error` once every spec's scenarios live in `features/`. `just features` still fails. A feature file that one suite can run whole is run by `GherkinSuite`,
+which takes a directory or one file; a scenario no suite can reach is a test named after it. The
+shopping cart sample has features and a glossary of its own, under
 `samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the
 root ones the platform.
 

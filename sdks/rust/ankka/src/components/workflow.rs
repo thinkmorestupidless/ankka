@@ -476,11 +476,13 @@ impl<C: Workflow> Registered for Registration<C> {
             },
             None => C::empty_state(&request.entity_id),
         };
+        // What the runtime says about this step: its trace, and the step as the caller of whatever
+        // it calls. Carried on the step's calls as a command's is; a runtime before 1.3 sends none.
         let ctx = Context::new(
             C::COMPONENT_ID,
             request.entity_id.clone(),
             0,
-            Metadata::default(),
+            Metadata::from_proto(run_step.metadata.as_ref()),
         );
         let effect = match (entry.run)(&state, run_step.input.as_ref(), &ctx) {
             Ok(effect) => effect,

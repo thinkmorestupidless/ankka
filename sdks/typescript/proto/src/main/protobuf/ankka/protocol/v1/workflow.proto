@@ -12,7 +12,9 @@ message WorkflowIn {
   oneof message { Init init = 1; Command command = 2; RunStep run_step = 3; }
   message Init    { string component_id = 1; string entity_id = 2; optional Payload state = 3; }
   message Command { int64 id = 1; string name = 2; Payload payload = 3; Metadata metadata = 4; }
-  message RunStep { int64 id = 1; string step = 2; optional Payload input = 3; }
+  // `metadata` (1.3): the trace this step belongs to and the step's own name as the caller of
+  // whatever it calls, for the process to forward on those calls as it does a command's.
+  message RunStep { int64 id = 1; string step = 2; optional Payload input = 3; Metadata metadata = 4; }
 }
 
 message WorkflowOut {

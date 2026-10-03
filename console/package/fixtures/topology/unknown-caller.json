@@ -1,0 +1,114 @@
+{
+  "scenario": null,
+  "about": "a call from nobody in particular is from the unknown caller, drawn first and called what it is",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 3,
+      "unanswered": 0
+    },
+    "nodes": [
+      {
+        "id": "unknown",
+        "kind": "UnknownCaller",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shopping-cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "unknown",
+        "to": "shopping-cart",
+        "pairs": [
+          {
+            "caller": "unknown",
+            "callee": "add-item",
+            "handled": {
+              "ok": 3,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "expected": {
+    "shown": [
+      "unknown",
+      "shopping-cart"
+    ],
+    "labels": {
+      "unknown": "unknown caller"
+    },
+    "calls": [
+      "unknown>shopping-cart"
+    ],
+    "marks": {
+      "unknown>shopping-cart": null
+    },
+    "describe": "2 components, 0 declared connections, 1 observed call"
+  }
+}

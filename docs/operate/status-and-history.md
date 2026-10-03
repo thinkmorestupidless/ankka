@@ -125,3 +125,11 @@ the platform-admin role rather than by membership of the organization. A service
 changes. Reports from the cluster are not changes and do not appear.
 
 Changes recorded before the platform began attributing them show `-` for who and when.
+
+## See what a service is made of
+
+`ankka services topology <name>` reads the service's topology from every running instance: its components
+by layer, the connections they declare, and the calls observed between their handlers in a recent window,
+with handled and unanswered counts in separate columns. It says how many instances answered and names any
+that did not; a partial answer still exits `0`. `-o json` prints the merged document as the control plane
+returns it. See [Observability](../concepts/observability.md#topology) for what observed calls are.

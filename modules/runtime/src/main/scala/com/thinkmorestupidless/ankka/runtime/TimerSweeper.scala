@@ -183,12 +183,15 @@ private[ankka] final class Sweep(
       componentRef = observability.names.intern(descriptor.componentId.toString),
       handlerRef = observability.names.intern(timer.method.toString)
     )
-    val metadata = Trace.into(
-      Metadata.empty
-        .set(TimerSweeper.TimerNameKey, timer.name)
-        .set(TimerSweeper.AttemptsKey, timer.attempts.toString),
-      span.traceId,
-      span.id
+    val metadata = CallOrigin.into(
+      Trace.into(
+        Metadata.empty
+          .set(TimerSweeper.TimerNameKey, timer.name)
+          .set(TimerSweeper.AttemptsKey, timer.attempts.toString),
+        span.traceId,
+        span.id
+      ),
+      CallOrigin(descriptor.componentId.toString, timer.method.toString)
     )
     conversation
       .invokeTimedAction(
@@ -249,7 +252,8 @@ private[ankka] final class Sweep(
       )
       var outcome = SpanOutcome.Failed
       try
-        val effect = Trace.within(span.traceId, span.id)(handler(action, timer.payload))
+        val origin = CallOrigin(descriptor.componentId.toString, timer.method.toString)
+        val effect = Trace.within(span.traceId, span.id, origin)(handler(action, timer.payload))
         outcome = SpanOutcome.Ok
         effect
       finally

@@ -34,7 +34,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.3"`;
+- its protocol version, `"1.4"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -168,10 +168,12 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.3`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.4`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
-on a consumer's request.
+on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
+check and a view query, so a call or a query made from any of them carries its trace and says which handler
+made it.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.
@@ -225,6 +227,11 @@ These are part of the protocol, and an SDK that ignores one misbehaves in ways t
   session memory and the model key stay in the sidecar. A tool or guardrail call arrives after the handler
   that planned it has returned, so anything it needs from the session must be captured when the plan is
   made.
+- **`ankka-caller` is the runtime's, carried and never written.** Metadata the runtime sends with a command,
+  a step, a tool call or a check carries `ankka-trace-id`, `ankka-span-id` and `ankka-caller`, the handler
+  whose work this is. An SDK forwards a handler's metadata unchanged on the calls it makes through the
+  client, which is how those calls are attributed; user code never sets `ankka-caller`, and the runtime
+  ignores one that does not name a component and handler the service declared.
 - **`Unavailable` means try again.** When an instance stops while callers are waiting on it, for example
   during a rolling replacement, the sidecar answers each waiting caller with `UNAVAILABLE` rather than letting
   it time out, and the sidecar's `Client` retries `UNAVAILABLE` briefly before giving up. An SDK should treat

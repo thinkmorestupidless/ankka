@@ -29,6 +29,15 @@ trait Source:
   /** The recent trace window for one service, as the contract's JSON. */
   def traces(name: String): Option[String]
 
+  /**
+   * What one service is made of and how the parts are connected, as the service itself renders it.
+   *
+   * `None` is no such service. A service that is there and cannot say, because its runtime is older
+   * than the topology, answers `Some` with a status that is not 200 and the reason: the panel has
+   * something true to show, where a bare "not found" would read as the service having gone.
+   */
+  def topology(name: String): Option[QueryResponse]
+
   /** One trace in full, as the contract's JSON. */
   def trace(name: String, traceId: String): Option[String]
 
@@ -84,7 +93,7 @@ trait Source:
       method: String
   ): Option[QueryResponse]
 
-/** A query handler's answer, forwarded with the status the service gave it. */
+/** A service's answer, forwarded with the status the service gave it. */
 final case class QueryResponse(status: Int, body: String)
 
 /** What the Services panel lists. `instances` is always 1 locally — and a column anyway. */

@@ -284,6 +284,9 @@ object TaskEntity
       eventSerializer = Codecs.serializer[TaskEvent]("task-event")
     ):
 
+  /** The platform's own: it keeps what the platform needs, and no service wrote it. */
+  override private[ankka] def platform: Boolean = true
+
   final case class Create(
       typeName: String,
       instructions: String,

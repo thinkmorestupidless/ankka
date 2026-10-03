@@ -1,0 +1,85 @@
+{
+  "scenario": "a called service that is not running on the developer's machine is marked as not running here",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0
+    },
+    "nodes": [
+      {
+        "id": "endpoint:/checkout",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": [
+          {
+            "name": "POST /checkout/{id}",
+            "type": "route",
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "id": "service:shop/orders",
+        "kind": "ExternalService",
+        "layer": 1,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "endpoint:/checkout",
+        "to": "service:shop/orders",
+        "pairs": [
+          {
+            "caller": "POST /checkout/{id}",
+            "callee": "POST",
+            "handled": {
+              "ok": 3,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 1.5,
+              "p99": 3.0,
+              "max": 3.0,
+              "bucketed": true
+            },
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "services": [
+    "checkout"
+  ],
+  "expected": {
+    "links": {
+      "service:shop/orders": {
+        "service": null,
+        "note": "not running here"
+      }
+    },
+    "counts": {
+      "endpoint:/checkout>service:shop/orders": {
+        "handled": 3,
+        "unanswered": 0
+      }
+    }
+  }
+}

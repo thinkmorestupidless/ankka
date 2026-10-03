@@ -3,6 +3,8 @@ package com.thinkmorestupidless.ankka.runtime.remote
 import com.thinkmorestupidless.ankka.core.effect.Retention
 import com.thinkmorestupidless.ankka.core.{CommandError, EntityId, ErrorCode, MethodName}
 import com.thinkmorestupidless.ankka.runtime.{
+  CallOrigin,
+  Span,
   EntityProtocol,
   MetaEntry,
   Observability,
@@ -57,8 +59,29 @@ private[ankka] object RemoteKeyValueHost:
       var queued: Vector[EntityProtocol.Invoke]   = Vector.empty
       var nextId                                  = 1L
 
+      val component = descriptor.componentId.toString
+      // When the command in flight was sent: there is at most one, so one number is enough.
+      var sentNanos = 0L
+
+      /** Answered here, by the host: no handler ran, so the call was not delivered. */
       def unavailable(invoke: EntityProtocol.Invoke, why: String): Unit =
+        observability.undelivered(
+          MetaEntry.toMetadata(invoke.metadata),
+          component,
+          descriptor.handler(MethodName(invoke.method)).map(_ => invoke.method)
+        )
         invoke.replyTo ! EntityProtocol.Rejected(CommandError(why, ErrorCode.Unavailable))
+
+      /** The span's ending, and the same ending counted as a call from whoever sent it. */
+      def finish(span: Span, invoke: EntityProtocol.Invoke, outcome: SpanOutcome): Unit =
+        observability.recorder.complete(span, outcome)
+        observability.handled(
+          MetaEntry.toMetadata(invoke.metadata),
+          component,
+          invoke.method,
+          outcome,
+          System.nanoTime() - sentNanos
+        )
 
       def dropSession(): Unit =
         session.foreach(s => Try(s.close()))
@@ -81,6 +104,7 @@ private[ankka] object RemoteKeyValueHost:
         val s = session.getOrElse(open(state))
         descriptor.handler(MethodName(invoke.method)) match
           case None =>
+            observability.undelivered(MetaEntry.toMetadata(invoke.metadata), component, None)
             invoke.replyTo ! EntityProtocol.Rejected(
               CommandError(
                 s"no handler '${invoke.method}' on component '${descriptor.componentId}'",
@@ -92,6 +116,7 @@ private[ankka] object RemoteKeyValueHost:
             val id = nextId
             nextId += 1
             inFlight = Some(invoke)
+            sentNanos = System.nanoTime()
             val metadata = MetaEntry.toMetadata(invoke.metadata)
             val span = observability.recorder.begin(
               traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
@@ -104,8 +129,13 @@ private[ankka] object RemoteKeyValueHost:
               metadata.get(PayloadKeys.Manifest).getOrElse(""),
               invoke.payload
             )
-            val command =
-              Command(id, handler.name, payload, Trace.into(metadata, span.traceId, span.id), false)
+            // The span is the parent of anything the process calls back for, and this handler is
+            // who such a call is from: not whoever called this one.
+            val carried = CallOrigin.into(
+              Trace.into(metadata, span.traceId, span.id),
+              CallOrigin(component, invoke.method)
+            )
+            val command = Command(id, handler.name, payload, carried, false)
             ctx.pipeToSelf(s.command(command))(Replied(id, invoke, handler, span, _))
 
       def drain(state: RemoteState): Unit =
@@ -128,7 +158,7 @@ private[ankka] object RemoteKeyValueHost:
             inFlight = None
             result match
               case Failure(e) =>
-                observability.recorder.complete(span, SpanOutcome.Failed)
+                finish(span, invoke, SpanOutcome.Failed)
                 dropSession()
                 PekkoEffect
                   .none[RemoteState]
@@ -140,7 +170,7 @@ private[ankka] object RemoteKeyValueHost:
                 val outcome =
                   if failure.error.code == ErrorCode.Timeout then SpanOutcome.TimedOut
                   else SpanOutcome.Failed
-                observability.recorder.complete(span, outcome)
+                finish(span, invoke, outcome)
                 if failure.error.code == ErrorCode.Timeout ||
                   failure.error.code == ErrorCode.Unavailable
                 then dropSession()
@@ -157,7 +187,7 @@ private[ankka] object RemoteKeyValueHost:
                       entityId,
                       violation.getMessage
                     )
-                    observability.recorder.complete(span, SpanOutcome.Failed)
+                    finish(span, invoke, SpanOutcome.Failed)
                     dropSession()
                     PekkoEffect
                       .none[RemoteState]
@@ -170,13 +200,13 @@ private[ankka] object RemoteKeyValueHost:
                   case Right(m) =>
                     m.reply match
                       case Left(error) =>
-                        observability.recorder.complete(span, SpanOutcome.Refused)
+                        finish(span, invoke, SpanOutcome.Refused)
                         PekkoEffect
                           .none[RemoteState]
                           .thenRun((s: RemoteState) => drain(s))
                           .thenReply(invoke.replyTo)(_ => EntityProtocol.Rejected(error))
                       case Right(answer) =>
-                        observability.recorder.complete(span, SpanOutcome.Ok)
+                        finish(span, invoke, SpanOutcome.Ok)
                         val stored = m.retention match
                           // A recorded state, not a removed row: the deletion is a change at
                           // the next revision, which views and consumers are told of, and the

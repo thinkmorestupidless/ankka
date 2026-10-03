@@ -5,13 +5,14 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 
 ## State on 2026-10-03
 
-- **Done: T001–T035.** User Stories 1, 2 and 3 are done: the proxy, the operator's rendering,
-  the status, logs, the console, the descriptor feature, and three k3s features
-  (`DeployingWebHostingClusterFeatures`, 19 scenarios in about six minutes;
-  `IsolationWebHostingClusterFeatures`, 4 including a real call to the shopping cart) and three
-  loopback features (`RequestsFeature`, `CallingServicesFeature`, `MountsFeature`).
-- **Next: T036**, `ankka local web` (Phase 6), then Phase 7 (template, sample, CI, documentation).
-- Nothing is uncommitted.
+- **Done: T001–T048.** Every user story is built: the proxy, the operator's rendering, status,
+  logs, the console, `ankka local web`, the web template, the sample's interface (`cart-web`), the
+  cloud overlay's proxy image, the `web` CI job, and the documentation (three new pages, the skill
+  `ankka-web`, `WebHostingDocumentationSuite`).
+- **Left:** T049 (`ProxyBenchmark`, written; run it under `-Dankka.benchmarks=on` and record the
+  numbers in research R19), T050 (the manual proof with the previous release's cart, on a local
+  installation) and T051 (every check that gates a merge).
+- **Branch protection must require the new `web` job** once the pull request exists.
 
 ## What is established
 
@@ -49,6 +50,9 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 
 - **Always pass `-Dankka.cluster.tests=off` for offline runs that include `operator` or
   `controlPlane` tests**, or their test tasks first build images.
+- **`expose()` in the cluster steps waits for the echo process's `x-instance` header** by default;
+  a test deploying another image passes its own check (`aPage`), or the wait times out on a service
+  that is serving.
 - **sbt buffers a suite's report until the suite ends.** A k3s Gherkin suite that fails early says
   nothing for many minutes. To see failures as they happen:
   `sbt 'set controlPlane / Test / logBuffered := false' 'controlPlane/testOnly *WebHostingClusterFeatures -- *<scenario words>*'`.
@@ -72,4 +76,4 @@ sbt -Dankka.cluster.tests=off 'proxyCore/test' 'proxy/test' 'operator/test' 'con
 caffeinate -i sbt 'controlPlane/testOnly *WebHostingClusterFeatures'     # both k3s features
 ```
 
-Then `/speckit-implement` continues from T036.
+Then `/speckit-implement` continues from the first unchecked task.

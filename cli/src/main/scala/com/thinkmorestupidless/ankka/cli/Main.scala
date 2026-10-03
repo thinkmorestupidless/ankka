@@ -740,9 +740,62 @@ object Main:
    * `ankka config set url` must be able to use it, because it is a development tool and the
    * services it shows are on the same machine as the browser.
    */
+  private val localWeb =
+    Opts.subcommand(
+      "web",
+      "Run a web-hosted service's process on this machine as the platform would in a cluster: " +
+        "its mounts answer at their paths, and it calls services by name."
+    ) {
+      (
+        Opts
+          .option[String]("file", "The service's descriptor (default service.json).", short = "f")
+          .withDefault("service.json"),
+        Opts.option[Int]("port", "Where to listen (default 3000).").withDefault(3000),
+        Opts
+          .options[String](
+            "service",
+            "Where a service is, as name=url, for one that is not running under the local " +
+              "console's eye. Repeatable."
+          )
+          .orEmpty
+          .mapValidated { entries =>
+            entries
+              .traverse { entry =>
+                entry.split("=", 2) match
+                  case Array(name, url) if name.nonEmpty && url.startsWith("http") =>
+                    Validated.validNel(name -> url)
+                  case _ => Validated.invalidNel(s"--service '$entry' is not name=url")
+              }
+              .map(_.toMap)
+          },
+        Opts
+          .arguments[String]("command")
+          .orEmpty
+      ).mapN { (file, port, services, command) => () =>
+        val descriptor =
+          try Descriptors.read(file)
+          catch
+            case error: ApiError =>
+              Console.err.println(s"error: ${error.detail}")
+              // A descriptor that does not read, or breaks the platform's rules, is misuse.
+              throw ExitWith(if error.detail.startsWith("invalid descriptor") then 2 else 1)
+        throw ExitWith(
+          local.LocalWeb.run(
+            descriptor,
+            local.LocalWeb.Options(file, port, services, command.toVector),
+            Console.out,
+            Console.err
+          )
+        )
+      }
+    }
+
   private val localCommand =
     Opts.subcommand("local", "Tools for services running on this machine.") {
-      Opts.subcommand("console", "Serve a console over the services running on this machine.") {
+      localWeb orElse Opts.subcommand(
+        "console",
+        "Serve a console over the services running on this machine."
+      ) {
         (
           Opts
             .option[Int]("port", s"Port to serve on; defaults to ${ConsoleServer.DefaultPort}.")
@@ -900,12 +953,19 @@ object Main:
           case error: ApiError =>
             err.println(s"error: ${error.detail}")
             1
+          case ExitWith(code) => code
 
   def main(args: Array[String]): Unit =
     // Before anything can load the JDK's HTTP client, which reads this once: `ankka local web`
     // passes a request's `Host` on to the developer's process.
     System.setProperty("jdk.httpclient.allowRestrictedHeaders", "host")
     sys.exit(run(args.toIndexedSeq, System.out, System.err))
+
+/**
+ * An action that has said everything it had to on the streams and ends with this code: `ankka local
+ * web` ends with its process's.
+ */
+private[cli] final case class ExitWith(code: Int) extends RuntimeException(s"exit $code")
 
 /**
  * Short durations as a person writes them: `90d`, `12h`, `30m`.
@@ -930,7 +990,7 @@ private object Durations:
       throw ApiError(0, s"'$other' is not a duration; write it as 90d, 12h, 30m or 45s")
 
 /** Reads a descriptor from a file or stdin. */
-private object Descriptors:
+private[cli] object Descriptors:
 
   /**
    * JSON only, for now.

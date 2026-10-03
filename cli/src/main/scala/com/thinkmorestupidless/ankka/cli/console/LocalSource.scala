@@ -110,6 +110,10 @@ final class LocalSource(directory: Path = LocalSource.defaultDirectory) extends 
             onChunk(s"\n(stream ended: ${failure.getMessage})\n")
             true
 
+  /** Where a running service answers HTTP, by its name: what `ankka local web` calls it at. */
+  private[cli] def httpAddressOf(name: String): Option[String] =
+    forName(name).flatMap(httpAddressOf)
+
   /** The service's real HTTP address, asked of the service rather than read from a file. */
   private def httpAddressOf(entry: ServiceSummary): Option[String] =
     get(s"${entry.observabilityAddress}/observability/service")

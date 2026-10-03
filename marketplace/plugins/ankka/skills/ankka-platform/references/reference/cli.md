@@ -1343,7 +1343,9 @@ Options and flags:
 ### `ankka local`
 
 ```text
-Usage: ankka local console
+Usage:
+    ankka local web
+    ankka local console
 
 Tools for services running on this machine.
 
@@ -1352,8 +1354,28 @@ Options and flags:
         Display this help text.
 
 Subcommands:
+    web
+        Run a web-hosted service's process on this machine as the platform would in a cluster: its mounts answer at their paths, and it calls services by name.
     console
         Serve a console over the services running on this machine.
+```
+
+### `ankka local web`
+
+```text
+Usage: ankka local web [--file <string>] [--port <integer>] [--service <string>]... [<command>...]
+
+Run a web-hosted service's process on this machine as the platform would in a cluster: its mounts answer at their paths, and it calls services by name.
+
+Options and flags:
+    --help
+        Display this help text.
+    --file <string>, -f <string>
+        The service's descriptor (default service.json).
+    --port <integer>
+        Where to listen (default 3000).
+    --service <string>
+        Where a service is, as name=url, for one that is not running under the local console's eye. Repeatable.
 ```
 
 ### `ankka local console`

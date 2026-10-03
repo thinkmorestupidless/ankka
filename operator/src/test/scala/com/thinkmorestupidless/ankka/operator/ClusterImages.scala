@@ -35,6 +35,8 @@ object ClusterImages:
         val hint =
           if image.startsWith("sample-shopping-cart-python") then
             "    docker build -f sdks/python/examples/shopping_cart/Dockerfile -t " + image + " sdks/python"
+          else if image.startsWith("sample-shopping-cart-web") then
+            "    docker build -t " + image + " samples/shopping-cart-web"
           else
             val project =
               if image.startsWith("ankka-controlplane") then "controlPlane"

@@ -113,6 +113,8 @@ echo "==> building images"
 # ever added.
 sbt -batch "docker:publishLocal"
 docker build -t ankka-console:latest console
+# The shopping cart's interface (feature 021), a web-hosted service: a Node image, built by Docker.
+docker build -t sample-shopping-cart-web:latest samples/shopping-cart-web
 
 echo "==> loading images into $CONTEXT"
 kind load docker-image ankka-operator:latest --name "$CLUSTER_NAME"
@@ -129,6 +131,9 @@ kind load docker-image ankka-sidecar:latest --name "$CLUSTER_NAME"
 kind load docker-image ankka-proxy:latest --name "$CLUSTER_NAME"
 # The installation's console (feature 017): a Node image, built by Docker rather than sbt.
 kind load docker-image ankka-console:latest --name "$CLUSTER_NAME"
+# Not part of the platform: the sample's interface, so `ankka services apply -f
+# samples/shopping-cart-web/service.json` has an image to run.
+kind load docker-image sample-shopping-cart-web:latest --name "$CLUSTER_NAME"
 
 echo "==> applying the CRD (must exist before anything references it)"
 kubectl apply -f kustomization/components/crd/ankkaservice.yaml

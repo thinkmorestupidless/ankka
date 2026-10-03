@@ -82,3 +82,51 @@ test("a registry credential is set and cleared, and its password is never shown"
     await expect(page.getByText("pull only public images")).toBeVisible();
   }
 });
+
+test("a project secret's entries are set and removed, and no value is ever shown", async ({ page, target, signIn, unique }) => {
+  // The fakes stand in for a cluster; a control plane run without one answers a write unavailable.
+  test.skip(target.kind !== "fake", "writes a project secret, which needs a cluster behind the control plane");
+  await signIn(page, "owner");
+  const org = unique("sec");
+  await page.goto(`${target.url}/organizations/new`);
+  await page.getByLabel("Id").fill(org);
+  await page.getByLabel("Name").fill("Secrets Org");
+  await page.getByRole("button", { name: "Create organization" }).click();
+  await page.getByRole("link", { name: "Create a project" }).click();
+  const project = unique("billing");
+  await page.getByLabel("Id").fill(project);
+  await page.getByLabel("Name").fill("Billing");
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.waitForURL(`${target.url}/projects/${project}`);
+  await expect(page.getByText("No project secrets.")).toBeVisible();
+
+  const value = `sk_live_${unique("v")}`;
+  const bodies: string[] = [];
+  page.on("response", async (r) => bodies.push(await r.text().catch(() => "")));
+  const setEntry = async (name: string, entry: string, v: string) => {
+    // With scripts on, a submission keeps the page and the disclosure stays open; clicking its summary
+    // again would close it.
+    const field = page.getByLabel("Project secret", { exact: true });
+    if (!(await field.isVisible())) await page.getByText("Set a project secret entry").click();
+    await field.fill(name);
+    await page.getByLabel("Entry", { exact: true }).fill(entry);
+    await page.getByLabel("Value", { exact: true }).fill(v);
+    await page.getByRole("button", { name: "Save entry" }).click();
+  };
+
+  await setEntry("checkout", "STRIPE_KEY", value);
+  await expect(page.locator('tr[data-secret="checkout"][data-entry="STRIPE_KEY"]')).toBeVisible();
+  // A second entry is merged in beside the first.
+  await setEntry("checkout", "WEBHOOK_KEY", "whsec_1");
+  await expect(page.locator('tr[data-secret="checkout"][data-entry="WEBHOOK_KEY"]')).toBeVisible();
+  await expect(page.locator('tr[data-secret="checkout"][data-entry="STRIPE_KEY"]')).toBeVisible();
+
+  // A name the platform uses for its own Secrets is refused, in the control plane's words.
+  await setEntry("billing-secret-key", "key", "x");
+  await expect(page.getByText("one the platform uses")).toBeVisible();
+
+  await page.getByRole("button", { name: "Remove WEBHOOK_KEY" }).click();
+  await expect(page.locator('tr[data-entry="WEBHOOK_KEY"]')).toHaveCount(0);
+  await page.reload();
+  for (const b of bodies) expect(b).not.toContain(value);
+});

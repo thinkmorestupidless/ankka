@@ -105,6 +105,8 @@ when it starts:
 - **list** shows each secret's name, its entries, and who last set one — never a value:
   `ankka projects secrets list -p shop`.
 
+The console's project page does the same: it lists each secret's entries, sets an entry, and removes one.
+
 A value set again reaches an instance started afterwards; running instances keep the value they started
 with, so `ankka services restart` is how a running service picks up a change. A pod started after an
 entry it takes was removed — or that names a project secret that does not exist — does not start, and the

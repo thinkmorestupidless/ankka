@@ -519,3 +519,9 @@ thrown from a workflow command handler left its caller unanswered, which the eng
 refusal. Two routes changed shape for the endpoint DSL: keeping a secret in the conformance reference is a
 `POST` (no `putBody`-less body on `PUT` there), and removing an entry is `DELETE
 /projects/{id}/secrets/{name}?entry=` (at most two path parameters on `DELETE`).
+
+**R16 was overturned by CI.** The console's Playwright suite holds a parity rule (`console/e2e/parity.ts`):
+every control plane route in the API reference must be exercised through the console. "Schemas and no
+page" failed it, so the project page gained a project secrets section — the entries listed, set one at a
+time, removed one at a time, never a value shown — with the fake control plane's three routes and an e2e
+test.

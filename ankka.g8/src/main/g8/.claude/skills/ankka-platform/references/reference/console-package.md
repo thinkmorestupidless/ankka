@@ -219,7 +219,7 @@ The operations, by name: `organization.create`, `organization.rename`, `organiza
 `organization.disable`, `organization.enable`, `organization.quota.set`, `organization.quota.clear`,
 `member.invite`, `member.role`, `member.remove`, `invitation.withdraw`, `member.repair`, `token.create`,
 `token.revoke`, `project.create`, `project.rename`, `project.delete`, `registry.set`, `registry.clear`,
-`service.apply`, `service.pause`, `service.resume`, `service.restart`, `service.expose`, `service.unexpose`,
+`project-secret.set`, `project-secret.unset`, `service.apply`, `service.pause`, `service.resume`, `service.restart`, `service.expose`, `service.unexpose`,
 `service.delete`, `service.logs`.
 
 ## Restyle the pages

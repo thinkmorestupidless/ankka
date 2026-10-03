@@ -25,6 +25,12 @@ trait Transport:
   def client(target: CallingAddress.Target): Option[HttpClient] = None
 
   /**
+   * The client a request under a mount is sent to `target` with, presenting the mount's identity.
+   * `None` is the engine's own plain client, which is what a developer's machine has.
+   */
+  def mountClient(target: CallingAddress.Target): Option[HttpClient] = None
+
+  /**
    * The proxy's own answer for a failure sending to `target` that only this transport can
    * recognise, such as a handshake refused because the service answering is not the one asked for.
    */

@@ -28,8 +28,12 @@ import scala.util.Try
  * `senderOf` only ever sees a certificate of the platform's; one that names nobody the platform
  * knows is refused.
  */
-final class TlsTransport(tls: RotatingTls, bind: InetAddress = ProxyEngine.EveryAddress)
-    extends Transport:
+final class TlsTransport(
+    tls: RotatingTls,
+    bind: InetAddress = ProxyEngine.EveryAddress,
+    /** The mount certificate, which a web-hosted service has only while it has mounts. */
+    mountTls: Option[RotatingTls] = None
+) extends Transport:
 
   def listener(port: Int): HttpServer =
     val server = HttpsServer.create(new InetSocketAddress(bind, port), 0)
@@ -45,6 +49,17 @@ final class TlsTransport(tls: RotatingTls, bind: InetAddress = ProxyEngine.Every
     val context = tls.contextRequiring(s"ankka://${target.project}/${target.service}")
     Some(clients.computeIfAbsent(context, TlsTransport.clientFor))
 
+  /**
+   * The client a request under a mount is sent with: the mount certificate, which the mounted
+   * service reads as the internet, and the same check that the service answering is the one asked
+   * for.
+   */
+  override def mountClient(target: CallingAddress.Target): Option[HttpClient] =
+    mountTls.map { mount =>
+      val context = mount.contextRequiring(s"ankka://${target.project}/${target.service}")
+      clients.computeIfAbsent(context, TlsTransport.clientFor)
+    }
+
   private val clients = new ConcurrentHashMap[SSLContext, HttpClient]()
 
   /** A handshake refused because the service answering is not the one asked for. */
@@ -55,12 +70,26 @@ final class TlsTransport(tls: RotatingTls, bind: InetAddress = ProxyEngine.Every
 
   def senderOf(exchange: HttpExchange): Either[String, Sender] = exchange match
     case https: HttpsExchange =>
-      peerCertificate(https).flatMap(Caller.fromCertificate(_, tls.identity)).flatMap {
-        case Caller.Gateway                => Right(Sender.Internet(None))
-        case Caller.Service(project, name) => Right(Sender.Service(project, name))
-        // `fromCertificate` never answers Local: a certificate always names someone or is refused.
-        case Caller.Local => Left("unrecognised caller certificate")
-      }
+      peerCertificate(https)
+        .flatMap { certificate =>
+          Caller.fromCertificate(certificate, tls.identity).map(caller => (certificate, caller))
+        }
+        .flatMap {
+          // The gateway and a mount of this project both read as the internet. A mount is another
+          // web-hosted service's proxy passing a browser's request on, and it states the address the
+          // browser used, which only the platform's proxy can present this certificate to say.
+          case (certificate, Caller.Gateway) =>
+            val gateway = RotatingTls.ankkaUris(certificate).contains(RotatingTls.GatewayUri)
+            Right(
+              Sender.Internet(
+                if gateway then None
+                else Option(https.getRequestHeaders.getFirst("X-Forwarded-Host")).filter(_.nonEmpty)
+              )
+            )
+          case (_, Caller.Service(project, name)) => Right(Sender.Service(project, name))
+          // `fromCertificate` never answers Local: a certificate always names someone or is refused.
+          case (_, Caller.Local) => Left("unrecognised caller certificate")
+        }
     case _ => Left("not a TLS connection")
 
   private def peerCertificate(exchange: HttpsExchange): Either[String, X509Certificate] =

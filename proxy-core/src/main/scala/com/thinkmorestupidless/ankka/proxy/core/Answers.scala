@@ -60,6 +60,9 @@ object Answers:
       else s"no service '$service' in the project '$project'"
     )
 
+  /** 503: a mount's service has no address, or nothing accepts a connection at it. */
+  def cannotBeReached(service: String): Answer = Answer(503, s"'$service' cannot be reached")
+
   /** 503: the service was found, and nothing accepted a connection at its address. */
   def notReachable(project: String, service: String): Answer =
     Answer(503, s"the service $project/$service is not listening")

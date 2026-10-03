@@ -84,7 +84,13 @@ object ControlPlane:
        * Where a deployed service's instances are asked for their topology (feature 019). The
        * default reads the pods over the observe port; a suite scripts one.
        */
-      topology: Option[com.thinkmorestupidless.ankka.controlplane.deploy.TopologyReader] = None
+      topology: Option[com.thinkmorestupidless.ankka.controlplane.deploy.TopologyReader] = None,
+      /**
+       * Where a service's logs are read from (feature 021). `None` builds the real reader over the
+       * cluster, as this call always has; a suite passes one that records which container it was
+       * asked for.
+       */
+      logs: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PodLogReader] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -93,13 +99,18 @@ object ControlPlane:
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
       clients => ProjectEndpoint(clients, acl, clock, registry),
-      // `logs` keeps its own default rather than being built from `deploy`: that is the behaviour
-      // this call has always had, and changing it here would be an unrelated fix smuggled in.
+      // The real readers keep their own defaults rather than being built from `deploy`: that is
+      // the behaviour this call has always had, and changing it here would be an unrelated fix
+      // smuggled in.
       clients =>
+        val logReader = logs.getOrElse(
+          com.thinkmorestupidless.ankka.controlplane.deploy
+            .PodLogs(DeployConfig.default.namespacePrefix)
+        )
         topology match
           case Some(reader) =>
-            ServiceEndpoint(clients, acl, deploy, clock = clock, topology = reader)
-          case None => ServiceEndpoint(clients, acl, deploy, clock = clock),
+            ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock, topology = reader)
+          case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
       clients => WhoamiEndpoint(clients, acl, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)

@@ -290,11 +290,12 @@ before giving up. Start the process, or check that it is listening on port 9010 
 pointed at it. If your process answered and the sidecar refused what it described, every problem is
 printed in your process's own log as well as the sidecar's.
 
-### `ankka services logs` prints an error for every instance
+### `ankka services logs` shows only your process
 
-A deployed Python service's pods have two containers, and `ankka services logs` does not yet choose
-between them, which Kubernetes refuses. Read them with `kubectl logs` and a container name, as
-[Logs](logs.md#a-service-in-another-language) shows.
+A deployed Python service's pods have two containers: your process and the platform's sidecar.
+`ankka services logs` reads your process. The sidecar's log, where a refused discovery or a lost
+connection to your process is reported, is read with `--platform`, as
+[Logs](logs.md#a-service-with-two-containers) shows.
 
 ## Accounts
 

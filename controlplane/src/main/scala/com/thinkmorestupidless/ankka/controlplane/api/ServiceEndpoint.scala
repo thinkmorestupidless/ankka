@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, Se
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   InstanceTopologies,
+  PodLogReader,
   PodLogs,
   TopologyReader
 }
@@ -33,9 +34,13 @@ final class ServiceEndpoint(
     clients: EndpointClients,
     val acl: Acl,
     deploy: DeployConfig = DeployConfig.default,
-    logs: PodLogs = PodLogs(DeployConfig.default.namespacePrefix),
-    protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
-    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
+import com.thinkmorestupidless.ankka.controlplane.deploy.{
+  DeployConfig,
+  InstanceTopologies,
+  PodLogReader,
+  PodLogs,
+  TopologyReader
+}
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -192,13 +197,25 @@ final class ServiceEndpoint(
     authz.project(principal, projectId, write = false)
     // Confirms the service exists, and 404s with the same message `services get` gives when it
     // does not — one vocabulary, rather than a second way of saying the same thing.
-    val _ = entity(projectId, name).call(ServiceEntity.get).invoke()
+    val status = entity(projectId, name).call(ServiceEntity.get).invoke()
 
     // Read on the handler's own thread, which is where the request context lives.
     val instance = query.optional[String]("instance")
     val previous = query.flag("previous")
+    val platform = query.flag("platform")
     val tail     = query.optional[Int]("tail")
     val since    = query.optional[Int]("since")
+
+    // Which container: the developer's unless the platform's is asked for. A process- or
+    // web-hosted pod has two, named as the operator names them — the platform's after the
+    // service, the developer's with `-app`; every other pod has the one, and asking for the
+    // platform's is refused rather than answered with the only one there is (feature 021).
+    val twoContainers = ServiceEndpoint.TwoContainerHostings.contains(status.hosting)
+    val container =
+      if platform && !twoContainers then
+        throw CommandError(ServiceEndpoint.PlatformRefusal, ErrorCode.BadRequest)
+      else if twoContainers && !platform then s"$name-app"
+      else name
 
     val instances = instance.map(Vector(_)).getOrElse(logs.instances(projectId, name))
 
@@ -212,7 +229,7 @@ final class ServiceEndpoint(
     else
       LogsResponse(
         instances.map { pod =>
-          logs.read(projectId, pod, tail, since, previous) match
+          logs.read(projectId, pod, container, tail, since, previous) match
             case Right(output) => InstanceLogs(pod, output, error = None)
             case Left(problem) => InstanceLogs(pod, "", error = Some(problem))
         }
@@ -253,3 +270,11 @@ final class ServiceEndpoint(
 
   private def entity(projectId: String, name: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(ServiceKey(projectId, name).id))
+
+object ServiceEndpoint:
+
+  /** The hostings whose pods hold the platform's container beside the developer's (R11). */
+  val TwoContainerHostings: Set[String] = Set(ServiceSpec.Process, ServiceSpec.Web)
+
+  /** The CLI's flag is named, because the CLI shows this refusal verbatim. */
+  val PlatformRefusal: String = "--platform applies to a service with process or web hosting"

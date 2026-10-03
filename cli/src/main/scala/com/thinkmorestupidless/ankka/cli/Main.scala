@@ -479,9 +479,17 @@ object Main:
           .orFalse,
         Opts.option[Int]("tail", "Only the last N lines.").orNone,
         Opts.option[Int]("since", "Only the last N seconds.").orNone,
+        Opts
+          .flag(
+            "platform",
+            "Read the platform's container instead of yours: the sidecar of a process-hosted " +
+              "service, or the proxy of a web-hosted one."
+          )
+          .orFalse,
         contextOpt
-      ).mapN { (name, instance, previous, tail, since, ctx) => () =>
-        val response = ctx.client.serviceLogs(ctx.project, name, instance, previous, tail, since)
+      ).mapN { (name, instance, previous, tail, since, platform, ctx) => () =>
+        val response =
+          ctx.client.serviceLogs(ctx.project, name, instance, previous, tail, since, platform)
         Output.logs(response, ctx.format)
       }
     }

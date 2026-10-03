@@ -9,6 +9,7 @@ import {
   membersResponseSchema,
   organizationSummarySchema,
   projectDetailSchema,
+  projectSecretSummarySchema,
   projectSummarySchema,
   serviceStatusSchema,
   whoamiSchema,
@@ -27,6 +28,7 @@ import {
   type Role,
   type ServiceStatus,
   type SetRegistry,
+  type ProjectSecretSummary,
   type Whoami,
 } from "./schemas.ts";
 
@@ -204,6 +206,19 @@ export class ControlPlaneClient {
 
   clearRegistry(id: string): Promise<void> {
     return this.#call("DELETE", `/projects/${segment(id)}/registry`);
+  }
+
+  /** Entries of a project secret, merged into what it holds. The values are never read back. */
+  setProjectSecret(id: string, name: string, entries: Record<string, string>): Promise<void> {
+    return this.#call("PUT", `/projects/${segment(id)}/secrets/${segment(name)}`, { body: { entries } });
+  }
+
+  unsetProjectSecretEntry(id: string, name: string, entry: string): Promise<void> {
+    return this.#call("DELETE", `/projects/${segment(id)}/secrets/${segment(name)}?entry=${segment(entry)}`);
+  }
+
+  listProjectSecrets(id: string): Promise<ProjectSecretSummary[]> {
+    return this.#call("GET", `/projects/${segment(id)}/secrets`, { schema: arrayOf(projectSecretSummarySchema) });
   }
 
   // ── Services ──────────────────────────────────────────────────────────────

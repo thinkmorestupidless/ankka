@@ -114,48 +114,65 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
             )
           )
 
-          val effect =
+          // A `CommandError` a handler throws — a refusal from something it called, such as the
+          // secret store refusing a command — is a refusal, answered as one; without this the
+          // caller is never answered and times out.
+          val attempt =
             try
-              binding
-                .decodeAndInvoke(workflow, invoke.payload)
-                .asInstanceOf[WorkflowEffect[S, Any]]
+              Right(
+                binding
+                  .decodeAndInvoke(workflow, invoke.payload)
+                  .asInstanceOf[WorkflowEffect[S, Any]]
+              )
+            catch case refused: CommandError => Left(refused)
             finally workflow._setContext(None)
 
-          effect.outcome match
-            case Outcome.Fail(error) =>
-              PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
+          attempt.fold(
+            refused => PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(refused)),
+            effect => answer(state, invoke, binding, effect)
+          )
 
-            case outcome =>
-              val events = Vector.newBuilder[Event[S]]
-              if effect.deleting then events += Event.Deleted
-              effect.stateChange.foreach(value => events += Event.StateUpdated(value))
-              effect.transition.foreach(step => events += Event.TransitionedTo(step))
-              val toPersist = events.result()
+  private def answer(
+      state: Run[S],
+      invoke: Invoke,
+      binding: HandlerBinding[W],
+      effect: WorkflowEffect[S, Any]
+  ): PekkoEffect[Event[S], Run[S]] =
+    effect.outcome match
+      case Outcome.Fail(error) =>
+        PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
 
-              val nextValue = effect.stateChange.getOrElse(state.value)
+      case outcome =>
+        val events = Vector.newBuilder[Event[S]]
+        if effect.deleting then events += Event.Deleted
+        effect.stateChange.foreach(value => events += Event.StateUpdated(value))
+        effect.transition.foreach(step => events += Event.TransitionedTo(step))
+        val toPersist = events.result()
 
-              val builder: EffectBuilder[Event[S], Run[S]] =
-                if toPersist.isEmpty then PekkoEffect.none
-                else PekkoEffect.persist(toPersist.toList)
+        val nextValue = effect.stateChange.getOrElse(state.value)
 
-              val withStep =
-                if effect.transition.isDefined then
-                  // The transition is journalled first; only then is the step started.
-                  builder.thenRun { updated =>
-                    armWorkflowTimeout(updated)
-                    ctx.self ! RunPendingStep
-                  }
-                else builder
+        val builder: EffectBuilder[Event[S], Run[S]] =
+          if toPersist.isEmpty then PekkoEffect.none
+          else PekkoEffect.persist(toPersist.toList)
 
-              outcome match
-                case Outcome.Reply(compute, metadata) =>
-                  withStep.thenReply(invoke.replyTo) { _ =>
-                    EntityProtocol.Succeeded(
-                      binding.encodeReply(compute(nextValue)),
-                      MetaEntry.from(metadata)
-                    )
-                  }
-                case _ => withStep.thenNoReply()
+        val withStep =
+          if effect.transition.isDefined then
+            // The transition is journalled first; only then is the step started.
+            builder.thenRun { updated =>
+              armWorkflowTimeout(updated)
+              ctx.self ! RunPendingStep
+            }
+          else builder
+
+        outcome match
+          case Outcome.Reply(compute, metadata) =>
+            withStep.thenReply(invoke.replyTo) { _ =>
+              EntityProtocol.Succeeded(
+                binding.encodeReply(compute(nextValue)),
+                MetaEntry.from(metadata)
+              )
+            }
+          case _ => withStep.thenNoReply()
 
   /**
    * Answers the engine's own lifecycle query.
@@ -214,8 +231,10 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     val workflow = descriptor.create(context)
     workflow._setState(value)
 
+    // Inside the future, on the step's own thread: that is the thread the step's secret store
+    // calls are made from, and a command handler, which runs on the actor, never sees the mark.
     val execution = Future {
-      handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]]
+      StepScope.within(handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]])
     }(using AnkkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {

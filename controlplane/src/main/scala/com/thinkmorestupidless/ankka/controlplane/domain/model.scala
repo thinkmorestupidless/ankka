@@ -285,13 +285,26 @@ final case class RegistryRef(
     setAt: Option[Instant] = None
 )
 
+/**
+ * What the control plane knows of a project secret: the names of its entries, and who last set one.
+ * Never a value — the control plane cannot read the Secret back, so this is the only listing there
+ * is.
+ */
+final case class ProjectSecretRef(
+    entries: Set[String],
+    setBy: Option[Actor] = None,
+    setAt: Option[Instant] = None
+)
+
 /** A project. Services live in one. */
 final case class Project(
     id: String,
     name: String,
     organizationId: String,
     deleted: Boolean = false,
-    registry: Option[RegistryRef] = None
+    registry: Option[RegistryRef] = None,
+    /** By the secret's name. A secret with no entry left is not here. */
+    secrets: Map[String, ProjectSecretRef] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -314,6 +327,23 @@ final case class Project(
     copy(registry = Some(RegistryRef(server, username, secretName, actor, at)))
 
   def onRegistryCleared: Project = copy(registry = None)
+
+  def onSecretEntriesSet(
+      name: String,
+      entries: Vector[String],
+      actor: Option[Actor],
+      at: Option[Instant]
+  ): Project =
+    val had = secrets.get(name).map(_.entries).getOrElse(Set.empty)
+    copy(secrets = secrets.updated(name, ProjectSecretRef(had ++ entries, actor, at)))
+
+  def onSecretEntryRemoved(name: String, entry: String): Project =
+    secrets.get(name) match
+      case None => this
+      case Some(ref) =>
+        val left = ref.entries - entry
+        if left.isEmpty then copy(secrets = secrets - name)
+        else copy(secrets = secrets.updated(name, ref.copy(entries = left)))
 
 /**
  * A service: desired state and observed state side by side.

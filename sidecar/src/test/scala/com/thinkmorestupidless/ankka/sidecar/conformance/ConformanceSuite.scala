@@ -1103,6 +1103,95 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(r.status, 409)
   }
 
+  // ── Secrets ────────────────────────────────────────────────────────────────
+
+  private def secretPath(name: String) =
+    "/conformance/secrets?name=" + java.net.URLEncoder.encode(name, "UTF-8")
+
+  /** Every row of every table, as text, with the table it is in. */
+  private def everyRow(): Vector[(String, String)] =
+    given ActorSystem[?] = target.system
+    val database         = Database()
+    val tables = Await.result(
+      database.query(
+        SqlFragment.raw(
+          "SELECT table_name FROM information_schema.tables " +
+            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
+      )(_.get(0, classOf[String])),
+      10.seconds
+    )
+    tables.flatMap { table =>
+      Await
+        .result(
+          database.query(SqlFragment.raw(s"""SELECT row_to_json(t)::text FROM "$table" t"""))(
+            _.get(0, classOf[String])
+          ),
+          10.seconds
+        )
+        .map(table -> _)
+    }
+
+  private def secretRows(name: String): Vector[String] =
+    everyRow().collect { case ("ankka_secrets", row) if row.contains(s""""name":"$name"""") => row }
+
+  test("secret.put-then-get") {
+    assertEquals(post(secretPath("acme"), "sk-acme-1").status, 204)
+    val r = get(secretPath("acme"))
+    assertEquals(r.status, 200)
+    assertEquals(r.body, "sk-acme-1")
+  }
+
+  test("secret.absent") {
+    // First that the route answers at all: a target without it would answer 404 too.
+    post(secretPath("kept-beside"), "sk-1"): Unit
+    assertEquals(get(secretPath("kept-beside")).status, 200)
+    val r = get(secretPath("never-kept"))
+    assertEquals(r.status, 404)
+    assert(
+      r.body.contains("never-kept"),
+      s"the 404 must be the store's, not the router's: ${r.body}"
+    )
+  }
+
+  test("secret.overwrite") {
+    post(secretPath("overwritten"), "sk-old"): Unit
+    assertEquals(post(secretPath("overwritten"), "sk-new").status, 204)
+    assertEquals(get(secretPath("overwritten")).body, "sk-new")
+    assertEquals(secretRows("overwritten").size, 1)
+  }
+
+  test("secret.delete") {
+    post(secretPath("removed"), "sk-gone"): Unit
+    assertEquals(delete(secretPath("removed")).status, 204)
+    assertEquals(get(secretPath("removed")).status, 404)
+    assertEquals(secretRows("removed"), Vector.empty)
+  }
+
+  test("secret.stored-encrypted") {
+    val value = "sk-conformance-91c2e"
+    post(secretPath("encrypted"), value): Unit
+    val hex   = value.getBytes("UTF-8").map(b => f"${b & 0xff}%02x").mkString
+    val leaks = everyRow().filter((_, row) => row.contains(value) || row.contains(hex))
+    assertEquals(leaks.map(_._1).distinct, Vector.empty)
+    assertEquals(secretRows("encrypted").size, 1)
+  }
+
+  test("secret.refuses-bad-name") {
+    val r = post(secretPath("provider acme"), "sk-1")
+    assertEquals(r.status, 400)
+    assert(r.body.contains("'.', '_', '-' or '/'"), r.body)
+  }
+
+  test("secret.refuses-empty-value") {
+    assertEquals(post(secretPath("empty"), "").status, 400)
+  }
+
+  test("secret.name-with-slash") {
+    assertEquals(post(secretPath("provider/initech"), "sk-initech").status, 204)
+    assertEquals(get(secretPath("provider/initech")).body, "sk-initech")
+  }
+
   // ── SC-003: one request through the endpoint, entity and journal, both hosting modes ──
 
   test("bench.request-latency") {

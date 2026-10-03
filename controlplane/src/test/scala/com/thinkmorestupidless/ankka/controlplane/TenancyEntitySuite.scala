@@ -23,10 +23,14 @@ import com.thinkmorestupidless.ankka.controlplane.domain.{
   CreateForOwner,
   Organization,
   OrganizationEvent,
+  Project,
+  ProjectEvent,
   RecordDeployToken,
   RecordService,
+  RemoveSecretEntry,
   ReserveService,
   SetQuota,
+  SetSecretEntries,
   UsageRecord
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.DeployTokenEvent.*
@@ -425,6 +429,67 @@ class TenancyEntitySuite extends munit.FunSuite with LogCapturing:
     )
     assertEquals(kit.call(OrganizationEntity.roleOf)("carol").replyValue.role, Some(Role.Owner))
     assertEquals(kit.call(OrganizationEntity.members).replyValue.members.size, 1)
+  }
+
+  // ── a project's secrets (feature 023) ──────────────────────────────────────────────────────────
+
+  private def withProject =
+    val kit = project
+    val _   = kit.call(ProjectEntity.createProject)(CreateProject("Checkout", "acme"))
+    kit
+
+  private def entriesOf(kit: EventSourcedTestKit[ProjectEntity, Project, ProjectEvent]) =
+    kit.call(ProjectEntity.secrets).replyValue.map(s => s.name -> s.entries).toMap
+
+  test("a member sets a project secret: the names are recorded, with who set them") {
+    val kit = withProject
+    val by  = Attribution(Actor("alice", Some("alice@example.test")), now)
+    val result = kit.call(ProjectEntity.setSecretEntries, by.metadata)(
+      SetSecretEntries("checkout", Vector("STRIPE_KEY"))
+    )
+    assertEquals(
+      result.events,
+      Vector(ProjectSecretEntriesSet("checkout", Vector("STRIPE_KEY"), Some(by.actor), Some(now)))
+    )
+    val listed = kit.call(ProjectEntity.secrets).replyValue
+    assertEquals(listed.map(_.setBy), Vector(Some("alice@example.test")))
+  }
+
+  test("setting an entry keeps the other entries of the project secret") {
+    val kit = withProject
+    val _   = kit.call(ProjectEntity.setSecretEntries)(SetSecretEntries("checkout", Vector("A")))
+    val _ = kit.call(ProjectEntity.setSecretEntries)(SetSecretEntries("checkout", Vector("B", "A")))
+    assertEquals(entriesOf(kit), Map("checkout" -> Vector("A", "B")))
+  }
+
+  test("a project secret whose last entry is removed leaves the record, and comes back when set") {
+    val kit = withProject
+    val _ = kit.call(ProjectEntity.setSecretEntries)(SetSecretEntries("checkout", Vector("A", "B")))
+    val _ = kit.call(ProjectEntity.removeSecretEntry)(RemoveSecretEntry("checkout", "B"))
+    assertEquals(entriesOf(kit), Map("checkout" -> Vector("A")))
+    val _ = kit.call(ProjectEntity.removeSecretEntry)(RemoveSecretEntry("checkout", "A"))
+    assertEquals(entriesOf(kit), Map.empty)
+    val _ = kit.call(ProjectEntity.setSecretEntries)(SetSecretEntries("checkout", Vector("C")))
+    assertEquals(entriesOf(kit), Map("checkout" -> Vector("C")))
+  }
+
+  test("removing an entry that was never set is not found and records nothing") {
+    val kit    = withProject
+    val _      = kit.call(ProjectEntity.setSecretEntries)(SetSecretEntries("checkout", Vector("A")))
+    val result = kit.call(ProjectEntity.removeSecretEntry)(RemoveSecretEntry("checkout", "MISSING"))
+    assertEquals(result.error.code, ErrorCode.NotFound)
+    assertEquals(result.events, Vector.empty)
+  }
+
+  test("project secrets of a project that does not exist are not found") {
+    val kit = project
+    assertEquals(
+      kit
+        .call(ProjectEntity.setSecretEntries)(SetSecretEntries("checkout", Vector("A")))
+        .error
+        .code,
+      ErrorCode.NotFound
+    )
   }
 
   // ── a project's registry (feature 013) ─────────────────────────────────────────────────────────

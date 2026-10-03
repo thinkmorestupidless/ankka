@@ -5,6 +5,7 @@ import ankka.protocol.v1.payload as pb
 import ankka.protocol.v1.wasm.{ConfigReply, ConfigRequest, StreamTokens}
 import com.dylibso.chicory.runtime.{HostFunction, ImportValues, Instance, WasmFunctionHandle}
 import com.dylibso.chicory.wasm.types.{FunctionType, ValType}
+import com.thinkmorestupidless.ankka.core.PlatformVariables
 import com.thinkmorestupidless.ankka.sidecar.ClientLogic
 import org.slf4j.LoggerFactory
 
@@ -23,9 +24,9 @@ import scala.jdk.CollectionConverters.*
  *
  * `config` reads the runtime's own environment, which in a single container holds every variable
  * the descriptor set alongside the platform's own. So it answers only a name that is none of the
- * platform's: a model key, the database credentials, the cluster's and the runtime's own settings
- * all read as absent. This is the read-time version of the split the operator makes at render time
- * for a process (`ServiceSpec.SidecarEnvPrefixes`, duplicated here as it is in the operator).
+ * platform's: a model key, the database credentials, the secret key, the cluster's and the
+ * runtime's own settings all read as absent. This is the read-time version of the split the
+ * operator makes at render time for a process; both read `core`'s `PlatformVariables`.
  */
 final class HostImports(
     commandTimeout: FiniteDuration,
@@ -53,6 +54,9 @@ final class HostImports(
     .addFunction(bytes("schedule")(schedule))
     .addFunction(bytes("cancel")(cancel))
     .addFunction(bytes("config")(config))
+    .addFunction(bytes("get_secret")(getSecret))
+    .addFunction(bytes("put_secret")(putSecret))
+    .addFunction(bytes("delete_secret")(deleteSecret))
     .addFunction(logFunction)
     .build()
 
@@ -117,12 +121,32 @@ final class HostImports(
   private def cancel(request: Array[Byte]): Array[Byte] =
     await(client.cancel(CancelRequest.parseFrom(request)), commandTimeout).toByteArray
 
+  // The secret store (protocol 1.4). A refusal is the reply's `Error`, as for `invoke`.
+
+  private def getSecret(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => GetSecretReply(GetSecretReply.Result.Error(notReady)).toByteArray
+      case Some(c) =>
+        await(c.getSecret(GetSecretRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  private def putSecret(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => PutSecretReply(Some(notReady)).toByteArray
+      case Some(c) =>
+        await(c.putSecret(PutSecretRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  private def deleteSecret(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => DeleteSecretReply(Some(notReady)).toByteArray
+      case Some(c) =>
+        await(c.deleteSecret(DeleteSecretRequest.parseFrom(request)), commandTimeout).toByteArray
+
   private def config(request: Array[Byte]): Array[Byte] =
     ConfigReply(lookup(ConfigRequest.parseFrom(request).name)).toByteArray
 
   /** A descriptor variable, or nothing: a reserved name reads as unset whether or not it is set. */
   def lookup(name: String): Option[String] =
-    if reserved(name) then None else env(name)
+    if PlatformVariables.withheldFromModule(name) then None else env(name)
 
   // ── The ABI's plumbing ─────────────────────────────────────────────────────
 
@@ -155,29 +179,6 @@ final class HostImports(
   )
 
 object HostImports:
-
-  /**
-   * Names the platform sets or reads. A descriptor may not set most of them, and the ones it may (a
-   * model key, the database's) belong to the runtime, never to the module.
-   */
-  val ReservedPrefixes: Vector[String] = Vector(
-    // ServiceSpec.SidecarEnvPrefixes: what the operator keeps away from a process.
-    "ANTHROPIC_",
-    "ANKKA_MODEL_",
-    "ANKKA_DB_",
-    // The runtime's own settings.
-    "ANKKA_CLUSTER_",
-    "ANKKA_WASM_",
-    "ANKKA_SIDECAR_",
-    "ANKKA_PROCESS_",
-    "ANKKA_AUTH_"
-  )
-
-  val ReservedNames: Set[String] =
-    Set("POD_IP", "ANKKA_HTTP_PORT", "ANKKA_BASE_DOMAIN", "ANKKA_HTTPS_PORT")
-
-  def reserved(name: String): Boolean =
-    ReservedNames.contains(name) || ReservedPrefixes.exists(name.startsWith)
 
   private val notReady =
     pb.Error("the runtime is not ready to be called yet", pb.ErrorCode.UNAVAILABLE)

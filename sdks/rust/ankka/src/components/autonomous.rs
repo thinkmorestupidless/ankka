@@ -454,6 +454,7 @@ impl<C: AutonomousAgent> Registration<C> {
             0,
             Metadata::new(),
         )
+        .with_secrets()
     }
 
     /// Checks one result as `ankka1_check_task_result` does.

@@ -497,6 +497,33 @@ impl ConformanceEndpoint {
         Ok("never reached".to_string())
     }
 
+    // The secret store. The name is a query parameter because it may hold a slash.
+    // docs:start secrets
+    fn secrets(request: &Request) -> Result<ankka::Secrets, HttpProblem> {
+        request
+            .context()
+            .secrets()
+            .ok_or_else(|| HttpProblem::new(500, "an endpoint has a secret store"))
+    }
+
+    fn keep_secret(request: &Request, value: String) -> Result<Done, HttpProblem> {
+        Self::secrets(request)?.put(request.query("name").unwrap_or_default(), &value)?;
+        Ok(Done)
+    }
+
+    fn read_secret(request: &Request) -> Result<String, HttpProblem> {
+        let name = request.query("name").unwrap_or_default();
+        Self::secrets(request)?
+            .get(name)?
+            .ok_or_else(|| HttpProblem::new(404, format!("no secret '{name}'")))
+    }
+
+    fn remove_secret(request: &Request) -> Result<Done, HttpProblem> {
+        Self::secrets(request)?.delete(request.query("name").unwrap_or_default())?;
+        Ok(Done)
+    }
+    // docs:end secrets
+
     fn set_profile(request: &Request, name: String) -> Result<String, HttpProblem> {
         Ok(request
             .client()
@@ -593,6 +620,9 @@ impl Endpoint for ConformanceEndpoint {
     fn routes() -> Routes<ConformanceEndpoint> {
         Routes::new()
             .get("/problems", ConformanceEndpoint::problems)
+            .post("/secrets", ConformanceEndpoint::keep_secret)
+            .get("/secrets", ConformanceEndpoint::read_secret)
+            .delete("/secrets", ConformanceEndpoint::remove_secret)
             .get("/echo", ConformanceEndpoint::echo)
             .get("/status/{code}", ConformanceEndpoint::status)
             .get("/boom", ConformanceEndpoint::boom)

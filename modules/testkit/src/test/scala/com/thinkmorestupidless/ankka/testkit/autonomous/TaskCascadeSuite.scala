@@ -1,10 +1,15 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
-import com.thinkmorestupidless.ankka.testkit.LogCapturing
+import com.thinkmorestupidless.ankka.testkit.{InMemorySecretStore, LogCapturing}
 import com.thinkmorestupidless.ankka.agent.TokenUsage
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.ComponentId
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, ConsumerContext, SimpleChangeContext}
+import com.thinkmorestupidless.ankka.sdk.{
+  ComponentClient,
+  ConsumerContext,
+  SecretStore,
+  SimpleChangeContext
+}
 
 /** The cascade against real task entities and no runtime: what it cancels, and what it leaves. */
 class TaskCascadeSuite extends munit.FunSuite with LogCapturing:
@@ -15,7 +20,8 @@ class TaskCascadeSuite extends munit.FunSuite with LogCapturing:
   private def cascade(router: EntityRouter): TaskCascade =
     new TaskCascade(new ConsumerContext:
       def componentId: ComponentId         = TaskCascade.ComponentId
-      def componentClient: ComponentClient = router.client)
+      def componentClient: ComponentClient = router.client
+      def secrets: SecretStore             = InMemorySecretStore())
 
   /** Delivers `event` as the runtime would: with the task it happened to as the subject. */
   private def deliver(router: EntityRouter, taskId: String, event: TaskEvent): Unit =

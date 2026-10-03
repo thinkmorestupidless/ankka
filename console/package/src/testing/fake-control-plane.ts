@@ -70,11 +70,19 @@ interface Registry {
   setBy?: string;
 }
 
+interface ProjectSecret {
+  /** Values held as the cluster holds them; the control plane never answers with one. */
+  entries: Map<string, string>;
+  setAt: string;
+  setBy?: string;
+}
+
 interface Project {
   id: string;
   name: string;
   organizationId: string;
   registry?: Registry;
+  secrets?: Map<string, ProjectSecret>;
   hidden: boolean;
 }
 
@@ -584,6 +592,52 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     requireWrite(org);
     project.registry = undefined;
     return "done";
+  });
+
+  // Project secrets: the control plane's rules, its merge, and names only in what it answers.
+  const SecretName = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+  const EntryName = /^[A-Za-z0-9._-]{1,253}$/;
+  const PlatformSuffixes = ["-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key"];
+
+  route("PUT", "/projects/{projectId}/secrets/{name}", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const name = p.name;
+    const entries = ((body as { entries?: Record<string, string> }).entries ?? {}) as Record<string, string>;
+    const problems: string[] = [];
+    if (!SecretName.test(name) || name.length > 253)
+      problems.push(`project secret name '${name}' must be lowercase letters, digits, '-' and '.', begin and end with a letter or digit, and be at most 253 characters`);
+    else if (name.startsWith("ankka-") || PlatformSuffixes.some((s) => name.endsWith(s)))
+      problems.push(`project secret name '${name}' is one the platform uses for its own Secrets in a project`);
+    if (Object.keys(entries).length === 0) problems.push("a project secret is set with at least one entry");
+    for (const [entry, value] of Object.entries(entries)) {
+      if (!EntryName.test(entry)) problems.push(`entry name '${entry}' must be 1 to 253 letters, digits, '.', '_' or '-'`);
+      if (value === "") problems.push(`entry '${entry}' must not be empty`);
+    }
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    project.secrets ??= new Map();
+    const held = project.secrets.get(name)?.entries ?? new Map<string, string>();
+    for (const [entry, value] of Object.entries(entries)) held.set(entry, value);
+    project.secrets.set(name, { entries: held, setAt: now(), setBy: c.name ?? c.subject });
+    return "done";
+  });
+
+  route("DELETE", "/projects/{projectId}/secrets/{name}", (c, p, _body, url) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const entry = url.searchParams.get("entry") ?? "";
+    const secret = project.secrets?.get(p.name);
+    if (!secret?.entries.has(entry)) throw new HttpError(404, `project secret '${p.name}' has no entry '${entry}'`);
+    secret.entries.delete(entry);
+    return "done";
+  });
+
+  route("GET", "/projects/{projectId}/secrets", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return [...(project.secrets ?? new Map<string, ProjectSecret>()).entries()]
+      .filter(([, s]) => s.entries.size > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, s]) => ({ name, entries: [...s.entries.keys()].sort(), setAt: s.setAt, setBy: s.setBy }));
   });
 
   route("GET", "/services/{projectId}", (c, p) => {

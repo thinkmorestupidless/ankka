@@ -38,6 +38,10 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
         case Some(row) => effects.updateRow(row.copy(registry = None))
         case None      => effects.ignore()
 
+    // A project's secrets are listed from the entity, which holds them exactly; the row has nothing
+    // to say about them.
+    case _: ProjectSecretEntriesSet | _: ProjectSecretEntryRemoved => effects.ignore()
+
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](
       componentId = ComponentId("project-rows"),

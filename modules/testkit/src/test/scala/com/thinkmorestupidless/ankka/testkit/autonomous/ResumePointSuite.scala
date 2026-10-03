@@ -17,7 +17,13 @@ class ResumePointSuite extends munit.FunSuite with LogCapturing:
   private val loop = IterationLoop(
     Answerer.definition,
     Answerer.create(
-      SimpleAutonomousAgentContext(ComponentId("answerer"), "i-1", router.client, None)
+      SimpleAutonomousAgentContext(
+        ComponentId("answerer"),
+        "i-1",
+        router.client,
+        None,
+        com.thinkmorestupidless.ankka.testkit.InMemorySecretStore()
+      )
     ),
     "i-1",
     router.client,

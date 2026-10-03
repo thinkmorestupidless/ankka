@@ -17,7 +17,7 @@
 
 import { JSON_CONTENT, type Codec, type Shape } from "./codec.ts"
 import type { EffectLike, Metadata } from "./effects/common.ts"
-import type { ComponentClient, ComponentRef } from "./client.ts"
+import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
 import { sequenceNumberOf } from "./consumer.ts"
 import { renderDouble, reviver } from "./json.ts"
 
@@ -443,6 +443,18 @@ export abstract class GraphConsumer<M> {
   get client(): ComponentClient {
     if (!this.#client) throw new Error("client is only available inside onMessage or onDelete")
     return this.#client
+  }
+
+  #secrets: Secrets | undefined
+
+  /** The service's secret store: values kept encrypted in the service's own database, never in a journal or a view. */
+  get secrets(): Secrets {
+    return this.#secrets ?? secretsFor(this.client)
+  }
+
+  /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
+  set secrets(store: Secrets) {
+    this.#secrets = store
   }
 
   /** @internal */

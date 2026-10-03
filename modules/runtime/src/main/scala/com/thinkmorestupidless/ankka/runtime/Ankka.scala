@@ -129,7 +129,13 @@ final class ServiceBuilder private[ankka] (
     // Idempotent for a config the loader produced; for one a caller assembled itself, this is
     // what supplies the overlay it does not have.
     val system = ActorSystem(Behaviors.empty, name, ClusterConfig.layered(config))
-    host(system, ownsSystem = true)
+    // A service that cannot start — an invalid registry, a malformed secret key — must not leave
+    // the actor system it was given running behind the exception.
+    try host(system, ownsSystem = true)
+    catch
+      case failure: Throwable =>
+        system.terminate()
+        throw failure
 
   /** Hosts every registered component on an existing actor system. */
   def startWith(system: ActorSystem[?]): AnkkaService =
@@ -160,13 +166,23 @@ final class ServiceBuilder private[ankka] (
     // of them is instantiated.
     val componentClient = ShardingTransport.clientFor(sharding, askTimeout)(using system)
 
+    // The secret store too, for the same reason. A key that is set and malformed stops the start
+    // here, naming the variable; no key at all is a service that runs and refuses to keep secrets.
+    val secretKey = system.settings.config.getString("ankka.secrets.key").trim match
+      case "" => None
+      case text =>
+        Some(
+          SecretKey.parse(text).fold(problem => throw IllegalArgumentException(problem), identity)
+        )
+    val secrets: SecretStore = DatabaseSecretStore(Database()(using system), secretKey)
+
     registry.components.foreach {
       case descriptor: EventSourcedEntityDescriptor[?, ?, ?] =>
         initEventSourced(sharding, descriptor, componentClient)
       case descriptor: KeyValueEntityDescriptor[?, ?] =>
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
-        initWorkflow(sharding, descriptor, componentClient)
+        initWorkflow(sharding, descriptor, componentClient, secrets)
       case descriptor: remote.RemoteKeyValueDescriptor =>
         val _ = sharding.init(
           Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
@@ -178,7 +194,8 @@ final class ServiceBuilder private[ankka] (
         initWorkflow(
           sharding,
           remote.RemoteWorkflowHost.descriptor(descriptor, conversation.get, askTimeout),
-          componentClient
+          componentClient,
+          secrets
         )
       case descriptor: remote.RemoteEventSourcedDescriptor =>
         // `conversation.get` is safe: `validate` refused the registry without one.
@@ -211,7 +228,8 @@ final class ServiceBuilder private[ankka] (
       ViewClient(Database()(using system), askTimeout)(using system),
       ownsSystem,
       extensions,
-      conversation
+      conversation,
+      secrets
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -263,7 +281,8 @@ final class ServiceBuilder private[ankka] (
   private def initWorkflow(
       sharding: ClusterSharding,
       descriptor: WorkflowDescriptor[?, ?],
-      componentClient: ComponentClient
+      componentClient: ComponentClient,
+      secrets: SecretStore
   ): Unit =
     type AnyWorkflow = Workflow[Any]
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
@@ -272,7 +291,8 @@ final class ServiceBuilder private[ankka] (
         WorkflowHost.behavior[AnyWorkflow, Any](
           typed,
           EntityId(ctx.entityId),
-          componentClient
+          componentClient,
+          secrets
         )
       }
     )
@@ -315,7 +335,13 @@ final class AnkkaService private[ankka] (
      * Present when remote components are registered: how the extensions hosting them reach the
      * process.
      */
-    val conversation: Option[remote.Conversation] = None
+    val conversation: Option[remote.Conversation] = None,
+    /**
+     * The service's secret store: one table in its own database, encrypted with its secret key.
+     * Given to endpoints, workflow steps, consumers, timed actions and agents, never to an entity
+     * or a view.
+     */
+    val secrets: SecretStore = SecretStore.unavailable
 ):
 
   /**

@@ -426,6 +426,21 @@ Service::new("cart").register_as(ShoppingCart, Shape::Stateful)
 The runtime holds the state in both shapes, so a module that faults loses nothing. Choose stateful for a
 state that is large or costly to decode; stateless otherwise.
 
+## Secret store
+
+The service's secret store, for a value it must keep and never record, such as a credential a person
+gave it ([Secrets a service keeps](../build/secrets.md)). `ctx.secrets()` answers `Some(Secrets)` in an
+endpoint, a consumer, a timed action, an agent, an autonomous agent's tools and a workflow step, and
+`None` in an entity, a view and a workflow's command handler. `put(name, value)`, `get(name)` (an
+`Option<String>`) and `delete(name)` each return a `Result` whose error is the runtime's `CommandError`.
+
+The runtime holds the store and its key; a module never sees the key, and `config("ANKKA_SECRET_KEY")` is
+`None`. The three imports, `get_secret`, `put_secret` and `delete_secret`, are reached through a function
+of their own, so a module that never keeps a secret imports none of them and runs on a runtime from before
+protocol 1.4. Natively, a unit test talks to an in-memory store that applies the runtime's rules, unless a
+`NativeHost` answers. The integration test kit sets a generated `ANKKA_SECRET_KEY` on the runtime it
+starts.
+
 ## Running a service
 
 ```rust

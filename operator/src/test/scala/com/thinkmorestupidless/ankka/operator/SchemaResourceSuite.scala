@@ -12,7 +12,12 @@ package com.thinkmorestupidless.ankka.operator
 class SchemaResourceSuite extends munit.FunSuite:
 
   private val expectedFiles =
-    Vector("10-journal-postgres.sql", "20-projection-postgres.sql", "30-timers-postgres.sql")
+    Vector(
+      "10-journal-postgres.sql",
+      "20-projection-postgres.sql",
+      "30-timers-postgres.sql",
+      "40-secrets-postgres.sql"
+    )
 
   test("every DDL file is readable as a classpath resource") {
     expectedFiles.foreach { name =>

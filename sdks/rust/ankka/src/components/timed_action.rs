@@ -156,7 +156,7 @@ impl<C: TimedAction> Registered for Registration<C> {
 
     fn timed_action(&self, request: proto::TimedActionRequest) -> Option<proto::TimedActionEffect> {
         use proto::timed_action_effect::Effect;
-        let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref());
+        let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref()).with_secrets();
         let result = match self.actions.entries.iter().find(|e| e.name == request.name) {
             None => Err(CommandError::new(
                 crate::effects::ErrorCode::NotFound,

@@ -36,11 +36,15 @@ trait TimedActionContext extends ComponentContext:
   /** How many times this timer has already been attempted and failed. */
   def previousAttempts: Int
 
+  /** The service's secret store. */
+  def secrets: SecretStore
+
 private[ankka] final case class SimpleTimedActionContext(
     componentId: ComponentId,
     componentClient: ComponentClient,
     timerName: String,
-    previousAttempts: Int
+    previousAttempts: Int,
+    secrets: SecretStore
 ) extends TimedActionContext
 
 /**

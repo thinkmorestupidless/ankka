@@ -79,6 +79,22 @@ object Output:
           )
         )
 
+  def projectSecrets(rows: Vector[ProjectSecretSummary], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("NAME", "ENTRIES", "SET", "BY"),
+          rows.map(row =>
+            Vector(
+              row.name,
+              row.entries.mkString(", "),
+              row.setAt.fold("-")(_.toString),
+              row.setBy.getOrElse("-")
+            )
+          )
+        )
+
   def project(row: ProjectSummary, format: Format): String =
     format match
       case Format.Json  => writeToString(row)

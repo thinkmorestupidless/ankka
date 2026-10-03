@@ -7,8 +7,12 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
-import com.thinkmorestupidless.ankka.controlplane.deploy.RegistryWriter
-import com.thinkmorestupidless.ankka.controlplane.domain.ConfigureRegistry
+import com.thinkmorestupidless.ankka.controlplane.deploy.{ProjectSecretWriter, RegistryWriter}
+import com.thinkmorestupidless.ankka.controlplane.domain.{
+  ConfigureRegistry,
+  RemoveSecretEntry,
+  SetSecretEntries
+}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.http.*
@@ -29,7 +33,9 @@ final class ProjectEndpoint(
      * Where a registry credential goes. `None` in a control plane with no cluster behind it, and
      * the registry routes then answer unavailable rather than recording a credential nothing holds.
      */
-    registryWriter: Option[RegistryWriter] = None
+    registryWriter: Option[RegistryWriter] = None,
+    /** Where a project secret's entries go; `None` as for the registry, with the same answer. */
+    secretWriter: Option[ProjectSecretWriter] = None
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
@@ -156,6 +162,66 @@ final class ProjectEndpoint(
       .call(ProjectEntity.clearRegistry)
       .withMetadata(authz.metadata(access))
       .invoke(): Done
+  }
+
+  // ── Project secrets ────────────────────────────────────────────────────────
+
+  private def writing(what: String)(write: ProjectSecretWriter => Unit): Unit =
+    val writer = secretWriter.getOrElse(
+      throw CommandError("this control plane cannot reach a cluster", ErrorCode.Unavailable)
+    )
+    try write(writer)
+    catch
+      case error: CommandError => throw error
+      case NonFatal(error) =>
+        throw CommandError(s"could not $what: ${error.getMessage}", ErrorCode.Unavailable)
+
+  /**
+   * Sets entries of a project secret, merged into what it holds, in the project's namespace.
+   *
+   * In the registry's order: who may, what is wrong (all of it, at once), the cluster, and only
+   * then the record — so the journal never names an entry the cluster does not hold. The values go
+   * no further than the Secret: the record, the reply and the listing carry names alone.
+   */
+  putBody("/{projectId}/secrets/{name}") {
+    (projectId: String, name: String, request: SetProjectSecret) =>
+      val access   = authz.project(principal, projectId, write = true)
+      val problems = ProjectSecrets.problems(name, request.entries)
+      if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      writing(s"write project secret '$name'")(_.setEntries(projectId, name, request.entries))
+      entity(projectId)
+        .call(ProjectEntity.setSecretEntries)
+        .withMetadata(authz.metadata(access))
+        .invoke(SetSecretEntries(name, request.entries.keys.toVector)): Done
+  }
+
+  /**
+   * Removes one entry, named by `?entry=`. One the record does not have is not found, and the
+   * cluster is not touched. The Secret itself is never deleted: the grant has no `delete`, and one
+   * with no entry is inert and no longer listed.
+   */
+  delete("/{projectId}/secrets/{name}") { (projectId: String, name: String) =>
+    val access = authz.project(principal, projectId, write = true)
+    val entry  = query.required[String]("entry")
+    val known  = entity(projectId).call(ProjectEntity.secrets).invoke()
+    if !known.exists(s => s.name == name && s.entries.contains(entry)) then
+      throw CommandError(s"project secret '$name' has no entry '$entry'", ErrorCode.NotFound)
+    writing(s"remove entry '$entry' of project secret '$name'")(
+      _.removeEntry(projectId, name, entry)
+    )
+    entity(projectId)
+      .call(ProjectEntity.removeSecretEntry)
+      .withMetadata(authz.metadata(access))
+      .invoke(RemoveSecretEntry(name, entry)): Done
+  }
+
+  /**
+   * The project's secrets, by name, from the project's own record: names and entries, never a
+   * value.
+   */
+  get("/{projectId}/secrets") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    entity(projectId).call(ProjectEntity.secrets).invoke()
   }
 
   private def serviceCount(projectId: String): Int =

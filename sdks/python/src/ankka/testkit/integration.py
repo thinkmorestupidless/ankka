@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 
 import asyncio
+import base64
 import os
 import shutil
 import subprocess
@@ -158,6 +159,9 @@ class AnkkaTestKit:
             .with_env("ANKKA_DB_NAME", "ankka")
             .with_env("ANKKA_DB_USER", "ankka")
             .with_env("ANKKA_DB_PASSWORD", "ankka")
+            # A fresh secret key per kit, so the secret store works with no setup; a caller's
+            # `env` replaces it, and `{"ANKKA_SECRET_KEY": ""}` starts a service with none.
+            .with_env("ANKKA_SECRET_KEY", base64.b64encode(os.urandom(32)).decode("ascii"))
             .with_exposed_ports(HTTP_PORT, CALLBACK_PORT)
             .with_kwargs(extra_hosts={"host.docker.internal": "host-gateway"})
         )

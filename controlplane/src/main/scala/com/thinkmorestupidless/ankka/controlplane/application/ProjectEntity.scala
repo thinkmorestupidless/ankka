@@ -3,6 +3,7 @@ package com.thinkmorestupidless.ankka.controlplane.application
 import com.thinkmorestupidless.ankka.controlplane.api.{
   CreateProject,
   ProjectDetail,
+  ProjectSecretSummary,
   RegistrySummary
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.*
@@ -30,6 +31,10 @@ final class ProjectEntity(context: EventSourcedEntityContext)
     case RegistryConfigured(server, username, secretName, actor, at) =>
       currentState.onRegistryConfigured(server, username, secretName, actor, at)
     case _: RegistryCleared => currentState.onRegistryCleared
+    case ProjectSecretEntriesSet(name, entries, actor, at) =>
+      currentState.onSecretEntriesSet(name, entries, actor, at)
+    case ProjectSecretEntryRemoved(name, entry, _, _) =>
+      currentState.onSecretEntryRemoved(name, entry)
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -84,6 +89,52 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       effects.error(s"project '${context.entityId}' has no registry", ErrorCode.NotFound)
     else effects.persist(RegistryCleared(actor, at)).thenReply(_ => Done)
 
+  /**
+   * Record entries of a project secret the cluster already holds. Called only after the cluster
+   * took them, so this never records an entry the cluster does not have. Names only: no value
+   * reaches here.
+   */
+  def setSecretEntries(request: SetSecretEntries): Effect[Done] =
+    if !currentState.exists then notFound
+    else if request.name.isEmpty then effects.error("a project secret needs a name")
+    else if request.entries.isEmpty then
+      effects.error("a project secret is set with at least one entry")
+    else
+      effects
+        .persist(ProjectSecretEntriesSet(request.name, request.entries.distinct.sorted, actor, at))
+        .thenReply(_ => Done)
+
+  /**
+   * Record that one entry was removed. One the record does not have is not found, and nothing
+   * changes.
+   */
+  def removeSecretEntry(request: RemoveSecretEntry): Effect[Done] =
+    if !currentState.exists then notFound
+    else if !currentState.secrets.get(request.name).exists(_.entries.contains(request.entry)) then
+      effects.error(
+        s"project secret '${request.name}' has no entry '${request.entry}'",
+        ErrorCode.NotFound
+      )
+    else
+      effects
+        .persist(ProjectSecretEntryRemoved(request.name, request.entry, actor, at))
+        .thenReply(_ => Done)
+
+  /** The project's secrets by name, from this entity's own record: exact, and never a value. */
+  def secrets: ReadOnlyEffect[Vector[ProjectSecretSummary]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else
+      effects.reply(
+        currentState.secrets.toVector.sortBy(_._1).map { (name, ref) =>
+          ProjectSecretSummary(
+            name,
+            ref.entries.toVector.sorted,
+            ref.setAt,
+            ref.setBy.flatMap(_.display)
+          )
+        }
+      )
+
   def get: ReadOnlyEffect[ProjectDetail] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
     else
@@ -121,6 +172,10 @@ object ProjectEntity
   given Serializer[ProjectDetail]       = Codecs.serializer[ProjectDetail]("project-detail")
   given Serializer[ConfigureRegistry]   = Codecs.serializer[ConfigureRegistry]("configure-registry")
   given Serializer[Option[RegistryRef]] = Codecs.serializer[Option[RegistryRef]]("registry-ref")
+  given Serializer[SetSecretEntries]    = Codecs.serializer[SetSecretEntries]("set-secret-entries")
+  given Serializer[RemoveSecretEntry] = Codecs.serializer[RemoveSecretEntry]("remove-secret-entry")
+  given Serializer[Vector[ProjectSecretSummary]] =
+    Codecs.serializer[Vector[ProjectSecretSummary]]("project-secrets")
 
   def create(context: EventSourcedEntityContext) = new ProjectEntity(context)
 
@@ -133,3 +188,7 @@ object ProjectEntity
 
   val configureRegistry = command("configure-registry")(_.configureRegistry)
   val clearRegistry     = command("clear-registry")(_.clearRegistry)
+
+  val setSecretEntries  = command("set-secret-entries")(_.setSecretEntries)
+  val removeSecretEntry = command("remove-secret-entry")(_.removeSecretEntry)
+  val secrets           = query("secrets")(_.secrets)

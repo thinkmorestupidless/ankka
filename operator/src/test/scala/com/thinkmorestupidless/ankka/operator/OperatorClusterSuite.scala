@@ -415,6 +415,11 @@ class OperatorClusterSuite extends munit.FunSuite:
     // is the one mistake this feature cannot afford to make.
     val secretBefore = client.secrets().inNamespace(Namespace).withName(s"$DbService-db").get()
     val resourceVersionBefore = secretBefore.getMetadata.getResourceVersion
+    // The secret key likewise: made once, and a second key under a service that has kept secrets
+    // with the first would make all of them unreadable.
+    val keyBefore =
+      client.secrets().inNamespace(Namespace).withName(s"$DbService-secret-key").get()
+    assert(keyBefore != null, "the service's secret key was made")
 
     (1 to 10).foreach { _ =>
       writeDb(dbSpec()) // identical spec, same generation — a genuine no-op apply
@@ -427,6 +432,12 @@ class OperatorClusterSuite extends munit.FunSuite:
       secretAfter.getMetadata.getResourceVersion,
       resourceVersionBefore,
       "the credential secret must not be rewritten at all in steady state"
+    )
+    val keyAfter = client.secrets().inNamespace(Namespace).withName(s"$DbService-secret-key").get()
+    assertEquals(
+      keyAfter.getMetadata.getResourceVersion,
+      keyBefore.getMetadata.getResourceVersion,
+      "the secret key must not be rewritten at all in steady state"
     )
   }
 
@@ -528,6 +539,34 @@ class OperatorClusterSuite extends munit.FunSuite:
     assertEquals(clusters.size, 1, "one project must share one Cluster across its services")
   }
 
+  test("15a. a deployed service's secret key is 32 random bytes, its own, and owned by nothing") {
+    def key(service: String) =
+      def read = client.secrets().inNamespace(Namespace).withName(s"$service-secret-key").get()
+      waitFor(60.seconds)(read != null)
+      read
+    val first  = key(DbService)
+    val second = key(DbService2)
+    // `data` is the API server's base64 of what was written: the key as the pod receives it, which is
+    // itself base64 of the 32 bytes.
+    val asGiven = String(java.util.Base64.getDecoder.decode(first.getData.get("key")))
+    assertEquals(java.util.Base64.getDecoder.decode(asGiven).length, 32, asGiven)
+    assertNotEquals(first.getData.get("key"), second.getData.get("key"), "each service has its own")
+    assert(first.getMetadata.getOwnerReferences.isEmpty, "it must outlive the resource")
+    val container = client
+      .apps()
+      .deployments()
+      .inNamespace(Namespace)
+      .withName(DbService)
+      .get()
+      .getSpec
+      .getTemplate
+      .getSpec
+      .getContainers
+      .get(0)
+    val ref = container.getEnv.asScala.find(_.getName == "ANKKA_SECRET_KEY").get
+    assertEquals(ref.getValueFrom.getSecretKeyRef.getName, s"$DbService-secret-key")
+  }
+
   test("16. each service's own database is reachable with its own certificate") {
     val (code, out) = psqlAs(DbService, DbService, "select current_database();")
     assertEquals(code, 0, out)
@@ -615,6 +654,13 @@ class OperatorClusterSuite extends munit.FunSuite:
         "create table scratch_marker(id int); insert into scratch_marker values (42);"
       )
     assertEquals(createCode, 0, createOut)
+    val keyUid = client
+      .secrets()
+      .inNamespace(Namespace)
+      .withName(s"$DbService2-secret-key")
+      .get()
+      .getMetadata
+      .getUid
 
     resources.inNamespace(Namespace).withName(DbService2).delete(): Unit
     waitFor(120.seconds)(
@@ -655,6 +701,18 @@ class OperatorClusterSuite extends munit.FunSuite:
       recoveredOut.trim,
       "42",
       "the same row, from before the delete, not a fresh database"
+    )
+    // And the same secret key, so what the service kept before the delete is readable after it.
+    assertEquals(
+      client
+        .secrets()
+        .inNamespace(Namespace)
+        .withName(s"$DbService2-secret-key")
+        .get()
+        .getMetadata
+        .getUid,
+      keyUid,
+      "the secret key must survive the delete and be the one the re-applied service names"
     )
   }
 

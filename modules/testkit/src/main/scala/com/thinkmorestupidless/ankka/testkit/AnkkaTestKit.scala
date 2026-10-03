@@ -1,11 +1,17 @@
 package com.thinkmorestupidless.ankka.testkit
 
-import com.typesafe.config.{Config, ConfigFactory}
+import com.typesafe.config.{Config, ConfigFactory, ConfigValueFactory}
 import com.thinkmorestupidless.ankka.agent.autonomous.{TaskType, TypedTaskSnapshot, forTask}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
-import com.thinkmorestupidless.ankka.runtime.{ServiceBuilder, Ankka, AnkkaService, RuntimeExtension}
+import com.thinkmorestupidless.ankka.runtime.{
+  ServiceBuilder,
+  Ankka,
+  AnkkaService,
+  RuntimeExtension,
+  SecretKey
+}
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
-import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
 import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.utility.{DockerImageName, MountableFile}
 
@@ -36,11 +42,19 @@ final class AnkkaTestKit private (
     config: Config,
     container: AnkkaPostgres,
     readyTimeout: FiniteDuration,
-    private var current: AnkkaService
+    private var current: AnkkaService,
+    /** The secret key the running service was started with, or `None` for none. */
+    private var currentKey: Option[String]
 ):
 
   def service: AnkkaService            = current
   def componentClient: ComponentClient = current.componentClient
+
+  /** The running service's secret store: one table in this kit's database. */
+  def secrets: SecretStore = current.secrets
+
+  /** The secret key the running service has, as `ANKKA_SECRET_KEY` would give it. */
+  def secretKey: Option[String] = currentKey
 
   /**
    * The header that makes a request to this service's HTTP endpoints arrive as `caller`, for
@@ -102,7 +116,7 @@ final class AnkkaTestKit private (
           "pekko.remote.artery.canonical.port"     -> "0"
         ).asJava
       )
-      .withFallback(config)
+      .withFallback(AnkkaTestKit.withSecretKey(config, currentKey))
       .resolve()
     AnkkaTestKit.Peer(
       AnkkaTestKit.hostService(descriptors, extensions, configure, peerConfig, readyTimeout)
@@ -114,11 +128,21 @@ final class AnkkaTestKit private (
    * This is how a test proves durability rather than caching: every entity is gone from memory
    * afterwards, so the next read has no choice but to rebuild from the journal. Deterministic,
    * unlike waiting for passivation to fire.
+   *
+   * The service keeps its secret key unless `secretKey` says otherwise: another key is what a
+   * careless rotation looks like, and `None` is a service started with none.
    */
-  def restartService(): Unit =
+  def restartService(secretKey: Option[String] = currentKey): Unit =
     current.terminate()
     scala.concurrent.Await.ready(current.whenTerminated, readyTimeout): Unit
-    current = AnkkaTestKit.hostService(descriptors, extensions, configure, config, readyTimeout)
+    currentKey = secretKey
+    current = AnkkaTestKit.hostService(
+      descriptors,
+      extensions,
+      configure,
+      AnkkaTestKit.withSecretKey(config, secretKey),
+      readyTimeout
+    )
 
   def stop(): Unit =
     current.terminate()
@@ -150,7 +174,8 @@ object AnkkaTestKit:
   private val DdlResources = Seq(
     "/ankka/ddl/10-journal-postgres.sql"    -> "/docker-entrypoint-initdb.d/10-journal.sql",
     "/ankka/ddl/20-projection-postgres.sql" -> "/docker-entrypoint-initdb.d/20-projection.sql",
-    "/ankka/ddl/30-timers-postgres.sql"     -> "/docker-entrypoint-initdb.d/30-timers.sql"
+    "/ankka/ddl/30-timers-postgres.sql"     -> "/docker-entrypoint-initdb.d/30-timers.sql",
+    "/ankka/ddl/40-secrets-postgres.sql"    -> "/docker-entrypoint-initdb.d/40-secrets.sql"
   )
 
   /**
@@ -168,7 +193,12 @@ object AnkkaTestKit:
       descriptors: Seq[ComponentDescriptor],
       extensions: Seq[RuntimeExtension] = Nil,
       readyTimeout: FiniteDuration = 60.seconds,
-      configure: ServiceBuilder => ServiceBuilder = identity
+      configure: ServiceBuilder => ServiceBuilder = identity,
+      /**
+       * The service's secret key, as `ANKKA_SECRET_KEY` would give it. A fresh one per kit by
+       * default, so the secret store works with no setup; `None` starts a service with none.
+       */
+      secretKey: Option[String] = Some(generateSecretKey())
   ): AnkkaTestKit =
     val container = AnkkaPostgres(DockerImageName.parse(PostgresImage))
       .withDatabaseName("ankka")
@@ -195,13 +225,39 @@ object AnkkaTestKit:
     val config = configFor(container)
 
     val service =
-      try hostService(descriptors, extensions, configure, config, readyTimeout)
+      try
+        hostService(
+          descriptors,
+          extensions,
+          configure,
+          withSecretKey(config, secretKey),
+          readyTimeout
+        )
       catch
         case failure: Throwable =>
           container.stop()
           throw failure
 
-    new AnkkaTestKit(descriptors, extensions, configure, config, container, readyTimeout, service)
+    new AnkkaTestKit(
+      descriptors,
+      extensions,
+      configure,
+      config,
+      container,
+      readyTimeout,
+      service,
+      secretKey
+    )
+
+  /** A fresh secret key, written as `ANKKA_SECRET_KEY` takes it. */
+  def generateSecretKey(): String = SecretKey.generate().encoded
+
+  /**
+   * The config with the service's secret key set, or set empty: always set, so a developer's own
+   * `ANKKA_SECRET_KEY` never reaches a test's service.
+   */
+  private[testkit] def withSecretKey(config: Config, key: Option[String]): Config =
+    config.withValue("ankka.secrets.key", ConfigValueFactory.fromAnyRef(key.getOrElse("")))
 
   def start(first: ComponentDescriptor, rest: ComponentDescriptor*): AnkkaTestKit =
     start(first +: rest)

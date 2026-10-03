@@ -9,7 +9,7 @@
 //     getCart(cartId: string) { return this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke() }
 //   }
 
-import type { ComponentClient } from "./client.ts"
+import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import { currentRequest, requestIfAny, type RequestContext } from "./context.ts"
 import type { Acl, RouteTable } from "./routes.ts"
 
@@ -26,6 +26,18 @@ export abstract class Endpoint {
     if (!this.#client) throw new Error("client is only available inside a route handler")
     const request = requestIfAny()
     return request ? this.#client.withMetadata(request.metadata) : this.#client
+  }
+
+  #secrets: Secrets | undefined
+
+  /** The service's secret store: values kept encrypted in the service's own database, never in a journal or a view. */
+  get secrets(): Secrets {
+    return this.#secrets ?? secretsFor(this.client)
+  }
+
+  /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
+  set secrets(store: Secrets) {
+    this.#secrets = store
   }
 
   /** @internal */

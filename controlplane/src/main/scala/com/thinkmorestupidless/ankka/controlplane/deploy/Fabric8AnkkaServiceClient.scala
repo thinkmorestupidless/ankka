@@ -2,7 +2,12 @@ package com.thinkmorestupidless.ankka.controlplane.deploy
 
 import io.fabric8.kubernetes.api.model.{NamespaceBuilder, ObjectMetaBuilder, SecretBuilder}
 import io.fabric8.kubernetes.client.informers.{ResourceEventHandler, SharedIndexInformer}
-import io.fabric8.kubernetes.client.{KubernetesClient, KubernetesClientBuilder}
+import io.fabric8.kubernetes.client.{
+  KubernetesClient,
+  KubernetesClientBuilder,
+  KubernetesClientException
+}
+import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString}
 import com.thinkmorestupidless.ankka.controlplane.api.Registries
 import com.thinkmorestupidless.ankka.core.Codecs
@@ -79,6 +84,87 @@ final class Fabric8AnkkaServiceClient(
     val _ = client.resource(secret).fieldManager(FieldManager).forceConflicts().serverSideApply()
     // The server and the user, never the password, and never at a level a log ships by default.
     log.debug("wrote registry credentials for {} in {} as {}", server, namespace, username)
+
+  // A merge patch, not server-side apply: an apply replaces everything this manager applied before,
+  // so setting one entry would remove the others, and the control plane cannot read them to send them
+  // again. A merge patch leaves what it does not name. It is the `patch` verb, and the fallback is
+  // `create`: the grant on Secrets stays `create, patch`.
+  def setSecretEntries(namespace: String, name: String, entries: Map[String, String]): Unit =
+    ensureNamespace(namespace)
+    val body =
+      writeToString(Map("stringData" -> entries))(using Fabric8AnkkaServiceClient.stringDataCodec)
+    mergePatchSecret(namespace, name, body) match
+      case 404 =>
+        val secret = new SecretBuilder()
+          .withMetadata(
+            new ObjectMetaBuilder()
+              .withName(name)
+              .withNamespace(namespace)
+              .withLabels(
+                java.util.Map.of(
+                  "app.kubernetes.io/managed-by",
+                  "ankka",
+                  "ankka.thinkmorestupidless.com/project-secret",
+                  "true"
+                )
+              )
+              .build()
+          )
+          .withType("Opaque")
+          .withStringData(entries.asJava)
+          .build()
+        try
+          val _ = client.secrets().inNamespace(namespace).resource(secret).create()
+        catch
+          // Another request made it between the patch and the create: patch onto that one.
+          case conflict: KubernetesClientException if conflict.getCode == 409 =>
+            refuseUnless(name, mergePatchSecret(namespace, name, body))
+      case status => refuseUnless(name, status)
+    // Names, never values.
+    log.debug(
+      "set entries {} of project secret {} in {}",
+      entries.keys.toVector.sorted,
+      name,
+      namespace
+    )
+
+  def removeSecretEntry(namespace: String, name: String, entry: String): Unit =
+    val body =
+      s"""{"data":{${writeToString(entry)(using Fabric8AnkkaServiceClient.stringCodec)}:null}}"""
+    refuseUnless(name, mergePatchSecret(namespace, name, body))
+    log.debug("removed entry {} of project secret {} in {}", entry, name, namespace)
+
+  /**
+   * A JSON merge patch of a Secret, sent as a plain request and answered by its status alone.
+   *
+   * Not fabric8's `patch`: that reads the object first (`getItemOrRequireFromServer`), which is a
+   * `get` the control plane is deliberately not granted, and found only against a real API server.
+   * The answer's body — the whole Secret, every entry's value included — is never read.
+   */
+  private def mergePatchSecret(namespace: String, name: String, body: String): Int =
+    val base = client.getMasterUrl.toString.stripSuffix("/")
+    val request = client.getHttpClient
+      .newHttpRequestBuilder()
+      .uri(s"$base/api/v1/namespaces/$namespace/secrets/$name")
+      .patch("application/merge-patch+json", body)
+      .build()
+    client.getHttpClient
+      .sendAsync(request, classOf[String])
+      .get(30, java.util.concurrent.TimeUnit.SECONDS)
+      .code()
+
+  /** A status other than success: the cluster's refusal of the request itself, or a fault. */
+  private def refuseUnless(name: String, status: Int): Unit =
+    if status >= 200 && status < 300 then ()
+    else if status == 400 || status == 413 || status == 422 then
+      throw CommandError(
+        s"the cluster refused project secret '$name' ($status)",
+        ErrorCode.BadRequest
+      )
+    else
+      throw new IllegalStateException(
+        s"the cluster answered $status to a write of project secret '$name'"
+      )
 
   def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit =
     val resources = client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name)
@@ -161,6 +247,13 @@ final class Fabric8AnkkaServiceClient(
     )
 
 object Fabric8AnkkaServiceClient:
+
+  /** The body of a project secret's merge patch: `{"stringData": {entry: value, ...}}`. */
+  private[deploy] val stringDataCodec: JsonValueCodec[Map[String, Map[String, String]]] =
+    Codecs.make[Map[String, Map[String, String]]]
+
+  /** One JSON string, escaped as JSON escapes it. */
+  private[deploy] val stringCodec: JsonValueCodec[String] = Codecs.make[String]
 
   /** Builds a client from the ambient credentials: service account, `KUBECONFIG`, `~/.kube`. */
   def apply(namespacePrefix: String): Fabric8AnkkaServiceClient =

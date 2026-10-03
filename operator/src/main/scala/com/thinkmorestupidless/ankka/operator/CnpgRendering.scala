@@ -32,12 +32,17 @@ object CnpgRendering:
   val schemaConfigMapName: String = "ankka-schema"
 
   /**
-   * The three DDL files, named explicitly rather than enumerated off the classpath: listing a
-   * "directory" of classpath resources is unreliable across an exploded classes dir and a packaged
-   * jar, and the file set is fixed and small.
+   * The DDL files, named explicitly rather than enumerated off the classpath: listing a "directory"
+   * of classpath resources is unreliable across an exploded classes dir and a packaged jar, and the
+   * file set is fixed and small.
    */
   private val SchemaFiles =
-    Vector("10-journal-postgres.sql", "20-projection-postgres.sql", "30-timers-postgres.sql")
+    Vector(
+      "10-journal-postgres.sql",
+      "20-projection-postgres.sql",
+      "30-timers-postgres.sql",
+      "40-secrets-postgres.sql"
+    )
 
   /**
    * A project's shared Postgres capacity. No `bootstrap.initdb` — its databases arrive as

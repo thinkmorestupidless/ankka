@@ -595,7 +595,7 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
                 roles: p.roles,
             }),
             caller: caller_of(request.caller),
-            context: Context::new(E::ENDPOINT_ID, "", 0, metadata),
+            context: Context::new(E::ENDPOINT_ID, "", 0, metadata).with_secrets(),
         };
         let response = (route.handler)(&forwarded).unwrap_or_else(|problem| Response {
             status: problem.status,

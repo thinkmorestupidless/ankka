@@ -255,6 +255,21 @@ export const setRegistrySchema = z.object({
 });
 export type SetRegistry = z.input<typeof setRegistrySchema>;
 
+/** `PUT /projects/{id}/secrets/{name}`: entries merged into a project secret. */
+export const setProjectSecretSchema = z.object({
+  entries: z.record(z.string(), z.string()),
+});
+export type SetProjectSecret = z.input<typeof setProjectSecretSchema>;
+
+/** A project secret as the control plane lists it: entries' names, never a value. */
+export const projectSecretSummarySchema = z.object({
+  name: z.string(),
+  entries: z.array(z.string()),
+  setAt: optional(z.string()),
+  setBy: optional(z.string()),
+});
+export type ProjectSecretSummary = z.infer<typeof projectSecretSummarySchema>;
+
 /** Every schema by the Scala type's name, as the fixture files name them. */
 export const schemasByType: Record<string, z.ZodType> = {
   AuthDiscovery: authDiscoverySchema,
@@ -287,4 +302,6 @@ export const schemasByType: Record<string, z.ZodType> = {
   Repair: repairSchema,
   CreateDeployToken: createDeployTokenSchema,
   SetRegistry: setRegistrySchema,
+  SetProjectSecret: setProjectSecretSchema,
+  ProjectSecretSummary: projectSecretSummarySchema,
 };

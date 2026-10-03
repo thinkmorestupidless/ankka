@@ -1,5 +1,6 @@
 /**
- * A project: its services, kept current while the page is open, and its registry credential.
+ * A project: its services, kept current while the page is open, its registry credential and its
+ * project secrets — by name and entry, never a value.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
@@ -16,9 +17,14 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, page] = await Promise.all([ctx.client.getProject(id), ctx.client.listServices(id), pageData(ctx)]);
+    const [project, services, secrets, page] = await Promise.all([
+      ctx.client.getProject(id),
+      ctx.client.listServices(id),
+      ctx.client.listProjectSecrets(id),
+      pageData(ctx),
+    ]);
     const organization = await ctx.client.getOrganization(project.organizationId);
-    return { console: page, project, organization, services, panels: await loadPanels(ctx, "project", project) };
+    return { console: page, project, organization, services, secrets, panels: await loadPanels(ctx, "project", project) };
   });
 }
 
@@ -45,6 +51,13 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "registry-clear":
         await ctx.client.clearRegistry(id);
         return redirect(self);
+      case "secret-set":
+        // The value crosses once, to the control plane, and is never shown again by anything.
+        await ctx.client.setProjectSecret(id, text(form, "secretName"), { [text(form, "secretEntry")]: String(form.get("secretValue") ?? "") });
+        return redirect(self);
+      case "secret-unset":
+        await ctx.client.unsetProjectSecretEntry(id, text(form, "secretName"), text(form, "secretEntry"));
+        return redirect(self);
       default:
         throw new Response(`unknown operation '${intent}'`, { status: 400 });
     }
@@ -52,12 +65,13 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 }
 
 export default function Project() {
-  const { project: p, organization: o, services: initial, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, panels } = useLoaderData<typeof loader>();
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
   const deleteRefusal = useRefusal("delete");
   const registryRefusal = useRefusal("registry-set");
+  const secretRefusal = useRefusal("secret-set");
   const path = `projects/${encodeURIComponent(p.id)}`;
   return (
     <section className="ac-page">
@@ -149,6 +163,64 @@ export default function Project() {
           <Submit intent="registry-clear">Clear credential</Submit>
           <Refused intent="registry-clear" />
         </ConsoleForm>
+      ) : null}
+
+      <h2 id="secrets">Project secrets</h2>
+      {secrets.length === 0 ? (
+        <p className="ac-empty">No project secrets. A descriptor's variable can take an entry of one by secretKeyRef.</p>
+      ) : (
+        <div className="ac-table-wrap">
+          <table className="ac-table" aria-describedby="secrets">
+            <thead>
+              <tr>
+                <th scope="col">Secret</th>
+                <th scope="col">Entry</th>
+                <th scope="col">Set</th>
+                <th scope="col">
+                  <span className="ac-visually-hidden">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {secrets.flatMap((s) =>
+                s.entries.map((entry) => (
+                  <tr key={`${s.name}/${entry}`} data-secret={s.name} data-entry={entry}>
+                    <td>{s.name}</td>
+                    <td>{entry}</td>
+                    <td>
+                      {when(s.setAt)}
+                      {s.setBy ? ` by ${s.setBy}` : ""}
+                    </td>
+                    <td>
+                      {shows("project-secret.unset") ? (
+                        <ConsoleForm intent="secret-unset" className="ac-inline">
+                          <input type="hidden" name="secretName" value={s.name} />
+                          <input type="hidden" name="secretEntry" value={entry} />
+                          <Submit intent="secret-unset">{`Remove ${entry}`}</Submit>
+                        </ConsoleForm>
+                      ) : null}
+                    </td>
+                  </tr>
+                )),
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Refused intent="secret-unset" />
+      {shows("project-secret.set") ? (
+        <details className="ac-more" open={secretRefusal !== undefined || undefined}>
+          <summary>Set a project secret entry</summary>
+          <ConsoleForm intent="secret-set" className="ac-form">
+            <Field label="Project secret" name="secretName" required placeholder="checkout" defaultValue={secretRefusal?.values.secretName} />
+            <Field label="Entry" name="secretEntry" required placeholder="STRIPE_KEY" autoComplete="off" defaultValue={secretRefusal?.values.secretEntry} />
+            <Field label="Value" name="secretValue" type="password" required autoComplete="new-password" hint="Sent once to the platform, which keeps it only in the cluster. It is never shown again." />
+            <Refused intent="secret-set" />
+            <div>
+              <Submit intent="secret-set">Save entry</Submit>
+            </div>
+          </ConsoleForm>
+        </details>
       ) : null}
 
       <Panels kind="project" entity={p} loaded={panels} />

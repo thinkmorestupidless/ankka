@@ -64,7 +64,20 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   protected var partArrivals: Vector[Long]      = Vector.empty
 
   /** The services the scenario deployed beside "web", by project and name. */
-  protected val callees = scala.collection.mutable.Map.empty[(String, String), ProxySteps.Callee]
+  protected val callees = scala.collection.mutable.Map.empty[(String, String), ProxySteps.Served]
+
+  /** The first web-hosted service's mounts: path and service. */
+  protected var mounts: Vector[(String, String)] = Vector.empty
+
+  /** Whether the scenario has declared its first web-hosted service; any later one is another. */
+  protected var declaredWeb: Boolean = false
+
+  /** Further web-hosted services, each its own proxy and process, started when first reached. */
+  protected val others = scala.collection.mutable.LinkedHashMap.empty[String, ProxySteps.WebSpec]
+  protected val runningOthers = scala.collection.mutable.Map.empty[String, ProxySteps.Running]
+
+  /** Services found at an address where nothing listens: a paused one. */
+  protected val unreachable = scala.collection.mutable.Set.empty[(String, String)]
 
   override def beforeEach(context: munit.BeforeEach): Unit =
     project = "shop"
@@ -81,43 +94,126 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     last = null
     partArrivals = Vector.empty
     callees.clear()
+    mounts = Vector.empty
+    declaredWeb = false
+    others.clear()
+    runningOthers.clear()
+    unreachable.clear()
 
   override def afterEach(context: munit.AfterEach): Unit =
     if engine != null then engine.stop()
     if process != null then process.stop()
     callees.values.foreach(_.stop())
+    runningOthers.values.foreach(_.stop())
 
   /** The proxy, started on the first request of the scenario from the settings its Givens built. */
   protected def proxy: ProxyEngine =
     if engine == null then
       process = StandInProcess(streamInterval).start()
-      val directory = Files.createTempDirectory("proxy-features-server")
-      authority
-        .issue(uris = Seq(s"ankka://$project/$service"), dnsNames = Seq("localhost"))
-        .writeTo(directory)
-      serverTls = RotatingTls(directory, 1.minute)
-      settings = ProxySettings(
-        project = project,
-        service = service,
-        port = 0,
-        processPort = process.port,
-        probePort = 0,
-        callingPort = 0,
-        callers = callers,
-        publicAuthority = if exposed then Some(hostnameOf(service)) else None,
-        responseTimeout = responseTimeout,
-        drainTimeout = 1.second
-      )
-      engine = ProxyEngine(
-        settings,
-        TlsTransport(serverTls, loopback),
-        probeAddress = loopback,
-        locator = (p, s) =>
-          callees.get((p, s)).map(c => Located(java.net.URI.create(s"https://localhost:${c.port}")))
-      )
-      engine.start()
-      process.servicesUrl = engine.callingUrl
+      startPrimary()
     engine
+
+  /** (Re)starts the first web-hosted service's proxy over the same process, as an apply would. */
+  protected def startPrimary(): Unit =
+    val (built, tls, s) = buildEngine(
+      service,
+      project,
+      mounts,
+      if exposed then Some(hostnameOf(service)) else None,
+      process,
+      callers
+    )
+    serverTls = tls
+    settings = s
+    engine = built
+    engine.start()
+    process.servicesUrl = engine.callingUrl
+
+  /**
+   * A web-hosted service's proxy on loopback: its own certificate, a mount certificate while it has
+   * mounts, and the scenario's services found by name.
+   */
+  protected def buildEngine(
+      name: String,
+      inProject: String,
+      withMounts: Vector[(String, String)],
+      publicAuthority: Option[String],
+      over: StandInProcess,
+      admitted: Vector[Admitted] = Vector.empty
+  ): (ProxyEngine, RotatingTls, ProxySettings) =
+    val directory = Files.createTempDirectory(s"proxy-features-$name")
+    authority
+      .issue(uris = Seq(s"ankka://$inProject/$name"), dnsNames = Seq("localhost"))
+      .writeTo(directory)
+    val tls = RotatingTls(directory, 1.minute)
+    val mountTls = Option.when(withMounts.nonEmpty) {
+      val dir = Files.createTempDirectory(s"proxy-features-$name-mount")
+      authority.issue(uris = Seq(s"ankka://$inProject/$name/mount")).writeTo(dir)
+      RotatingTls(dir, 1.minute)
+    }
+    val s = ProxySettings(
+      project = inProject,
+      service = name,
+      port = 0,
+      processPort = over.port,
+      probePort = 0,
+      callingPort = 0,
+      mounts = withMounts,
+      callers = admitted,
+      publicAuthority = publicAuthority,
+      responseTimeout = responseTimeout,
+      drainTimeout = 1.second
+    )
+    val built = ProxyEngine(
+      s,
+      TlsTransport(tls, loopback, mountTls),
+      probeAddress = loopback,
+      locator = (p, svc) => locate(p, svc)
+    )
+    (built, tls, s)
+
+  /** Where a service of the scenario answers: a callee, another web-hosted service, or nowhere. */
+  protected def locate(inProject: String, name: String): Option[Located] =
+    def at(port: Int) = Some(Located(java.net.URI.create(s"https://localhost:$port")))
+    if unreachable((inProject, name)) then at(ProxySteps.closedPort())
+    else
+      callees.get((inProject, name)) match
+        case Some(c) => at(c.port)
+        case None =>
+          others
+            .get(name)
+            .filter(_.project == inProject)
+            .flatMap(_ => at(other(name).engine.ports.public))
+
+  /** Another web-hosted service's proxy, started the first time it is reached. */
+  protected def other(name: String): ProxySteps.Running =
+    runningOthers.getOrElseUpdate(
+      name, {
+        val spec = others.getOrElse(name, fail(s"no web-hosted service $name"))
+        val over = StandInProcess().start()
+        val (built, _, _) = buildEngine(
+          name,
+          spec.project,
+          spec.mounts,
+          if spec.exposed then Some(hostnameOf(name, spec.project)) else None,
+          over
+        )
+        built.start()
+        over.servicesUrl = built.callingUrl
+        ProxySteps.Running(built, over)
+      }
+    )
+
+  /** The process of a web-hosted service of the scenario. */
+  protected def processOf(name: String): StandInProcess =
+    if name == service then
+      proxy
+      process
+    else other(name).process
+
+  /** The public port of a web-hosted service of the scenario. */
+  protected def portOf(name: String): Int =
+    if name == service then proxy.ports.public else other(name).engine.ports.public
 
   // ── clients ───────────────────────────────────────────────────────────────
 
@@ -139,13 +235,23 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     presenting(s"ankka://$project/$name")
 
   protected def request(target: String, headers: (String, String)*): HttpRequest =
-    val builder =
-      HttpRequest.newBuilder(URI.create(s"https://localhost:${proxy.ports.public}$target"))
+    requestTo(proxy.ports.public, target, headers*)
+
+  protected def requestTo(port: Int, target: String, headers: (String, String)*): HttpRequest =
+    val builder = HttpRequest.newBuilder(URI.create(s"https://localhost:$port$target"))
     headers.foreach((name, value) => builder.header(name, value))
     builder.build()
 
   protected def send(client: HttpClient, target: String, headers: (String, String)*): Unit =
-    val response = client.send(request(target, headers*), BodyHandlers.ofByteArray())
+    sendTo(client, proxy.ports.public, target, headers*)
+
+  protected def sendTo(
+      client: HttpClient,
+      port: Int,
+      target: String,
+      headers: (String, String)*
+  ): Unit =
+    val response = client.send(requestTo(port, target, headers*), BodyHandlers.ofByteArray())
     last = ProxySteps.Reply(
       response.statusCode,
       response.headers,
@@ -163,14 +269,27 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   // ── Given ─────────────────────────────────────────────────────────────────
 
   Given("a web-hosted service {string} deployed in the project {string}") {
-    (name: String, projectId: String) =>
-      service = name
-      project = projectId
+    (name: String, projectId: String) => declareWeb(name, projectId, Vector.empty)
   }
 
+  /** The scenario's first web-hosted service is "the" one; any after it is another. */
+  protected def declareWeb(
+      name: String,
+      inProject: String,
+      withMounts: Vector[(String, String)]
+  ): Unit =
+    if !declaredWeb then
+      declaredWeb = true
+      service = name
+      project = inProject
+      mounts = withMounts
+    else others(name) = ProxySteps.WebSpec(inProject, withMounts)
+
   Given("{string} is exposed") { (name: String) =>
-    assertEquals(name, service, "only the web-hosted service is exposed here")
-    exposed = true
+    if name == service then exposed = true
+    else
+      others(name) =
+        others.getOrElse(name, fail(s"no web-hosted service $name")).copy(exposed = true)
   }
 
   Given("the descriptor of {string} admits no service") { (name: String) =>
@@ -338,6 +457,193 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
       )
       .statusCode
     assertEquals(status, 200, "the probe did not answer ready")
+  }
+
+  // ── mounts ────────────────────────────────────────────────────────────────
+
+  protected def calleeNamed(name: String): ProxySteps.Served =
+    callees.values.find(_.name == name).getOrElse(fail(s"no service $name"))
+
+  /** The service a "given a request for" step last named, so the others can be checked. */
+  protected var lastGiven: String = ""
+
+  Given(
+    "a service {string} deployed in the project {string} whose access rule admits the internet"
+  ) { (name: String, inProject: String) =>
+    deployCallee(name, inProject, Acl.allowCallers(Callers.internet))
+  }
+
+  Given(
+    "a service {string} deployed in the project {string}, too old to be told that a request came under a mount"
+  ) { (name: String, inProject: String) =>
+    val directory = Files.createTempDirectory(s"old-$name")
+    authority
+      .issue(uris = Seq(s"ankka://$inProject/$name"), dnsNames = Seq("localhost"))
+      .writeTo(directory)
+    callees((inProject, name)) = ProxySteps.OldCallee(name, directory)
+  }
+
+  Given(
+    "a web-hosted service {string} deployed in the project {string} with {string} mounted at {string}"
+  ) { (name: String, inProject: String, mounted: String, path: String) =>
+    declareWeb(name, inProject, Vector(path -> mounted))
+  }
+
+  Given("{string} also has {string} mounted at {string}") {
+    (name: String, mounted: String, path: String) =>
+      if name == service then mounts :+= path -> mounted
+      else others(name) = others(name).copy(mounts = others(name).mounts :+ (path -> mounted))
+  }
+
+  Given("{string} also has {string} mounted at {string} and {string} mounted at {string}") {
+    (name: String, first: String, firstPath: String, second: String, secondPath: String) =>
+      assertEquals(name, service)
+      mounts ++= Vector(firstPath -> first, secondPath -> second)
+  }
+
+  Given("the service {string} does not exist") { (name: String) =>
+    assert(!callees.contains((project, name)))
+  }
+
+  Given("the service {string} serves no requests") { (name: String) =>
+    // A service that serves no HTTP has no port to be found at: the lookup finds nothing.
+    assert(!callees.contains((project, name)))
+  }
+
+  Given("the service {string} is paused") { (name: String) =>
+    // Found, at an address where nothing listens.
+    unreachable += project -> name
+  }
+
+  When("a browser sends a request for {string} to {string}") { (path: String, name: String) =>
+    sendTo(internet, portOf(name), path)
+  }
+
+  When("a browser sends a request for {string} to the hostname of {string}") {
+    (path: String, name: String) =>
+      sendTo(internet, portOf(name), path, "Host" -> hostnameOf(name))
+  }
+
+  When("{string} passes a request to {string} as a request under a mount") {
+    (mounting: String, callee: String) =>
+      val spec   = others.getOrElse(mounting, fail(s"no web-hosted service $mounting"))
+      val target = calleeNamed(callee)
+      val response = presenting(s"ankka://${spec.project}/$mounting/mount").send(
+        HttpRequest.newBuilder(URI.create(s"https://localhost:${target.port}/carts/c1")).build(),
+        BodyHandlers.ofString()
+      )
+      last = ProxySteps.Reply(response.statusCode, response.headers, response.body)
+  }
+
+  When(
+    "a member applies the descriptor of {string} with the same image and {string} mounted at {string}"
+  ) { (name: String, mounted: String, path: String) =>
+    assertEquals(name, service)
+    proxy
+    engine.stop()
+    mounts = Vector(path -> mounted)
+    startPrimary()
+  }
+
+  Then("{string} is given a request for {string}") { (name: String, path: String) =>
+    lastGiven = name
+    assert(calleeNamed(name).seen.exists(_.path == path), s"$name saw ${calleeNamed(name).seen}")
+  }
+
+  Then("no other mounted service is given a request") { () =>
+    for c <- callees.values if c.name != lastGiven do assertEquals(c.seen, Vector.empty, c.name)
+  }
+
+  Then("{string} is told that the request came from the internet") { (name: String) =>
+    val seen = calleeNamed(name).seen
+    assert(seen.nonEmpty && seen.forall(_.caller == "gateway"), seen.toString)
+  }
+
+  Then("{string} is not told that a request came from the internet") { (name: String) =>
+    assert(!calleeNamed(name).seen.exists(_.caller == "gateway"), calleeNamed(name).seen.toString)
+  }
+
+  Then("{string} is not told that a call came from the service {string}") {
+    (name: String, web: String) =>
+      val seen = calleeNamed(name).seen
+      assert(!seen.exists(_.caller == s"service:$project/$web"), seen.toString)
+  }
+
+  Then("the browser is given the answer of {string}") { (name: String) =>
+    assertEquals(last.status, 200, last.body)
+    assertEquals(last.body, s"$name saw gateway")
+  }
+
+  Then("the browser is given the refusal of {string}") { (name: String) =>
+    assertEquals(last.status, 403, last.body)
+    assert(!answeredByProxy(last), "the refusal was the proxy's, not the service's")
+  }
+
+  Then("the browser is given a refusal") { () =>
+    assertEquals(last.status, 403, last.body)
+    assert(!answeredByProxy(last), "the refusal was the proxy's, not the service's")
+  }
+
+  Then("{string} answers a call the process of {string} makes at the calling address") {
+    (callee: String, name: String) =>
+      assertEquals(name, service)
+      val reply = callFromProcess(s"/$callee/entries")
+      assertEquals(reply.status, 200, reply.body)
+      assertEquals(reply.body, s"$callee saw service:$project/$service")
+  }
+
+  Then("the process of {string} is given a request for {string}") { (name: String, path: String) =>
+    val targets = processOf(name).requests.map(_.target)
+    assert(targets.contains(path), s"the process of $name was given $targets")
+  }
+
+  Then("the process of {string} is told that the request came from the internet") { (name: String) =>
+    assertEquals(processOf(name).requests.last.all("x-ankka-caller"), Vector("internet"))
+  }
+
+  Then(
+    "the process of {string} is told the hostname of {string} as the address the request was sent to"
+  ) { (name: String, addressed: String) =>
+    val received = processOf(name).requests.last
+    assertEquals(received.all("x-forwarded-host"), Vector(hostnameOf(addressed)))
+    assertEquals(received.all("host"), Vector(hostnameOf(addressed)))
+    assertEquals(received.all("x-forwarded-proto"), Vector("https"))
+  }
+
+  Then("the process of {string} is given no request") { (name: String) =>
+    assertEquals(processOf(name).requests, Vector.empty)
+  }
+
+  Then("no call is sent to {string}") { (name: String) =>
+    assertEquals(calleeNamed(name).seen, Vector.empty)
+  }
+
+  Then("a request for {string} to {string} still reaches {string}") {
+    (path: String, name: String, callee: String) =>
+      val before = calleeNamed(callee).seen.size
+      sendTo(internet, portOf(name), path)
+      assertEquals(last.status, 200, last.body)
+      assertEquals(calleeNamed(callee).seen.size, before + 1)
+  }
+
+  Then("a request for {string} to {string} reaches {string}") {
+    (path: String, name: String, callee: String) =>
+      val before = calleeNamed(callee).seen.size
+      sendTo(internet, portOf(name), path)
+      assertEquals(last.status, 200, last.body)
+      assertEquals(calleeNamed(callee).seen.size, before + 1)
+  }
+
+  Then("a request for {string} to {string} reaches the process") { (path: String, name: String) =>
+    sendTo(internet, portOf(name), path)
+    assertEquals(last.status, 200, last.body)
+    assert(processOf(name).requests.exists(_.target == path), processOf(name).requests.toString)
+  }
+
+  Then("the proxy answers that {string} cannot be reached") { (name: String) =>
+    assertEquals(last.status, 503, last.body)
+    assert(answeredByProxy(last), "the answer was not the proxy's")
+    assertEquals(last.body, s"""{"error":"'$name' cannot be reached"}""")
   }
 
   // ── calling other services ────────────────────────────────────────────────
@@ -530,18 +836,28 @@ object ProxySteps:
   final case class Seen(caller: String, path: String, headers: Vector[(String, String)])
 
   /** A service of the platform, served over its own certificate by the runtime's HTTP server. */
+  /** A service the scenario deployed: where it answers, and what it was given. */
+  trait Served:
+    def name: String
+    def port: Int
+    def seen: Vector[Seen]
+    def stop(): Unit
+
+  /** The paths the features send a service, as prefixes it serves itself and one segment under. */
+  private val Prefixes = Vector("/svc", "/carts", "/orders", "/items", "/entries")
+
   final class Callee(
       val name: String,
       val project: String,
       directory: java.nio.file.Path,
       acl: Acl,
       refuses: Boolean
-  ):
+  ) extends Served:
     private val calls = new java.util.concurrent.ConcurrentLinkedQueue[Seen]()
 
-    private final class Endpoint extends HttpEndpoint("/svc"):
+    private final class Endpoint(prefix: String) extends HttpEndpoint(prefix):
       val acl: Acl = Callee.this.acl
-      get("/whoami") { () =>
+      private def answer(): String =
         val who = Caller.encode(caller)
         calls.add(Seen(who, request.path, request.headers))
         if refuses then
@@ -550,9 +866,67 @@ object ProxySteps:
             com.thinkmorestupidless.ankka.core.ErrorCode.Forbidden
           )
         s"${Callee.this.name} saw $who"
-      }
+      get("/")(() => answer())
+      get("/{id}")((_: String) => answer())
 
-    private val running    = TlsServing.start(s"callee-$name", directory, Vector(new Endpoint))
+    private val running =
+      TlsServing.start(s"callee-$name", directory, Prefixes.map(p => new Endpoint(p)))
     val port: Int          = running.port
     def seen: Vector[Seen] = calls.asScala.toVector
     def stop(): Unit       = running.stop()
+
+  /**
+   * A service whose runtime predates web hosting: the JDK's HTTPS server reading its caller with
+   * `PreFeatureCaller`, the frozen copy of the parser as it was, and admitting whoever that names.
+   * It stands in for the real proof, which is the previous release's image mounted on a cluster
+   * (`quickstart.md`'s manual step); a suite may not name an image by a literal tag.
+   */
+  final class OldCallee(val name: String, directory: java.nio.file.Path) extends Served:
+    private val calls = new java.util.concurrent.ConcurrentLinkedQueue[Seen]()
+    private val server =
+      com.sun.net.httpserver.HttpsServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.setHttpsConfigurator(RotatingServerTls.configurator(RotatingTls(directory, 1.minute)))
+    server.createContext(
+      "/",
+      exchange =>
+        val leaf = exchange
+          .asInstanceOf[com.sun.net.httpserver.HttpsExchange]
+          .getSSLSession
+          .getPeerCertificates
+          .head
+          .asInstanceOf[java.security.cert.X509Certificate]
+        val (status, body) =
+          com.thinkmorestupidless.ankka.http.PreFeatureCaller.fromCertificate(leaf) match
+            case Left(reason) => (403, reason)
+            case Right(caller) =>
+              val who = Caller.encode(caller)
+              calls.add(Seen(who, exchange.getRequestURI.getPath, Vector.empty))
+              (200, s"$name saw $who")
+        val bytes = body.getBytes("UTF-8")
+        exchange.sendResponseHeaders(status, bytes.length.toLong)
+        exchange.getResponseBody.write(bytes)
+        exchange.close()
+    )
+    server.start()
+    val port: Int          = server.getAddress.getPort
+    def seen: Vector[Seen] = calls.asScala.toVector
+    def stop(): Unit       = server.stop(0)
+
+  /** A further web-hosted service of the scenario, before it is started. */
+  final case class WebSpec(
+      project: String,
+      mounts: Vector[(String, String)] = Vector.empty,
+      exposed: Boolean = false
+  )
+
+  /** A further web-hosted service, running. */
+  final case class Running(engine: ProxyEngine, process: StandInProcess):
+    def stop(): Unit =
+      engine.stop()
+      process.stop()
+
+  /** A loopback port nothing listens on. */
+  def closedPort(): Int =
+    val socket = new java.net.ServerSocket(0)
+    try socket.getLocalPort
+    finally socket.close()

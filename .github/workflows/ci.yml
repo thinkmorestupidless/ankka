@@ -103,6 +103,7 @@ jobs:
             # proves its language's template against the SDK and sidecar it has just built.
             templates: &templates
               - 'cli/src/main/templates/common/**'
+              - 'cli/src/main/templates/common-service/**'
               - 'cli/src/main/scala/**/cli/Init.scala'
               - 'cli/src/main/scala/**/cli/Scaffold.scala'
               - 'cli/src/main/scala/**/cli/Main.scala'

@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.{ComponentId, Metadata}
 import com.thinkmorestupidless.ankka.runtime.ProjectionSupport.Encoded
+import com.thinkmorestupidless.ankka.sdk.StartFrom
 import org.apache.pekko.Done
 
 import scala.concurrent.duration.DurationInt
@@ -175,7 +176,10 @@ class PublishAllSuite extends munit.FunSuite:
   ) {
     val broker   = InMemoryBroker()
     val received = collection.mutable.Buffer[IncomingMessage]()
-    broker.subscribe("lines", "reader", m => { received += m; Future.successful(Done) })
+    broker.subscribe(
+      TopicSubscription("lines", "reader", StartFrom.Earliest),
+      m => { received += m; Future.successful(Done) }
+    ): Unit
     val _ = publish(broker, Encoded(bytes("a"), Metadata.empty, Some("line:1")))
     assertEquals(received.map(_.key).toSeq, Seq(Some("line:1")))
     // A reader in an ankka service still sees the entity's id as the subject.

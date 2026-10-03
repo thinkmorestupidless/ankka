@@ -365,8 +365,11 @@ a race; it is the consistency model the view actually has.
 
 - A view reads one source and writes one table. Joining two sources into one view is not supported;
   project each into its own view and combine the results where they are read.
-- A view does not rebuild its rows when its code changes. A changed handler applies to changes from then on.
-- A view over a topic sees only messages published after it started.
+- A view over an entity does not rebuild its rows when its code changes. A changed handler applies to
+  changes from then on.
+- A view over a topic starts at the earliest message the broker holds unless it says otherwise, and is
+  rebuilt by raising its version, as far back as the broker retains. See
+  [Broker topics](topics.md#rebuilding-by-version).
 
 See [Limitations](../reference/limitations.md) for the full list.
 

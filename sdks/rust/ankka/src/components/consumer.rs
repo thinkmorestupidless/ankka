@@ -4,6 +4,7 @@
 //! A consumer may be sent the same message again, and must tolerate that; a consumer that panics
 //! is sent it again.
 
+use crate::start_from::{self, StartFrom};
 use std::marker::PhantomData;
 
 use serde::de::DeserializeOwned;
@@ -26,6 +27,19 @@ pub trait Consumer: Sized + 'static {
 
     /// Where the messages come from.
     fn source() -> Source;
+
+    /// Where a topic source starts, the first time its consumer group reads the topic. A consumer that
+    /// reads a topic must say: there is no default.
+    fn start_from() -> Option<StartFrom> {
+        None
+    }
+
+    /// Raised to read the topic again from the start position, under a group of its own. A new one
+    /// reads under a group of its own.
+    /// `None` is version 1. Only for a topic source.
+    fn version() -> Option<u32> {
+        None
+    }
 
     /// The topic `effects::consumer::produce` and `produce_all` publish to, if the consumer
     /// publishes. The runtime needs a broker for one (`ANKKA_KAFKA_BOOTSTRAP_SERVERS`).
@@ -82,8 +96,9 @@ impl<C: Consumer> Registered for Registration<C> {
             id: C::COMPONENT_ID.to_string(),
             handlers: Vec::new(),
             detail: Some(proto::component::Detail::Consumer(proto::ConsumerDetail {
-                source: Some(C::source().to_proto()),
+                source: Some(start_from::source_proto(&C::source(), C::start_from())),
                 produces_to: C::produces_to().map(str::to_string),
+                version: C::version(),
             })),
         }
     }
@@ -93,6 +108,13 @@ impl<C: Consumer> Registered for Registration<C> {
         if C::COMPONENT_ID.is_empty() {
             problems.push("a consumer has an empty component id".to_string());
         }
+        problems.extend(start_from::problems(
+            &format!("consumer '{}'", C::COMPONENT_ID),
+            &C::source(),
+            C::start_from(),
+            C::version(),
+            true,
+        ));
         problems
     }
 

@@ -124,6 +124,10 @@ impl GraphConsumer for Rows {
         Source::topic("rows")
     }
 
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
     fn on_message(elements: Json, _: &Context) -> GraphEffect {
         let elements = elements.as_array().expect("a list of elements");
         graph::publish(

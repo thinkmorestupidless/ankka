@@ -96,8 +96,19 @@ object ProjectId:
    * identity. The operator refuses the same ids (`Names.ReservedProjectIds`), since a resource can
    * be written by something other than the control plane, and `ReservedProjectIdsSuite` holds the
    * two lists to each other and to the identities the platform's manifests ask for.
+   *
+   * `local` is reserved for the other reason a project's id is part of a name: a service run on a
+   * developer's machine that states its name reads a topic under the group
+   * `ankka.local.<service>.…`, which is exactly what a deployed service in a project called `local`
+   * would be given. Two different services must never share a group.
    */
-  val Reserved: Set[String] = Set("platform")
+  val Reserved: Set[String] = Set("platform", "local")
+
+  /** Why `id` is reserved, in a sentence that is true of it. */
+  def reservedBecause(id: String): String =
+    if id == "local" then
+      s"project id '$id' is reserved for services run locally, whose consumer groups it names"
+    else s"project id '$id' is reserved for the platform's own workloads"
 
   def problems(id: String): Vector[String] =
     if id.isEmpty then Vector("project id must not be empty")
@@ -107,8 +118,7 @@ object ProjectId:
       Vector(
         s"project id '$id' is invalid: lowercase letters, digits and '-', starting with a letter"
       )
-    else if Reserved.contains(id) then
-      Vector(s"project id '$id' is reserved for the platform's own workloads")
+    else if Reserved.contains(id) then Vector(reservedBecause(id))
     else Vector.empty
 
   def isValid(id: String): Boolean = problems(id).isEmpty
@@ -275,6 +285,18 @@ final case class ServiceSpec(
               "be read by a service"
           )
       )
+    // A deployed service's name is read from the certificate the platform issued it, never from its
+    // environment, so that no service can name its consumer groups as another's. The variable is how
+    // a service run on a developer's machine states its name; in a descriptor it would be read by
+    // nothing, and a variable that looks as if it renames a service and does not is worse than one
+    // that cannot be set.
+    val serviceNameEnvProblems =
+      env
+        .filter(_.name == PlatformVariables.ServiceName)
+        .map(e =>
+          s"env var '${e.name}' names a service run locally; a deployed service's name comes " +
+            "from the platform, so it cannot be declared"
+        )
     val hostingProblems =
       if !ServiceSpec.Hostings.contains(hosting) then
         Vector(
@@ -329,7 +351,8 @@ final case class ServiceSpec(
           )
           .toVector
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
-      secretProblems ++ hostingProblems ++ moduleProblems ++ webProblems ++ protocolProblems ++
+      serviceNameEnvProblems ++ secretProblems ++ hostingProblems ++ moduleProblems ++ webProblems ++
+      protocolProblems ++
       grpcProblems ++ resources.problems
 
   /**

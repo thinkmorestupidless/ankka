@@ -98,6 +98,10 @@ final class WarehouseCredentialKeeper(context: ConsumerContext)
 object WarehouseCredentialKeeper
     extends Consumer.Companion[WarehouseCredentialKeeper, StockEvent, Nothing](
       componentId = ComponentId("warehouse-credential-keeper"),
-      source = ChangeSource.fromTopic("stock-events", Codecs.serializer[StockEvent]("stock-event"))
+      source = ChangeSource.fromTopic(
+        "stock-events",
+        Codecs.serializer[StockEvent]("stock-event"),
+        StartFrom.Earliest
+      )
     ):
   def create(ctx: ConsumerContext) = new WarehouseCredentialKeeper(ctx)

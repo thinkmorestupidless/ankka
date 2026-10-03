@@ -217,4 +217,8 @@ object Kit:
     ChangeSource.KeyValue(ComponentId(entity), Serializers.int)
 
   def topic(name: String): ChangeSource[String] =
-    ChangeSource.Topic(name, Serializers.string)
+    ChangeSource.Topic(
+      name,
+      Serializers.string,
+      Some(com.thinkmorestupidless.ankka.sdk.StartFrom.Earliest)
+    )

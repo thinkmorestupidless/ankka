@@ -8,7 +8,12 @@ import com.thinkmorestupidless.ankka.core.{
   HandlerKind,
   MethodName
 }
-import com.thinkmorestupidless.ankka.sdk.{ConsumerDescriptor, ViewDescriptor, WorkflowSettings}
+import com.thinkmorestupidless.ankka.sdk.{
+  ConsumerDescriptor,
+  StartFrom,
+  ViewDescriptor,
+  WorkflowSettings
+}
 
 /**
  * A handler the developer's process declared in discovery.
@@ -22,7 +27,9 @@ final case class RemoteHandler(name: MethodName, readOnly: Boolean, streaming: B
 /** What a remote view or consumer subscribes to. */
 enum RemoteSource:
   case Component(kind: ComponentKind, id: ComponentId)
-  case Topic(name: String)
+
+  /** `startFrom` as the process declared it; `None` when it declared nowhere. */
+  case Topic(name: String, startFrom: Option[StartFrom] = None)
 
 /**
  * Descriptors for components whose handlers live in another process.
@@ -84,7 +91,8 @@ final case class RemoteViewDescriptor(
     componentId: ComponentId,
     source: RemoteSource,
     rowManifest: String,
-    queries: Set[MethodName]
+    queries: Set[MethodName],
+    version: Option[Int] = None
 ) extends RemoteDescriptor:
   val kind: ComponentKind = ComponentKind.View
   val handlers: Map[MethodName, RemoteHandler] =
@@ -93,10 +101,18 @@ final case class RemoteViewDescriptor(
   /** As a Scala view declares: what it does with a change. Its queries are read, not called. */
   override def declaredHandlers: Vector[DeclaredHandler] = Vector(ViewDescriptor.OnChange)
 
+/**
+ * `startDeclarable` is false when the process's SDK predates start positions and so could not have
+ * declared one: such a consumer over a topic is not refused for declaring none, and starts at the
+ * earliest message as it always did. Refusing it would leave a running service unable to restart
+ * after the platform beneath it was upgraded.
+ */
 final case class RemoteConsumerDescriptor(
     componentId: ComponentId,
     source: RemoteSource,
-    producesTo: Option[String]
+    producesTo: Option[String],
+    startDeclarable: Boolean = true,
+    version: Option[Int] = None
 ) extends RemoteDescriptor:
   val kind: ComponentKind                      = ComponentKind.Consumer
   val handlers: Map[MethodName, RemoteHandler] = Map.empty

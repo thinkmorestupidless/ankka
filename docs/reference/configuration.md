@@ -46,6 +46,7 @@ The table is generated from the runtime's configuration files.
 <!-- generated:start configuration -->
 | Variable | Configuration key | Default | Applies in |
 |---|---|---|---|
+| `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
@@ -213,6 +214,12 @@ Neither is routed to a sidecar: judgments are available to Scala services only.
   needs it only for a view sourced from a topic or a consumer that produces to one, and refuses to start
   without it when the service has either, naming the variable. A Scala service passes its broker to
   `ProjectionRuntime.withKafka` in code instead.
+- `ANKKA_SERVICE_NAME`, or `ankka.service.name`, is a service's name when it runs on a developer's
+  machine. Each view or consumer that reads a topic reads under a consumer group named for it, so two
+  services on one broker never share one; with no name stated, a group is named for its component alone.
+  A deployed service's name is read from the certificate the platform issued it, so the key is not read
+  there, and a descriptor that sets the variable is refused. See
+  [Broker topics](../build/topics.md#consumer-groups).
 
 ### Token verification
 

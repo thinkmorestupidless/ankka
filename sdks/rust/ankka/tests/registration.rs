@@ -115,3 +115,147 @@ fn a_sound_declaration_builds() {
     }
     assert!(Service::new("test").register(Once).build().is_ok());
 }
+
+// ── What a view or consumer declares about the topic it reads ──
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Message {
+    n: i32,
+}
+
+struct Notifier;
+impl Consumer for Notifier {
+    type Message = Message;
+    const COMPONENT_ID: &'static str = "notifier";
+    fn source() -> Source {
+        Source::topic("orders")
+    }
+    fn on_message(_: Message, _: &Context) -> ConsumerEffect {
+        effects::consumer::done()
+    }
+}
+
+struct LatestNotifier;
+impl Consumer for LatestNotifier {
+    type Message = Message;
+    const COMPONENT_ID: &'static str = "latest-notifier";
+    fn source() -> Source {
+        Source::topic("orders")
+    }
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Latest)
+    }
+    fn on_message(_: Message, _: &Context) -> ConsumerEffect {
+        effects::consumer::done()
+    }
+}
+
+struct VersionZero;
+impl View for VersionZero {
+    type Row = Message;
+    type Event = Message;
+    const COMPONENT_ID: &'static str = "version-zero";
+    fn source() -> Source {
+        Source::topic("orders")
+    }
+    fn version() -> Option<u32> {
+        Some(0)
+    }
+    fn on_event(_: Option<Message>, event: Message, _: &Context) -> ViewEffect<Message> {
+        ViewEffect::UpdateRow(event)
+    }
+}
+
+struct VersionedOverEntity;
+impl View for VersionedOverEntity {
+    type Row = Message;
+    type Event = NoEvent;
+    const COMPONENT_ID: &'static str = "versioned-over-entity";
+    fn source() -> Source {
+        Source::Component(ankka::proto::Kind::EventSourcedEntity, "twice")
+    }
+    fn version() -> Option<u32> {
+        Some(2)
+    }
+    fn on_event(row: Option<Message>, _: NoEvent, _: &Context) -> ViewEffect<Message> {
+        row.map_or(ViewEffect::Ignore, ViewEffect::UpdateRow)
+    }
+}
+
+fn messages(service: Service) -> Vec<String> {
+    service
+        .build()
+        .err()
+        .map(|problems| problems.into_iter().map(|p| p.message).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_consumer_reading_a_topic_must_declare_its_start_position() {
+    assert_eq!(
+        messages(Service::new("test").register(Notifier)),
+        vec![
+            "consumer 'notifier' reads topic 'orders' and declares no start position; declare \
+             StartFrom::Earliest, StartFrom::Latest or a time in start_from()"
+                .to_string()
+        ]
+    );
+    assert!(messages(Service::new("test").register(LatestNotifier)).is_empty());
+}
+
+#[test]
+fn a_version_of_zero_or_on_a_component_that_reads_an_entity_is_refused() {
+    let found = messages(
+        Service::new("test")
+            .register(VersionZero)
+            .register(VersionedOverEntity),
+    );
+    assert!(
+        found
+            .iter()
+            .any(|m| m.contains("view 'version-zero' declares version 0")),
+        "{found:?}"
+    );
+    assert!(
+        found.iter().any(|m| m
+            .contains("view 'versioned-over-entity' declares a version, which applies to a topic")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_start_position_is_written_into_discovery() {
+    let spec = Service::new("test")
+        .register(LatestNotifier)
+        .discover(&ankka::proto::SidecarInfo {
+            protocol_version: "1.7".to_string(),
+            runtime_version: String::new(),
+        })
+        .spec
+        .expect("a spec");
+    let Some(ankka::proto::component::Detail::Consumer(detail)) = &spec.components[0].detail else {
+        panic!("a consumer");
+    };
+    let start = detail
+        .source
+        .as_ref()
+        .and_then(|s| s.start_from.as_ref())
+        .and_then(|s| s.position);
+    assert_eq!(
+        start,
+        Some(ankka::proto::start_from::Position::Named(
+            ankka::proto::start_from::Named::Latest as i32
+        ))
+    );
+}
+
+#[test]
+#[should_panic(expected = "latest-notifier declare where a topic source starts or its version")]
+fn a_runtime_too_old_for_start_positions_is_refused_naming_what_declares_one() {
+    let _ = Service::new("test")
+        .register(LatestNotifier)
+        .discover(&ankka::proto::SidecarInfo {
+            protocol_version: "1.6".to_string(),
+            runtime_version: String::new(),
+        });
+}

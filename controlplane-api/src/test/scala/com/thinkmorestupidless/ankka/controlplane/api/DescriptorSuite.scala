@@ -303,6 +303,42 @@ class DescriptorSuite extends munit.FunSuite:
       )
   }
 
+  test("ANKKA_SERVICE_NAME is refused by name: a deployed service's name comes from the platform") {
+    val literal = EnvVar("ANKKA_SERVICE_NAME", value = Some("orders"))
+    val fromSecret =
+      EnvVar("ANKKA_SERVICE_NAME", secretKeyRef = Some(SecretKeyRef("s", "k")))
+    for env <- Seq(literal, fromSecret) do
+      val problems = ServiceSpec("i:1", env = Vector(env)).problems
+      assert(
+        problems.exists(p =>
+          p.contains("'ANKKA_SERVICE_NAME' names a service run locally") &&
+            p.contains("comes from the platform")
+        ),
+        problems
+      )
+    assertEquals(
+      ServiceSpec("i:1", env = Vector(EnvVar("ANKKA_SERVICE_NAMES", value = Some("x")))).problems,
+      Vector.empty
+    )
+  }
+
+  test("no project is named \"local\"") {
+    assertEquals(
+      ProjectId.problems("local"),
+      Vector(
+        "project id 'local' is reserved for services run locally, whose consumer groups it names"
+      )
+    )
+    // The platform's own reason is not given for it: it is not true of `local`.
+    assert(!ProjectId.problems("local").exists(_.contains("platform's own workloads")))
+    assertEquals(ProjectId.problems("locale"), Vector.empty)
+    assertEquals(ProjectId.problems("local-shop"), Vector.empty)
+    assertEquals(
+      ProjectId.problems("platform"),
+      Vector("project id 'platform' is reserved for the platform's own workloads")
+    )
+  }
+
   test("a neighbour of a platform variable is not refused") {
     assertEquals(
       ServiceSpec("i:1", env = Vector(EnvVar("ANKKA_CLUSTER_MODE_X", value = Some("x")))).problems,

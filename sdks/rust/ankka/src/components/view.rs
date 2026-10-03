@@ -13,6 +13,7 @@
 //! }
 //! ```
 
+use crate::start_from::{self, StartFrom};
 use std::marker::PhantomData;
 
 use serde::Serialize;
@@ -57,6 +58,7 @@ impl Source {
         };
         proto::Source {
             source: Some(source),
+            start_from: None,
         }
     }
 }
@@ -77,6 +79,19 @@ pub trait View: Sized + 'static {
 
     /// Where the changes come from.
     fn source() -> Source;
+
+    /// Where a topic source starts, the first time its consumer group reads the topic. A view that says
+    /// nothing starts at the earliest message the broker holds.
+    fn start_from() -> Option<StartFrom> {
+        None
+    }
+
+    /// Raised to read the topic again from the start position, under a group of its own. A higher
+    /// one has the view emptied and built again.
+    /// `None` is version 1. Only for a topic source.
+    fn version() -> Option<u32> {
+        None
+    }
 
     /// The row after one change to the source: `row` is the current one, if there is one. The
     /// changed entity's id is `ctx.metadata().subject()`.
@@ -147,9 +162,10 @@ impl<C: View> Registered for Registration<C> {
             id: C::COMPONENT_ID.to_string(),
             handlers: Vec::new(),
             detail: Some(proto::component::Detail::View(proto::ViewDetail {
-                source: Some(C::source().to_proto()),
+                source: Some(start_from::source_proto(&C::source(), C::start_from())),
                 row_manifest: C::row_codec().form().manifest(),
                 queries: C::queries().into_iter().map(str::to_string).collect(),
+                version: C::version(),
             })),
         }
     }
@@ -159,6 +175,13 @@ impl<C: View> Registered for Registration<C> {
         if C::COMPONENT_ID.is_empty() {
             problems.push("a view has an empty component id".to_string());
         }
+        problems.extend(start_from::problems(
+            &format!("view '{}'", C::COMPONENT_ID),
+            &C::source(),
+            C::start_from(),
+            C::version(),
+            false,
+        ));
         problems
     }
 

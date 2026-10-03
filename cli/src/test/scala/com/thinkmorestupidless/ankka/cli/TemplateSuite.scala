@@ -66,6 +66,12 @@ class TemplateSuite extends munit.FunSuite:
     assert(Files.exists(expansion.resolve("src/main/scala/com/example/probe/Main.scala")))
   }
 
+  test("a project made from a template states its service's name") {
+    val conf = Files.readString(expansion.resolve("src/main/resources/application.conf"))
+    assert(conf.linesIterator.contains(s"""ankka.service.name = "$Name""""), conf)
+    assert(!conf.contains("$"), conf)
+  }
+
   test("2. the expansion references no path of this repository") {
     val leaks = files.flatMap { f =>
       val text = Files.readString(f)

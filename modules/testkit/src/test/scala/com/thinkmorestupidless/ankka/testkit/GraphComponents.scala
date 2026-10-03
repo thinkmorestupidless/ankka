@@ -68,8 +68,11 @@ final class StockGraph extends GraphConsumer[StockEvent]:
 object StockGraph
     extends GraphConsumer.Companion[StockGraph, StockEvent](
       componentId = ComponentId("stock-graph"),
-      source =
-        ChangeSource.fromTopic("stock-graph-events", Codecs.serializer[StockEvent]("stock-event")),
+      source = ChangeSource.fromTopic(
+        "stock-graph-events",
+        Codecs.serializer[StockEvent]("stock-event"),
+        StartFrom.Earliest
+      ),
       topic = "stock-graph"
     ):
   def create(ctx: ConsumerContext) = new StockGraph

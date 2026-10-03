@@ -35,7 +35,7 @@ import org.apache.pekko.projection.r2dbc.scaladsl.{R2dbcHandler, R2dbcProjection
 import org.apache.pekko.projection.scaladsl.{Handler, SourceProvider}
 import org.apache.pekko.projection.{Projection, ProjectionBehavior, ProjectionId}
 
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
 
 /**
@@ -58,6 +58,8 @@ final class ProjectionRuntime private (
   // exist until the service starts. Resolved once, in `start`.
   @volatile private var publisher: Option[MessagePublisher]   = None
   @volatile private var subscriber: Option[MessageSubscriber] = None
+  // What a topic source's consumer group is named for; resolved by the service, read here.
+  @volatile private var identity: Either[String, ServiceIdentity] = Right(ServiceIdentity.unnamed)
 
   def name: String = "projections"
 
@@ -67,6 +69,7 @@ final class ProjectionRuntime private (
 
     publisher = publisherFactory.map(_(system))
     subscriber = subscriberFactory.map(_(system))
+    identity = service.identity
 
     val views     = service.registry.components.collect { case v: ViewDescriptor[?, ?, ?] => v }
     val consumers = service.registry.components.collect { case c: ConsumerDescriptor[?, ?, ?] => c }
@@ -86,12 +89,22 @@ final class ProjectionRuntime private (
       // Tables must exist before any projection writes to them.
       val tables = views.map(_.tableName) ++
         remoteViews.map(v => ViewDescriptor.tableFor(v.componentId))
+      // The recorded versions belong with the tables they describe, and only a service that has a
+      // view over a topic needs them.
+      val topicViews =
+        views.collect { case v if v.source.isInstanceOf[ChangeSource.Topic[?]] => v.componentId } ++
+          remoteViews.collect {
+            case v if v.source.isInstanceOf[RemoteSource.Topic] => v.componentId
+          }
+      val versions =
+        if topicViews.isEmpty then Vector.empty
+        else ViewVersions.createTable +: topicViews.map(id => ViewVersions.ensure(id))
       if tables.nonEmpty then
         // Under an advisory lock, in one transaction: several nodes of one service cold-start at
         // once and CREATE TABLE IF NOT EXISTS races (ViewStore.schemaLock explains).
         Await.result(
           database.executeAllInTransaction(
-            ViewStore.schemaLock +: tables.map(ViewStore.createTable)
+            (ViewStore.schemaLock +: tables.map(ViewStore.createTable)) ++ versions
           ),
           30.seconds
         )
@@ -136,6 +149,10 @@ final class ProjectionRuntime private (
           problems += s"'${component.componentId}' consumes topic '$topic' but no " +
             "MessageSubscriber was configured; pass one to ProjectionRuntime.withBroker, or set " +
             s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
+        case Some(DeclaredSource.Topic(topic)) =>
+          identity.left.foreach(why =>
+            problems += unnamedTopicSource(component.componentId, topic, why)
+          )
         case _ => ()
     }
 
@@ -172,6 +189,8 @@ final class ProjectionRuntime private (
           case (Some(DeclaredSource.Topic(topic)), _) if subscriber.isEmpty =>
             problems += s"'$id' consumes topic '$topic' but no MessageSubscriber " +
               "was configured; pass one to ProjectionRuntime.withBroker"
+          case (Some(DeclaredSource.Topic(topic)), _) =>
+            identity.left.foreach(why => problems += unnamedTopicSource(id, topic, why))
           // A source `DeclaredConnections` does not read as one: a component with no change stream.
           case (None, RemoteSource.Component(kind, sourceId)) =>
             problems += s"'$id' subscribes to $kind '$sourceId', which has no change stream; " +
@@ -193,6 +212,214 @@ final class ProjectionRuntime private (
       throw IllegalArgumentException(
         found.mkString("cannot start ankka projections:\n  - ", "\n  - ", "")
       )
+
+  /**
+   * A topic source reads under a group named for its service, and a deployed service whose identity
+   * could not be read must not fall back to a name another service could share.
+   */
+  private def unnamedTopicSource(id: ComponentId, topic: String, why: String): String =
+    s"'$id' consumes topic '$topic', and its consumer group is named for the service, " +
+      s"whose identity could not be read: $why"
+
+  /** The group a topic source reads under; only called once `rejectUnsupported*` has passed. */
+  private def groupFor(kind: ComponentKind, componentId: ComponentId, version: Int): String =
+    ConsumerGroups.name(identity.getOrElse(ServiceIdentity.unnamed), kind, componentId, version)
+
+  // Each running subscription, so `stop` ends exactly these.
+  private val subscriptions = java.util.concurrent.CopyOnWriteArrayList[Subscribed]()
+
+  /**
+   * Subscribes one topic source and says so, with everything a person looking for its messages on
+   * the broker needs: the topic, the group, where it starts and its version.
+   */
+  private def subscribeTopic(
+      broker: MessageSubscriber,
+      kind: ComponentKind,
+      componentId: ComponentId,
+      topic: String,
+      startFrom: StartFrom,
+      version: Int,
+      handle: IncomingMessage => Future[Done]
+  )(using system: ActorSystem[?]): Subscribed =
+    val group      = groupFor(kind, componentId, version)
+    val subscribed = broker.subscribe(TopicSubscription(topic, group, startFrom), handle)
+    subscriptions.add(subscribed): Unit
+    TopicSources(system).update(componentId)(_.copy(group = group))
+    system.log.info(
+      "topic source subscribed: kind={} component={} topic={} group={} start={} version={}",
+      kindWord(kind),
+      componentId,
+      topic,
+      group,
+      startFrom,
+      version
+    )
+    subscribed
+
+  /** What the service says about each topic source, before it has subscribed. */
+  private def declare(
+      kind: ComponentKind,
+      componentId: ComponentId,
+      topic: String,
+      startFrom: StartFrom,
+      version: Int,
+      recorded: Option[Int]
+  )(using system: ActorSystem[?]): Unit =
+    TopicSources(system).put(
+      TopicSourceStatus(
+        kind,
+        componentId,
+        topic,
+        groupFor(kind, componentId, version),
+        startFrom,
+        version,
+        recorded,
+        behind = false
+      )
+    )
+
+  /**
+   * A view over a topic, at the version it declares: subscribed if its rows were built at that
+   * version, rebuilt first if they were built at a lower one, and left alone — reading nothing,
+   * writing nothing, serving what it has — if at a higher one.
+   *
+   * Off the start thread: a rebuild waits for the broker to say what it still holds, and a broker
+   * that is down must not hold up the service's start.
+   */
+  private def startTopicView(
+      broker: MessageSubscriber,
+      componentId: ComponentId,
+      topic: String,
+      startFrom: StartFrom,
+      declared: Int,
+      handler: ViewGuard => IncomingMessage => Future[Done]
+  )(using system: ActorSystem[?]): Unit =
+    given ExecutionContext = system.executionContext
+    val database           = Database()
+    val table              = ViewDescriptor.tableFor(componentId)
+    val log                = system.log
+    declare(ComponentKind.View, componentId, topic, startFrom, declared, None)
+
+    // Set once the view has subscribed, so a write that finds it behind can stop it.
+    val holder  = java.util.concurrent.atomic.AtomicReference[Option[Subscribed]](None)
+    val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
+    val guard = ViewGuard(
+      database,
+      componentId,
+      declared,
+      recorded =>
+        if stopped.compareAndSet(false, true) then
+          behind(componentId, declared, recorded)
+          holder.get.foreach(_.stop())
+    )
+
+    def subscribe(recorded: Int): Unit =
+      TopicSources(system).update(componentId)(_.copy(recordedVersion = Some(recorded)))
+      holder.set(
+        Some(
+          subscribeTopic(
+            broker,
+            ComponentKind.View,
+            componentId,
+            topic,
+            startFrom,
+            declared,
+            handler(guard)
+          )
+        )
+      )
+
+    val started =
+      ViewVersions.recorded(database, componentId).flatMap { recorded =>
+        if recorded == declared then Future.successful(subscribe(recorded))
+        else if recorded > declared then Future.successful(behind(componentId, declared, recorded))
+        else
+          retainedThenRebuild(broker, database, table, componentId, topic, recorded, declared)
+            .map {
+              case ViewVersions.Rebuilt.Emptied(from) =>
+                log.info(
+                  "view emptied for rebuild: component={} from version={} to version={}",
+                  componentId,
+                  from,
+                  declared
+                )
+                subscribe(declared)
+              case ViewVersions.Rebuilt.AlreadyBuilt =>
+                log.info(
+                  "view rebuild already done: component={} version={}",
+                  componentId,
+                  declared
+                )
+                subscribe(declared)
+              case ViewVersions.Rebuilt.Behind(higher) => behind(componentId, declared, higher)
+            }
+      }
+    started.failed.foreach(failure =>
+      log.error(s"view '$componentId' could not start reading topic '$topic'", failure)
+    )
+
+  /**
+   * Asks the broker what it still holds before a single row is removed, retrying until it answers:
+   * a view is never emptied while there is no broker to fill it again. Then says how far back the
+   * rebuild will reach, and rebuilds.
+   */
+  private def retainedThenRebuild(
+      broker: MessageSubscriber,
+      database: Database,
+      table: String,
+      componentId: ComponentId,
+      topic: String,
+      recorded: Int,
+      declared: Int
+  )(using system: ActorSystem[?]): Future[ViewVersions.Rebuilt] =
+    given ExecutionContext = system.executionContext
+    def ask(delay: FiniteDuration): Future[Map[Int, Option[java.time.Instant]]] =
+      broker.earliestRetained(topic).recoverWith { case failure =>
+        system.log.warn(
+          "view '{}' waits to rebuild: the broker could not say what topic '{}' holds ({}); " +
+            "asking again in {}",
+          componentId,
+          topic,
+          failure.getMessage,
+          delay
+        )
+        org.apache.pekko.pattern
+          .after(delay)(ask((delay * 2).min(30.seconds)))(using system.classicSystem)
+      }
+    ask(1.second).flatMap { retained =>
+      val reach = retained.toVector
+        .sortBy(_._1)
+        .map((partition, at) => s"$partition=${at.fold("holds nothing")(_.toString)}")
+        .mkString(", ")
+      system.log.info(
+        "view rebuild: component={} table={} from version={} to version={} earliest retained per " +
+          "partition: {}",
+        componentId,
+        table,
+        recorded,
+        declared,
+        reach
+      )
+      ViewVersions.rebuild(database, table, componentId, declared)
+    }
+
+  /** A view declared below its recorded version: it is left as it is, and says so. */
+  private def behind(componentId: ComponentId, declared: Int, recorded: Int)(using
+      system: ActorSystem[?]
+  ): Unit =
+    TopicSources(system).update(componentId)(
+      _.copy(recordedVersion = Some(recorded), behind = true)
+    )
+    system.log.warn(
+      "view behind its recorded version: component={} declared={} recorded={}; this instance " +
+        "reads nothing from its topic and writes nothing to its table",
+      componentId,
+      declared,
+      recorded
+    )
+
+  private def kindWord(kind: ComponentKind): String =
+    if kind == ComponentKind.View then "view" else "consumer"
 
   // ── Views ─────────────────────────────────────────────────────────────────
 
@@ -227,11 +454,17 @@ final class ProjectionRuntime private (
           )
         }
 
-      case ChangeSource.Topic(topic, _) =>
+      case ChangeSource.Topic(topic, _, startFrom) =>
         subscriber.foreach { broker =>
-          val handler = ViewTopicHandler(typed, Database(), client)
-          broker.subscribe(topic, processName, handler.process)
-          system.log.info("view '{}' consuming topic '{}'", typed.componentId, topic)
+          // A view that declares nowhere starts at the earliest message the broker holds.
+          startTopicView(
+            broker,
+            typed.componentId,
+            topic,
+            startFrom.getOrElse(StartFrom.Earliest),
+            typed.version.getOrElse(1),
+            guard => ViewTopicHandler(typed, Database(), client, guard).process
+          )
         }
 
   // ── Consumers ─────────────────────────────────────────────────────────────
@@ -268,12 +501,23 @@ final class ProjectionRuntime private (
           )
         }
 
-      case ChangeSource.Topic(topic, _) =>
+      case ChangeSource.Topic(topic, _, startFrom) =>
         subscriber.foreach { broker =>
           val handler =
             ConsumerTopicHandler(typed, publisher, client, Observability(system), secrets)
-          broker.subscribe(topic, processName, handler.process)
-          system.log.info("consumer '{}' consuming topic '{}'", typed.componentId, topic)
+          // `validate` refused a consumer over a topic that declares nowhere.
+          val start   = startFrom.getOrElse(StartFrom.Earliest)
+          val version = typed.version.getOrElse(1)
+          declare(ComponentKind.Consumer, typed.componentId, topic, start, version, None)
+          subscribeTopic(
+            broker,
+            ComponentKind.Consumer,
+            typed.componentId,
+            topic,
+            start,
+            version,
+            handler.process
+          ): Unit
         }
 
   // ── Remote views and consumers ────────────────────────────────────────────
@@ -310,11 +554,16 @@ final class ProjectionRuntime private (
           )
         }
 
-      case RemoteSource.Topic(topic) =>
+      case RemoteSource.Topic(topic, startFrom) =>
         subscriber.foreach { broker =>
-          val handler = RemoteViewTopicHandler(view(), Database())
-          broker.subscribe(topic, processName, handler.process)
-          system.log.info("remote view '{}' consuming topic '{}'", descriptor.componentId, topic)
+          startTopicView(
+            broker,
+            descriptor.componentId,
+            topic,
+            startFrom.getOrElse(StartFrom.Earliest),
+            descriptor.version.getOrElse(1),
+            guard => RemoteViewTopicHandler(view(), Database(), guard).process
+          )
         }
 
       case RemoteSource.Component(_, _) => () // refused by rejectUnsupportedRemote
@@ -351,12 +600,31 @@ final class ProjectionRuntime private (
           )
         }
 
-      case RemoteSource.Topic(topic) =>
+      case RemoteSource.Topic(topic, startFrom) =>
         subscriber.foreach { broker =>
           val handler = RemoteConsumerTopicHandler(consumer())
-          broker.subscribe(topic, processName, handler.process)
-          system.log
-            .info("remote consumer '{}' consuming topic '{}'", descriptor.componentId, topic)
+          if startFrom.isEmpty then
+            // Only an SDK that could not declare one gets here: `validate` refused any other.
+            system.log.warn(
+              "consumer '{}' reads topic '{}' and declares no start position, because its SDK " +
+                "predates them; it starts at the earliest message the broker holds, as it always " +
+                "has. An SDK speaking protocol {} or later can declare one.",
+              descriptor.componentId,
+              topic,
+              ProjectionRuntime.StartPositionProtocol
+            )
+          val start   = startFrom.getOrElse(StartFrom.Earliest)
+          val version = descriptor.version.getOrElse(1)
+          declare(ComponentKind.Consumer, descriptor.componentId, topic, start, version, None)
+          subscribeTopic(
+            broker,
+            ComponentKind.Consumer,
+            descriptor.componentId,
+            topic,
+            start,
+            version,
+            handler.process
+          ): Unit
         }
 
       case RemoteSource.Component(_, _) => () // refused by rejectUnsupportedRemote
@@ -416,7 +684,10 @@ final class ProjectionRuntime private (
       handler
     )
 
-  override def stop(): Unit = subscriber.foreach(_.stop())
+  override def stop(): Unit =
+    subscriptions.forEach(_.stop())
+    subscriptions.clear()
+    subscriber.foreach(_.stop())
 
 object ProjectionRuntime:
 
@@ -453,6 +724,9 @@ object ProjectionRuntime:
    * The variable [[fromEnv]] reads, and a process-hosted service's sidecar reads, for the broker.
    */
   val KafkaEnvVar: String = "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
+
+  /** The first protocol in which a process can declare where a topic source starts. */
+  val StartPositionProtocol: String = "1.7"
 
   /**
    * Kafka when the environment names a broker, entity sources only when it does not.

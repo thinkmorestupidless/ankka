@@ -158,6 +158,13 @@ object GraphConsumer:
 
     def parallelism: Int = 4
 
+    /**
+     * Raise it to have this graph consumer read its topic again from its start position, under a
+     * consumer group of its own. `None` is version 1. Only for a topic source: a version on one
+     * that reads an entity is refused when the service starts.
+     */
+    def version: Option[Int] = None
+
     final def descriptor: ConsumerDescriptor[Consumer[Src, GraphDelta], Src, GraphDelta] =
       if topic.isEmpty then
         throw IllegalArgumentException(
@@ -170,7 +177,8 @@ object GraphConsumer:
           Some(GraphDelta.serializer),
           Some(topic),
           ctx => new Adapter(create(ctx)),
-          parallelism
+          parallelism,
+          version = version
         )
 
   /** The attributes of a delta's record: what it is, for anything that reads the topic. */

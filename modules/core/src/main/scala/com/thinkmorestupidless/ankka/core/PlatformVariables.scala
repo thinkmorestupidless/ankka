@@ -26,6 +26,14 @@ private[ankka] object PlatformVariables:
   val GrpcPort: String = "ANKKA_GRPC_PORT"
 
   /**
+   * A service's name when it runs on a developer's machine, which names its topic sources' consumer
+   * groups. A deployed service's name is its certificate's, so a descriptor that gives this is
+   * refused, with a message of its own rather than as one of `PlatformOnly`: the platform does not
+   * set it, it reads it nowhere.
+   */
+  val ServiceName: String = "ANKKA_SERVICE_NAME"
+
+  /**
    * Set by the platform alone, by exact name. A descriptor that gives one is refused: the operator
    * sets each of them, and two values for one would leave the pod with whichever came last.
    */

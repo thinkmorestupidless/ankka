@@ -187,7 +187,11 @@ final class TopologyJsonSuite extends FunSuite:
   private def state(of: String): ChangeSource[String] =
     ChangeSource.KeyValue(ComponentId(of), Serializers.string)
   private def topic(name: String): ChangeSource[String] =
-    ChangeSource.Topic(name, Serializers.string)
+    ChangeSource.Topic(
+      name,
+      Serializers.string,
+      Some(com.thinkmorestupidless.ankka.sdk.StartFrom.Earliest)
+    )
 
   /** A real view descriptor: the renderer reads sources from the types a service registers. */
   private def view(id: String, source: ChangeSource[String]): ComponentDescriptor =

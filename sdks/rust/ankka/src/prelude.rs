@@ -20,4 +20,5 @@ pub use crate::effects::{
 };
 pub use crate::graph::{self, GraphConsumer, GraphEffect};
 pub use crate::service::Service;
+pub use crate::start_from::StartFrom;
 pub use serde::{Deserialize, Serialize};

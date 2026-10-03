@@ -136,6 +136,20 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     (_, _) => ConsumerAnswer.Done,
     _ => ConsumerAnswer.Done
   )
+  // From an SDK that could not declare where a topic source starts (the double speaks 1.0), over a
+  // topic that holds messages before the service starts.
+  private val legacyRead = java.util.concurrent.ConcurrentLinkedQueue[String]()
+  private val legacyReader = ConsumerOf(
+    "legacy-reader",
+    None,
+    Some("legacy-topic"),
+    None,
+    (_, metadata) =>
+      legacyRead.add(subjectOf(metadata)): Unit
+      ConsumerAnswer.Done
+  )
+  private val log = LogLines()
+
   private val ticker = Action(
     "ticker",
     Map(
@@ -158,7 +172,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
         entities = Vector(recorder),
         keyValues = Vector(profile()),
         views = Vector(rows, notifiedRows, profileRows),
-        consumers = Vector(notifier, profileWatcher, fanout, oversize),
+        consumers = Vector(notifier, profileWatcher, fanout, oversize, legacyReader),
         actions = Vector(ticker)
       )
     )
@@ -171,6 +185,14 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
       Discovery
         .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
         .fold(p => fail(p.mkString("; ")), _.descriptors)
+    (1 to 3).foreach { n =>
+      broker.publish(
+        "legacy-topic",
+        s"old-$n".getBytes,
+        com.thinkmorestupidless.ankka.core.Metadata.empty.withSubject(s"old-$n")
+      ): Unit
+    }
+    log.start()
     kit = AnkkaTestKit.start(
       descriptors,
       Seq(projections, timers),
@@ -179,6 +201,7 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     )
 
   override def afterAll(): Unit =
+    log.stop()
     Try(kit.stop())
     channel.shutdownNow()
     double.stop()
@@ -429,6 +452,22 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(again, deleted + 1)
     eventually()(row("profile-rows", "kv1"))
     assertEquals(invoke("profile", "kv1", "get"), Right("Grace"))
+  }
+
+  test("a consumer whose service cannot declare a start position starts at the earliest message") {
+    val _ = eventually()(Option.when(legacyRead.size >= 3)(()))
+    assertEquals(
+      scala.jdk.CollectionConverters
+        .IteratorHasAsScala(legacyRead.iterator)
+        .asScala
+        .toVector
+        .sorted,
+      Vector("old-1", "old-2", "old-3")
+    )
+    val warning = log.containing("consumer 'legacy-reader' reads topic 'legacy-topic'", "WARN")
+    assertEquals(warning.size, 1, log.lines("WARN").mkString("\n"))
+    assert(warning.head.contains("declares no start position"), warning.head)
+    assert(warning.head.contains("protocol 1.7 or later"), warning.head)
   }
 
   test("P4 offsets survive a restart of the service") {

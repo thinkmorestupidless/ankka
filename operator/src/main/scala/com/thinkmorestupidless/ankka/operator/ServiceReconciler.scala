@@ -110,7 +110,8 @@ final class ServiceReconciler(
    */
   private def decideDatabasePlan(ref: ServiceRef, spec: AnkkaServiceSpec): ProvisioningPlan =
     val observed =
-      if spec.provisionDatabase then
+      // A web-hosted service has no database to observe: no CNPG read is made for it at all.
+      if spec.provisionDatabase && spec.hosting != Rendering.WebHosting then
         executor
           .observeDatabase(ref.namespace, CnpgRendering.projectClusterName, ref.name)
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
@@ -146,12 +147,10 @@ final class ServiceReconciler(
     )
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
     base.copy(
-      database = Some(
-        LifecycleRules.databaseStatus(
-          databasePlan,
-          CnpgRendering.projectClusterName,
-          spec.serviceName
-        )
+      database = LifecycleRules.databaseStatus(
+        databasePlan,
+        CnpgRendering.projectClusterName,
+        spec.serviceName
       ),
       // Only an exposed service has a route to report on; the field stays absent otherwise.
       route = Option.when(spec.exposed)(

@@ -128,20 +128,23 @@ object LifecycleRules:
       plan: ProvisioningPlan,
       clusterName: String,
       serviceName: String
-  ): com.thinkmorestupidless.ankka.crd.DatabaseStatus =
-    val (name, detail) = plan match
-      case ProvisioningPlan.Supplied               => ("", None)
-      case ProvisioningPlan.Waiting(_, _, _, _, d) => (serviceName, d)
-      case ProvisioningPlan.Ready(_, _)            => (serviceName, None)
-      case ProvisioningPlan.Failed(problems)       => (serviceName, Some(problems.mkString("; ")))
-
-    com.thinkmorestupidless.ankka.crd.DatabaseStatus(
-      phase = plan.reportedPhase,
-      name = name,
-      cluster = if plan == ProvisioningPlan.Supplied then "" else clusterName,
-      recovered = plan match
-        case ProvisioningPlan.Ready(recovered, _) => recovered
-        case _                                    => false
-      ,
-      detail = detail
-    )
+  ): Option[com.thinkmorestupidless.ankka.crd.DatabaseStatus] =
+    // A web-hosted service has no database, so nothing is reported about one (feature 021).
+    val reported: Option[(String, Option[String])] = plan match
+      case ProvisioningPlan.NotNeeded              => None
+      case ProvisioningPlan.Supplied               => Some(("", None))
+      case ProvisioningPlan.Waiting(_, _, _, _, d) => Some((serviceName, d))
+      case ProvisioningPlan.Ready(_, _)            => Some((serviceName, None))
+      case ProvisioningPlan.Failed(problems) => Some((serviceName, Some(problems.mkString("; "))))
+    reported.map { (name, detail) =>
+      com.thinkmorestupidless.ankka.crd.DatabaseStatus(
+        phase = plan.reportedPhase,
+        name = name,
+        cluster = if plan == ProvisioningPlan.Supplied then "" else clusterName,
+        recovered = plan match
+          case ProvisioningPlan.Ready(recovered, _) => recovered
+          case _                                    => false
+        ,
+        detail = detail
+      )
+    }

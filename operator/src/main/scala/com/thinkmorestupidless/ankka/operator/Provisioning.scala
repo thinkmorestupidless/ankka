@@ -12,6 +12,13 @@ import com.thinkmorestupidless.ankka.operator.cnpg.DatabaseObservation
  */
 enum ProvisioningPlan:
   /**
+   * The service has no database at all: it is web-hosted (feature 021). Render nothing, observe
+   * nothing, and report nothing — not even a phase, since `Supplied` would say a database was
+   * brought when none exists.
+   */
+  case NotNeeded
+
+  /**
    * The descriptor supplied its own database. Render nothing — no CNPG objects, no init container.
    */
   case Supplied
@@ -42,7 +49,10 @@ enum ProvisioningPlan:
   /** A real, non-transient rejection. Nothing here resolves on its own. */
   case Failed(problems: Vector[String])
 
+  /** The phase the status reports; `NotNeeded` reports no database and so has none. */
   def reportedPhase: String = this match
+    case ProvisioningPlan.NotNeeded =>
+      throw IllegalStateException("a web-hosted service has no database and reports no phase")
     case ProvisioningPlan.Supplied               => "Supplied"
     case ProvisioningPlan.Waiting(_, _, _, _, _) => "Waiting"
     case ProvisioningPlan.Ready(true, _)         => "Recovered"
@@ -74,7 +84,11 @@ object Provisioning:
     message.contains("is forbidden") || message.contains("does not exist")
 
   def decide(spec: AnkkaServiceSpec, observed: DatabaseObservation): ProvisioningPlan =
-    if !spec.provisionDatabase then ProvisioningPlan.Supplied
+    // Before the escape hatch: a web-hosted service has no database whatever the resource says
+    // about provisioning one, and the plan says so by its hosting, not by a flag another writer
+    // of the resource might set.
+    if spec.hosting == Rendering.WebHosting then ProvisioningPlan.NotNeeded
+    else if !spec.provisionDatabase then ProvisioningPlan.Supplied
     else if observed.clusterReadyInstances < 1 then
       // Rules 3 and 4: no cluster yet, or one still starting. Nothing downstream of it can be
       // meaningfully attempted, so ask for everything that is not already there.

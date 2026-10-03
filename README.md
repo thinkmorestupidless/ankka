@@ -239,6 +239,12 @@ covers memory, structured replies, streaming and compaction.
 
 ![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In Rust, the pod has one container: the runtime, with your service's WebAssembly module loaded into its JVM. They speak the same protobuf messages across the module's memory, with no network: the runtime calls the module's exports ankka1_plan, ankka1_invoke_tool and ankka1_check_guardrail, and the tool's call to the cart entity goes through the ankka1 invoke import. In all three, only the runtime calls the model provider and writes to the service's Postgres.](docs/assets/diagrams/agent-hosting.svg)
 
+A user interface for your services is deployed beside them as a **web-hosted service**: any program
+that serves HTTP, run next to the platform's proxy. The proxy puts your backends under the interface's
+own address, so they never need exposing, and lets the interface's server call them by name as itself.
+`ankka init --language web` starts one, and `ankka local web` runs it on your machine exactly as a
+cluster would. [Deploy a user interface](docs/deploy/web-hosting.md) explains it.
+
 ## The platform
 
 The platform runs on Kubernetes. The CLI talks to a **control plane**, which records what you asked for

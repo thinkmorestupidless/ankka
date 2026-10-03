@@ -49,6 +49,10 @@ sbt buildAll                      # everything: format check, compile, test, eve
 GRAALVM_HOME=... sbt cli/GraalVMNativeImage/packageBin   # the CLI as one executable, no JVM:
                                    # cli/target/graalvm-native-image/ankka; cli/native-smoke.sh checks it
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
+sbt proxyCore/test proxy/test     # a web-hosted service's proxy: its rules and engine (JDK only), then
+                                   # TLS, and requests/calling-services/mounts .feature on loopback
+sbt -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'   # `ankka init --language web`, run behind
+                                   # `ankka local web` beside a stand-in backend; needs node and npm
 sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts on a real journal
                                    # against a scriptable process double, and one k3s suite
 sbt 'sidecar/testOnly *ConformanceSuite'                                       # the Scala reference, in-process
@@ -180,6 +184,9 @@ controlplane-api + crd + sdk + runtime + http → controlplane
                                   (cli, operator, testkit are Test-only deps)
 protocol → nothing                                       (generated ScalaPB; -Wunused off, -source:3.3)
 runtime + http + agent + protocol → sidecar              (testkit and operator are Test-only deps)
+proxy-core → nothing                                     (the JDK's HTTP server and client only)
+proxy-core + runtime + http → proxy                      (test-pki and testkit are Test-only deps)
+controlplane-api + proxy-core → cli
 ```
 
 `grpc` sits above `http` because it uses `Acl`, `Caller`, `Principal` and `EndpointClients` unchanged —
@@ -359,6 +366,28 @@ agent in a module is the runtime's loop as for a process; the module answers onl
 guardrails and `ankka1_check_task_result`, on fresh instances — which is why a Rust rule takes a
 `&Context`: a fresh instance remembers nothing between checks. Notifications are a stream, so a
 module cannot forward them.
+
+### A service can be any HTTP program beside the platform's proxy
+
+`"hosting": "web"` (feature 021) runs any image that serves HTTP — a user interface, typically — beside
+the platform's **proxy**, two containers in one pod. The proxy is new code and not a mode of the sidecar,
+because the sidecar cannot start without forming a cluster and opening a database. Its engine is
+`proxy-core`, which depends on nothing of ankka's or Pekko's (the JDK's `HttpServer` and `HttpClient`), so
+the CLI's native image carries the same engine for `ankka local web` and a mount means one thing on a
+laptop and in a cluster. `proxy` adds mutual TLS from `RotatingTls` and the caller from
+`Caller.fromCertificate`, and is the image `ankka-proxy`.
+
+The proxy admits the internet, the service itself and the services the descriptor's `callers` names;
+tells the process who sent a request (`X-Ankka-Caller`) and where it was sent (`X-Forwarded-*`, derived
+from the hostname, never read from the request); passes a request under a **mount** to a service of the
+project under a second certificate, `ankka://<project>/<service>/mount`, which a runtime reads as
+`Gateway` only within its own project and a runtime from before the feature refuses outright; and serves
+the **calling address**, `127.0.0.1:7630`, at which the process calls `/<service>/…` or
+`/<service>.<project>/…` as the web-hosted service. A web-hosted pod has no database (`ProvisioningPlan.NotNeeded`),
+no cluster certificate, no peers role, a token it does not mount, and a probe policy of its own. The
+operator renders the proxy's settings as `ANKKA_PROXY_*` (`Rendering.ProxyEnv`), and
+`ProxyEnvironmentSuite` holds them to `ProxySettings`' parser. `docs/reference/web-hosting.md` is the
+contract with the process.
 
 ### Virtual threads
 
@@ -1454,6 +1483,28 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   with one call first.
 - **A bound address is read as an HTTP address by every reader** — the local console's invoke panel, the
   HTTP service client's local lookup — so gRPC's is `RuntimeExtension.grpcAddress`, beside it.
+- **The JDK's HTTP client reads its restricted-header list once, when its classes load.** The proxy
+  sets `Host` on every request it passes on, which needs `-Djdk.httpclient.allowRestrictedHeaders=host`;
+  a `System.setProperty` after any client has been built is silently too late, and the header is dropped.
+  The proxy image and every forked test of `proxy-core`, `proxy` and `cli` pass it as a JVM option, and
+  the CLI's `main` sets it before anything else runs. `ProxyEngine.start` refuses to start without it.
+- **A descriptor's `secretKeyRef` could name a Secret the platform issues** — another service's
+  certificate, or the project database's authority — and hand its key to a process. The descriptor's
+  rules now refuse it for every hosting (`ServiceSpec.isPlatformSecret`), and `ProxyEnvironmentSuite`
+  holds the list to every Secret name `Rendering` asks cert-manager to write, so a new certificate cannot
+  be added without the rule.
+- **A JVM throttled to 100 millicores takes about ten seconds to start**, and on a busy node missed its
+  readiness deadline entirely; the proxy's allotment is 250m with `SerialGC`, C1 only and one visible
+  processor (research R19), which serves within two seconds. Whole-suite k3s failures that a single
+  scenario run does not reproduce were exactly this.
+- **sbt buffers a suite's report until the suite ends.** A long k3s Gherkin suite says nothing for many
+  minutes, failures included; `sbt 'set controlPlane / Test / logBuffered := false' …` reports each
+  scenario as it ends. A munit glob filter matches `.` literally: quote the scenario's words.
+- **The API server writes quantities back normalised**: `1000m` as `1`, `1024Mi` as `1Gi`. Compare
+  resources by amount, not by string.
+- **Several actor systems serving TLS in one test JVM collide on remoting** unless they are
+  `pekko.actor.provider = local`; `TlsServing` (http's test sources) says so for the callees it starts.
+- **`given` is a keyword in Scala 3**, as `export` is: a helper or field named `given` is a syntax error.
 
 ## Documentation
 

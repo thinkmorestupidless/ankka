@@ -234,7 +234,12 @@ When the rollout's deadline passes, the operator's detail for a web-hosted servi
 `Unhealthy` event reports a 503 from the probe is
 `the process is not listening on port <n>`, followed by the kubelet's own message.
 
-**Status**: the wording of the kubelet's event is **a task** to read on k3s
+**Verified on k3s 1.35, 2026-10-03**: the kubelet writes
+`Readiness probe failed: HTTP probe failed with statuscode: 503`, and the detail reads
+`the process is not listening on port 8080: Readiness probe failed: HTTP probe failed with
+statuscode: 503`. The rule matches it as T017 wrote it.
+
+**Status before that**: the wording of the kubelet's event was **a task** to read on k3s
 (`HTTP probe failed with statuscode: 503` is what Kubernetes' prober writes; the response body is
 not in it). If it differs, the rule matches what k3s writes, and the test that pins it is the k3s
 case, not a unit test of a string nobody observed.
@@ -418,7 +423,16 @@ and exits; the `preStop` sleep every workload has runs before that.
 **Decision**: the image is a JVM image like the others (`eclipse-temurin:21-jre`), started with a
 small fixed heap. The pod's proxy container asks for 100m and 192Mi, requests equal to limits.
 
-**Status**: **a task.** The numbers are an estimate. A benchmark in `proxy`'s tests measures resident
+**Measured, 2026-10-03, for startup.** At 100m the proxy took about ten seconds from its
+container starting to serving (11.7 s on an idle k3s node, 10.7 s under `docker run --cpus 0.1`),
+and on a node busy with other pods it missed the readiness deadline altogether, which failed
+`deploying.feature`'s later scenarios. CPU throttling is what costs a JVM's startup: at 0.25 CPU it
+served in 1.8 s and at 0.5 in 0.9 s. The JVM flags `-XX:+UseSerialGC -XX:TieredStopAtLevel=1
+-XX:ActiveProcessorCount=1` saved about a second at 0.1 and brought resident memory from about
+140Mi to 88Mi. **The allotment is 250m and 192Mi, with those flags.** Latency and memory under
+load are still the benchmark's to measure.
+
+**Status before the measurement**: **a task.** The numbers are an estimate. A benchmark in `proxy`'s tests measures resident
 memory after 10,000 requests and the median added latency against a real process on loopback
 (SC-007's denominator is a request to the process directly, not an empty loop). If 192Mi is not
 enough the allotment changes; if the JVM's footprint is judged too high for a pod per interface, a

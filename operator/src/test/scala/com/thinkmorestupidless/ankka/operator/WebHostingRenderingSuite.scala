@@ -37,7 +37,7 @@ class WebHostingRenderingSuite extends munit.FunSuite:
     generation = 1L,
     image = "shop-web:1.0.0",
     port = Some(9000),
-    cpuMillis = 250,
+    cpuMillis = 300,
     memoryMiB = 256,
     env = List(
       EnvEntry("GREETING", Some("hi"), None, None),
@@ -194,13 +194,13 @@ class WebHostingRenderingSuite extends munit.FunSuite:
     val p = proxy().getResources
     assertEquals(
       p.getRequests.asScala.view.mapValues(_.toString).toMap,
-      Map("cpu" -> "100m", "memory" -> "192Mi")
+      Map("cpu" -> "250m", "memory" -> "192Mi")
     )
     assertEquals(p.getRequests, p.getLimits)
     val a = process().getResources
     assertEquals(
       a.getRequests.asScala.view.mapValues(_.toString).toMap,
-      Map("cpu" -> "250m", "memory" -> "256Mi")
+      Map("cpu" -> "300m", "memory" -> "256Mi")
     )
     assertEquals(a.getRequests, a.getLimits)
   }

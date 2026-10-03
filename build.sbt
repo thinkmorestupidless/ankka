@@ -611,7 +611,14 @@ lazy val proxy = project
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.proxy.Main"),
     dockerExposedPorts  := Seq(9000, 7627),
     libraryDependencies += logback,
-    Universal / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
+    Universal / javaOptions ++= Seq(
+      "-Djdk.httpclient.allowRestrictedHeaders=host",
+      // A small fixed allotment (research R19): one GC thread, the C1 compiler alone and a JVM that
+      // sees one processor start faster and use less memory, and the proxy is I/O bound.
+      "-J-XX:+UseSerialGC",
+      "-J-XX:TieredStopAtLevel=1",
+      "-J-XX:ActiveProcessorCount=1"
+    ),
     Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
     // Named, not discovered: ankka-testkit and http's tests both ship a logback-test.xml here.
     Test / javaOptions += "-Dlogback.configurationFile=logback-proxy-test.xml"

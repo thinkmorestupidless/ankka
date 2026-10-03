@@ -69,7 +69,7 @@ In `Rendering.render`'s order. Everything not listed is as for any service.
 | Ports | `http` (the descriptor's port), `probe` 7627 | none declared |
 | Environment | the proxy's settings (`data-model.md`) | the descriptor's `env`, `PORT`, `ANKKA_SERVICES_URL` |
 | Mounts | `/var/run/secrets/ankka/service`; `/var/run/secrets/ankka/mount` when there are mounts | none |
-| Resources | 100m, 192Mi, requests equal limits | the instance type's, requests equal limits |
+| Resources | 250m, 192Mi, requests equal limits | the instance type's, requests equal limits |
 | Readiness | `httpGet /ready` on `probe`, every 5 s | none |
 | Liveness | none | none |
 | `preStop` | sleep 5 s | sleep 5 s |

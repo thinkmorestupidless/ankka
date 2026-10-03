@@ -168,7 +168,7 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
     "every Secret the platform issues for a web-hosted service with mounts is one a descriptor may not read"
   ) {
     val names = issuedSecrets(actions(web, ProvisioningPlan.NotNeeded))
-    assert(names.contains("web-service-tls"), names)
+    assert(names.contains("web-service-tls") && names.contains("web-mount-tls"), names)
     for name <- names do
       assert(
         ServiceSpec.isPlatformSecret(name),

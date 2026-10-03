@@ -65,6 +65,7 @@ object ZeroTrust:
   val ServiceMount: String    = "/var/run/secrets/ankka/service"
   val DatabaseMount: String   = "/var/run/secrets/ankka/database"
   val DatabaseCaMount: String = "/var/run/secrets/ankka/database-ca"
+  val MountMount: String      = "/var/run/secrets/ankka/mount"
 
   /**
    * A plain HTTP listener answering `GET /ready` and nothing else. The kubelet cannot present a
@@ -104,6 +105,34 @@ object ZeroTrust:
   def clusterSecretName(service: String): String      = s"$service-cluster-tls"
   def serviceCertificateName(service: String): String = s"$service-service"
   def serviceSecretName(service: String): String      = s"$service-service-tls"
+  def mountCertificateName(service: String): String   = s"$service-mount"
+  def mountSecretName(service: String): String        = s"$service-mount-tls"
+
+  /**
+   * `ankka://<project>/<service>/mount`: the identity requests under a mount are passed on with.
+   */
+  def mountUri(spec: AnkkaServiceSpec): String = s"${identityUri(spec)}/mount"
+
+  /**
+   * The certificate a web-hosted service's proxy passes requests under its mounts on with (feature
+   * 021). A client certificate only, with no DNS name: nothing is served under it. A runtime reads
+   * it as the internet when the request comes from its own project and refuses it otherwise; a
+   * runtime from before web hosting refuses it outright.
+   */
+  def mountCertificate(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): GenericKubernetesResource =
+    certificate(
+      metadata(resource, spec, namespace, mountCertificateName(spec.serviceName)),
+      Map(
+        "secretName" -> mountSecretName(spec.serviceName),
+        "uris"       -> List(mountUri(spec)).asJava,
+        "usages"     -> List("client auth").asJava,
+        "issuerRef"  -> issuer(ServiceIssuer, "ClusterIssuer")
+      )
+    )
 
   /**
    * The certificate a service's instances present to each other, for remoting and management. Every
@@ -364,7 +393,12 @@ object ZeroTrust:
    * database pair when its database was provisioned; a web-hosted pod holds the service certificate
    * alone, since it forms no cluster and has no database (feature 021).
    */
-  final case class Held(cluster: Boolean, service: Boolean, database: Boolean)
+  final case class Held(
+      cluster: Boolean,
+      service: Boolean,
+      database: Boolean,
+      mount: Boolean = false
+  )
 
   /** One volume per identity the pod holds. */
   def volumes(held: Held, spec: AnkkaServiceSpec, clusterName: String): Vector[Volume] =
@@ -388,6 +422,9 @@ object ZeroTrust:
       // and nothing in the pod has any business with it.
       Option.when(held.database)(
         secretVolume("ankka-database-ca", s"$clusterName-ca", Some("ca.crt"))
+      ) ++
+      Option.when(held.mount)(
+        secretVolume("ankka-mount-tls", mountSecretName(spec.serviceName), None)
       )
 
   /** Where the platform's container reads each identity the pod holds. */
@@ -395,7 +432,8 @@ object ZeroTrust:
     Option.when(held.cluster)(mount("ankka-cluster-tls", ClusterMount)).toVector ++
       Option.when(held.service)(mount("ankka-service-tls", ServiceMount)) ++
       Option.when(held.database)(mount("ankka-database-tls", DatabaseMount)) ++
-      Option.when(held.database)(mount("ankka-database-ca", DatabaseCaMount))
+      Option.when(held.database)(mount("ankka-database-ca", DatabaseCaMount)) ++
+      Option.when(held.mount)(mount("ankka-mount-tls", MountMount))
 
   /**
    * The database half: each provisioned service authenticates to its project's Postgres with a

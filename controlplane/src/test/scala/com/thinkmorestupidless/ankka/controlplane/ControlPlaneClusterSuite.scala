@@ -1059,6 +1059,23 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
     import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
     import com.thinkmorestupidless.ankka.operator.InPod
 
+    // Room first. Every instance reserves its CPU and memory whether it is busy or not, and case 5
+    // creates as many throwaway services as the API answers in its time; on a quiet machine that is
+    // enough to leave no room on the one k3s node for a second cart, which then waits unscheduled.
+    // Everything but svc1 was created only to be counted, so it goes.
+    val NamePattern  = """"name":"([^"]+)"""".r
+    val (_, listing) = api("GET", s"/services/$Project")
+    val throwaway =
+      NamePattern.findAllMatchIn(listing).map(_.group(1)).toVector.distinct.filterNot(_ == "svc1")
+    throwaway.foreach(name => api("DELETE", s"/services/$Project/$name"): Unit)
+    waitFor(300.seconds) {
+      k8s.pods().inNamespace(s"ankka-$Project").list().getItems.asScala.forall { p =>
+        val name =
+          Option(p.getMetadata.getLabels).flatMap(l => Option(l.get("app.kubernetes.io/name")))
+        name.forall(n => n == "svc1" || !throwaway.contains(n))
+      }
+    }
+
     // Two instances of the real cart: two, not three, because a k3s node running several sample
     // JVMs answers in seconds, and the three-instance timing is the HTTP suite's scripted case.
     val two =
@@ -1090,7 +1107,50 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
         Option(st.getUpdatedReplicas).contains(2) && Option(st.getReplicas).contains(2) &&
         Option(st.getAvailableReplicas).contains(2)
       }
-    waitFor(300.seconds)(rolledOut && cartPods.size == 2)
+    // And until the replaced pod is gone, not merely marked for deletion: it serves through its
+    // preStop pause while the Service still routes to it, and calls it counts leave with it.
+    def noneLeaving: Boolean =
+      k8s
+        .pods()
+        .inNamespace(workload)
+        .withLabel("app.kubernetes.io/name", "svc1")
+        .list()
+        .getItems
+        .asScala
+        .forall(_.getMetadata.getDeletionTimestamp == null)
+    try waitFor(300.seconds)(rolledOut && cartPods.size == 2 && noneLeaving)
+    catch
+      case failure: Throwable =>
+        // What the rollout was doing, so a failure says why rather than only that it timed out.
+        val d     = Option(k8s.apps().deployments().inNamespace(workload).withName("svc1").get())
+        val every = k8s.pods().inNamespace(workload).withLabel("app.kubernetes.io/name", "svc1")
+        val states = every.list().getItems.asScala.map { p =>
+          val cs =
+            Option(p.getStatus.getContainerStatuses).map(_.asScala.toVector).getOrElse(Vector.empty)
+          s"${p.getMetadata.getName} ${p.getStatus.getPhase} " +
+            cs.map(c =>
+              s"${c.getName} ready=${c.getReady} restarts=${c.getRestartCount} ${c.getState}"
+            ).mkString("; ")
+        }
+        val logs = every.list().getItems.asScala.map { p =>
+          val tail = scala.util
+            .Try(
+              k8s
+                .pods()
+                .inNamespace(workload)
+                .withName(p.getMetadata.getName)
+                .inContainer("svc1")
+                .tailingLines(15)
+                .getLog(true)
+            )
+            .getOrElse("(no log)")
+          s"--- ${p.getMetadata.getName}\n$tail"
+        }
+        fail(
+          s"the rollout to two instances did not finish: spec ${d.map(_.getSpec.getReplicas)}, " +
+            s"status ${d.map(_.getStatus)}\npods:\n${states.mkString("\n")}\n${logs.mkString("\n")}",
+          failure
+        )
 
     // Requests through the cart's own Service, from one of its pods with that pod's certificate.
     val from     = cartPods.head.getMetadata.getName

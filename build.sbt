@@ -673,7 +673,7 @@ lazy val cli = project
     }.taskValue,
     // The Python, TypeScript and Rust templates `ankka init --language` renders (Scaffold): each language's
     // own files from cli/src/main/templates/<language>, the files every language shares from
-    // common/, and the agent skills a project carries, from the rendered copy in marketplace/ — the
+    // common/ (and every service's from common-service/), and the agent skills a project carries, from the rendered copy in marketplace/ — the
     // same skills the Scala template carries. Onto the classpath at ankka/templates/<language>/ with
     // an index, because a directory inside a jar cannot be listed. Walked by hand rather than through
     // unmanagedResources, whose default filter drops hidden files, and a template is mostly
@@ -693,8 +693,11 @@ lazy val cli = project
           .flatMap(f => IO.relativize(dir, f).map(_ -> f))
       IO.delete(out)
       Seq("python", "typescript", "rust").flatMap { language =>
+        // common/ is every template's; common-service/ (the compose file that starts the sidecar)
+        // only a service's, which a web-hosted interface is not.
         val files = (
           filesUnder(templates / "common") ++
+            (if (language == "web") Nil else filesUnder(templates / "common-service")) ++
             filesUnder(templates / language) ++
             filesUnder(skills).map { case (relative, f) => s".claude/skills/$relative" -> f }
         ).sortBy(_._1)

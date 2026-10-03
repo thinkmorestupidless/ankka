@@ -384,6 +384,26 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
 
   // ── Web hosting (feature 021) ─────────────────────────────────────────────
 
+  test("the operator is told which proxy image to run, from the registry, in its own container") {
+    val remoteOperator = operatorDeployment(remote, "cloud")
+    assert(
+      remoteOperator.contains("ghcr.io/thinkmorestupidless/ankka-proxy:"),
+      "the remote operator does not name the registry's proxy image"
+    )
+    // Set once, and the local default gone: a patch naming a container the operator does not have
+    // would add a second container carrying only this variable.
+    assertEquals("ANKKA_PROXY_IMAGE".r.findAllIn(remoteOperator).size, 1)
+    assert(!remoteOperator.contains("ankka-proxy:latest"), "the local proxy image survived")
+    val parsed = io.fabric8.kubernetes.client.utils.Serialization
+      .unmarshal(remoteOperator, classOf[io.fabric8.kubernetes.api.model.apps.Deployment])
+    assertEquals(
+      parsed.getSpec.getTemplate.getSpec.getContainers.size,
+      1,
+      "the operator's Deployment has more than one container"
+    )
+    assert(operatorDeployment(local, "local").contains("ankka-proxy:latest"))
+  }
+
   private def operatorDeployment(render: String, name: String): String =
     documentsOfKind(render, "Deployment")
       .find(_.contains("name: ankka-operator"))

@@ -115,7 +115,7 @@ jobs:
             "https://central.sonatype.com/api/v1/publisher/status?id=$deployment" || true
           cat status.out; echo
   images:
-    # The five images — the operator, the control plane, the sidecar, the console and the shopping cart sample —
+    # The six images — the operator, the control plane, the sidecar, the proxy, the console and the shopping cart sample —
     # published to GitHub Container Registry, public, tagged with the release version and `latest`.
     # Public because a Python or TypeScript developer runs the sidecar on their own machine, and a
     # pull there should need no account anywhere. The workflow's own token pushes them: each image
@@ -138,7 +138,7 @@ jobs:
     env:
       DOCKER_REPOSITORY: ghcr.io/thinkmorestupidless
       GHCR_CACHE: europe-west2-docker.pkg.dev/ankka-ops/ghcr
-      IMAGES: ankka-operator ankka-controlplane ankka-sidecar sample-shopping-cart ankka-console
+      IMAGES: ankka-operator ankka-controlplane ankka-sidecar ankka-proxy sample-shopping-cart ankka-console
     steps:
       - uses: actions/checkout@v7
         with:
@@ -160,7 +160,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish
+      - run: sbt operator/Docker/publish controlPlane/Docker/publish shoppingCart/Docker/publish sidecar/Docker/publish proxy/Docker/publish
       # The console (feature 017) is a Node image built by Docker from console/, tagged exactly as
       # the sbt images are: the release version and `latest`.
       - name: Publish the console image

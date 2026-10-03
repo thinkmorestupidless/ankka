@@ -109,15 +109,22 @@ object OidcVerifier:
    * Cached keys are served for their TTL; an unknown key id triggers one refetch, no more often
    * than `minTimeBetweenFetches`; and if the issuer becomes unreachable, the last good set is kept
    * for `outageTolerance` rather than refusing every caller the moment the issuer restarts.
+   * `cacheFor` is how long a fetched set is served before it is refreshed; only a test shortens it.
    */
   def keySource(
       issuer: Issuer,
       minTimeBetweenFetches: FiniteDuration,
-      outageTolerance: FiniteDuration = OutageTolerance
+      outageTolerance: FiniteDuration = OutageTolerance,
+      cacheFor: FiniteDuration = 5.minutes
   ): JWKSource[SecurityContext] =
-    JWKSourceBuilder
+    val builder = JWKSourceBuilder
       .create[SecurityContext](URI.create(issuer.jwksUrl).toURL, retriever(issuer.ca))
-      .cache(5.minutes.toMillis, 15.seconds.toMillis)
+      .cache(cacheFor.toMillis, (cacheFor / 20).min(15.seconds).toMillis)
+    // Refreshing ahead starts 30 seconds before a set expires, which a cache shorter than a
+    // minute cannot accommodate; production's five minutes keeps it.
+    val refreshing =
+      if cacheFor < 1.minute then builder.refreshAheadCache(false) else builder
+    refreshing
       .rateLimited(minTimeBetweenFetches.toMillis)
       .outageTolerant(outageTolerance.toMillis)
       .retrying(true)

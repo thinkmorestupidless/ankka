@@ -84,8 +84,16 @@ class TestIssuer(
   ): Issuer = Issuer(name, issuer, jwksUrl, audience, typ = typ, clockSkew = skew)
 
   /** A key source that refetches quickly enough for a test to see a rotation. */
-  def keySource(outageTolerance: FiniteDuration = OidcVerifier.OutageTolerance) =
-    OidcVerifier.keySource(asIssuer(), minTimeBetweenFetches = 200.millis, outageTolerance)
+  def keySource(
+      outageTolerance: FiniteDuration = OidcVerifier.OutageTolerance,
+      cacheFor: FiniteDuration = 5.minutes
+  ) =
+    OidcVerifier.keySource(
+      asIssuer(),
+      minTimeBetweenFetches = 200.millis,
+      outageTolerance,
+      cacheFor
+    )
 
   /** A token as Keycloak would mint it. */
   def token(

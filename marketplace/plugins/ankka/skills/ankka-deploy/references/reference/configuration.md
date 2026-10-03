@@ -196,6 +196,31 @@ Neither is routed to a sidecar: judgments are available to Scala services only.
   without it when the service has either, naming the variable. A Scala service passes its broker to
   `ProjectionRuntime.withKafka` in code instead.
 
+### Token verification
+
+A service that verifies its users' tokens lists the issuers it accepts as a named set, read by
+`Oidc.authenticate()` in a Scala service and by the sidecar for every other language. The set is not a
+setting of `reference.conf`, so it has no row in the table above. For a process-hosted service the
+variables go to the sidecar container only; the process never sees them, and a WebAssembly module's
+`config` call answers each as absent.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `ANKKA_AUTH_ISSUERS` | to verify anything | The issuers' names, comma separated. Each is a word of letters, digits and `-`, starting with a letter, and listed once. |
+| `ANKKA_AUTH_<NAME>_ISSUER` | for each name | The issuer a token must name, exactly. A trailing `/` is ignored. |
+| `ANKKA_AUTH_<NAME>_JWKS_URL` | for each name | Where the issuer's keys are fetched. |
+| `ANKKA_AUTH_<NAME>_AUDIENCE` | for each name | The audience a token must be for. |
+| `ANKKA_AUTH_<NAME>_CA` | no | A file of PEM certificates the keys fetch trusts, and nothing else. Without it, the JVM's own trust store. |
+| `ANKKA_AUTH_<NAME>_TYP` | no | A `typ` claim a token must carry, such as `Bearer` for Keycloak. Without it, the claim is not checked. |
+| `ANKKA_AUTH_<NAME>_CLOCK_SKEW` | no | The tolerance on a token's expiry and start, `60s` by default. It accepts `ms`, `s` and `m` suffixes; a bare number is seconds. |
+| `ANKKA_AUTH_REALM` | no | The realm a challenge names, `ankka` by default. |
+
+`<NAME>` is the issuer's name upper-cased, with `-` as `_`. Variables of names that are not listed are not
+read, so the control plane's own `ANKKA_AUTH_ISSUER`, `ANKKA_AUTH_JWKS_URL` and `ANKKA_AUTH_JWKS_CA`,
+described on [Identity and machine accounts](../platform/identity.md), can sit beside a service's set. A
+name listed twice, a name that is not a word, a required variable missing, a CA that is not a file or a
+skew that is not a duration stops the service starting, with every problem named at once.
+
 ### Process-hosted services
 
 A service in another language runs as a process beside the sidecar, and the two find each other on

@@ -219,6 +219,50 @@ Keycloak advertises:
 curl https://auth.example.com/realms/ankka/.well-known/openid-configuration | jq -r .issuer
 ```
 
+## A service's own users
+
+The platform verifies the tokens a service's users present and issues none. A service lists the
+issuers it accepts, by a name of its own choosing, and each issuer is checked with its own published
+keys and its own audience. No realm, client or user is provisioned for a service's users: the identity
+provider that signs their tokens is the installation's or the service's to run.
+
+The issuers are a named set in the service descriptor's `env`. `ANKKA_AUTH_ISSUERS` lists the names,
+and each name has its own variables, its name upper-cased with `-` as `_`:
+
+```json title="service.json"
+{
+  "name": "orders",
+  "service": { "image": "orders:1.0.0" },
+  "env": [
+    { "name": "ANKKA_AUTH_ISSUERS", "value": "customers,staff" },
+    { "name": "ANKKA_AUTH_CUSTOMERS_ISSUER", "value": "https://auth.shop.example/realms/customers" },
+    { "name": "ANKKA_AUTH_CUSTOMERS_JWKS_URL", "value": "https://auth.shop.example/realms/customers/protocol/openid-connect/certs" },
+    { "name": "ANKKA_AUTH_CUSTOMERS_AUDIENCE", "value": "shop" },
+    { "name": "ANKKA_AUTH_STAFF_ISSUER", "value": "https://auth.shop.example/realms/staff" },
+    { "name": "ANKKA_AUTH_STAFF_JWKS_URL", "value": "https://auth.shop.example/realms/staff/protocol/openid-connect/certs" },
+    { "name": "ANKKA_AUTH_STAFF_AUDIENCE", "value": "backoffice" },
+    { "name": "ANKKA_AUTH_STAFF_TYP", "value": "Bearer" }
+  ]
+}
+```
+
+A token is matched to an issuer by the issuer it names, and checked with that issuer's keys and for
+that issuer's audience, so a token naming one issuer and signed with another's key is refused. A token
+from an issuer the service does not list is refused without anything being fetched. The handler is told
+which issuer verified the token by its name, so a service fronting staff and customers can tell them
+apart.
+
+Keycloak writes `typ: Bearer` on an access token, and `ANKKA_AUTH_<NAME>_TYP=Bearer` refuses any other
+kind of token presented in its place. Other providers write something else or nothing, so the check is
+off unless an issuer asks for it. The control plane is one user of the same verifier, with the check on
+for the installation's issuer.
+
+Keys are fetched the first time a token needs them, never when the service starts, and kept: an issuer
+that becomes unreachable does not refuse anyone while the keys already held are still within their
+tolerance. A malformed set stops the service starting, with every problem named. Every variable is listed
+in [Runtime configuration](../reference/configuration.md#token-verification). Declaring the rule is shown
+in [HTTP endpoints](../build/http-endpoints.md#verify-your-users-tokens).
+
 ## Running a control plane outside a cluster
 
 The ankka repository's `docker-compose.yml` runs a Keycloak on port 8081 with the same realm, and creates

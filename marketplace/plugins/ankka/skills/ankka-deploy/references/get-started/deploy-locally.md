@@ -210,12 +210,25 @@ and `apply`, which rolls the instances by itself.
 
 ## Deploy the cart's interface
 
-The shopping cart sample has a user interface, `cart-web`, deployed as a web-hosted service that mounts
-the cart at `/api/cart`. The deploy script built its image and loaded it into the cluster. With the cart
-deployed as `cart` in the same project:
+The shopping cart sample has a user interface, `cart-web`: any program that serves HTTP, deployed as a
+web-hosted service that mounts the cart at `/api/cart`. The deploy script built its image and loaded it
+into the cluster. Its descriptor names the hosting and the mount:
+
+```json title="cart-web.json"
+{
+  "name": "cart-web",
+  "service": {
+    "image": "sample-shopping-cart-web:latest",
+    "hosting": "web",
+    "mounts": [{ "path": "/api/cart", "service": "cart" }]
+  }
+}
+```
+
+With the shopping cart deployed as `cart` in the same project:
 
 ```bash
-ankka services apply -f samples/shopping-cart-web/service.json
+ankka services apply -f cart-web.json
 ankka services get cart-web        # Ready, with the mount /api/cart → cart
 ankka services expose cart-web
 ```

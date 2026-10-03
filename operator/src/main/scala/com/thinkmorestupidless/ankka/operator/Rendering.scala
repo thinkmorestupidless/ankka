@@ -140,9 +140,13 @@ object Rendering:
   val DefaultProcessPort: Int   = 8080
   val CallingPort: Int          = 7630
 
-  /** The proxy's own allotment: it holds no request, so it needs little (feature 021, R19). */
+  /**
+   * The proxy's own allotment (feature 021, research R19). It holds no request, so memory is small;
+   * CPU is not, because a JVM throttled to 100m took about ten seconds to start and, on a busy
+   * node, missed its readiness deadline. At 250m it serves within two seconds, using under 100Mi.
+   */
   private val ProxyQuantities =
-    Map("cpu" -> new Quantity("100m"), "memory" -> new Quantity("192Mi")).asJava
+    Map("cpu" -> new Quantity("250m"), "memory" -> new Quantity("192Mi")).asJava
 
   /** Every hosting the operator knows; the CRD's enum is held to exactly these. */
   val Hostings: Set[String] = Set(EmbeddedHosting, ProcessHosting, WasmHosting, WebHosting)

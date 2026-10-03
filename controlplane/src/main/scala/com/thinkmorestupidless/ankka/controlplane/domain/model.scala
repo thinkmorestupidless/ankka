@@ -528,12 +528,20 @@ final case class Service(
       desiredInstances = desiredInstances,
       detail = detail,
       confirmed = confirmed,
-      database = database.map(Service.databasePhrase),
+      // A web-hosted service has no database, whatever an operator reported or did not.
+      database =
+        if descriptor.exists(_.service.isWebHosted) then Some(Service.NoDatabase)
+        else database.map(Service.databasePhrase),
       exposed = exposed,
       suspended = suspended,
       paused = paused,
       hosting = descriptor.map(_.service.hosting).getOrElse("embedded"),
-      protocol = descriptor.flatMap(_.service.protocol)
+      protocol = descriptor.flatMap(_.service.protocol),
+      // The states are the endpoint's to fill, from the mounted services' own entities.
+      mounts =
+        descriptor.toVector.flatMap(_.service.mounts).map(m => MountStatus(m.path, m.service)),
+      callers = descriptor.toVector.flatMap(_.service.callers),
+      processPort = descriptor.flatMap(_.service.resolvedProcessPort)
     )
 
 object Service:
@@ -572,6 +580,9 @@ object Service:
    * (the operator's `Provisioning.decide`), so this can only ever reword it, never disagree with it
    * (research R11, US4's T051).
    */
+  /** What `ServiceStatus.database` says of a web-hosted service, which has none (feature 021). */
+  val NoDatabase: String = "none"
+
   def databasePhrase(phase: String): String = phase match
     case "Waiting"     => "waiting for database"
     case "Provisioned" => "provisioned"

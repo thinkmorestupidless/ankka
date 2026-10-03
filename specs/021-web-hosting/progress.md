@@ -5,13 +5,12 @@ which tasks are done (`[X]`); this note records what the task list cannot.
 
 ## State on 2026-10-03
 
-- **Done: T001–T048.** Every user story is built: the proxy, the operator's rendering, status,
+- **Done: T001–T049.** Every user story is built: the proxy, the operator's rendering, status,
   logs, the console, `ankka local web`, the web template, the sample's interface (`cart-web`), the
   cloud overlay's proxy image, the `web` CI job, and the documentation (three new pages, the skill
   `ankka-web`, `WebHostingDocumentationSuite`).
-- **Left:** T049 (`ProxyBenchmark`, written; run it under `-Dankka.benchmarks=on` and record the
-  numbers in research R19), T050 (the manual proof with the previous release's cart, on a local
-  installation) and T051 (every check that gates a merge).
+- **Left:** T050 (the manual proof with a pre-feature cart, on a local installation) and T051
+  (every check that gates a merge). T049 measured 0.051 ms added and 88 MiB resident (R19).
 - **Branch protection must require the new `web` job** once the pull request exists.
 
 ## What is established

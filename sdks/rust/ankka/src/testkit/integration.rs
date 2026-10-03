@@ -326,6 +326,12 @@ impl AnkkaTestKit {
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
+        // A fresh secret key per kit, so the secret store works with no setup. The caller's `env`
+        // comes after it and replaces it; an empty value starts a runtime with none.
+        .chain(std::iter::once((
+            "ANKKA_SECRET_KEY".to_string(),
+            generated_secret_key(),
+        )))
         .collect()
     }
 
@@ -583,5 +589,39 @@ mod tests {
             split_image("localhost:5000/team/cart:1.2"),
             ("localhost:5000/team/cart".into(), "1.2".into())
         );
+    }
+}
+
+/// 32 random bytes as standard base64, the form `ANKKA_SECRET_KEY` takes. Read from the operating
+/// system, since the crate depends on no random number generator.
+fn generated_secret_key() -> String {
+    use std::io::Read;
+    let mut bytes = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut bytes))
+        .expect("32 random bytes for a secret key");
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(44);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().fold(0u32, |n, b| (n << 8) | u32::from(*b)) << (8 * (3 - chunk.len()));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod secret_key_tests {
+    #[test]
+    fn a_generated_secret_key_is_the_base64_of_32_bytes() {
+        let key = super::generated_secret_key();
+        assert_eq!(key.len(), 44);
+        assert!(key.ends_with('=') && !key.ends_with("=="));
+        assert_ne!(key, super::generated_secret_key());
     }
 }

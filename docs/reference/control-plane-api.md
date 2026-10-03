@@ -113,6 +113,9 @@ The table is generated from the control plane's own route declarations.
 | `DELETE` | `/projects/{projectId}` | |
 | `PUT` | `/projects/{projectId}/registry` | |
 | `DELETE` | `/projects/{projectId}/registry` | |
+| `PUT` | `/projects/{projectId}/secrets/{name}` | |
+| `DELETE` | `/projects/{projectId}/secrets/{name}` | |
+| `GET` | `/projects/{projectId}/secrets` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
 | `PUT` | `/services/{projectId}/{name}` | |
@@ -385,6 +388,33 @@ Stops claiming the project's registry credential. Answers `204`, or `404` if non
 
 The Secret itself is left in the cluster — the control plane holds no permission to delete one — and
 the next deploy of each service in the project stops naming it.
+
+### `PUT /projects/{projectId}/secrets/{name}`
+
+Sets entries of a project secret, which a descriptor's variable takes by `secretKeyRef`. Body:
+`{ "entries": { "STRIPE_KEY": "…" } }`. Members of the project's organization, including deploy tokens.
+Answers `204`.
+
+The entries named are added or replaced and every other entry of the secret is kept. They are written to
+a Kubernetes Secret in the project's namespace before anything is recorded, and a cluster that could not
+be written answers `503` and records nothing. No value appears in any reply, listing or history: the
+control plane records the secret's name and its entries' names. A name the platform uses for its own
+Secrets (beginning `ankka-`, or ending `-db`, `-cluster-tls`, `-service-tls`, `-database-tls` or
+`-secret-key`), a malformed name or entry, an empty value or one over 64 KiB is refused with `400`, every
+problem at once.
+
+### `DELETE /projects/{projectId}/secrets/{name}`
+
+Removes the one entry named by the `entry` query parameter:
+`DELETE /projects/shop/secrets/checkout?entry=STRIPE_KEY`. Answers `204`, or `404` when the project
+secret has no such entry, in which case nothing is written. The Secret itself is never deleted; one with
+no entry left is no longer listed.
+
+### `GET /projects/{projectId}/secrets`
+
+The project's secrets, by name: `[{ "name": "checkout", "entries": ["STRIPE_KEY"], "setAt": "…",
+"setBy": "…" }]`. From the control plane's own record, so a secret just set is listed at once. Never a
+value — the control plane cannot read a Secret back.
 
 ## Services
 

@@ -244,6 +244,20 @@ state = await cart.call("get-cart").invoke(reply=ShoppingCart)
 `ankka.client.CommandError`, whose `error` holds the message and code. Passing a request's metadata on
 makes the call a child span of the request's trace. See [Calling components](../build/component-client.md).
 
+## Secret store
+
+The service's secret store, for a value it must keep and never record, such as a credential a person
+gave it ([Secrets a service keeps](../build/secrets.md)). An endpoint, a consumer, a graph consumer, a
+timed action, an agent and an autonomous agent reach it as `self.secrets`, and a workflow in a step; an
+entity's `CommandContext` and a `View` have no `secrets` at all, and a workflow's command handler is
+refused. `await self.secrets.put(name, value)`, `await self.secrets.get(name)` (the value, or `None`) and
+`await self.secrets.delete(name)`. A refusal is a `CommandError` with the runtime's code.
+
+The runtime beside the process holds the store and its key; the process never sees the key. For a unit
+test, assign `component.secrets = InMemorySecrets()`, which applies the runtime's rules. The integration
+test kit puts a generated `ANKKA_SECRET_KEY` on the runtime it starts; `env={"ANKKA_SECRET_KEY": ""}`
+starts one with none. Needs protocol 1.4: an earlier runtime is reported as too old for the store.
+
 ## Running a service
 
 ```python

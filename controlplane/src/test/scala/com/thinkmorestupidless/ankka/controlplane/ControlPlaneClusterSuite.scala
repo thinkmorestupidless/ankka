@@ -813,6 +813,42 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
           403,
           s"expected the API server to refuse to $what: ${ex.getMessage}"
         )
+
+      // Feature 023: a project secret, through the control plane's own client, under the shipped
+      // grant. It is written by a merge patch, created when the patch finds nothing, and never read:
+      // so a patch of a missing Secret must be a 404 (not a 403), a second set must merge into the
+      // first, a removal must remove one entry, and a set must bring back a Secret left empty.
+      val projectSecrets =
+        new com.thinkmorestupidless.ankka.controlplane.deploy.Fabric8AnkkaServiceClient(
+          restricted,
+          "ankka"
+        )
+      def held: Map[String, String] =
+        Option(k8s.secrets().inNamespace(Namespace).withName("checkout").get())
+          .flatMap(s => Option(s.getData))
+          .map(
+            _.asScala.toMap.view.mapValues(v => String(java.util.Base64.getDecoder.decode(v))).toMap
+          )
+          .getOrElse(Map.empty)
+      projectSecrets.setSecretEntries(Namespace, "checkout", Map("A" -> "1"))
+      assertEquals(held, Map("A" -> "1"), "created when the patch found nothing")
+      projectSecrets.setSecretEntries(Namespace, "checkout", Map("B" -> "2"))
+      assertEquals(held, Map("A" -> "1", "B" -> "2"), "a second set merges into the first")
+      projectSecrets.removeSecretEntry(Namespace, "checkout", "A")
+      assertEquals(held, Map("B" -> "2"), "a removal removes one entry and leaves the rest")
+      projectSecrets.removeSecretEntry(Namespace, "checkout", "B")
+      assertEquals(held, Map.empty[String, String], "the Secret stays, empty")
+      assert(k8s.secrets().inNamespace(Namespace).withName("checkout").get() != null)
+      projectSecrets.setSecretEntries(Namespace, "checkout", Map("C" -> "3"))
+      assertEquals(held, Map("C" -> "3"), "a set brings an emptied Secret back")
+      val readBack = intercept[io.fabric8.kubernetes.client.KubernetesClientException](
+        restricted.secrets().inNamespace(Namespace).withName("checkout").get(): Unit
+      )
+      assertEquals(
+        readBack.getCode,
+        403,
+        "the control plane still cannot read a project secret back"
+      )
     finally restricted.close()
   }
 

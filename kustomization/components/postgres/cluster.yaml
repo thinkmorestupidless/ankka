@@ -44,4 +44,6 @@ spec:
           - name: ankka-controlplane-schema
             key: 30-timers-postgres.sql
           - name: ankka-controlplane-schema
+            key: 40-secrets-postgres.sql
+          - name: ankka-controlplane-schema
             key: 99-grants.sql

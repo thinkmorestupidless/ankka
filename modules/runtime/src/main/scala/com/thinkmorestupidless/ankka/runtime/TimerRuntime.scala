@@ -51,6 +51,7 @@ final class TimerRuntime private (pollInterval: FiniteDuration) extends RuntimeE
             database,
             byId,
             service.componentClient,
+            service.secrets,
             service.conversation,
             pollInterval
           ),

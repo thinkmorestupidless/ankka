@@ -478,12 +478,14 @@ impl<C: Workflow> Registered for Registration<C> {
         };
         // What the runtime says about this step: its trace, and the step as the caller of whatever
         // it calls. Carried on the step's calls as a command's is; a runtime before 1.3 sends none.
+        // A step is also the one place in a workflow that has the secret store.
         let ctx = Context::new(
             C::COMPONENT_ID,
             request.entity_id.clone(),
             0,
             Metadata::from_proto(run_step.metadata.as_ref()),
-        );
+        )
+        .with_secrets();
         let effect = match (entry.run)(&state, run_step.input.as_ref(), &ctx) {
             Ok(effect) => effect,
             Err(message) => return fault(run_step.id, message),

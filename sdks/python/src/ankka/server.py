@@ -43,6 +43,7 @@ from ankka._proto.ankka.protocol.v1 import (
 from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient
+from ankka.secrets import Secrets
 from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
 from ankka.effects import consumer as consumer_effects
@@ -622,7 +623,11 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
     def _instance(self, endpoint_id: str) -> Any:
         if endpoint_id not in self.instances:
             cls = self.registry.endpoints[endpoint_id]
-            self.instances[endpoint_id] = cls(self.client) if _takes_client(cls) else cls()  # type: ignore[call-arg]
+            instance = cls(self.client) if _takes_client(cls) else cls()  # type: ignore[call-arg]
+            # Every endpoint has the store, whether or not it takes the client: it is reached
+            # through the same sidecar.
+            instance.secrets = Secrets(self.client)
+            self.instances[endpoint_id] = instance
         return self.instances[endpoint_id]
 
     def _context(self, request: endpoint_pb2.HttpRequest) -> RequestContext:

@@ -24,11 +24,20 @@ trait KeyValueEntityContext     extends EntityContext
 trait WorkflowContext extends ComponentContext:
   def workflowId: EntityId
 
+  /**
+   * The service's secret store, for a step. A workflow's command handlers share this context, and a
+   * call made from one is refused: it would put a blocking read on the workflow's single-writer
+   * path, as an entity's would.
+   */
+  def secrets: SecretStore
+
 /** Context for a view's projection. */
 trait ViewComponentContext extends ComponentContext
 
 /** Context for a consumer. */
-trait ConsumerContext extends ComponentContext
+trait ConsumerContext extends ComponentContext:
+  /** The service's secret store. */
+  def secrets: SecretStore
 
 /**
  * Available for the duration of a single command. Distinct from `EntityContext` because metadata
@@ -52,7 +61,8 @@ private[ankka] final case class SimpleEntityContext(
 private[ankka] final case class SimpleWorkflowContextImpl(
     workflowId: EntityId,
     componentId: ComponentId,
-    componentClient: ComponentClient
+    componentClient: ComponentClient,
+    secrets: SecretStore
 ) extends WorkflowContext
 
 private[ankka] final case class SimpleViewContext(
@@ -62,7 +72,8 @@ private[ankka] final case class SimpleViewContext(
 
 private[ankka] final case class SimpleConsumerContext(
     componentId: ComponentId,
-    componentClient: ComponentClient
+    componentClient: ComponentClient,
+    secrets: SecretStore
 ) extends ConsumerContext
 
 private[ankka] final case class SimpleCommandContext(

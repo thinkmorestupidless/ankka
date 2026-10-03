@@ -134,6 +134,7 @@ class WorkflowStream {
     // Carried on the step's calls as a command's is; a sidecar before 1.3 sends none.
     const metadata = metadataFromProto(run.metadata)
     fresh._bindCommand(this.state, commandContext(registered.id, this.entityId, 0n, metadata), ctx.client.withMetadata(metadata))
+    fresh._enterStep()
     try {
       effect = (await step.run(fresh, input)) as StepEffect<unknown>
     } catch (e) {

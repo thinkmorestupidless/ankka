@@ -18,6 +18,8 @@ from ankka.codec import UNIT, Codec, default_codec_for
 from ankka.context import CommandContext
 from ankka.effects.workflow import StepEffects, WorkflowEffect, WorkflowEffects, WorkflowReadOnlyEffect, WorkflowStepEffect
 from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_handlers
+from ankka.effects.common import Error, ErrorCode
+from ankka.secrets import Secrets
 
 S = TypeVar("S")
 
@@ -150,6 +152,8 @@ class Workflow(Generic[S]):
         self._state: S | None = None
         self._context: CommandContext | None = None
         self._entity_id: str = ""
+        self._in_step = False
+        self._secrets_store: Secrets | None = None
 
     def empty_state(self) -> S:
         raise NotImplementedError
@@ -172,6 +176,24 @@ class Workflow(Generic[S]):
         if self._context is None:
             raise RuntimeError("context is only available inside a handler or a step")
         return self._context
+
+    @property
+    def secrets(self) -> Secrets:
+        """The service's secret store, in a step. A command handler is refused: it would put a
+        database read on the workflow's single-writer path, as an entity's would."""
+        if not self._in_step:
+            from ankka.client import CommandError
+
+            raise CommandError(
+                Error("a workflow reads and keeps a service secret in a step, not in a command handler", ErrorCode.BAD_REQUEST)
+            )
+        if self._secrets_store is not None:
+            return self._secrets_store
+        return Secrets(self.context.client)
+
+    @secrets.setter
+    def secrets(self, store: Secrets) -> None:
+        self._secrets_store = store
 
     @classmethod
     def handlers(cls) -> dict[str, HandlerSpec]:
@@ -211,6 +233,7 @@ class Workflow(Generic[S]):
     async def _run_step(self, spec: StepSpec, state: S, input_bytes: bytes | None, context: CommandContext) -> WorkflowStepEffect[S]:
         self._state = state
         self._context = context
+        self._in_step = True
         try:
             method = getattr(self, spec.method_name)
             if spec.input_type is None:
@@ -225,3 +248,4 @@ class Workflow(Generic[S]):
         finally:
             self._state = None
             self._context = None
+            self._in_step = False

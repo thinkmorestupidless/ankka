@@ -69,6 +69,37 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
   def pullSecretCount: Int = pullSecrets.size
 
   /**
+   * Project secrets, per namespace and name, holding values: kept as the cluster keeps them, so a
+   * set merges and a removal removes. A fake that replaced on set would let an endpoint that
+   * replaced pass. A Secret whose last entry is removed stays, empty, as in the cluster.
+   */
+  private val projectSecrets = TrieMap.empty[(String, String), Map[String, String]]
+  private val secretWrites   = new AtomicInteger(0)
+
+  def setSecretEntries(namespace: String, name: String, entries: Map[String, String]): Unit =
+    guard()
+    if refusingSecrets then throw new RuntimeException("secrets are forbidden")
+    ensureNamespace(namespace)
+    secretWrites.incrementAndGet(): Unit
+    projectSecrets.updateWith((namespace, name))(had =>
+      Some(had.getOrElse(Map.empty) ++ entries)
+    ): Unit
+
+  def removeSecretEntry(namespace: String, name: String, entry: String): Unit =
+    guard()
+    if refusingSecrets then throw new RuntimeException("secrets are forbidden")
+    secretWrites.incrementAndGet(): Unit
+    projectSecrets.updateWith((namespace, name))(_.map(_ - entry)): Unit
+
+  /**
+   * What the cluster holds for a project secret, values included; for asserting it reached here.
+   */
+  def projectSecret(namespace: String, name: String): Option[Map[String, String]] =
+    projectSecrets.get((namespace, name))
+
+  def projectSecretWrites: Int = secretWrites.get()
+
+  /**
    * Every write of a credential is refused, as a cluster missing the RBAC grant would refuse it.
    */
   def refuseSecrets(): Unit = refusingSecrets = true

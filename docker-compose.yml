@@ -123,6 +123,9 @@ services:
       ANKKA_DB_NAME: ankka
       ANKKA_DB_USER: ankka
       ANKKA_DB_PASSWORD: ankka
+      # The service's secret key, for its secret store: `export ANKKA_SECRET_KEY=$(openssl rand -base64 32)`
+      # before `docker compose up`. Unset, the service runs and refuses to keep or read a secret.
+      ANKKA_SECRET_KEY: ${ANKKA_SECRET_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -151,6 +154,9 @@ services:
       ANKKA_DB_NAME: ankka
       ANKKA_DB_USER: ankka
       ANKKA_DB_PASSWORD: ankka
+      # The service's secret key, for its secret store: `export ANKKA_SECRET_KEY=$(openssl rand -base64 32)`
+      # before `docker compose up`. Unset, the service runs and refuses to keep or read a secret.
+      ANKKA_SECRET_KEY: ${ANKKA_SECRET_KEY:-}
     ports:
       - "127.0.0.1:9000:9000"
     # Refused, naming the file, until the module is built: otherwise Docker would create a directory

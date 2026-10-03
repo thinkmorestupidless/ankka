@@ -9,7 +9,8 @@
 import type { Shape } from "./codec.ts"
 import type { CommandContext } from "./context.ts"
 import type { HandlerTable } from "./handlers.ts"
-import type { ComponentClient } from "./client.ts"
+import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
+import { CommandError } from "./effects/common.ts"
 import { StepEffects, WorkflowEffects, type WorkflowSettings } from "./effects/workflow.ts"
 
 export abstract class Workflow<S> {
@@ -44,6 +45,30 @@ export abstract class Workflow<S> {
     return this.#client
   }
 
+  #inStep = false
+  #secrets: Secrets | undefined
+
+  /**
+   * The service's secret store, in a step. A command handler is refused: it would put a database read
+   * on the workflow's single-writer path, as an entity's would.
+   */
+  get secrets(): Secrets {
+    if (!this.#inStep) {
+      throw new CommandError({ message: "a workflow reads and keeps a service secret in a step, not in a command handler", code: "BAD_REQUEST" })
+    }
+    return this.#secrets ?? secretsFor(this.client)
+  }
+
+  /** A unit test's store in place of the runtime's. */
+  set secrets(store: Secrets) {
+    this.#secrets = store
+  }
+
+  /** @internal The server marks a step's binding, which is how a step is told from a command. */
+  _enterStep(): void {
+    this.#inStep = true
+  }
+
   /** @internal */
   get _kind(): "workflow" {
     return "workflow"
@@ -70,6 +95,7 @@ export abstract class Workflow<S> {
     this.#context = undefined
     this.#client = undefined
     this.#bound = false
+    this.#inStep = false
   }
 }
 

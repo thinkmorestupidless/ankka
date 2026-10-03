@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.operator
 
+import com.thinkmorestupidless.ankka.core.PlatformVariables
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.{
   HTTPBackendRefBuilder,
   HTTPHeaderMatchBuilder,
@@ -173,24 +174,6 @@ object Rendering:
   val ProcessPort: Int = 9010
   val SidecarPort: Int = 9011
 
-  /**
-   * Mirrors `ServiceSpec.SidecarEnvPrefixes` in controlplane-api; see `containersFor`. A supplied
-   * database's variables are the sidecar's too: it is the sidecar that has a journal. So are the
-   * issuers a service accepts tokens from: the sidecar verifies, and the process is handed only the
-   * principal (feature 022).
-   */
-  val SidecarEnvPrefixes: Vector[String] =
-    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
-
-  /**
-   * Variables both containers are given. Mirrors `ServiceSpec.SharedEnvPrefixes`.
-   *
-   * The broker: the sidecar is what connects to it — it runs the projections, so without the
-   * variable a consumer that publishes is refused at startup — and the process is told too, so a
-   * service can register what needs a broker only where there is one.
-   */
-  val SharedEnvPrefixes: Vector[String] = Vector("ANKKA_KAFKA_")
-
   /** The developer's container, until the descriptor can size it: small, and bounded. */
   private val AppQuantities =
     Map("cpu" -> new Quantity("100m"), "memory" -> new Quantity("128Mi")).asJava
@@ -245,6 +228,7 @@ object Rendering:
         (Action.EnsureNamespace(namespace) +:
           databaseActions(resource, spec, namespace, settings, databasePlan)) ++
           identityActions(resource, spec, namespace) ++
+          secretKeyAction(spec, namespace) ++
           zeroTrustActions(resource, spec, namespace) :+
           Action.ApplyDeployment(
             deployment(
@@ -264,6 +248,24 @@ object Rendering:
           routeAction(resource, spec, namespace, settings.baseDomain) :+
           backendTlsAction(resource, spec, namespace, settings.baseDomain)
       )
+
+  /**
+   * The service's secret key, made once, before the Deployment that names it, unless the descriptor
+   * gives one of its own — as a descriptor that names a database gets none provisioned.
+   */
+  private def secretKeyAction(spec: AnkkaServiceSpec, namespace: String): Vector[Action] =
+    Option
+      .when(rendersSecretKey(spec))(
+        Action.EnsureSecretKey(
+          namespace,
+          Names.secretKeySecret(spec.serviceName),
+          Labels.identity(spec.projectId, spec.serviceName)
+        )
+      )
+      .toVector
+
+  private def rendersSecretKey(spec: AnkkaServiceSpec): Boolean =
+    !spec.env.exists(_.name == PlatformVariables.SecretKey)
 
   /**
    * The certificates a service's pods mount and the policies that decide who may connect to them
@@ -665,9 +667,6 @@ object Rendering:
 
   private val PortName = "http"
 
-  /** What the runtime reads its port from — `modules/http`'s `reference.conf`. */
-  private val PortEnvVar = "ANKKA_HTTP_PORT"
-
   /**
    * The gRPC port's name. Load-bearing, as `http` is: the Service targets it, the backend TLS
    * policy names it as a section, and its SRV record — which is how another service finds the port
@@ -987,14 +986,14 @@ object Rendering:
     case WebHosting =>
       webContainers(spec, namespacePrefix, proxyImage, baseDomain, httpsPort)
     case ProcessHosting =>
-      // A descriptor's variables are split: a model's key and configuration belong to the sidecar,
-      // which runs the agent loop; everything else is the process's, and the broker's are both's. By prefix, as
-      // `ServiceSpec.SidecarEnvPrefixes` in controlplane-api says — duplicated here because the
-      // operator must not depend on that module, and pinned by RenderingSuite.
-      val (forSidecar, forProcess) =
-        spec.env.partition(e => SidecarEnvPrefixes.exists(e.name.startsWith))
-      // The broker is named to both; see `SharedEnvPrefixes`.
-      val shared = forProcess.filter(e => SharedEnvPrefixes.exists(e.name.startsWith))
+      // A descriptor's variables are split by `PlatformVariables`, the one declaration the control
+      // plane and the module host read too: what is the platform's program's alone (a model's key,
+      // a supplied database, the secret key, the issuers it accepts) goes to the sidecar, which runs
+      // the agent loop, has the journal, holds the secret store and verifies tokens; everything else
+      // is the process's; and the broker's are both's — the sidecar connects to it, and the process
+      // may want to know there is one.
+      val (forSidecar, forProcess) = spec.env.partition(e => PlatformVariables.runtimeOnly(e.name))
+      val shared                   = forProcess.filter(e => PlatformVariables.shared(e.name))
       val node = container(
         spec.copy(image = sidecarImage, env = forSidecar ++ shared),
         identity,
@@ -1187,8 +1186,22 @@ object Rendering:
     // from, and the probe all come from `spec.port`, so they have nothing to disagree with — and
     // the control plane refuses a descriptor that sets ANKKA_HTTP_PORT by hand, so there is no
     // second source for the middle one either.
+    // The secret key, by reference to the Secret `secretKeyAction` makes: on this container only,
+    // which is always the platform's own (a process-hosted service's app container is built apart
+    // and never gets it). A descriptor that gives the key has it in `spec.env` instead.
+    val secretKeyEnv = Option.when(rendersSecretKey(spec)) {
+      val selector = new SecretKeySelectorBuilder()
+        .withName(Names.secretKeySecret(spec.serviceName))
+        .withKey(Names.SecretKeyEntry)
+        .build()
+      new EnvVarBuilder()
+        .withName(PlatformVariables.SecretKey)
+        .withValueFrom(new EnvVarSourceBuilder().withSecretKeyRef(selector).build())
+        .build()
+    }
+
     val portEnv = spec.port.map { port =>
-      new EnvVarBuilder().withName(PortEnvVar).withValue(port.toString).build()
+      new EnvVarBuilder().withName(PlatformVariables.HttpPort).withValue(port.toString).build()
     }
     val containerPorts = spec.port.map { port =>
       new ContainerPortBuilder()
@@ -1271,7 +1284,9 @@ object Rendering:
       // field the day there is a registry and a re-pushed mutable tag has to be picked up.
       .withImagePullPolicy("IfNotPresent")
       .withEnv(
-        (spec.env.map(environment) ++ portEnv ++ grpcEnv ++ clusterEnv ++ extraEnv ++
+        (spec.env.map(
+          environment
+        ) ++ portEnv ++ grpcEnv ++ clusterEnv ++ extraEnv ++ secretKeyEnv ++
           (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty))*
       )
       .withEnvFrom(envFrom*)

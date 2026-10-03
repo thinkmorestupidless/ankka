@@ -399,7 +399,47 @@ object Main:
       set.orElse(clear)
     }
 
-    list.orElse(get).orElse(create).orElse(rename).orElse(delete).orElse(registry)
+    val secrets = Opts.subcommand(
+      "secrets",
+      "Project secrets: values a descriptor's variables take by secretKeyRef, which the control " +
+        "plane writes to the cluster and can never read back."
+    ) {
+      val set = Opts.subcommand(
+        "set",
+        "Set entries of a project secret, keeping its others. KEY=- reads that value from standard input."
+      ) {
+        (
+          Opts.argument[String]("name"),
+          Opts.arguments[String]("KEY=VALUE"),
+          contextOpt
+        ).mapN { (name, pairs, ctx) => () =>
+          val entries  = ProjectSecretsCommand.entries(pairs.toList, Console.in)
+          val problems = ProjectSecrets.problems(name, entries)
+          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+          ctx.client.setProjectSecret(ctx.project, name, entries)
+          s"project secret '$name' in '${ctx.project}' has ${entries.keys.toVector.sorted.mkString(", ")}"
+        }
+      }
+
+      val unset = Opts.subcommand("unset", "Remove one entry of a project secret.") {
+        (Opts.argument[String]("name"), Opts.argument[String]("KEY"), contextOpt).mapN {
+          (name, entry, ctx) => () =>
+            ctx.client.unsetProjectSecretEntry(ctx.project, name, entry)
+            s"removed entry '$entry' of project secret '$name' in '${ctx.project}'"
+        }
+      }
+
+      val list =
+        Opts.subcommand("list", "List a project's secrets: names and entries, never values.") {
+          contextOpt.map { ctx => () =>
+            Output.projectSecrets(ctx.client.listProjectSecrets(ctx.project), ctx.format)
+          }
+        }
+
+      set.orElse(unset).orElse(list)
+    }
+
+    list.orElse(get).orElse(create).orElse(rename).orElse(delete).orElse(registry).orElse(secrets)
   }
 
   // ── services ──────────────────────────────────────────────────────────────

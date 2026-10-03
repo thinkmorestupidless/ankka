@@ -186,8 +186,10 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
           deployConfig,
           Some(auth),
           tokens = Some(tokens),
-          // The projector is the `RegistryWriter`, exactly as `ControlPlane.builder` wires it.
-          registry = Some(projector)
+          // The projector is the `RegistryWriter` and the `ProjectSecretWriter`, exactly as
+          // `ControlPlane.builder` wires it.
+          registry = Some(projector),
+          secrets = Some(projector)
         )*
       )
       testKit = AnkkaTestKit.start(
@@ -905,4 +907,77 @@ spec:
     waitForService("the pull failed once the credential was cleared", 240.seconds)(pullFailed)
 
     Files.deleteIfExists(descriptor): Unit
+  }
+
+  test(
+    "14. a project secret is set without cluster credentials, and a descriptor takes a variable from it"
+  ) {
+    // Through the real CLI, as a member: no cluster credential anywhere in this case.
+    val (setCode, setOut) =
+      ankka("projects", "secrets", "set", "checkout", "STRIPE_KEY=sk_live_1", "-p", Project)
+    assertEquals(setCode, 0, setOut)
+    assert(!setOut.contains("sk_live_1"), setOut)
+    val (listCode, listing) = ankka("projects", "secrets", "list", "-p", Project)
+    assertEquals(listCode, 0, listing)
+    assert(listing.contains("checkout") && listing.contains("STRIPE_KEY"), listing)
+    assert(!listing.contains("sk_live_1"), listing)
+
+    // The Secret, as an admin sees it: in the project's namespace, holding the value.
+    def held = Option(k8s.secrets().inNamespace(Namespace).withName("checkout").get())
+      .map(
+        _.getData.asScala.view.mapValues(v => String(java.util.Base64.getDecoder.decode(v))).toMap
+      )
+    assertEquals(held, Some(Map("STRIPE_KEY" -> "sk_live_1")))
+
+    // A service whose variable is taken from it. `pause`, with no HTTP: what matters is that the
+    // kubelet resolves the reference and starts the container, which it refuses to do
+    // (CreateContainerConfigError) for a Secret or an entry that does not exist.
+    val descriptor = Files.createTempFile("billing", ".json")
+    Files.writeString(
+      descriptor,
+      """{"name":"billing","service":{"image":"registry.k8s.io/pause:3.9","http":false,""" +
+        """"env":[{"name":"STRIPE_KEY","secretKeyRef":{"name":"checkout","key":"STRIPE_KEY"}}]}}"""
+    )
+    val (applyCode, applied) = ankka("services", "apply", "-f", descriptor.toString, "-p", Project)
+    Files.deleteIfExists(descriptor): Unit
+    assertEquals(applyCode, 0, applied)
+
+    def billingPods = k8s
+      .pods()
+      .inNamespace(Namespace)
+      .withLabel("app.kubernetes.io/name", "billing")
+      .list()
+      .getItems
+      .asScala
+    def runningWithKey = billingPods.exists { pod =>
+      val env = pod.getSpec.getContainers.get(0).getEnv.asScala.find(_.getName == "STRIPE_KEY")
+      env.exists(_.getValueFrom.getSecretKeyRef.getName == "checkout") &&
+      Option(pod.getStatus.getContainerStatuses)
+        .exists(_.asScala.exists(_.getState.getRunning != null))
+    }
+    waitFor(180.seconds)(runningWithKey)
+
+    // Set again: the Secret holds the new value, which an instance started afterwards is given.
+    assertEquals(
+      ankka("projects", "secrets", "set", "checkout", "STRIPE_KEY=sk_live_2", "-p", Project)._1,
+      0
+    )
+    assertEquals(held, Some(Map("STRIPE_KEY" -> "sk_live_2")))
+
+    // Removing the entry: a pod started afterwards cannot start, and the platform says why.
+    assertEquals(
+      ankka("projects", "secrets", "unset", "checkout", "STRIPE_KEY", "-p", Project)._1,
+      0
+    )
+    assertEquals(held, Some(Map.empty[String, String]), "the Secret stays, empty")
+    assertEquals(ankka("services", "restart", "billing", "-p", Project)._1, 0)
+    waitFor(180.seconds)(
+      billingPods.exists(pod =>
+        Option(pod.getStatus.getContainerStatuses).exists(
+          _.asScala.exists(s =>
+            Option(s.getState.getWaiting).exists(_.getReason == "CreateContainerConfigError")
+          )
+        )
+      )
+    )
   }

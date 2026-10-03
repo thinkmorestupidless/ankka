@@ -479,6 +479,20 @@ object ConformanceReference:
     private def agent(session: String) = clients.componentClient.forAgent(SessionId(session))
 
     get("/problems")(() => problems())
+
+    // The secret store. The name is a query parameter because it may hold a slash.
+    postBody("/secrets") { (value: String) =>
+      clients.secrets.put(query.required[String]("name"), value)
+      Done: Done
+    }
+    get("/secrets") { () =>
+      val name = query.required[String]("name")
+      clients.secrets.get(name).getOrElse(throw HttpProblem.notFound(s"no secret '$name'"))
+    }
+    delete("/secrets") { () =>
+      clients.secrets.delete(query.required[String]("name"))
+      Done: Done
+    }
     get("/echo") { () =>
       Echo(
         query.rawAll("a"),

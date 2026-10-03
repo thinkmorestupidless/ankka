@@ -15,7 +15,7 @@
 // A tool may run more than once for one request of the model — after a crash, the last recorded
 // request's tools run again — so a tool with a side effect should tolerate a repeat.
 
-import type { ComponentClient } from "./client.ts"
+import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { GuardrailRef, ToolRef } from "./handlers.ts"
 import { decodeJsonValue, reviver } from "./json.ts"
 import type { Schema } from "./schema.ts"
@@ -101,6 +101,18 @@ export abstract class AutonomousAgent {
   get client(): ComponentClient {
     if (!this.#client) throw new Error("client is only available inside a tool, a guardrail or a rule")
     return this.#client
+  }
+
+  #secrets: Secrets | undefined
+
+  /** The service's secret store: values kept encrypted in the service's own database, never in a journal or a view. */
+  get secrets(): Secrets {
+    return this.#secrets ?? secretsFor(this.client)
+  }
+
+  /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
+  set secrets(store: Secrets) {
+    this.#secrets = store
   }
 
   /** @internal */

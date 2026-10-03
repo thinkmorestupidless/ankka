@@ -271,8 +271,21 @@ class DescriptorSuite extends munit.FunSuite:
     assertEquals(ServiceSpec("i:1", runtime = Some("0.2.0+3-abc-SNAPSHOT")).problems, Vector.empty)
   }
 
-  test("the platform's cluster variables are refused by name, whatever their value") {
-    for name <- ServiceSpec.PlatformEnvVars do
+  test("a descriptor may not give a variable the platform alone sets, however it gives it") {
+    val name    = com.thinkmorestupidless.ankka.core.PlatformVariables.HttpPort
+    val asValue = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("8080")))).problems
+    val fromProjectSecret = ServiceSpec(
+      "i:1",
+      env = Vector(EnvVar(name, secretKeyRef = Some(SecretKeyRef("checkout", "PORT"))))
+    ).problems
+    assert(asValue.exists(_.contains(s"'$name'")), asValue)
+    assert(fromProjectSecret.exists(_.contains(s"'$name'")), fromProjectSecret)
+  }
+
+  test("the platform's own variables are refused by name, whatever their value") {
+    val platformOnly = com.thinkmorestupidless.ankka.core.PlatformVariables.PlatformOnly -
+      com.thinkmorestupidless.ankka.core.PlatformVariables.HttpPort
+    for name <- platformOnly do
       val literal = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("x")))).problems
       val fromSecret = ServiceSpec(
         "i:1",

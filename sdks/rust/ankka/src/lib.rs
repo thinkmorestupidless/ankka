@@ -27,6 +27,7 @@ pub mod effects;
 pub mod graph;
 pub mod prelude;
 pub mod proto;
+pub mod secrets;
 pub mod service;
 pub mod testkit;
 
@@ -35,6 +36,7 @@ pub use codec::time::{Duration, Instant, LocalDate, LocalDateTime};
 pub use codec::{Bytes, Done};
 pub use config::config;
 pub use context::{Context, Metadata};
+pub use secrets::Secrets;
 pub use service::{Problem, Service};
 
 /// serde, as this library uses it: the derives a service's types need.

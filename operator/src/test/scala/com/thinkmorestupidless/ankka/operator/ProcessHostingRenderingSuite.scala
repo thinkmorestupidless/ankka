@@ -116,6 +116,40 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     assert(!app.contains("ANKKA_CLUSTER_MODE") && !app.contains("ANKKA_HTTP_PORT"))
   }
 
+  test("the process of a deployed service is not given the secret key") {
+    val cs = containers(process)
+    assert(
+      cs(0).getEnv.asScala.exists(_.getName == "ANKKA_SECRET_KEY"),
+      "the platform's container has it"
+    )
+    assert(!envOf(cs(1)).contains("ANKKA_SECRET_KEY"), "the process must not")
+    // And when the descriptor gives its own, that goes to the platform's container too.
+    val own = containers(process.copy(env = List(EnvEntry("ANKKA_SECRET_KEY", Some("their-own")))))
+    assertEquals(envOf(own(0)).get("ANKKA_SECRET_KEY"), Some("their-own"))
+    assert(!envOf(own(1)).contains("ANKKA_SECRET_KEY"))
+  }
+
+  test("a platform setting a descriptor gives is kept from the process") {
+    // By iteration over the declaration, so a variable newly made a platform setting is held here
+    // with no edit to this suite.
+    import com.thinkmorestupidless.ankka.core.PlatformVariables as PV
+    val runtimeOnly =
+      PV.RuntimeOnlyNames.toVector ++ PV.RuntimeOnlyPrefixes.map(_ + "ANY_SETTING")
+    val sharedNames = PV.SharedPrefixes.map(_ + "ANY_SETTING")
+    val spec =
+      process.copy(env = (runtimeOnly ++ sharedNames).map(n => EnvEntry(n, Some("x"))).toList)
+    val cs   = containers(spec)
+    val node = envOf(cs(0))
+    val app  = envOf(cs(1))
+    runtimeOnly.foreach { name =>
+      assert(node.contains(name), s"$name must be on the platform's container")
+      assert(!app.contains(name), s"$name must not reach the process")
+    }
+    sharedNames.foreach { name =>
+      assert(node.contains(name) && app.contains(name), s"$name is given to both")
+    }
+  }
+
   test("the credential reaches the sidecar only") {
     val cs = Rendering
       .render(resource(process), settings, ProvisioningPlan.Ready(recovered = false))

@@ -168,6 +168,7 @@ nav:
       - Consumers: build/consumers.md
       - Workflows: build/workflows.md
       - Timers: build/timers.md
+      - Secrets a service keeps: build/secrets.md
       - Agents: build/agents.md
       - Judgments: build/judgments.md
       - Streaming responses: build/streaming.md
@@ -203,6 +204,7 @@ nav:
       - Identity and machine accounts: platform/identity.md
       - The console: platform/console.md
       - Databases: platform/databases.md
+      - Secrets on the platform: platform/secrets.md
       - Networking and TLS: platform/networking.md
   - Reference:
       - CLI: reference/cli.md

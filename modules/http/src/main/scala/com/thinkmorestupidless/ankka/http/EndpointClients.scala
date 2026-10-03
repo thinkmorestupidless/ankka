@@ -1,7 +1,12 @@
 package com.thinkmorestupidless.ankka.http
 
 import com.thinkmorestupidless.ankka.runtime.ViewClient
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, ServiceClient, ServiceClients}
+import com.thinkmorestupidless.ankka.sdk.{
+  ComponentClient,
+  SecretStore,
+  ServiceClient,
+  ServiceClients
+}
 
 /**
  * What an endpoint is handed when the server builds it.
@@ -22,7 +27,12 @@ final class EndpointClients private[ankka] (
      * certificate, so the callee's ACL knows who is calling; locally it reaches the named service
      * on this machine.
      */
-    val services: ServiceClients = EndpointClients.noServices
+    val services: ServiceClients = EndpointClients.noServices,
+    /**
+     * The service's secret store: `clients.secrets.put("provider/acme", credential)`. A value kept
+     * here is encrypted in the service's own database and never reaches a journal or a view.
+     */
+    val secrets: SecretStore = SecretStore.unavailable
 )
 
 object EndpointClients:

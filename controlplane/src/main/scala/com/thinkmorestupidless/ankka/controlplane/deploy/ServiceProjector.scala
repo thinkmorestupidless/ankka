@@ -42,7 +42,8 @@ final class ServiceProjector private (
     config: DeployConfig,
     clientFactory: DeployConfig => AnkkaServiceClient
 ) extends RuntimeExtension
-    with RegistryWriter:
+    with RegistryWriter
+    with ProjectSecretWriter:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.projector")
 
@@ -85,6 +86,19 @@ final class ServiceProjector private (
     client match
       case Some(resources) =>
         resources.ensurePullSecret(config.namespaceFor(projectId), server, username, password)
+      case None => throw new IllegalStateException("the cluster client is not started")
+
+  /** A project secret's entries, into the project's namespace. Refuses before startup, as above. */
+  def setEntries(projectId: String, name: String, entries: Map[String, String]): Unit =
+    client match
+      case Some(resources) =>
+        resources.setSecretEntries(config.namespaceFor(projectId), name, entries)
+      case None => throw new IllegalStateException("the cluster client is not started")
+
+  def removeEntry(projectId: String, name: String, entry: String): Unit =
+    client match
+      case Some(resources) =>
+        resources.removeSecretEntry(config.namespaceFor(projectId), name, entry)
       case None => throw new IllegalStateException("the cluster client is not started")
 
   def start(service: RunningService): Unit =

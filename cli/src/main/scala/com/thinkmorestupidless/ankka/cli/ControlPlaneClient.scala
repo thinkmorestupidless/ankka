@@ -164,6 +164,24 @@ final class ControlPlaneClient(settings: Settings):
   def clearRegistry(id: String): Unit =
     send("DELETE", s"/projects/${segment(id)}/registry", None): Unit
 
+  /** Sets entries of a project secret. The values are in the body, never the path or the query. */
+  def setProjectSecret(projectId: String, name: String, entries: Map[String, String]): Unit =
+    send(
+      "PUT",
+      s"/projects/${segment(projectId)}/secrets/${segment(name)}",
+      Some(writeToString(SetProjectSecret(entries)))
+    ): Unit
+
+  def unsetProjectSecretEntry(projectId: String, name: String, entry: String): Unit =
+    send(
+      "DELETE",
+      s"/projects/${segment(projectId)}/secrets/${segment(name)}?entry=${segment(entry)}",
+      None
+    ): Unit
+
+  def listProjectSecrets(projectId: String): Vector[ProjectSecretSummary] =
+    get[Vector[ProjectSecretSummary]](s"/projects/${segment(projectId)}/secrets")
+
   // ── Services ──────────────────────────────────────────────────────────────
 
   def listServices(projectId: String): Vector[ServiceStatus] =

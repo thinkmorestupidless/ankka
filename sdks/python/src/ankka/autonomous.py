@@ -27,6 +27,7 @@ from ankka.agent import Guardrail, Tool, _schema_for
 from ankka.codec import default_codec_for
 from ankka.effects.common import Error, ErrorCode
 from ankka.event_sourced_entity import RegistrationError
+from ankka.secrets import HasSecrets
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -132,7 +133,7 @@ class AutonomousSettings:
         return pb
 
 
-class AutonomousAgent:
+class AutonomousAgent(HasSecrets):
     """Subclass this: ``component_id``, ``description``, optionally ``instructions``, ``tools =
     {name: Tool(...)}``, ``guardrails = {name: Guardrail(...)}``, ``accepts = [TaskAcceptance(...)]``
     and ``settings``. A tool's ``run`` receives the agent instance first, as for an ``Agent``, and

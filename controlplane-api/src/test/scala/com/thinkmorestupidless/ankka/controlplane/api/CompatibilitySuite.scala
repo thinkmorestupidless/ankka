@@ -54,9 +54,11 @@ class CompatibilitySuite extends munit.FunSuite:
     )
   }
 
-  test("the sidecar protocol is 1.3, and an SDK on an earlier minor is still supported") {
-    assertEquals(Protocol.version, ProtocolVersion(1, 4))
+  test("the sidecar protocol is 1.5, and an SDK on an earlier minor is still supported") {
+    assertEquals(Protocol.version, ProtocolVersion(1, 5))
     assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 0)))
     assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 1)))
     assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 2)))
+    assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 3)))
+    assert(Compatibility.supportsProtocol(Protocol.version, ProtocolVersion(1, 4)))
   }

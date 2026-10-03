@@ -476,9 +476,12 @@ object ServiceSpec:
   /**
    * A descriptor's variables that belong on the sidecar rather than the process: a model's key and
    * configuration, because the sidecar runs the agent loop and the process never calls a model.
-   * Prefixes, matched by the operator when it splits the environment.
+   * Prefixes, matched by the operator when it splits the environment. The issuers a service accepts
+   * tokens from are the sidecar's too: it verifies, and the process never holds a keys URL it
+   * cannot use (feature 022).
    */
-  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_")
+  val SidecarEnvPrefixes: Vector[String] =
+    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
 
   /**
    * A descriptor's variables that both containers of a process-hosted service are given: the

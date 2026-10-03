@@ -36,7 +36,13 @@ final case class Settings(
     requestTimeout: FiniteDuration,
     wasmModule: Option[java.nio.file.Path] = None,
     wasmInstances: Int = Runtime.getRuntime.availableProcessors,
-    wasmMaxMemoryPages: Int = Settings.DefaultWasmMaxMemoryPages
+    wasmMaxMemoryPages: Int = Settings.DefaultWasmMaxMemoryPages,
+    /**
+     * The issuers whose tokens an `AUTHENTICATED` route accepts, from the `ANKKA_AUTH_` named set
+     * (feature 022). Empty when none is listed, in which case discovery refuses such a route.
+     */
+    auth: com.thinkmorestupidless.ankka.auth.oidc.OidcConfig =
+      com.thinkmorestupidless.ankka.auth.oidc.OidcConfig.empty
 ):
   def processHost: String = processAddress.split(':').head
   def processPort: Int    = processAddress.split(':').last.toInt

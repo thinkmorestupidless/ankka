@@ -1,12 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.api
 
-import com.thinkmorestupidless.ankka.controlplane.auth.{
-  AuthConfig,
-  DeployTokens,
-  Principals,
-  TokenVerifier,
-  Verification
-}
+import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcVerifier}
+import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokens}
 import com.thinkmorestupidless.ankka.controlplane.domain.DeployToken
 import com.thinkmorestupidless.ankka.http.{Acl, AuthDecision, Principal, RequestContext}
 
@@ -23,13 +18,11 @@ import com.thinkmorestupidless.ankka.http.{Acl, AuthDecision, Principal, Request
  */
 object ControlPlaneAcl:
 
-  private val Scheme = "Bearer "
-
   /**
    * Two kinds of credential, one door: a deploy token, else an identity-provider token.
    *
    * Which is which is decided by *inspection*, never by trying one and falling back — `ankka_` is a
-   * deploy token's prefix and nothing else's, and `TokenVerifier` refuses anything that is not
+   * deploy token's prefix and nothing else's, and the OIDC rule refuses anything that is not
    * dot-dot-shaped before it parses, so a guess would produce a misleading message. A bearer that
    * claims to be a deploy token and is malformed is refused as one rather than handed to the OIDC
    * verifier, so the caller is told what was actually wrong.
@@ -93,31 +86,27 @@ object ControlPlaneAcl:
                 )
               )
 
-  def oidc(verifier: TokenVerifier, config: AuthConfig): Acl =
+  /**
+   * The installation's issuer's tokens, through the verifier every service uses (feature 022). The
+   * one answer kept apart is to a bearer that is not a token at all: a shared secret from before
+   * feature 008, whose holder is told how to get a real credential.
+   */
+  def oidc(config: AuthConfig): Acl = oidc(OidcVerifier.remote(config.toOidc), config)
+
+  /** The same over a verifier already built, which is how a suite hands in a test issuer's keys. */
+  def oidc(verifier: OidcVerifier, config: AuthConfig): Acl =
     val realm = s"""realm="${config.realmHint}""""
+    val verified = Oidc.authenticate(verifier, config.realmHint) match
+      case Acl.Authenticate(decide) => decide
+      case other => throw IllegalStateException(s"not an authenticating acl: $other")
     Acl.Authenticate { context =>
       presented(context) match
-        case None => AuthDecision.Unauthenticated(realm)
-        case Some(token) =>
-          verifier.verify(token) match
-            case Verification.Verified(claims) => AuthDecision.Allow(Principals.from(claims))
-            case Verification.Rejected(reason) =>
-              AuthDecision.Unauthenticated(
-                s"""$realm, error="invalid_token", error_description="${quoted(reason)}""""
-              )
-            case Verification.Unavailable(reason) =>
-              AuthDecision.Unavailable(
-                s"the control plane cannot verify callers right now: $reason"
-              )
+        case Some(token) if token.count(_ == '.') != 2 =>
+          AuthDecision.Unauthenticated(
+            s"""$realm, error="invalid_token", error_description="shared tokens are no """ +
+              """longer accepted; run 'ankka login'""""
+          )
+        case _ => verified(context)
     }
 
-  private def presented(context: RequestContext): Option[String] =
-    context
-      .header("authorization")
-      .map(_.trim)
-      .collect { case value if value.startsWith(Scheme) => value.substring(Scheme.length).trim }
-      .filter(_.nonEmpty)
-
-  /** A challenge parameter is a quoted-string: no quotes, no newlines, and never the token. */
-  private def quoted(reason: String): String =
-    reason.replace("\"", "'").replace("\n", " ").take(200)
+  private def presented(context: RequestContext): Option[String] = Oidc.presented(context)

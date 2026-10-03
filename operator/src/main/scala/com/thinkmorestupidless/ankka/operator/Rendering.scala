@@ -175,9 +175,12 @@ object Rendering:
 
   /**
    * Mirrors `ServiceSpec.SidecarEnvPrefixes` in controlplane-api; see `containersFor`. A supplied
-   * database's variables are the sidecar's too: it is the sidecar that has a journal.
+   * database's variables are the sidecar's too: it is the sidecar that has a journal. So are the
+   * issuers a service accepts tokens from: the sidecar verifies, and the process is handed only the
+   * principal (feature 022).
    */
-  val SidecarEnvPrefixes: Vector[String] = Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_")
+  val SidecarEnvPrefixes: Vector[String] =
+    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
 
   /**
    * Variables both containers are given. Mirrors `ServiceSpec.SharedEnvPrefixes`.

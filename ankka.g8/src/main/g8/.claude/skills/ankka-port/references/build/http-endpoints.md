@@ -571,9 +571,14 @@ by the same rules, so a literal segment outranks a parameter.
 
 The Python ACL is a required class attribute: an endpoint that declares no `acl` raises `RegistrationError`
 when the class is defined, naming it. `Acl.ALLOW_ALL` admits any caller, `Acl.DENY_ALL` refuses everything,
-and `Acl.AUTHENTICATED` answers `503` for now, because the sidecar has no token verifier configured for a
-service's own routes. A route decorator takes an `acl` of its own, which replaces the endpoint's for that
-route exactly as `withAcl` does in Scala:
+and `Acl.AUTHENTICATED` admits a request carrying a token from one of the issuers the service lists. The
+runtime verifies the token before the process is asked anything, exactly as `Oidc.authenticate()` does in
+Scala, and hands the handler `self.request.principal` with the token's subject, roles, every other claim
+under `claims`, and the name of the issuer that verified it. TypeScript declares `Acl.authenticated` and
+Rust `Acl::Authenticated`, with the same principal. The issuers are the `ANKKA_AUTH_` named set described in
+[Identity and machine accounts](../platform/identity.md#a-services-own-users); a service that declares the
+rule and lists no issuer does not start, and its report names the route and the variable. A route decorator
+takes an `acl` of its own, which replaces the endpoint's for that route exactly as `withAcl` does in Scala:
 
 ```python
 class CartsEndpoint(Endpoint):

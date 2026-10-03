@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.controlplane.auth
 
+import com.thinkmorestupidless.ankka.auth.oidc.{Issuer, OidcConfig}
 import com.typesafe.config.Config
 
 import scala.concurrent.duration.{DurationLong, FiniteDuration}
@@ -21,7 +22,28 @@ final case class AuthConfig(
     clockSkew: FiniteDuration,
     /** The one authority the key fetch trusts; none means the JVM's trust store. */
     jwksCa: Option[String] = None
-)
+):
+
+  /**
+   * The installation's issuer as the shared verifier lists it (feature 022): one issuer, named
+   * `ankka`, with Keycloak's `typ: Bearer` check on so a refresh or ID token is refused here
+   * exactly as it was before the verifier moved.
+   */
+  def toOidc: OidcConfig =
+    OidcConfig(
+      Vector(
+        Issuer(
+          name = "ankka",
+          issuer = issuer,
+          jwksUrl = jwksUrl,
+          audience = audience,
+          ca = jwksCa.map(java.nio.file.Path.of(_)),
+          typ = Some("Bearer"),
+          clockSkew = clockSkew
+        )
+      ),
+      realm = realmHint
+    )
 
 object AuthConfig:
 

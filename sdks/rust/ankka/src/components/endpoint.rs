@@ -139,6 +139,10 @@ pub struct Principal {
     pub email_verified: bool,
     /// Their roles.
     pub roles: Vec<String>,
+    /// Every other claim of the verified token, as text.
+    pub claims: std::collections::BTreeMap<String, String>,
+    /// The service's own name for the issuer that verified the token, from `ANKKA_AUTH_ISSUERS`.
+    pub issuer: Option<String>,
 }
 
 /// Which workload sent a request, as the platform established it.
@@ -593,6 +597,8 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
                 email: p.email,
                 email_verified: p.email_verified,
                 roles: p.roles,
+                claims: p.claims.into_iter().collect(),
+                issuer: p.issuer,
             }),
             caller: caller_of(request.caller),
             context: Context::new(E::ENDPOINT_ID, "", 0, metadata),

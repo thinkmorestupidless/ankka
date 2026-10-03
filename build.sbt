@@ -552,7 +552,8 @@ lazy val sidecar = project
   .dependsOn(
     runtime,
     http,
-    authOidc,
+    // test->test: the conformance suite mints tokens with the module's test issuer.
+    authOidc % "compile;test->test",
     agent,
     protocol,
     testkit  % Test,

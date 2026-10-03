@@ -127,16 +127,24 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   test("discovery: an SDK on an earlier minor is admitted, since a minor only adds") {
     // The double declares 1.0; the sidecar speaks 1.4 (1.1 added the caller, 1.2 the autonomous
     // agent, 1.3 a consumer's several messages, 1.4 metadata on the requests a handler's work is
-    // sent in). Earlier minors are admitted.
+    // sent in, 1.5 a principal's claims). Earlier minors are admitted.
     assertEquals(spec.protocolVersion, "1.0")
-    withDouble(spec)((double, _, _) => assert(Discovery.validate(double.toSpec).isRight))
+    withDouble(spec)((double, _, _) =>
+      assert(
+        Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
+      )
+    )
     withDouble(spec.copy(protocolVersion = "1.1"))((double, _, _) =>
-      assert(Discovery.validate(double.toSpec).isRight)
+      assert(
+        Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
+      )
     )
     withDouble(spec.copy(protocolVersion = "1.2"))((double, _, _) =>
-      assert(Discovery.validate(double.toSpec).isRight)
+      assert(
+        Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
+      )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.4")
+    assertEquals(Discovery.ProtocolVersion, "1.5")
   }
 
   test(
@@ -188,7 +196,8 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         )
       )
     )
-    val problems = Discovery.validate(bad).left.toOption.get
+    val problems =
+      Discovery.validate(bad, Discovery.ProtocolVersion, authConfigured = true).left.toOption.get
     assert(problems.exists(_.contains("handler 'a' declared 2 times")), problems)
     assert(problems.exists(_.contains("'nope', which is not declared")), problems)
     assert(problems.exists(_.contains("both read-only and streaming")), problems)

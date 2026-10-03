@@ -4,7 +4,7 @@ import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import com.thinkmorestupidless.ankka.controlplane.api.*
 import com.thinkmorestupidless.ankka.controlplane.application.*
-import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokenIndex, TokenVerifier}
+import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokenIndex}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
   RegistryWriter,
@@ -175,7 +175,7 @@ object ControlPlane:
    */
   def aclFrom(config: Config): Acl = aclFor(AuthConfig.from(config))
 
-  def aclFor(auth: AuthConfig): Acl = ControlPlaneAcl.oidc(TokenVerifier.remote(auth), auth)
+  def aclFor(auth: AuthConfig): Acl = ControlPlaneAcl.oidc(auth)
 
   /**
    * The ACL a deployed control plane runs: identity-provider tokens *and* deploy tokens.

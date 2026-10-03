@@ -8,7 +8,7 @@ import java.security.{MessageDigest, SecureRandom}
  * `ankka_<id>_<secret>` — a prefix, 16 hex characters of id, and 64 hex characters of secret. Three
  * properties are deliberate:
  *
- *   - **The prefix classifies it on sight.** `TokenVerifier` refuses anything that is not
+ *   - **The prefix classifies it on sight.** The OIDC rule refuses anything that is not
  *     dot-dot-shaped before it parses, so the control plane must be able to tell which kind of
  *     credential it is holding without guessing. A secret scanner can recognise it too.
  *   - **Hex, so nothing quotes it.** No `.`, `+`, `/`, `=` or leading `-`: it survives a shell, a

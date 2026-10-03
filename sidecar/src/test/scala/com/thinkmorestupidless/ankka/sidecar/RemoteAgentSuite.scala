@@ -76,8 +76,10 @@ class RemoteAgentSuite extends munit.FunSuite with LogCapturing:
     settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 5.seconds, 5.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val discovered   = Discovery.validate(double.toSpec).fold(p => fail(p.mkString("; ")), identity)
-    val models       = Models.only(Models.Scripted, model)
+    val discovered = Discovery
+      .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
+      .fold(p => fail(p.mkString("; ")), identity)
+    val models = Models.only(Models.Scripted, model)
     val agents = discovered.agents.map(c =>
       RemoteAgent.descriptor(RemoteAgent.spec(c).toOption.get, conversation, models, 5.seconds)
     )

@@ -104,3 +104,13 @@ class ServiceProjectionHostingSuite extends munit.FunSuite with LogCapturing:
     assertEquals(status.protocol, Some("1.0"))
     assertEquals(service("embedded", None).toStatus.protocol, None)
   }
+
+  test("the operator splits a process-hosted service's environment by the same prefixes") {
+    // Two copies, because the operator may not depend on controlplane-api; this is what keeps them
+    // one list. The issuers a service accepts are among them since feature 022.
+    assertEquals(
+      com.thinkmorestupidless.ankka.operator.Rendering.SidecarEnvPrefixes,
+      ServiceSpec.SidecarEnvPrefixes
+    )
+    assert(ServiceSpec.SidecarEnvPrefixes.contains("ANKKA_AUTH_"))
+  }

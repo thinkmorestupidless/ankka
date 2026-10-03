@@ -137,7 +137,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     val module    = loaded(spikeGuest)
     val bootstrap = GuestInstance.build(module, imports().values, settings.wasmMaxMemoryPages)
     val discovered = WasmDiscovery
-      .discover(bootstrap, module, BuildInfo.version)
+      .discover(bootstrap, module, BuildInfo.version, authConfigured = true)
       .fold(p => fail(p.mkString), identity)
     assertEquals(
       discovered.descriptors.map(d => (d.kind, d.componentId.toString)),
@@ -162,7 +162,9 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
   private val everyExport = ModuleLoader.Exports
 
   private def problems(wasm: WasmSpec, exports: Set[String] = everyExport): Vector[String] =
-    WasmDiscovery.validate(wasm, exports).fold(identity, _ => fail("the declaration was accepted"))
+    WasmDiscovery
+      .validate(wasm, exports, Discovery.ProtocolVersion, authConfigured = true)
+      .fold(identity, _ => fail("the declaration was accepted"))
 
   test("a streaming handler is refused: a module answers every call whole") {
     val found =
@@ -286,6 +288,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       "ANKKA_SIDECAR_PORT",
       "ANKKA_PROCESS_ADDRESS",
       "ANKKA_AUTH_ISSUER",
+      "ANKKA_AUTH_ISSUERS",
+      "ANKKA_AUTH_CUSTOMERS_JWKS_URL",
       "POD_IP",
       "ANKKA_HTTP_PORT",
       "ANKKA_BASE_DOMAIN",
@@ -465,7 +469,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       .discover(
         GuestInstance.build(module, stateful.values, settings.wasmMaxMemoryPages),
         module,
-        BuildInfo.version
+        BuildInfo.version,
+        authConfigured = true
       )
       .fold(p => fail(p.mkString), identity)
     assertEquals(discovered.shapeOf(cartId), Shape.Stateful)

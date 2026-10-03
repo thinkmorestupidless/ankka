@@ -67,8 +67,10 @@ class RemoteAutonomousAgentSuite extends munit.FunSuite with LogCapturing:
     val settings =
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 5.seconds, 5.seconds)
     val conversation = GrpcConversation(channel, settings)
-    val discovered   = Discovery.validate(double.toSpec).fold(p => fail(p.mkString("; ")), identity)
-    val models       = Models.only(Models.Scripted, model)
+    val discovered = Discovery
+      .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
+      .fold(p => fail(p.mkString("; ")), identity)
+    val models = Models.only(Models.Scripted, model)
     val agents = discovered.autonomousAgents.map(c =>
       RemoteAutonomousAgent.descriptor(c, conversation, models, 5.seconds)
     )
@@ -178,7 +180,11 @@ class RemoteAutonomousAgentSuite extends munit.FunSuite with LogCapturing:
       accepts = Vector("answer" -> 0, "missing" -> 3)
     )
     val problems = Discovery
-      .validate(new ProcessDouble(DoubleSpec(autonomous = Vector(bad))).toSpec)
+      .validate(
+        new ProcessDouble(DoubleSpec(autonomous = Vector(bad))).toSpec,
+        Discovery.ProtocolVersion,
+        authConfigured = true
+      )
       .left
       .getOrElse(fail("a bad definition was admitted"))
       .mkString("\n")

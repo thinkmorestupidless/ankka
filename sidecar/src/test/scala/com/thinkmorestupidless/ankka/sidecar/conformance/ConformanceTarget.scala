@@ -1,8 +1,9 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestModelProvider}
+import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig, TestIssuer}
 import com.thinkmorestupidless.ankka.core.BuildInfo
-import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{
   InMemoryBroker,
   ProjectionRuntime,
@@ -89,6 +90,19 @@ object ConformanceTarget:
   private def topologyOf(kit: AnkkaTestKit): String =
     TopologyJson.of(kit.service, "conformance", "conformance-1", "2026-01-01T00:00:00Z")
 
+  /**
+   * The issuer every target's `AUTHENTICATED` route accepts (feature 022): one per run, its keys on
+   * loopback, its name `test` and its audience `conformance`, as the reference in each language
+   * expects. A process or a module is verified by the sidecar's rule, the in-process reference by
+   * the same rule, so every target answers a token the same way.
+   */
+  lazy val issuer: TestIssuer =
+    TestIssuer("https://auth.conformance.test/realms/test", "test", "conformance")
+
+  lazy val auth: OidcConfig = OidcConfig(Vector(issuer.asIssuer()))
+
+  lazy val authenticated: Acl = Oidc.authenticate(auth)
+
   def fromProperty(model: TestModelProvider): ConformanceTarget =
     sys.props.get("ankka.conformance.target").filter(_.nonEmpty) match
       case Some(module) if module.startsWith("wasm:") =>
@@ -153,7 +167,8 @@ object ConformanceTarget:
         60.seconds,
         5.seconds,
         10.seconds,
-        10.seconds
+        10.seconds,
+        auth = ConformanceTarget.auth
       )
     private val discovered =
       Discovery
@@ -184,7 +199,9 @@ object ConformanceTarget:
       )
     )
     private val endpoints =
-      discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
+      discovered.endpoints.map(e =>
+        RemoteEndpoint.from(e, conversation, settings, ConformanceTarget.authenticated)
+      )
     private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,
@@ -245,7 +262,8 @@ object ConformanceTarget:
         5.seconds,
         10.seconds,
         10.seconds,
-        wasmModule = Some(path)
+        wasmModule = Some(path),
+        auth = ConformanceTarget.auth
       )
     private val module =
       ModuleLoader.load(path).fold(p => throw IllegalStateException(p.mkString("; ")), identity)
@@ -266,7 +284,13 @@ object ConformanceTarget:
 
     private def discover(protocolVersion: String) =
       val bootstrap = GuestInstance.build(module, imports.values, settings.wasmMaxMemoryPages)
-      val result    = WasmDiscovery.discover(bootstrap, module, BuildInfo.version, protocolVersion)
+      val result = WasmDiscovery.discover(
+        bootstrap,
+        module,
+        BuildInfo.version,
+        protocolVersion,
+        authConfigured = !settings.auth.isEmpty
+      )
       lastProblems = result.left.getOrElse(Vector.empty)
       result
 
@@ -297,7 +321,9 @@ object ConformanceTarget:
       )
     )
     private val endpoints =
-      discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
+      discovered.endpoints.map(e =>
+        RemoteEndpoint.from(e, conversation, settings, ConformanceTarget.authenticated)
+      )
     private val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
     private val kit = AnkkaTestKit.start(
       discovered.descriptors ++ agents ++ autonomous ++ AgentRuntime.descriptors,

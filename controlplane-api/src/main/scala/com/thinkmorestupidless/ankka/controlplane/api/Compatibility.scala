@@ -51,8 +51,9 @@ object Protocol:
    * `ankka.protocol` entry on a consumer's request that says the runtime accepts it. 1.4 added
    * metadata to a workflow step, a tool call, a guardrail check, a result check and a view query,
    * so each is told its trace and the handler whose work it is, as a command is.
+   * 1.5 added the claims map and the verifying issuer's name to a route's principal (feature 022).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 4)
+  val version: ProtocolVersion = ProtocolVersion(1, 5)
 
 object Compatibility:
 

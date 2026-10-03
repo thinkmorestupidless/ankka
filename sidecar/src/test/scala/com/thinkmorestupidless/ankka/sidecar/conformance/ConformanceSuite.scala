@@ -663,8 +663,52 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("http.acl-deny-never-reaches-process") {
-    val r = get("/private/")
-    assert(r.status == 401 || r.status == 503, r.toString)
+    // Before feature 022 a process's authenticated route answered 503 whatever was sent; now the
+    // runtime verifies, and a request with no token is challenged without the process being asked.
+    assertEquals(get("/private/").status, 401)
+  }
+
+  // ── Authenticated routes (feature 022) ───────────────────────────────────
+  // The runtime verifies a token from the suite's test issuer for every target, and the process is
+  // handed the principal: subject, roles, every other claim, and the issuer's configured name.
+
+  private def bearer(token: String) = "Authorization" -> s"Bearer $token"
+
+  test("http.auth-admits-verified-token") {
+    val token = ConformanceTarget.issuer.token("ada", roles = Set("buyer"))
+    val r     = get("/private/me", bearer(token))
+    assertEquals(r.status, 200, r.toString)
+    val me = r.json
+    assertEquals(me("subject").flatMap(_.asString), Some("ada"))
+    assertEquals(me("roles").flatMap(_.asArray).map(_.flatMap(_.asString)), Some(Vector("buyer")))
+    assertEquals(me("issuer").flatMap(_.asString), Some("test"))
+  }
+
+  test("http.auth-claims") {
+    val token = ConformanceTarget.issuer.token("ada", claims = Map("tier" -> "gold"))
+    assertEquals(get("/private/me", bearer(token)).json("tier").flatMap(_.asString), Some("gold"))
+  }
+
+  test("http.auth-challenges-missing") {
+    val r = get("/private/me")
+    assertEquals(r.status, 401)
+    assert(r.headers.getOrElse("www-authenticate", "").startsWith("Bearer realm="), r.toString)
+  }
+
+  test("http.auth-challenges-expired") {
+    val token = ConformanceTarget.issuer.token("ada", expiresIn = (-5).minutes)
+    val r     = get("/private/me", bearer(token))
+    assertEquals(r.status, 401)
+    assert(r.headers.getOrElse("www-authenticate", "").contains("invalid_token"), r.toString)
+  }
+
+  test("http.auth-challenges-unlisted-issuer") {
+    val stranger = com.thinkmorestupidless.ankka.auth.oidc
+      .TestIssuer("https://auth.conformance.test/realms/strangers", "strangers", "conformance")
+    try
+      assertEquals(get("/private/me", bearer(stranger.token("eve"))).status, 401)
+      assertEquals(stranger.fetches.get(), 0, "an unlisted issuer's keys were asked for")
+    finally stranger.stop()
   }
 
   test("http.route-acl-overrides-the-endpoint") {

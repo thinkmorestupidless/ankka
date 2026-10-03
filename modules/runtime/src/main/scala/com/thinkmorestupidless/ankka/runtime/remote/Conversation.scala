@@ -162,7 +162,7 @@ enum ConsumerOutcome:
  * with anything an earlier runtime would not understand.
  */
 object WireProtocol:
-  val Version: String     = "1.4"
+  val Version: String     = "1.5"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -210,7 +210,9 @@ final case class RemotePrincipal(
     name: Option[String],
     email: Option[String],
     emailVerified: Boolean,
-    roles: Set[String]
+    roles: Set[String],
+    claims: Map[String, String] = Map.empty,
+    issuer: Option[String] = None
 )
 
 /** An HTTP request the sidecar's router matched to a declared route, forwarded whole. */

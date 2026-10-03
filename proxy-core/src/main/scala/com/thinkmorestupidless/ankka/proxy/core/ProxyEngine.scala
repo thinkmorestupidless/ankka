@@ -308,19 +308,19 @@ final class ProxyEngine(
     finally socket.close()
 
   /**
-   * The request's body for the client. Its length is the request's own, so the process sees the
-   * `Content-Length` the sender sent; a chunked request is sent chunked; a request without a body
-   * has none.
+   * The request's body for the client, passed on as it arrives (`StreamingBody`). Its length is the
+   * request's own, so the process sees the `Content-Length` the sender sent; a chunked request is
+   * sent chunked; a request without a body has none.
    */
   private def body(exchange: HttpExchange, received: Vector[(String, String)]): BodyPublisher =
     val length  = first(received, "content-length").flatMap(_.toLongOption)
     val chunked = first(received, "transfer-encoding").exists(_.toLowerCase.contains("chunked"))
     length match
       case Some(0L) => BodyPublishers.noBody()
-      case Some(n) =>
-        BodyPublishers.fromPublisher(BodyPublishers.ofInputStream(() => exchange.getRequestBody), n)
-      case None if chunked => BodyPublishers.ofInputStream(() => exchange.getRequestBody)
-      case None            => BodyPublishers.noBody()
+      case Some(n)  => BodyPublishers.fromPublisher(StreamingBody(() => exchange.getRequestBody), n)
+      case None if chunked =>
+        BodyPublishers.fromPublisher(StreamingBody(() => exchange.getRequestBody))
+      case None => BodyPublishers.noBody()
 
 object ProxyEngine:
 

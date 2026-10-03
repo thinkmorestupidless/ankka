@@ -92,6 +92,12 @@ interface Service {
   history: { kind: string; generation: number; actor?: { subject: string; display?: string; administrative: boolean }; at: string }[];
   logs: Map<string, string[]>;
   previousLogs: Map<string, string[]>;
+  /** The platform's container's output: the sidecar beside a process, the proxy beside a web-hosted one. */
+  platformLogs: Map<string, string[]>;
+  hosting?: string;
+  mounts?: { path: string; service: string; state: string }[];
+  callers?: string[];
+  processPort?: number;
   /** What the instances report when asked for the topology; generated from the service when unset. */
   topology?: FakeTopology;
 }
@@ -105,6 +111,9 @@ export interface FakeTopology {
   differences?: { node: string; presentOn: string[] }[];
   window?: { seconds: number; since: string; calls: number; unanswered?: number };
 }
+
+/** The hostings whose pods hold the platform's container beside the developer's. */
+const twoContainers = (hosting: string | undefined) => hosting === "process" || hosting === "web";
 
 interface Token {
   id: string;
@@ -184,7 +193,17 @@ export interface FakeControlPlane {
 export interface FakeSeed {
   organizations?: { id: string; name: string; owners?: string[]; members?: string[]; disabled?: boolean }[];
   projects?: { id: string; name: string; organizationId: string }[];
-  services?: { projectId: string; name: string; image?: string; lifecycle?: string; instances?: number }[];
+  services?: {
+    projectId: string;
+    name: string;
+    image?: string;
+    lifecycle?: string;
+    instances?: number;
+    hosting?: string;
+    mounts?: { path: string; service: string; state: string }[];
+    callers?: string[];
+    processPort?: number;
+  }[];
 }
 
 export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): Promise<FakeControlPlane> {
@@ -239,13 +258,16 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       desiredInstances: s.desiredInstances,
       detail: s.detail ?? null,
       confirmed: true,
-      database: "provisioned",
+      database: s.hosting === "web" ? "none" : "provisioned",
       hostname: s.exposed ? `https://${s.name}-${s.projectId}.${options.baseDomain ?? "example.test"}` : null,
       exposed: s.exposed,
       suspended,
       paused: s.paused,
-      hosting: "embedded",
+      hosting: s.hosting ?? "embedded",
       protocol: null,
+      mounts: s.mounts ?? [],
+      callers: s.callers ?? [],
+      processPort: s.processPort ?? null,
     };
   };
 
@@ -632,6 +654,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       history: [],
       logs: new Map(),
       previousLogs: new Map(),
+      platformLogs: new Map(),
     };
     s.image = d.service!.image!;
     s.generation += 1;
@@ -674,9 +697,11 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     const { service: s } = requireService(c, p.projectId, p.name);
     if (s.paused || s.readyInstances === 0 && s.logs.size === 0) throw new HttpError(404, `service '${s.name}' has no running instance`);
     const previous = url.searchParams.get("previous") === "true";
+    const platform = url.searchParams.get("platform") === "true";
+    if (platform && !twoContainers(s.hosting)) throw new HttpError(400, "--platform applies to a service with process or web hosting");
     const tail = url.searchParams.get("tail");
     const only = url.searchParams.get("instance");
-    const source = previous ? s.previousLogs : s.logs;
+    const source = platform ? s.platformLogs : previous ? s.previousLogs : s.logs;
     const names = s.readyInstances > 0 ? Array.from({ length: s.readyInstances }, (_x, i) => `${s.name}-${i}`) : [...source.keys()];
     return {
       instances: names
@@ -873,7 +898,11 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
         const n = s.instances ?? 1;
         const ready = lifecycle === "Ready" ? n : 0;
         const logs = new Map<string, string[]>();
-        for (let i = 0; i < ready; i++) logs.set(`${s.name}-${i}`, [`${s.name} started`]);
+        const platformLogs = new Map<string, string[]>();
+        for (let i = 0; i < ready; i++) {
+          logs.set(`${s.name}-${i}`, [`${s.name} started`]);
+          if (twoContainers(s.hosting)) platformLogs.set(`${s.name}-${i}`, [`${s.hosting === "web" ? "proxy" : "sidecar"} of ${s.name} started`]);
+        }
         services.set(serviceKey(s.projectId, s.name), {
           name: s.name,
           projectId: s.projectId,
@@ -887,6 +916,11 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           history: [{ kind: "applied", generation: 1, at: now() }],
           logs,
           previousLogs: new Map(),
+          platformLogs,
+          hosting: s.hosting,
+          mounts: s.mounts,
+          callers: s.callers,
+          processPort: s.processPort,
         });
       }
     },

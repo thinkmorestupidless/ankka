@@ -272,7 +272,14 @@ object Rendering:
       // No cluster certificate and no cluster policy: a web-hosted service forms no cluster. The
       // probe port, which the cluster policy opens for every other service, gets a policy of its
       // own (feature 021).
-      Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)) +:
+      // The mount certificate only while there are mounts. One whose last mount is removed is left,
+      // owned by the resource, as every certificate a service stops needing is (R7).
+      (Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)) +:
+        Option
+          .when(spec.mounts.nonEmpty)(
+            Action.EnsureCertificate(ZeroTrust.mountCertificate(resource, spec, namespace))
+          )
+          .toVector) ++
         http :+
         Action.EnsureNetworkPolicy(ZeroTrust.probePolicy(resource, spec, namespace))
     else
@@ -608,7 +615,13 @@ object Rendering:
     )
     // A web-hosted pod holds the service certificate alone: no cluster to join, no database.
     val held =
-      if web then ZeroTrust.Held(cluster = false, service = true, database = false)
+      if web then
+        ZeroTrust.Held(
+          cluster = false,
+          service = true,
+          database = false,
+          mount = spec.mounts.nonEmpty
+        )
       else ZeroTrust.Held(cluster = true, service = true, database = provisioned)
     val tlsVolumes =
       ZeroTrust.volumes(held, spec, CnpgRendering.projectClusterName) ++ moduleVolumes(spec)
@@ -921,7 +934,10 @@ object Rendering:
           .build()
       )
       .withVolumeMounts(
-        ZeroTrust.mounts(ZeroTrust.Held(cluster = false, service = true, database = false))*
+        ZeroTrust.mounts(
+          ZeroTrust
+            .Held(cluster = false, service = true, database = false, mount = spec.mounts.nonEmpty)
+        )*
       )
       .withResources(
         new ResourceRequirementsBuilder()

@@ -176,14 +176,17 @@ class WebHostingRenderingSuite extends munit.FunSuite:
     assertEquals(secret.getSecretKeyRef.getKey, "session")
   }
 
-  test("the proxy mounts the service certificate alone; the process mounts nothing") {
+  test(
+    "without mounts the proxy mounts the service certificate alone; the process mounts nothing"
+  ) {
+    val bare = web.copy(mounts = Nil)
     assertEquals(
-      proxy().getVolumeMounts.asScala.map(_.getMountPath).toVector,
+      proxy(bare).getVolumeMounts.asScala.map(_.getMountPath).toVector,
       Vector("/var/run/secrets/ankka/service")
     )
-    assert(proxy().getVolumeMounts.asScala.forall(_.getReadOnly))
-    assert(process().getVolumeMounts.isEmpty)
-    val volumes = pod(web).getVolumes.asScala.toVector
+    assert(proxy(bare).getVolumeMounts.asScala.forall(_.getReadOnly))
+    assert(process(bare).getVolumeMounts.isEmpty)
+    val volumes = pod(bare).getVolumes.asScala.toVector
     assertEquals(volumes.map(_.getName), Vector("ankka-service-tls"))
     assertEquals(volumes.head.getSecret.getSecretName, "web-service-tls")
   }
@@ -280,9 +283,69 @@ class WebHostingRenderingSuite extends munit.FunSuite:
   }
 
   test("the service certificate is rendered as for any service, and no cluster certificate") {
-    val certs = certificates(web)
+    val certs = certificates(web.copy(mounts = Nil))
     assertEquals(certs.keySet, Set("web-service"))
     assertEquals(certs("web-service"), certificates(embedded)("web-service"))
+  }
+
+  private def certSpec(c: GenericKubernetesResource): Map[String, Any] =
+    c.getAdditionalProperties.get("spec").asInstanceOf[java.util.Map[String, Any]].asScala.toMap
+
+  test("with mounts, a mount certificate: the mount identity alone, no name, client auth only") {
+    val certs = certificates(web)
+    assertEquals(certs.keySet, Set("web-service", "web-mount"))
+    val mount = certSpec(certs("web-mount"))
+    assertEquals(mount("secretName"), "web-mount-tls")
+    assertEquals(
+      mount("uris").asInstanceOf[java.util.List[String]].asScala.toList,
+      List("ankka://shop/web/mount")
+    )
+    assertEquals(mount.get("dnsNames"), None)
+    assertEquals(
+      mount("usages").asInstanceOf[java.util.List[String]].asScala.toList,
+      List("client auth")
+    )
+    assertEquals(
+      mount("issuerRef").asInstanceOf[java.util.Map[String, String]].asScala.toMap,
+      Map("name" -> "ankka-service", "kind" -> "ClusterIssuer", "group" -> "cert-manager.io")
+    )
+    assertEquals(mount("duration"), certSpec(certs("web-service"))("duration"))
+  }
+
+  test("with mounts, the proxy mounts the mount certificate too, and the process neither") {
+    assertEquals(
+      proxy().getVolumeMounts.asScala.map(m => m.getName -> m.getMountPath).toMap,
+      Map(
+        "ankka-service-tls" -> "/var/run/secrets/ankka/service",
+        "ankka-mount-tls"   -> "/var/run/secrets/ankka/mount"
+      )
+    )
+    assert(process().getVolumeMounts.isEmpty)
+    val volumes = pod(web).getVolumes.asScala.map(v => v.getName -> v.getSecret.getSecretName).toMap
+    assertEquals(
+      volumes,
+      Map("ankka-service-tls" -> "web-service-tls", "ankka-mount-tls" -> "web-mount-tls")
+    )
+  }
+
+  test("the mount certificate comes before the Deployment that mounts it") {
+    val all = actions(web)
+    val mount = all.indexWhere {
+      case Action.EnsureCertificate(c) => c.getMetadata.getName == "web-mount"
+      case _                           => false
+    }
+    val deployment = all.indexWhere { case Action.ApplyDeployment(_) => true; case _ => false }
+    assert(mount >= 0 && mount < deployment, s"$mount, $deployment")
+  }
+
+  test("a service whose last mount is removed renders no mount certificate and removes none") {
+    val all = actions(web.copy(mounts = Nil))
+    assert(!all.exists {
+      case Action.EnsureCertificate(c) => c.getMetadata.getName == "web-mount"
+      case _                           => false
+    })
+    // There is no action that removes a certificate: the one it had stays, owned by the resource.
+    assert(!all.exists(_.describe.contains("web-mount")), all.map(_.describe))
   }
 
   test("the http policy, a probe policy of its own, and no cluster policy") {

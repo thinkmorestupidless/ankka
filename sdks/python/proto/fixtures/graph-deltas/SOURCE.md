@@ -11,8 +11,9 @@ two are shown to agree.
 | `deltas.json` | ankka-flow's, copied byte for byte from `protocol/fixtures/graph-deltas/deltas.json` | `{"delta", "key", "reads"}`: a delta, its key, and the kind the sink reads each property as |
 | `refused.json` | ankka's | `{"name", "element", "why"}`: an element every SDK's builder must refuse, and the reason's name. `"elements"` in place of `"element"` for a result refused as a whole; `"sequence"` is the change's sequence number when it is not 1 |
 
-The copies were taken from ankka-flow at commit `9905de1bfd49bf8664bb12410a67262a31a5cc0d`
-(branch `graph-delta-fixtures`, ahead of its release).
+The copies were taken from ankka-flow's `main` at `5fb11b9abf26ba87f79d9baa501186b765fcc0cc`
+(pull request #8 merged, 2026-10-03), ahead of its next release; name that release's tag here
+when it is cut.
 
 ## How they are used
 

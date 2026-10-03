@@ -632,9 +632,9 @@ What it found:
   one message, two with the references' deletion handlers removed, and five with the references
   stating a wrong version. `consumer.single-produce-unchanged` holds the path that did not
   change, and has nothing to be broken by.
-- **The fixtures**: `keys.json` and `deltas.json` are byte for byte ankka-flow's at commit
-  `9905de1` on its branch `graph-delta-fixtures`, which is not yet merged or tagged. `SOURCE.md`
-  names the commit; it should name the tag once there is one.
+- **The fixtures**: `keys.json` and `deltas.json` are byte for byte ankka-flow's, merged to its
+  `main` as `5fb11b9` (pull request #8) and not yet tagged. `SOURCE.md` names that commit; it
+  should name the tag once there is one.
 - **The reviewer's checklist** was gone through item by item: `Produce` unchanged on the wire (the
   diff's two removed lines are a comment and the `oneof`'s line breaks); the three copies
   identical; the top-level fixtures untouched; no dependency file changed in any language;

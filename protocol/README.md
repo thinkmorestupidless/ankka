@@ -43,6 +43,11 @@ loopback at `ANKKA_SIDECAR_PORT` (9011). Neither ever binds another interface.
 
 ## Rules the messages do not state on their own
 
+- **`ankka-caller` is the runtime's, carried and never written.** Metadata the runtime sends with a command,
+  a step, a tool call or a check carries `ankka-trace-id`, `ankka-span-id` and `ankka-caller`, the handler
+  whose work this is. An SDK forwards a handler's metadata unchanged on the calls it makes through the
+  client, which is how those calls are attributed; user code never sets `ankka-caller`, and the runtime
+  ignores one that does not name a component and handler the service declared.
 - **A stateful conversation has one command in flight**, and the sidecar enforces it. A workflow's
   stream is the exception it needs: the engine keeps answering commands while a step runs, so one
   command *and* one step may be in flight at once; a command arriving mid-step is answered from

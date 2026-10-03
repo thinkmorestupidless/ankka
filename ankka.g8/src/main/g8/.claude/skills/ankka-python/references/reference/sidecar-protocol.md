@@ -225,6 +225,11 @@ These are part of the protocol, and an SDK that ignores one misbehaves in ways t
   session memory and the model key stay in the sidecar. A tool or guardrail call arrives after the handler
   that planned it has returned, so anything it needs from the session must be captured when the plan is
   made.
+- **`ankka-caller` is the runtime's, carried and never written.** Metadata the runtime sends with a command,
+  a step, a tool call or a check carries `ankka-trace-id`, `ankka-span-id` and `ankka-caller`, the handler
+  whose work this is. An SDK forwards a handler's metadata unchanged on the calls it makes through the
+  client, which is how those calls are attributed; user code never sets `ankka-caller`, and the runtime
+  ignores one that does not name a component and handler the service declared.
 - **`Unavailable` means try again.** When an instance stops while callers are waiting on it, for example
   during a rolling replacement, the sidecar answers each waiting caller with `UNAVAILABLE` rather than letting
   it time out, and the sidecar's `Client` retries `UNAVAILABLE` briefly before giving up. An SDK should treat

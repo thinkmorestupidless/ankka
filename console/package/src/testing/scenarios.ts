@@ -27,6 +27,8 @@ export const scenarios: Record<string, string> = {
   "US3-4a": "a service page and a listing follow the control plane's changes live",
   "US3-5": "an exposed service's hostname is a link",
   "US3-6": "logs with the CLI's choices, followed live",
+  "TOPO-1": "a member reads a deployed service's topology, merged across its instances, followed live",
+  "TOPO-2": "an instance that did not answer leaves the topology partial and is named",
   "US3-7": "a deleted service is gone, and applying the name again continues its generation",
   "US3-8": "a suspended service reads Suspended and its operations are refused, not hidden",
   "US4-1": "an owner sees members and pending invitations",

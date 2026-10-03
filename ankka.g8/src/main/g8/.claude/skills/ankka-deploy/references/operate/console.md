@@ -69,6 +69,22 @@ lines, and the last seconds. While the page is open it follows new lines as the 
 pause it. A line repeated identically within about two seconds may be shown once; a service that timestamps
 its own log lines is followed exactly.
 
+## A service's topology
+
+A service's page links to its topology: what the service is made of and what calls what, read from every
+running instance and merged by the control plane. The page says how many instances answered, as in
+"2 of 3 instances answered". A topology missing an instance is marked **partial** and names each instance
+that did not contribute and why — it did not answer in time, its runtime is too old to report one, or it
+answered with something that is not a topology — and its counts are those of the instances that answered.
+A component that only some instances have, during a rolling update for example, is listed with the
+instances that have it and drawn as not on every instance.
+
+Observed calls are the calls made in a recent window, not every call the service can make; the page says
+how far back they reach. Handled and unanswered calls are counted apart and shown in separate columns. The
+same picture is given as tables below it, and with scripts running the page follows new calls as they are
+counted. A service with no running instance has no topology to show. From the CLI the same document is
+`ankka services topology <name>`.
+
 ## Members and deploy tokens
 
 An organization's members page lists its members, their roles, and the invitations waiting to be claimed.
@@ -95,5 +111,5 @@ and logs are not followed: reload to see what is new.
 
 ## What it does not show
 
-The console shows the control plane's records. The traces, sessions and entity state of a deployed service
-are not shown; for a service on your own machine, [the local console](local-console.md) shows them.
+The console shows a deployed service's topology, status, history and logs. Its traces, sessions and entity
+state are not shown; for a service on your own machine, [the local console](local-console.md) shows them.

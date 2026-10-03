@@ -234,6 +234,10 @@ These are overridden in the service's `application.conf` or with a system proper
   pair of handlers.
 - `ankka.observability.max-external-services` is how many other services a topology shows by name, `32`
   by default. Calls to any service beyond that are counted together as other services.
+- `ankka.observability.observe.enabled`, `ankka.observability.observe.port` and
+  `ankka.observability.observe.peer` start the listener the installation's control plane reads a deployed
+  instance's topology from: off by default, on in `kubernetes` mode, on port `7628`, admitting only the peer
+  `ankka://platform/controlplane`. Leave them to the overlay.
 - `ankka.cluster.formation` and `ankka.cluster.seed-nodes` are set by the cluster overlays. Leave them to
   the overlay.
 - `ankka.join-self-if-no-seed-nodes` is `on` in `local` mode and `off` in `kubernetes` mode, where joining

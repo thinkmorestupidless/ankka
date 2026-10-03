@@ -125,6 +125,9 @@ export default function Service() {
         <ConsoleLink to={`${path}/logs`} className="ac-button ac-button-quiet">
           Logs
         </ConsoleLink>
+        <ConsoleLink to={`${path}/topology`} className="ac-button ac-button-quiet">
+          Topology
+        </ConsoleLink>
         <ConsoleLink to={`projects/${encodeURIComponent(p.id)}/services/apply?name=${encodeURIComponent(s.name)}`} className="ac-button ac-button-quiet">
           Apply a new descriptor
         </ConsoleLink>

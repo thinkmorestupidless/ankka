@@ -96,7 +96,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/concepts/clustering.md` — How a service's instances form one cluster, how entities are spread across it, how nodes find each other locally and in Kubernetes, and what that means for rollouts, failures and instance counts.
 - `references/concepts/control-plane.md` — How the control plane records what you asked for, how the operator makes the cluster match it, and how the status you read is kept honest with generations and confirmation.
-- `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.
+- `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, a service's topology of declared connections and observed calls, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.
 
 ### Run and deploy
 

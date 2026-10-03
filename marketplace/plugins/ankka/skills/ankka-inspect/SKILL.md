@@ -142,7 +142,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Concepts
 
-- `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.
+- `references/concepts/observability.md` — What ankka records about every request — spans, traces, unattributed time, a service's topology of declared connections and observed calls, token usage — where you can read it locally and in a cluster, and what it deliberately does not do.
 
 ### Build
 

@@ -92,6 +92,18 @@ interface Service {
   history: { kind: string; generation: number; actor?: { subject: string; display?: string; administrative: boolean }; at: string }[];
   logs: Map<string, string[]>;
   previousLogs: Map<string, string[]>;
+  /** What the instances report when asked for the topology; generated from the service when unset. */
+  topology?: FakeTopology;
+}
+
+/** A service's instances, what each answered, and the merged document, as a suite scripts it. */
+export interface FakeTopology {
+  instances: { pod: string; status: "ok" | "unreachable" | "unsupported" | "failed"; problem?: string }[];
+  nodes: unknown[];
+  declared: unknown[];
+  calls: unknown[];
+  differences?: { node: string; presentOn: string[] }[];
+  window?: { seconds: number; since: string; calls: number; unanswered?: number };
 }
 
 interface Token {
@@ -150,6 +162,8 @@ export interface FakeControlPlane {
   /** Advance every service in a transitional state by one step. */
   tick(): void;
   appendLog(projectId: string, name: string, line: string, instance?: string): void;
+  /** What a service's instances report when its topology is read, from now on. */
+  scriptTopology(projectId: string, name: string, topology: FakeTopology): void;
   /** Who may create organizations from now on, and where the refusal sends people. */
   policy(creation: "open" | "platform-admin", signupUrl?: string): void;
   /** From now on, created organizations and projects are missing from listings until `settle()`. */
@@ -675,6 +689,32 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
     };
   });
 
+  // The control plane's rules: a non-member is told the service does not exist; no running instance
+  // is the logs route's 404; one instance that is not ok makes the result partial.
+  route("GET", "/services/{projectId}/{name}/topology", (c, p) => {
+    const { service: s } = requireService(c, p.projectId, p.name);
+    if (s.paused || s.readyInstances === 0) throw new HttpError(404, `service '${s.name}' has no running instance; it may be paused`);
+    const t: FakeTopology = s.topology ?? {
+      instances: Array.from({ length: s.readyInstances }, (_x, i) => ({ pod: `${s.name}-${i}`, status: "ok" as const })),
+      nodes: [{ id: s.name, kind: "EventSourcedEntity", layer: 1, platform: false, handlers: [] }],
+      declared: [],
+      calls: [],
+    };
+    const contributing = t.instances.filter((i) => i.status === "ok").length;
+    return {
+      service: s.name,
+      running: t.instances.length,
+      contributing,
+      partial: contributing < t.instances.length,
+      instances: t.instances.map((i) => ({ pod: i.pod, status: i.status, problem: i.problem ?? null, runtime: i.status === "ok" ? "0.0.0" : null, readAt: i.status === "ok" ? now() : null })),
+      window: t.window ?? { seconds: 600, since: now(), calls: 0, unanswered: 0 },
+      nodes: t.nodes,
+      declared: t.declared,
+      calls: t.calls,
+      differences: t.differences ?? [],
+    };
+  });
+
   route("GET", "/services/{projectId}/{name}/history", (c, p) => requireService(c, p.projectId, p.name).service.history);
 
   route("DELETE", "/services/{projectId}/{name}", (c, p) => {
@@ -795,6 +835,11 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           s.lifecycle = "UpdateInProgress";
         }
       }
+    },
+    scriptTopology(projectId, name, topology) {
+      const s = services.get(serviceKey(projectId, name));
+      if (!s) throw new Error(`no service ${projectId}/${name}`);
+      s.topology = topology;
     },
     appendLog(projectId, name, line, instance) {
       const s = services.get(serviceKey(projectId, name));

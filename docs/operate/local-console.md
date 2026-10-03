@@ -58,6 +58,33 @@ component, not from the console. A handler declared with `query` can only return
 it cannot persist anything, and the console refuses every handler not declared that way. A component that
 declares no queries shows none; the console never reads an entity's journal behind its back.
 
+## Topology
+
+The Topology tab draws what the service is made of: its endpoints, components and topics in columns, and
+two kinds of edge between them.
+
+- A **declared connection**, drawn solid, is one the components registered: a view reading an entity's
+  events, a consumer reading a topic or publishing to one. These are complete, whether or not anything has
+  happened yet.
+- An **observed call**, drawn dashed, is one handler calling another. It is drawn heavier the more it was
+  made, and marked with a warning when a call failed or went unanswered; refusals alone never mark it.
+
+Wherever observed calls are shown, a line says how far back they reach: observed calls are the calls made in
+the window, ten minutes by default, not every call a service can make. A call nobody made in that time is
+not drawn, so an edge missing from the picture is not evidence the code cannot make it.
+
+Choose a node to see its handlers, what it reads, what reads it and its calls in and out. Choose an observed
+call to see every pair of handlers in it, with handled calls as ok, refused and failed, unanswered calls as
+timed out and undelivered in a group of their own, and approximate p50, p99 and maximum durations. A call
+whose handler answers as a stream is labelled as one. Filters narrow the picture to some kinds of node, or
+to one node and its neighbours. The platform's own components, such as an agent's session memory, are left
+out until you ask for them; what a component does through one is listed on that component.
+
+A call from a thread no handler is running on is drawn from the **unknown caller**. A call to another
+service is drawn to a node for that service, and that node opens the other service's own topology when
+exactly one service of that name is running on your machine; otherwise it is marked as not running here.
+The same picture is in a table below it, as text.
+
 ## Invoke
 
 The Invoke tab has a form for each HTTP route the service serves: pick the route, fill in the path, the
@@ -98,8 +125,9 @@ unknown, because the platform is not told any prices.
 ## What it will not do
 
 - **It serves your machine only.** It binds loopback, holds no credential, and reads only services that
-  announced themselves locally. There is no console for a deployed installation; use
-  [logs](logs.md) and the metrics described in [Observability](../concepts/observability.md).
+  announced themselves locally. For a deployed service, [the installation's console](console.md) and
+  `ankka services topology` show its topology, and [logs](logs.md) and the metrics described in
+  [Observability](../concepts/observability.md) show the rest.
 - **It keeps no history.** Traces come from each service's in-memory window and disappear when the
   service restarts.
 - **It never changes state on its own.** The only way it changes anything is a request you send from the

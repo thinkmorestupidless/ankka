@@ -19,6 +19,7 @@ test("every page meets WCAG 2.1 AA as axe checks it", async ({ page, target, sig
     `/projects/${project}/services/apply`,
     `/projects/${project}/services/cart`,
     `/projects/${project}/services/cart/logs`,
+    `/projects/${project}/services/cart/topology`,
     "/auth/sign-out",
   ];
   for (const path of pages) {

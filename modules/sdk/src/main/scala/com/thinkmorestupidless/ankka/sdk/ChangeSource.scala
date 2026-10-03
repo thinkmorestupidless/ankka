@@ -2,6 +2,8 @@ package com.thinkmorestupidless.ankka.sdk
 
 import com.thinkmorestupidless.ankka.core.{ComponentId, Serializer}
 
+import java.time.Instant
+
 /**
  * Where a view or consumer gets its changes from.
  *
@@ -31,9 +33,20 @@ object ChangeSource:
       extends ChangeSource[Src]:
     def describe = s"key-value-entity($componentId)"
 
-  /** Messages from a broker topic. */
-  final case class Topic[Src](topic: String, decoder: Serializer[Src]) extends ChangeSource[Src]:
-    def describe = s"topic($topic)"
+  /**
+   * Messages from a broker topic.
+   *
+   * `startFrom` is where the source begins the first time its consumer group reads the topic, and
+   * `None` when it declares nowhere. A view that declares nowhere starts at the earliest message
+   * the broker holds; a consumer must declare, and one that does not is refused when the service
+   * starts, because either default would be wrong for something that acts on each message.
+   */
+  final case class Topic[Src](
+      topic: String,
+      decoder: Serializer[Src],
+      startFrom: Option[StartFrom] = None
+  ) extends ChangeSource[Src]:
+    def describe = startFrom.fold(s"topic($topic)")(start => s"topic($topic, from $start)")
 
   def eventsOf[C <: EventSourcedEntity[S, E], S, E](
       companion: EventSourcedEntity.Companion[C, S, E]
@@ -45,8 +58,38 @@ object ChangeSource:
   ): ChangeSource[S] =
     KeyValue(companion.componentId, companion.stateSerializer)
 
+  /** A topic, starting wherever the component's default says: a view from the earliest message. */
   def fromTopic[Src](name: String, decoder: Serializer[Src]): ChangeSource[Src] =
     Topic(name, decoder)
+
+  /** A topic, starting at `startFrom` the first time the component's group reads it. */
+  def fromTopic[Src](
+      name: String,
+      decoder: Serializer[Src],
+      startFrom: StartFrom
+  ): ChangeSource[Src] =
+    Topic(name, decoder, Some(startFrom))
+
+/**
+ * Where a topic source begins, the first time its consumer group reads a partition.
+ *
+ * Applied once per partition and committed at once, so a restart, a rebalance or a new instance
+ * resumes from where the group got to, never from here again.
+ */
+enum StartFrom:
+  /** The oldest message the broker still holds. */
+  case Earliest
+
+  /** After the newest: only what is published from now on. */
+  case Latest
+
+  /** The first message published at or after `time`; after the newest when there is none. */
+  case At(time: Instant)
+
+  override def toString: String = this match
+    case Earliest => "earliest"
+    case Latest   => "latest"
+    case At(time) => time.toString
 
 /** Available while a view or consumer is handling one change. */
 trait ChangeContext:

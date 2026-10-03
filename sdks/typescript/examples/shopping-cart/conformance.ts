@@ -34,8 +34,10 @@ import {
   s,
   sidecarProblems,
   sse,
+  StartFrom,
   stream,
   tool,
+  View,
   type Infer,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
@@ -146,6 +148,37 @@ export class CheckoutFanout extends Consumer<ShoppingCartEvent, Infer<typeof Fan
   }
 }
 // docs:end fanout
+
+// ── topic-rows and topic-relay: a view and a consumer over a topic ──
+
+// docs:start topic-sources
+/** The latest message about each subject. Declares no start, so it reads from the earliest. */
+export class TopicRows extends View<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "topic-rows"
+  static readonly topic = "conformance-topic"
+  static readonly version = 2
+  static readonly events = jsonCodec(Fanned, "fanned")
+  static readonly row = jsonCodec(Fanned, "fanned")
+
+  onChange(message: Infer<typeof Fanned>) {
+    return this.effects.updateRow(message)
+  }
+}
+
+/** Republishes what it reads, from the latest: none of what the topic held when it started. */
+export class TopicRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "topic-relay"
+  static readonly topic = "conformance-topic"
+  static readonly startFrom = StartFrom.latest
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = "conformance-topic-relayed"
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce(message)
+  }
+}
+// docs:end topic-sources
 
 // ── cart-graph: the cart as graph deltas ──
 
@@ -409,6 +442,8 @@ export function referenceService() {
     .register(Profile)
     .register(CheckoutRecorder)
     .register(CheckoutFanout)
+    .register(TopicRows)
+    .register(TopicRelay)
     .register(ConformanceCartGraph)
     .register(ProfileGraph)
     .register(Reminder)

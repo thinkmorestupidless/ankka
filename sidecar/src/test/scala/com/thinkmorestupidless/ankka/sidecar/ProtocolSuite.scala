@@ -12,6 +12,7 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.*
+import com.thinkmorestupidless.ankka.sdk.StartFrom
 import com.typesafe.config.ConfigFactory
 import io.grpc.ManagedChannelBuilder
 import org.apache.pekko.actor.testkit.typed.scaladsl.ActorTestKit
@@ -135,7 +136,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     withDouble(spec.copy(protocolVersion = "1.2"))((double, _, _) =>
       assert(Discovery.validate(double.toSpec).isRight)
     )
-    assertEquals(Discovery.ProtocolVersion, "1.3")
+    assertEquals(Discovery.ProtocolVersion, "1.4")
   }
 
   test(
@@ -194,6 +195,186 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     assert(problems.exists(_.contains("GET /a 2 times")), problems)
     assert(problems.exists(_.contains("unsupported method 'FETCH'")), problems)
     assertEquals(problems.size, 5)
+  }
+
+  // ── Topic sources (protocol 1.4) ────────────────────────────────────────────
+
+  private def overTopic(start: Option[ankka.protocol.v1.discovery.StartFrom]) =
+    Some(Source(Source.Source.Topic("orders"), start))
+
+  private def named(n: ankka.protocol.v1.discovery.StartFrom.Named) =
+    Some(
+      ankka.protocol.v1.discovery.StartFrom(ankka.protocol.v1.discovery.StartFrom.Position.Named(n))
+    )
+
+  private def topicSpec(version: String, components: Component*) =
+    Spec(version, None, components.toVector, Vector.empty)
+
+  private def consumer(id: String, source: Option[Source]) =
+    Component(Kind.CONSUMER, id, Vector.empty, Component.Detail.Consumer(ConsumerDetail(source)))
+
+  private def view(id: String, source: Option[Source]) =
+    Component(Kind.VIEW, id, Vector.empty, Component.Detail.View(ViewDetail(source, "row")))
+
+  test("discovery: a declared start position reaches the remote topic source") {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val at = java.time.Instant.parse("2026-10-01T12:00:00Z")
+    val discovered = Discovery
+      .validate(
+        topicSpec(
+          "1.4",
+          consumer("early", overTopic(named(P.Named.EARLIEST))),
+          consumer("late", overTopic(named(P.Named.LATEST))),
+          consumer("at", overTopic(Some(P(P.Position.AtMillis(at.toEpochMilli))))),
+          view("summary", overTopic(None))
+        )
+      )
+      .toOption
+      .get
+    val sources = discovered.descriptors.collect {
+      case c: RemoteConsumerDescriptor => c.componentId.toString -> c.source
+      case v: RemoteViewDescriptor     => v.componentId.toString -> v.source
+    }.toMap
+    assertEquals(sources("early"), RemoteSource.Topic("orders", Some(StartFrom.Earliest)))
+    assertEquals(sources("late"), RemoteSource.Topic("orders", Some(StartFrom.Latest)))
+    assertEquals(sources("at"), RemoteSource.Topic("orders", Some(StartFrom.At(at))))
+    assertEquals(sources("summary"), RemoteSource.Topic("orders", None))
+  }
+
+  test("discovery: what a process may not declare about a topic source is refused, all at once") {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val problems = Discovery
+      .validate(
+        topicSpec(
+          "1.4",
+          Component(
+            Kind.EVENT_SOURCED_ENTITY,
+            "order",
+            Vector.empty,
+            Component.Detail.EventSourced(EventSourcedDetail(0))
+          ),
+          consumer("notifier", overTopic(None)),
+          consumer("nameless", overTopic(Some(P(P.Position.Empty)))),
+          consumer(
+            "over-entity",
+            Some(
+              Source(
+                Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "order")),
+                named(P.Named.LATEST)
+              )
+            )
+          ),
+          view("unnamed", overTopic(named(P.Named.NAMED_UNSPECIFIED)))
+        )
+      )
+      .left
+      .toOption
+      .get
+    assertEquals(
+      problems.toSet,
+      Set(
+        "consumer 'notifier' reads topic 'orders' and declares no start position; declare " +
+          "earliest, latest or a time",
+        "consumer 'nameless' declares a start position that names none",
+        "consumer 'over-entity' declares a start position, which applies to a topic; it reads " +
+          "event sourced entity 'order'",
+        "view 'unnamed' declares a start position that names none"
+      )
+    )
+  }
+
+  test("discovery: a declared version reaches the remote view and consumer, and is checked") {
+    import ankka.protocol.v1.discovery.StartFrom as P
+    val latest = Some(P(P.Position.Named(P.Named.LATEST)))
+    val versioned = Discovery
+      .validate(
+        topicSpec(
+          "1.4",
+          Component(
+            Kind.VIEW,
+            "summary",
+            Vector.empty,
+            Component.Detail.View(ViewDetail(overTopic(None), "row", Vector.empty, Some(2)))
+          ),
+          Component(
+            Kind.CONSUMER,
+            "notifier",
+            Vector.empty,
+            Component.Detail.Consumer(ConsumerDetail(overTopic(latest), None, Some(3)))
+          )
+        )
+      )
+      .toOption
+      .get
+      .descriptors
+    assertEquals(
+      versioned.collect { case v: RemoteViewDescriptor => v.version },
+      Vector(Some(2))
+    )
+    assertEquals(
+      versioned.collect { case c: RemoteConsumerDescriptor => c.version },
+      Vector(Some(3))
+    )
+
+    val refused = Discovery
+      .validate(
+        topicSpec(
+          "1.4",
+          Component(
+            Kind.EVENT_SOURCED_ENTITY,
+            "order",
+            Vector.empty,
+            Component.Detail.EventSourced(EventSourcedDetail(0))
+          ),
+          Component(
+            Kind.VIEW,
+            "zero",
+            Vector.empty,
+            Component.Detail.View(ViewDetail(overTopic(None), "row", Vector.empty, Some(0)))
+          ),
+          Component(
+            Kind.VIEW,
+            "over-entity",
+            Vector.empty,
+            Component.Detail.View(
+              ViewDetail(
+                Some(
+                  Source(
+                    Source.Source.Component(Source.ComponentRef(Kind.EVENT_SOURCED_ENTITY, "order"))
+                  )
+                ),
+                "row",
+                Vector.empty,
+                Some(2)
+              )
+            )
+          )
+        )
+      )
+      .left
+      .toOption
+      .get
+    assertEquals(
+      refused.toSet,
+      Set(
+        "view 'zero' declares version 0; a version is a whole number of 1 or more",
+        "view 'over-entity' declares a version, which applies to a topic; it reads " +
+          "EventSourcedEntity(order)"
+      )
+    )
+  }
+
+  test("discovery: a consumer from an SDK that cannot declare a start position is admitted") {
+    // An SDK speaking 1.3 had no way to say one. Refusing it would stop a running service from
+    // restarting after the platform was upgraded; it starts at the earliest message, as it did.
+    val discovered = Discovery.validate(topicSpec("1.3", consumer("notifier", overTopic(None))))
+    val notifier = discovered.toOption.get.descriptors.collectFirst {
+      case c: RemoteConsumerDescriptor => c
+    }.get
+    assertEquals(notifier.startDeclarable, false)
+    assert(Discovery.declaresStartPositions("1.4"))
+    assert(!Discovery.declaresStartPositions("1.3"))
+    assert(Discovery.declaresStartPositions("2.0"))
   }
 
   // ── The event sourced conversation ──────────────────────────────────────────

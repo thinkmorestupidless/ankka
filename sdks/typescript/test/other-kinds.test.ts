@@ -23,6 +23,7 @@ import { ApprovalWorkflow, Calculator, Fanout, Ping, Ponger, Profile, Reminder }
 import { Counter } from "./fixtures/counter.ts"
 import { CartRows } from "../examples/shopping-cart/cartRows.ts"
 import { payload, startServer, type Started } from "./helpers.ts"
+import { StartFrom } from "../src/startFrom.ts"
 
 describe("key value entities", () => {
   test("update, reply from the new state, query, delete, expire, refuse", async () => {
@@ -235,6 +236,7 @@ describe("consumers and timed actions", () => {
     class Watcher extends Consumer<Infer<typeof Ping>> {
       static readonly componentId = "watcher"
       static readonly topic = "pings"
+      static readonly startFrom = StartFrom.earliest
       static readonly message = jsonCodec(Ping, "ping")
       onMessage() {
         seen.push(this.sequenceNumber)

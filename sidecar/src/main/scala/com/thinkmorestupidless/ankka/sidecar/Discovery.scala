@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import ankka.protocol.v1.discovery.*
+import ankka.protocol.v1.discovery.StartFrom as ProtoStartFrom
 import com.thinkmorestupidless.ankka.core.{
   ComponentId,
   ComponentKind,
@@ -8,7 +9,8 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.*
-import com.thinkmorestupidless.ankka.sdk.{RecoverStrategy, WorkflowSettings}
+import com.thinkmorestupidless.ankka.runtime.TopicSourceRules
+import com.thinkmorestupidless.ankka.sdk.{RecoverStrategy, StartFrom, WorkflowSettings}
 import io.grpc.ManagedChannel
 import org.slf4j.LoggerFactory
 
@@ -35,6 +37,7 @@ object Discovery:
    *
    * 1.1: the caller on every forwarded request and caller-naming ACLs in discovery (feature 014).
    * 1.3: a consumer may answer with several messages, each under its own record key (feature 019).
+   * 1.4: a topic source declares where it starts, and a view or consumer over a topic its version.
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -168,17 +171,24 @@ object Discovery:
                 workflowSettings(c.id, d, problems)
               )
             case (Kind.VIEW, Component.Detail.View(d)) =>
-              source(c.id, d.source, problems).foreach { s =>
+              source(s"view '${c.id}'", c.id, d.source, problems).foreach { s =>
                 descriptors += RemoteViewDescriptor(
                   id,
                   s,
                   d.rowManifest,
-                  d.queries.map(MethodName(_)).toSet
+                  d.queries.map(MethodName(_)).toSet,
+                  d.version
                 )
               }
             case (Kind.CONSUMER, Component.Detail.Consumer(d)) =>
-              source(c.id, d.source, problems).foreach { s =>
-                descriptors += RemoteConsumerDescriptor(id, s, d.producesTo)
+              source(s"consumer '${c.id}'", c.id, d.source, problems).foreach { s =>
+                descriptors += RemoteConsumerDescriptor(
+                  id,
+                  s,
+                  d.producesTo,
+                  startDeclarable = declaresStartPositions(spec.protocolVersion),
+                  version = d.version
+                )
               }
             case (Kind.TIMED_ACTION, Component.Detail.TimedAction(_)) =>
               descriptors += RemoteTimedActionDescriptor(id, handlerMap)
@@ -234,6 +244,9 @@ object Discovery:
     ComponentRegistry.from(built) match
       case Left(more) => problems ++= more
       case Right(_)   => ()
+
+    // The rules a Scala service is held to, for what a process declared about the topics it reads.
+    problems ++= TopicSourceRules.problems(built)
 
     // Endpoints: the same rules HttpServer.validate applies to a Scala endpoint, at the boundary.
     spec.endpoints.groupBy(_.prefix).foreach { (prefix, sharing) =>
@@ -315,22 +328,70 @@ object Discovery:
           }.toMap
         )
 
+  /**
+   * `named` is how a problem names the component — `view 'summary'`. A start position is refused
+   * where it means nothing: on a source that reads an entity, and when it names no position, which
+   * a Scala declaration cannot say and a process can.
+   */
   private def source(
+      named: String,
       owner: String,
       s: Option[Source],
       problems: scala.collection.mutable.Builder[String, Vector[String]]
   ): Option[RemoteSource] =
+    val declaredStart = s.flatMap(_.startFrom)
     s.map(_.source) match
       case Some(Source.Source.Component(ref)) =>
         ComponentId.parse(ref.id) match
           case Left(msg) =>
             problems += s"component '$owner': source $msg"
             None
-          case Right(id) => Some(RemoteSource.Component(kindOf(ref.kind), id))
-      case Some(Source.Source.Topic(name)) if name.nonEmpty => Some(RemoteSource.Topic(name))
+          case Right(id) =>
+            val kind = kindOf(ref.kind)
+            if declaredStart.isDefined then
+              problems += s"$named declares a start position, which applies to a topic; it " +
+                s"reads ${describe(kind)} '$id'"
+            Some(RemoteSource.Component(kind, id))
+      case Some(Source.Source.Topic(name)) if name.nonEmpty =>
+        declaredStart match
+          case None => Some(RemoteSource.Topic(name, None))
+          // A start position that names nothing is refused once, here, and the source is not
+          // built: read as "none declared" it would be refused a second time for that.
+          case Some(declared) =>
+            startFrom(named, declared, problems).map(start => RemoteSource.Topic(name, Some(start)))
       case _ =>
         problems += s"component '$owner' declares no source"
         None
+
+  private def startFrom(
+      named: String,
+      declared: ProtoStartFrom,
+      problems: scala.collection.mutable.Builder[String, Vector[String]]
+  ): Option[StartFrom] =
+    declared.position match
+      case ProtoStartFrom.Position.Named(ProtoStartFrom.Named.EARLIEST) => Some(StartFrom.Earliest)
+      case ProtoStartFrom.Position.Named(ProtoStartFrom.Named.LATEST)   => Some(StartFrom.Latest)
+      case ProtoStartFrom.Position.AtMillis(millis) =>
+        Some(StartFrom.At(java.time.Instant.ofEpochMilli(millis)))
+      case _ =>
+        problems += s"$named declares a start position that names none"
+        None
+
+  /** A word for a kind, as a person would say it. */
+  private def describe(kind: ComponentKind): String = kind match
+    case ComponentKind.EventSourcedEntity => "event sourced entity"
+    case ComponentKind.KeyValueEntity     => "key value entity"
+    case other                            => other.toString
+
+  /**
+   * Whether an SDK speaking `protocolVersion` could have declared where a topic source starts. One
+   * that could not is not refused for declaring nowhere: refusing it would leave a running service
+   * unable to restart after the platform beneath it was upgraded.
+   */
+  def declaresStartPositions(protocolVersion: String): Boolean =
+    protocolVersion.split('.').toList.map(_.toIntOption) match
+      case Some(major) :: Some(minor) :: _ => major > 1 || (major == 1 && minor >= 4)
+      case _                               => true
 
   def kindOf(kind: Kind): ComponentKind = kind match
     case Kind.EVENT_SOURCED_ENTITY => ComponentKind.EventSourcedEntity

@@ -25,6 +25,10 @@ A consumer reads one source, declared the same way as a view's:
 From a key value entity a consumer sees the latest value, and intermediate values can be skipped. Use an
 event sourced source for anything that must react to every change.
 
+A consumer over a topic must also say where it starts — the earliest message the broker holds, the
+latest, or a time — and is refused when the service starts if it does not. A version, raised, has it read
+the topic again from there. See [Broker topics](topics.md#where-a-source-starts).
+
 Every change arrives with the source entity's id and a sequence number: an event's sequence number, or a
 key value entity's revision. A topic's message has no sequence number, and reads as zero.
 

@@ -57,6 +57,22 @@ trait ConformanceTarget:
    */
   val broker: InMemoryBroker = InMemoryBroker()
 
+  // Before the service starts, which every target does in its own body, after this one: what a
+  // topic source finds already there is what shows where it started.
+  (1 to 3).foreach { n =>
+    broker.publish(
+      ConformanceReference.Topic,
+      s"""{"n":$n}""".getBytes("UTF-8"),
+      com.thinkmorestupidless.ankka.core.Metadata.empty
+        .withSubject(s"t-$n")
+        .set(com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.Manifest, "fanned")
+        .set(
+          com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys.ContentType,
+          com.thinkmorestupidless.ankka.runtime.remote.Payload.Json
+        )
+    ): Unit
+  }
+
   /** A new service on the same database: every instance is gone from memory. */
   def restart(): Unit
 

@@ -234,6 +234,57 @@ impl Consumer for CheckoutFanout {
 }
 // docs:end fanout
 
+// ── topic-rows and topic-relay: a view and a consumer over a topic ──
+
+// docs:start topic-sources
+/// The latest message about each subject. Declares no start, so it reads from the earliest.
+pub struct TopicRows;
+
+impl View for TopicRows {
+    type Row = Fanned;
+    type Event = Fanned;
+    const COMPONENT_ID: &'static str = "topic-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("fanned");
+
+    fn source() -> Source {
+        Source::topic("conformance-topic")
+    }
+
+    fn version() -> Option<u32> {
+        Some(2)
+    }
+
+    fn on_event(_: Option<Fanned>, message: Fanned, _: &Context) -> ViewEffect<Fanned> {
+        ViewEffect::UpdateRow(message)
+    }
+}
+
+/// Republishes what it reads, from the latest: none of what the topic held when it started.
+pub struct TopicRelay;
+
+impl Consumer for TopicRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "topic-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-topic")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Latest)
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("conformance-topic-relayed")
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
+}
+// docs:end topic-sources
+
 // ── cart-graph and profile-graph: graph consumers over each kind of entity ──
 
 /// The example's cart graph, published to the topic the suite reads.
@@ -831,6 +882,8 @@ pub fn build() -> Service {
     let service = match ankka::config("ANKKA_KAFKA_BOOTSTRAP_SERVERS") {
         Some(_) => service
             .register(CheckoutFanout)
+            .register(TopicRows)
+            .register(TopicRelay)
             .register(ConformanceCartGraph)
             .register(ProfileGraph),
         None => service,

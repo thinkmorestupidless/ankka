@@ -76,8 +76,15 @@ object View:
      */
     def parallelism: Int = 4
 
+    /**
+     * Raise it to have this view read its topic again from its start position, emptied first.
+     * `None` is version 1. Only for a topic source: a version on one that reads an entity is
+     * refused when the service starts.
+     */
+    def version: Option[Int] = None
+
     final def descriptor: ViewDescriptor[V, Src, Row] =
-      ViewDescriptor(componentId, source, rowSerializer, create, parallelism)
+      ViewDescriptor(componentId, source, rowSerializer, create, parallelism, version)
 
 /** The registered form of a view. */
 final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
@@ -85,7 +92,8 @@ final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
     source: ChangeSource[Src],
     rowSerializer: Serializer[Row],
     create: ViewComponentContext => V,
-    parallelism: Int
+    parallelism: Int,
+    version: Option[Int] = None
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.View
 

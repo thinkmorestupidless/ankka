@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from ankka import DONE, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
+from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import ComponentClient
@@ -21,10 +21,12 @@ from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
 from ankka.effects.key_value import KeyValueEffect, KeyValueReadOnlyEffect
 from ankka.effects.timed_action import TimedActionEffect
+from ankka.effects.view import ViewEffect
 from ankka.graph import GraphEffect
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import Ankka, ServiceBuilder
 from ankka.timed_action import TimedAction, action
+from ankka.view import View
 
 from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRows
@@ -173,6 +175,38 @@ class CheckoutFanout(Consumer[ShoppingCartEvent, Fanned]):
                 )
         return self.effects.ignore()
 # docs:end fanout
+
+
+# ── topic-rows and topic-relay: a view and a consumer over a topic ──
+
+
+# docs:start topic-sources
+class TopicRows(View[Fanned, Fanned]):
+    """The latest message about each subject. Declares no start, so it reads from the earliest."""
+
+    component_id = "topic-rows"
+    topic = "conformance-topic"
+    version = 2
+    event_codec = json_codec(Fanned, "fanned")
+    row_codec = json_codec(Fanned, "fanned")
+
+    def on_change(self, message: Fanned) -> ViewEffect:
+        return self.effects.update_row(message)
+
+
+class TopicRelay(Consumer[Fanned, Fanned]):
+    """Republishes what it reads, from the latest: none of what the topic held when it started."""
+
+    component_id = "topic-relay"
+    topic = "conformance-topic"
+    start_from = StartFrom.LATEST
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = "conformance-topic-relayed"
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(message)
+# docs:end topic-sources
 
 
 # ── cart-graph and profile-graph: graph consumers, over events and over a key value entity ──
@@ -511,6 +545,8 @@ def reference_service() -> ServiceBuilder:
         .register(Profile)
         .register(CheckoutRecorder)
         .register(CheckoutFanout)
+        .register(TopicRows)
+        .register(TopicRelay)
         .register(ConformanceCartGraph)
         .register(ProfileGraph)
         .register(Reminder)

@@ -39,7 +39,11 @@ final class LowStockNotifier extends Consumer[StockEvent, LowStockAlert]:
 object LowStockNotifier
     extends Consumer.Companion[LowStockNotifier, StockEvent, LowStockAlert](
       componentId = ComponentId("low-stock-notifier"),
-      source = ChangeSource.fromTopic("stock-events", Codecs.serializer[StockEvent]("stock-event"))
+      source = ChangeSource.fromTopic(
+        "stock-events",
+        Codecs.serializer[StockEvent]("stock-event"),
+        StartFrom.Earliest
+      )
     ):
 
   /** What the consumer saw, for assertions. */
@@ -77,7 +81,11 @@ final class StockFanout extends Consumer[StockEvent, FanLine]:
 object StockFanout
     extends Consumer.Companion[StockFanout, StockEvent, FanLine](
       componentId = ComponentId("stock-fanout"),
-      source = ChangeSource.fromTopic("fanout-events", Codecs.serializer[StockEvent]("stock-event"))
+      source = ChangeSource.fromTopic(
+        "fanout-events",
+        Codecs.serializer[StockEvent]("stock-event"),
+        StartFrom.Earliest
+      )
     ):
   def create(ctx: ConsumerContext) = new StockFanout
 
@@ -94,7 +102,26 @@ final class TopiclessFanout extends Consumer[StockEvent, FanLine]:
 object TopiclessFanout
     extends Consumer.Companion[TopiclessFanout, StockEvent, FanLine](
       componentId = ComponentId("topicless-fanout"),
-      source =
-        ChangeSource.fromTopic("topicless-events", Codecs.serializer[StockEvent]("stock-event"))
+      source = ChangeSource.fromTopic(
+        "topicless-events",
+        Codecs.serializer[StockEvent]("stock-event"),
+        StartFrom.Earliest
+      )
     ):
   def create(ctx: ConsumerContext) = new TopiclessFanout
+
+/**
+ * A view of stock levels under any id, over any topic: one row per subject. Two services built with
+ * the same id over one topic are the case a consumer group named for the component alone gets
+ * wrong.
+ */
+def stockView(
+    id: String,
+    topic: String
+): View.Companion[StockLevelsView, StockEvent, StockRow] =
+  new View.Companion[StockLevelsView, StockEvent, StockRow](
+    ComponentId(id),
+    ChangeSource.fromTopic(topic, Codecs.serializer[StockEvent]("stock-event")),
+    Codecs.serializer[StockRow]("stock-row")
+  ):
+    def create(ctx: ViewComponentContext) = new StockLevelsView

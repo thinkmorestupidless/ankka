@@ -4,6 +4,7 @@
 //
 //   await Ankka.service().register(ShoppingCartEntity).register(ShoppingCartEndpoint).listen()
 
+import { isStartFrom, type StartFrom } from "./startFrom.ts"
 import { codecFor, isCodec, type Codec, type Shape } from "./codec.ts"
 import { EventSourcedEntity, type EventSourcedEntityClass } from "./eventSourcedEntity.ts"
 import { KeyValueEntity, type KeyValueEntityClass } from "./keyValueEntity.ts"
@@ -54,7 +55,9 @@ export interface RegisteredWorkflow {
 }
 
 /** Where a view or consumer reads from: a component, by kind and id, or a topic. */
-export type Source = { readonly component: { readonly kind: ComponentKind; readonly id: string } } | { readonly topic: string }
+export type Source =
+  | { readonly component: { readonly kind: ComponentKind; readonly id: string } }
+  | { readonly topic: string; readonly startFrom?: StartFrom }
 
 export interface RegisteredView {
   readonly kind: "view"
@@ -64,6 +67,7 @@ export interface RegisteredView {
   readonly eventCodec: Codec<any>
   readonly rowCodec: Codec<any>
   readonly queries: readonly string[]
+  readonly version: number | undefined
 }
 
 export interface RegisteredConsumer {
@@ -76,6 +80,7 @@ export interface RegisteredConsumer {
   readonly producesTo: string | undefined
   /** A graph consumer: its handlers return elements, each published as a delta under its element key. */
   readonly graph: boolean
+  readonly version: number | undefined
 }
 
 export interface RegisteredTimedAction {
@@ -350,19 +355,41 @@ function registerWorkflow(cls: WorkflowClass<any, any>, problems: string[]): Reg
   return Object.freeze({ kind: "workflow", id: cls.componentId, cls, stateCodec: codecFor(cls.state), handlers, steps, settings })
 }
 
-function sourceOf(cls: { source?: ComponentRef; topic?: string }, fail: Fail): Source | undefined {
+type Declares = { source?: ComponentRef; topic?: string; startFrom?: unknown; version?: unknown }
+
+/**
+ * What a view or consumer says about the topic it reads, checked where its other declarations are:
+ * a consumer must say where it starts, and a start position or a version means something only for a
+ * topic.
+ */
+function topicProblems(cls: Declares, consumer: boolean, fail: Fail): void {
+  const readsTopic = cls.source === undefined && cls.topic !== undefined
+  if (cls.startFrom !== undefined && !isStartFrom(cls.startFrom)) fail("startFrom must be StartFrom.earliest, StartFrom.latest or StartFrom.at(...)")
+  if (cls.startFrom !== undefined && !readsTopic) fail("declares a start position, which applies to a topic; it reads a component")
+  if (consumer && readsTopic && cls.startFrom === undefined) {
+    fail(`reads topic ${JSON.stringify(cls.topic)} and declares no start position; declare static startFrom = StartFrom.earliest, StartFrom.latest or StartFrom.at(...)`)
+  }
+  if (cls.version !== undefined) {
+    if (typeof cls.version !== "number" || !Number.isSafeInteger(cls.version) || cls.version < 1) {
+      fail(`declares version ${String(cls.version)}; a version is a whole number of 1 or more`)
+    } else if (!readsTopic) fail("declares a version, which applies to a topic; it reads a component")
+  }
+}
+
+function sourceOf(cls: Declares, fail: Fail, consumer: boolean): Source | undefined {
   const hasSource = cls.source !== undefined
   const hasTopic = cls.topic !== undefined
   if (hasSource === hasTopic) {
     fail("needs a static source (a component class) or a static topic, and not both")
     return undefined
   }
+  topicProblems(cls, consumer, fail)
   if (hasTopic) {
     if (typeof cls.topic !== "string" || cls.topic.trim() === "") {
       fail("topic must be a non-empty string")
       return undefined
     }
-    return { topic: cls.topic }
+    return isStartFrom(cls.startFrom) ? { topic: cls.topic, startFrom: cls.startFrom } : { topic: cls.topic }
   }
   const src = cls.source as ComponentRef
   const kind = src?.prototype?._kind
@@ -376,19 +403,28 @@ function sourceOf(cls: { source?: ComponentRef; topic?: string }, fail: Fail): S
 function registerView(cls: ViewClass<any, any, any>, problems: string[]): RegisteredView | undefined {
   const { fail, ok } = checker(cls, problems)
   requireId(cls, fail)
-  const source = sourceOf(cls, fail)
+  const source = sourceOf(cls, fail, false)
   requireShape(cls.events, "events: a schema or codec for the source's events", fail)
   requireShape(cls.row, "row: a schema or codec for its rows", fail)
   const queries = cls.queries ?? ["get", "all"]
   if (!Array.isArray(queries) || queries.some((q) => typeof q !== "string" || q.trim() === "")) fail("queries must be a list of names")
   if (!ok() || !source) return undefined
-  return Object.freeze({ kind: "view", id: cls.componentId, cls, source, eventCodec: codecFor(cls.events), rowCodec: codecFor(cls.row), queries: Object.freeze([...queries]) })
+  return Object.freeze({
+    kind: "view",
+    id: cls.componentId,
+    cls,
+    source,
+    eventCodec: codecFor(cls.events),
+    rowCodec: codecFor(cls.row),
+    queries: Object.freeze([...queries]),
+    version: cls.version,
+  })
 }
 
 function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[]): RegisteredConsumer | undefined {
   const { fail, ok } = checker(cls, problems)
   requireId(cls, fail)
-  const source = sourceOf(cls, fail)
+  const source = sourceOf(cls, fail, true)
   requireShape(cls.message, "message: a schema or codec for the source's messages", fail)
   if (cls.producesTo !== undefined && (typeof cls.producesTo !== "string" || cls.producesTo.trim() === "")) fail("producesTo must be a topic name")
   if (cls.producesTo !== undefined && !isShape(cls.out)) fail(`produces to ${JSON.stringify(cls.producesTo)} and needs a static out: the shape of what it produces`)
@@ -402,6 +438,7 @@ function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[])
     outCodec: cls.out ? codecFor(cls.out) : undefined,
     producesTo: cls.producesTo,
     graph: false,
+    version: cls.version,
   })
 }
 
@@ -409,7 +446,7 @@ function registerConsumer(cls: ConsumerClass<any, any, any>, problems: string[])
 function registerGraphConsumer(cls: GraphConsumerClass<any, any>, problems: string[]): RegisteredConsumer | undefined {
   const { fail, ok } = checker(cls, problems)
   requireId(cls, fail)
-  const source = sourceOf(cls, fail)
+  const source = sourceOf(cls, fail, true)
   requireShape(cls.message, "message: a schema or codec for the source's messages", fail)
   if (typeof cls.producesTo !== "string" || cls.producesTo.trim() === "") fail("needs a static producesTo: the topic its deltas are published to")
   if ((cls as { out?: unknown }).out !== undefined) fail("declares a static out, which a graph consumer does not have: what it produces is graph deltas")
@@ -423,6 +460,7 @@ function registerGraphConsumer(cls: GraphConsumerClass<any, any>, problems: stri
     outCodec: graphDeltaCodec,
     producesTo: cls.producesTo,
     graph: true,
+    version: cls.version,
   })
 }
 

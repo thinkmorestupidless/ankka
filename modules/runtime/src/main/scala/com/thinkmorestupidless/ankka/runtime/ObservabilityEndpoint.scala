@@ -127,11 +127,23 @@ object ObservabilityEndpoint:
         )
         .mkString("[", ",", "]")
 
+      // Each topic source: where it reads, under which group, from where, at which version.
+      val topicSources = TopicSources(service.system).all
+        .map { s =>
+          s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +
+            s""""topic":${Json.str(s.topic)},"group":${Json.str(s.group)},""" +
+            s""""start":${Json.str(s.startFrom.toString)},"version":${s.version},""" +
+            s""""recordedVersion":${s.recordedVersion.fold("null")(_.toString)},""" +
+            s""""behind":${s.behind}}"""
+        }
+        .mkString("[", ",", "]")
+
       respond(
         exchange,
         s"""{"name":${Json.str(serviceName)},""" +
           s""""runtime":${Json.str(com.thinkmorestupidless.ankka.core.BuildInfo.version)},""" +
-          s""""instances":$instances,"components":$components,"routes":$routes}"""
+          s""""instances":$instances,"components":$components,"routes":$routes,""" +
+          s""""topicSources":$topicSources}"""
       )
 
     /** The recent window, newest first, or one trace in full when asked for by id. */

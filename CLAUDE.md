@@ -347,6 +347,31 @@ guardrails and `ankka1_check_task_result`, on fresh instances — which is why a
 `&Context`: a fresh instance remembers nothing between checks. Notifications are a stream, so a
 module cannot forward them.
 
+### A topic source reads under a group of its own, from where it says, at a version
+
+Feature 024. Every topic subscription's consumer group comes from one function, `ConsumerGroups.name`:
+`ankka.<project>.<service>.<kind>[-vN].<id>` for a deployed service, `local` in the project's place for a
+local run that states `ankka.service.name`, and the old `ankka-<kind>-<id>` only for one that states
+nothing. A deployed service's project and name come from its own certificate (`ServiceIdentity`), never
+from configuration, which the service could write itself; `local` is a reserved project id for the same
+reason `platform` is. The version sits beside the kind because a component id may contain `.`, and
+`ConsumerGroupsSuite` holds distinct inputs to distinct names.
+
+`MessageSubscriber.subscribe` takes a `TopicSubscription` (topic, group, `StartFrom`) and returns a
+`Subscribed`. Kafka resolves the start position in a `PartitionAssignmentHandler` and **commits it at
+assignment**, so it applies once per partition: without the commit a `latest` group that had read nothing
+restarted at the new end. A consumer over a topic must declare a start (`TopicSourceRules`), except one
+discovered from an SDK below protocol 1.4, which could not, and starts at `earliest` with a warning.
+
+A view's version is recorded in `ankka_view_versions`, created by the runtime beside the view tables.
+A higher declared version empties the table and records itself under the view's exclusive advisory lock;
+every topic-view write runs under the same lock, shared, and writes only if the recorded version is its
+own (`ViewGuard`). That pair is the whole of "no row an older handler writes survives a rebuild", and
+`ViewVersionSuite`'s race case fails without the shared lock. A view is not emptied until
+`earliestRetained` has answered. What a topic source is shows in the log (`topic source subscribed:`,
+`view rebuild:`, `view behind its recorded version:`), in two metric series and in the local console's
+`topicSources`; there is no path to `services get`, deliberately, until a spec builds one.
+
 ### Virtual threads
 
 Endpoints, workflow steps, consumers, timers and agent loops all run on
@@ -1087,6 +1112,21 @@ the package and `package/test/fixture-host/` proves a second host works with no 
   them proof that a graph consumer writes what the sink reads — and `refused.json` is ankka's own.
   `SOURCE.md` there names the ankka-flow commit. Change neither copied file here; copy them again.
   All four SDKs test against all three.
+- **A kill switch downstream of `Committer.flow` cancels the commit it was about to flush.** The Kafka
+  subscriber's switch sat after the committer, so stopping a subscription cancelled the batch in hand,
+  and the same group, subscribed again, was handed everything since the last flush — the subscriber
+  contract's resume case read `a1..a5` again. The switch is shared and placed between the source and
+  the handler: shutting it completes what is downstream, so the message in hand finishes and the
+  committer flushes on completion.
+- **Pekko's `SendProducer` does not keep sends in order.** Its `send` is `producerFuture.flatMap(_.send(…))`
+  on a multi-threaded dispatcher, so sends issued in order are separate tasks that may reach Kafka in
+  either order — and a key only orders what reaches the producer in order. A consumer's several messages
+  under one key landed `3, 1` on CI, in a suite that had passed every local run. `KafkaPublisher` calls the
+  Kafka producer directly; `KafkaSuite`'s ordering case fails on every run against the old publisher.
+- **The in-memory broker's publication future is its groups' delivery.** It completes when every group on
+  the topic has caught up, and fails with a handler that failed; a failed message stays at the head of its
+  group until the next publication or `redeliver(topic)`. A test that republished to simulate redelivery
+  now delivers twice; ask for `redeliver` instead.
 - **A record's key and its subject are two things.** `ce-subject` says which entity a message is
   about; the record key says which messages are ordered together and which one a compacted topic
   keeps. They are the same unless a message names a key (`Outgoing.withKey`, and every graph delta

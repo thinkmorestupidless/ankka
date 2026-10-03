@@ -538,4 +538,9 @@ def test_the_references_graph_consumers_publish_the_cart_and_the_profile() -> No
     assert profile.on_message(ProfileState("Ada"), "p1", sequence=1) == [Element("node", "node", "profile:p1", 1, ("Profile",), properties={"name": "Ada"})]
     assert profile.on_delete("p1", sequence=2) == [Element("tombstone", "node", "profile:p1", 2)]
     topics = {c.id: c.consumer.produces_to for c in reference_service().spec().components if c.consumer.HasField("produces_to")}
-    assert topics == {"checkout-fanout": "conformance-fanout", "cart-graph": "conformance-graph", "profile-graph": "conformance-profile-graph"}
+    assert topics == {
+        "checkout-fanout": "conformance-fanout",
+        "cart-graph": "conformance-graph",
+        "profile-graph": "conformance-profile-graph",
+        "topic-relay": "conformance-topic-relayed",
+    }

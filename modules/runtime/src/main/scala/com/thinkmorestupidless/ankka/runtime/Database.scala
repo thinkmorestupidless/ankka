@@ -5,6 +5,7 @@ import io.r2dbc.spi.{Connection, ConnectionFactory, Row, RowMetadata, Statement}
 import java.util.function.BiFunction
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.persistence.r2dbc.ConnectionFactoryProvider
+import org.apache.pekko.stream.Materializer
 import org.apache.pekko.stream.scaladsl.{Sink, Source}
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -70,6 +71,24 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
       }
     }
 
+  /**
+   * `work`, inside one transaction on one connection: committed when it succeeds, rolled back when
+   * it fails, and anything it locked is released either way. For work whose next statement depends
+   * on what an earlier one found, which `executeAllInTransaction` cannot express.
+   */
+  def inTransaction[A](work: Database.Transaction => Future[A]): Future[A] =
+    withConnection { connection =>
+      def run(publisher: org.reactivestreams.Publisher[Void]): Future[Unit] =
+        Source.fromPublisher(publisher).runWith(Sink.ignore).map(_ => ())
+      run(connection.beginTransaction()).flatMap { _ =>
+        work(Database.Transaction(connection)).transformWith {
+          case scala.util.Success(value) => run(connection.commitTransaction()).map(_ => value)
+          case scala.util.Failure(e) =>
+            run(connection.rollbackTransaction()).transform(_ => scala.util.Failure(e))
+        }
+      }
+    }
+
   /** Executes a statement, returning the number of rows affected. */
   def execute(fragment: SqlFragment): Future[Long] =
     withConnection { connection =>
@@ -118,6 +137,25 @@ private[ankka] final class Database(factory: ConnectionFactory)(using system: Ac
     query(fragment)(decode).map(_.headOption)
 
 private[ankka] object Database:
+
+  /** The statements of one transaction, on its connection, one after another. */
+  final class Transaction private[runtime] (connection: Connection)(using Materializer):
+
+    /** Executes a statement, returning the number of rows affected. */
+    def execute(fragment: SqlFragment): Future[Long] =
+      Source
+        .fromPublisher(bind(connection.createStatement(fragment.render), fragment).execute())
+        .flatMapConcat(result => Source.fromPublisher(result.getRowsUpdated))
+        .runWith(Sink.fold(0L)((total, updated) => total + updated.longValue))
+
+    /** Runs a query and decodes every row. */
+    def query[A](fragment: SqlFragment)(decode: Row => A): Future[Vector[A]] =
+      val mapper: BiFunction[Row, RowMetadata, A] = (row, _) => decode(row)
+      Source
+        .fromPublisher(bind(connection.createStatement(fragment.render), fragment).execute())
+        .flatMapConcat(result => Source.fromPublisher(result.map(mapper)))
+        .runWith(Sink.seq)
+        .map(_.toVector)(using ExecutionContext.parasitic)
 
   def apply()(using system: ActorSystem[?]): Database =
     val factory = ConnectionFactoryProvider

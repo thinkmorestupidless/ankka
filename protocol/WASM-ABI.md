@@ -116,6 +116,11 @@ streaming endpoint route, a stateful id that is not a declared stateful-kind com
 `abi_version` other than the exports' prefix. Every problem is reported at once in the runtime's
 log; there is no `ReportError` call into a module.
 
+A view's or consumer's start position and version (protocol 1.4) arrive in `WasmSpec.spec` exactly as
+a process declares them and are held to the same rules. A host older than 1.4 would ignore both, so a
+guest that declares either reads `SidecarInfo.protocol_version` and refuses to answer discovery with
+them when the host's is earlier.
+
 ## The envelopes (`wasm.proto`)
 
 | message | carries |

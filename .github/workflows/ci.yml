@@ -161,6 +161,8 @@ jobs:
               - '.claude/**'                      # spec-kit's commands for developing ankka
               - '.specify/**'
               - 'specs/**'                        # feature records; nothing builds from them
+              - 'features/**'                     # the platform's living scenarios; the bdd checker reads them, no job runs it yet
+              - 'GLOSSARY.md'                     # the words those scenarios use, read by the same checker
 
   build:
     needs: changes

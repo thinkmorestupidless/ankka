@@ -158,7 +158,11 @@ class TopicSourceSuite extends munit.FunSuite with LogCapturing:
     assertEquals(lines("fan-4").map(_.text.takeRight(2)), Seq("1}", "3}"))
 
     // Redelivered, as a broker does with a message whose offset was not committed.
-    assert(deliver("fanout-events", StockEvent("fan-4", 5, "w1")).isSuccess)
+    assert(
+      scala.util
+        .Try(scala.concurrent.Await.result(broker.redeliver("fanout-events"), 10.seconds))
+        .isSuccess
+    )
     val all = lines("fan-4").map(_.text.takeRight(2))
     assertEquals(all.count(_ == "2}"), 1, "the refused message is there now")
     assert(all.count(_ == "1}") >= 2, s"and the accepted ones were published again: $all")
@@ -203,6 +207,30 @@ class TopicSourceSuite extends munit.FunSuite with LogCapturing:
     }
     assert(failure.getMessage.contains("MessageSubscriber"), failure.getMessage)
     assert(failure.getMessage.contains("stock-events"), failure.getMessage)
+  }
+
+  test("a topic source of a service whose identity could not be read is refused, naming why") {
+    // As a deployed service whose certificate names no one: its groups would have no service to be
+    // named for, and falling back to the component's name alone is the defect itself.
+    val why = "the certificate at /var/run/secrets/ankka/service/tls.crt carries no identity"
+    val failure = intercept[IllegalArgumentException] {
+      AnkkaTestKit.start(
+        Seq(StockLevels.descriptor),
+        Seq(ProjectionRuntime.withBroker(InMemoryBroker(), InMemoryBroker())),
+        configure = _.withIdentity(Left(why))
+      )
+    }
+    assert(failure.getMessage.contains("stock-levels"), failure.getMessage)
+    assert(failure.getMessage.contains(why), failure.getMessage)
+  }
+
+  test("a service with no topic source starts whether or not its identity could be read") {
+    val kit = AnkkaTestKit.start(
+      Seq.empty,
+      Seq(ProjectionRuntime.withBroker(InMemoryBroker(), InMemoryBroker())),
+      configure = _.withIdentity(Left("no certificate"))
+    )
+    kit.stop()
   }
 
   test("fromEnv with no broker named is broker-less, and the refusal names the variable") {

@@ -6,11 +6,13 @@ import typing
 from collections.abc import Awaitable
 from typing import Any, ClassVar, Generic, TypeVar
 
+from ankka import start_from
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.codec import Codec
 from ankka.context import Metadata
 from ankka.effects.consumer import ConsumerEffect, ConsumerEffects, Done, Ignore, Produce, ProduceAll
 from ankka.event_sourced_entity import RegistrationError
+from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 
 if typing.TYPE_CHECKING:
@@ -25,6 +27,10 @@ class Consumer(Generic[Src, Out]):
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None
     produces_to: ClassVar[str | None] = None
+    # Where a topic source starts. A consumer over a topic must say: there is no default.
+    start_from: ClassVar[StartFrom | None] = None
+    # A new one reads its topic again from start_from, under a group of its own. Absent is 1.
+    version: ClassVar[int | None] = None
     message_codec: ClassVar[Codec[Any]]
     out_codec: ClassVar[Codec[Any] | None] = None
 
@@ -34,6 +40,9 @@ class Consumer(Generic[Src, Out]):
             if not hasattr(cls, required):
                 raise RegistrationError(f"{cls.__name__} must declare {required}")
         _source_pb(cls)
+        found = start_from.problems(cls, consumer=True)
+        if found:
+            raise RegistrationError("; ".join(found))
         if cls.produces_to is not None and cls.out_codec is None:
             raise RegistrationError(f"{cls.__name__} produces to '{cls.produces_to}' and needs an out_codec")
 
@@ -55,7 +64,7 @@ class Consumer(Generic[Src, Out]):
 
     @classmethod
     def to_component(cls) -> discovery_pb2.Component:
-        detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls))
+        detail = discovery_pb2.ConsumerDetail(source=_source_pb(cls), version=cls.version)
         if cls.produces_to is not None:
             detail.produces_to = cls.produces_to
         return discovery_pb2.Component(kind=discovery_pb2.CONSUMER, id=cls.component_id, handlers=[], consumer=detail)

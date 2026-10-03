@@ -7,8 +7,10 @@ import typing
 from collections.abc import Awaitable
 from typing import Any, ClassVar, Generic, TypeVar
 
+from ankka import start_from
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
 from ankka.codec import Codec
+from ankka.start_from import StartFrom
 from ankka.context import Metadata
 from ankka.effects.view import DeleteRow, Ignore, UpdateRow, ViewEffect, ViewEffects
 from ankka.event_sourced_entity import RegistrationError
@@ -26,7 +28,7 @@ def _source_pb(cls: type) -> discovery_pb2.Source:
             kind = source.to_component().kind
         return discovery_pb2.Source(component=discovery_pb2.Source.ComponentRef(kind=kind, id=source.component_id))
     if topic is not None:
-        return discovery_pb2.Source(topic=topic)
+        return start_from.apply(discovery_pb2.Source(topic=topic), cls)
     raise RegistrationError(f"{cls.__name__} must declare a source (a component class) or a topic")
 
 
@@ -38,6 +40,10 @@ class View(Generic[Src, Row]):
     component_id: ClassVar[str]
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None
+    # Where a topic source starts; a view that says nothing starts at the earliest message.
+    start_from: ClassVar[StartFrom | None] = None
+    # Raised to have the view emptied and read again from its topic. Absent is 1.
+    version: ClassVar[int | None] = None
     event_codec: ClassVar[Codec[Any]]
     row_codec: ClassVar[Codec[Any]]
     queries: ClassVar[tuple[str, ...]] = ("get", "all")
@@ -48,6 +54,9 @@ class View(Generic[Src, Row]):
             if not hasattr(cls, required):
                 raise RegistrationError(f"{cls.__name__} must declare {required}")
         _source_pb(cls)
+        found = start_from.problems(cls, consumer=False)
+        if found:
+            raise RegistrationError("; ".join(found))
 
     def __init__(self) -> None:
         self.effects: ViewEffects[Row] = ViewEffects()
@@ -76,7 +85,9 @@ class View(Generic[Src, Row]):
             kind=discovery_pb2.VIEW,
             id=cls.component_id,
             handlers=[],
-            view=discovery_pb2.ViewDetail(source=_source_pb(cls), row_manifest=cls.row_codec.manifest, queries=list(cls.queries)),
+            view=discovery_pb2.ViewDetail(
+                source=_source_pb(cls), row_manifest=cls.row_codec.manifest, queries=list(cls.queries), version=cls.version
+            ),
         )
 
     async def _handle(self, event_bytes: bytes | None, row_bytes: bytes | None, metadata: Metadata) -> ViewEffect:

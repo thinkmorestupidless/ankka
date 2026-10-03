@@ -13,6 +13,7 @@ import { noClient } from "../src/client.ts"
 import { jsonCodec } from "../src/codec.ts"
 import { reviver } from "../src/json.ts"
 import { s, type Infer } from "../src/schema.ts"
+import { StartFrom } from "../src/startFrom.ts"
 import { PROTOCOL_VERSION } from "../src/spec.ts"
 import {
   GRAPH_DELTA_SCHEMA, Graph, GraphConsumer, GraphEffects, GraphError, deltaRecords, edgeKey, elementKey, graphDeltaCodec, nodeKey, readDelta,
@@ -322,6 +323,7 @@ type Change = Infer<typeof Change>
 class Things extends GraphConsumer<Change> {
   static readonly componentId = "things"
   static readonly topic = "changes"
+  static readonly startFrom = StartFrom.earliest
   static readonly message = jsonCodec(Change, "change")
   static readonly producesTo = "thing-graph"
 
@@ -472,6 +474,7 @@ describe("a graph consumer, registered and served", () => {
     class Nowhere extends GraphConsumer<Change> {
       static readonly componentId = "nowhere"
       static readonly topic = "changes"
+      static readonly startFrom = StartFrom.earliest
       static readonly message = jsonCodec(Change, "change")
       onMessage() {
         return this.effects.ignore()
@@ -484,6 +487,7 @@ describe("a graph consumer, registered and served", () => {
     class WithOut extends GraphConsumer<Change> {
       static readonly componentId = "with-out"
       static readonly topic = "changes"
+      static readonly startFrom = StartFrom.earliest
       static readonly message = jsonCodec(Change, "change")
       static readonly producesTo = "g"
       static readonly out = jsonCodec(Change, "change")

@@ -3,7 +3,13 @@ package com.thinkmorestupidless.ankka.testkit
 import com.typesafe.config.{Config, ConfigFactory}
 import com.thinkmorestupidless.ankka.agent.autonomous.{TaskType, TypedTaskSnapshot, forTask}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
-import com.thinkmorestupidless.ankka.runtime.{ServiceBuilder, Ankka, AnkkaService, RuntimeExtension}
+import com.thinkmorestupidless.ankka.runtime.{
+  ServiceBuilder,
+  Ankka,
+  AnkkaService,
+  RuntimeExtension,
+  ServiceIdentity
+}
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.testcontainers.containers.PostgreSQLContainer
@@ -168,8 +174,14 @@ object AnkkaTestKit:
       descriptors: Seq[ComponentDescriptor],
       extensions: Seq[RuntimeExtension] = Nil,
       readyTimeout: FiniteDuration = 60.seconds,
-      configure: ServiceBuilder => ServiceBuilder = identity
+      configure: ServiceBuilder => ServiceBuilder = identity,
+      serviceIdentity: ServiceIdentity = ServiceIdentity.unnamed
   ): AnkkaTestKit =
+    // On every start and restart, as the rest of `configure` is: the identity is part of what the
+    // service is, not something a restart forgets. Before `configure`, so a suite can state an
+    // identity that could not be read, which only ankka's own tests have reason to.
+    val configured: ServiceBuilder => ServiceBuilder =
+      builder => configure(builder.withIdentity(Right(serviceIdentity)))
     val container = AnkkaPostgres(DockerImageName.parse(PostgresImage))
       .withDatabaseName("ankka")
       .withUsername("ankka")
@@ -195,13 +207,13 @@ object AnkkaTestKit:
     val config = configFor(container)
 
     val service =
-      try hostService(descriptors, extensions, configure, config, readyTimeout)
+      try hostService(descriptors, extensions, configured, config, readyTimeout)
       catch
         case failure: Throwable =>
           container.stop()
           throw failure
 
-    new AnkkaTestKit(descriptors, extensions, configure, config, container, readyTimeout, service)
+    new AnkkaTestKit(descriptors, extensions, configured, config, container, readyTimeout, service)
 
   def start(first: ComponentDescriptor, rest: ComponentDescriptor*): AnkkaTestKit =
     start(first +: rest)

@@ -48,6 +48,9 @@ services:
       # Desktop provides it anyway.
       ANKKA_PROCESS_ADDRESS: host.docker.internal:9010
       ANKKA_SIDECAR_BIND: 0.0.0.0
+      # Names the consumer group each topic source reads under, so two services on one broker
+      # never share one. A deployed service's name comes from the platform instead.
+      ANKKA_SERVICE_NAME: {{name}}
       ANKKA_HTTP_PORT: "9000"
       ANKKA_DB_HOST: postgres
       ANKKA_DB_PORT: "5432"
@@ -72,6 +75,7 @@ services:
         condition: service_healthy
     environment:
       ANKKA_WASM_MODULE: /module/service.wasm
+      ANKKA_SERVICE_NAME: {{name}}
       ANKKA_HTTP_PORT: "9000"
       ANKKA_DB_HOST: postgres
       ANKKA_DB_PORT: "5432"

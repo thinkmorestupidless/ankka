@@ -116,6 +116,10 @@ The Rust SDK builds services this way. See [WebAssembly ABI](../reference/wasm-a
   loaded, and keeps it until the runtime unloads it, which saves decoding the state on every command.
   Either way the runtime holds the encoded state too, so a module that faults loses nothing: the call
   that faulted fails, and the next one starts from the state the runtime holds.
+- **A module learns which protocol its runtime speaks.** Discovery hands it the runtime's protocol
+  version, and a module that declares something an older runtime would ignore — where a topic source
+  starts, or its version — refuses to start there rather than be hosted wrong. Run a runtime image that
+  speaks at least the protocol the crate does.
 - **What it costs, and what it saves.** A command handled by a module skips the round trip to a process
   entirely, and there is no second container to size or restart. In exchange a running call cannot be
   interrupted — a call that exceeds the runtime's timeout is abandoned and its instance replaced — a

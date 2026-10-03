@@ -9,6 +9,7 @@
 //     onChange(event) { ... return this.effects.updateRow(...) }
 //   }
 
+import type { StartFrom } from "./startFrom.ts"
 import type { Shape } from "./codec.ts"
 import type { Metadata } from "./effects/common.ts"
 import type { ComponentClient } from "./client.ts"
@@ -74,6 +75,10 @@ export interface ViewClass<E = unknown, Row = unknown, C extends View<E, Row> = 
   /** The component whose changes feed the view, or `topic`. */
   readonly source?: ComponentRef
   readonly topic?: string
+  /** Where a topic source starts the first time its group reads the topic. */
+  readonly startFrom?: StartFrom
+  /** Raised to read the topic again from the start position, under a group of its own. Absent is 1. */
+  readonly version?: number
   readonly events: Shape<E>
   readonly row: Shape<Row>
   /** The query names the view answers; `get` and `all` by default. */

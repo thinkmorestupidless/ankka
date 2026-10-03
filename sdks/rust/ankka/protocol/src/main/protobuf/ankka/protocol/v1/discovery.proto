@@ -69,10 +69,35 @@ message WorkflowDetail {
 message Source {
   oneof source { ComponentRef component = 1; string topic = 2; }
   message ComponentRef { Kind kind = 1; string id = 2; }
+  // 1.4: where a topic source starts the first time its consumer group reads a partition. Only
+  // with `topic`. Absent: a view starts at the earliest message; a consumer is refused.
+  optional StartFrom start_from = 3;
 }
 
-message ViewDetail { Source source = 1; string row_manifest = 2; repeated string queries = 3; }
-message ConsumerDetail { Source source = 1; optional string produces_to = 2; }
+// 1.4
+message StartFrom {
+  oneof position {
+    Named named = 1;
+    int64 at_millis = 2;      // the first message published at or after this time, in ms since the epoch
+  }
+  enum Named {
+    NAMED_UNSPECIFIED = 0;
+    EARLIEST = 1;             // the oldest message the broker holds
+    LATEST = 2;               // after the newest: only what is published from then on
+  }
+}
+
+message ViewDetail {
+  Source source = 1;
+  string row_manifest = 2;
+  repeated string queries = 3;
+  optional uint32 version = 4;    // 1.4: only with a topic source; a higher one rebuilds the view. Absent: 1
+}
+message ConsumerDetail {
+  Source source = 1;
+  optional string produces_to = 2;
+  optional uint32 version = 3;    // 1.4: only with a topic source; a new one reads under a new group. Absent: 1
+}
 message TimedActionDetail {}
 
 message AgentDetail {

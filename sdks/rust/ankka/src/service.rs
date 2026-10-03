@@ -5,6 +5,7 @@
 //! registered here, so an unregistered one fails at startup rather than at its first request.
 //! Problems are collected and reported together.
 
+use crate::start_from;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -18,7 +19,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.3";
+pub const PROTOCOL_VERSION: &str = "1.4";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -159,11 +160,20 @@ impl Service {
     }
 
     /// What `ankka1_discover` answers: every component, sorted by id, and which keep their state.
+    ///
+    /// # Panics
+    ///
+    /// When a view or consumer declares where its topic starts, or its version, and the host
+    /// speaks a protocol older than 1.4, which would ignore both: a consumer declared `Latest`
+    /// would read everything, and a raised version would rebuild nothing. The module is refused
+    /// to start, naming what declares them, rather than served wrong.
     pub fn discover(&self, info: &proto::SidecarInfo) -> proto::WasmSpec {
-        let _ = info;
         let mut components: Vec<proto::Component> =
             self.components.iter().map(|c| c.to_component()).collect();
         components.sort_by(|a, b| a.id.cmp(&b.id));
+        if let Some(refusal) = refusal(&components, &info.protocol_version) {
+            panic!("{refusal}");
+        }
         let mut stateful: Vec<String> = self
             .components
             .iter()
@@ -355,6 +365,26 @@ fn not_found(component_id: &str) -> proto::Failure {
             code: proto::ErrorCode::NotFound as i32,
         }),
     }
+}
+
+/// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot.
+pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
+    if !start_from::older_than_start_positions(host_protocol) {
+        return None;
+    }
+    let declaring: Vec<&str> = components
+        .iter()
+        .filter(|c| start_from::declares_any(c))
+        .map(|c| c.id.as_str())
+        .collect();
+    (!declaring.is_empty()).then(|| {
+        format!(
+            "{} declare where a topic source starts or its version, which the runtime ignores: \
+             it speaks protocol {host_protocol}, and this crate {PROTOCOL_VERSION}. Run a runtime \
+             speaking 1.4 or later.",
+            declaring.join(", ")
+        )
+    })
 }
 
 #[cfg(test)]

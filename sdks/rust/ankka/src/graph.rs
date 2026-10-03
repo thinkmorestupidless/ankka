@@ -27,6 +27,7 @@
 //! of its state, never a change to it; and an element has one writer — the entity it belongs to —
 //! because only that entity's sequence numbers can order its deltas.
 
+use crate::start_from::{self, StartFrom};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::marker::PhantomData;
@@ -824,6 +825,18 @@ pub trait GraphConsumer: Sized + 'static {
     /// Where the changes come from.
     fn source() -> Source;
 
+    /// Where a topic source starts, the first time its consumer group reads the topic. A graph
+    /// consumer that reads a topic must say: there is no default.
+    fn start_from() -> Option<StartFrom> {
+        None
+    }
+
+    /// A new one reads the topic again from the start position, under a group of its own. `None`
+    /// is version 1. Only for a topic source.
+    fn version() -> Option<u32> {
+        None
+    }
+
     /// The elements one change leaves, each in its whole state. The source entity's id is
     /// `ctx.entity_id()`, and the change's sequence number, which is every element's version
     /// unless it states one, is `ctx.sequence()`. A topic's messages have no sequence number: an
@@ -878,8 +891,9 @@ impl<G: GraphConsumer> Registered for Registration<G> {
             id: G::COMPONENT_ID.to_string(),
             handlers: Vec::new(),
             detail: Some(proto::component::Detail::Consumer(proto::ConsumerDetail {
-                source: Some(G::source().to_proto()),
+                source: Some(start_from::source_proto(&G::source(), G::start_from())),
                 produces_to: Some(G::TOPIC.to_string()),
+                version: G::version(),
             })),
         }
     }
@@ -895,6 +909,13 @@ impl<G: GraphConsumer> Registered for Registration<G> {
                 G::COMPONENT_ID
             ));
         }
+        problems.extend(start_from::problems(
+            &format!("graph consumer '{}'", G::COMPONENT_ID),
+            &G::source(),
+            G::start_from(),
+            G::version(),
+            true,
+        ));
         problems
     }
 

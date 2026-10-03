@@ -11,7 +11,7 @@ from typing import Any
 import grpc
 import pytest
 
-from ankka import GraphConsumer, Metadata, graph
+from ankka import GraphConsumer, Metadata, StartFrom, graph
 from ankka._proto.ankka.protocol.v1 import consumer_pb2, discovery_pb2, payload_pb2
 from ankka.consumer import Consumer
 from ankka.effects.consumer import ConsumerEffect, Done, Ignore, ProduceAll
@@ -283,6 +283,7 @@ class TopicGraph(GraphConsumer[CounterEvent]):
 
     component_id = "topic-graph"
     topic = "counts"
+    start_from = StartFrom.EARLIEST
     produces_to = "counter-graph"
     message_codec = CounterEntity.event_codec
 
@@ -465,6 +466,7 @@ def test_a_consumer_of_a_delta_topic_decodes_with_the_same_codec() -> None:
     class Reader(Consumer[Element, None]):
         component_id = "delta-reader"
         topic = "counter-graph"
+        start_from = StartFrom.EARLIEST
         message_codec = graph.CODEC
 
         def on_message(self, message: Element) -> ConsumerEffect:

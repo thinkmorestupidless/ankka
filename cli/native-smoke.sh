@@ -10,7 +10,7 @@ set -euo pipefail
 bin="$1"
 expected="${2:-}"
 work="$(mktemp -d)"
-trap 'kill "${console:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
+trap 'kill "${console:-}" "${web:-}" "${listener:-}" 2>/dev/null || true; rm -rf "$work"' EXIT
 export ANKKA_CONFIG="$work/config.json"   # never the developer's own ~/.ankka
 
 fail() { echo "native smoke: $*" >&2; exit 1; }
@@ -65,3 +65,50 @@ mkdir -p "$work/existing"
 grep -q '"command": "ankka"' "$work/existing/.mcp.json" \
   || fail "ankka mcp install wrote no ankka server: $(cat "$work/existing/.mcp.json")"
 echo "mcp install writes a project's .mcp.json"
+
+# `ankka local web` runs the proxy's engine inside the image. Ports found free, never the default
+# 8080, which is where a local installation's gateway listens.
+free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'; }
+process_port="$(free_port)"
+web_port="$(free_port)"
+mkdir -p "$work/web"
+printf '{"name":"web","service":{"image":"web:1","hosting":"web","processPort":%s}}\n' "$process_port" \
+  > "$work/web/service.json"
+"$bin" local web -f "$work/web/service.json" --port "$web_port" > "$work/web.out" 2>&1 &
+web=$!
+services=""
+for _ in $(seq 1 100); do
+  services="$(sed -n 's/^ANKKA_SERVICES_URL=//p' "$work/web.out")"
+  [ -n "$services" ] && break
+  sleep 0.1
+done
+[ -n "$services" ] || fail "ankka local web did not start: $(cat "$work/web.out")"
+# A call to a service nobody runs is the proxy's own 503, marked as its.
+answer="$(curl -s -D - -o /dev/null -w '%{http_code}' "$services/nothing/x" || true)"
+case "$answer" in
+  *[Xx]-[Aa]nkka-[Aa]nswered-[Bb]y:\ proxy*503) ;;
+  *) fail "a call to no service was not the proxy's 503: $answer" ;;
+esac
+# The process is given the Host the proxy chose, not the one its client would: the restricted-header
+# option reached the image.
+python3 -c '
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        open(sys.argv[2], "w").write(self.headers.get("Host", ""))
+        self.send_response(200); self.end_headers()
+    def log_message(self, *a): pass
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).handle_request()
+' "$process_port" "$work/host.txt" &
+listener=$!
+status=""
+for _ in $(seq 1 50); do
+  status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: smoke.test' "http://127.0.0.1:$web_port/" || true)"
+  [ "$status" = "200" ] && break
+  sleep 0.1
+done
+[ "$status" = "200" ] || fail "the process was not reached through ankka local web: $status"
+host="$(cat "$work/host.txt" 2>/dev/null || true)"
+[ "$host" = "127.0.0.1:$web_port" ] \
+  || fail "the process was given Host '$host', not the proxy's: the image may lack jdk.httpclient.allowRestrictedHeaders=host"
+echo "local web  answers for the proxy, and sets the process's Host"

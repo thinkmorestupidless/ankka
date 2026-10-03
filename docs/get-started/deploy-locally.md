@@ -221,7 +221,7 @@ deployed as `cart` in the same project:
 
 ```bash
 ankka services apply -f samples/shopping-cart-web/service.json
-ankka services get cart-web        # Ready; its mount of cart: ok
+ankka services get cart-web        # Ready, with the mount /api/cart → cart
 ankka services expose cart-web
 ```
 

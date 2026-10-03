@@ -9,8 +9,11 @@ which tasks are done (`[X]`); this note records what the task list cannot.
   logs, the console, `ankka local web`, the web template, the sample's interface (`cart-web`), the
   cloud overlay's proxy image, the `web` CI job, and the documentation (three new pages, the skill
   `ankka-web`, `WebHostingDocumentationSuite`).
-- **Left:** T050 (the manual proof with a pre-feature cart, on a local installation) and T051
-  (every check that gates a merge). T049 measured 0.051 ms added and 88 MiB resident (R19).
+- **Left:** T050's last part, timing the first-interface guide once, followed by someone who did not
+  write it (SC-002); its older-runtime proof is done and recorded in R3. T051's full `caffeinate -i
+  sbt test`; every other check it lists has passed (offline tests, features check, docs, console,
+  native image and smoke test with GraalVM 25, `deploy-local.sh` on a fresh kind cluster with the cart
+  and `cart-web` serving). T049 measured 0.051 ms added and 88 MiB resident (R19).
 - **Branch protection must require the new `web` job** once the pull request exists.
 
 ## What is established

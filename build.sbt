@@ -539,9 +539,10 @@ lazy val proxyCore = project
  */
 lazy val proxy = project
   .in(file("proxy"))
-  // http test->test for PreFeatureCaller, the frozen reading of a certificate the features use.
+  // proxyCore test->test for the stand-in process its engine suite drives; http test->test for
+  // PreFeatureCaller, the frozen reading of a certificate the features use.
   .dependsOn(
-    proxyCore,
+    proxyCore % "compile->compile;test->test",
     runtime,
     http    % "compile->compile;test->test",
     testPki % Test,
@@ -557,7 +558,9 @@ lazy val proxy = project
     dockerExposedPorts  := Seq(9000, 7627),
     libraryDependencies += logback,
     Universal / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
-    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host"
+    Test / javaOptions += "-Djdk.httpclient.allowRestrictedHeaders=host",
+    // Named, not discovered: ankka-testkit and http's tests both ship a logback-test.xml here.
+    Test / javaOptions += "-Dlogback.configurationFile=logback-proxy-test.xml"
   )
 
 /** The `ankka` command-line client. */

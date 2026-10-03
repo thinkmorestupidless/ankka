@@ -4,14 +4,16 @@ import com.typesafe.config.Config
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import org.apache.pekko.Done
+import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.MemberStatus
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity}
 import org.apache.pekko.cluster.typed.Cluster
 
-import scala.concurrent.Future
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
+import scala.concurrent.{Await, Future}
 
 /**
  * Something that runs alongside the hosted components and needs the service to exist before it can
@@ -232,6 +234,7 @@ final class ServiceBuilder private[ankka] (
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
     service.awaitReady()
+    service.registerShutdown()
     extensions.foreach { extension =>
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)
@@ -416,21 +419,49 @@ final class AnkkaService private[ankka] (
    */
   private[ankka] def observabilityAddress: Option[String] = observability.map(_.address)
 
+  /**
+   * Stops every extension, once, however many paths ask. A lazy val, so the first to ask starts the
+   * stop and every other waits on the same one.
+   *
+   * Two paths do ask. `terminate` does, and so does Pekko's coordinated shutdown, from its first
+   * phase (`registerShutdown`): on SIGTERM the JVM runs every shutdown hook at once, so a service's
+   * own hook calling `terminate` races Pekko's, which ends with the actor system — and its stream
+   * materializer — terminated. A gRPC stream still inside the server's shutdown grace was then
+   * aborted and its caller told `INTERNAL`, instead of being given the grace and then told
+   * `UNAVAILABLE`. Stopping the extensions inside coordinated shutdown, before anything else in it,
+   * is what makes "extensions first, then the actor system" hold whichever hook runs first.
+   */
+  private lazy val extensionsStopped: Future[Done] =
+    Future {
+      // First, so the console stops listing a service that is on its way out — and so the registry
+      // entry is withdrawn even if an extension then fails to stop.
+      try observability.foreach(_.stop())
+      catch
+        case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
+      try observe.foreach(_.stop())
+      catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
+      observability = None
+
+      extensions.reverse.foreach { extension =>
+        try extension.stop()
+        catch
+          case failure: Throwable =>
+            system.log.warn(s"extension '${extension.name}' failed to stop", failure)
+      }
+      Done
+    }(AnkkaExecutors.virtual)
+
+  /**
+   * Has coordinated shutdown stop the extensions in its first phase, so the actor system is not
+   * terminated under them. Called once, when the service is started.
+   */
+  private[runtime] def registerShutdown(): Unit =
+    CoordinatedShutdown(system).addTask(
+      CoordinatedShutdown.PhaseBeforeServiceUnbind,
+      "ankka-stop-extensions"
+    )(() => extensionsStopped)
+
   /** Stops every extension, then terminates the actor system if this service created it. */
   def terminate(): Unit =
-    // First, so the console stops listing a service that is on its way out — and so the registry
-    // entry is withdrawn even if an extension then fails to stop.
-    try observability.foreach(_.stop())
-    catch
-      case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
-    try observe.foreach(_.stop())
-    catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
-    observability = None
-
-    extensions.reverse.foreach { extension =>
-      try extension.stop()
-      catch
-        case failure: Throwable =>
-          system.log.warn(s"extension '${extension.name}' failed to stop", failure)
-    }
+    Await.ready(extensionsStopped, Duration.Inf): Unit
     if ownsSystem then system.terminate()

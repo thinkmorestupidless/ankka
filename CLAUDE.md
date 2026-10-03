@@ -1193,6 +1193,17 @@ the package and `package/test/fixture-host/` proves a second host works with no 
 - **A React effect depending on a function from a hook re-runs on every render.** The stream hook depended
   on `useConsole().href`, a fresh closure each render, so every event it delivered re-rendered the page and
   reopened the stream, which never left "connecting". Depend on the stable value (the mount path) instead.
+- **On SIGTERM every JVM shutdown hook runs at once, and Pekko's terminates the actor system.**
+  A service's own hook calling `terminate()` raced Pekko's coordinated shutdown: a gRPC stream
+  still inside the server's shutdown grace lost its materializer and ended `INTERNAL` instead of
+  `UNAVAILABLE`, on some k3s runs and not others. Extensions are now stopped from coordinated
+  shutdown's first phase (`AnkkaService.registerShutdown`, once, whoever asks first), with that
+  phase's timeout raised to 20s in `reference.conf`; `ShutdownOrderSuite` (testkit) runs only
+  coordinated shutdown and fails without it.
+- **The operator re-applies a project namespace's `managed-by` label on every reconcile.** A test
+  that removes it to make the gateway refuse a route is racing a platform that heals it — the k3s
+  route-rejection case passed or failed on timing. Refuse the route from the gateway's side (its
+  listener's selector, which the operator does not own) and put it back in a `finally`.
 - **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
   returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
   logic would kill the test JVM.
@@ -1493,7 +1504,7 @@ grpc-java directly in its POM and no ScalaPB, which is the developer's build's. 
 `controlplane-api`, is for a *client of the control plane*: the hosted product in `ankka-cloud`
 provisions organizations through it (feature 011), and a client that redefined the wire types by
 hand would drift from them. It still depends on `core` alone, and its POM's compile scope says so.
-`templateArtifacts` names only six of them, because the template is a service that serves no gRPC. Everything else (`crd`,
+`templateArtifacts` names all seven, the template being a service: its own template carries no gRPC, and the suite's last case adds a gRPC endpoint to the expansion as the documentation says to (FR-040 of feature 020), so `ankka-grpc` must resolve locally too. Everything else (`crd`,
 `operator`, `controlplane`, `cli`, the samples, root) carries `publish / skip := true`: a
 platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
 fact rather than a note.

@@ -417,6 +417,22 @@ so a call made from any of them is attributed. A deployed service's topology is 
 over port 7628 `observe` (`ObserveServer`, `InstanceTopologies`) and merged by `TopologyMerge`, which sums
 pairs and recomputes percentiles from the instances' histograms.
 
+### A service verifies its users' tokens with one module
+
+`ankka-auth-oidc` (feature 022) is the one token verifier in the repository: `Oidc.authenticate()`
+is an `Acl.Authenticate` over the issuers a service lists as a named set of `ANKKA_AUTH_` variables
+(`ANKKA_AUTH_ISSUERS=customers,staff`, then `ANKKA_AUTH_CUSTOMERS_ISSUER`, `_JWKS_URL`, `_AUDIENCE`,
+optional `_CA`, `_TYP`, `_CLOCK_SKEW`). The token's `iss` picks the issuer before anything is
+verified, so an unlisted issuer is refused with nothing fetched; keys are fetched on first use, never
+at start, and held through an outage. nimbus is this module's dependency and no other published
+module's. The sidecar reads the same set once, before it dials the process, and verifies every
+`AUTHENTICATED` route with the same rule; a sidecar with such a route and no issuer is refused in
+discovery's report. The operator routes `ANKKA_AUTH_` to the sidecar container only. The control
+plane is a user of the module: `AuthConfig.toOidc` names the installation's issuer `ankka`, with
+Keycloak's `typ: Bearer` check on, and its singular `ANKKA_AUTH_ISSUER`/`_JWKS_URL`/`_JWKS_CA` are
+not part of the set, which ignores them. Tests mint tokens with the module's `TestIssuer`; the control
+plane's `TestIdentity` extends it.
+
 ### Agents
 
 The agent loop, tool dispatch, session memory, guardrails and token accounting all sit
@@ -1551,19 +1567,23 @@ bite:
 
 ## Publishing
 
-Eight modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Seven are libraries a
-*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `agent`, `testkit`; `ankka-grpc` names
-grpc-java directly in its POM and no ScalaPB, which is the developer's build's. The eighth,
-`controlplane-api`, is for a *client of the control plane*: the hosted product in `ankka-cloud`
-provisions organizations through it (feature 011), and a client that redefined the wire types by
-hand would drift from them. It still depends on `core` alone, and its POM's compile scope says so.
-`templateArtifacts` names all seven, the template being a service: its own template carries no gRPC, and the suite's last case adds a gRPC endpoint to the expansion as the documentation says to (FR-040 of feature 020), so `ankka-grpc` must resolve locally too. Everything else (`crd`,
+Nine modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Eight are libraries a
+*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `testkit`;
+`ankka-grpc` names grpc-java directly in its POM and no ScalaPB, which is the developer's build's, and a
+service adds `auth-oidc` only when it has users of its own whose tokens it verifies, which is why it is
+a module and not part of `http` (feature 022). The ninth, `controlplane-api`, is for a *client of the
+control plane*: the hosted product in `ankka-cloud` provisions organizations through it (feature 011),
+and a client that redefined the wire types by hand would drift from them. It still depends on `core`
+alone, and its POM's compile scope says so. `templateArtifacts` names seven, the template being a
+service: its own template carries no gRPC, and the suite's last case adds a gRPC endpoint to the
+expansion as the documentation says to (FR-040 of feature 020), so `ankka-grpc` must resolve locally
+too. The template has no users, so `auth-oidc` is a commented line in it and is not among the seven. Everything else (`crd`,
 `operator`, `controlplane`, `cli`, the samples, root) carries `publish / skip := true`: a
 platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
 fact rather than a note.
 
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly eight artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly nine artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval

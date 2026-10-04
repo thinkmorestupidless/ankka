@@ -165,7 +165,7 @@ class ServiceClientSuite extends munit.FunSuite:
   // The JDK's client sends a GET or a HEAD once more when its connection closes before any part of
   // an answer arrives, and no other method again; there is no setting that changes it. Pinned here
   // so a JDK that behaves otherwise is noticed: a request that may change something is sent once.
-  test("a request that may change something is sent at most once; a GET or a HEAD at most twice") {
+  test("a request that may change something is sent at most once when no answer comes") {
     for (method, expected) <- Seq(
         "GET"    -> 2,
         "HEAD"   -> 2,

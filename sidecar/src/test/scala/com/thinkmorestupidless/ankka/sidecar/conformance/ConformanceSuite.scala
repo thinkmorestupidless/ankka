@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
+import com.thinkmorestupidless.ankka.sdk.ServiceResponse
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.agent.{ChatMessage, Json, TestModelProvider}
 import com.thinkmorestupidless.ankka.core.graph.{GraphDelta, PropertyValue}
@@ -1310,6 +1311,152 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     measure("POST record (persist through the endpoint)") { () =>
       n += 1
       assertEquals(record("bench", s"m$n").status, 200)
+    }
+  }
+
+  // ── Calls to other services (protocol 1.7) ─────────────────────────────────
+  //
+  // `features/service-calls/sdks.feature` and the outlines of `calling.feature`: this target is one
+  // row of their Examples, and a case named for a scenario holds it for this language. Each drives the reference's `service-call` route,
+  // which makes the call through the SDK's own client, against `target.scripted`, another service
+  // played on loopback that records what it is sent. A module has no import for the call yet.
+
+  private def onlyWhereServiceCalls(): Unit =
+    assume(!target.isModule, "a module has no import for a call to another service")
+
+  private final case class Called(
+      outcome: String,
+      status: Int,
+      contentType: String,
+      body: String,
+      answer: String,
+      message: String
+  )
+
+  private def serviceCall(
+      service: String,
+      method: String = "GET",
+      path: String = "/target",
+      mode: String = "raw",
+      body: String = "",
+      headers: Seq[(String, String)] = Nil
+  ): Called =
+    target.scripted.clear()
+    val reply = send(
+      "POST",
+      s"/conformance/service-call?service=$service&method=$method&mode=$mode&path=" +
+        java.net.URLEncoder.encode(path, "UTF-8"),
+      Some(body),
+      headers
+    )
+    assertEquals(reply.status, 200, reply.body)
+    val json                = reply.json
+    def text(field: String) = json(field).flatMap(_.asString).getOrElse("")
+    Called(
+      text("outcome"),
+      json("status").flatMap(_.asDouble).map(_.toInt).getOrElse(0),
+      text("contentType"),
+      text("body"),
+      text("answer"),
+      text("message")
+    )
+
+  test(
+    "service.request-reaches-target: on a developer's machine a service in every language calls another service running there"
+  ) {
+    onlyWhereServiceCalls()
+    val called = serviceCall(
+      "scripted",
+      method = "POST",
+      path = "/payouts?amount=5",
+      body = "hello",
+      headers = Seq("X-Conformance-Id" -> "c1")
+    )
+    assertEquals(called.outcome, "response", called.toString)
+    val received = target.scripted.requests
+    assertEquals(received.size, 1, received.toString)
+    val request = received.head
+    assertEquals((request.method, request.path), ("POST", "/payouts?amount=5"))
+    assertEquals(request.contentType, Some("text/plain"))
+    assertEquals(request.text, "hello")
+    assertEquals(request.header("x-conformance-id"), Some("c1"))
+  }
+
+  test(
+    "service.answer-reaches-handler: the conformance suite's call to another service passes for every SDK"
+  ) {
+    onlyWhereServiceCalls()
+    target.scripted.answer(_ =>
+      ServiceResponse(
+        201,
+        "application/json",
+        """{"ok":true}""".getBytes,
+        Vector("X-Answer" -> "yes")
+      )
+    )
+    try
+      val called = serviceCall("scripted")
+      assertEquals(
+        (called.outcome, called.status, called.contentType, called.body, called.answer),
+        ("response", 201, "application/json", """{"ok":true}""", "yes")
+      )
+    finally
+      target.scripted.answer(_ => ServiceResponse(200, "text/plain", "ok".getBytes, Vector.empty))
+  }
+
+  test(
+    "service.refusal-is-the-answer: a refusal by the service called reaches the calling handler as that refusal"
+  ) {
+    onlyWhereServiceCalls()
+    target.scripted.answer(_ => ServiceResponse(403, "text/plain", "no".getBytes, Vector.empty))
+    try
+      val raw = serviceCall("scripted")
+      assertEquals((raw.outcome, raw.status, raw.body), ("response", 403, "no"))
+      val typed = serviceCall("scripted", mode = "typed")
+      assertEquals((typed.outcome, typed.status, typed.body), ("failed", 403, "no"))
+    finally
+      target.scripted.answer(_ => ServiceResponse(200, "text/plain", "ok".getBytes, Vector.empty))
+  }
+
+  test("service.unresolvable") {
+    onlyWhereServiceCalls()
+    val called = serviceCall("unknown")
+    assertEquals(called.outcome, "unresolvable", called.toString)
+    assert(called.message.contains("unknown"), called.message)
+    assertEquals(target.scripted.requests, Vector.empty)
+  }
+
+  test("service.unanswered") {
+    onlyWhereServiceCalls()
+    val called = serviceCall("nobody-home")
+    assertEquals(called.outcome, "unanswered", called.toString)
+  }
+
+  test(
+    "service.identity-mismatch: a call is not sent to a workload that is not the service asked for"
+  ) {
+    onlyWhereServiceCalls()
+    val called = serviceCall("impostor")
+    assertEquals(called.outcome, "mismatch", called.toString)
+    assertEquals(target.scripted.requests, Vector.empty)
+  }
+
+  test("service.platform-headers-replaced") {
+    onlyWhereServiceCalls()
+    assertEquals(serviceCall("scripted").outcome, "response")
+    val request = target.scripted.requests.head
+    assertEquals(request.header("x-ankka-caller"), None)
+    assert(!request.header("host").contains("elsewhere"), request.headers.toString)
+  }
+
+  test("service.counted-from-handler") {
+    onlyWhereServiceCalls()
+    assertEquals(serviceCall("scripted").outcome, "response")
+    eventually() {
+      Some(observedCalls())
+        .filter(
+          _.exists(o => o.to == "service:local/scripted" && o.caller.contains("service-call"))
+        )
     }
   }
 

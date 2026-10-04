@@ -907,3 +907,115 @@ spec:
     assert(detail.contains("InitContainerFailed") || detail.contains("init container"), detail)
     resources.withName("no-copy").delete(): Unit
   }
+
+  // ── a process calls another service as itself (feature 025) ─────────────────
+
+  private val SampleImage    = s"sample-shopping-cart:${BuildInfo.imageTag}"
+  private val CartsService   = "carts"
+  private val OrdersService  = "orders"
+  private var callersStarted = false
+
+  /** Each its own database: two services never share one. */
+  private def database(name: String): List[EnvEntry] = List(
+    EnvEntry("ANKKA_DB_HOST", Some(s"$name.$Namespace.svc"), None, None),
+    EnvEntry("ANKKA_DB_PORT", Some("5432"), None, None),
+    EnvEntry("ANKKA_DB_NAME", Some("ankka"), None, None),
+    EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
+    EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None)
+  )
+
+  /**
+   * The Scala sample as `carts`, whose route `/callers/orders-alone` admits the service `orders` by
+   * name and nobody else, and the Python sample a second time as `orders`, whose `/calling` route
+   * calls another service as itself. Started once, by the first case that needs them.
+   */
+  private def startCallers(): Unit =
+    if !callersStarted then
+      ClusterImages.importInto(k3s, SampleImage)
+      deployPostgres("postgres-carts")
+      deployPostgres("postgres-orders")
+      applyAs(
+        CartsService,
+        AnkkaServiceSpec(
+          projectId = Project,
+          serviceName = CartsService,
+          generation = 1L,
+          image = SampleImage,
+          port = Some(9000),
+          env = database("postgres-carts"),
+          provisionDatabase = false,
+          progressDeadlineSeconds = 300
+        )
+      )
+      applyAs(
+        OrdersService,
+        spec().copy(serviceName = OrdersService, env = database("postgres-orders"))
+      )
+      waitFor(300.seconds)(
+        readyReplicasOf(CartsService) >= 1 && readyReplicasOf(OrdersService) >= 1
+      )
+      callersStarted = true
+
+  test(
+    "a service in every language is admitted by name by a route that admits only it (Python, on a cluster)"
+  ) {
+    startCallers()
+    // From the suite's prober, which holds the certificate of the service `cart`: the route admits
+    // `orders` alone, so `cart` is refused, and the admission below is by name.
+    val (refusedCode, refusedBody) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$CartsService.$Namespace.svc.cluster.local:9000/callers/orders-alone"
+    )
+    assertEquals(refusedCode, 403, refusedBody)
+    // The Python service's own `/calling` route admits only itself, so it is asked by a prober
+    // holding its certificate; the prober goes back to `cart`'s for the cases after this one.
+    try
+      val asOrders =
+        com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, OrdersService)
+      val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+        k3s,
+        Namespace,
+        asOrders,
+        s"https://$OrdersService.$Namespace.svc.cluster.local:9000" +
+          "/calling/call/carts?path=/callers/orders-alone"
+      )
+      assertEquals((code, body), (200, s"admitted: $Project/$OrdersService"))
+    finally com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service): Unit
+  }
+
+  test("the process of a service that calls other services holds no certificate") {
+    startCallers()
+    val pod = podsOf(OrdersService).head.getMetadata.getName
+    val (_, found) = kubectl(
+      "exec",
+      "-n",
+      Namespace,
+      pod,
+      "-c",
+      s"$OrdersService-app",
+      "--",
+      "sh",
+      "-c",
+      "find / -xdev \\( -name tls.key -o -name tls.crt -o -name ca.crt \\) 2>/dev/null; true"
+    )
+    assertEquals(found.trim, "", s"the process can read a certificate: $found")
+    val (_, sidecarFound) = kubectl(
+      "exec",
+      "-n",
+      Namespace,
+      pod,
+      "-c",
+      OrdersService,
+      "--",
+      "sh",
+      "-c",
+      "ls /var/run/secrets/ankka/service"
+    )
+    // And the sidecar beside it does hold one, so the search above could have found something.
+    assert(sidecarFound.contains("tls.key"), sidecarFound)
+    val (_, appEnv) =
+      kubectl("exec", "-n", Namespace, pod, "-c", s"$OrdersService-app", "--", "env")
+    assert(!appEnv.contains("/var/run/secrets/ankka"), appEnv)
+  }

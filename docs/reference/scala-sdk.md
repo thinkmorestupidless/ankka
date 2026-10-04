@@ -258,7 +258,7 @@ See [Autonomous agents](../build/autonomous-agents.md).
 | Routes | `get`, `post`, `put`, `patch`, `delete` with path parameters only; `postBody`, `putBody`, `patchBody` with a body as the last argument; `sse` and `sseBody` for server-sent events |
 | In a handler | `request` (`header`, `query`, `caller`), `query` (`required`, `optional`, `all`, `flag`), `principal`, `caller` (`Caller.Gateway`, `Caller.Service(project, name)`, `Caller.Local`) |
 | ACLs | `Acl.DenyAll`, `Acl.AllowAll`, `Acl.AllowIf(ctx => …)`, `Acl.Authenticate(ctx => AuthDecision…)`, `Acl.allowCallers(Callers.internet, Callers.service("orders"), Callers.service(project, name), Callers.anyInProject, Callers.self)` |
-| Other services | `clients.services(name)` or `clients.services(project, name)`: `get[R]`, `getText`, `post[B, R]`, `put[B, R]`, `delete`, `request` |
+| Other services | `clients.services(name)` or `clients.services(project, name)`: `get[R]`, `getText`, `post[B, R]`, `put[B, R]`, `delete`, `request`; the same `services` on a workflow's, a consumer's, a timed action's and an agent's context. Errors `ServiceUnresolvable`, `ServiceIdentityMismatch`, `ServiceUnanswered`, `ServiceCallFailed` ([Calling other services](../build/calling-services.md)) |
 | Testing a caller | `testKit.asCaller(caller)` gives the header that makes a request arrive as that caller |
 | Errors | throw `HttpProblem(status, message)` or `HttpProblem.badRequest`, `unauthorized`, `forbidden`, `notFound`, `conflict` |
 | Serving | `HttpServer.of(clients => Endpoint(clients.componentClient))`, `HttpServer.at(interface, port)(…)` |

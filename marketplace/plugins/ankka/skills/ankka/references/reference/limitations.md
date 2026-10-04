@@ -66,9 +66,9 @@ feature also says what that feature does not do.
   provisioned for a service's users, and the platform administers none: the identity provider is the
   installation's or the service's to run. Only signed JSON Web Tokens whose issuer publishes its keys are
   verified, every listed issuer must name an audience, and a route accepts any of the service's issuers.
-- **Python and TypeScript services cannot call another service as themselves.** They can be called, and
-  read the caller; only a Scala service has a service client that presents its certificate, for HTTP or
-  for gRPC.
+- **Only a Scala service calls another service's gRPC endpoint.** A Python or TypeScript service calls
+  another service's HTTP routes as itself, through the runtime beside it, and is called over gRPC as any
+  service is; it has no gRPC client of its own.
 - **Protection depends on the cluster enforcing network policy.** On a network plugin that accepts
   policies and ignores them, every connection is still mutual TLS and every caller still named, but
   nothing is refused before the handshake. `deploy-local.sh` checks; a cloud cluster must be checked by

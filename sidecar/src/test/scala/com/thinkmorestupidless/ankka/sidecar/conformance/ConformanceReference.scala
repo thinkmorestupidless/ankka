@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.graph.GraphConsumer
 import org.apache.pekko.stream.scaladsl.Source
 
+import java.nio.charset.StandardCharsets
 import scala.concurrent.duration.*
 
 /**
@@ -509,6 +510,21 @@ object ConformanceReference:
   given JsonValueCodec[Echo]           = Codecs.make[Echo]
   given JsonValueCodec[Vector[String]] = Codecs.make[Vector[String]]
 
+  /**
+   * What a call to another service came to, as the reference answers it in every language:
+   * `outcome` is `response`, `failed`, `unresolvable`, `mismatch`, `unanswered` or `refused`;
+   * `answer` is the `X-Answer` header the other service set, if any.
+   */
+  final case class ServiceCallRecord(
+      outcome: String,
+      status: Int,
+      contentType: String,
+      body: String,
+      answer: String,
+      message: String
+  )
+  given JsonValueCodec[ServiceCallRecord] = Codecs.make[ServiceCallRecord]
+
   /** `problems`: what a sidecar reported through `ReportError`; empty in-process. */
   final class ConformanceEndpoint(
       clients: EndpointClients,
@@ -523,6 +539,50 @@ object ConformanceReference:
     private def agent(session: String) = clients.componentClient.forAgent(SessionId(session))
 
     get("/problems")(() => problems())
+
+    // docs:start service-call
+    // A call to another service (protocol 1.7), as the case asks for it: `service`, `method` and
+    // `path` from the query, the body and every `X-Conformance-*` header sent on, and two headers no
+    // handler may send — the caller's and the host — added to show they never arrive. The answer is
+    // a record of what the client returned or raised, the same in every language.
+    postBody("/service-call") { (body: String) =>
+      val service = query.required[String]("service")
+      val method  = query.required[String]("method")
+      val path    = query.required[String]("path")
+      val headers = request.headers.filter((n, _) => n.toLowerCase.startsWith("x-conformance-")) ++
+        Seq("X-Ankka-Caller" -> "ankka://elsewhere/impostor", "Host" -> "elsewhere")
+      val client = clients.services(service)
+      try
+        if query.optional[String]("mode").contains("typed") then
+          ServiceCallRecord("response", 200, "", client.getText(path, headers), "", "")
+        else
+          val answer = client.request(
+            method,
+            path,
+            Option.when(body.nonEmpty)(body.getBytes(StandardCharsets.UTF_8)),
+            request.header("Content-Type").filter(_ => body.nonEmpty),
+            headers
+          )
+          ServiceCallRecord(
+            "response",
+            answer.status,
+            answer.contentType,
+            answer.text,
+            answer.headers
+              .collectFirst { case (n, v) if n.equalsIgnoreCase("x-answer") => v }
+              .getOrElse(""),
+            ""
+          )
+      catch
+        case e: ServiceCallFailed => ServiceCallRecord("failed", e.status, "", e.body, "", "")
+        case e: ServiceUnresolvable =>
+          ServiceCallRecord("unresolvable", 0, "", "", "", e.getMessage)
+        case e: ServiceIdentityMismatch =>
+          ServiceCallRecord("mismatch", 0, "", "", "", e.getMessage)
+        case e: ServiceUnanswered => ServiceCallRecord("unanswered", 0, "", "", "", e.getMessage)
+        case e: CommandError      => ServiceCallRecord("refused", 0, "", "", "", e.message)
+    }
+    // docs:end service-call
 
     // The secret store. The name is a query parameter because it may hold a slash.
     postBody("/secrets") { (value: String) =>

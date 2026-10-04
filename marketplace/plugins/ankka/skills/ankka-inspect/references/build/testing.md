@@ -330,6 +330,15 @@ Scala, a client double in Python and TypeScript, and a kit built `.with_service(
 none, the call is refused, the handler fails, and in a running service the change would be delivered
 again.
 
+## Testing a component that calls another service
+
+A component that calls another service is given a scripted set of services in a unit test,
+`ScriptedServices` in every language, which answers as the test says, records each request, and fails the
+test for a service nothing is scripted for. A test of a whole Scala service plays the other service on
+loopback with `ScriptedService.start()` and gives its address to
+`AnkkaTestKit.start(…, localServices = Map(name -> scripted.address))`. See
+[Calling other services](calling-services.md).
+
 ## Integration testing
 
 An integration test kit starts the whole service against a throwaway Postgres in Docker and drives it

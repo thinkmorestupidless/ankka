@@ -2,6 +2,7 @@
 name: ankka-python
 description: Write, run, test or deploy an ankka service in Python — components as classes with component_id, codecs and decorators (@command, @query, @step, @action, @get, @stream), the SDK's effects and testkits, the sidecar that hosts the process, the gRPC protocol and discovery, the shared JSON encoding with Scala, and the descriptor fields and environment split of a process-hosted service. Use when the task involves Python, the ankka Python SDK, the sidecar, uv or pytest in an ankka project, or a service in a language other than Scala.
 pages:
+  - build/calling-services.md
   - concepts/polyglot.md
   - get-started/first-service-python.md
   - reference/python-sdk.md
@@ -107,3 +108,8 @@ See `references/get-started/first-service-python.md` for the first service and
 - A graph consumer over a topic with no version stated on its elements: a topic has no sequence number.
 - Expecting ankka to create the delta topic or make it compacted. Declare it in the ankka-flow pipeline
   that reads it, and deploy that pipeline first.
+
+## Calling another service
+
+`self.services("name")` calls another service as this one, through the sidecar, which holds the
+certificate; an entity and a view have none. See `references/build/calling-services.md`.

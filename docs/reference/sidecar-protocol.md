@@ -39,7 +39,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.6"`;
+- its protocol version, `"1.7"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -73,6 +73,7 @@ The table is generated from the `.proto` files.
 | `Client` | `GetSecret` | `GetSecretRequest` | `GetSecretReply` | `client.proto` |
 | `Client` | `PutSecret` | `PutSecretRequest` | `PutSecretReply` | `client.proto` |
 | `Client` | `DeleteSecret` | `DeleteSecretRequest` | `DeleteSecretReply` | `client.proto` |
+| `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -179,7 +180,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.6`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.7`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -188,7 +189,11 @@ made it; `1.5` added every other claim of a verified token, and the name of the 
 that verified it, to a route's principal; `1.6` added the service's secret store, `GetSecret`, `PutSecret` and
 `DeleteSecret` on `Client`, each answering a refusal in its reply. A process built for `1.6` that calls the
 store on an earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runtime being too
-old for the store.
+old for the store. `1.7` added `Request` on `Client`: a call to another service, which the runtime makes
+as the service, answering the service's answer, a failure naming why no answer came, or a refusal. A
+process built for `1.7` that calls it on an earlier runtime is answered `UNIMPLEMENTED`, which each SDK
+reports as the runtime being too old to call another service; a process that declared an earlier minor
+and sends one all the same is refused, naming both versions.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

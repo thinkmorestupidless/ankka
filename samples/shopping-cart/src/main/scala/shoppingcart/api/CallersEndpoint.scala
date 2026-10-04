@@ -36,11 +36,18 @@ final class CallersEndpoint(services: ServiceClients) extends HttpEndpoint("/cal
   }
   // docs:end allow-callers
 
+  // One service, by name, and nobody else — not the internet, not this service's own instances. A
+  // request is admitted here only because its certificate names the orders service of this project.
+  withAcl(Acl.allowCallers(Callers.service("orders"))) {
+    get("/orders-alone")(() => s"admitted: ${describe(caller)}")
+  }
+
   // docs:start call-another-service
-  // Calls `/callers/whoami` on another service in this project, as this service: the answer is
-  // how that service saw this one.
+  // Calls another service in this project, as this service: `/callers/whoami` unless `path` says
+  // otherwise. The answer is what that service answered, and it saw this one as the caller.
   get("/call/{service}") { (service: String) =>
-    try services(service).getText("/callers/whoami")
+    val path = query.optional[String]("path").getOrElse("/callers/whoami")
+    try services(service).getText(path)
     catch case e: ServiceUnresolvable => throw HttpProblem(503, e.getMessage)
   }
   // docs:end call-another-service

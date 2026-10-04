@@ -4,10 +4,17 @@ import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestModelProvide
 import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig, TestIssuer}
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
+import com.thinkmorestupidless.ankka.sdk.{
+  ServiceClient,
+  ServiceClients,
+  ServiceIdentityMismatch,
+  ServiceResponse
+}
 import com.thinkmorestupidless.ankka.runtime.{
   InMemoryBroker,
   ProjectionRuntime,
   ServedRoute,
+  ServiceBuilder,
   TimerRuntime,
   TopologyJson
 }
@@ -28,7 +35,7 @@ import com.thinkmorestupidless.ankka.sidecar.wasm.{
   WasmConversation,
   WasmDiscovery
 }
-import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
+import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, ScriptedService}
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 import org.apache.pekko.actor.typed.ActorSystem
 
@@ -75,6 +82,13 @@ trait ConformanceTarget:
     ): Unit
   }
 
+  /**
+   * Another service, played on loopback, that the target calls by the name `scripted` (protocol
+   * 1.8): it records what it was sent and answers as a case told it. Started before the target's
+   * service, which is told where it is.
+   */
+  val scripted: ScriptedService = ScriptedService.start()
+
   /** A new service on the same database: every instance is gone from memory. */
   def restart(): Unit
 
@@ -101,6 +115,41 @@ trait ConformanceTarget:
   def stop(): Unit
 
 object ConformanceTarget:
+
+  /**
+   * Where the target's service finds other services: `scripted`, and `nobody-home` at a port
+   * nothing listens on, so a call to it gets no answer rather than no address.
+   */
+  private def localServices(scripted: ScriptedService): Map[String, String] =
+    val socket = java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress)
+    val closed = socket.getLocalPort
+    socket.close()
+    Map("scripted" -> scripted.address, "nobody-home" -> s"http://127.0.0.1:$closed")
+
+  /**
+   * The service's client for other services, with the name `impostor` answering as a workload whose
+   * certificate names another service would. A conformance run has no certificates, so the mismatch
+   * the handshake raises is raised here; what the case shows is that it crosses to the handler in
+   * every language under its own name. Every other name goes to the real client.
+   */
+  private def withImpostor(builder: ServiceBuilder): ServiceBuilder =
+    builder.withServices { real =>
+      new ServiceClients:
+        def apply(name: String): ServiceClient = apply("local", name)
+        def apply(project: String, name: String): ServiceClient =
+          if name != "impostor" then real(project, name)
+          else
+            new ServiceClient:
+              val target = s"$project/$name"
+              def request(
+                  method: String,
+                  path: String,
+                  body: Option[Array[Byte]],
+                  contentType: Option[String],
+                  headers: Seq[(String, String)]
+              ): ServiceResponse =
+                throw ServiceIdentityMismatch(target, "the certificate names another service")
+    }
 
   /** Rendered by the runtime hosting the target, whatever language the target is written in. */
   private def topologyOf(kit: AnkkaTestKit): String =
@@ -145,7 +194,9 @@ object ConformanceTarget:
           reference.endpoints(() => timers.timerScheduler, () => Vector.empty)*
         )
       ),
-      60.seconds
+      60.seconds,
+      ConformanceTarget.withImpostor,
+      localServices = ConformanceTarget.localServices(scripted)
     )
     def name: String             = "in-process"
     def baseUrl: String          = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -167,7 +218,9 @@ object ConformanceTarget:
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
-    def stop(): Unit                                                                = kit.stop()
+    def stop(): Unit =
+      try kit.stop()
+      finally scripted.stop()
 
   /** The sidecar's wiring in this JVM, on `AnkkaTestKit`'s Postgres, in front of `address`. */
   final class Sidecar(address: String, val model: TestModelProvider) extends ConformanceTarget:
@@ -229,7 +282,8 @@ object ConformanceTarget:
         SidecarExtension(settings, conversation, timers, served)
       ),
       60.seconds,
-      _.withConversation(conversation)
+      b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
+      localServices = ConformanceTarget.localServices(scripted)
     )
     def name: String           = s"sidecar → $address"
     def baseUrl: String        = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -259,7 +313,8 @@ object ConformanceTarget:
       Some(Discovery.discover(channel, settings, BuildInfo.version, protocolVersion).map(_ => ()))
     def stop(): Unit =
       Try(kit.stop())
-      channel.shutdownNow(): Unit
+      channel.shutdownNow()
+      scripted.stop()
 
   /**
    * The runtime's module mode in this JVM, on `AnkkaTestKit`'s Postgres: the module loaded, its
@@ -351,7 +406,8 @@ object ConformanceTarget:
         SidecarExtension(settings, conversation, timers, served, Some(imports))
       ),
       60.seconds,
-      _.withConversation(conversation)
+      b => ConformanceTarget.withImpostor(b.withConversation(conversation)),
+      localServices = ConformanceTarget.localServices(scripted)
     )
     def name: String               = s"module $path ($shape)"
     def baseUrl: String            = kit.service.boundAddresses.find(_.startsWith("http")).get
@@ -369,4 +425,6 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(discover(protocolVersion).map(_ => ()))
-    def stop(): Unit = Try(kit.stop()): Unit
+    def stop(): Unit =
+      Try(kit.stop()): Unit
+      scripted.stop()

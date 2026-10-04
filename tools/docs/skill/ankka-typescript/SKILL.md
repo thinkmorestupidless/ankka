@@ -2,6 +2,7 @@
 name: ankka-typescript
 description: Write, run, test or deploy an ankka service in TypeScript on Node.js — components as classes with static declarations (componentId, codecs, a handlers table of command/query/step/action/stream, a routes table of get/post/sse), shapes declared once with `s` and typed by Infer, the SDK's effects and testkits, the sidecar that hosts the process, the gRPC protocol and discovery, the shared JSON encoding with Scala and Python, and the descriptor fields of a process-hosted service. Use when the task involves TypeScript, JavaScript, Node.js, npm, the ankka TypeScript SDK, or a service in a language other than Scala.
 pages:
+  - build/calling-services.md
   - concepts/polyglot.md
   - get-started/first-service-typescript.md
   - reference/typescript-sdk.md
@@ -117,3 +118,8 @@ service and `references/reference/typescript-sdk.md` for the map of every class,
 - A graph consumer over a topic with no version stated on its elements: a topic has no sequence number.
 - Expecting ankka to create the delta topic or make it compacted. Declare it in the ankka-flow pipeline
   that reads it, and deploy that pipeline first.
+
+## Calling another service
+
+`this.services.service("name")` calls another service as this one, through the sidecar, which holds the
+certificate; the entity classes and a view have none. See `references/build/calling-services.md`.

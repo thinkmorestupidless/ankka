@@ -607,8 +607,19 @@ lazy val sidecar = project
       if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
       else Def.task { val _ = (Docker / publishLocal).value }
     }.value,
-    Test / test     := (Test / test).dependsOn(sidecarImageForClusterTests).value,
-    Test / testOnly := (Test / testOnly).dependsOn(sidecarImageForClusterTests).evaluated
+    // And the Scala sample's: SidecarClusterSuite deploys it beside a Python service, which calls one
+    // of its routes as itself (feature 025). A task dependency only — the sidecar's classpath gains
+    // nothing of the sample's.
+    sampleImageForClusterTests := Def.taskDyn {
+      if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
+      else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
+    }.value,
+    Test / test := (Test / test)
+      .dependsOn(sidecarImageForClusterTests, sampleImageForClusterTests)
+      .value,
+    Test / testOnly := (Test / testOnly)
+      .dependsOn(sidecarImageForClusterTests, sampleImageForClusterTests)
+      .evaluated
   )
 
 /**

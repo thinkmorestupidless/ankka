@@ -168,6 +168,11 @@ the original is no longer needed to run them.
 Moving the original's existing data into the rebuild is a separate task from porting its behaviour, and
 is not part of this one: the rebuild's entities are rebuilt from events, which the original never wrote.
 
+## Calls to other services
+
+A call from one service to another ports to `services(name)` from any component but an entity or a view,
+in every language; see `references/build/calling-services.md`.
+
 ## Reference files
 
 Open the one a task needs; each is one topic and stands alone.
@@ -185,6 +190,7 @@ Open the one a task needs; each is one topic and stands alone.
 ### Build
 
 - `references/build/http-endpoints.md` — Expose a service over HTTP — routes, typed path parameters and bodies, responses, errors, query parameters and headers, access control and server-sent events — in Scala, Python or TypeScript.
+- `references/build/calling-services.md` — Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python or TypeScript — so that service's access rules can admit yours by name.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 - `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.
 

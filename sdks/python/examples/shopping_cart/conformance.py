@@ -15,7 +15,8 @@ from typing import Any
 from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
-from ankka.client import ComponentClient
+from ankka.client import CommandError, ComponentClient
+from ankka.services import ServiceCallFailed, ServiceIdentityMismatch, ServiceUnanswered, ServiceUnresolvable
 from ankka.consumer import Consumer
 from ankka.effects.agent import AgentEffect
 from ankka.effects.consumer import ConsumerEffect
@@ -330,6 +331,18 @@ class Echo:
     headers: dict[str, str]
 
 
+@dataclass
+class ServiceCallRecord:
+    """What a call to another service came to, as the reference answers it in every language."""
+
+    outcome: str
+    status: int
+    contentType: str  # noqa: N815 — the record's wire name, the same in every language
+    body: str
+    answer: str
+    message: str
+
+
 class ConformanceEndpoint(Endpoint):
     prefix = "/conformance"
     acl = Acl.ALLOW_ALL
@@ -370,6 +383,39 @@ class ConformanceEndpoint(Endpoint):
         return DONE
 
     # docs:end secrets
+
+    # docs:start service-call
+    @post("/service-call")
+    async def service_call(self, body: str) -> ServiceCallRecord:
+        """A call to another service, as the case asks for it: the body and every ``X-Conformance-*``
+        header sent on, and two headers no handler may send added, to show they never arrive."""
+        q = dict(self.request.query)
+        headers = [(k, v) for k, v in self.request.headers if k.lower().startswith("x-conformance-")]
+        headers += [("X-Ankka-Caller", "ankka://elsewhere/impostor"), ("Host", "elsewhere")]
+        client = self.services(q["service"])
+        try:
+            if q.get("mode") == "typed":
+                return ServiceCallRecord("response", 200, "", await client.get_text(q["path"], headers=headers), "", "")
+            answer = await client.request(
+                q["method"],
+                q["path"],
+                body=body.encode() if body else None,
+                content_type=self.request.header("content-type") if body else None,
+                headers=headers,
+            )
+            return ServiceCallRecord("response", answer.status, answer.content_type, answer.text, answer.header("x-answer") or "", "")
+        except ServiceCallFailed as e:
+            return ServiceCallRecord("failed", e.status, "", e.body, "", "")
+        except ServiceUnresolvable as e:
+            return ServiceCallRecord("unresolvable", 0, "", "", "", str(e))
+        except ServiceIdentityMismatch as e:
+            return ServiceCallRecord("mismatch", 0, "", "", "", str(e))
+        except ServiceUnanswered as e:
+            return ServiceCallRecord("unanswered", 0, "", "", "", str(e))
+        except CommandError as e:
+            return ServiceCallRecord("refused", 0, "", "", "", e.error.message)
+
+    # docs:end service-call
 
     @get("/echo")
     def echo(self) -> Echo:

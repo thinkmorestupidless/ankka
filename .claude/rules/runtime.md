@@ -32,7 +32,28 @@ page and `Bytes` names its own content type. That is the whole of what a website
 needs from the module beyond a JSON API — `Set-Cookie` and `Location` — and it is deliberately
 not a template engine, a session store or a cookie API: those belong to the application.
 
+## Every component but an entity and a view calls another service, through one client
+
+`AnkkaService.services` is the one `HttpServiceClients`, made before the components (lazily — it reads
+the certificate on first call) and handed to endpoints, workflow steps, consumers, timed actions and
+agents (feature 025). An entity's and a view's contexts have no `services`; a workflow's is
+`StepScope.stepsOnly`, as its secret store is. A Python or TypeScript process asks its sidecar with
+`Client.Request` (protocol 1.8), and `ClientLogic.request` makes the call with the same client, as the
+handler the forwarded `ankka-caller` names — believed only when declared, so it can refuse an entity's
+handler and a workflow's command handler. What every door shares is the client's, not the sidecar's:
+`ServiceUnanswered` for no answer, `ankka.service-client.timeout` (`ANKKA_SERVICE_CLIENT_TIMEOUT`, a
+platform setting), the header rule (`OutboundHeaders`, held to the proxy's list by
+`OutboundHeadersSuite`) and a span per call (`Observability.calling`). `ScriptedService` (a stand-in on
+loopback) and `ScriptedServices` (a unit double) are the test kit's; `AnkkaTestKit.start(…,
+localServices = …)` sets `ankka.local-services` for one service rather than the whole JVM.
+
 ## Traps
+
+- **The JDK's HTTP client sends a `GET` or a `HEAD` twice when its connection closes before any answer.**
+  It reads the closed connection as an expired pooled one and retries an idempotent-by-name method once;
+  no setting turns that off (`jdk.httpclient.disableRetryConnect` covers only a refused connection). A
+  `POST`, `PUT`, `DELETE` or `PATCH` is sent once. `ServiceClientSuite` pins both counts, and the service
+  client's documentation says it; "no retries" means none of ankka's.
 
 - **`Sink.last`, not `Sink.head`, on r2dbc connection publishers.** `head` cancels
   upstream on the first element; cancelling mid-handover means the pool never gets the

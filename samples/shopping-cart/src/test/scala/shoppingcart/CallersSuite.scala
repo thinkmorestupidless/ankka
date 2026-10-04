@@ -42,6 +42,21 @@ class CallersSuite extends munit.FunSuite with LogCapturing:
   }
   // docs:end test-as-caller
 
+  test("a route that admits one service by name admits that service") {
+    assertEquals(
+      get("/callers/orders-alone", Some(Caller.Service("local", "orders"))),
+      (200, "admitted: local/orders")
+    )
+  }
+
+  test("a route that admits only one service by name refuses the gateway") {
+    assertEquals(get("/callers/orders-alone", Some(Caller.Gateway))._1, 403)
+  }
+
+  test("a route that admits only one service by name refuses another service") {
+    assertEquals(get("/callers/orders-alone", Some(Caller.Service("local", "carts")))._1, 403)
+  }
+
   test("without a named caller every request is from this machine, and admitted") {
     assertEquals(get("/callers/whoami"), (200, "this machine"))
     assertEquals(get("/callers/only-orders")._1, 200)

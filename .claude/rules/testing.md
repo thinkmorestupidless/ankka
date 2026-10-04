@@ -52,6 +52,14 @@ appenders.
 
 ## Traps
 
+- **An image tag every session builds is shared by every session on the machine.** `ankka-sidecar:latest`
+  and `sample-shopping-cart:latest` are rebuilt by any worktree's `docker:publishLocal`. The Python and
+  TypeScript test kits start `ankka-sidecar:latest` for an unreleased SDK, so point `ANKKA_SIDECAR_IMAGE`
+  at this session's commit-tagged image when a run must test this branch's sidecar; and a cluster suite
+  names the sample by `BuildInfo.imageTag` (the operator's, which cannot see `core`, is passed
+  `-Dankka.sample.image` by the build), never `:latest` — four ZeroTrust cases once deployed another
+  branch's sample and failed against routes it did not have.
+
 - **sbt buffers a suite's report until the suite ends.** A long k3s Gherkin suite says nothing for many
   minutes, failures included; `sbt 'set controlPlane / Test / logBuffered := false' …` reports each
   scenario as it ends. A munit glob filter matches `.` literally: quote the scenario's words.

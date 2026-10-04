@@ -352,8 +352,8 @@ Each is cheap, and each would change a decision above if it did not hold.
 
 1. **V1 did not hold for safe methods, and was accepted.** A listener on loopback that accepts each
    connection and closes it at once saw two connections for a `GET` and for a `HEAD`, and one for
-   `POST`, `PUT`, `DELETE` and `PATCH` (`ServiceClientSuite`, "a request that may change something
-   is sent at most once; a GET or a HEAD at most twice"). The JDK's client treats a connection that
+   `POST`, `PUT`, `DELETE` and `PATCH` (`ServiceClientSuite`, "a request that may change something is sent at most once when no
+   answer comes"). The JDK's client treats a connection that
    closes before any byte of an answer as expired and sends a request of an idempotent-by-name
    method once more; `jdk.httpclient.disableRetryConnect` covers only a refused connection, where
    nothing was sent. HTTP allows a client to repeat a safe method, and the decision (clarification,

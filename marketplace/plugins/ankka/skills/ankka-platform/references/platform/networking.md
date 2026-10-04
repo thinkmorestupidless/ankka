@@ -80,7 +80,7 @@ https://orders.ankka-checkout.svc.cluster.local:9000
 
 The address is HTTPS and requires a client certificate the installation issued, so the practical way to
 call another service is the service client, which presents the calling service's certificate and finds
-the port by name. See [HTTP endpoints](../build/http-endpoints.md#call-another-service).
+the port by name. See [Calling other services](../build/calling-services.md).
 
 The port is the descriptor's `port`, 9000 by default. From that one value the platform renders the
 container port, `ANKKA_HTTP_PORT` for the runtime, and the Service's target, so the three cannot

@@ -94,8 +94,11 @@ given to the nearest plausible handler.
 
 Calls to other services are observed calls too, to a node for the other service, counted by the request's
 method and never by its path. Services beyond a limit, 32 by default, are counted together as other
-services, so no call is dropped and the names kept stay bounded. A trace does not cross from one service to
-another: the service that is called starts a trace of its own.
+services, so no call is dropped and the names kept stay bounded. A call to another service is a span of its
+own, under the calling handler's, and the service that is called continues the trace under it: one request
+across several services is one trace, by HTTP, by gRPC and through a message on a topic. In an instance's
+own window the callee's part of such a trace is partial, since its parent is on another instance; a
+collector holds the whole of it.
 
 The local console's own reads, such as running a query on an entity, are not counted as calls.
 
@@ -107,8 +110,9 @@ the one tuning setting, `ankka.observability.ring-capacity`.
 
 Nothing is persisted and nothing is sampled. A trace whose oldest spans have already been overwritten is
 reported as **partial** rather than returned as a tree that only looks complete. The window is meant to
-explain what just happened, not to be a record of the past; for that, send metrics to a monitoring system
-of your own.
+explain what just happened, not to be a record of the past. Where the installation names an OpenTelemetry
+collector every instance also exports its spans and its invocation counts there, and the collector's store
+is the history; see [Telemetry](../operate/telemetry.md).
 
 ## Token usage
 
@@ -127,6 +131,7 @@ as free.
 | Your machine | services, components, topology, traces, sessions, entity state through declared queries | `ankka local console` |
 | A cluster | a service's topology, merged across its instances | `ankka services topology`, or a service's topology page in [the console](../operate/console.md) |
 | A cluster | invocation counts and time by component, handler and outcome | `GET /ankka/metrics` on each instance's management port, in Prometheus text format |
+| A cluster | every service's traces and metrics, across services and over time | the collector the installation names; on a local platform, the telemetry store at `https://grafana.<base domain>` — see [Telemetry](../operate/telemetry.md) |
 | A cluster | what the service printed | `ankka services logs`, or a service's logs page in [the console](../operate/console.md) |
 | A cluster | a service's state, history and instances | `ankka services get` and `history`, or [the console](../operate/console.md) |
 
@@ -134,16 +139,16 @@ Locally, each service serves its records on a loopback address with a random por
 in `~/.ankka/running`, which is how the console finds every service on the machine. In a cluster, the
 same records are served on the management port instead, next to the readiness probe. The metrics are
 counts over the current window, not counters since the process started, so a monitoring system should
-not compute rates by differencing them across scrapes. The platform ships no dashboards and no alerts.
+not compute rates by differencing them across scrapes; the exported `ankka.invocations` count since the
+instance started. The platform ships no dashboards and no alerts.
 
 ## What is not there
 
-- **No traces or sessions of a deployed service.** The installation's console and the CLI show a deployed
-  service's topology, status, history and logs, but not its traces, sessions or entity state; the local
-  console shows those for services on your own machine. For a deployed service you have its metrics.
-- **No cross-service traces.** A call to another service is an observed call in the caller's topology, but
-  the callee starts a trace of its own.
-- **No trace history.** Traces live only in each instance's window.
-- **No cross-instance traces in a cluster.** A request whose components ran on several instances has
-  its spans in several windows.
+- **No traces or sessions of a deployed service in the console.** The installation's console and the CLI
+  show a deployed service's topology, status, history and logs, but not its traces, sessions or entity
+  state; a deployed service's traces are in the collector the installation names.
+- **No trace history in an instance.** Each instance's window holds what just happened; a history is the
+  collector's.
+- **No cross-instance traces in an instance's window.** A request whose components ran on several
+  instances, or several services, has its spans in several windows; the collector joins them by trace id.
 - **No log store.** `ankka services logs` reads what Kubernetes holds for a pod at the moment you ask.

@@ -11,8 +11,8 @@ import scala.jdk.CollectionConverters.*
 /**
  * The feature's proof (006): a build outside this one resolves ankka and its own tests pass.
  *
- * `build.sbt` publishes the six artifacts locally before this suite runs (`cli / Test / test`
- * depends on `publishLocal`), then this expands the template through `ankka init` — the real
+ * `build.sbt` publishes the eight service libraries locally before this suite runs (`cli / Test /
+ * test` depends on `publishLocal`), then this expands the template through `ankka init` — the real
  * command, against `file://` — into a temp directory, checks nothing in it points back at this
  * repository, and runs the expansion's `sbt test` and `sbt Docker/publishLocal` as subprocesses.
  * Slow (an external sbt start plus a test-kit Postgres) and gated like the k3s suites.

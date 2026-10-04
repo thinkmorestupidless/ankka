@@ -1,4 +1,4 @@
-# A tag `v*` publishes the six application-facing modules to Maven Central through the Sonatype
+# A tag `v*` publishes the ten application-facing modules to Maven Central through the Sonatype
 # Central Portal, signed. Everything else in the build carries `publish / skip`.
 #
 # Waits on one thing outside this repository: the `com.thinkmorestupidless` namespace must be

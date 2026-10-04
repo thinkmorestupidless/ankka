@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.crd.{
 }
 import com.thinkmorestupidless.ankka.operator.{
   ClusterImages,
+  CollectorStack,
   GatewayStack,
   InPod,
   Membership,
@@ -85,10 +86,15 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
       // Installs the authorities too.
       GatewayStack.install(k3s, k8s, PkiStack.repoRoot, BaseDomain)
       ca = GatewayStack.exportCa(k8s)
+      // The platform's collector, from its component's own manifests: every service below exports
+      // to it with a descriptor that says nothing of telemetry.
+      CollectorStack.install(k3s, k8s)
 
       val settings = OperatorSettings.default.copy(
         resyncInterval = 2.seconds,
-        baseDomain = Some(BaseDomain)
+        baseDomain = Some(BaseDomain),
+        otlpEndpoint = Some(CollectorStack.endpoint),
+        otlpHeaders = Some(OperatorSettings.Credential("x-ankka-test=1"))
       )
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
@@ -647,4 +653,130 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
         s.lifecycle == "Failed" && s.detail.exists(_.contains("7627"))
       )
     }
+  }
+
+  // ── 6. telemetry (feature 026) ───────────────────────────────────────────────────────────
+
+  test("9. a request that crosses from one service to another is one trace in the collector") {
+    val (code, _) = InPod.curl(
+      k3s,
+      Checkout,
+      aPod(Checkout, "orders"),
+      s"https://orders.$Checkout.svc.cluster.local:9000/callers/call/carts"
+    )
+    assertEquals(code, 200)
+    val spans =
+      CollectorStack.waitFor(k3s, "a call from orders to carts and the callee's span under it") {
+        seen =>
+          seen.exists(callee =>
+            callee.service == "carts" && callee.kind == "Server" &&
+              seen.exists(c =>
+                c.service == "orders" && c.kind == "Client" && c.spanId == callee.parentId
+              )
+          )
+      }
+    val callee = spans
+      .find(s =>
+        s.service == "carts" && s.kind == "Server" &&
+          spans.exists(c => c.service == "orders" && c.kind == "Client" && c.spanId == s.parentId)
+      )
+      .get
+    val call = spans.find(_.spanId == callee.parentId).get
+    assertEquals(call.traceId, callee.traceId)
+    // The caller's own endpoint span is the call's parent, in the same trace.
+    val root = spans.find(_.spanId == call.parentId).getOrElse(fail("the call has no parent span"))
+    assertEquals((root.service, root.kind, root.traceId), ("orders", "Server", call.traceId))
+    // Who each is, read from its own certificate.
+    assertEquals(callee.resource.get("ankka.project"), Some("checkout"))
+    assertEquals(call.resource.get("service.namespace"), Some("checkout"))
+  }
+
+  test(
+    "10. a deployed service exports without its descriptor asking: a service of any project reaches the platform's collector"
+  ) {
+    // A request billing's orders serves itself: its spans name it and its project.
+    val (code, _) = InPod.curl(
+      k3s,
+      Billing,
+      aPod(Billing, "orders"),
+      s"https://orders.$Billing.svc.cluster.local:9000/callers/whoami"
+    )
+    assertEquals(code, 200)
+    CollectorStack.waitFor(k3s, "a span of billing's orders") { seen =>
+      seen.exists(s => s.service == "orders" && s.resource.get("ankka.project").contains("billing"))
+    }: Unit
+    // The address is the operator's to give; the descriptor gave none.
+    val env = k8s
+      .apps()
+      .deployments()
+      .inNamespace(Billing)
+      .withName("orders")
+      .get()
+      .getSpec
+      .getTemplate
+      .getSpec
+      .getContainers
+      .get(0)
+      .getEnv
+      .asScala
+    assertEquals(
+      env.find(_.getName == "ANKKA_OTLP_ENDPOINT").map(_.getValue),
+      Some(CollectorStack.endpoint)
+    )
+  }
+
+  test(
+    "11. the collector's credential is a Secret the service owns, and nothing rolls without a change"
+  ) {
+    val secret = k8s.secrets().inNamespace(Checkout).withName("carts-telemetry").get()
+    assert(secret != null, "no telemetry Secret")
+    assertEquals(
+      secret.getMetadata.getOwnerReferences.asScala.map(_.getKind).toVector,
+      Vector("AnkkaService")
+    )
+    val ref = k8s
+      .apps()
+      .deployments()
+      .inNamespace(Checkout)
+      .withName("carts")
+      .get()
+      .getSpec
+      .getTemplate
+      .getSpec
+      .getContainers
+      .get(0)
+      .getEnv
+      .asScala
+      .find(_.getName == "ANKKA_OTLP_HEADERS")
+      .map(_.getValueFrom.getSecretKeyRef)
+    assertEquals(ref.map(r => (r.getName, r.getKey)), Some(("carts-telemetry", "headers")))
+    // Several reconciles at a two-second resync, nothing changed: the same pods.
+    val before = pods(Checkout, "carts").map(_.getMetadata.getName).toSet
+    Thread.sleep(10_000)
+    assertEquals(pods(Checkout, "carts").map(_.getMetadata.getName).toSet, before)
+  }
+
+  test("12. a workload that is not of the installation cannot reach the platform's collector") {
+    val ip = PkiStack.jsonPath(
+      k3s,
+      "service",
+      "otel-collector",
+      "-n",
+      "ankka-telemetry",
+      "{.spec.clusterIP}"
+    )
+    assert(!strangerConnects(ip, 4318), "a pod in an unlabelled namespace reached the collector")
+    // The same address from a workload of the installation answers, so the refusal is the policy's.
+    val (code, _) = InPod.curl(
+      k3s,
+      Checkout,
+      aPod(Checkout, "orders"),
+      s"http://$ip:4318/v1/traces",
+      method = "POST",
+      body = Some("{}")
+    )
+    assert(
+      code >= 200 && code < 500,
+      s"a workload of the installation got $code from the collector"
+    )
   }

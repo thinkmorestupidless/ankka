@@ -2,6 +2,9 @@
 paths:
   - "modules/runtime/**"
   - "modules/http/**"
+  - "modules/telemetry-otlp/**"
+  - "kustomization/components/telemetry-store/**"
+  - "kustomization/components/otel-collector/**"
   - "cli/src/main/resources/console/**"
   - "cli/src/main/scala/**/cli/console/**"
   - "controlplane/**"
@@ -25,6 +28,35 @@ and protocol 1.3 carries metadata on a step, a tool call, a guardrail check, a r
 so a call made from any of them is attributed. A deployed service's topology is read by the control plane
 over port 7628 `observe` (`ObserveServer`, `InstanceTopologies`) and merged by `TopologyMerge`, which sums
 pairs and recomputes percentiles from the instances' histograms.
+
+## Telemetry leaves the instance through a module the runtime finds, not one a service names
+
+`runtime` records every invocation with no library (`Recorder`), and `ankka-telemetry-otlp` is the only
+place OpenTelemetry is (feature 026). It declares a `RuntimeExtensionProvider` in
+`META-INF/services`, and `ServiceBuilder` appends what declared providers return after the service's own
+extensions: the one extension a service does not hand over, so that "services opt into nothing" holds
+for an embedded service whose `Main` is the developer's. Components are still only ever handed over.
+With `ankka.telemetry.endpoint` empty the provider returns nothing and no exporter class loads.
+
+What export needed of the recorder, and it has: a trace id in two halves (`traceIdsHigh`; 32 hex digits
+in `ankka-trace-id`, 16 still read), span ids that start at a random number per recorder (two instances'
+span 5 would collide in a collector), a kind, a wall-clock anchor (`epochNanos`), a parent no span has
+for a call that carried no trace (`Recorder.UnknownCaller`, read back as a root with `callerUnknown`;
+every host of a call begins through `Trace.inbound`), a read cursor (`Recorder.cursor`, which waits on
+spans still in flight and counts what the ring overwrote first), and `InvocationTotals`, counted in
+`complete` because a count since start cannot come from a ring that forgets. The cursor reads a slot
+between `VarHandle` fences.
+
+A trace context crosses services as W3C `traceparent` (`Traceparent`, the one parser and writer): read
+by `HttpServer`'s `Tracing.request`, `grpc`'s `Binding`, and the four topic handlers; written by
+`Observability.calling` for both service clients (a `Client` span under the calling handler's) and by
+`ProjectionSupport.stamped` on every published message, single or several, in process and remote. Logs
+are never exported: `TraceLogging`, a logback turbo filter, puts `trace_id` and `span_id` in the logging
+context of a line about to be written, or clears them. The operator renders `ANKKA_OTLP_ENDPOINT` as a
+literal on the runtime's container of every hosting but web, and `ANKKA_OTLP_HEADERS` by reference to
+`<service>-telemetry`, a Secret it applies from a credential no action carries. The local overlay lists
+`components/telemetry-store` (Grafana's single container plus a log agent); `components/otel-collector`,
+which keeps nothing, is listed by no overlay and rendered by `kustomization/tests/otel-collector`.
 
 ## Traps
 
@@ -74,3 +106,30 @@ pairs and recomputes percentiles from the instances' histograms.
   belongs to `AnkkaService`, which is the thing that gets terminated — a singleton builder would
   keep only the most recently started endpoint anyway. `ServiceRegistrationSuite` drives the whole
   lifecycle for this reason; nothing narrower can catch a call that is never made.
+- **Span ids must not start at the same number in every instance.** They were a counter from one, unique
+  in one ring and colliding everywhere else: two services' spans in one trace both had a span 5, and a
+  parent id named the wrong one. The counter starts at a random number now, and two tests that had read
+  "after" as `spanId > recorder.recorded` were asserting the old numbering — one passed by luck, since a
+  random start is negative half the time.
+- **A message is published after its handler's span has closed and its thread has moved on.**
+  `ProjectionSupport.handling` restores the thread-local before the effect is applied, so the publish can
+  read no trace; the span's context is handed out (`traced`) and stamped. And a single `Produce` never
+  passes through `publishAll`: a rule about every published message that lives only there misses the
+  commonest case (the Python SDK sends a one-message batch as `produce`).
+- **The OpenTelemetry SDK logs through `java.util.logging`, once a batch, and nothing here bridges it.**
+  An outage would print `SEVERE: Failed to export` to stderr every second. `OtlpTelemetry` holds the two
+  loggers at `OFF` — held, because JUL keeps loggers weakly and forgets a level set on a collected one —
+  and `Outage` says it once. The exporters also retry on their own by default; the module builds them
+  with `setRetryPolicy(null)` so a failed batch is one try and back-off is the loop's.
+- **`opentelemetry-proto` needs protobuf-java 4**, and a test classpath holding ScalaPB code generated
+  against 3 cannot take it. The fake collector reads OTLP's wire format by field number (`Protobuf` in
+  `FakeCollector.scala`).
+- **A logging event reads its MDC lazily, the first time it is asked.** A `ListAppender` in a test that
+  inspects an event after the next line was written sees the next line's context; a console appender asks
+  at once and an async one snapshots first. A test appender calls `prepareForDeferredProcessing` on append.
+- **`$` in the template's `logback.xml` is `\$`.** The log pattern's `%replace` ends in a regex anchor, and
+  Giter8 deletes an unescaped `$`.
+- **A log line stamped outside the window a Loki query asks for is not returned**, and reads exactly like a
+  line never sent. `TelemetryStoreSuite` writes its pod log lines with the current time.
+- **`otel/opentelemetry-collector-contrib` lags the core image's tags on Docker Hub.** 0.162.0 existed for
+  the core collector and not for contrib; both are pinned at 0.161.0 so the two collectors match.

@@ -112,19 +112,29 @@ feature also says what that feature does not do.
   minutes by default. A call a service can make but did not make in that time is absent, so the topology is
   never a complete list of what calls what. Declared connections, read from what components register, are
   complete.
-- **Traces are a window, not a history.** Each instance records every component invocation into a fixed ring
-  of recent spans, 4096 by default, and overwrites the oldest. Nothing is persisted, there is no sampling and
-  no query language, and a trace whose older spans are gone is reported as partial.
+- **An instance's traces are a window; a history is the collector's.** Each instance records every component
+  invocation into a fixed ring of recent spans, 4096 by default, and overwrites the oldest; nothing is
+  persisted in the instance and there is no sampling. Where the installation names a collector the spans are
+  exported too, but a span the window overwrites before it is read is lost, and only counted. The platform
+  installs no store outside a local platform.
+- **`tracestate` and baggage are not carried.** A trace's `traceparent` crosses HTTP, gRPC and topics; a
+  vendor's `tracestate` stops at the first ankka service, and no baggage is propagated.
+- **A collector with a private certificate authority is not supported.** An `https` collector is verified
+  against the JVM's trust store, and the exporter presents no client certificate.
+- **An event read from a journal starts a trace.** A consumer or view reading an entity's events or state is
+  the root of a trace of its own; only a message read from a topic continues its publisher's.
 - **Time the platform cannot attribute is shown, not distributed.** Waiting on a model, on a database, or on
   work a handler handed to another thread appears as unattributed time on a trace. A span whose parent has
   gone stays at the root, marked as having an unknown parent.
 - **Tokens, not money.** Agent usage is reported in tokens. There is no price table, so cost is shown as
   unknown, never as zero.
-- **`ankka services logs` is not a log store.** It reads what Kubernetes holds for each instance at the moment
-  of asking: no search, no aggregation, no retention. A service that has restarted many times has lost all but
-  its current and previous containers' output.
-- **Metrics are a window too.** The metrics endpoint reports counts over the current span window, not totals
-  since start, and the platform ships no dashboards or alerts.
+- **`ankka services logs` is not a log store, and logs are never exported.** It reads what Kubernetes holds
+  for each instance at the moment of asking: no search, no aggregation, no retention. Logs are for the
+  installation's own agent to gather from standard output; a line a handler writes names its trace, so a log
+  store can join it. A process's own lines, in Python or TypeScript, carry no trace.
+- **The metrics endpoint is a window.** `/ankka/metrics` reports counts over the current span window, not
+  totals since start; the exported metrics count since the instance started. The platform ships no
+  dashboards or alerts.
 
 ## Components
 

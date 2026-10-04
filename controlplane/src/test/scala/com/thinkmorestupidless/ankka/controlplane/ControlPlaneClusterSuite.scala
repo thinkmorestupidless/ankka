@@ -6,6 +6,7 @@ import io.fabric8.kubernetes.client.{Config, KubernetesClient, KubernetesClientB
 import com.thinkmorestupidless.ankka.crd.AnkkaSerialization
 import com.thinkmorestupidless.ankka.operator.{
   ClusterImages,
+  CollectorStack,
   GatewayStack,
   KeycloakStack,
   Membership,
@@ -181,6 +182,8 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
       // The control plane's own certificates, policies and backend TLS (feature 014), before the
       // Deployment that mounts them.
       applyManifest("kustomization/components/controlplane/zero-trust.yaml")
+      // The platform's collector, which the control plane exports to as any service does.
+      CollectorStack.install(k3s, k8s)
 
       // The base domain the overlay would have fanned out, filled in by hand here — and the HTTPS
       // port clients actually reach the gateway on, which the deploy script substitutes the same
@@ -194,6 +197,12 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
           .readString(repoRoot.resolve(s"kustomization/components/controlplane/$name"))
           .replaceAll("(?<!ANKKA_)BASE_DOMAIN", BaseDomain)
           .replace("""value: "443"""", s"""value: "$httpsPort"""")
+          // What the overlay's otlpEndpoint replacement would write: by the variable's own entry,
+          // never a plain replace of a string a name contains.
+          .replaceAll(
+            """(- name: ANKKA_OTLP_ENDPOINT\s*\n\s*value: )""""",
+            "$1\"" + CollectorStack.endpoint + "\""
+          )
         k8s.load(new java.io.ByteArrayInputStream(yaml.getBytes("UTF-8"))).serverSideApply(): Unit
 
       // The console (feature 017), from its component's own files, with what the overlay's
@@ -1312,4 +1321,28 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
         .getExitCode == 0
     assert(!connects(7628), "the observe port admitted a pod with no platform identity")
     assert(connects(7627), "the probe port must admit anyone, or this proves nothing")
+  }
+
+  test("13. the control plane exports as a service does, and logs in the platform's pattern") {
+    // Every earlier case sent the control plane requests; its spans name it, from its certificate.
+    CollectorStack.waitFor(k3s, "a span of the control plane") { seen =>
+      seen.exists(s =>
+        s.service == "controlplane" && s.resource.get("ankka.project").contains("platform")
+      )
+    }: Unit
+    // Its own logback.xml (TraceLoggingSuite holds the pattern's ids): INFO, not logback's default.
+    val pod = k8s
+      .pods()
+      .inNamespace("ankka-controlplane")
+      .withLabel("app.kubernetes.io/name", "ankka-controlplane")
+      .list()
+      .getItems
+      .asScala
+      .head
+      .getMetadata
+      .getName
+    val log = com.thinkmorestupidless.ankka.operator.PkiStack
+      .kubectl(k3s, "-n", "ankka-controlplane", "logs", pod)
+    assert(log.linesIterator.exists(_.contains(" INFO ")), log.take(2000))
+    assert(!log.linesIterator.exists(_.contains(" DEBUG ")), "the control plane logs at DEBUG")
   }

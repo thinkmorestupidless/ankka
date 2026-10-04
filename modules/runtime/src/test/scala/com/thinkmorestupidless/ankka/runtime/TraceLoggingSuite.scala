@@ -139,3 +139,21 @@ final class TraceLoggingSuite extends FunSuite:
     configurator.doConfigure(getClass.getResource("/logback-test.xml"))
     assert(context.getTurboFilterList.asScala.exists(_.isInstanceOf[TraceLogging.TraceIds]))
   }
+
+  test("every logging configuration the platform owns prints the ids the same way") {
+    // The sidecar's, the control plane's and the sample's as they are; the template's with the `\$`
+    // Giter8 needs, which expands to the same pattern.
+    val files = Vector(
+      "sidecar/src/main/resources/logback.xml",
+      "controlplane/src/main/resources/logback.xml",
+      "samples/shopping-cart/src/main/resources/logback.xml",
+      "ankka.g8/src/main/g8/src/main/resources/logback.xml"
+    )
+    val ids =
+      """%replace( trace_id=%X{trace_id} span_id=%X{span_id}){' trace_id= span_id=$', ''}%n"""
+    for file <- files do
+      val xml     = Files.readString(Paths.get("../..").resolve(file)).replace("\\$", "$")
+      val pattern = """<pattern>(.*)</pattern>""".r.findFirstMatchIn(xml).get.group(1)
+      assert(pattern.endsWith("%msg" + ids), s"$file: $pattern")
+      assert(!xml.contains("level=\"DEBUG\""), file)
+  }

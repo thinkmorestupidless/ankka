@@ -287,6 +287,7 @@ one fact is how an address ends up pointing at a port nothing listens on.
 | `ANKKA_SIDECAR_PORT`, `ANKKA_SIDECAR_ADDRESS`, `ANKKA_SIDECAR_BIND` | Where a process-hosted service finds its sidecar. |
 | `ANKKA_WASM_MODULE`, `ANKKA_WASM_INSTANCES`, `ANKKA_WASM_MAX_MEMORY_PAGES` | Where the runtime finds a wasm service's module, and how it sizes the instances that run it. |
 | `PORT`, `ANKKA_SERVICES_URL` | With web hosting only: where the process listens, and where it calls services. |
+| `ANKKA_OTLP_ENDPOINT`, `ANKKA_OTLP_HEADERS` | Where the installation's telemetry goes and what is sent with it: the installation's to say, once. See [Telemetry](../operate/telemetry.md). |
 
 ### Supplying your own database
 

@@ -67,7 +67,7 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
 
 lazy val templateArtifacts =
   taskKey[Unit](
-    "Publishes the seven service libraries locally for TemplateSuite, unless template tests are off"
+    "Publishes the eight service libraries locally for TemplateSuite, unless template tests are off"
   )
 
 lazy val sampleImageForClusterTests =
@@ -804,7 +804,7 @@ lazy val cli = project
       if (selected.exists(s => s == "off" || !s.split(',').map(_.trim).contains("scala")))
         Def.task(())
       else
-        // Seven of the nine by name: a task dependency on the root's publishLocal runs only the
+        // Eight of the ten by name: a task dependency on the root's publishLocal runs only the
         // root's own (skipped) publish — aggregation is how the command line fans out, not the task
         // graph. controlPlaneApi is a client's library; the template is a service.
         // `grpc` is here for the suite's last case, which adds a gRPC endpoint to the expansion as
@@ -818,6 +818,8 @@ lazy val cli = project
           (grpc / publishLocal).value
           (agent / publishLocal).value
           (testkit / publishLocal).value
+          // The template's build names the exporter, so a project it makes exports when deployed.
+          (telemetryOtlp / publishLocal).value
           ()
         }
     }.value,

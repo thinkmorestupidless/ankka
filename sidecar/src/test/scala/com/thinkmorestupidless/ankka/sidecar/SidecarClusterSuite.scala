@@ -82,7 +82,12 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
   private var operator: Operator    = null
 
   private val settings =
-    OperatorSettings.default.copy(resyncInterval = 2.seconds, sidecarImage = SidecarImage)
+    OperatorSettings.default.copy(
+      resyncInterval = 2.seconds,
+      sidecarImage = SidecarImage,
+      // Every service here exports to the platform's collector, with no telemetry in its code.
+      otlpEndpoint = Some(com.thinkmorestupidless.ankka.operator.CollectorStack.endpoint)
+    )
 
   private def repositoryRoot: Path =
     Iterator
@@ -138,6 +143,7 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
       // The installation's authorities: the sidecar's certificates come from them.
       com.thinkmorestupidless.ankka.operator.PkiStack.install(k3s, k8s)
+      com.thinkmorestupidless.ankka.operator.CollectorStack.install(k3s, k8s)
       waitFor(60.seconds)(
         k8s
           .apiextensions()
@@ -559,6 +565,24 @@ spec:
     assert(body.contains("\"productId\":\"p1\""), body)
   }
 
+  test(
+    "a service exports whatever language it is written in, with no change to its code (Python)"
+  ) {
+    // S2.1 made requests of the Python cart; the sidecar beside it recorded and exported them.
+    com.thinkmorestupidless.ankka.operator.CollectorStack
+      .waitFor(k3s, s"a span of the Python $Service") { seen =>
+        seen.exists(_.service == Service)
+      }: Unit
+    // The address is the sidecar's, never the process's.
+    val containers = pods.head.getSpec.getContainers.asScala
+    def has(name: String) =
+      containers
+        .find(_.getName == name)
+        .exists(_.getEnv.asScala.exists(_.getName == "ANKKA_OTLP_ENDPOINT"))
+    assert(has(Service), "the sidecar has no collector")
+    assert(!has(s"$Service-app"), "the process was given the collector's address")
+  }
+
   test("the credential and the database reach the sidecar only; the process knows how to find it") {
     val pod = pods.head
     val (_, sidecarEnv) =
@@ -874,10 +898,20 @@ spec:
     assert(body.contains("\"productId\":\"p1\""), body)
   }
 
+  test("a service exports whatever language it is written in, with no change to its code (Rust)") {
+    onlyWithRust()
+    com.thinkmorestupidless.ankka.operator.CollectorStack
+      .waitFor(k3s, s"a span of the Rust $RustService") { seen =>
+        seen.exists(_.service == RustService)
+      }: Unit
+  }
+
   test("wasm: the module reads the descriptor's variables, and none of the platform's") {
     onlyWithRust()
     val (secret, secretBody) = rustHttp("/conformance/config/ANKKA_DB_PASSWORD")
     assertEquals(secret, 404, s"a reserved variable reached the module: $secretBody")
+    val (collector, collectorBody) = rustHttp("/conformance/config/ANKKA_OTLP_ENDPOINT")
+    assertEquals(collector, 404, s"the collector's address reached the module: $collectorBody")
     val (greeting, greetingBody) = rustHttp("/conformance/config/GREETING")
     assertEquals(greeting, 200, greetingBody)
     assert(greetingBody.contains("hello from the descriptor"), greetingBody)

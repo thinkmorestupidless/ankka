@@ -61,9 +61,21 @@ private[runtime] final class ObservabilityDocuments(running: AnkkaService, servi
       )
       .mkString("[", ",", "]")
 
+    // Each topic source: where it reads, under which group, from where, at which version.
+    val topicSources = TopicSources(running.system).all
+      .map { s =>
+        s"""{"kind":${Json.str(s.kindWord)},"component":${Json.str(s.componentId)},""" +
+          s""""topic":${Json.str(s.topic)},"group":${Json.str(s.group)},""" +
+          s""""start":${Json.str(s.startFrom.toString)},"version":${s.version},""" +
+          s""""recordedVersion":${s.recordedVersion.fold("null")(_.toString)},""" +
+          s""""behind":${s.behind}}"""
+      }
+      .mkString("[", ",", "]")
+
     s"""{"name":${Json.str(serviceName)},""" +
       s""""runtime":${Json.str(com.thinkmorestupidless.ankka.core.BuildInfo.version)},""" +
-      s""""instances":$instances,"components":$components,"routes":$routes}"""
+      s""""instances":$instances,"components":$components,"routes":$routes,""" +
+      s""""topicSources":$topicSources}"""
 
   /** What the service is made of and how the parts are connected. */
   def topology(): String = TopologyJson.of(running, serviceName, instanceId, startedAt)

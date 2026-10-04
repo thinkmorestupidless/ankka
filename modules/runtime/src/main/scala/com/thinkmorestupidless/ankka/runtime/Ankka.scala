@@ -95,18 +95,26 @@ object Ankka:
 final class ServiceBuilder private[ankka] (
     private val descriptors: Vector[ComponentDescriptor],
     private val extensions: Vector[RuntimeExtension] = Vector.empty,
-    private val conversation: Option[remote.Conversation] = None
+    private val conversation: Option[remote.Conversation] = None,
+    private val identityOverride: Option[Either[String, ServiceIdentity]] = None
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
-    ServiceBuilder(descriptors :+ descriptor, extensions, conversation)
+    ServiceBuilder(descriptors :+ descriptor, extensions, conversation, identityOverride)
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
-    ServiceBuilder(descriptors ++ more, extensions, conversation)
+    ServiceBuilder(descriptors ++ more, extensions, conversation, identityOverride)
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
   def withExtension(extension: RuntimeExtension): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions :+ extension, conversation)
+    ServiceBuilder(descriptors, extensions :+ extension, conversation, identityOverride)
+
+  /**
+   * Who the service is, stated outright rather than read from where it runs. For tests: a test kit
+   * plays a deployed service, or a local one with a name, without a certificate or a variable.
+   */
+  private[ankka] def withIdentity(identity: Either[String, ServiceIdentity]): ServiceBuilder =
+    ServiceBuilder(descriptors, extensions, conversation, Some(identity))
 
   /**
    * How remote descriptors (feature 009) reach the developer's process. Supplied by the sidecar; an
@@ -114,7 +122,7 @@ final class ServiceBuilder private[ankka] (
    * validation error, not a hang at first command.
    */
   def withConversation(conversation: remote.Conversation): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, Some(conversation))
+    ServiceBuilder(descriptors, extensions, Some(conversation), identityOverride)
 
   /** Validates the definition without starting anything. */
   def validate: Either[Vector[String], ComponentRegistry] =
@@ -124,11 +132,10 @@ final class ServiceBuilder private[ankka] (
           s"remote ${d.kind} '${d.componentId}' is registered but no conversation was supplied"
         }
       else Vector.empty
+    val more = remoteWithoutConversation ++ TopicSourceRules.problems(descriptors)
     ComponentRegistry.from(descriptors) match
-      case Left(problems) => Left(problems ++ remoteWithoutConversation)
-      case Right(registry) =>
-        if remoteWithoutConversation.isEmpty then Right(registry)
-        else Left(remoteWithoutConversation)
+      case Left(problems)  => Left(problems ++ more)
+      case Right(registry) => if more.isEmpty then Right(registry) else Left(more)
 
   /** Creates an actor system and hosts every registered component on it. */
   def start(
@@ -238,6 +245,11 @@ final class ServiceBuilder private[ankka] (
       if registry.isEmpty then "no components registered" else registry.toString
     )
 
+    // Resolved here and not refused: only a topic source needs it, and a service with none must
+    // start as it always has. ProjectionRuntime refuses a topic source when this is a Left.
+    val serviceIdentity =
+      identityOverride.getOrElse(ServiceIdentity.resolve(system.settings.config))
+
     val service = AnkkaService(
       system,
       registry,
@@ -246,7 +258,8 @@ final class ServiceBuilder private[ankka] (
       ownsSystem,
       extensions,
       conversation,
-      secrets
+      secrets,
+      serviceIdentity
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -375,7 +388,12 @@ final class AnkkaService private[ankka] (
      * Given to endpoints, workflow steps, consumers, timed actions and agents, never to an entity
      * or a view.
      */
-    val secrets: SecretStore = SecretStore.unavailable
+    val secrets: SecretStore = SecretStore.unavailable,
+    /**
+     * Who this service is — what its topic sources' consumer groups are named for — or the sentence
+     * saying why that could not be read. See `ServiceIdentity`.
+     */
+    val identity: Either[String, ServiceIdentity] = Right(ServiceIdentity.unnamed)
 ):
 
   /**

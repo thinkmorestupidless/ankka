@@ -1,8 +1,8 @@
 ---
 title: Broker topics
-description: Read views and consumers from a Kafka topic and publish to one, with CloudEvents attributes as headers, ordering by record key, which is the subject unless a message names one, and a broker-free in-memory pair for tests.
+description: Read views and consumers from a Kafka topic and publish to one — where a source starts, the group it reads under, rebuilding by version as far back as the broker retains, headers, ordering, and an in-memory broker for tests.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, python, typescript, rust]
 components: [view, consumer]
 related: [build/views.md, build/consumers.md, build/graph.md, concepts/consistency.md, reference/configuration.md]
 ---
@@ -101,11 +101,280 @@ export class StockLevels extends View<StockEvent, StockRow> {
 
 ///
 
-A consumer reads a topic the same way: `ChangeSource.fromTopic(...)` in Scala, `topic = "..."` in Python.
+A consumer reads a topic the same way: `ChangeSource.fromTopic(...)` in Scala, `topic = "..."` in Python,
+`static readonly topic` in TypeScript and `Source::topic("...")` in Rust. A consumer must also say where it
+starts; see the next section.
 
 The view's row is keyed by the message's CloudEvents subject, the `ce-subject` header, falling back to the
 Kafka record key when the header is absent. A message with neither is skipped by a view rather than
 retried, because there is no row it could belong to.
+
+## Where a source starts
+
+A view or consumer that reads a topic declares its **start position**: where it begins the first time its
+consumer group reads the topic.
+
+| Start position | Begins at |
+|---|---|
+| earliest | the oldest message the broker still holds |
+| latest | after the newest: only what is published from then on |
+| a time | the first message published at or after that time; after the newest when there is none |
+
+A view that declares none starts at the earliest message. **A consumer has no default and must declare
+one**: a consumer acts on each message, and starting at the earliest would put everything the broker
+holds through its action, while starting at the latest would silently skip the backlog. A consumer over a
+topic that declares none is refused when the service starts, naming it.
+
+A start position applies once. The moment a partition of the topic is first assigned to the group, the
+offset it names is committed; from then on a restart, a rebalance or a new instance resumes from what the
+group has committed, never from the start position again. A time earlier than anything the broker holds
+reads from the earliest message it holds, and a time in the future reads as latest.
+
+A partition added to a topic after the group first read it has no committed offset either, so it begins
+where the source declares. Under latest, what was published to it before the group was assigned it is not
+read.
+
+In each language, a view declared at version 2 with no start position, and a consumer that starts at the
+latest message and republishes what it reads:
+
+/// tab | Scala
+
+<!-- include: sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/ConformanceReference.scala#topic-sources -->
+```scala
+/** The latest message about each subject. Declares no start, so it reads from the earliest. */
+final class TopicRowsView extends View[Fanned, Fanned]:
+  def onChange(message: Fanned): Effect = effects.updateRow(message)
+
+object TopicRows
+    extends View.Companion[TopicRowsView, Fanned, Fanned](
+      componentId = ComponentId("topic-rows"),
+      source = ChangeSource.fromTopic(Topic, Codecs.serializer[Fanned]("fanned")),
+      rowSerializer = Codecs.serializer[Fanned]("fanned")
+    ):
+  // Raised from 1 once: every reference declares 2, which names the group it reads under.
+  override def version                  = Some(2)
+  def create(ctx: ViewComponentContext) = new TopicRowsView
+
+/** Republishes what it reads, from the latest: none of what the topic held when it started. */
+final class TopicRelay extends Consumer[Fanned, Fanned]:
+  def onMessage(message: Fanned): Effect = effects.produce(message)
+
+object TopicRelay
+    extends Consumer.Companion[TopicRelay, Fanned, Fanned](
+      componentId = ComponentId("topic-relay"),
+      source =
+        ChangeSource.fromTopic(Topic, Codecs.serializer[Fanned]("fanned"), StartFrom.Latest)
+    ):
+  def create(ctx: ConsumerContext) = new TopicRelay
+
+  override val outputSerializer: Option[Serializer[Fanned]] =
+    Some(Codecs.serializer[Fanned]("fanned"))
+
+  override val produceTo: Option[String] = Some(Relayed)
+```
+
+The start position is the third argument of `ChangeSource.fromTopic`: `StartFrom.Earliest`,
+`StartFrom.Latest` or `StartFrom.At(instant)`.
+
+///
+
+/// tab | Python
+
+<!-- include: sdks/python/examples/shopping_cart/conformance.py#topic-sources -->
+```python
+class TopicRows(View[Fanned, Fanned]):
+    """The latest message about each subject. Declares no start, so it reads from the earliest."""
+
+    component_id = "topic-rows"
+    topic = "conformance-topic"
+    version = 2
+    event_codec = json_codec(Fanned, "fanned")
+    row_codec = json_codec(Fanned, "fanned")
+
+    def on_change(self, message: Fanned) -> ViewEffect:
+        return self.effects.update_row(message)
+
+
+class TopicRelay(Consumer[Fanned, Fanned]):
+    """Republishes what it reads, from the latest: none of what the topic held when it started."""
+
+    component_id = "topic-relay"
+    topic = "conformance-topic"
+    start_from = StartFrom.LATEST
+    message_codec = json_codec(Fanned, "fanned")
+    produces_to = "conformance-topic-relayed"
+    out_codec = json_codec(Fanned, "fanned")
+
+    def on_message(self, message: Fanned) -> ConsumerEffect:
+        return self.effects.produce(message)
+```
+
+`start_from` is `StartFrom.EARLIEST`, `StartFrom.LATEST` or `StartFrom.at(when)`, where `when` is a
+`datetime` that says its timezone; one that does not is refused, since a time read in the machine's own
+zone would start somewhere else on a laptop than in a pod.
+
+///
+
+/// tab | TypeScript
+
+<!-- include: sdks/typescript/examples/shopping-cart/conformance.ts#topic-sources -->
+```ts
+/** The latest message about each subject. Declares no start, so it reads from the earliest. */
+export class TopicRows extends View<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "topic-rows"
+  static readonly topic = "conformance-topic"
+  static readonly version = 2
+  static readonly events = jsonCodec(Fanned, "fanned")
+  static readonly row = jsonCodec(Fanned, "fanned")
+
+  onChange(message: Infer<typeof Fanned>) {
+    return this.effects.updateRow(message)
+  }
+}
+
+/** Republishes what it reads, from the latest: none of what the topic held when it started. */
+export class TopicRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "topic-relay"
+  static readonly topic = "conformance-topic"
+  static readonly startFrom = StartFrom.latest
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = "conformance-topic-relayed"
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce(message)
+  }
+}
+```
+
+`startFrom` is `StartFrom.earliest`, `StartFrom.latest` or `StartFrom.at(date)`.
+
+///
+
+/// tab | Rust
+
+<!-- include: sdks/rust/examples/shopping-cart/src/conformance.rs#topic-sources -->
+```rust
+/// The latest message about each subject. Declares no start, so it reads from the earliest.
+pub struct TopicRows;
+
+impl View for TopicRows {
+    type Row = Fanned;
+    type Event = Fanned;
+    const COMPONENT_ID: &'static str = "topic-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("fanned");
+
+    fn source() -> Source {
+        Source::topic("conformance-topic")
+    }
+
+    fn version() -> Option<u32> {
+        Some(2)
+    }
+
+    fn on_event(_: Option<Fanned>, message: Fanned, _: &Context) -> ViewEffect<Fanned> {
+        ViewEffect::UpdateRow(message)
+    }
+}
+
+/// Republishes what it reads, from the latest: none of what the topic held when it started.
+pub struct TopicRelay;
+
+impl Consumer for TopicRelay {
+    type Message = Fanned;
+    const COMPONENT_ID: &'static str = "topic-relay";
+
+    fn source() -> Source {
+        Source::topic("conformance-topic")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Latest)
+    }
+
+    fn produces_to() -> Option<&'static str> {
+        Some("conformance-topic-relayed")
+    }
+
+    fn on_message(message: Fanned, _: &Context) -> ConsumerEffect {
+        let (payload, _, metadata) = fanned(message.n).into_parts();
+        ConsumerEffect::Produce(payload, metadata)
+    }
+}
+```
+
+`start_from()` returns `StartFrom::Earliest`, `StartFrom::Latest` or `StartFrom::AtMillis(millis)`, or
+`StartFrom::at(system_time)`. A module has no clock, so a time is stated, not read.
+
+///
+
+## Rebuilding by version
+
+A view or consumer that reads a topic may declare a **version**, a whole number of 1 or more that only goes
+up. None declared is version 1.
+
+When a view starts at a higher version than the one its rows were last built at, it is **rebuilt**: its
+table is emptied, the version it now declares is recorded, and it reads the topic again from its start
+position, under a consumer group of its own. That is how a view whose handler changed gets rows the new
+handler wrote, rather than keeping the old handler's rows and applying the new one only to what comes next.
+The group it read under before is left on the broker as it was.
+
+A rebuild reaches back only as far as the broker retains. A topic's retention is a window, not a record:
+messages older than it are gone, and a rebuilt view holds only what the window still holds, which may be
+fewer rows than it held before. While a rebuild runs, the view serves an empty or partial table. A view
+rebuilt with a start position of latest is empty until a message is published.
+
+Before a single row is removed, the service asks the broker when the oldest message it holds on each
+partition was published, and logs the answer with the view and both versions — a line beginning
+`view rebuild:`. Until the broker answers the view is left as it is, so a broker that is down does not
+leave a view empty. A rebuild is never refused for what the broker holds; the log line is how a person
+learns what it reached.
+
+Old and new instances of a service run side by side during a rolling update. The rows are emptied once,
+however many instances start at the new version, and an instance at a lower version than the one recorded
+stops reading the topic for that view and writes nothing more to it, so no row an older handler writes
+survives the rebuild. Such an instance stays ready and goes on answering queries from the table. A service
+rolled back to a lower version therefore leaves the view as the higher version built it, and not updating;
+going back is done by going forward, publishing the old handler under a version higher than the recorded
+one.
+
+A consumer keeps no rows. Its version changes only its group, so a consumer started at a higher version
+reads the topic again from its start position and acts on every message the broker still holds. During a
+rolling update both versions' groups are live, so a message published during it is delivered under each.
+
+A version applies to a topic source only. A view or consumer that reads an entity and declares one is
+refused when the service starts: a view over an entity is not rebuilt when its code changes, and a version
+that did nothing would say otherwise.
+
+## Consumer groups
+
+Each topic source reads under a Kafka consumer group named for the service it belongs to, so two services
+on one broker never share one, whatever their components are called:
+
+| The service | Group, at version 1 | Group, at version N |
+|---|---|---|
+| deployed in project `shop` as `orders` | `ankka.shop.orders.view.summary` | `ankka.shop.orders.view-vN.summary` |
+| run locally, stating the name `orders` | `ankka.local.orders.view.summary` | `ankka.local.orders.view-vN.summary` |
+| run locally, stating no name | `ankka-view-summary` | `ankka-view.vN-summary` |
+
+The examples are a view called `summary`; a consumer's say `consumer` where these say `view`. A deployed
+service's project and name are read from the certificate the platform issued it, never from its
+configuration, so no service can name its groups as another's. A service run on a developer's machine
+states its name with `ANKKA_SERVICE_NAME`, or `ankka.service.name` in its configuration; a project made by
+`ankka init` states it already. `local` is reserved, and no project can be called it.
+
+## What a service says about its topic sources
+
+When a topic source subscribes, the service logs a line beginning `topic source subscribed:` naming its
+kind, component, topic, group, start position and version. A view at a lower version than the one recorded
+logs `view behind its recorded version:` as a warning. These lines are the way to read a deployed
+service's topic sources today, with `ankka services logs`.
+
+The service's metrics carry the same facts, in two series: `ankka_topic_source_info`, one for each topic
+source with its group, start position and version as labels, and `ankka_topic_source_behind`, 1 for a view
+that is behind and 0 otherwise. A deployed service serves them on its management port, which only the
+service's own instances can reach. A service run locally answers the same facts, as `topicSources`, from
+the endpoint the local console reads.
 
 ## Connecting to Kafka
 
@@ -197,13 +466,14 @@ Reading a topic is at least once. Offsets are committed to Kafka after the handl
 restart or a failure redelivers what was not yet committed, and a topic-sourced component must tolerate
 seeing a message twice.
 
-Partitions are assigned by Kafka consumer groups, one group per component. Two components reading one topic
-each see every message; the instances of one service share each component's partitions between them, and
-Kafka rebalances them as instances come and go with no configuration in ankka.
+Partitions are assigned by Kafka consumer groups, one group per component, named as
+[Consumer groups](#consumer-groups) says. Two components reading one topic each see every message; the
+instances of one service share each component's partitions between them, and Kafka rebalances them as
+instances come and go with no configuration in ankka.
 
-A topic is not a journal. A component reading a topic sees only what is published after it starts, and it
-cannot rebuild its state from history, because a broker's retention is not a complete record. A view that
-must be rebuildable belongs over an entity's events.
+A topic is not a journal. A component reading a topic sees what the broker still holds from where it
+starts, and a rebuild reaches back no further, because a broker's retention is not a complete record. A
+view that must be whole belongs over an entity's events.
 
 ## Testing without a broker
 
@@ -220,6 +490,11 @@ val testKit = AnkkaTestKit.start(Seq(StockLevels.descriptor), Seq(ProjectionRunt
 broker.publish("stock-events", """{"productId":"p1","delta":5}""".getBytes("UTF-8"), Metadata.empty.withSubject("p1"))
 ```
 
+The in-memory broker keeps everything published to a topic, as one partition that drops nothing, and a
+position for each group, so a group starts where it declares and resumes after a restart.
+`broker.setClock(...)` decides the time each publication is recorded at, for a start position that is a
+time, and `broker.positions(topic)` says how far each group has read.
+
 `broker.publishedTo(topic)` returns what components published, for assertions; each entry's
 `message.key` is the record key a broker would have been given. `broker.failNext(topic)` makes the next
 publication to a topic fail, to test what a consumer does when the broker refuses one of its messages.
@@ -228,6 +503,9 @@ publication to a topic fail, to test what a consumer does when the broker refuse
 
 Other brokers plug in through the same two interfaces, `MessagePublisher` and `MessageSubscriber`, in
 `com.thinkmorestupidless.ankka.runtime`; pass implementations to `ProjectionRuntime.withBroker`. A
+subscriber implements `subscribe(subscription, handle)`, where the subscription names the topic, the group
+and the start position, and `earliestRetained(topic)`, which says when the oldest message on each partition
+was published. A
 publisher implements `publish(topic, key, payload, metadata)` to publish a message under a key that is
 not its subject. One that implements only `publish(topic, payload, metadata)` keys every message by its
 subject, and a message that names a key fails rather than be published under the wrong one.

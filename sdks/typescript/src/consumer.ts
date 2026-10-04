@@ -1,5 +1,6 @@
 // A consumer: reacts to a source's changes, optionally producing onward to a topic.
 
+import type { StartFrom } from "./startFrom.ts"
 import type { Shape } from "./codec.ts"
 import type { Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
@@ -97,6 +98,10 @@ export interface ConsumerClass<M = unknown, Out = unknown, C extends Consumer<M,
   readonly componentId: string
   readonly source?: ComponentRef
   readonly topic?: string
+  /** Where a topic source starts the first time its group reads the topic. */
+  readonly startFrom?: StartFrom
+  /** Raised to read the topic again from the start position, under a group of its own. Absent is 1. */
+  readonly version?: number
   readonly message: Shape<M>
   /** The shape of what `produce` sends onward; required with `producesTo`. */
   readonly out?: Shape<Out>

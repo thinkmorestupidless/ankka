@@ -114,7 +114,9 @@ mod tests {
                 "profile",
                 "profile-graph",
                 "reminder",
-                "shopping-cart"
+                "shopping-cart",
+                "topic-relay",
+                "topic-rows"
             ]
         );
     }

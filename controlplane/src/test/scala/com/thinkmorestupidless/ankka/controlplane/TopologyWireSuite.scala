@@ -53,7 +53,11 @@ class TopologyWireSuite extends munit.FunSuite with LogCapturing:
   object Audit
       extends Consumer.Companion[Audit, String, String](
         ComponentId("audit"),
-        ChangeSource.Topic("events", Serializers.string)
+        ChangeSource.Topic(
+          "events",
+          Serializers.string,
+          Some(com.thinkmorestupidless.ankka.sdk.StartFrom.Earliest)
+        )
       ):
     def create(context: ConsumerContext)                      = new Audit
     override val outputSerializer: Option[Serializer[String]] = Some(Serializers.string)

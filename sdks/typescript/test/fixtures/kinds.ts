@@ -2,6 +2,7 @@
 import { KeyValueEntity } from "../../src/keyValueEntity.ts"
 import { Workflow } from "../../src/workflow.ts"
 import { Consumer } from "../../src/consumer.ts"
+import { StartFrom } from "../../src/startFrom.ts"
 import { TimedAction } from "../../src/timedAction.ts"
 import { Agent } from "../../src/agent.ts"
 import { action, command, guardrail, query, step, stream, tool } from "../../src/handlers.ts"
@@ -85,6 +86,7 @@ export const Pong = s.record("Pong", { n: s.int, from: s.string })
 export class Ponger extends Consumer<Infer<typeof Ping>, Infer<typeof Pong>> {
   static readonly componentId = "ponger"
   static readonly topic = "pings"
+  static readonly startFrom = StartFrom.earliest
   static readonly message = jsonCodec(Ping, "ping")
   static readonly out = jsonCodec(Pong, "pong")
   static readonly producesTo = "pongs"
@@ -102,6 +104,7 @@ export const Fan = s.record("Fan", { n: s.int })
 export class Fanout extends Consumer<Infer<typeof Ping>, Infer<typeof Fan>> {
   static readonly componentId = "fanout"
   static readonly topic = "fan-pings"
+  static readonly startFrom = StartFrom.earliest
   static readonly message = jsonCodec(Ping, "ping")
   static readonly out = jsonCodec(Fan, "fan")
   static readonly producesTo = "fans"

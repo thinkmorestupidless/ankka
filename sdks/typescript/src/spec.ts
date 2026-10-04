@@ -1,7 +1,7 @@
 // Renders the discovery Spec from the registry: what the sidecar hosts is exactly what is registered.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
-import { Endpoint_Acl, SpecSchema, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
+import { Endpoint_Acl, SpecSchema, StartFrom_Named, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
 import type { Registry, RegisteredAutonomousAgent, RegisteredComponent, Source } from "./service.ts"
 import { resultSchemaJson, type AutonomousSettings } from "./autonomous.ts"
 import type { HandlerRef } from "./handlers.ts"
@@ -12,7 +12,7 @@ import { toJsonSchema } from "./schema.ts"
 import { isCodec } from "./codec.ts"
 import { VERSION } from "./version.ts"
 
-export const PROTOCOL_VERSION = "1.6"
+export const PROTOCOL_VERSION = "1.7"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -57,9 +57,14 @@ function handlerInits(handlers: ReadonlyMap<string, HandlerRef<any, any, any, an
 }
 
 function sourceInit(source: Source): SourceInit {
-  return "topic" in source
-    ? { source: { case: "topic", value: source.topic } }
-    : { source: { case: "component", value: { kind: kindToProto(source.component.kind), id: source.component.id } } }
+  if (!("topic" in source)) return { source: { case: "component", value: { kind: kindToProto(source.component.kind), id: source.component.id } } }
+  const start = source.startFrom
+  if (start === undefined) return { source: { case: "topic", value: source.topic } }
+  const position =
+    start.kind === "at"
+      ? { case: "atMillis" as const, value: BigInt(start.atMillis) }
+      : { case: "named" as const, value: start.kind === "earliest" ? StartFrom_Named.EARLIEST : StartFrom_Named.LATEST }
+  return { source: { case: "topic", value: source.topic }, startFrom: { position } }
 }
 
 function recoveryInit(r: Recovery): RecoveryInit {
@@ -97,9 +102,27 @@ function componentInit(c: RegisteredComponent): ComponentInit {
         detail: { case: "workflow", value: { steps: [...c.steps.keys()].sort(), ...(c.settings ? { settings: settingsInit(c.settings) } : {}) } },
       }
     case "view":
-      return { ...base, handlers: [], detail: { case: "view", value: { source: sourceInit(c.source), rowManifest: c.rowCodec.manifest, queries: [...c.queries] } } }
+      return {
+        ...base,
+        handlers: [],
+        detail: {
+          case: "view",
+          value: { source: sourceInit(c.source), rowManifest: c.rowCodec.manifest, queries: [...c.queries], ...(c.version !== undefined ? { version: c.version } : {}) },
+        },
+      }
     case "consumer":
-      return { ...base, handlers: [], detail: { case: "consumer", value: { source: sourceInit(c.source), ...(c.producesTo !== undefined ? { producesTo: c.producesTo } : {}) } } }
+      return {
+        ...base,
+        handlers: [],
+        detail: {
+          case: "consumer",
+          value: {
+            source: sourceInit(c.source),
+            ...(c.producesTo !== undefined ? { producesTo: c.producesTo } : {}),
+            ...(c.version !== undefined ? { version: c.version } : {}),
+          },
+        },
+      }
     case "timed-action":
       return { ...base, handlers: handlerInits(c.actions), detail: { case: "timedAction", value: {} } }
     case "agent":

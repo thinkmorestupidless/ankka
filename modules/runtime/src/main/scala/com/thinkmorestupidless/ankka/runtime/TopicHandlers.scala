@@ -14,12 +14,14 @@ import scala.concurrent.{ExecutionContext, Future}
  * Unlike the entity-sourced handler, this one writes through its own connection rather than a
  * projection transaction — the offset lives in Kafka, so there is no shared transaction to join.
  * Topic-sourced views are therefore at-least-once, and a view reading one must be idempotent per
- * message.
+ * message. Every write goes through `guard`, so nothing is written while the view's rows are
+ * recorded at a version other than the one this instance declares.
  */
 private[ankka] final class ViewTopicHandler(
     descriptor: ViewDescriptor[View[Any, Any], Any, Any],
     database: Database,
-    client: ComponentClient
+    client: ComponentClient,
+    guard: ViewGuard
 )(using system: ActorSystem[?]):
 
   private given ExecutionContext = system.executionContext
@@ -64,9 +66,9 @@ private[ankka] final class ViewTopicHandler(
             effect match
               case ViewEffect.UpdateRow(row) =>
                 val json = String(descriptor.rowSerializer.toBytes(row), "UTF-8")
-                database.execute(ViewStore.upsert(table, subject, json)).map(_ => Done)
+                guard.write(ViewStore.upsert(table, subject, json))
               case ViewEffect.DeleteRow =>
-                database.execute(ViewStore.delete(table, subject)).map(_ => Done)
+                guard.write(ViewStore.delete(table, subject))
               case ViewEffect.Ignore =>
                 Future.successful(Done)
           }

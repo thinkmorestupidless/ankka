@@ -186,6 +186,8 @@ class GraphVersionsSuite extends munit.FunSuite with LogCapturing:
     assertEquals(failure.asInstanceOf[GraphElementRefused].why, "no-sequence")
     assert(failure.getMessage.contains("state a version"), failure.getMessage)
     assertEquals(published("stock-graph", "s-none"), Vector.empty)
+    // It would fail every time it came again, and a broker hands it again before anything after it.
+    broker.skipFailed("stock-graph-events")
   }
 
   test("over a topic, an element that states its version is published at it") {

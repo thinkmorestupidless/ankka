@@ -232,6 +232,10 @@ impl Consumer for Relay {
         Source::topic("counts")
     }
 
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
+    }
+
     fn produces_to() -> Option<&'static str> {
         Some("big-counts")
     }
@@ -275,6 +279,10 @@ impl Consumer for Fanout {
 
     fn source() -> Source {
         Source::topic("counts")
+    }
+
+    fn start_from() -> Option<StartFrom> {
+        Some(StartFrom::Earliest)
     }
 
     fn produces_to() -> Option<&'static str> {

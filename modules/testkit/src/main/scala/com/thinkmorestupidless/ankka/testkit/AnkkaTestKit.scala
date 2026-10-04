@@ -8,7 +8,8 @@ import com.thinkmorestupidless.ankka.runtime.{
   Ankka,
   AnkkaService,
   RuntimeExtension,
-  SecretKey
+  SecretKey,
+  ServiceIdentity
 }
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
@@ -198,8 +199,14 @@ object AnkkaTestKit:
        * The service's secret key, as `ANKKA_SECRET_KEY` would give it. A fresh one per kit by
        * default, so the secret store works with no setup; `None` starts a service with none.
        */
-      secretKey: Option[String] = Some(generateSecretKey())
+      secretKey: Option[String] = Some(generateSecretKey()),
+      serviceIdentity: ServiceIdentity = ServiceIdentity.unnamed
   ): AnkkaTestKit =
+    // On every start and restart, as the rest of `configure` is: the identity is part of what the
+    // service is, not something a restart forgets. Before `configure`, so a suite can state an
+    // identity that could not be read, which only ankka's own tests have reason to.
+    val configured: ServiceBuilder => ServiceBuilder =
+      builder => configure(builder.withIdentity(Right(serviceIdentity)))
     val container = AnkkaPostgres(DockerImageName.parse(PostgresImage))
       .withDatabaseName("ankka")
       .withUsername("ankka")
@@ -229,7 +236,7 @@ object AnkkaTestKit:
         hostService(
           descriptors,
           extensions,
-          configure,
+          configured,
           withSecretKey(config, secretKey),
           readyTimeout
         )
@@ -241,7 +248,7 @@ object AnkkaTestKit:
     new AnkkaTestKit(
       descriptors,
       extensions,
-      configure,
+      configured,
       config,
       container,
       readyTimeout,

@@ -291,6 +291,50 @@ object ConformanceReference:
     override val produceTo: Option[String] = Some("conformance-fanout")
   // docs:end fanout
 
+  // ── topic-rows and topic-relay: a view and a consumer over a topic ──
+
+  /**
+   * The topic the conformance target fills before the service starts, so that where a source starts
+   * can be seen: what it holds then is `fanned` messages about `t-1`, `t-2` and `t-3`.
+   */
+  val Topic: String = "conformance-topic"
+
+  /** Where `topic-relay` republishes each message it reads. */
+  val Relayed: String = "conformance-topic-relayed"
+
+  // docs:start topic-sources
+  /** The latest message about each subject. Declares no start, so it reads from the earliest. */
+  final class TopicRowsView extends View[Fanned, Fanned]:
+    def onChange(message: Fanned): Effect = effects.updateRow(message)
+
+  object TopicRows
+      extends View.Companion[TopicRowsView, Fanned, Fanned](
+        componentId = ComponentId("topic-rows"),
+        source = ChangeSource.fromTopic(Topic, Codecs.serializer[Fanned]("fanned")),
+        rowSerializer = Codecs.serializer[Fanned]("fanned")
+      ):
+    // Raised from 1 once: every reference declares 2, which names the group it reads under.
+    override def version                  = Some(2)
+    def create(ctx: ViewComponentContext) = new TopicRowsView
+
+  /** Republishes what it reads, from the latest: none of what the topic held when it started. */
+  final class TopicRelay extends Consumer[Fanned, Fanned]:
+    def onMessage(message: Fanned): Effect = effects.produce(message)
+
+  object TopicRelay
+      extends Consumer.Companion[TopicRelay, Fanned, Fanned](
+        componentId = ComponentId("topic-relay"),
+        source =
+          ChangeSource.fromTopic(Topic, Codecs.serializer[Fanned]("fanned"), StartFrom.Latest)
+      ):
+    def create(ctx: ConsumerContext) = new TopicRelay
+
+    override val outputSerializer: Option[Serializer[Fanned]] =
+      Some(Codecs.serializer[Fanned]("fanned"))
+
+    override val produceTo: Option[String] = Some(Relayed)
+  // docs:end topic-sources
+
   /**
    * The carts as a graph: the cart's node for an item added or removed, the cart checked out with
    * its checkout and the edge between them for a checkout, the cart's tombstone when it is deleted.
@@ -663,6 +707,8 @@ object ConformanceReference:
     "cart-rows",
     "checkout-recorder",
     "checkout-fanout",
+    "topic-rows",
+    "topic-relay",
     "cart-graph",
     "profile-graph",
     "reminder",
@@ -678,6 +724,8 @@ object ConformanceReference:
     CartRows.descriptor,
     CheckoutRecorder.descriptor,
     CheckoutFanout.descriptor,
+    TopicRows.descriptor,
+    TopicRelay.descriptor,
     CartGraph.descriptor,
     ProfileGraph.descriptor,
     Reminder.descriptor,

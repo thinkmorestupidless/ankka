@@ -48,7 +48,7 @@ private[runtime] object DeclaredConnections:
   private def of(source: ChangeSource[?]): DeclaredSource = source match
     case ChangeSource.EventSourced(component, _) => DeclaredSource.Events(component)
     case ChangeSource.KeyValue(component, _)     => DeclaredSource.State(component)
-    case ChangeSource.Topic(topic, _)            => DeclaredSource.Topic(topic)
+    case ChangeSource.Topic(topic, _, _)         => DeclaredSource.Topic(topic)
 
   /**
    * Discovery lets a source name a component of any kind, and only an entity has a change stream.
@@ -60,4 +60,4 @@ private[runtime] object DeclaredConnections:
     case RemoteSource.Component(ComponentKind.KeyValueEntity, component) =>
       Some(DeclaredSource.State(component))
     case RemoteSource.Component(_, _) => None
-    case RemoteSource.Topic(name)     => Some(DeclaredSource.Topic(name))
+    case RemoteSource.Topic(name, _)  => Some(DeclaredSource.Topic(name))

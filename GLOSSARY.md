@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`; none is at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Topic sources*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -613,6 +613,110 @@ Avoid: static secret
 ### entry
 One named value of a project secret. A descriptor's variable is taken from one entry.
 
+## Topic sources
+
+### ankka
+*Proposed.* The platform these features describe: what a service is built on, and what runs it.
+
+### deployed service
+*Proposed.* A service running on the platform, which knows its project and its name because the
+platform tells it.
+
+### local service
+*Proposed.* A service run on a developer's machine, outside the platform. It has no project, and a
+name only when it states one.
+
+### id
+*Proposed.* The name a project, a service, a view or a consumer is declared with.
+
+### row
+*Proposed.* One entry a view holds, written by the view from a message it read.
+
+### broker
+*Proposed.* The system that holds topics and delivers their messages. One broker may serve many
+services.
+
+### partition
+*Proposed.* One ordered part of a topic. A group's members divide a topic's partitions between
+them.
+
+### topic source
+*Proposed.* A view's or a consumer's declaration that it reads a topic, with the start position
+and the version it reads at.
+
+### group
+*Proposed.* The name under which a topic source reads a topic. The broker delivers each message to
+one member of a group, and remembers for each group how far it has read.
+
+Avoid: consumer group
+
+### subscribes
+*Proposed.* Of a view or consumer: begins reading its topic under its group.
+
+### start position
+*Proposed.* Where a topic source begins reading the first time its group reads the topic:
+"earliest", "latest", or a time. It does not apply once the group has read anything.
+
+Avoid: offset reset, initial offset
+
+### earliest
+*Proposed.* Of a message: the oldest the broker still retains. As a start position: begin there.
+
+### latest
+*Proposed.* Of a message: the newest on the topic. As a start position: begin after it, reading
+only what is published from then on.
+
+### retained
+*Proposed.* Of a message: still held by the broker. A broker retains messages for a bounded span
+and then drops them, so a topic is not a complete record.
+
+### recorded version
+*Proposed.* The version a view's rows were last built at, as the service has stored it.
+
+### rebuild
+*Proposed.* Emptying a view and reading its topic again from its start position under a new
+group, when the view is declared at a higher version than its recorded version. A rebuild reaches
+back only as far as the broker retains.
+
+Avoid: replay, rewind
+
+### emptied
+*Proposed.* Of a view: every row removed at once, at the start of a rebuild.
+
+Avoid: truncated, cleared
+
+### behind
+*Proposed.* Of a view on one instance: declared at a lower version than its recorded version. A
+view that is behind reads nothing and writes nothing, and is never rebuilt downward.
+
+### registers
+*Proposed.* A service hands a component to ankka at startup. A component ankka refuses is refused
+there, before the service takes any request.
+
+### registration
+*Proposed.* The act of a service registering a component.
+
+### rolling update
+*Proposed.* Replacing a service's instances one at a time, so that old and new instances run
+beside each other until the last old one stops.
+
+### rolled back
+*Proposed.* Of a service: deployed again as an earlier build, after a later one.
+
+### log
+*Proposed.* The lines a running service writes about what it is doing, read by whoever operates
+it.
+
+### metrics
+*Proposed.* The numbers a running service publishes about itself for a monitoring system to read.
+
+### release
+*Proposed.* One published version of ankka. A service is built on one release and may run on a
+platform at a later one.
+
+### limitations
+*Proposed.* The part of the documentation that lists what ankka does not do.
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
@@ -642,4 +746,6 @@ issuers', service's, email, address, whether, dates, date, slow, arrive, arrivin
 installation's, organization's, type, admitted, asking, reachable, kept, keeping, remove, removes,
 removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger, rule, break, breaks,
 slash, holding, newly, exists, try, tries, there, such, present, record, recorded, delete, deleted,
-back
+back, distinct, between, naming, starting, longest, permitted, accepts, declaring, already,
+delivered, missing, honoured, earlier, higher, lower, positive, whole, number, during, beside, far,
+looks, default, bounded, upgrading, empty, nobody, created, creation, because, reserved

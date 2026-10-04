@@ -73,6 +73,27 @@ class RenderingSuite extends munit.FunSuite:
     )
   }
 
+  test("nothing is rendered for a project named local") {
+    // A deployed service in a project called `local` would read topics under the same groups as a
+    // service run on a developer's machine that states its name. Refused here as by the control
+    // plane, with local's own reason.
+    val result =
+      Rendering.render(
+        resource(spec.copy(projectId = "local"), namespace = "ankka-local"),
+        settings,
+        ProvisioningPlan.Supplied
+      )
+    assertEquals(
+      result,
+      Left(
+        Vector(
+          "project id 'local' is reserved for services run locally, whose consumer groups it " +
+            "names; no certificate is issued in its name"
+        )
+      )
+    )
+  }
+
   test("a project whose id only contains the platform's is rendered as any other") {
     val result =
       Rendering.render(

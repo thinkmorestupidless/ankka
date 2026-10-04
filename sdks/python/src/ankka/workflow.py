@@ -20,6 +20,7 @@ from ankka.effects.workflow import StepEffects, WorkflowEffect, WorkflowEffects,
 from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_handlers
 from ankka.effects.common import Error, ErrorCode
 from ankka.secrets import Secrets
+from ankka.services import Services
 
 S = TypeVar("S")
 
@@ -154,6 +155,7 @@ class Workflow(Generic[S]):
         self._entity_id: str = ""
         self._in_step = False
         self._secrets_store: Secrets | None = None
+        self._services: Services | None = None
 
     def empty_state(self) -> S:
         raise NotImplementedError
@@ -194,6 +196,24 @@ class Workflow(Generic[S]):
     @secrets.setter
     def secrets(self, store: Secrets) -> None:
         self._secrets_store = store
+
+    @property
+    def services(self) -> Services:
+        """Other services, called as this one, in a step. A command handler is refused, as for the
+        secret store: it would block the workflow's other commands behind another service."""
+        if not self._in_step:
+            from ankka.client import CommandError
+
+            raise CommandError(
+                Error("a workflow calls another service in a step, not in a command handler", ErrorCode.BAD_REQUEST)
+            )
+        if self._services is not None:
+            return self._services
+        return Services(self.context.client)
+
+    @services.setter
+    def services(self, services: Services) -> None:
+        self._services = services
 
     @classmethod
     def handlers(cls) -> dict[str, HandlerSpec]:

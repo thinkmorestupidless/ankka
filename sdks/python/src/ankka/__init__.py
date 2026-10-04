@@ -18,6 +18,18 @@ from ankka.effects.event_sourced import EventSourcedEffect, ReadOnlyEffect  # no
 from ankka.endpoint import Acl, CallerMatcher, Callers, Endpoint, HttpProblem, delete, get, patch, post, put, sse  # noqa: E402
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError, command, query  # noqa: E402
 from ankka.secrets import InMemorySecrets, Secrets  # noqa: E402
+from ankka.services import (  # noqa: E402
+    ScriptedRequest,
+    ScriptedServices,
+    ServiceCallFailed,
+    ServiceClient,
+    ServiceError,
+    ServiceIdentityMismatch,
+    ServiceResponse,
+    Services,
+    ServiceUnanswered,
+    ServiceUnresolvable,
+)
 from ankka.service import Ankka, ServiceBuilder  # noqa: E402
 from ankka.start_from import StartFrom  # noqa: E402
 from ankka import graph  # noqa: E402
@@ -29,5 +41,7 @@ __all__ = [
     "ErrorCode", "EventSourcedEffect", "EventSourcedEntity", "ExpireAfter", "GraphConsumer", "HttpProblem", "Metadata",
     "InMemorySecrets", "Principal", "ReadOnlyEffect", "RegistrationError", "RequestContext", "Secrets", "ServiceBuilder",
     "StartFrom",
+    "ScriptedRequest", "ScriptedServices", "ServiceCallFailed", "ServiceClient", "ServiceError",
+    "ServiceIdentityMismatch", "ServiceResponse", "Services", "ServiceUnanswered", "ServiceUnresolvable",
     "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "sse",
 ]

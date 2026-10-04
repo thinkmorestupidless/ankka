@@ -15,6 +15,7 @@ from ankka.event_sourced_entity import RegistrationError
 from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 from ankka.secrets import HasSecrets
+from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -23,7 +24,7 @@ Src = TypeVar("Src")
 Out = TypeVar("Out")
 
 
-class Consumer(HasSecrets, Generic[Src, Out]):
+class Consumer(HasSecrets, HasServices, Generic[Src, Out]):
     component_id: ClassVar[str]
     source: ClassVar[Any] = None
     topic: ClassVar[str | None] = None

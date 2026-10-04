@@ -21,6 +21,7 @@ from ankka.context import Metadata
 from ankka.effects.agent import AgentEffect, AgentEffects
 from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_handlers
 from ankka.secrets import HasSecrets
+from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -93,7 +94,7 @@ def _schema_for(tp: Any) -> dict[str, Any]:
     return {}
 
 
-class Agent(HasSecrets):
+class Agent(HasSecrets, HasServices):
     """Subclass this: ``component_id``, ``tools = {name: Tool(...)}``, ``guardrails = {name:
     Guardrail(...)}``, and handlers decorated ``@command`` or ``@stream`` that return an
     ``AgentEffect`` built from ``self.effects``."""

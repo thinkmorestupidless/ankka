@@ -46,6 +46,7 @@ from ankka import start_from as _start_from
 from ankka.start_from import StartFrom
 from ankka.view import _source_pb
 from ankka.secrets import HasSecrets
+from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
@@ -448,7 +449,7 @@ def resolve(elements: Sequence[Element], sequence: int | None) -> tuple[Element,
     return tuple(resolved)
 
 
-class GraphConsumer(HasSecrets, Generic[Src]):
+class GraphConsumer(HasSecrets, HasServices, Generic[Src]):
     """Subclass this. ``source`` is the entity class whose changes become elements (or ``topic``),
     ``message_codec`` decodes them, and ``produces_to`` names the delta topic. ``on_message`` says
     which elements a change leaves in which state; ``on_delete`` runs when the source is deleted

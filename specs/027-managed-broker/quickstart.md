@@ -11,7 +11,7 @@ Feature 024 on the branch for the scenarios in which a view reads a provisioned 
 ## The gate: the runtime's TLS to a broker
 
 ```bash
-sbt -Dankka.spikes=on 'runtime/testOnly *KafkaTlsSpike'
+sbt -Dankka.spikes=on 'testkit/testOnly *KafkaTlsSpike'
 ```
 
 Expected: a Kafka client configured with the runtime's engine factory connects to a TLS broker in a
@@ -34,7 +34,7 @@ the cluster, is ready, and what its consumer publishes is read from the topic.
 sbt -Dankka.cluster.tests=off 'controlPlaneApi/testOnly *TopicsDescriptorSuite' \
     'operator/testOnly *BrokerProvisioningSuite *BrokerRenderingSuite *StrimziModelsSuite *CrdSchemaSuite *RenderingGoldenSuite *RenderingUnchangedSuite' \
     'controlPlane/testOnly *BrokerDescriptorFeature *ServiceProjectionSuite *EventCompatibilitySuite *RemoteOverlaySuite *ReservedProjectIdsSuite' \
-    'runtime/testOnly *KafkaConnectionSuite' 'cli/testOnly *OutputSuite'
+    'testkit/testOnly *KafkaConnectionSuite' 'cli/testOnly *OutputSuite'
 ```
 
 Expected: every refusal of `contracts/descriptor.md` in the same words from the CLI and the control

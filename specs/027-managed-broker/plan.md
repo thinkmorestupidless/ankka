@@ -58,8 +58,9 @@ the CRD's schema. The control plane's `ServiceObserved` event gains two defaulte
 **Testing**: munit throughout. Offline: `controlplane-api` (descriptor rules), `operator`
 (decision, rendering, typed resources, schema, the two pinned-rendering suites), `controlplane`
 (`descriptor.feature` through `GherkinSuite` against the fast harness, projection, event
-compatibility, both overlays), `runtime` (connection settings, prefix, lazy producer; a TLS spike
-against a broker in a container, behind `-Dankka.spikes`), `cli` (output), the console's fixtures
+compatibility, both overlays), `testkit`, where the Kafka container suites already live (connection
+settings, prefix, lazy producer; a TLS spike against a broker in a container, behind
+`-Dankka.spikes`), `cli` (output), the console's fixtures
 test. On k3s: one new case in `SidecarClusterSuite` with a plain broker (User Story 1), and one new
 suite, `BrokerClusterFeatures`, that installs the component and runs `features/broker/`.
 
@@ -176,7 +177,8 @@ docs/platform/{networking,install-cloud}.md, docs/deploy/upgrading.md   # FR-010
 Tests sit beside what they test: `TopicsDescriptorSuite` (`controlplane-api`);
 `BrokerProvisioningSuite`, `BrokerRenderingSuite`, `StrimziModelsSuite`, `BrokerStack` and
 `PlainKafka` (`operator`); `BrokerDescriptorFeature` and `BrokerClusterFeatures` (`controlplane`);
-`KafkaConnectionSuite` and `KafkaTlsSpike` (`runtime`); one case in `SidecarClusterSuite`.
+`KafkaConnectionSuite` and `KafkaTlsSpike` (`testkit`, beside `KafkaSuite`); one case in
+`SidecarClusterSuite`.
 
 **Structure Decision**: no new module. The feature is the database's path walked a second time, so
 each change lands beside its database counterpart, in the module that already owns that step.

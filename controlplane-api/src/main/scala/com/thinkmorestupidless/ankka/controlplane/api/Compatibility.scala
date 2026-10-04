@@ -54,9 +54,10 @@ object Protocol:
    * claims map and the verifying issuer's name to a route's principal (feature 022). 1.6 added the
    * secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the module imports
    * of the same names (feature 023). 1.7 added where a topic source starts and the version of a
-   * view or consumer that reads one (feature 024).
+   * view or consumer that reads one (feature 024). 1.8 added `Request` on `Client`: a call to
+   * another service, made by the runtime as the service (feature 025).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 7)
+  val version: ProtocolVersion = ProtocolVersion(1, 8)
 
 object Compatibility:
 

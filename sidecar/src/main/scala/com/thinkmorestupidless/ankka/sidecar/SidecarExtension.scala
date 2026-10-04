@@ -32,7 +32,9 @@ final class SidecarExtension(
     conversation: Conversation,
     timers: TimerRuntime,
     servedRoutes: Vector[ServedRoute],
-    imports: Option[wasm.HostImports] = None
+    imports: Option[wasm.HostImports] = None,
+    /** The protocol the process or module declared in discovery: what it may be served. */
+    declaredProtocol: Option[String] = None
 ) extends RuntimeExtension:
 
   private val log                              = LoggerFactory.getLogger(getClass)
@@ -49,14 +51,14 @@ final class SidecarExtension(
     val scheduler                           = () => Some(timers.timerScheduler)
     imports match
       case Some(hostImports) =>
-        hostImports.bind(ClientLogic(service, settings, scheduler))
+        hostImports.bind(ClientLogic(service, settings, scheduler, declaredProtocol))
         log.info(
           "hosting {} from the module {}",
           service.registry,
           settings.wasmModule.getOrElse("")
         )
       case None =>
-        val client = ClientService(service, settings, scheduler)
+        val client = ClientService(service, settings, scheduler, declaredProtocol)
         server = Some(CallbackServer.start(client, settings.callbackBind, settings.callbackPort))
         log.info(
           "sidecar hosting {} against the process at {}",

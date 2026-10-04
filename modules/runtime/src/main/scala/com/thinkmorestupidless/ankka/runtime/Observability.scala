@@ -161,6 +161,66 @@ final class Observability(
       case None => CallCounts.key(unknown, unknown, callee, handler)
 
   /**
+   * Begins the span of a call to another service: a `Client` span under the calling thread's span,
+   * or, when the thread is in no trace, the root of a fresh trace whose caller is unknown. The call
+   * carries this span's context, so the callee's span names it as its parent: that pair is how a
+   * collector draws one service calling another.
+   *
+   * `service` and `method` are names already admitted — a service by `externalServices.nameFor`, a
+   * gRPC method by `externalServices.methodFor`, an HTTP call by its method and never its path —
+   * because they are interned.
+   */
+  private[ankka] def beginCall(service: String, method: String): Span =
+    val component = names.intern(service)
+    val handler   = names.intern(method)
+    Trace.currentContext match
+      case Some(c) =>
+        recorder.begin(c.traceIdHigh, c.traceId, c.spanId, component, handler, SpanKind.Client)
+      case None =>
+        recorder.begin(
+          Trace.mintHigh(),
+          Trace.mint(),
+          Recorder.UnknownCaller,
+          component,
+          handler,
+          SpanKind.Client
+        )
+
+  /**
+   * Runs `body` as a call to another service, given the `traceparent` it is to send: a span under
+   * the calling handler's, ended with how the call ended as its caller saw it, and the call counted
+   * from the thread's own handler.
+   *
+   * Nothing hosts the other service in this process, so this is the only place the call is seen.
+   * Both names are bounded: `service` is what `ExternalServices` admitted, up to a limit and then
+   * the one name the rest share, and `method` is the request's method. Nothing a call carries — a
+   * path, an id — is interned. A response is handled as `outcomeOf` says; a call that got none is
+   * unanswered: timed out, or never delivered.
+   */
+  private[ankka] def calling[A](service: String, method: String)(
+      outcomeOf: scala.util.Try[A] => SpanOutcome
+  )(body: String => A): A =
+    val origin  = Trace.currentOrigin
+    val span    = beginCall(service, method)
+    val started = System.nanoTime()
+    var outcome = SpanOutcome.Failed
+    try
+      val result = body(Traceparent.render(span.context))
+      outcome = outcomeOf(scala.util.Success(result))
+      made(origin, service, method, outcome, System.nanoTime() - started)
+      result
+    catch
+      case e: java.net.http.HttpTimeoutException =>
+        outcome = outcomeOf(scala.util.Failure(e))
+        madeUnanswered(origin, service, method, Unanswered.TimedOut)
+        throw e
+      case scala.util.control.NonFatal(e) =>
+        outcome = outcomeOf(scala.util.Failure(e))
+        madeUnanswered(origin, service, method, Unanswered.Undelivered)
+        throw e
+    finally recorder.complete(span, outcome)
+
+  /**
    * Runs `body` as one invocation of a declared handler: a span in the caller's trace, the origin
    * of whatever `body` calls, and one handled call from whoever the metadata names.
    *
@@ -194,41 +254,6 @@ final class Observability(
       recorder.complete(span, outcome)
       handled(incoming, component, handler, outcome, System.nanoTime() - started, streaming)
 
-  /**
-   * Runs `body` as a call to another service, made on this thread: counted from the thread's own
-   * handler, and a span in its trace, under its span, when the thread is in one.
-   *
-   * Nothing hosts the other service in this process, so this is the only place the call is seen.
-   * Both names are bounded: `callee` is what `ExternalServices` admitted, up to a limit and then
-   * the one name the rest share, and `handler` is the request's method. Nothing a call carries — a
-   * path, an id — is interned. A thread in no trace counts the call and records no span: there is
-   * no trace for it to be in.
-   */
-  private[ankka] def calling[A](callee: String, handler: String)(outcomeOf: A => SpanOutcome)(
-      body: => A
-  ): A =
-    val origin = Trace.currentOrigin
-    val span = Trace.currentTrace.map { (traceId, parent) =>
-      recorder.begin(traceId, parent, names.intern(callee), names.intern(handler))
-    }
-    val started                         = System.nanoTime()
-    def end(outcome: SpanOutcome): Unit = span.foreach(recorder.complete(_, outcome))
-    val result =
-      try body
-      catch
-        case e: java.net.http.HttpTimeoutException =>
-          end(SpanOutcome.TimedOut)
-          madeUnanswered(origin, callee, handler, Unanswered.TimedOut)
-          throw e
-        case scala.util.control.NonFatal(e) =>
-          end(SpanOutcome.Failed)
-          madeUnanswered(origin, callee, handler, Unanswered.Undelivered)
-          throw e
-    val outcome = outcomeOf(result)
-    end(outcome)
-    made(origin, callee, handler, outcome, System.nanoTime() - started)
-    result
-
 object Observability extends ExtensionId[Observability]:
 
   def createExtension(system: ActorSystem[?]): Observability =
@@ -252,7 +277,10 @@ object Observability extends ExtensionId[Observability]:
         int("ankka.observability.call-buckets", 60),
         System.currentTimeMillis()
       ),
-      ExternalServices(int("ankka.observability.max-external-services", 32))
+      ExternalServices(
+        int("ankka.observability.max-external-services", 32),
+        int("ankka.observability.max-external-methods", ExternalServices.DefaultMethodLimit)
+      )
     )
 
   /**

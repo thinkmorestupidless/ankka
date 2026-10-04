@@ -11,9 +11,26 @@ import java.util.concurrent.ConcurrentHashMap
  * rest share. No call goes uncounted, and the recorder's table of names cannot be grown by asking
  * for services that do not exist.
  */
-final class ExternalServices(limit: Int):
+final class ExternalServices(limit: Int, methodLimit: Int = ExternalServices.DefaultMethodLimit):
 
   private val admitted = ConcurrentHashMap.newKeySet[String]()
+  private val methods  = ConcurrentHashMap.newKeySet[String]()
+
+  /**
+   * The name a call to this gRPC method of another service is recorded under. A method's full name
+   * comes from a compiled service definition, so it is bounded by code; it is interned all the
+   * same, and nothing interned may be unbounded, so it is admitted up to a limit like a service.
+   */
+  def methodFor(fullName: String): String =
+    if methods.contains(fullName) then fullName
+    else
+      synchronized {
+        if methods.contains(fullName) then fullName
+        else if methods.size < methodLimit then
+          methods.add(fullName): Unit
+          fullName
+        else ExternalServices.OtherMethods
+      }
 
   /** The name a call to this service is counted under. */
   def nameFor(project: String, service: String): String =
@@ -35,3 +52,8 @@ object ExternalServices:
 
   /** Every service beyond the limit, together. */
   val Other: String = s"service:${CallCounts.OtherServices}"
+
+  /** Every gRPC method of another service beyond the limit, together. */
+  val OtherMethods: String = "(other methods)"
+
+  val DefaultMethodLimit: Int = 256

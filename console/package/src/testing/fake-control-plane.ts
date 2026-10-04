@@ -108,6 +108,9 @@ interface Service {
   mounts?: { path: string; service: string; state: string }[];
   callers?: string[];
   processPort?: number;
+  /** What the operator reported of the installation's broker, and the topics as it holds them. */
+  broker?: string;
+  topics?: string[];
   /** What the instances report when asked for the topology; generated from the service when unset. */
   topology?: FakeTopology;
 }
@@ -216,6 +219,8 @@ export interface FakeSeed {
     exposed?: boolean;
     /** What the cluster reports of its database; `null` until it has reported one. */
     database?: string | null;
+    broker?: string;
+    topics?: string[];
   }[];
 }
 
@@ -281,6 +286,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       mounts: s.mounts ?? [],
       callers: s.callers ?? [],
       processPort: s.processPort ?? null,
+      broker: s.broker ?? null,
+      topics: s.topics ?? [],
     };
   };
 
@@ -982,6 +989,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           mounts: s.mounts,
           callers: s.callers,
           processPort: s.processPort,
+          broker: s.broker,
+          topics: s.topics,
         });
       }
     },

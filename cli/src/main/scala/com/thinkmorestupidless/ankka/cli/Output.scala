@@ -170,6 +170,8 @@ object Output:
           "hosting"    -> row.hosting,
           "hostname"   -> hostname(row)
         ) ++ row.protocol.map("protocol" -> _) ++ row.database.map("database" -> _) ++
+          row.broker.map("broker" -> _) ++
+          Option.when(row.topics.nonEmpty)("topics" -> row.topics.mkString("\n")) ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.

@@ -95,6 +95,30 @@ class OutputSuite extends munit.FunSuite:
     assert(!rendered.contains("detail"), rendered)
   }
 
+  test("a single service shows its broker and the topics it declares, after its database") {
+    val rendered = Output.service(
+      status("wallet", database = Some("provisioned")).copy(
+        broker = Some("provisioned"),
+        topics = Vector("money.transactions", "money.wallet-events")
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    val at    = lines.indexWhere(_.startsWith("broker"))
+    assert(at > lines.indexWhere(_.startsWith("database")), rendered)
+    assert(lines(at).endsWith("provisioned"), rendered)
+    assert(
+      lines(at + 1).startsWith("topics") && lines(at + 1).endsWith("money.transactions"),
+      rendered
+    )
+    assert(lines(at + 2).trim == "money.wallet-events", rendered)
+  }
+
+  test("a service with nothing reported of a broker shows no broker line") {
+    val rendered = Output.service(status("wallet"), Format.Table)
+    assert(!rendered.contains("broker") && !rendered.contains("topics"), rendered)
+  }
+
   test("a single service shows its database phrase when one has been reported") {
     val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
     assert(rendered.contains("database"), rendered)

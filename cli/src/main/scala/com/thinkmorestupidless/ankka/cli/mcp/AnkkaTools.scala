@@ -135,7 +135,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "get_service",
       "Get a service",
-      "One service's full status: lifecycle, instances, generation, image, hosting, database, hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
+      "One service's full status: lifecycle, instances, generation, image, hosting, database, broker and its topics, hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true

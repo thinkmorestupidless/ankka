@@ -145,6 +145,8 @@ export const serviceStatusSchema = z.object({
   mounts: z.array(mountStatusSchema).default([]),
   callers: z.array(z.string()).default([]),
   processPort: optional(z.number().int()),
+  broker: optional(z.string()),
+  topics: z.array(z.string()).default([]),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 

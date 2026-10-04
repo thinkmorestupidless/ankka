@@ -75,10 +75,11 @@ Five decisions follow.
   maps a component's declared topic name onto the project-qualified one, so service code names
   `transactions` and the broker sees `money.transactions`. A service reads and writes only its
   project's topics.
-- **The credential is the certificate the service already holds.** Strimzi's `KafkaUser` with TLS
-  authentication, trusting the installation's service authority, means no password is generated
-  and nothing is stored that could leak. Where that is not possible, a SCRAM credential written
-  under the database rule (create if absent, never read back) is the fallback.
+- **The credential is the certificate the service already holds.** The broker trusts the
+  installation's service authority and knows a service by its certificate's common name, so no
+  password is generated and nothing is stored that could leak. Planning found that the service
+  certificate has no common name today and that Kafka knows a TLS client by nothing else, so the
+  certificate gains one, naming the project and the service, in an installation that has a broker.
 - **Supplying your own is the escape hatch, exactly as for a database.** A descriptor that sets
   any `ANKKA_KAFKA_*` variable gets no provisioning and no topics, and `ServiceSpec.problems`
   refuses `topics` beside it, so a descriptor says one thing.
@@ -259,6 +260,9 @@ deploys with a declared topic; the smoke test publishes and reads.
 - **A topic named by a component and declared by nobody.** A mistyped name, or a sample that
   publishes wherever it finds a broker: the topic is not made, the component waits, and the log
   names it. The descriptor is the only place a topic comes from.
+- **An installation that gains a broker.** Every service is told where it is, so every service is
+  rolled once, and each service certificate is reissued once with its common name. Neither refuses
+  a request, and a service that names its own broker is untouched.
 - **A partition count lowered.** Kafka cannot shrink a topic; the apply is refused at the control
   plane with the reason. Raising it is applied.
 - **A topic name that is not a valid Kafka name once prefixed.** Refused by `ServiceSpec.problems`
@@ -321,9 +325,10 @@ deploys with a declared topic; the smoke test publishes and reads.
 - **FR-008**: A kustomization component MUST provide one broker per installation with a zero-trust
   policy admitting every workload namespace, enabled in the local overlay and placeholdered in the
   cloud overlay.
-- **FR-009**: The broker's credential for a service MUST be the service's certificate where the
-  broker supports it; a generated credential, where used, MUST follow the database rule of create
-  if absent and never read back.
+- **FR-009**: The broker's credential for a service MUST be the service's own certificate, which
+  in an installation with a broker carries a common name naming its project and service. No other
+  credential is generated, stored or copied, and the broker MUST be given the service authority's
+  certificate and never its key.
 
 **Documentation**
 

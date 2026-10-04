@@ -49,7 +49,7 @@ Feature: Topics the platform provides
     Given a descriptor for a service "ledger" in "money" that declares no topic and gives no broker variable
     When a member applies the descriptor
     Then the environment of "ledger" has the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS", naming the installation's broker
-    And the status says that the broker of "ledger" is "Ready"
+    And the status says that the broker of "ledger" is "Provisioned"
 
   Scenario: a consumer that publishes to a topic no descriptor declares waits for it
     Given a deployed service "ledger" in "money" that declares no topic
@@ -78,8 +78,8 @@ Feature: Topics the platform provides
     Then the status says that the broker of "wallet" is "<word>"
 
     Examples:
-      | state                                            | word    |
-      | has not yet made the topic                       | Waiting |
-      | has made the topic with fewer partitions so far  | Waiting |
-      | has made the topic and the credential            | Ready   |
-      | has a problem with the topic that will not clear | Failed  |
+      | state                                            | word        |
+      | has not yet made the topic                       | Waiting     |
+      | has made the topic with fewer partitions so far  | Waiting     |
+      | has made the topic and the credential            | Provisioned |
+      | has a problem with the topic that will not clear | Failed      |

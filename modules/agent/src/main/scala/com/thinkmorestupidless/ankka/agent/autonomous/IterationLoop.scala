@@ -235,7 +235,7 @@ private[ankka] final class IterationLoop(
                 s"checking the result failed: ${Option(failure.getMessage).getOrElse(failure.toString)}"
               )
       case None =>
-        val results = calls.map(c => PromptReplay.runTool(tools, c))
+        val results = calls.map(c => ToolRunner.run(tools, c))
         appendResults(taskRecord.id, results)
         IterationResult.Continue
 

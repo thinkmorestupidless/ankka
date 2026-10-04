@@ -628,7 +628,8 @@ How many projects, services and instances an organization may have.
 Stop every instance of a deployed service and keep the service.
 
 ### resume
-Start a paused service's instances again.
+Start a paused service's instances again. Of a suspended autonomous agent: let it go on with its
+task.
 
 ### scale
 Change how many instances a deployed service has.
@@ -1213,6 +1214,67 @@ A model a test gives its agent, which answers from a script in order. A script t
 ### script
 The answers a scripted model or a scripted judgment provider gives, in order.
 
+### tool
+Something an agent offers the model to call: a function of the agent's own, declared
+with a name, or one an MCP server has. Where a gRPC feature says "a tool" of something that reads
+reflection, it is the everyday word for a developer's program, and not this.
+
+### tool call
+The model asking for one tool to be run, with arguments. It is not a call, which is
+one component or service asking another: a tool call is made by the model and run by the agent.
+
+### arguments
+The values a tool call carries for its tool.
+
+### approval
+A person's "yes" to a tool call before it runs. A tool, or an MCP server, that
+requires approval is one whose tool calls wait for it.
+
+### approval request
+What an agent records, and gives its caller instead of an answer, when the model makes
+a tool call that requires approval: it has an id, names the tool and carries the arguments. It is
+awaiting a decision until a person decides it or it is discarded.
+
+Avoid: pending call
+
+### awaiting
+Of an approval request: not yet decided and not discarded.
+
+Avoid: pending
+
+### decision
+A person's answer to an approval request: approved or refused, with the name of who
+decided and an optional note. An approval request is decided once. When its time limit passes
+with no decision, the platform decides it as refused. A refused approval request is a refusal the person made, and
+the tool never runs.
+
+### approved
+Of an approval request, or of its tool call: a person decided that the tool may run.
+
+### note
+The words a person gives with a decision, which the model is told.
+
+### discarded
+Of an approval request: no longer awaiting a decision, with none made, because what it
+was asked for is over.
+
+### subscriber
+One who is told what an autonomous agent does as it does it.
+
+### compaction
+Replacing the older part of a session with a shorter account of it, so the model is
+sent less.
+
+### result guardrail
+A guardrail an agent declares for the results of tool calls to an MCP server's tools. It runs
+before the model is told the result; a result it refuses is never told to the model, which is
+told of an error instead. It does not check the result of one of the agent's own tools.
+
+### MCP server
+A program outside the agent that has tools and answers the Model Context Protocol. An
+agent lists the ones whose tools it offers the model, each with the credential the platform is to
+send it, if it wants one.
+
 ## Autonomous agents
 
 ### autonomous agent
@@ -1228,7 +1290,8 @@ What sort of task a task is: a name, a description, the shape of its result, the
 What a task asks to be done, in words, as its creator wrote them.
 
 ### result
-What a completed task produced, of its task type's shape.
+What a completed task produced, of its task type's shape. Of a tool call: what the
+model is told when it is over — what the tool answered, an error, or that a person refused it.
 
 ### agent instance
 One autonomous agent, named by an id its caller chooses, that works its tasks one at a time and queues the rest. It is not an instance of a service.
@@ -1552,32 +1615,32 @@ verifies, unchecked, risks, moved, installs, installed, installing, enforce, net
 showing, cluster's, gateway's, issuer's, control, plane's, member's, developer's, machine's, ports,
 needs, adds, create, act, issued, issue, trust, trusts, against, security, protect, way, builds,
 depend, depending, prepared, prepares, prepare, program, programs, edited, order, writes, carry,
-creates, labelled, today, today's, attributes, invites, renames, deletes, lifetime, stating,
-stated, ninety, expires, expire, expiring, succeeds, released, pushes, pushed, push, tags, tagged,
-commit, hand, declines, username, public, private, plainly, wraps, sign, line, lines, recent,
-paused, cost, unknown, prices, duration, oldest, outcome, body, client, monitoring, collects,
-draws, provided, follows, refers, copied, belongs, days, accounts, ever, took, among, forms, knows,
-confirms, acting, anyone, get, revoked, across, fourth, replied, deletion, nested, stays, speaks,
-speak, drives, kit, JVM, Docker, Rust, toolchain, Scala, Python, TypeScript, items, carts, profile,
-workflow's, refuse, recovery, recovers, recover, failing, passing, behaviour, mid-command,
-exercised, byte, bytes, compatible, install, imported, package, lacks, function, broken, fixed,
-error, handed, steps, moving, moves, see, seen, retried, memory, samples, tested, contents,
-differs, rules, languages, whichever, loads, load, replace, schema, spent, work, approve, begins,
-warned, happens, happened, cites, cite, nearing, words, text, team, teams, ticket, decision, shape,
-included, include, chosen, characters, Akka's, above, whatever, total, therefore, talking, stood,
-stay, replies, remains, remain, rejected, rate, overrides, override, overloaded, note, navigation,
-moderate, lie, lead, invented, highest, guides, guide, forwards, figure, explains, differences,
-difference, deliberate, delegate, defeat, deactivated, activated, copies, configure, condition,
-computed, author, agree, renewing, renewed, browser's, administrator, timed, elsewhere, following,
-drawn, look, addition, hides, rename, renamed, invited, enables, disables, confirmed, detail,
-milliseconds, assistant, absence, setting, absent, something, anyway, identity, proves, known,
-belong, someone's, themselves, membership, wherever, loading, begin, begun, returning, receives,
-example, cloud, everywhere, people, development, return, turned, JavaScript, alters, choice,
-several, hands, reference, shopping, three, perhaps, single, current, plain, describe, describing,
-checkout, checkouts, applied, caught, uninterrupted, computes, outranks, rise, greater, neither,
-replaces, documented, documentation's, needed, writer, closes, offers, offered, signing, applying,
-foot, hidden, scroll, scrolls, sideways, pauses, saying, overview, open, reloaded, audited,
-visible, keyboard, brightest, point, least, brighter, shipped, colour, accord, blur, opaque,
-readable, border, outline, forces, edge, clipped, below, facts, controls, prefers, preference,
-dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright, enough,
-front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older, quiet
+creates, labelled, today, today's, attributes, invites, renames, deletes, lifetime, stating, stated,
+ninety, expires, expire, expiring, succeeds, released, pushes, pushed, push, tags, tagged, commit,
+hand, declines, username, public, private, plainly, wraps, sign, line, lines, recent, paused, cost,
+unknown, prices, duration, oldest, outcome, body, client, monitoring, collects, draws, provided,
+follows, refers, copied, belongs, days, accounts, ever, took, among, forms, knows, confirms, acting,
+anyone, get, revoked, across, fourth, replied, deletion, nested, stays, speaks, speak, drives, kit,
+JVM, Docker, Rust, toolchain, Scala, Python, TypeScript, items, carts, profile, workflow's, refuse,
+recovery, recovers, recover, failing, passing, behaviour, mid-command, exercised, byte, bytes,
+compatible, install, imported, package, lacks, function, broken, fixed, error, handed, steps,
+moving, moves, see, seen, retried, memory, samples, tested, contents, differs, rules, languages,
+whichever, loads, load, replace, schema, spent, work, approve, begins, warned, happens, happened,
+cites, cite, nearing, words, text, team, teams, ticket, shape, included, include, chosen,
+characters, Akka's, above, whatever, total, therefore, talking, stood, stay, replies, remains,
+remain, rejected, rate, overrides, override, overloaded, navigation, moderate, lie, lead, invented,
+highest, guides, guide, forwards, figure, explains, differences, difference, deliberate, delegate,
+defeat, deactivated, activated, copies, configure, condition, computed, author, agree, renewing,
+renewed, browser's, administrator, timed, elsewhere, following, drawn, look, addition, hides,
+rename, renamed, invited, enables, disables, confirmed, detail, milliseconds, assistant, absence,
+setting, absent, something, anyway, identity, proves, known, belong, someone's, themselves,
+membership, wherever, loading, begin, begun, returning, receives, example, cloud, everywhere,
+people, development, return, turned, JavaScript, alters, choice, several, hands, reference,
+shopping, three, perhaps, single, current, plain, describe, describing, checkout, checkouts,
+applied, caught, uninterrupted, computes, outranks, rise, greater, neither, replaces, documented,
+documentation's, needed, writer, closes, offers, offered, signing, applying, foot, hidden, scroll,
+scrolls, sideways, pauses, saying, overview, open, reloaded, audited, visible, keyboard, brightest,
+point, least, brighter, shipped, colour, accord, blur, opaque, readable, border, outline, forces,
+edge, clipped, below, facts, controls, prefers, preference, dark, light, fetches, mounts, mounted,
+small, brightness, ratio, centre, screen, bright, enough, front, width, would, choose, whoever,
+clear, declaration, large, unread, crosses, older, quiet, requires, requiring, working, day

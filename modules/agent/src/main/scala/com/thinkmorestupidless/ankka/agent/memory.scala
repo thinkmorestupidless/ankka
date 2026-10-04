@@ -37,7 +37,10 @@ object SessionMessage:
       toolName: String,
       content: String,
       isError: Boolean,
-      agentId: String
+      agentId: String,
+      // The decision this result followed, for a tool that required approval: the lasting record
+      // of who decided, since the approval request itself is gone once the turn or task goes on.
+      decision: Option[Decision] = None
   ) extends SessionMessage
 
   /** Replaces a stretch of history with a summary. See memory compaction. */

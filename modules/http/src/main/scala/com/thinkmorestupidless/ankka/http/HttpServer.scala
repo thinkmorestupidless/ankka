@@ -592,8 +592,8 @@ private final class Router(
         )(using AnkkaExecutors.virtual)
       }
       .flatMap { source =>
-        // JSON-encoded per event: see JsonText for why raw text is not safe here.
-        Marshal(source.map(text => ServerSentEvent(JsonText.encode(text)))).to[HttpResponse]
+        // JSON per event, named or not: see SseEvent for why raw text is not safe here.
+        Marshal(source.map(event => ServerSentEvent(event.data, event.name))).to[HttpResponse]
       }
       .recover {
         case failure: HttpProblem => problem(failure)

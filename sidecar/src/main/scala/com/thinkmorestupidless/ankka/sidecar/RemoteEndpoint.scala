@@ -19,6 +19,7 @@ import com.thinkmorestupidless.ankka.http.{
   Socket,
   SocketClosed,
   SocketRoute,
+  SseEvent,
   StreamRoute
 }
 import com.thinkmorestupidless.ankka.runtime.remote.{
@@ -73,7 +74,7 @@ final class RemoteEndpoint private (
         r.method.toUpperCase,
         PathTemplate.parse(r.template),
         r.hasBody,
-        (args, body) => conversation.handleHttpStream(forwardOf(r, args, body)),
+        (args, body) => conversation.handleHttpStream(forwardOf(r, args, body)).map(SseEvent.text),
         r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers, authenticated))
       )
     }

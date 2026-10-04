@@ -50,6 +50,23 @@ trait CallTransport:
     else ask(componentId, entityId, method, payload, metadata)
 
   /**
+   * As `ask`, with the metadata the reply carried.
+   *
+   * A reply's metadata is how a handler says what kind of answer it gave without changing the
+   * envelope every node reads — an agent turn that waits for approval answers this way. A transport
+   * whose replies carry no metadata need not override it.
+   */
+  def askWithMetadata(
+      componentId: ComponentId,
+      entityId: EntityId,
+      method: MethodName,
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[(Array[Byte], Metadata)] =
+    ask(componentId, entityId, method, payload, metadata)
+      .map(bytes => (bytes, Metadata.empty))(using ExecutionContext.parasitic)
+
+  /**
    * Sends a message without awaiting a reply.
    *
    * `Any` because the message types live in `ankka-runtime`, which the SDK must not depend on. Used

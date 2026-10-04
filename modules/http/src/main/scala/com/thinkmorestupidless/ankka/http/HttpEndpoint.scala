@@ -142,7 +142,7 @@ private[ankka] final case class StreamRoute(
     method: String,
     template: PathTemplate,
     needsBody: Boolean,
-    run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?],
+    run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?],
     /** Declared by `withAcl`; `None` means the endpoint's. */
     acl: Option[Acl] = None
 ):
@@ -315,6 +315,13 @@ abstract class HttpEndpoint(val prefix: String):
   private def addStream(method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
       run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[String, ?]
   ): Unit =
+    addEventStream(method, rawTemplate, arity, needsBody)((args, body) =>
+      run(args, body).map(SseEvent.text)
+    )
+
+  private def addEventStream(method: String, rawTemplate: String, arity: Int, needsBody: Boolean)(
+      run: (Vector[String], Array[Byte]) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit =
     val template = PathTemplate.parse(rawTemplate)
     if template.arity != arity then
       throw IllegalArgumentException(
@@ -383,6 +390,28 @@ abstract class HttpEndpoint(val prefix: String):
       val b = pathArg[B](args, 1, template)
       socket => handler(a, b, socket)
     }
+
+  /**
+   * `GET $prefix$template`, answered as server-sent events the handler names itself.
+   *
+   * For a stream that sends something other than text — an agent turn that ends by waiting for
+   * approval sends its requests as a named event after its text. A separate name from `sse`, so a
+   * handler's lambda never has to say which of the two element types it returns.
+   */
+  protected def sseEvents[A: FromPath](template: String)(
+      handler: A => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit =
+    addEventStream("GET", template, 1, needsBody = false)((args, _) =>
+      handler(pathArg[A](args, 0, template))
+    )
+
+  /** `POST $prefix$template` with a decoded body, answered as server-sent events it names. */
+  protected def sseEventsBody[A: FromPath, Body: FromBody](template: String)(
+      handler: (A, Body) => org.apache.pekko.stream.scaladsl.Source[SseEvent, ?]
+  ): Unit =
+    addEventStream("POST", template, 1, needsBody = true)((args, body) =>
+      handler(pathArg[A](args, 0, template), bodyArg[Body](body))
+    )
 
   private def pathArg[A](args: Vector[String], index: Int, template: String)(using
       from: FromPath[A]

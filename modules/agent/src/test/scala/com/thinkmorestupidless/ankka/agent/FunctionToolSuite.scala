@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.agent
 
+import scala.concurrent.duration.DurationInt
+
 /** Tool declaration: schema out, model-supplied arguments in. */
 class FunctionToolSuite extends munit.FunSuite:
 
@@ -147,4 +149,26 @@ class FunctionToolSuite extends munit.FunSuite:
 
   test("the schema is valid JSON a provider can send verbatim") {
     assertEquals(Json.parse(weather.spec.inputSchema.render), Right(weather.spec.inputSchema))
+  }
+
+  test("a tool declared as today requires no approval and is the agent's own") {
+    assertEquals(weather.approval, None)
+    assertEquals(weather.origin, ToolOrigin.Own)
+  }
+
+  test("requiresApproval waits until decided, and leaves what the model is offered unchanged") {
+    val waiting   = weather.requiresApproval
+    val arguments = Json.obj("location" -> Json.str("Oslo"))
+    assertEquals(waiting.approval, Some(Approval(None)))
+    assertEquals(waiting.spec, weather.spec)
+    assertEquals(waiting.invoke(arguments), weather.invoke(arguments))
+  }
+
+  test("requiresApproval with a time limit carries the limit") {
+    assertEquals(weather.requiresApproval(30.minutes).approval, Some(Approval(Some(30.minutes))))
+  }
+
+  test("a time limit for approval must be positive") {
+    intercept[IllegalArgumentException](weather.requiresApproval(0.seconds))
+    intercept[IllegalArgumentException](weather.requiresApproval(-1.second))
   }

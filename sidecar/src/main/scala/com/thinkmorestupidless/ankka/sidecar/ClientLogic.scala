@@ -222,6 +222,20 @@ final class ClientLogic(
             case failed: EntityProtocol.StreamFailed =>
               emit(StreamToken(StreamToken.Token.Failed(error(failed.toCommandError))))
               Behaviors.stopped
+            case _: EntityProtocol.StreamAwaiting =>
+              // The protocol has no way yet to hand a process an approval request; it is told
+              // the turn waits, as a refusal it can show, rather than left on an open stream.
+              emit(
+                StreamToken(
+                  StreamToken.Token.Failed(
+                    pb.Error(
+                      "the agent's turn is awaiting an approval decision",
+                      pb.ErrorCode.CONFLICT
+                    )
+                  )
+                )
+              )
+              Behaviors.stopped
           },
           s"callback-stream-${java.util.UUID.randomUUID()}"
         )

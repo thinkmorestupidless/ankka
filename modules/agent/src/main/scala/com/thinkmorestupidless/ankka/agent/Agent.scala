@@ -140,9 +140,16 @@ object Agent:
       val clashes = (bindings.map(_.name) ++ streams.map(_.name)).groupBy(identity).collect {
         case (name, bs) if bs.sizeIs > 1 => s"handler '$name' registered ${bs.size} times"
       }
-      if clashes.nonEmpty then
+      // The platform reaches an agent's host by names of its own — a decision on an approval
+      // request among them — so a handler may not take one.
+      val reserved = (bindings.map(_.name) ++ streams.map(_.name)).collect {
+        case name if name.toString.startsWith(Approvals.ReservedPrefix) =>
+          s"handler '$name' takes the prefix '${Approvals.ReservedPrefix}', which is the platform's"
+      }
+      val problems = clashes ++ reserved
+      if problems.nonEmpty then
         throw IllegalArgumentException(
-          clashes.mkString(s"invalid agent '$componentId':\n  - ", "\n  - ", "")
+          problems.mkString(s"invalid agent '$componentId':\n  - ", "\n  - ", "")
         )
       if maxToolCallSteps <= 0 then
         throw IllegalArgumentException(s"agent '$componentId' needs a positive maxToolCallSteps")

@@ -389,6 +389,10 @@ final case class Service(
      * before the first observation arrives.
      */
     database: Option[String] = None,
+    /** The operator's last-reported broker phase, verbatim (feature 027). */
+    broker: Option[String] = None,
+    /** The topics the service declares, as the broker holds them, as the operator last reported. */
+    topics: Vector[String] = Vector.empty,
     /**
      * How many restarts have been asked for. Projected to the resource; see
      * `AnkkaServiceSpec.restarts`.
@@ -508,7 +512,9 @@ final case class Service(
         desiredInstances = event.desiredInstances,
         detail = event.detail,
         confirmed = event.confirmed,
-        database = event.database
+        database = event.database,
+        broker = event.broker,
+        topics = event.topics
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -571,7 +577,9 @@ final case class Service(
       mounts =
         descriptor.toVector.flatMap(_.service.mounts).map(m => MountStatus(m.path, m.service)),
       callers = descriptor.toVector.flatMap(_.service.callers),
-      processPort = descriptor.flatMap(_.service.resolvedProcessPort)
+      processPort = descriptor.flatMap(_.service.resolvedProcessPort),
+      broker = broker.map(Service.brokerPhrase),
+      topics = topics
     )
 
 object Service:
@@ -619,6 +627,15 @@ object Service:
     case "Recovered"   => "recovered existing data"
     case "Supplied"    => "supplied"
     case "Failed"      => "database provisioning failed"
+    case other         => other
+
+  /** The operator's reported broker phase, as the short phrase `ServiceStatus.broker` documents. */
+  def brokerPhrase(phase: String): String = phase match
+    case "Waiting"     => "waiting for broker"
+    case "Provisioned" => "provisioned"
+    case "Recovered"   => "recovered existing topics"
+    case "Supplied"    => "supplied"
+    case "Failed"      => "broker provisioning failed"
     case other         => other
 
   def empty(key: ServiceKey): Service =

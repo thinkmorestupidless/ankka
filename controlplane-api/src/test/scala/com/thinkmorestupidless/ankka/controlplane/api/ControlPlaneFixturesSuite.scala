@@ -115,7 +115,9 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         protocol = Some("1.0"),
         mounts = Vector(MountStatus("/api/cart", "cart", "ok"), MountStatus("/admin", "admin")),
         callers = Vector("orders", "billing/invoices", "*"),
-        processPort = Some(3000)
+        processPort = Some(3000),
+        broker = Some("provisioned"),
+        topics = Vector("shop.cart-graph")
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),

@@ -138,7 +138,9 @@ final class ServiceEntity(context: EventSourcedEntityContext)
       observation.desiredInstances,
       observation.detail,
       observation.confirmed,
-      observation.database
+      observation.database,
+      observation.broker,
+      observation.topics
     )
     if !currentState.exists then effects.reply(Done)
     else if observation.generation < currentState.generation then effects.reply(Done)

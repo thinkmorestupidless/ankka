@@ -84,6 +84,9 @@ final class ServiceEndpoint(
           problems.mkString("invalid descriptor: ", "; ", ""),
           ErrorCode.BadRequest
         )
+      topicConflict(projectId, descriptor).foreach(reason =>
+        throw CommandError(reason, ErrorCode.Conflict)
+      )
       val key       = ServiceKey(projectId, name).id
       val instances = descriptor.service.resources.autoscaling.minInstances
       val previous  = usage.reserveService(authorized.organizationId, key, instances, by)
@@ -182,6 +185,54 @@ final class ServiceEndpoint(
   private def withHostname(status: ServiceStatus): ServiceStatus =
     if status.exposed then status.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
     else status
+
+  /**
+   * What the descriptor's topics cannot be, given the project's other services and this one's last
+   * apply (feature 027): a topic is the project's, so it has one partition count whoever declares
+   * it, and a topic is never made smaller. An entity cannot see another, so this is the endpoint's.
+   *
+   * The project's services come from the listing, which can lag a moment behind a just-applied one;
+   * the operator never renders fewer partitions than a topic has whatever is applied, and reports a
+   * service that asked for them, which is the backstop.
+   */
+  private def topicConflict(projectId: String, descriptor: ServiceDescriptor): Option[String] =
+    val declared = descriptor.service.topics
+    if declared.isEmpty then None
+    else
+      def topicsOf(name: String) =
+        entity(projectId, name)
+          .call(ServiceEntity.desiredState)
+          .invoke()
+          .flatMap(_.descriptor)
+          .toVector
+          .flatMap(_.service.topics)
+      val own = topicsOf(descriptor.name)
+      val fewer = declared.iterator
+        .flatMap(t =>
+          own.find(_.name == t.name).filter(_.partitions > t.partitions).map { was =>
+            s"topic '${t.name}' has ${was.partitions} partitions and cannot have fewer; " +
+              s"${t.partitions} was asked"
+          }
+        )
+        .nextOption()
+      fewer.orElse {
+        val others = services
+          .ordered(jsonText("projectId") ++ sql" = $projectId", order = jsonText("name"))
+          .map(_.name)
+          .filter(_ != descriptor.name)
+        others.iterator
+          .flatMap(other =>
+            topicsOf(other).flatMap(theirs =>
+              declared
+                .find(t => t.name == theirs.name && t.partitions != theirs.partitions)
+                .map(_ =>
+                  s"topic '${theirs.name}' is declared by '$other' with ${theirs.partitions} " +
+                    "partitions; a topic has one count"
+                )
+            )
+          )
+          .nextOption()
+      }
 
   /**
    * Another exposed service whose derived label equals this one's — `a-b` in `c` against `a` in

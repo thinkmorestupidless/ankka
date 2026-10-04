@@ -262,7 +262,15 @@ enum ServiceEvent:
        * `com.thinkmorestupidless.ankka.crd.DatabaseStatus.phase`. `None` for the escape hatch and
        * for events already in a journal from before this field existed.
        */
-      database: Option[String] = None
+      database: Option[String] = None,
+      /**
+       * The operator's reported broker phase, verbatim (feature 027) — see
+       * `com.thinkmorestupidless.ankka.crd.BrokerStatus.phase`. `None` when there is nothing to
+       * report and for events from before this field existed.
+       */
+      broker: Option[String] = None,
+      /** The topics the service declares, as the broker holds them. */
+      topics: Vector[String] = Vector.empty
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -286,7 +294,9 @@ final case class ServiceObservation(
     desiredInstances: Int,
     detail: Option[String] = None,
     confirmed: Boolean = true,
-    database: Option[String] = None
+    database: Option[String] = None,
+    broker: Option[String] = None,
+    topics: Vector[String] = Vector.empty
 )
 
 /**

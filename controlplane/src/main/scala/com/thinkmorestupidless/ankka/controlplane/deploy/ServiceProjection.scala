@@ -9,7 +9,13 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   Version
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, Service}
-import com.thinkmorestupidless.ankka.crd.{AutoscalingSpec, EnvEntry, AnkkaServiceSpec, MountEntry}
+import com.thinkmorestupidless.ankka.crd.{
+  AutoscalingSpec,
+  EnvEntry,
+  AnkkaServiceSpec,
+  MountEntry,
+  TopicEntry
+}
 
 /**
  * Desired state becomes a resource spec.
@@ -138,6 +144,12 @@ object ServiceProjection:
               // and the program's port resolved here, once, as `port` is.
               mounts = descriptor.service.mounts.map(m => MountEntry(m.path, m.service)).toList,
               callers = descriptor.service.callers.toList,
-              processPort = descriptor.service.resolvedProcessPort
+              processPort = descriptor.service.resolvedProcessPort,
+              // Feature 027: the topics the descriptor declares, and whether the platform knows the
+              // service on the installation's broker at all — not when it names a broker of its
+              // own, checked by name as a supplied database is, and never for a web-hosted service.
+              topics = descriptor.service.topics.map(t => TopicEntry(t.name, t.partitions)).toList,
+              provisionBroker =
+                !descriptor.service.isWebHosted && !descriptor.service.suppliesBroker
             )
           )

@@ -6,13 +6,13 @@
 
 **Status**: Draft
 
-> **Correction, 2026-10-03.** The defect this spec's first story fixes was real at the commit it was
-> written against and was fixed by feature 019 (merged in #59) before any work on this spec began:
-> the operator now has `SharedEnvPrefixes`, naming `ANKKA_KAFKA_`, and gives the variable to both
-> containers of a process-hosted service. When this spec is picked up, User Story 1 reduces to its
-> scenarios 2 and 3 (one shared prefix declaration read by the operator and the wasm `config`
-> import) and scenario 5 is dropped; FR-001 to FR-003 and the Context's defect paragraph should be
-> rewritten to match before `/speckit-clarify` runs.
+> **Revised 2026-10-04.** As first written, this spec's first story fixed a defect: a process-hosted
+> service's broker variable was rendered onto its app container, where nothing reads it, and the
+> sidecar refused to start. Features 019 and 023 fixed that before any work began here: the three
+> lists of platform variables are one declaration, `PlatformVariables` in `core`, which names
+> `ANKKA_KAFKA_` as a prefix given to both programs of a process-hosted service, and the control
+> plane, the operator and the module host all read it. What is left of that story is its proof on a
+> cluster. The description below is the one this spec was written from, defect included.
 
 **Input**: User description: "Topics are how ankka services exchange facts, and the platform provides
 no broker: a service names a Kafka it cannot reach on the platform at all when it is process-hosted,
@@ -39,18 +39,14 @@ isolation between projects. The operator, the CRD and the control plane never me
 docs say "The platform provides no broker of its own", and the domain plan's whole inter-service
 design rests on seven topics.
 
-Before any of that, there is a defect. For process hosting, `Rendering.scala` in the operator splits
-a descriptor's `env` by `SidecarEnvPrefixes`, which is `ANTHROPIC_`, `ANKKA_MODEL_` and `ANKKA_DB_`:
-those go to the sidecar container and everything else to the app container. The same list is
-declared again as `ServiceSpec.SidecarEnvPrefixes` in `controlplane-api/.../descriptors.scala`, and
-a third, longer list of reserved prefixes lives in the sidecar's `wasm/HostImports.scala` for the
-`config` import. `ANKKA_KAFKA_` is in none of them. So a Python or TypeScript service that declares a
-topic source and sets the variable in its descriptor has the variable rendered onto its app
-container, where nothing reads it, while the sidecar, which calls `ProjectionRuntime.fromEnv()` in
-its `Main.scala`, sees nothing and refuses to start, naming the component that needs a broker. The
-docs for topics and the configuration reference both say the platform routes the variable to the
-sidecar. Embedded and wasm services are unaffected because they are one container. No test caught
-it because no k3s suite deploys a process-hosted service with a topic.
+A supplied broker reaches a service of every hosting. `PlatformVariables` in `core` says once which
+variables are the platform's, and the control plane's validation, the operator's rendering and the
+module host's `config` import all read it; it names `ANKKA_KAFKA_` as a prefix given to both
+programs of a process-hosted service, because the sidecar is what connects to the broker and the
+process may register a component that needs one only where there is one. A rendering test holds
+that split. What nothing holds is the whole: no k3s suite deploys a process-hosted service with a
+topic, which is how the variable sat unread on the app container, with the sidecar refusing to
+start, until the lists were made one.
 
 The database side shows exactly the shape a broker should take, and the reasons are the same.
 `ServiceProjection.scala` in the control plane decides provisioning from the descriptor: setting any
@@ -67,11 +63,9 @@ database from a supplied one. The result is reported in the resource's status as
 
 Five decisions follow.
 
-- **The defect is fixed first and separately.** It is a one-line cause with a real failure behind
-  it, and it needs no broker to exist. The fix is the prefix joining one shared declaration that
-  the control plane's validation, the operator's rendering and the sidecar's `config` import all
-  read, so the three lists cannot drift again, and a k3s case that deploys the Python sample with
-  a topic so the failure stays visible.
+- **What is already built is proved first.** A k3s case deploys the Python sample with a topic
+  against a Kafka in the cluster, so the failure that went unseen stays visible. It needs no
+  provisioning, and the Kafka it stands up in k3s is the one every later story's suite uses.
 - **One broker per installation, not per project.** A CNPG cluster per project is cheap; a Kafka
   per project is not, and a topic's whole value is that services in different projects can share
   it. The project boundary is the ACL, enforced by the broker, not a separate broker.
@@ -95,37 +89,27 @@ cross-project reads, which is an open question below.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - A process-hosted service with a topic starts on the platform (Priority: P1)
+### User Story 1 - A process-hosted service with a topic is proved on a cluster (Priority: P1)
 
-A developer deploys the Python shopping cart, which has a producing consumer, with
-`ANKKA_KAFKA_BOOTSTRAP_SERVERS` in its descriptor pointing at an installation's Kafka. The pod
-starts, the sidecar connects to the broker, and the consumer publishes. Before this story the sidecar
-refused to start and the pod never became ready, while the variable sat unread on the app container.
+A developer deploys the Python shopping cart, whose graph consumer publishes to a topic, with
+`ANKKA_KAFKA_BOOTSTRAP_SERVERS` in its descriptor naming a Kafka in the cluster. The pod starts, the
+sidecar connects to the broker, and the consumer publishes. The platform gives the variable to both
+containers today; nothing has ever deployed such a service to a cluster to show that it works.
 
-**Why this priority**: It is a defect in shipped behaviour that the docs describe as working, and
-it blocks every process-hosted service with a topic whether or not the platform ever provisions a
-broker. It is fixed before the rest of this feature and can be released alone.
+**Why this priority**: The failure this guards against shipped once, in behaviour the docs described
+as working, and went unseen because no suite deploys a process-hosted service with a topic. It is
+also the first use of a Kafka inside the k3s suites, which every later story needs.
 
-**Independent Test**: A unit test over the operator's rendering asserts the variable lands on the
-sidecar container; a unit test over `ServiceSpec` asserts the shared declaration is the one the
-operator uses; a k3s case deploys the Python sample with a topic against a Kafka in the cluster and
-asserts the pod is ready and a message is published.
+**Independent Test**: A k3s case deploys the Python sample with a topic against a Kafka in the
+cluster and asserts the pod is ready and a message the consumer publishes is read from the topic.
 
 **Acceptance Scenarios**:
 
-1. **Given** a process-hosted descriptor with `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in its `env`,
-   **When** the operator renders its Deployment, **Then** the variable is on the sidecar container
-   and not on the app container.
-2. **Given** the three places that hold a prefix list, **When** they are read, **Then** they are one
-   declaration in `controlplane-api`, and the operator and the sidecar's wasm `config` import read
-   it; a test that adds a prefix to the declaration sees it in all three behaviours.
-3. **Given** a wasm module that asks its `config` import for `ANKKA_KAFKA_BOOTSTRAP_SERVERS`,
-   **When** it does, **Then** the answer is absent, since the prefix is now the platform's.
-4. **Given** the Python sample with a topic-sourced view deployed to a k3s cluster with a Kafka,
-   **When** the pod starts, **Then** the sidecar connects and the pod becomes ready, and a message
-   published to the topic appears as a row in the view.
-5. **Given** the same deployment before the fix, **When** the pod starts, **Then** the sidecar
-   refuses to start naming the component, which is the failure this case keeps visible.
+1. **Given** the Python sample, process-hosted, with a consumer that publishes to a topic, and a
+   descriptor whose `env` names a Kafka in the cluster, **When** it is deployed to a k3s cluster,
+   **Then** the sidecar connects to the broker and the pod becomes ready.
+2. **Given** that deployment, **When** a change is delivered to the consumer, **Then** the message
+   it publishes is read from the topic.
 
 ---
 
@@ -153,8 +137,9 @@ status reports the broker phase.
    `<project>.<name>` with the declared partitions, a credential for the service, and ACLs granting
    the service read and write on its project's topics.
 2. **Given** the rendered workload, **When** its environment is inspected, **Then** it carries
-   `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and the `ANKKA_KAFKA_TLS_*` variables, routed to the sidecar for
-   process hosting, and the service's code names the topic by its declared name.
+   `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and the `ANKKA_KAFKA_TLS_*` variables, given to both programs of
+   a process-hosted service as a supplied broker variable is, and the service's code names the
+   topic by its declared name.
 3. **Given** a consumer in that service producing to the topic, **When** a change is delivered,
    **Then** the message is on `<project>.<name>` on the installation's broker.
 4. **Given** a second service in the same project with a view over the same topic name and no
@@ -198,7 +183,7 @@ the view has no rows after a message is published in the first project.
    is written.
 5. **Given** a descriptor that sets `ANKKA_KAFKA_*` and declares no topics, **When** it is applied,
    **Then** the service is marked supplied, nothing is provisioned, and the variables reach the
-   sidecar as the defect fix guarantees.
+   service as they do today.
 
 ---
 
@@ -256,6 +241,8 @@ deploys with a declared topic; the smoke test publishes and reads.
 - **A topic declared by two services in one project.** Both declarations must agree on partitions;
   the second apply that disagrees is refused at the control plane naming the first service. A
   topic is the project's, declared by whichever service publishes to it first.
+- **A web-hosted service that declares topics.** It has no runtime to read or publish with, so
+  `ServiceSpec.problems` refuses `topics` for web hosting, as it refuses a database variable there.
 - **A partition count lowered.** Kafka cannot shrink a topic; the apply is refused at the control
   plane with the reason. Raising it is applied.
 - **A topic name that is not a valid Kafka name once prefixed.** Refused by `ServiceSpec.problems`
@@ -280,45 +267,43 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 ### Functional Requirements
 
-**Defect fix (released first)**
+**Proof of what is built**
 
-- **FR-001**: `ANKKA_KAFKA_` MUST be a sidecar-routed prefix, so a process-hosted service's broker
-  variables reach the sidecar container.
-- **FR-002**: The sidecar-routed and platform-reserved prefix lists MUST be one declaration in
-  `controlplane-api`, read by the operator's rendering and the sidecar's wasm `config` import.
-- **FR-003**: A k3s case MUST deploy a process-hosted service with a topic and assert it becomes
-  ready and publishes.
+- **FR-001**: A k3s case MUST deploy a process-hosted service with a topic, against a Kafka in the
+  cluster named in its descriptor, and assert it becomes ready and publishes.
 
 **Declaration and provisioning**
 
-- **FR-004**: A descriptor MUST be able to declare topics by name and partition count, validated
+- **FR-002**: A descriptor MUST be able to declare topics by name and partition count, validated
   by `ServiceSpec.problems`, projected onto the resource by the control plane and declared in the
-  CRD schema with `CrdSchemaSuite` holding the two together.
-- **FR-005**: The operator MUST render, per declared topic, a topic named `<project>.<name>` with
+  CRD schema with `CrdSchemaSuite` holding the two together. A web-hosted service MUST be refused
+  them.
+- **FR-003**: The operator MUST render, per declared topic, a topic named `<project>.<name>` with
   the declared partitions, and per service a credential and ACLs granting read and write on the
   project's topics and the service's qualified consumer groups, and nothing wider.
-- **FR-006**: The operator MUST inject the bootstrap address and TLS settings as `ANKKA_KAFKA_*`
-  variables routed to the sidecar, and the runtime MUST map a component's declared topic name to
-  the project-qualified name.
-- **FR-007**: A descriptor that sets any `ANKKA_KAFKA_*` variable MUST be marked supplied and get
+- **FR-004**: The operator MUST inject the bootstrap address and TLS settings as `ANKKA_KAFKA_*`
+  variables, which `PlatformVariables` already gives to both programs of a process-hosted service;
+  no second list of names is kept. The runtime MUST map a component's declared topic name to the
+  project-qualified name.
+- **FR-005**: A descriptor that sets any `ANKKA_KAFKA_*` variable MUST be marked supplied and get
   no provisioning, and one that also declares topics MUST be refused.
-- **FR-008**: The resource's status MUST report a broker phase in the shape of the database phase,
+- **FR-006**: The resource's status MUST report a broker phase in the shape of the database phase,
   treating the broker operator's transient states as waiting.
-- **FR-009**: The platform MUST never delete a topic, a credential or an ACL; a re-applied service
+- **FR-007**: The platform MUST never delete a topic, a credential or an ACL; a re-applied service
   MUST report its topic recovered.
 
 **Platform**
 
-- **FR-010**: A kustomization component MUST provide one broker per installation with a zero-trust
+- **FR-008**: A kustomization component MUST provide one broker per installation with a zero-trust
   policy admitting every workload namespace, enabled in the local overlay and placeholdered in the
   cloud overlay.
-- **FR-011**: The broker's credential for a service MUST be the service's certificate where the
+- **FR-009**: The broker's credential for a service MUST be the service's certificate where the
   broker supports it; a generated credential, where used, MUST follow the database rule of create
   if absent and never read back.
 
 **Documentation**
 
-- **FR-012**: The topics guide and the configuration reference MUST describe declaration,
+- **FR-010**: The topics guide and the configuration reference MUST describe declaration,
   qualification, the escape hatch and the retention rule, and the limitations page MUST drop "the
   platform provides no broker".
 
@@ -328,21 +313,18 @@ deploys with a declared topic; the smoke test publishes and reads.
   topic.
 - **Broker credential**: the service's identity on the broker, certificate-backed.
 - **Broker status**: phase, topic names, recovered flag and detail on the resource's status.
-- **Prefix declaration**: the one list of sidecar-routed and platform-reserved variable prefixes.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: A process-hosted service with a topic becomes ready on a real cluster; before the fix
-  the same deployment never does.
+- **SC-001**: A process-hosted service with a topic becomes ready and publishes on a real cluster,
+  in a suite that runs with the others.
 - **SC-002**: A service in another project is refused by the broker for a topic it did not
   declare, measured by the broker's own authorization failure, not by a platform check.
 - **SC-003**: A service declaring a topic needs no broker configuration in its descriptor and
   publishes on first deploy.
 - **SC-004**: Deleting and re-applying a service loses no message on its topic.
-- **SC-005**: The three prefix lists are one declaration, verified by a test that changes it once
-  and observes all three behaviours.
 
 ## Assumptions
 
@@ -353,15 +335,17 @@ deploys with a declared topic; the smoke test publishes and reads.
   authentication, as the per-project database authority is trusted by Postgres.
 - 024-replayable-topics lands first or together, since the ACLs grant the qualified group ids.
 - Kafka remains the only broker; the two-method broker interface is unchanged.
+- `PlatformVariables` stays the one place a platform variable's name is said; a broker variable
+  this feature adds is added there.
 
 ## Dependencies
 
 - Gates every domain stage going to production and no stage's build: a Kafka the installation
   supplies is enough to develop against.
-- The defect fix (FR-001 to FR-003) gates domain stage 2's process-hosted services and is released
-  on its own.
+- The proof of FR-001 needs no provisioning and can be merged on its own.
 - 024-replayable-topics: qualified consumer group ids are what the ACLs grant.
-- 023-secret-store and 026-telemetry-export share the prefix declaration of FR-002.
+- 023-secret-store, which is merged, delivered the one declaration of platform variables this
+  feature reads; 026-telemetry-export adds its names to the same one.
 - 025-polyglot-service-client: none.
 
 ## Open Questions

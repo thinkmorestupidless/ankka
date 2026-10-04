@@ -37,8 +37,8 @@ object Discovery:
    * 1.1: the caller on every forwarded request and caller-naming ACLs in discovery (feature 014).
    * 1.3: a consumer may answer with several messages, each under its own record key (feature 019).
    * 1.4: metadata on a workflow step, a tool call, a guardrail check, a result check and a view
-   * query, so a call made from any of them is attributed to its handler.
-   * 1.5: a route's principal carries the token's other claims and its issuer's name (feature 022).
+   * query, so a call made from any of them is attributed to its handler. 1.5: a route's principal
+   * carries the token's other claims and its issuer's name (feature 022).
    */
   val ProtocolVersion: String = WireProtocol.Version
 

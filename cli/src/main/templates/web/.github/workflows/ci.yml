@@ -1,0 +1,21 @@
+# Type-check, test and build on every push and pull request. Needs no secrets, so it is green from the
+# first push — before anything about a control plane has been configured.
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      # `npm ci` installs exactly what package-lock.json names; commit the lockfile `npm install` wrote.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

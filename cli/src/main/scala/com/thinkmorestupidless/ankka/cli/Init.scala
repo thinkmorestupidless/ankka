@@ -12,13 +12,17 @@ enum Language(val id: String):
   case TypeScript extends Language("typescript")
   case Rust       extends Language("rust")
 
+  /** Not a language a service is written in: a user interface, deployed as a web-hosted service. */
+  case Web extends Language("web")
+
 object Language:
   def parse(text: String): Either[String, Language] = text.toLowerCase match
     case "scala"             => Right(Scala)
     case "python" | "py"     => Right(Python)
     case "typescript" | "ts" => Right(TypeScript)
     case "rust" | "rs"       => Right(Rust)
-    case other => Left(s"unknown language '$other'; one of scala, python, typescript, rust")
+    case "web"               => Right(Web)
+    case other => Left(s"unknown language '$other'; one of scala, python, typescript, rust, web")
 
 /**
  * `ankka init <name>`: a new service from the platform's template.
@@ -85,6 +89,10 @@ object Init:
         template(request) ++ request.pkg
           .map(_ => "--package applies to scala and python only")
           .toVector ++ Scaffold.crateProblems(request.name)
+      case Language.Web =>
+        template(request) ++ request.pkg
+          .map(_ => "--package applies to scala and python only")
+          .toVector
     name ++ occupied ++ options
 
   private def template(request: Request): Vector[String] =

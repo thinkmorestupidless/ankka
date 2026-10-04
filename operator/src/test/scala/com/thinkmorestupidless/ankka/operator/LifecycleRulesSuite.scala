@@ -255,6 +255,66 @@ class LifecycleRulesSuite extends munit.FunSuite:
     assert(LifecycleRules.routeStatus(exposed = true, None, None).contains("ANKKA_BASE_DOMAIN"))
   }
 
+  test(
+    "a web-hosted service whose probe answered 503 failed because its process is not listening"
+  ) {
+    // The proxy is up and answering its probe; what it answers is that nothing accepts a connection
+    // on the process's port. The detail names that port, then quotes the kubelet (feature 021).
+    val web = spec.copy(hosting = Rendering.WebHosting, processPort = Some(3000))
+    val answered503 = PodProblem(
+      "web-7d9",
+      "Unhealthy",
+      "Readiness probe failed: HTTP probe failed with statuscode: 503"
+    )
+    val failed = Some(
+      snapshot(
+        readyReplicas = 0,
+        progressing = Some(ConditionState(false, "ProgressDeadlineExceeded", "timed out")),
+        problems = Vector(answered503)
+      )
+    )
+    val status = observe(s = web, c = failed)
+    assertEquals(status.lifecycle, "Failed")
+    assertEquals(
+      status.detail,
+      Some(
+        "the process is not listening on port 3000: Readiness probe failed: HTTP probe failed with statuscode: 503"
+      )
+    )
+    // An unstated process port is the default one.
+    assert(
+      observe(s = web.copy(processPort = None), c = failed).detail.exists(_.contains("port 8080")),
+      observe(s = web.copy(processPort = None), c = failed).detail.toString
+    )
+    // The same event on an embedded service says what it said before.
+    assertEquals(
+      observe(c = failed).detail,
+      Some("Unhealthy: Readiness probe failed: HTTP probe failed with statuscode: 503")
+    )
+  }
+
+  test("a web-hosted service whose probe was refused is the proxy itself down, said as before") {
+    val web = spec.copy(hosting = Rendering.WebHosting, processPort = Some(3000))
+    val refused = PodProblem(
+      "web-7d9",
+      "Unhealthy",
+      """Readiness probe failed: Get "http://10.42.0.7:7627/ready": dial tcp 10.42.0.7:7627: connect: connection refused"""
+    )
+    val status = observe(
+      s = web,
+      c = Some(
+        snapshot(
+          readyReplicas = 0,
+          progressing = Some(ConditionState(false, "ProgressDeadlineExceeded", "timed out")),
+          problems = Vector(refused)
+        )
+      )
+    )
+    assertEquals(status.lifecycle, "Failed")
+    assertEquals(status.detail, Some(s"Unhealthy: ${refused.message}"))
+    assert(!status.detail.exists(_.contains("not listening")), status.detail.toString)
+  }
+
   test("a never-ready pod's Failed detail quotes the kubelet's own probe failure") {
     // What an image that predates mutual TLS looks like: running, never ready, because it opens no
     // probe port (feature 014). The detail says so in the kubelet's words, not only "the deadline".

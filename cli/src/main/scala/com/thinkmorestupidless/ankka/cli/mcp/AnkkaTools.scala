@@ -158,8 +158,11 @@ private[cli] final class AnkkaTools(
         projectArg,
         "instance" -> string("One instance (pod) name. Omit for every instance."),
         "previous" -> boolean("The container before the last restart."),
-        "tail"     -> integer("Only the last N lines."),
-        "since"    -> integer("Only the last N seconds.")
+        "platform" -> boolean(
+          "The platform's container instead of the developer's: the sidecar of a process-hosted service, or the proxy of a web-hosted one."
+        ),
+        "tail"  -> integer("Only the last N lines."),
+        "since" -> integer("Only the last N seconds.")
       ),
       readOnly = true,
       idempotent = true
@@ -170,7 +173,8 @@ private[cli] final class AnkkaTools(
         args.string("instance"),
         args.bool("previous").getOrElse(false),
         args.int("tail"),
-        args.int("since")
+        args.int("since"),
+        args.bool("platform").getOrElse(false)
       )
       ToolResult(
         response.instances

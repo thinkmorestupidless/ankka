@@ -56,6 +56,20 @@ running in Kubernetes, including a kind cluster, does not announce itself; the c
 run directly on your machine. If a service you just started is missing, wait until it has finished
 starting: it announces itself after its extensions, such as the HTTP server, have started.
 
+### A web-hosted service is `Failed`: the process is not listening
+
+The proxy answers the platform's probe with whether the process accepts a connection on its port. When a
+rollout's deadline passes and it never did, the status says so and quotes the kubelet:
+
+```text
+detail      the process is not listening on port 8080: Readiness probe failed: HTTP probe failed with statuscode: 503
+```
+
+The process listens on another port than `PORT`, or crashed before listening. Read what it printed with
+`ankka services logs <name>`, and make it listen on the port the `PORT` variable names. A detail that
+quotes a refused connection to port 7627 is the proxy itself not running: read its log with
+`ankka services logs <name> --platform`.
+
 ## Tests
 
 ### An integration test times out after the laptop slept
@@ -286,11 +300,12 @@ before giving up. Start the process, or check that it is listening on port 9010 
 pointed at it. If your process answered and the sidecar refused what it described, every problem is
 printed in your process's own log as well as the sidecar's.
 
-### `ankka services logs` prints an error for every instance
+### `ankka services logs` shows only your process
 
-A deployed Python service's pods have two containers, and `ankka services logs` does not yet choose
-between them, which Kubernetes refuses. Read them with `kubectl logs` and a container name, as
-[Logs](logs.md#a-service-in-another-language) shows.
+A deployed Python service's pods have two containers: your process and the platform's sidecar.
+`ankka services logs` reads your process. The sidecar's log, where a refused discovery or a lost
+connection to your process is reported, is read with `--platform`, as
+[Logs](logs.md#a-service-with-two-containers) shows.
 
 ## Accounts
 

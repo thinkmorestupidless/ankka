@@ -87,7 +87,7 @@ settings, so one descriptor can be applied to several projects.
 |---|---|---|---|
 | `image` | string | required | The container image to run. |
 | `runtime` | string | none | The ankka version the image was built against, `MAJOR.MINOR.PATCH`. |
-| `hosting` | string | `"embedded"` | `embedded` for a Scala service; `process` for a service in another language, run beside the ankka sidecar; `wasm` for a service built to a WebAssembly module, loaded into the ankka runtime. |
+| `hosting` | string | `"embedded"` | `embedded` for a Scala service; `process` for a service in another language, run beside the ankka sidecar; `wasm` for a service built to a WebAssembly module, loaded into the ankka runtime; `web` for any program that serves HTTP, run beside the platform's proxy. |
 | `protocol` | string | none | The protocol version the image's SDK speaks, `MAJOR.MINOR`. Required with `process` or `wasm` hosting. |
 | `env` | array of [environment variables](#environment-variables) | `[]` | Environment for the service's containers. |
 | `labels` | object of strings | `{}` | Extra labels on the service's Kubernetes objects. |
@@ -97,6 +97,9 @@ settings, so one descriptor can be applied to several projects.
 | `grpc` | boolean | `false` | Whether the service serves gRPC. Embedded hosting only. |
 | `grpcPort` | integer | `9090` | The port the service serves gRPC on. Ignored when `grpc` is `false`. |
 | `resources` | object | small, one instance | Size and instance count, described in [resources](#resources). |
+| `mounts` | array of `{ "path", "service" }` | `[]` | With `web` hosting only: paths answered by another service of the project. See [web hosting](#web-hosting). |
+| `callers` | array of strings | `[]` | With `web` hosting only: the services admitted beside the internet. |
+| `processPort` | integer | `8080` | With `web` hosting only: the port the process listens on, told to it as `PORT`. |
 
 ### image
 
@@ -119,8 +122,8 @@ reports.
 
 ### hosting and protocol
 
-`hosting` is `embedded`, `process` or `wasm`; anything else is refused with
-`hosting must be "embedded", "process" or "wasm", not "<value>"`.
+`hosting` is `embedded`, `process`, `wasm` or `web`; anything else is refused with
+`hosting must be "embedded", "process", "wasm" or "web", not "<value>"`.
 
 - `embedded`: the image is an ankka service, and the JVM in it is a cluster node.
 - `process`: the image is a process in another language. The platform runs ankka's sidecar in the same
@@ -132,6 +135,10 @@ reports.
   `/ankka/module` mounted, write `service.wasm` there, and exit 0; any other exit fails the pod's start,
   and the service reports it. A wasm service always serves HTTP, since the runtime serves the module's
   routes, so `"http": false` is refused with `a wasm service's runtime serves HTTP`.
+- `web`: the image is any program that serves HTTP, such as a user interface. The platform runs its
+  proxy beside it in the same pod; the program needs no certificate and no ankka library, and is given
+  no database. Its own rules are in [web hosting](#web-hosting), and what the program is told is in
+  [the web hosting reference](web-hosting.md).
 
 `protocol` is the protocol version, `MAJOR.MINOR`. It is required with `process` or `wasm` hosting
 (`protocol must be declared for process hosting`, and the same for `wasm`) and refused with `embedded`
@@ -177,6 +184,65 @@ platform reports it `Failed` with that reason.
 Added to the service's Deployment, pods and Service. The platform's own identity labels are applied
 after yours, so a label of yours with the same key as one of the platform's is overwritten.
 
+## Web hosting
+
+A web-hosted service's descriptor says `"hosting": "web"`, and may name its mounts, the services it
+admits and its process's port:
+
+```json
+{
+  "name": "web",
+  "service": {
+    "image": "registry.example.com/acme/shop-web:1.0.0",
+    "hosting": "web",
+    "processPort": 3000,
+    "mounts": [
+      { "path": "/api/cart", "service": "cart" },
+      { "path": "/api/orders", "service": "orders" }
+    ],
+    "callers": ["orders", "billing/invoices"]
+  }
+}
+```
+
+- `mounts`: each `path` is answered by `service`, a service of the same project, which receives the
+  request with the path removed. A path is whole segments: `/api/cart` matches `/api/cart` and
+  `/api/cart/carts/c1`, never `/api/cartoons`.
+- `callers`: `"<service>"` for a service of this project, `"<project>/<service>"` for another
+  project's, `"*"` for every service of this project. The internet and the service itself are always
+  admitted, and are not written.
+- `processPort`: the port the process listens on, from 1 to 65535, told to it as `PORT`. The service's
+  own `port` is where the proxy listens.
+
+The rules for a web-hosted service, with the messages the CLI and control plane print. Every problem is
+reported at once.
+
+| Problem | Message |
+|---|---|
+| `"http": false` | `a web-hosted service's proxy serves HTTP; remove "http": false` |
+| `protocol` declared | `protocol is meaningful only for process or wasm hosting` |
+| `runtime` declared | `runtime is meaningful only for a service built on ankka; a web-hosted service declares none` |
+| `PORT` or `ANKKA_SERVICES_URL` in `env` | `env var '<name>' is set by the platform and cannot be declared` |
+| a variable starting `ANKKA_DB_` | `env var '<name>' supplies a database, and a web-hosted service has none` |
+| `processPort` out of range | `processPort <n> is outside the range 1-65535` |
+| `processPort` equal to `port` | `processPort <n> is the service's own port; the process and the proxy cannot both listen on it` |
+| `processPort` 7626, 7627, 7628, 7630 or 17355 | `processPort <n> is used by the platform` |
+| `port` 7627 or 7630 | `service port <n> is used by the platform's proxy` |
+| a mount path with no leading `/` | `mount '<path>': a path starts with "/"` |
+| a mount at `/` | `mount '/': a mount cannot be every path; the process serves what no mount does` |
+| a malformed mount path | `mount '<path>': a path is whole segments of letters, digits, "-", ".", "_" and "~", with no trailing "/"` |
+| the same path twice | `mount '<path>' is declared more than once` |
+| one path inside another | `mount '<inner>' is inside mount '<outer>'` |
+| a mount's service not a name | `mount '<path>': '<service>' is not a service name` |
+| a mount of the service itself | `mount '<path>': a web-hosted service cannot mount itself` |
+| a caller entry of no known shape | `caller '<entry>' is not "<service>", "<project>/<service>" or "*"` |
+| a caller entry twice | `caller '<entry>' is declared more than once` |
+| `mounts`, `callers` or `processPort` without web hosting | `<field> is meaningful only for web hosting` |
+
+Whether a mount's service exists, serves HTTP or is paused is not a rule of the descriptor, because the
+other service may be applied later: `ankka services get` shows what is behind each mount, and a request
+under a mount with nothing behind it is answered `503`.
+
 ## Environment variables
 
 Each entry in `env` has a `name` and exactly one of `value` or `secretKeyRef`.
@@ -196,6 +262,12 @@ The rules, with the messages the CLI and control plane print:
 | Neither | `env var '<name>' sets neither value nor secretKeyRef` |
 | `ANKKA_HTTP_PORT` | `env var 'ANKKA_HTTP_PORT' conflicts with the service port; declare the port instead` |
 | A variable the platform sets | `env var '<name>' is set by the platform and cannot be declared` |
+| A variable from a Secret the platform issues, in any hosting | `env var '<name>': secret '<secret>' is issued by the platform and cannot be read by a service` |
+
+A Secret the platform issues is one whose name ends `-service-tls`, `-mount-tls`, `-cluster-tls` or
+`-database-tls`, or is the project's database cluster's own: `ankka-db`, or any name starting
+`ankka-db-`. They hold certificates and their keys, which identify a service to others; a variable
+taken from one would hand a process an identity that is the platform's to hold.
 
 ### Reserved variables
 
@@ -214,6 +286,7 @@ one fact is how an address ends up pointing at a port nothing listens on.
 | `ANKKA_PROCESS_PORT`, `ANKKA_PROCESS_ADDRESS` | Where the sidecar finds a process-hosted service. |
 | `ANKKA_SIDECAR_PORT`, `ANKKA_SIDECAR_ADDRESS`, `ANKKA_SIDECAR_BIND` | Where a process-hosted service finds its sidecar. |
 | `ANKKA_WASM_MODULE`, `ANKKA_WASM_INSTANCES`, `ANKKA_WASM_MAX_MEMORY_PAGES` | Where the runtime finds a wasm service's module, and how it sizes the instances that run it. |
+| `PORT`, `ANKKA_SERVICES_URL` | With web hosting only: where the process listens, and where it calls services. |
 
 ### Supplying your own database
 
@@ -277,7 +350,10 @@ stopped. Changing the count adds or removes pods without restarting the existing
 
 ## Fields you will not find
 
-- **A database.** One is provisioned per service. See [Databases](../platform/databases.md).
+- **A database.** One is provisioned per service, except a web-hosted one, which has none. See
+  [Databases](../platform/databases.md).
+- **A route, a rewrite or a header rule.** A web-hosted service's mounts pass whole paths to a service of
+  its project; the platform has no other routing.
 - **Ports beyond one, or protocols other than HTTP.** A service has one HTTP port.
 - **A hostname.** An exposed service's hostname is derived by the platform, and exposure is a command,
   `ankka services expose`, not a field. See [Expose a service](../deploy/expose.md).

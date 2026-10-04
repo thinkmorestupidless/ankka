@@ -61,6 +61,36 @@ test("US3-2 a service shows every status field and its attributed history", asyn
   await audit(page);
 });
 
+test("a web-hosted service shows where it runs, whom it admits, its mounts and no database", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "mount states are seeded on the fake");
+  const org = unique("web-org");
+  const project = unique("web-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    services: [
+      {
+        projectId: project,
+        name: "web",
+        hosting: "web",
+        processPort: 3000,
+        callers: ["orders", "*"],
+        mounts: [
+          { path: "/api/cart", service: "cart", state: "ok" },
+          { path: "/api/ledger", service: "ledger", state: "no service" },
+        ],
+      },
+    ],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/web`);
+  const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
+  await expect(fact("Runs as")).toHaveText("Your program beside the platform's proxy, on port 3000");
+  await expect(fact("Database")).toHaveText("None");
+  await expect(fact("Admits")).toHaveText(`The internet, orders, Every service in Project ${project}`);
+  await expect(page.locator('li[data-mount="/api/cart"]')).toHaveText("/api/cart → cart");
+  await expect(page.locator('li[data-mount="/api/ledger"]')).toHaveText("/api/ledger → ledger (no service)");
+  await audit(page);
+});
+
 test("US3-3 a descriptor is applied, and a refused one shows every problem", async ({ page, target, signIn, unique }) => {
   const { project } = await tenancy(page, target, signIn, unique);
   await page.goto(`${target.url}/projects/${project}/services/apply`);

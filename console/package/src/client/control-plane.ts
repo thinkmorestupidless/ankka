@@ -44,6 +44,8 @@ export type BearerSource = (options: { refresh: boolean }) => Promise<string | n
 export interface LogsQuery {
   instance?: string;
   previous?: boolean;
+  /** The platform's container (the sidecar, or a web-hosted service's proxy) instead of the developer's. */
+  platform?: boolean;
   tail?: number;
   since?: number;
 }
@@ -248,6 +250,7 @@ export class ControlPlaneClient {
     const params = new URLSearchParams();
     if (query.instance) params.set("instance", query.instance);
     if (query.previous) params.set("previous", "true");
+    if (query.platform) params.set("platform", "true");
     if (query.tail !== undefined) params.set("tail", String(query.tail));
     if (query.since !== undefined) params.set("since", String(query.since));
     const q = params.size > 0 ? `?${params}` : "";

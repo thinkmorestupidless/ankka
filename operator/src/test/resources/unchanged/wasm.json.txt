@@ -1,0 +1,974 @@
+# EnsureNamespace
+ankka-shop
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "app.kubernetes.io/managed-by" : "ankka"
+    },
+    "name" : "ankka-db-client-ca",
+    "namespace" : "ankka-shop"
+  },
+  "spec" : {
+    "commonName" : "ankka database authority (ankka-shop)",
+    "duration" : "87600h",
+    "isCA" : true,
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "ClusterIssuer",
+      "name" : "ankka-selfsigned"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "size" : 2048
+    },
+    "secretName" : "ankka-db-client-ca"
+  }
+}
+---
+# EnsureIssuer
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Issuer",
+  "metadata" : {
+    "labels" : {
+      "app.kubernetes.io/managed-by" : "ankka"
+    },
+    "name" : "ankka-database",
+    "namespace" : "ankka-shop"
+  },
+  "spec" : {
+    "ca" : {
+      "secretName" : "ankka-db-client-ca"
+    }
+  }
+}
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "app.kubernetes.io/managed-by" : "ankka"
+    },
+    "name" : "ankka-db-replication",
+    "namespace" : "ankka-shop"
+  },
+  "spec" : {
+    "commonName" : "streaming_replica",
+    "duration" : "24h",
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "Issuer",
+      "name" : "ankka-database"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "size" : 2048
+    },
+    "renewBefore" : "16h",
+    "secretName" : "ankka-db-replication",
+    "usages" : [ "client auth" ]
+  }
+}
+---
+# EnsureCluster
+{
+  "apiVersion" : "postgresql.cnpg.io/v1",
+  "kind" : "Cluster",
+  "metadata" : {
+    "name" : "ankka-db",
+    "namespace" : "ankka-shop"
+  },
+  "spec" : {
+    "instances" : 1,
+    "storage" : {
+      "size" : "1Gi"
+    },
+    "certificates" : {
+      "clientCASecret" : "ankka-db-client-ca",
+      "replicationTLSSecret" : "ankka-db-replication"
+    },
+    "postgresql" : {
+      "pg_hba" : [ "hostssl all +ankka_tls all cert clientcert=verify-full" ]
+    },
+    "managed" : {
+      "roles" : [ {
+        "name" : "ankka_tls",
+        "login" : false,
+        "ensure" : "present"
+      } ]
+    }
+  }
+}
+---
+# EnsureNetworkPolicy
+{
+  "apiVersion" : "networking.k8s.io/v1",
+  "kind" : "NetworkPolicy",
+  "metadata" : {
+    "labels" : {
+      "app.kubernetes.io/managed-by" : "ankka"
+    },
+    "name" : "ankka-db-database",
+    "namespace" : "ankka-shop"
+  },
+  "spec" : {
+    "ingress" : [ {
+      "from" : [ {
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/managed-by" : "ankka"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 5432,
+        "protocol" : "TCP"
+      } ]
+    }, {
+      "from" : [ {
+        "podSelector" : {
+          "matchLabels" : {
+            "cnpg.io/cluster" : "ankka-db"
+          }
+        }
+      }, {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "cnpg-system"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 5432,
+        "protocol" : "TCP"
+      }, {
+        "port" : 8000,
+        "protocol" : "TCP"
+      } ]
+    } ],
+    "podSelector" : {
+      "matchLabels" : {
+        "cnpg.io/cluster" : "ankka-db"
+      }
+    },
+    "policyTypes" : [ "Ingress" ]
+  }
+}
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-database",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "commonName" : "cart",
+    "duration" : "24h",
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "Issuer",
+      "name" : "ankka-database"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "rotationPolicy" : "Always",
+      "size" : 2048
+    },
+    "renewBefore" : "16h",
+    "secretName" : "cart-database-tls",
+    "usages" : [ "client auth" ]
+  }
+}
+---
+# EnsureSchemaConfig
+{
+  "apiVersion" : "v1",
+  "kind" : "ConfigMap",
+  "metadata" : {
+    "labels" : {
+      "app.kubernetes.io/managed-by" : "ankka"
+    },
+    "name" : "ankka-schema",
+    "namespace" : "ankka-shop"
+  },
+  "data" : {
+    "10-journal-postgres.sql" : "CREATE TABLE IF NOT EXISTS event_journal(\n  slice INT NOT NULL,\n  entity_type VARCHAR(255) NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  seq_nr BIGINT NOT NULL,\n  db_timestamp timestamp with time zone NOT NULL,\n\n  event_ser_id INTEGER NOT NULL,\n  event_ser_manifest VARCHAR(255) NOT NULL,\n  event_payload BYTEA NOT NULL,\n\n  deleted BOOLEAN DEFAULT FALSE NOT NULL,\n  writer VARCHAR(255) NOT NULL,\n  adapter_manifest VARCHAR(255),\n  tags TEXT ARRAY,\n\n  meta_ser_id INTEGER,\n  meta_ser_manifest VARCHAR(255),\n  meta_payload BYTEA,\n\n  PRIMARY KEY(persistence_id, seq_nr)\n);\n\n-- `event_journal_slice_idx` is only needed if the slice based queries are used\nCREATE INDEX IF NOT EXISTS event_journal_slice_idx ON event_journal(slice, entity_type, db_timestamp, seq_nr);\n\nCREATE TABLE IF NOT EXISTS snapshot(\n  slice INT NOT NULL,\n  entity_type VARCHAR(255) NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  seq_nr BIGINT NOT NULL,\n  write_timestamp BIGINT NOT NULL,\n  ser_id INTEGER NOT NULL,\n  ser_manifest VARCHAR(255) NOT NULL,\n  snapshot BYTEA NOT NULL,\n  meta_ser_id INTEGER,\n  meta_ser_manifest VARCHAR(255),\n  meta_payload BYTEA,\n\n  PRIMARY KEY(persistence_id)\n);\n\nCREATE TABLE IF NOT EXISTS durable_state (\n  slice INT NOT NULL,\n  entity_type VARCHAR(255) NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  revision BIGINT NOT NULL,\n  db_timestamp timestamp with time zone NOT NULL,\n\n  state_ser_id INTEGER NOT NULL,\n  state_ser_manifest VARCHAR(255),\n  state_payload BYTEA NOT NULL,\n  tags TEXT ARRAY,\n\n  PRIMARY KEY(persistence_id, revision)\n);\n\n-- `durable_state_slice_idx` is only needed if the slice based queries are used\nCREATE INDEX IF NOT EXISTS durable_state_slice_idx ON durable_state(slice, entity_type, db_timestamp, revision);\n",
+    "20-projection-postgres.sql" : "-- Projection offset stores, from apache/pekko-projection r2dbc-int-test/ddl-scripts.\n-- Journal/snapshot/durable_state tables are created by 10-journal-postgres.sql.\n\nCREATE TABLE IF NOT EXISTS projection_offset_store (\n  projection_name VARCHAR(255) NOT NULL,\n  projection_key VARCHAR(255) NOT NULL,\n  current_offset VARCHAR(255) NOT NULL,\n  manifest VARCHAR(32) NOT NULL,\n  mergeable BOOLEAN NOT NULL,\n  last_updated BIGINT NOT NULL,\n  PRIMARY KEY(projection_name, projection_key)\n);\n\n-- Timestamp based offsets are stored in this table.\nCREATE TABLE IF NOT EXISTS projection_timestamp_offset_store (\n  projection_name VARCHAR(255) NOT NULL,\n  projection_key VARCHAR(255) NOT NULL,\n  slice INT NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  seq_nr BIGINT NOT NULL,\n  -- timestamp_offset is the db_timestamp of the original event\n  timestamp_offset timestamp with time zone NOT NULL,\n  -- timestamp_consumed is when the offset was stored\n  -- the consumer lag is timestamp_consumed - timestamp_offset\n  timestamp_consumed timestamp with time zone NOT NULL,\n  PRIMARY KEY(slice, projection_name, timestamp_offset, persistence_id, seq_nr)\n);\n\nCREATE TABLE IF NOT EXISTS projection_management (\n  projection_name VARCHAR(255) NOT NULL,\n  projection_key VARCHAR(255) NOT NULL,\n  paused BOOLEAN NOT NULL,\n  last_updated BIGINT NOT NULL,\n  PRIMARY KEY(projection_name, projection_key)\n);\n",
+    "30-timers-postgres.sql" : "-- Scheduled calls owned by the ankka timer runtime.\n--\n-- A table rather than in-memory timers because a scheduled call has to survive the node\n-- that scheduled it. `due_at` is indexed because the sweeper's only query is\n-- \"what is due now\".\nCREATE TABLE IF NOT EXISTS ankka_timers (\n  timer_name   TEXT PRIMARY KEY,\n  component_id TEXT NOT NULL,\n  method       TEXT NOT NULL,\n  payload      BYTEA NOT NULL,\n  due_at       TIMESTAMPTZ NOT NULL,\n  attempts     INT NOT NULL DEFAULT 0,\n  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS ankka_timers_due_idx ON ankka_timers (due_at);\n"
+  }
+}
+---
+# EnsureServiceAccount
+{
+  "apiVersion" : "v1",
+  "kind" : "ServiceAccount",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  }
+}
+---
+# EnsureRole
+{
+  "apiVersion" : "rbac.authorization.k8s.io/v1",
+  "kind" : "Role",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-peers",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "rules" : [ {
+    "apiGroups" : [ "" ],
+    "resources" : [ "pods" ],
+    "verbs" : [ "get", "list", "watch" ]
+  } ]
+}
+---
+# EnsureRoleBinding
+{
+  "apiVersion" : "rbac.authorization.k8s.io/v1",
+  "kind" : "RoleBinding",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-peers",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "roleRef" : {
+    "kind" : "Role",
+    "apiGroup" : "rbac.authorization.k8s.io",
+    "name" : "cart-peers"
+  },
+  "subjects" : [ {
+    "kind" : "ServiceAccount",
+    "name" : "cart",
+    "namespace" : "ankka-shop"
+  } ]
+}
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-cluster",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "dnsNames" : [ "cart.ankka-shop.svc" ],
+    "duration" : "24h",
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "ClusterIssuer",
+      "name" : "ankka-cluster"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "rotationPolicy" : "Always",
+      "size" : 2048
+    },
+    "renewBefore" : "16h",
+    "secretName" : "cart-cluster-tls",
+    "uris" : [ "ankka://shop/cart" ],
+    "usages" : [ "server auth", "client auth" ]
+  }
+}
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-service",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "dnsNames" : [ "cart", "cart.ankka-shop.svc", "cart.ankka-shop.svc.cluster.local" ],
+    "duration" : "24h",
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "ClusterIssuer",
+      "name" : "ankka-service"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "rotationPolicy" : "Always",
+      "size" : 2048
+    },
+    "renewBefore" : "16h",
+    "secretName" : "cart-service-tls",
+    "uris" : [ "ankka://shop/cart" ],
+    "usages" : [ "server auth", "client auth" ]
+  }
+}
+---
+# EnsureNetworkPolicy
+{
+  "apiVersion" : "networking.k8s.io/v1",
+  "kind" : "NetworkPolicy",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-cluster",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "ingress" : [ {
+      "from" : [ {
+        "podSelector" : {
+          "matchLabels" : {
+            "ankka.thinkmorestupidless.com/project" : "shop",
+            "ankka.thinkmorestupidless.com/service" : "cart",
+            "app.kubernetes.io/managed-by" : "ankka",
+            "app.kubernetes.io/name" : "cart"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 17355,
+        "protocol" : "TCP"
+      }, {
+        "port" : 7626,
+        "protocol" : "TCP"
+      } ]
+    }, {
+      "ports" : [ {
+        "port" : 7627,
+        "protocol" : "TCP"
+      } ]
+    }, {
+      "from" : [ {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "ankka-controlplane"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/name" : "ankka-controlplane"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 7628,
+        "protocol" : "TCP"
+      } ]
+    } ],
+    "podSelector" : {
+      "matchLabels" : {
+        "ankka.thinkmorestupidless.com/project" : "shop",
+        "ankka.thinkmorestupidless.com/service" : "cart",
+        "app.kubernetes.io/managed-by" : "ankka",
+        "app.kubernetes.io/name" : "cart"
+      }
+    },
+    "policyTypes" : [ "Ingress" ]
+  }
+}
+---
+# EnsureNetworkPolicy
+{
+  "apiVersion" : "networking.k8s.io/v1",
+  "kind" : "NetworkPolicy",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-http",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "ingress" : [ {
+      "from" : [ {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/managed-by" : "ankka"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/managed-by" : "ankka"
+          }
+        }
+      }, {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "envoy-gateway-system"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "gateway.envoyproxy.io/owning-gateway-name" : "ankka",
+            "gateway.envoyproxy.io/owning-gateway-namespace" : "ankka-gateway"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 9000,
+        "protocol" : "TCP"
+      } ]
+    } ],
+    "podSelector" : {
+      "matchLabels" : {
+        "ankka.thinkmorestupidless.com/project" : "shop",
+        "ankka.thinkmorestupidless.com/service" : "cart",
+        "app.kubernetes.io/managed-by" : "ankka",
+        "app.kubernetes.io/name" : "cart"
+      }
+    },
+    "policyTypes" : [ "Ingress" ]
+  }
+}
+---
+# RemoveNetworkPolicy
+ankka-shop
+cart-grpc
+00000000-0000-0000-0000-000000000001
+---
+# ApplyDeployment
+{
+  "apiVersion" : "apps/v1",
+  "kind" : "Deployment",
+  "metadata" : {
+    "annotations" : {
+      "ankka.thinkmorestupidless.com/generation" : "3",
+      "example.test/owner" : "checkout-team"
+    },
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "progressDeadlineSeconds" : 600,
+    "replicas" : 1,
+    "selector" : {
+      "matchLabels" : {
+        "ankka.thinkmorestupidless.com/project" : "shop",
+        "ankka.thinkmorestupidless.com/service" : "cart",
+        "app.kubernetes.io/managed-by" : "ankka",
+        "app.kubernetes.io/name" : "cart"
+      }
+    },
+    "strategy" : {
+      "rollingUpdate" : {
+        "maxSurge" : 1,
+        "maxUnavailable" : 0
+      },
+      "type" : "RollingUpdate"
+    },
+    "template" : {
+      "metadata" : {
+        "annotations" : {
+          "ankka.thinkmorestupidless.com/restarts" : "2",
+          "example.test/owner" : "checkout-team"
+        },
+        "labels" : {
+          "ankka.thinkmorestupidless.com/formation" : "bootstrap",
+          "ankka.thinkmorestupidless.com/project" : "shop",
+          "ankka.thinkmorestupidless.com/service" : "cart",
+          "ankka.thinkmorestupidless.com/transport" : "tls",
+          "app.kubernetes.io/managed-by" : "ankka",
+          "app.kubernetes.io/name" : "cart",
+          "team" : "checkout"
+        }
+      },
+      "spec" : {
+        "containers" : [ {
+          "env" : [ {
+            "name" : "GREETING",
+            "value" : "hello"
+          }, {
+            "name" : "ANTHROPIC_API_KEY",
+            "valueFrom" : {
+              "secretKeyRef" : {
+                "key" : "anthropic",
+                "name" : "models"
+              }
+            }
+          }, {
+            "name" : "ANKKA_HTTP_PORT",
+            "value" : "9000"
+          }, {
+            "name" : "ANKKA_CLUSTER_MODE",
+            "value" : "kubernetes"
+          }, {
+            "name" : "POD_IP",
+            "valueFrom" : {
+              "fieldRef" : {
+                "fieldPath" : "status.podIP"
+              }
+            }
+          }, {
+            "name" : "ANKKA_CLUSTER_SERVICE",
+            "value" : "cart"
+          }, {
+            "name" : "ANKKA_CLUSTER_POD_SELECTOR",
+            "value" : "ankka.thinkmorestupidless.com/formation=bootstrap,ankka.thinkmorestupidless.com/project=shop,ankka.thinkmorestupidless.com/service=cart,ankka.thinkmorestupidless.com/transport=tls,app.kubernetes.io/managed-by=ankka,app.kubernetes.io/name=cart"
+          }, {
+            "name" : "ANKKA_CLUSTER_CONTACT_POINTS",
+            "value" : "1"
+          }, {
+            "name" : "ANKKA_NAMESPACE_PREFIX",
+            "value" : "ankka"
+          }, {
+            "name" : "ANKKA_WASM_MODULE",
+            "value" : "/ankka/module/service.wasm"
+          }, {
+            "name" : "ANKKA_DB_SSL_MODE",
+            "value" : "verify-full"
+          }, {
+            "name" : "ANKKA_DB_SSL_ROOT_CERT",
+            "value" : "/var/run/secrets/ankka/database-ca/ca.crt"
+          }, {
+            "name" : "ANKKA_DB_SSL_CERT",
+            "value" : "/var/run/secrets/ankka/database/tls.crt"
+          }, {
+            "name" : "ANKKA_DB_SSL_KEY",
+            "value" : "/var/run/secrets/ankka/database/tls.key"
+          } ],
+          "envFrom" : [ {
+            "secretRef" : {
+              "name" : "cart-db"
+            }
+          } ],
+          "image" : "ankka-sidecar:9.9.9",
+          "imagePullPolicy" : "IfNotPresent",
+          "lifecycle" : {
+            "preStop" : {
+              "sleep" : {
+                "seconds" : 5
+              }
+            }
+          },
+          "name" : "cart",
+          "ports" : [ {
+            "containerPort" : 9000,
+            "name" : "http",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7626,
+            "name" : "management",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 17355,
+            "name" : "remoting",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7627,
+            "name" : "probe",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7628,
+            "name" : "observe",
+            "protocol" : "TCP"
+          } ],
+          "readinessProbe" : {
+            "httpGet" : {
+              "path" : "/ready",
+              "port" : "probe"
+            },
+            "periodSeconds" : 5
+          },
+          "resources" : {
+            "limits" : {
+              "cpu" : "500m",
+              "memory" : "512Mi"
+            },
+            "requests" : {
+              "cpu" : "500m",
+              "memory" : "512Mi"
+            }
+          },
+          "terminationMessagePolicy" : "FallbackToLogsOnError",
+          "volumeMounts" : [ {
+            "mountPath" : "/var/run/secrets/ankka/cluster",
+            "name" : "ankka-cluster-tls",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/secrets/ankka/service",
+            "name" : "ankka-service-tls",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/secrets/ankka/database",
+            "name" : "ankka-database-tls",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/secrets/ankka/database-ca",
+            "name" : "ankka-database-ca",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/ankka/module",
+            "name" : "ankka-module",
+            "readOnly" : true
+          } ]
+        } ],
+        "imagePullSecrets" : [ {
+          "name" : "ankka-registry"
+        } ],
+        "initContainers" : [ {
+          "image" : "registry.example.test/shop/cart:1.4.2",
+          "imagePullPolicy" : "IfNotPresent",
+          "name" : "cart-module",
+          "resources" : {
+            "limits" : {
+              "memory" : "64Mi"
+            },
+            "requests" : {
+              "cpu" : "10m",
+              "memory" : "16Mi"
+            }
+          },
+          "volumeMounts" : [ {
+            "mountPath" : "/ankka/module",
+            "name" : "ankka-module"
+          } ]
+        }, {
+          "command" : [ "sh", "-c", "set -e\nexport PGHOST=\"$ANKKA_DB_HOST\" PGPORT=\"$ANKKA_DB_PORT\" PGUSER=\"$ANKKA_DB_USER\"\nexport PGDATABASE=\"$ANKKA_DB_NAME\"\n# By certificate (feature 014): verify the server against the project cluster's own authority,\n# and present the service's client certificate, whose common name is the role.\nexport PGSSLMODE=\"$ANKKA_DB_SSL_MODE\" PGSSLROOTCERT=\"$ANKKA_DB_SSL_ROOT_CERT\"\nexport PGSSLCERT=\"$ANKKA_DB_SSL_CERT\" PGSSLKEY=\"$ANKKA_DB_SSL_KEY\"\n\n# 1. Wait. The project's Cluster may still be starting, or the role may not have landed\n#    yet because CNPG's per-cluster secret RBAC allowlist has not caught up (research R5).\nuntil pg_isready -h \"$PGHOST\" -p \"$PGPORT\" -U \"$PGUSER\"; do sleep 1; done\nuntil psql -c 'select 1' >/dev/null 2>&1; do sleep 2; done\n\n# 2. Apply ankka's schema, then close the database — in ONE psql session, holding an\n#    advisory lock from before the first file. Every statement is IF NOT EXISTS, so running\n#    this on every start is safe and self-heals after a restore; but IF NOT EXISTS is not\n#    safe under concurrency, and since feature 004 several pods of one service start at\n#    once. The lock is session-scoped and the session ends with psql, so it cannot leak.\n#    The REVOKE is why: Postgres grants CONNECT to PUBLIC by default, so without it any\n#    other service's role in this project could connect here and enumerate its name, even\n#    though its tables stay private either way (feature 002, research R9).\npsql -v ON_ERROR_STOP=1 \\\n  -c \"SELECT pg_advisory_lock(627165225000);\" \\\n  $(for f in /schema/*.sql; do printf -- '-f %s ' \"$f\"; done) \\\n  -c \"REVOKE CONNECT ON DATABASE \\\"$PGDATABASE\\\" FROM PUBLIC;\"\n" ],
+          "env" : [ {
+            "name" : "ANKKA_DB_SSL_MODE",
+            "value" : "verify-full"
+          }, {
+            "name" : "ANKKA_DB_SSL_ROOT_CERT",
+            "value" : "/var/run/secrets/ankka/database-ca/ca.crt"
+          }, {
+            "name" : "ANKKA_DB_SSL_CERT",
+            "value" : "/var/run/secrets/ankka/database/tls.crt"
+          }, {
+            "name" : "ANKKA_DB_SSL_KEY",
+            "value" : "/var/run/secrets/ankka/database/tls.key"
+          } ],
+          "envFrom" : [ {
+            "secretRef" : {
+              "name" : "cart-db"
+            }
+          } ],
+          "image" : "postgres:17-alpine",
+          "name" : "ankka-schema",
+          "volumeMounts" : [ {
+            "mountPath" : "/schema",
+            "name" : "ankka-schema",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/secrets/ankka/database",
+            "name" : "ankka-database-tls",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/secrets/ankka/database-ca",
+            "name" : "ankka-database-ca",
+            "readOnly" : true
+          } ]
+        } ],
+        "securityContext" : {
+          "fsGroup" : 2000
+        },
+        "serviceAccountName" : "cart",
+        "volumes" : [ {
+          "configMap" : {
+            "name" : "ankka-schema"
+          },
+          "name" : "ankka-schema"
+        }, {
+          "name" : "ankka-cluster-tls",
+          "secret" : {
+            "secretName" : "cart-cluster-tls"
+          }
+        }, {
+          "name" : "ankka-service-tls",
+          "secret" : {
+            "secretName" : "cart-service-tls"
+          }
+        }, {
+          "name" : "ankka-database-tls",
+          "secret" : {
+            "defaultMode" : 288,
+            "secretName" : "cart-database-tls"
+          }
+        }, {
+          "name" : "ankka-database-ca",
+          "secret" : {
+            "items" : [ {
+              "key" : "ca.crt",
+              "path" : "ca.crt"
+            } ],
+            "secretName" : "ankka-db-ca"
+          }
+        }, {
+          "emptyDir" : {
+            "sizeLimit" : "64Mi"
+          },
+          "name" : "ankka-module"
+        } ]
+      }
+    }
+  }
+}
+---
+# EnsureService
+{
+  "apiVersion" : "v1",
+  "kind" : "Service",
+  "metadata" : {
+    "annotations" : {
+      "ankka.thinkmorestupidless.com/generation" : "3",
+      "example.test/owner" : "checkout-team"
+    },
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "ports" : [ {
+      "name" : "http",
+      "port" : 9000,
+      "protocol" : "TCP",
+      "targetPort" : 9000
+    } ],
+    "selector" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart"
+    },
+    "type" : "ClusterIP"
+  }
+}
+---
+# RemoveService
+ankka-shop
+cart-grpc-peers
+00000000-0000-0000-0000-000000000001
+---
+# EnsureHttpRoute
+{
+  "apiVersion" : "gateway.networking.k8s.io/v1",
+  "kind" : "HTTPRoute",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "hostnames" : [ "cart-shop.example.test" ],
+    "parentRefs" : [ {
+      "kind" : "Gateway",
+      "group" : "gateway.networking.k8s.io",
+      "name" : "ankka",
+      "namespace" : "ankka-gateway",
+      "sectionName" : "https"
+    } ],
+    "rules" : [ {
+      "backendRefs" : [ {
+        "name" : "cart",
+        "port" : 9000
+      } ]
+    } ]
+  }
+}
+---
+# EnsureBackendTlsPolicy
+{
+  "apiVersion" : "gateway.networking.k8s.io/v1",
+  "kind" : "BackendTLSPolicy",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "targetRefs" : [ {
+      "kind" : "Service",
+      "group" : "",
+      "name" : "cart",
+      "sectionName" : "http"
+    } ],
+    "validation" : {
+      "caCertificateRefs" : [ {
+        "kind" : "ConfigMap",
+        "group" : "",
+        "name" : "ankka-service-ca"
+      } ],
+      "hostname" : "cart.ankka-shop.svc.cluster.local"
+    }
+  }
+}

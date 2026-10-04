@@ -6,6 +6,29 @@ import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
 /**
+ * What the logs route reads through: a seam in front of the cluster, so an offline suite can see
+ * which container each hosting's logs are read from. `PodLogs` is the one real implementation.
+ */
+trait PodLogReader:
+
+  /** Pods belonging to one service, newest first so the current instance leads. */
+  def instances(projectId: String, service: String): Vector[String]
+
+  /**
+   * Recent output from one container of one instance. A pod with two containers — the sidecar
+   * beside a process, the proxy beside a web-hosted one — has to be asked which, or Kubernetes
+   * refuses; the endpoint chooses from the service's hosting.
+   */
+  def read(
+      projectId: String,
+      instance: String,
+      container: String,
+      tail: Option[Int],
+      sinceSeconds: Option[Int],
+      previous: Boolean
+  ): Either[String, String]
+
+/**
  * A deployed service's output, read from the pods running it.
  *
  * Nothing is stored. This reads what Kubernetes holds for a pod at the moment of asking and hands
@@ -13,9 +36,8 @@ import scala.util.Try
  * containers, and that is Kubernetes' behaviour reported rather than papered over. A log store is a
  * feature with a schema, a retention policy and a bill; this is not it.
  */
-final class PodLogs(client: KubernetesClient, namespacePrefix: String):
+final class PodLogs(client: KubernetesClient, namespacePrefix: String) extends PodLogReader:
 
-  /** Pods belonging to one service, newest first so the current instance leads. */
   def instances(projectId: String, service: String): Vector[String] =
     Try {
       client
@@ -40,15 +62,19 @@ final class PodLogs(client: KubernetesClient, namespacePrefix: String):
   def read(
       projectId: String,
       instance: String,
+      container: String,
       tail: Option[Int],
       sinceSeconds: Option[Int],
       previous: Boolean
   ): Either[String, String] =
     Try {
+      // The container is named first: a pod with two is refused otherwise, and naming the only one
+      // of a one-container pod changes nothing.
       val pod = client
         .pods()
         .inNamespace(namespaceFor(projectId))
         .withName(instance)
+        .inContainer(container)
 
       // Order matters: fabric8's DSL narrows the type after each of these, and only
       // sinceSeconds-then-tailingLines type-checks. Reversed, `tailingLines` returns something

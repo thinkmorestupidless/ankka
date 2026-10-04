@@ -104,6 +104,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/deploy/images.md` — Package a Scala, Python, TypeScript or Rust ankka service as a container image, tag it, and get it onto a cluster by pushing to a registry or loading it into a local kind node.
 - `references/deploy/deploy-a-service.md` — Write a service descriptor, apply it with the ankka CLI, and follow the service from UpdateInProgress to Ready, including environment variables, secrets, version declarations and Python services.
 - `references/deploy/expose.md` — Make a deployed service reachable from outside the cluster at its platform-derived HTTPS hostname, understand why the hostname has the shape it does, and remove the route again.
+- `references/deploy/web-hosting.md` — Deploy any program that serves HTTP as a web-hosted service beside your ankka services — mounts that put backends under the interface's address, calls made as the interface, who is admitted, and what a rollout means for a browser.
 - `references/deploy/scaling-and-rollouts.md` — Choose how many instances a service runs and how large each is, and understand how deploys, restarts and scaling change the running pods without refusing requests.
 - `references/deploy/ci.md` — Deploy a service from a GitHub workflow — create a deploy token, add three secrets, and use the ankka action to install and authenticate the CLI — plus the environment variables, exit codes and output formats any CI system needs.
 - `references/deploy/upgrading.md` — Move a service to a new ankka version by changing the library version and the descriptor's runtime declaration together, refreshing the local schema, and checking what a deployed instance actually runs.
@@ -121,6 +122,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 - `references/reference/cli.md` — Every `ankka` command and option, how the CLI resolves its settings and credentials, its output formats and its exit codes.
 - `references/reference/service-descriptor.md` — Every field of the JSON service descriptor that `ankka services apply` takes, with its type, default and validation rules, and the environment variables the platform reserves.
+- `references/reference/web-hosting.md` — Exactly what the platform's proxy gives a web-hosted service's process and asks of it — the environment, the headers on every request, the calling address, mounts, the proxy's own answers, readiness and stopping.
 - `references/reference/lifecycle-states.md` — What each of a deployed service's eight lifecycle states means, what usually causes it, what to do about it, and what an unconfirmed status is.
 - `references/reference/configuration.md` — Every environment variable and configuration key a running ankka service reads, their defaults, how configuration is layered, and which variables the platform sets for you.
 - `references/reference/runtime-endpoints.md` — The ports and HTTP endpoints every running ankka service exposes besides its own routes — readiness, version and metrics on a deployed instance, and the loopback observability endpoint a local one serves the console.

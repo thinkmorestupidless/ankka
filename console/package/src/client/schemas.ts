@@ -118,6 +118,13 @@ export const projectSummarySchema = z.object({
 });
 export type ProjectSummary = z.infer<typeof projectSummarySchema>;
 
+export const mountStatusSchema = z.object({
+  path: z.string(),
+  service: z.string(),
+  state: z.string().default(""),
+});
+export type MountStatus = z.infer<typeof mountStatusSchema>;
+
 export const serviceStatusSchema = z.object({
   name: z.string(),
   projectId: z.string(),
@@ -135,6 +142,9 @@ export const serviceStatusSchema = z.object({
   paused: z.boolean().default(false),
   hosting: z.string().default("embedded"),
   protocol: optional(z.string()),
+  mounts: z.array(mountStatusSchema).default([]),
+  callers: z.array(z.string()).default([]),
+  processPort: optional(z.number().int()),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
@@ -349,6 +359,7 @@ export const schemasByType: Record<string, z.ZodType> = {
   RegistrySummary: registrySummarySchema,
   ProjectDetail: projectDetailSchema,
   ProjectSummary: projectSummarySchema,
+  MountStatus: mountStatusSchema,
   ServiceStatus: serviceStatusSchema,
   HistoryActor: historyActorSchema,
   HistoryEntry: historyEntrySchema,

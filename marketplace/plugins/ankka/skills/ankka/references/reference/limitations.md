@@ -28,6 +28,29 @@ feature also says what that feature does not do.
   change made a moment ago. Checks that depend on a count — "the project has no services" before it is
   deleted — use the same projections, so they guard against the obvious mistake rather than every race.
 
+## Web-hosted services
+
+- **No upgraded connections.** The proxy speaks HTTP/1.1 and passes a request asking to upgrade its
+  connection on without the `Upgrade` and `Connection` headers, so WebSockets do not work. A stream of
+  server-sent events does.
+- **Web hosting keeps no image but the one its descriptor names.** A rollout replaces instances one at a
+  time, and no previous build's files are kept anywhere. An interface names its built files by their
+  content and serves its index page uncached; see [Deploy a user
+  interface](../deploy/web-hosting.md#what-a-browser-sees-during-a-rollout).
+- **A request may reach any instance of a web-hosted service.** There is no affinity between a browser
+  and an instance, so a session lives in a cookie or a service, never in the process's memory.
+- **No traces, metrics or topology for a web-hosted service.** The local console and `/ankka/metrics`
+  know only services built on ankka. Its logs are read with `ankka services logs`.
+- **A mounted service on an older runtime refuses.** A runtime that predates web hosting refuses a
+  request under a mount, so a mounted service must run a runtime that knows mounts.
+- **What a service no longer needs is kept until it is deleted.** A mount certificate stays after the last
+  mount is removed, and a service that changes hosting keeps what its old hosting had (a cluster
+  certificate, a cluster network policy, a peers role, a database), all owned by the service.
+- **A descriptor can name a sibling's database credential.** The rule against reading a Secret the platform
+  issues does not cover `<service>-db`, a database's credential, because a descriptor that supplies its own
+  database may keep a credential under such a name. The platform's own authenticates nothing once a
+  service connects to its database by certificate.
+
 ## Networking and security
 
 - **No restriction on where a workload connects to.** Network policies decide who may connect to a
@@ -98,9 +121,6 @@ feature also says what that feature does not do.
 - **`ankka services logs` is not a log store.** It reads what Kubernetes holds for each instance at the moment
   of asking: no search, no aggregation, no retention. A service that has restarted many times has lost all but
   its current and previous containers' output.
-- **`ankka services logs` cannot read a service with process hosting.** Its pods have two containers and the
-  command does not choose one, which Kubernetes refuses; read them with `kubectl logs -c` as
-  [Logs](../operate/logs.md) shows.
 - **Metrics are a window too.** The metrics endpoint reports counts over the current span window, not totals
   since start, and the platform ships no dashboards or alerts.
 

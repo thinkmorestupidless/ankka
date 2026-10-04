@@ -74,6 +74,14 @@ function Operation({ intent, label, operation, danger, entity }: { intent: strin
   );
 }
 
+/** Where the developer's code runs, in a sentence. */
+function runsAs(s: { hosting: string; protocol?: string; processPort?: number }): string {
+  if (s.hosting === "web") return `Your program beside the platform's proxy${s.processPort ? `, on port ${s.processPort}` : ""}`;
+  if (s.hosting === "process") return `A process beside the platform's sidecar${s.protocol ? `, protocol ${s.protocol}` : ""}`;
+  if (s.hosting === "wasm") return `A module loaded into the platform's runtime${s.protocol ? `, protocol ${s.protocol}` : ""}`;
+  return "Embedded in the platform's runtime";
+}
+
 export default function Service() {
   const data = useLoaderData<typeof loader>();
   const { project: p, organization: o, panels } = data;
@@ -109,9 +117,30 @@ export default function Service() {
         <dt>Address</dt>
         <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
         <dt>Database</dt>
-        <dd>{s.database ?? "Nothing reported yet"}</dd>
+        <dd>{s.hosting === "web" ? "None" : (s.database ?? "Nothing reported yet")}</dd>
         <dt>Runs as</dt>
-        <dd>{s.hosting === "process" ? `A process beside the platform's sidecar${s.protocol ? `, protocol ${s.protocol}` : ""}` : "Embedded in the platform's runtime"}</dd>
+        <dd>{runsAs(s)}</dd>
+        {s.hosting === "web" ? (
+          <>
+            <dt>Admits</dt>
+            <dd>{["The internet", ...s.callers.map((c) => (c === "*" ? `Every service in ${p.name}` : c))].join(", ")}</dd>
+            <dt>Mounts</dt>
+            <dd>
+              {s.mounts.length === 0 ? (
+                "None"
+              ) : (
+                <ul className="ac-mounts">
+                  {s.mounts.map((m) => (
+                    <li key={m.path} data-mount={m.path}>
+                      <code>{m.path}</code> → {m.service}
+                      {m.state && m.state !== "ok" ? ` (${m.state})` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </dd>
+          </>
+        ) : null}
         <dt>Stopped by</dt>
         <dd>{s.suspended ? "Its organization is disabled" : s.paused ? "Its members paused it" : "Nobody"}</dd>
         <dt>Report</dt>

@@ -138,3 +138,8 @@ replacements:
           name: ankka-controlplane
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_HTTPS_PORT].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value

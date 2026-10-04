@@ -1137,7 +1137,7 @@ Options and flags:
 ### `ankka services logs`
 
 ```text
-Usage: ankka services logs [--instance <string>] [--previous] [--tail <integer>] [--since <integer>] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+Usage: ankka services logs [--instance <string>] [--previous] [--tail <integer>] [--since <integer>] [--platform] [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
 
 Print a deployed service's recent output.
 
@@ -1152,6 +1152,8 @@ Options and flags:
         Only the last N lines.
     --since <integer>
         Only the last N seconds.
+    --platform
+        Read the platform's container instead of yours: the sidecar of a process-hosted service, or the proxy of a web-hosted one.
     --url <string>
         Control plane base URL. Defaults to the configured value.
     --token <string>
@@ -1352,7 +1354,7 @@ Options and flags:
     --help
         Display this help text.
     --language <string>, -l <string>
-        scala (the default), python, typescript or rust.
+        scala (the default), python, typescript or rust; or web, for a user interface.
     --template <string>
         Scala only: a Giter8 template, e.g. file:///path/to/ankka.g8.
     --package <string>
@@ -1364,7 +1366,9 @@ Options and flags:
 ### `ankka local`
 
 ```text
-Usage: ankka local console
+Usage:
+    ankka local web
+    ankka local console
 
 Tools for services running on this machine.
 
@@ -1373,8 +1377,28 @@ Options and flags:
         Display this help text.
 
 Subcommands:
+    web
+        Run a web-hosted service's process on this machine as the platform would in a cluster: its mounts answer at their paths, and it calls services by name.
     console
         Serve a console over the services running on this machine.
+```
+
+### `ankka local web`
+
+```text
+Usage: ankka local web [--file <string>] [--port <integer>] [--service <string>]... [<command>...]
+
+Run a web-hosted service's process on this machine as the platform would in a cluster: its mounts answer at their paths, and it calls services by name.
+
+Options and flags:
+    --help
+        Display this help text.
+    --file <string>, -f <string>
+        The service's descriptor (default service.json).
+    --port <integer>
+        Where to listen (default 3000).
+    --service <string>
+        Where a service is, as name=url, for one that is not running under the local console's eye. Repeatable.
 ```
 
 ### `ankka local console`

@@ -1,0 +1,640 @@
+# EnsureNamespace
+ankka-shop
+---
+# EnsureServiceAccount
+{
+  "apiVersion" : "v1",
+  "kind" : "ServiceAccount",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  }
+}
+---
+# EnsureRole
+{
+  "apiVersion" : "rbac.authorization.k8s.io/v1",
+  "kind" : "Role",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-peers",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "rules" : [ {
+    "apiGroups" : [ "" ],
+    "resources" : [ "pods" ],
+    "verbs" : [ "get", "list", "watch" ]
+  } ]
+}
+---
+# EnsureRoleBinding
+{
+  "apiVersion" : "rbac.authorization.k8s.io/v1",
+  "kind" : "RoleBinding",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-peers",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "roleRef" : {
+    "kind" : "Role",
+    "apiGroup" : "rbac.authorization.k8s.io",
+    "name" : "cart-peers"
+  },
+  "subjects" : [ {
+    "kind" : "ServiceAccount",
+    "name" : "cart",
+    "namespace" : "ankka-shop"
+  } ]
+}
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-cluster",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "dnsNames" : [ "cart.ankka-shop.svc" ],
+    "duration" : "24h",
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "ClusterIssuer",
+      "name" : "ankka-cluster"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "rotationPolicy" : "Always",
+      "size" : 2048
+    },
+    "renewBefore" : "16h",
+    "secretName" : "cart-cluster-tls",
+    "uris" : [ "ankka://shop/cart" ],
+    "usages" : [ "server auth", "client auth" ]
+  }
+}
+---
+# EnsureCertificate
+{
+  "apiVersion" : "cert-manager.io/v1",
+  "kind" : "Certificate",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-service",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "dnsNames" : [ "cart", "cart.ankka-shop.svc", "cart.ankka-shop.svc.cluster.local" ],
+    "duration" : "24h",
+    "issuerRef" : {
+      "group" : "cert-manager.io",
+      "kind" : "ClusterIssuer",
+      "name" : "ankka-service"
+    },
+    "privateKey" : {
+      "algorithm" : "RSA",
+      "encoding" : "PKCS8",
+      "rotationPolicy" : "Always",
+      "size" : 2048
+    },
+    "renewBefore" : "16h",
+    "secretName" : "cart-service-tls",
+    "uris" : [ "ankka://shop/cart" ],
+    "usages" : [ "server auth", "client auth" ]
+  }
+}
+---
+# EnsureNetworkPolicy
+{
+  "apiVersion" : "networking.k8s.io/v1",
+  "kind" : "NetworkPolicy",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-cluster",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "ingress" : [ {
+      "from" : [ {
+        "podSelector" : {
+          "matchLabels" : {
+            "ankka.thinkmorestupidless.com/project" : "shop",
+            "ankka.thinkmorestupidless.com/service" : "cart",
+            "app.kubernetes.io/managed-by" : "ankka",
+            "app.kubernetes.io/name" : "cart"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 17355,
+        "protocol" : "TCP"
+      }, {
+        "port" : 7626,
+        "protocol" : "TCP"
+      } ]
+    }, {
+      "ports" : [ {
+        "port" : 7627,
+        "protocol" : "TCP"
+      } ]
+    }, {
+      "from" : [ {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "ankka-controlplane"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/name" : "ankka-controlplane"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 7628,
+        "protocol" : "TCP"
+      } ]
+    } ],
+    "podSelector" : {
+      "matchLabels" : {
+        "ankka.thinkmorestupidless.com/project" : "shop",
+        "ankka.thinkmorestupidless.com/service" : "cart",
+        "app.kubernetes.io/managed-by" : "ankka",
+        "app.kubernetes.io/name" : "cart"
+      }
+    },
+    "policyTypes" : [ "Ingress" ]
+  }
+}
+---
+# EnsureNetworkPolicy
+{
+  "apiVersion" : "networking.k8s.io/v1",
+  "kind" : "NetworkPolicy",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart-http",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "ingress" : [ {
+      "from" : [ {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/managed-by" : "ankka"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/managed-by" : "ankka"
+          }
+        }
+      }, {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "envoy-gateway-system"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "gateway.envoyproxy.io/owning-gateway-name" : "ankka",
+            "gateway.envoyproxy.io/owning-gateway-namespace" : "ankka-gateway"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 9000,
+        "protocol" : "TCP"
+      } ]
+    } ],
+    "podSelector" : {
+      "matchLabels" : {
+        "ankka.thinkmorestupidless.com/project" : "shop",
+        "ankka.thinkmorestupidless.com/service" : "cart",
+        "app.kubernetes.io/managed-by" : "ankka",
+        "app.kubernetes.io/name" : "cart"
+      }
+    },
+    "policyTypes" : [ "Ingress" ]
+  }
+}
+---
+# RemoveNetworkPolicy
+ankka-shop
+cart-grpc
+00000000-0000-0000-0000-000000000001
+---
+# ApplyDeployment
+{
+  "apiVersion" : "apps/v1",
+  "kind" : "Deployment",
+  "metadata" : {
+    "annotations" : {
+      "ankka.thinkmorestupidless.com/generation" : "3",
+      "example.test/owner" : "checkout-team"
+    },
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "progressDeadlineSeconds" : 600,
+    "replicas" : 1,
+    "selector" : {
+      "matchLabels" : {
+        "ankka.thinkmorestupidless.com/project" : "shop",
+        "ankka.thinkmorestupidless.com/service" : "cart",
+        "app.kubernetes.io/managed-by" : "ankka",
+        "app.kubernetes.io/name" : "cart"
+      }
+    },
+    "strategy" : {
+      "rollingUpdate" : {
+        "maxSurge" : 1,
+        "maxUnavailable" : 0
+      },
+      "type" : "RollingUpdate"
+    },
+    "template" : {
+      "metadata" : {
+        "annotations" : {
+          "ankka.thinkmorestupidless.com/restarts" : "2",
+          "example.test/owner" : "checkout-team"
+        },
+        "labels" : {
+          "ankka.thinkmorestupidless.com/formation" : "bootstrap",
+          "ankka.thinkmorestupidless.com/project" : "shop",
+          "ankka.thinkmorestupidless.com/service" : "cart",
+          "ankka.thinkmorestupidless.com/transport" : "tls",
+          "app.kubernetes.io/managed-by" : "ankka",
+          "app.kubernetes.io/name" : "cart",
+          "team" : "checkout"
+        }
+      },
+      "spec" : {
+        "containers" : [ {
+          "env" : [ {
+            "name" : "GREETING",
+            "value" : "hello"
+          }, {
+            "name" : "ANTHROPIC_API_KEY",
+            "valueFrom" : {
+              "secretKeyRef" : {
+                "key" : "anthropic",
+                "name" : "models"
+              }
+            }
+          }, {
+            "name" : "ANKKA_DB_HOST",
+            "value" : "db.example.test"
+          }, {
+            "name" : "ANKKA_HTTP_PORT",
+            "value" : "9000"
+          }, {
+            "name" : "ANKKA_CLUSTER_MODE",
+            "value" : "kubernetes"
+          }, {
+            "name" : "POD_IP",
+            "valueFrom" : {
+              "fieldRef" : {
+                "fieldPath" : "status.podIP"
+              }
+            }
+          }, {
+            "name" : "ANKKA_CLUSTER_SERVICE",
+            "value" : "cart"
+          }, {
+            "name" : "ANKKA_CLUSTER_POD_SELECTOR",
+            "value" : "ankka.thinkmorestupidless.com/formation=bootstrap,ankka.thinkmorestupidless.com/project=shop,ankka.thinkmorestupidless.com/service=cart,ankka.thinkmorestupidless.com/transport=tls,app.kubernetes.io/managed-by=ankka,app.kubernetes.io/name=cart"
+          }, {
+            "name" : "ANKKA_CLUSTER_CONTACT_POINTS",
+            "value" : "1"
+          }, {
+            "name" : "ANKKA_NAMESPACE_PREFIX",
+            "value" : "ankka"
+          } ],
+          "image" : "registry.example.test/shop/cart:1.4.2",
+          "imagePullPolicy" : "IfNotPresent",
+          "lifecycle" : {
+            "preStop" : {
+              "sleep" : {
+                "seconds" : 5
+              }
+            }
+          },
+          "name" : "cart",
+          "ports" : [ {
+            "containerPort" : 9000,
+            "name" : "http",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7626,
+            "name" : "management",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 17355,
+            "name" : "remoting",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7627,
+            "name" : "probe",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7628,
+            "name" : "observe",
+            "protocol" : "TCP"
+          } ],
+          "readinessProbe" : {
+            "httpGet" : {
+              "path" : "/ready",
+              "port" : "probe"
+            },
+            "periodSeconds" : 5
+          },
+          "resources" : {
+            "limits" : {
+              "cpu" : "500m",
+              "memory" : "512Mi"
+            },
+            "requests" : {
+              "cpu" : "500m",
+              "memory" : "512Mi"
+            }
+          },
+          "volumeMounts" : [ {
+            "mountPath" : "/var/run/secrets/ankka/cluster",
+            "name" : "ankka-cluster-tls",
+            "readOnly" : true
+          }, {
+            "mountPath" : "/var/run/secrets/ankka/service",
+            "name" : "ankka-service-tls",
+            "readOnly" : true
+          } ]
+        } ],
+        "imagePullSecrets" : [ {
+          "name" : "ankka-registry"
+        } ],
+        "serviceAccountName" : "cart",
+        "volumes" : [ {
+          "name" : "ankka-cluster-tls",
+          "secret" : {
+            "secretName" : "cart-cluster-tls"
+          }
+        }, {
+          "name" : "ankka-service-tls",
+          "secret" : {
+            "secretName" : "cart-service-tls"
+          }
+        } ]
+      }
+    }
+  }
+}
+---
+# EnsureService
+{
+  "apiVersion" : "v1",
+  "kind" : "Service",
+  "metadata" : {
+    "annotations" : {
+      "ankka.thinkmorestupidless.com/generation" : "3",
+      "example.test/owner" : "checkout-team"
+    },
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "ports" : [ {
+      "name" : "http",
+      "port" : 9000,
+      "protocol" : "TCP",
+      "targetPort" : 9000
+    } ],
+    "selector" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart"
+    },
+    "type" : "ClusterIP"
+  }
+}
+---
+# RemoveService
+ankka-shop
+cart-grpc-peers
+00000000-0000-0000-0000-000000000001
+---
+# EnsureHttpRoute
+{
+  "apiVersion" : "gateway.networking.k8s.io/v1",
+  "kind" : "HTTPRoute",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "hostnames" : [ "cart-shop.example.test" ],
+    "parentRefs" : [ {
+      "kind" : "Gateway",
+      "group" : "gateway.networking.k8s.io",
+      "name" : "ankka",
+      "namespace" : "ankka-gateway",
+      "sectionName" : "https"
+    } ],
+    "rules" : [ {
+      "backendRefs" : [ {
+        "name" : "cart",
+        "port" : 9000
+      } ]
+    } ]
+  }
+}
+---
+# EnsureBackendTlsPolicy
+{
+  "apiVersion" : "gateway.networking.k8s.io/v1",
+  "kind" : "BackendTLSPolicy",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "team" : "checkout"
+    },
+    "name" : "cart",
+    "namespace" : "ankka-shop",
+    "ownerReferences" : [ {
+      "apiVersion" : "ankka.thinkmorestupidless.com/v1alpha1",
+      "kind" : "AnkkaService",
+      "blockOwnerDeletion" : true,
+      "controller" : true,
+      "name" : "cart",
+      "uid" : "00000000-0000-0000-0000-000000000001"
+    } ]
+  },
+  "spec" : {
+    "targetRefs" : [ {
+      "kind" : "Service",
+      "group" : "",
+      "name" : "cart",
+      "sectionName" : "http"
+    } ],
+    "validation" : {
+      "caCertificateRefs" : [ {
+        "kind" : "ConfigMap",
+        "group" : "",
+        "name" : "ankka-service-ca"
+      } ],
+      "hostname" : "cart.ankka-shop.svc.cluster.local"
+    }
+  }
+}

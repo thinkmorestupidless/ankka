@@ -1,6 +1,7 @@
 /**
- * A service's logs, with the CLI's four choices: one instance or all, the container before the last
- * restart, how many lines, how far back. With scripts running the page follows new lines as they are
+ * A service's logs, with the CLI's choices: one instance or all, the container before the last
+ * restart, how many lines, how far back, and — for a pod that holds two — the platform's container
+ * instead of the developer's. With scripts running the page follows new lines as they are
  * written, until the person pauses it; without, it shows what was there when the page was asked for.
  */
 import { useMemo, useState } from "react";
@@ -21,6 +22,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const query = {
     instance: q.get("instance") || undefined,
     previous: q.get("previous") === "true",
+    platform: q.get("platform") === "true",
     tail: q.get("tail") ? Number(q.get("tail")) : 200,
     since: q.get("since") ? Number(q.get("since")) : undefined,
   };
@@ -50,7 +52,9 @@ export default function Logs() {
   const params = new URLSearchParams();
   if (query.instance) params.set("instance", query.instance);
   if (query.previous) params.set("previous", "true");
+  if (query.platform) params.set("platform", "true");
   params.set("tail", String(query.tail));
+  const twoContainers = service.hosting === "process" || service.hosting === "web";
   const { byInstance, state } = useServiceStream(p.id, service.name, service, {
     follow: follow && !query.previous,
     query: params.toString(),
@@ -96,6 +100,14 @@ export default function Logs() {
             <input type="checkbox" name="previous" value="true" defaultChecked={query.previous} /> The container before the last restart
           </label>
         </div>
+        {twoContainers ? (
+          <div className="ac-field">
+            <label>
+              <input type="checkbox" name="platform" value="true" defaultChecked={query.platform} />{" "}
+              {service.hosting === "web" ? "The platform's proxy instead of your program" : "The platform's sidecar instead of your process"}
+            </label>
+          </div>
+        ) : null}
         <button type="submit" className="ac-button">
           Show
         </button>

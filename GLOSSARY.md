@@ -7,6 +7,7 @@ shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
 ## The platform
 
+
 ### service
 A set of components registered together and run as one.
 
@@ -139,6 +140,7 @@ What a developer's test starts a whole service with, on the developer's machine.
 
 ## People
 
+
 ### developer
 A person building a service, who runs it on their own machine.
 
@@ -164,6 +166,7 @@ Something that proves who its holder is and lets them reach what that identity m
 What the platform publishes for the people who build on it.
 
 ## Topology
+
 
 ### topology
 What a service says it is made of and how the parts are connected: its components,
@@ -273,6 +276,7 @@ Of a service: running in a project on the platform, not on a developer's machine
 
 ## gRPC
 
+
 ### gRPC
 A way of asking a service for something by calling a method of a service definition.
 A service serves gRPC when it has a gRPC endpoint that can be called; a descriptor declares gRPC
@@ -358,6 +362,7 @@ the service, whatever that endpoint's own ACL.
 
 ## Observability
 
+
 ### trace
 Everything the components of a service did for one request or one event, and how they were nested.
 
@@ -367,22 +372,150 @@ Something asked of a service from outside it, which an endpoint serves by one of
 ### root
 Of a trace: what the rest of the trace was done for, and is nested under.
 
+## Deploying
+
+
+### local platform
+A platform on a developer's own machine.
+
+### apply
+Of a descriptor: give it to the platform, which makes the service what the descriptor says.
+
+### image
+What a service is run from.
+
+### hosting
+How the platform runs a service's image: what the image has to be, and what the platform runs
+beside it.
+
+### environment
+The named values a descriptor gives a service's image when it runs.
+
+### variable
+One named value of an environment.
+
+### size
+How much of a machine each instance of a service is given, as a descriptor asks for it.
+
+### expose
+Make a deployed service reachable from the internet at its hostname. A service is private until
+it is exposed.
+
+### internet
+Everyone and everything outside the platform. A request from the internet reaches a service only
+through its hostname.
+
+### admit
+Of an ACL, or of a web-hosted service's descriptor: allow a call or a request from the one who
+made it.
+
+### secret
+A named value the platform keeps for a project, which a descriptor's variable can be taken from.
+
+### database
+Where the platform keeps what a service's entities, views and workflows know.
+
+### logs
+What a service's instances printed.
+
+### organization
+The group of members that a project belongs to.
+
+### quota
+How many projects, services and instances an organization may have.
+
+### pause
+Stop every instance of a deployed service and keep the service.
+
+### resume
+Start a paused service's instances again.
+
+### scale
+Change how many instances a deployed service has.
+
+### sample
+A service the platform publishes as an example, such as the shopping cart.
+
+## Web hosting
+
+
+### web hosting
+The hosting in which a service's image is any program that serves requests, run beside the
+platform's proxy. It is not the hosting of a service made of components, and it is not only for
+an interface: any program that serves requests can be run this way.
+
+### web-hosted service
+A service with web hosting. It has no components, no database and no cluster of its own; its
+instances are copies of one process. It is not any service that answers requests from the
+internet: a service made of components with an endpoint is not one.
+
+Avoid: web service, frontend, site, static site
+
+### proxy
+In a web-hosted service's instance, the platform's program beside the process. It accepts every
+request from outside the instance, refuses one from anyone the descriptor does not admit, says
+who sent it, and sends on the process's calls to other services. It hosts no components, which is
+why it is not called what the platform's program beside a service in another language is called.
+
+Avoid: sidecar
+
+### calling address
+The address, inside an instance of a web-hosted service, at which the process calls another
+service as the web-hosted service. Nothing outside the instance can use it.
+
+### mount
+A path of a web-hosted service together with the service of the same project that answers
+requests under it. As a verb: declare one. The proxy passes a request under a mount to the
+mounted service, which is told that it came from the internet. A mount does not expose the
+mounted service and gives it no hostname.
+
+Avoid: rewrite, proxy rule
+
+### port
+The number a program listens for requests on. A service has one; in a web-hosted service's
+instance the process has another, which only the proxy reaches.
+
+### path
+The part of a request that says what is asked for, after the address of the service: "/carts/c1".
+
+### interface
+What a person uses a set of services through, in a browser. It is deployed as a web-hosted
+service.
+
+Avoid: UI, frontend
+
+### template
+What the platform gives a developer to start a service from.
+
+### protocol version
+What a descriptor says of a service whose image is not made of the platform's own code: which
+version of the platform's way of talking to it the image was made for.
+
+### runtime version
+What a descriptor says of a service whose image is made with the platform's own code: which
+version of the platform it was made with.
+
+### browser
+What a person on the internet sends requests with and is shown the answers in.
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
 since, started, nothing, handle, handles, serve, serves, publish, publishes, source, outside, only,
-other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks,
-focus, focuses, focusing, what, else, make, makes, made, through, time, times, attributed, counted,
-count, counts, apart, together, added, wait, waits, waiting, stopped, longer, takes, finishes, run,
-runs, ran, any, different, many, once, ends, reaches, set, fires, last, passes, long, restarts,
-restarted, restart, however, opens, opened, exactly, named, name, names, running, machine, here,
-beyond, limit, most, all, then, given, person, exist, too, old, report, have, some, reader,
-published, about, describes, says, say, inside, starts, answers, answered, answer, can, called,
-declares, declared, quantity, part, is, are, does, did, how, where, who, gives, start, cannot,
-calls, calling, declare, parts, end, ended, served, sent, found, denies, allows, admits, states,
-upgraded, version, new, connects, yet, reported, hosted, applies, differ, sets, tells, variable,
-instead, minutes, second, within, stopping, stops, finish, goes, away, registered, produces,
-produced, fewer, records, lists, offer, both, two, one, each, after, before, under, more, than,
-must, may, itself, another, own, built, building, believed, establishes, established, decides,
-replaced, alone, test, sends, accepted, reached, reason, why, web, page, alike, arrives, ending,
-holds, told, unfinished, chooses, sending, opts, opted, into, tool, still
+other, none, with, without, ask, asks, asked, left, leave, leaves, out, until, marked, marks, focus,
+focuses, focusing, what, else, make, makes, made, through, time, times, attributed, counted, count,
+counts, apart, together, added, wait, waits, waiting, stopped, longer, takes, finishes, run, runs,
+ran, any, different, many, once, ends, reaches, set, fires, last, passes, long, restarts, restarted,
+restart, however, opens, opened, exactly, named, name, names, running, machine, here, beyond, limit,
+most, all, then, given, person, exist, too, old, report, have, some, reader, published, about,
+describes, says, say, inside, starts, answers, answered, answer, can, called, declares, declared,
+quantity, part, is, are, does, did, how, where, who, gives, start, cannot, calls, calling, declare,
+parts, end, ended, served, sent, found, denies, allows, admits, states, upgraded, version, new,
+connects, yet, reported, hosted, applies, differ, sets, tells, instead, minutes, second, within,
+stopping, stops, finish, goes, away, registered, produces, produced, fewer, records, lists, offer,
+both, two, one, each, after, before, under, more, than, must, may, itself, another, own, built,
+building, believed, establishes, established, decides, replaced, alone, test, sends, accepted,
+reached, reason, why, web, page, alike, arrives, ending, holds, told, unfinished, chooses, sending,
+opts, opted, into, tool, still, send, tell, which, keep, keeps, come, comes, came, listen, listens,
+listening, printed, allow, said, never, hold, tests, use, uses, used, give, gain, gains, change,
+changes, changed, take, taken

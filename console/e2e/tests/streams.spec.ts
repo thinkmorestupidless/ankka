@@ -26,6 +26,27 @@ test("US3-4a a service page and a listing follow the control plane's changes liv
   await expect(row).toContainText("Failed", { timeout: 5_000 });
 });
 
+test("the logs of a web-hosted service switch between its program and the platform's proxy", async ({ page, target, signIn, unique }) => {
+  test.skip(target.kind !== "fake", "the proxy's lines are seeded on the fake");
+  const org = unique("weblog-org");
+  const project = unique("weblog-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({ services: [{ projectId: project, name: "web", hosting: "web" }] });
+  target.controlPlane!.appendLog(project, "web", "the program says hello");
+
+  await signIn(page, "owner", `/projects/${project}/services/web/logs?tail=50`);
+  const log = page.locator('pre[data-instance="web-0"]');
+  await expect(log).toContainText("the program says hello");
+  await expect(log).not.toContainText("proxy of web started");
+
+  await page.getByLabel("The platform's proxy instead of your program").check();
+  await page.getByRole("button", { name: "Show" }).click();
+  // Wait for the page the form lands on before reading it.
+  await page.waitForURL(/platform=true/);
+  await expect(log).toContainText("proxy of web started");
+  await expect(log).not.toContainText("the program says hello");
+});
+
 test("US3-6 logs with the CLI's choices, followed live", async ({ page, target, signIn, unique, scriptsOff }) => {
   test.skip(target.kind !== "fake", "writing log lines needs the fake");
   const org = unique("log-org");

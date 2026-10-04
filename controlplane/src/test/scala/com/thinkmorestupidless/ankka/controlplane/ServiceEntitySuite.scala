@@ -120,6 +120,49 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(kit.currentState.toStatus.database, Some("provisioned"))
   }
 
+  test("a web-hosted service's status says web, no database, its callers, mounts and port") {
+    val kit = newKit
+    val web = ServiceDescriptor(
+      "cart",
+      ServiceSpec(
+        "shop-web:1.0",
+        hosting = ServiceSpec.Web,
+        processPort = Some(3000),
+        mounts = Vector(Mount("/api/orders", "orders"), Mount("/admin", "admin")),
+        callers = Vector("orders", "billing/invoices", "*")
+      )
+    )
+    val _      = kit.call(ServiceEntity.applyDescriptor)(ApplyService("acme", web))
+    val status = kit.currentState.toStatus
+    assertEquals(status.hosting, "web")
+    assertEquals(status.database, Some("none"))
+    assertEquals(status.processPort, Some(3000))
+    assertEquals(status.callers, Vector("orders", "billing/invoices", "*"))
+    // The states are empty here: filling them means asking another entity, which the endpoint does.
+    assertEquals(
+      status.mounts,
+      Vector(MountStatus("/api/orders", "orders"), MountStatus("/admin", "admin"))
+    )
+    // Nothing an operator reports gives it a database.
+    val _ = kit.call(ServiceEntity.observe)(
+      ServiceObservation(
+        1L,
+        ServiceLifecycle.Ready,
+        readyInstances = 1,
+        desiredInstances = 1,
+        database = Some("Provisioned")
+      )
+    )
+    assertEquals(kit.currentState.toStatus.database, Some("none"))
+    // An unstated process port is the platform's default; an embedded service has none of this.
+    val plain = newKit
+    val _     = plain.call(ServiceEntity.applyDescriptor)(applying())
+    assertEquals(plain.currentState.toStatus.processPort, None)
+    assertEquals(plain.currentState.toStatus.mounts, Vector.empty)
+    assertEquals(plain.currentState.toStatus.callers, Vector.empty)
+    assertEquals(plain.currentState.toStatus.database, None)
+  }
+
   test("an observation of a superseded generation is dropped") {
     val kit = newKit
     val _   = kit.call(ServiceEntity.applyDescriptor)(applying())

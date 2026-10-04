@@ -382,6 +382,61 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       assert(certificate.contains("name: ankka-service"), certificate)
   }
 
+  // ── Web hosting (feature 021) ─────────────────────────────────────────────
+
+  test("the operator is told which proxy image to run, from the registry, in its own container") {
+    val remoteOperator = operatorDeployment(remote, "cloud")
+    assert(
+      remoteOperator.contains("ghcr.io/thinkmorestupidless/ankka-proxy:"),
+      "the remote operator does not name the registry's proxy image"
+    )
+    // Set once, and the local default gone: a patch naming a container the operator does not have
+    // would add a second container carrying only this variable.
+    assertEquals("ANKKA_PROXY_IMAGE".r.findAllIn(remoteOperator).size, 1)
+    assert(!remoteOperator.contains("ankka-proxy:latest"), "the local proxy image survived")
+    val parsed = io.fabric8.kubernetes.client.utils.Serialization
+      .unmarshal(remoteOperator, classOf[io.fabric8.kubernetes.api.model.apps.Deployment])
+    assertEquals(
+      parsed.getSpec.getTemplate.getSpec.getContainers.size,
+      1,
+      "the operator's Deployment has more than one container"
+    )
+    assert(operatorDeployment(local, "local").contains("ankka-proxy:latest"))
+  }
+
+  private def operatorDeployment(render: String, name: String): String =
+    documentsOfKind(render, "Deployment")
+      .find(_.contains("name: ankka-operator"))
+      .getOrElse(fail(s"$name: no operator Deployment"))
+
+  private def environmentValue(deployment: String, variable: String): String =
+    s"""- name: $variable\\s+value: "?([^"\\s]+)"?""".r
+      .findFirstMatchIn(deployment)
+      .map(_.group(1))
+      .getOrElse(fail(s"$variable is not set"))
+
+  test("the operator is told the HTTPS port the gateway is reached on, as the control plane is") {
+    // A web-hosted service's proxy tells the process the address a browser used, port included,
+    // and the operator derives it; Envoy forwards the scheme and not the port. One value, from
+    // ankka-platform, replaced into both Deployments, so the two cannot disagree.
+    for (name, render, expected) <- Vector(("local", local, "8443"), ("cloud", remote, "443")) do
+      val operator = operatorDeployment(render, name)
+      assertEquals(environmentValue(operator, "ANKKA_HTTPS_PORT"), expected, name)
+      assertEquals(
+        environmentValue(operator, "ANKKA_HTTPS_PORT"),
+        platformValue(render, "httpsPort"),
+        name
+      )
+      val controlPlane = documentsOfKind(render, "Deployment")
+        .find(_.contains("name: ankka-controlplane"))
+        .getOrElse(fail(s"$name: no control plane"))
+      assertEquals(
+        environmentValue(controlPlane, "ANKKA_HTTPS_PORT"),
+        environmentValue(operator, "ANKKA_HTTPS_PORT"),
+        s"$name: the operator and the control plane disagree about the HTTPS port"
+      )
+  }
+
   // ── The console (feature 017) ─────────────────────────────────────────────
 
   private def platformValue(render: String, key: String): String =

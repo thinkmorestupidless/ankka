@@ -51,7 +51,7 @@ class GrpcTlsSpike extends munit.FunSuite:
       val caller = Option(call.getAttributes.get(Grpc.TRANSPORT_ATTR_SSL_SESSION))
         .flatMap(session => Try(session.getPeerCertificates.head).toOption)
         .collect { case c: X509Certificate => c }
-        .map(c => Caller.fromCertificate(c).fold(identity, Caller.encode))
+        .map(c => Caller.fromCertificate(c, None).fold(identity, Caller.encode))
         .getOrElse("none")
       Contexts.interceptCall(Context.current.withValue(PeerCaller, caller), call, headers, next)
 

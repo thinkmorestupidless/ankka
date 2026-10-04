@@ -130,8 +130,26 @@ final case class AutonomousAgentDefinition private[autonomous] (
     guardrails: Vector[Guardrail],
     model: Option[ModelProvider],
     capabilities: Vector[Capability],
-    settings: AutonomousAgentSettings
+    settings: AutonomousAgentSettings,
+    mcpServers: Vector[com.thinkmorestupidless.ankka.agent.mcp.McpServer] = Vector.empty,
+    resultGuardrails: Vector[Guardrail] = Vector.empty
 ):
+
+  /**
+   * MCP servers whose tools this agent offers its model beside its own. Connected when the service
+   * starts; one that cannot be reached fails it.
+   */
+  def mcpServers(
+      servers: com.thinkmorestupidless.ankka.agent.mcp.McpServer*
+  ): AutonomousAgentDefinition =
+    copy(mcpServers = mcpServers ++ servers)
+
+  /**
+   * Checks on what an MCP server answers, run before the model is told it. A refused result is
+   * withheld, and the model told why, as the tool's error.
+   */
+  def resultGuardrails(more: Guardrail*): AutonomousAgentDefinition =
+    copy(resultGuardrails = resultGuardrails ++ more)
 
   /** What the agent is for. Required; shown to the model on every iteration. */
   def describedAs(text: String): AutonomousAgentDefinition = copy(description = text)
@@ -197,6 +215,11 @@ object AutonomousAgentDefinition:
     d.guardrails.groupBy(_.name).foreach { (name, gs) =>
       if gs.sizeIs > 1 then builder += s"guardrail '$name' is declared ${gs.size} times"
     }
+    d.resultGuardrails.groupBy(_.name).foreach { (name, gs) =>
+      if gs.sizeIs > 1 then builder += s"result guardrail '$name' is declared ${gs.size} times"
+    }
+    builder ++= com.thinkmorestupidless.ankka.agent.mcp.McpServer
+      .problems(d.mcpServers, Vector.empty)
     builder ++= AutonomousAgentSettings.problems(d.settings)
     builder.result()
 
@@ -204,6 +227,8 @@ object AutonomousAgentDefinition:
   private[ankka] def toolProblems(tools: Seq[FunctionTool]): Vector[String] =
     val reserved = Set(AutonomousAgent.CompleteTask, AutonomousAgent.FailTask)
     tools.map(_.name).filter(reserved).distinct.map(n => s"tool name '$n' is reserved").toVector ++
+      com.thinkmorestupidless.ankka.agent.mcp.McpServer
+        .problems(Vector.empty, tools.map(_.name).toVector) ++
       tools.groupBy(_.name).collect {
         case (n, ts) if ts.sizeIs > 1 => s"tool '$n' is declared ${ts.size} times"
       }

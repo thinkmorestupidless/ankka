@@ -147,6 +147,9 @@ lazy val commonSettings = Seq(
     // Throwaway spikes that answer a design question against a real database (feature 013's
     // research "verify at implementation" list). Off by default: they measure, they do not assert.
     "ankka.spikes",
+    // A real MCP server for McpServerSpike (feature 029): the one check of the platform's MCP
+    // client that was not written beside it.
+    "ankka.mcp.spike.url",
     // The conformance suite's target (feature 009): a process speaking the sidecar protocol.
     "ankka.conformance.target",
     // The guest shape a module target is run in (feature 016): `stateless` or `stateful`. Without

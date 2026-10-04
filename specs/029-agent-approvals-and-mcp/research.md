@@ -598,3 +598,9 @@ skills' `pages:` lists.
   (`ANKKA_MODEL_SCRIPT` is read by the sidecar), so the k3s case needs an agent added to a sample
   image and a way to script its model. Held for the user's decision; SC-003 is met under mutual
   TLS by `ServiceClientSuite` and the plumbing by `AgentServiceCallSuite` until then.
+- **V4 (T049)**: the client ran against the reference server
+  `@modelcontextprotocol/server-everything` over streamable HTTP (2026-10-04, Node 24): `initialize`,
+  `tools/list` (13 tools) and `tools/call` of `echo` all succeeded, answer `Echo: hello from ankka`.
+  The server's tool names include hyphens (`get-tiny-image`), which the provider's name rule
+  allows. The official Java SDK's dependencies were not re-examined; the client stays our own for
+  the service transport regardless (R13, R15).

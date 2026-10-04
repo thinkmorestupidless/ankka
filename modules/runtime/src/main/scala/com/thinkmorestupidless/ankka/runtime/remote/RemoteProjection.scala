@@ -10,10 +10,13 @@ import com.thinkmorestupidless.ankka.runtime.{
   MessagePublisher,
   Observability,
   ProjectionSupport,
+  Span,
+  SpanKind,
   SpanOutcome,
   StateRecord,
   SqlFragment,
   Trace,
+  TraceContext,
   ViewGuard,
   ViewStore
 }
@@ -46,6 +49,25 @@ import scala.util.control.NonFatal
  * as metadata under `ce-subject` and `ankka.sequence`.
  */
 private[ankka] object RemoteProjection:
+
+  /** A span for a change: continuing the trace a topic's message carried, else a new trace's. */
+  private[remote] def begin(
+      observability: Observability,
+      componentRef: Int,
+      handlerRef: Int,
+      parent: Option[TraceContext]
+  ): Span =
+    parent match
+      case Some(p) =>
+        observability.recorder.begin(
+          p.traceIdHigh,
+          p.traceId,
+          p.spanId,
+          componentRef,
+          handlerRef,
+          SpanKind.Consumer
+        )
+      case None => observability.recorder.beginRoot(componentRef, handlerRef)
 
   /** Discovery carries no parallelism; a remote projection gets the SDK's default. */
   val Parallelism: Int = 4
@@ -95,13 +117,12 @@ private[ankka] final class RemoteView(
       subject: String,
       sequence: Long,
       change: Option[Payload],
-      row: Option[Array[Byte]]
+      row: Option[Array[Byte]],
+      parent: Option[TraceContext] = None
   ): Future[ViewOutcome] =
-    // A projection has no inbound request, so this span is a trace root — as for a Scala view.
-    val span = observability.recorder.beginRoot(
-      componentRef = componentRef,
-      handlerRef = handlerRef
-    )
+    // A change from a journal is a trace's root, as for a Scala view; a message from a topic
+    // continues the trace it carries.
+    val span = RemoteProjection.begin(observability, componentRef, handlerRef, parent)
     conversation
       .handleView(
         ViewRequest(
@@ -208,7 +229,7 @@ private[ankka] final class RemoteViewTopicHandler(
         )
         view.loadRow(database, subject).flatMap { row =>
           view
-            .decide(subject, 0L, Some(payload), row)
+            .decide(subject, 0L, Some(payload), row, ProjectionSupport.carried(message))
             .flatMap(view.apply(database, subject, _, Some(guard.write)))
         }
 
@@ -228,11 +249,14 @@ private[ankka] final class RemoteConsumer(
    * Hands a change — or the source's deletion, `change` absent — to the process and publishes
    * whatever it produces.
    */
-  def handle(subject: String, sequence: Long, change: Option[Payload]): Future[Done] =
-    val span = observability.recorder.beginRoot(
-      componentRef = componentRef,
-      handlerRef = handlerRef
-    )
+  def handle(
+      subject: String,
+      sequence: Long,
+      change: Option[Payload],
+      parent: Option[TraceContext] = None
+  ): Future[Done] =
+    val span    = RemoteProjection.begin(observability, componentRef, handlerRef, parent)
+    val context = Some(span.context)
     conversation
       .handleConsumer(
         ConsumerRequest(
@@ -273,9 +297,12 @@ private[ankka] final class RemoteConsumer(
                 messages.map(m =>
                   ProjectionSupport.Encoded(
                     m.payload.data,
-                    m.metadata
-                      .set(PayloadKeys.Manifest, m.payload.manifest)
-                      .set(PayloadKeys.ContentType, m.payload.contentType),
+                    ProjectionSupport.stamped(
+                      m.metadata
+                        .set(PayloadKeys.Manifest, m.payload.manifest)
+                        .set(PayloadKeys.ContentType, m.payload.contentType),
+                      context
+                    ),
                     m.key
                   )
                 )
@@ -297,7 +324,7 @@ private[ankka] final class RemoteConsumer(
                 (if metadata.subject.isDefined then metadata else metadata.withSubject(subject))
                   .set(PayloadKeys.Manifest, payload.manifest)
                   .set(PayloadKeys.ContentType, payload.contentType)
-              target.publish(topic, payload.data, enriched)
+              target.publish(topic, payload.data, ProjectionSupport.stamped(enriched, context))
             case _ =>
               // Startup validation rules this out; silently dropping would hide a slip.
               Future.failed(
@@ -345,4 +372,9 @@ private[ankka] final class RemoteConsumerTopicHandler(consumer: RemoteConsumer):
       message.metadata.get(PayloadKeys.Manifest).getOrElse(""),
       message.payload
     )
-    consumer.handle(message.subject.getOrElse(""), 0L, Some(payload))
+    consumer.handle(
+      message.subject.getOrElse(""),
+      0L,
+      Some(payload),
+      ProjectionSupport.carried(message)
+    )

@@ -12,4 +12,4 @@ addSbtPlugin("com.eed3si9n" % "sbt-buildinfo" % "0.13.2")
 // `protocol` project. 0.11.x is the line that supports Scala 3; the sbt plugin's compiler plugin is
 // a 2.12 artifact because sbt itself is.
 addSbtPlugin("com.thesamet" % "sbt-protoc" % "1.0.6")
-libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.11"
+libraryDependencies += "com.thesamet.scalapb" %% "compilerplugin" % "0.11.20"

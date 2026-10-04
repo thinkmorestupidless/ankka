@@ -1,1 +1,1 @@
-{"type":"ServiceSpec","json":{"image":"cart:1","runtime":"0.7.0"}}
+{"type":"ServiceSpec","json":{"image":"cart:1","runtime":"0.7.0","grpc":true}}

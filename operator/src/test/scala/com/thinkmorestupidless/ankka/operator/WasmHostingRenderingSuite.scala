@@ -212,6 +212,49 @@ class WasmHostingRenderingSuite extends munit.FunSuite:
     assert(problem.message.contains("ABI version 2"), problem.message)
   }
 
+  /** A container running again after it last exited, ready or not, saying `said` as it exited. */
+  private def runningAfterExit(ready: Boolean, said: String) =
+    val status = new ContainerStatusBuilder()
+      .withName("cart")
+      .withReady(ready)
+      .withState(
+        new ContainerStateBuilder()
+          .withRunning(new io.fabric8.kubernetes.api.model.ContainerStateRunningBuilder().build())
+          .build()
+      )
+      .withLastState(
+        new ContainerStateBuilder()
+          .withTerminated(
+            new ContainerStateTerminatedBuilder()
+              .withExitCode(1)
+              .withReason("Error")
+              .withMessage(said)
+              .build()
+          )
+          .build()
+      )
+      .build()
+    new PodBuilder()
+      .withMetadata(new ObjectMetaBuilder().withName("cart-0").build())
+      .withStatus(new PodStatusBuilder().withContainerStatuses(status).build())
+      .build()
+
+  test("booting again after refusing to start, a runtime still names why it last exited") {
+    val problem = PodProblem.of(
+      runningAfterExit(ready = false, "the service declares gRPC and registers no gRPC endpoint")
+    )
+    assertEquals(problem.map(_.reason), Some("Error"))
+    assert(problem.exists(_.message.contains("registers no gRPC endpoint")), problem.toString)
+  }
+
+  test("a ready container is no problem, whatever it said when it last exited") {
+    assertEquals(PodProblem.of(runningAfterExit(ready = true, "an old refusal")), None)
+  }
+
+  test("a container that last exited saying nothing leaves the kubelet's own words to explain it") {
+    assertEquals(PodProblem.of(runningAfterExit(ready = false, "")), None)
+  }
+
   test("a module image that cannot be pulled is the pod's problem") {
     val status = new ContainerStatusBuilder()
       .withName("cart-module")

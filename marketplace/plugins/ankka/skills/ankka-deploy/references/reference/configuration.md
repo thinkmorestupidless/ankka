@@ -51,6 +51,8 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_DB_SSL_KEY` | `pekko.persistence.r2dbc.connection-factory.ssl.key` | `""` | every service |
 | `ANKKA_HTTP_INTERFACE` | `ankka.http.interface` | `"0.0.0.0"` | every service |
 | `ANKKA_HTTP_PORT` | `ankka.http.port` | `9000` | every service |
+| `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
+| `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_CLUSTER_SEED_NODES` | `ankka.cluster.seed-nodes` | `""` | local mode |
 | `ANKKA_CLUSTER_PORT` | `pekko.remote.artery.canonical.port` | `0` | local mode |
 | `POD_IP` | `pekko.remote.artery.canonical.hostname` | required, set by the platform | kubernetes mode |
@@ -78,6 +80,11 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.observability.observe.peer` | `"ankka://platform/controlplane"` | every service |
 | `ankka.observability.max-external-services` | `32` | every service |
 | `ankka.http.body-timeout` | `10s` | every service |
+| `ankka.grpc.max-message-size` | `4MiB` | a service that serves gRPC |
+| `ankka.grpc.max-connection-age` | `2m` | a service that serves gRPC |
+| `ankka.grpc.shutdown-grace` | `5s` | a service that serves gRPC |
+| `ankka.grpc.keepalive-time` | `30s` | a service that serves gRPC |
+| `ankka.grpc.keepalive-timeout` | `10s` | a service that serves gRPC |
 | `ankka.cluster.formation` | `join-self-or-seeds` | local mode |
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
 | `ankka.cluster.formation` | `bootstrap` | kubernetes mode |
@@ -95,6 +102,15 @@ Settings with no environment variable, overridable in the service's own `applica
 - `ANKKA_HTTP_PORT` is the port the HTTP server binds, `9000` by default. On the platform it is set from
   the descriptor's `port`, and a descriptor may not set it directly. Set it locally to run a second
   service beside the first.
+
+### gRPC
+
+These apply to a service that registers a `GrpcServer`; see [gRPC endpoints](../build/grpc-endpoints.md).
+
+- `ANKKA_GRPC_INTERFACE` is the address the gRPC server binds, `0.0.0.0` by default.
+- `ANKKA_GRPC_PORT` is the port the gRPC server binds, `9090` by default. On the platform it is set
+  from the descriptor's `grpcPort` when the descriptor says `"grpc": true`, and a descriptor may not set
+  it directly. A service started with it set and no `GrpcServer` registered refuses to start, saying why.
 
 ### Database
 
@@ -216,6 +232,18 @@ These are overridden in the service's `application.conf` or with a system proper
   answer a command.
 - `ankka.http.body-timeout` is how long the HTTP server waits for a request body to arrive in full, `10s`
   by default.
+- `ankka.grpc.max-message-size` is the largest request a gRPC call may send, `4MiB` by default. A larger
+  one is refused `RESOURCE_EXHAUSTED` before any handler runs.
+- `ankka.grpc.max-connection-age` is how long a caller's connection to the gRPC server lasts before it is
+  asked to reconnect, `2m` by default; it is what brings an instance added to a service into the rotation
+  of callers already connected.
+- `ankka.grpc.shutdown-grace` is how long calls in progress, streams included, are given to finish when a
+  connection reaches its age or the service stops, `5s` by default. What is left then ends `UNAVAILABLE`.
+- `ankka.grpc.keepalive-time` and `ankka.grpc.keepalive-timeout` are how often an idle gRPC connection is
+  asked whether its caller is still there, `30s`, and how long the answer is waited for, `10s`. A caller
+  that went away without saying so is found within the two, and its calls are cancelled.
+- `ankka.local-grpc-services."<name>"`, set to `host:port`, is where a service on this machine calls the
+  gRPC endpoint of the service called `<name>`, before looking for it among the services running here.
 - `ankka.observability.ring-capacity` is how many spans each instance keeps in memory for the local
   console and the metrics endpoint, `4096` by default. The oldest are overwritten; nothing is persisted.
 - `ankka.observability.call-window` is how far back a service's topology counts the calls between its

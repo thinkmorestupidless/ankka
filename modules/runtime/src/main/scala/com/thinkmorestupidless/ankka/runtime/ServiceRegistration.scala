@@ -45,9 +45,25 @@ object ServiceRegistration:
    * `ServiceClients` outside a cluster (feature 014).
    */
   def httpAddressOf(name: String): Option[String] =
+    inventoryOf(name).flatMap(field("http"))
+
+  /**
+   * Where a service announced as `name` serves gRPC on this machine, the same way: `None` both for
+   * a service that is not running and for one that serves no gRPC, which `isAnnounced` tells apart.
+   */
+  def grpcAddressOf(name: String): Option[String] =
+    inventoryOf(name).flatMap(field("grpc"))
+
+  /** Whether a service announced as `name` is running on this machine and answers. */
+  def isAnnounced(name: String): Boolean = inventoryOf(name).isDefined
+
+  private def field(protocol: String)(inventory: String): Option[String] =
+    s"\"$protocol\":\\{\"address\":\"([^\"]*)\"".r.findFirstMatchIn(inventory).map(_.group(1))
+
+  /** What the first running service announced as `name` says about itself, asked of it now. */
+  private def inventoryOf(name: String): Option[String] =
     val NameField    = "\"name\":\"([^\"]*)\"".r
     val AddressField = "\"observabilityAddress\":\"([^\"]*)\"".r
-    val HttpAddress  = "\"http\":\\{\"address\":\"([^\"]*)\"".r
     val entries =
       try
         Option(directory.toFile.listFiles()).toVector.flatten
@@ -58,21 +74,18 @@ object ServiceRegistration:
       .filter(json => NameField.findFirstMatchIn(json).exists(_.group(1) == name))
       .flatMap(json => AddressField.findFirstMatchIn(json).map(_.group(1)))
       .flatMap { observability =>
-        scala.util
-          .Try {
-            val response = java.net.http.HttpClient
-              .newHttpClient()
-              .send(
-                java.net.http.HttpRequest
-                  .newBuilder(java.net.URI(s"$observability/observability/service"))
-                  .timeout(java.time.Duration.ofSeconds(2))
-                  .build(),
-                java.net.http.HttpResponse.BodyHandlers.ofString()
-              )
-            HttpAddress.findFirstMatchIn(response.body).map(_.group(1))
-          }
-          .toOption
-          .flatten
+        scala.util.Try {
+          java.net.http.HttpClient
+            .newHttpClient()
+            .send(
+              java.net.http.HttpRequest
+                .newBuilder(java.net.URI(s"$observability/observability/service"))
+                .timeout(java.time.Duration.ofSeconds(2))
+                .build(),
+              java.net.http.HttpResponse.BodyHandlers.ofString()
+            )
+            .body
+        }.toOption
       }
       .nextOption()
 

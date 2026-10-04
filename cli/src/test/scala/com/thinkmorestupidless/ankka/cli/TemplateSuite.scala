@@ -161,3 +161,123 @@ class TemplateSuite extends munit.FunSuite:
       Right(Some(mcp.McpInstall.ProjectLaunch.entry))
     )
   }
+
+  /**
+   * Adding a gRPC endpoint to a new service needs only what the documentation page states. The
+   * build changes are taken from the page's own code blocks, not retyped here, so a page that stops
+   * saying enough fails this case; the endpoint, its definition and its test follow the page's
+   * shapes. Last, because the cases before it describe the expansion as `ankka init` left it.
+   */
+  test("9. a gRPC endpoint added as the documentation says builds and passes its test") {
+    val page    = Files.readString(repoRoot.resolve("docs/build/grpc-endpoints.md"))
+    val section = page.substring(page.indexOf("### Generating the code"))
+    val blocks  = section.split("```scala\n").drop(1).map(_.takeWhile(_ != '`')).take(2)
+    val Array(plugins, build) = blocks: @unchecked
+    assert(plugins.contains("sbt-protoc"), plugins)
+    val apiProject = build.substring(0, build.indexOf("lazy val service"))
+    assert(apiProject.startsWith("lazy val api"), apiProject)
+
+    Files.writeString(
+      expansion.resolve("project/plugins.sbt"),
+      "\n" + plugins,
+      java.nio.file.StandardOpenOption.APPEND
+    )
+    val buildFile = expansion.resolve("build.sbt")
+    val buildText = Files.readString(buildFile)
+    val root      = "lazy val root = project\n  .in(file(\".\"))"
+    val httpDep   = "\"com.thinkmorestupidless\" %% \"ankka-http\"    % ankkaVersion,"
+    assert(buildText.contains(root) && buildText.contains(httpDep), buildText)
+    Files.writeString(
+      buildFile,
+      buildText
+        .replace(root, root + "\n  .dependsOn(api)")
+        .replace(
+          httpDep,
+          httpDep + "\n      \"com.thinkmorestupidless\" %% \"ankka-grpc\" % ankkaVersion,"
+        ) + "\n" + apiProject
+    )
+
+    val main = files.find(_.endsWith("Main.scala")).getOrElse(fail("no Main.scala"))
+    val pkg = Files
+      .readString(main)
+      .linesIterator
+      .collectFirst { case s"package $p" => p.trim }
+      .getOrElse(fail("Main.scala declares no package"))
+    val proto =
+      expansion.resolve(s"api/src/main/protobuf/${pkg.replace('.', '/')}/v1/greeter.proto")
+    Files.createDirectories(proto.getParent)
+    Files.writeString(
+      proto,
+      s"""syntax = "proto3";
+         |package $pkg.v1;
+         |service Greeter { rpc Greet (GreetRequest) returns (GreetReply); }
+         |message GreetRequest { string name = 1; }
+         |message GreetReply   { string text = 1; }
+         |""".stripMargin
+    )
+    Files.writeString(
+      main.getParent.resolve("api/GreeterEndpoint.scala"),
+      s"""package $pkg.api
+         |
+         |import $pkg.v1.greeter.{GreeterGrpc, GreetReply}
+         |import com.thinkmorestupidless.ankka.grpc.GrpcEndpoint
+         |import com.thinkmorestupidless.ankka.http.{Acl, Callers}
+         |
+         |final class GreeterEndpoint extends GrpcEndpoint(GreeterGrpc.SERVICE):
+         |  val acl: Acl = Acl.allowCallers(Callers.anyInProject, Callers.internet)
+         |  unary(GreeterGrpc.METHOD_GREET) { request => GreetReply(s"hello, $${request.name}") }
+         |""".stripMargin
+    )
+    val mainText     = Files.readString(main)
+    val httpRegister = ".withExtension(HttpServer.of("
+    assert(mainText.contains(httpRegister), mainText)
+    Files.writeString(
+      main,
+      mainText
+        .replace(
+          "import com.thinkmorestupidless.ankka.http.HttpServer",
+          "import com.thinkmorestupidless.ankka.grpc.GrpcServer\n" +
+            "import com.thinkmorestupidless.ankka.http.HttpServer\n" +
+            s"import $pkg.api.GreeterEndpoint"
+        )
+        .replace(
+          httpRegister,
+          ".withExtension(GrpcServer.of(_ => GreeterEndpoint()))\n    " + httpRegister
+        )
+    )
+    val tests = files.find(_.endsWith("ItemHttpSuite.scala")).getOrElse(fail("no ItemHttpSuite"))
+    Files.writeString(
+      tests.getParent.resolve("GreeterGrpcSuite.scala"),
+      s"""package $pkg
+         |
+         |import $pkg.api.GreeterEndpoint
+         |import $pkg.application.ItemEntity
+         |import $pkg.v1.greeter.{GreeterGrpc, GreetRequest}
+         |import com.thinkmorestupidless.ankka.grpc.{GrpcChannels, GrpcServer}
+         |import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
+         |import io.grpc.ManagedChannel
+         |
+         |import java.util.concurrent.TimeUnit
+         |import scala.concurrent.duration.DurationInt
+         |
+         |class GreeterGrpcSuite extends munit.FunSuite:
+         |  override val munitTimeout = 3.minutes
+         |  private val grpc = GrpcServer.at("127.0.0.1", 0)(_ => GreeterEndpoint())
+         |  private var testKit: AnkkaTestKit   = null
+         |  private var channel: ManagedChannel = null
+         |
+         |  override def beforeAll(): Unit =
+         |    testKit = AnkkaTestKit.start(Seq(ItemEntity.descriptor), Seq(grpc))
+         |    channel = GrpcChannels.plaintext(grpc.boundPort.getOrElse(fail("the gRPC server did not bind")))
+         |
+         |  override def afterAll(): Unit =
+         |    if channel != null then channel.shutdownNow().awaitTermination(5, TimeUnit.SECONDS): Unit
+         |    if testKit != null then testKit.stop()
+         |
+         |  test("a greeting names who asked") {
+         |    assertEquals(GreeterGrpc.blockingStub(channel).greet(GreetRequest("ankka")).text, "hello, ankka")
+         |  }
+         |""".stripMargin
+    )
+    assertEquals(sbt("test"), 0)
+  }

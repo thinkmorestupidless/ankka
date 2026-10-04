@@ -17,6 +17,7 @@ will recognise every component. The differences below are deliberate, and each h
 | A bespoke SQL-like view query language | real SQL over a JSON row column | Nothing to learn or parse, strictly more expressive, and indexes are explicit. |
 | Route order decides dispatch | literal segments outrank parameters | `/users/me` works whether it is declared before or after `/users/{id}`. |
 | An ACL by absent annotation | an abstract `acl` every endpoint must define | An unstated ACL is a decision nobody made. |
+| A gRPC endpoint as an annotated class implementing the generated service, asynchronously | a `GrpcEndpoint` declaring a blocking handler per method against the generated descriptors | The same handler shape as every other ankka handler, and every method checked at startup. |
 | `BACKOFFICE` among the callers an ACL can name | no equivalent | There is no backoffice proxy to be the caller. |
 | `budget_tokens` and `temperature` | `effort` and adaptive thinking | Current Claude models reject both. |
 | `apply -f service.yaml` | `apply -f service.json` | The descriptor has the same shape; JSON avoids a YAML parser in the CLI. |

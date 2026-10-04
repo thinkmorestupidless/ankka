@@ -85,6 +85,14 @@ final case class ServiceIdentityMismatch(service: String, detail: String)
     extends RuntimeException(s"the service reached as $service is not it: $detail")
 
 /**
+ * The service exists and serves no gRPC: in a cluster, its address publishes no `grpc` port; on
+ * this machine, it is running and announced no gRPC address. Usually a descriptor without
+ * `"grpc": true`, or a service that registered no gRPC server.
+ */
+final case class ServiceServesNoGrpc(service: String)
+    extends RuntimeException(s"$service serves no gRPC")
+
+/**
  * How a service obtains clients for the others: `services("orders")`,
  * `services("billing", "invoices")`.
  */

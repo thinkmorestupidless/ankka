@@ -226,19 +226,26 @@ object HttpServiceClients:
    * The port a Kubernetes Service publishes under the name `http`, from its SRV record. Cached for
    * a minute: a Service's port changes only when its descriptor does.
    */
-  def srvPort(host: String): Option[Int] =
+  def srvPort(host: String): Option[Int] = srvPort(host, "http")
+
+  /**
+   * The port a Kubernetes Service publishes under `portName` — `http` or `grpc` — from its SRV
+   * record, which Kubernetes publishes for every named port.
+   */
+  def srvPort(host: String, portName: String): Option[Int] =
     val now = System.nanoTime()
-    Option(ports.get(host)).filter((_, at) => now - at < 60_000_000_000L).map(_._1).orElse {
+    val key = s"$portName/$host"
+    Option(ports.get(key)).filter((_, at) => now - at < 60_000_000_000L).map(_._1).orElse {
       try
         val context = new InitialDirContext(
           java.util.Hashtable(
             Map("java.naming.factory.initial" -> "com.sun.jndi.dns.DnsContextFactory").asJava
           )
         )
-        val records = context.getAttributes(s"_http._tcp.$host", Array("SRV")).get("SRV")
+        val records = context.getAttributes(s"_$portName._tcp.$host", Array("SRV")).get("SRV")
         val port =
           Option(records).flatMap(r => Option(r.get(0))).map(_.toString.trim.split("\\s+")(2).toInt)
-        port.foreach(p => ports.put(host, (p, now)))
+        port.foreach(p => ports.put(key, (p, now)))
         port
       catch case NonFatal(_) => None
     }

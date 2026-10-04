@@ -528,6 +528,12 @@ val testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server)
 val baseUrl = s"http://127.0.0.1:${server.boundPort.get}"
 ```
 
+### gRPC in an integration test
+
+A gRPC server is served the same way, on a free loopback port, and called through the stub generated from
+the `.proto` file over `GrpcChannels.plaintext`. `GrpcChannels.plaintext(port, caller)` makes every call as
+a named caller, for an ACL that names callers. See [gRPC endpoints](grpc-endpoints.md#test-it).
+
 ### Timers and projections in an integration test
 
 Register the extension the component needs, as the service itself would: `TimerRuntime` for timed

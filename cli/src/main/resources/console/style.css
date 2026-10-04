@@ -185,6 +185,9 @@ code { font-family: var(--mono); font-size: 12px; }
 .route:hover { border-color: var(--dim); }
 .route[aria-pressed="true"] { border-color: var(--accent); background: var(--line); }
 .route .m { font-weight: 600; margin-right: 6px; }
+/* A gRPC method: listed, never a button. */
+.route.grpc { cursor: default; opacity: 0.7; }
+.route.grpc:hover { border-color: var(--line); }
 
 .field { margin: 10px 0; }
 .field label {

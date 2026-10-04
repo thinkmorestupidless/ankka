@@ -91,6 +91,7 @@ extra:
         - agent
         - autonomous-agent
         - http-endpoint
+        - grpc-endpoint
     # The curated SKILL.md files, and where the rendered skills are written, committed and checked.
     # Giter8 reads `$` as template syntax, so the template's copy escapes it.
     skills:
@@ -107,6 +108,7 @@ extra:
         files:
           - { path: modules/runtime/src/main/resources/reference.conf, scope: every service }
           - { path: modules/http/src/main/resources/reference.conf, scope: every service }
+          - { path: modules/grpc/src/main/resources/reference.conf, scope: a service that serves gRPC }
           - { path: modules/runtime/src/main/resources/ankka-cluster-local.conf, scope: local mode }
           - { path: modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf, scope: kubernetes mode }
         prefix: ankka.
@@ -171,6 +173,7 @@ nav:
       - Multi-agent orchestration: build/multi-agent-orchestration.md
       - Autonomous agents: build/autonomous-agents.md
       - HTTP endpoints: build/http-endpoints.md
+      - gRPC endpoints: build/grpc-endpoints.md
       - Calling components: build/component-client.md
       - Broker topics: build/topics.md
       - Publish a graph: build/graph.md

@@ -21,12 +21,15 @@ val serviceNameChecked: String = {
   serviceName
 }
 
+// For the whole build, so a subproject added beside the service — the generated code of a gRPC
+// service definition, say — is built with the same Scala version.
+ThisBuild / scalaVersion := "3.9.0"
+
 lazy val root = project
   .in(file("."))
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(
     name         := serviceNameChecked,
-    scalaVersion := "3.9.0",
     scalacOptions ++= Seq("-deprecation", "-feature", "-Wunused:all"),
     libraryDependencies ++= Seq(
       "com.thinkmorestupidless" %% "ankka-sdk"     % ankkaVersion,

@@ -1,7 +1,15 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
-import com.thinkmorestupidless.ankka.http.HttpServer
+import com.thinkmorestupidless.ankka.grpc.{GrpcClients, GrpcServer}
+import com.thinkmorestupidless.ankka.http.{Acl, Callers, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
-import shoppingcart.api.{CallersEndpoint, QuestionsEndpoint, ShoppingCartEndpoint}
+import shoppingcart.api.{
+  CallersEndpoint,
+  CartGrpcEndpoint,
+  CartStreamsEndpoint,
+  GrpcCallersEndpoint,
+  QuestionsEndpoint,
+  ShoppingCartEndpoint
+}
 import shoppingcart.application.*
 
 /**
@@ -54,10 +62,47 @@ import shoppingcart.application.*
         .register(CartContentsGraph.descriptor)
     }
 
+  /**
+   * The gRPC API, on its own port beside HTTP (9090 unless `ANKKA_GRPC_PORT` says otherwise).
+   *
+   * `CART_GRPC=off` leaves it out. That is not something a real service wants; it is how the
+   * platform's own tests deploy a service whose descriptor declares gRPC and that serves none, to
+   * see the platform report it.
+   */
+  val withGrpc =
+    if sys.env.get("CART_GRPC").contains("off") then withNotices
+    else
+      // docs:start grpc-registration
+      val server = GrpcServer.of(
+        clients => CartGrpcEndpoint(clients),
+        clients => CartStreamsEndpoint(clients)
+      )
+      // docs:end grpc-registration
+      // docs:start reflection
+      // A tool such as grpcurl may ask what the cart serves: from this machine, and through the
+      // gateway when the cart is exposed. CART_REFLECTION=off leaves it out.
+      val reflecting =
+        if sys.env.get("CART_REFLECTION").contains("off") then server
+        else server.withReflection(Acl.allowCallers(Callers.internet))
+      // docs:end reflection
+      // A deployment that sets CART_REFLECTION_CALLER admits that one service to reflection, and
+      // nobody else: how the platform's own tests see reflection answered at the gRPC address, judged
+      // by the calling service's certificate.
+      val admittingCaller = sys.env.get("CART_REFLECTION_CALLER").filter(_.nonEmpty) match
+        case Some(only) if !sys.env.get("CART_REFLECTION").contains("off") =>
+          server.withReflection(Acl.allowCallers(Callers.service(only)))
+        case _ => reflecting
+      withNotices.withExtension(admittingCaller)
+
+  // Channels to other services' gRPC endpoints, created once and handed to what calls them.
+  // docs:start grpc-clients
+  val grpcClients = GrpcClients()
+  // docs:end grpc-clients
+
   val service = sys.env
     .get("ANTHROPIC_API_KEY")
-    .fold(withNotices) { key =>
-      withNotices
+    .fold(withGrpc) { key =>
+      withGrpc
         .register(CartAssistant.descriptor)
         .register(CartAnswerer.descriptor)
         .registerAll(AgentRuntime.descriptors)
@@ -67,9 +112,11 @@ import shoppingcart.application.*
       HttpServer.of(
         clients => ShoppingCartEndpoint(clients.componentClient),
         clients => CallersEndpoint(clients.services),
-        clients => QuestionsEndpoint(clients.componentClient)
+        clients => QuestionsEndpoint(clients.componentClient),
+        _ => GrpcCallersEndpoint(grpcClients)
       )
     )
+    .withExtension(grpcClients)
     .start()
   // docs:end registration
 

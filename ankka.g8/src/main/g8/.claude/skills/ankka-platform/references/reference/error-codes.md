@@ -10,16 +10,16 @@ knowing the rule that was broken.
 
 ## The codes
 
-| Scala `ErrorCode` | Python `ErrorCode` | HTTP status | Use it when | Retryable |
-|---|---|---|---|---|
-| `BadRequest` | `BAD_REQUEST` | `400` | The request is invalid whatever the state: a quantity of zero, a missing field. The default. | no |
-| `Unauthorized` | `UNAUTHORIZED` | `401` | The caller is not authenticated. | no |
-| `Forbidden` | `FORBIDDEN` | `403` | The caller is authenticated and not allowed. | no |
-| `NotFound` | `NOT_FOUND` | `404` | The thing the request is about does not exist. | no |
-| `Conflict` | `CONFLICT` | `409` | The request is valid but conflicts with the current state: a cart already checked out. | no |
-| `Timeout` | `TIMEOUT` | `504` | The call did not complete in time. The runtime uses it for a call that exceeded its deadline. | yes |
-| `Unavailable` | `UNAVAILABLE` | `503` | The target cannot serve right now. The runtime uses it when a component is briefly unreachable, for example while a process-hosted service restarts. | yes |
-| `Internal` | `INTERNAL` | `500` | Something is wrong that the caller cannot fix. | no |
+| Scala `ErrorCode` | Python `ErrorCode` | HTTP status | gRPC status | Use it when | Retryable |
+|---|---|---|---|---|---|
+| `BadRequest` | `BAD_REQUEST` | `400` | `INVALID_ARGUMENT` | The request is invalid whatever the state: a quantity of zero, a missing field. The default. | no |
+| `Unauthorized` | `UNAUTHORIZED` | `401` | `UNAUTHENTICATED` | The caller is not authenticated. | no |
+| `Forbidden` | `FORBIDDEN` | `403` | `PERMISSION_DENIED` | The caller is authenticated and not allowed. | no |
+| `NotFound` | `NOT_FOUND` | `404` | `NOT_FOUND` | The thing the request is about does not exist. | no |
+| `Conflict` | `CONFLICT` | `409` | `FAILED_PRECONDITION` | The request is valid but conflicts with the current state: a cart already checked out. | no |
+| `Timeout` | `TIMEOUT` | `504` | `DEADLINE_EXCEEDED` | The call did not complete in time. The runtime uses it for a call that exceeded its deadline. | yes |
+| `Unavailable` | `UNAVAILABLE` | `503` | `UNAVAILABLE` | The target cannot serve right now. The runtime uses it when a component is briefly unreachable, for example while a process-hosted service restarts. | yes |
+| `Internal` | `INTERNAL` | `500` | `INTERNAL` | Something is wrong that the caller cannot fix. | no |
 
 A retryable code means a caller could reasonably send the same request again unchanged. In Scala,
 `ErrorCode.retryable` answers that.
@@ -94,6 +94,7 @@ a handler that threw, a payload that could not be decoded, a process that did no
 | Produced by | an error effect | an exception, a crash, a timeout |
 | Persists | nothing | nothing |
 | Reaches an HTTP caller as | the code's status and the handler's message | `500` with `internal error`, or `400` for an argument that could not be read |
+| Reaches a gRPC caller as | the code's gRPC status and the handler's message | `INTERNAL` with `internal error`, or `INVALID_ARGUMENT` for a request that could not be read |
 | Shown on a trace as | a refusal | a fault |
 
 Consumers and timed actions differ: a timed action's failure is retried with backoff, and a consumer

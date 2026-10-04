@@ -474,6 +474,74 @@ class RenderingSuite extends munit.FunSuite:
     assertEquals(backend.getNamespace, null)
   }
 
+  // --- gRPC on the one hostname (feature 020)
+
+  private def rulesOf(route: io.fabric8.kubernetes.api.model.gatewayapi.v1.HTTPRoute) =
+    route.getSpec.getRules.asScala.toList.map { rule =>
+      val headers = Option(rule.getMatches).toList
+        .flatMap(_.asScala)
+        .flatMap(m =>
+          Option(m.getHeaders).toList
+            .flatMap(_.asScala)
+            .map(h => (h.getName, h.getType, h.getValue))
+        )
+      val timeout = Option(rule.getTimeouts).map(_.getRequest)
+      val ports   = rule.getBackendRefs.asScala.toList.map(b => (b.getName, b.getPort.intValue))
+      (headers, timeout, ports)
+    }
+
+  test(
+    "an exposed service with both ports routes gRPC by content type first, then everything else"
+  ) {
+    val Action.EnsureHttpRoute(route) =
+      routeActionFor(
+        spec.copy(exposed = true, port = Some(9000), grpcPort = Some(9090))
+      ): @unchecked
+    assertEquals(
+      rulesOf(route),
+      List(
+        (
+          List(("content-type", "RegularExpression", "application/grpc(\\+.+)?")),
+          Some("0s"),
+          List("cart" -> 9090)
+        ),
+        (Nil, None, List("cart" -> 9000))
+      )
+    )
+  }
+
+  test("the HTTP rule beside a gRPC one is exactly the rule a service without gRPC renders") {
+    val Action.EnsureHttpRoute(both) =
+      routeActionFor(
+        spec.copy(exposed = true, port = Some(9000), grpcPort = Some(9090))
+      ): @unchecked
+    val Action.EnsureHttpRoute(httpOnly) =
+      routeActionFor(spec.copy(exposed = true, port = Some(9000))): @unchecked
+    assertEquals(both.getSpec.getRules.get(1), httpOnly.getSpec.getRules.get(0))
+    assertEquals(httpOnly.getSpec.getRules.size, 1)
+  }
+
+  test("an exposed service with gRPC and no HTTP routes only gRPC") {
+    val Action.EnsureHttpRoute(route) =
+      routeActionFor(spec.copy(exposed = true, port = None, grpcPort = Some(9090))): @unchecked
+    assertEquals(rulesOf(route).map(_._3), List(List("cart" -> 9090)))
+  }
+
+  test("the gRPC match admits gRPC's content types whole, and not gRPC-Web's") {
+    // Envoy matches a header's regular expression against the whole value.
+    val pattern = Rendering.GrpcContentType.r
+    Seq("application/grpc", "application/grpc+proto", "application/grpc+json").foreach(v =>
+      assert(pattern.matches(v), v)
+    )
+    Seq(
+      "application/grpc-web",
+      "application/grpc-web+proto",
+      "application/json",
+      "text/application/grpc"
+    )
+      .foreach(v => assert(!pattern.matches(v), v))
+  }
+
   test("the route follows the port, and is deterministic") {
     val Action.EnsureHttpRoute(a) =
       routeActionFor(spec.copy(exposed = true, port = Some(8080))): @unchecked

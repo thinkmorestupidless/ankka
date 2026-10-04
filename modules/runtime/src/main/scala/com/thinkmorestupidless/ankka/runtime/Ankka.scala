@@ -4,14 +4,16 @@ import com.typesafe.config.Config
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import org.apache.pekko.Done
+import org.apache.pekko.actor.CoordinatedShutdown
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 import org.apache.pekko.cluster.MemberStatus
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity}
 import org.apache.pekko.cluster.typed.Cluster
 
-import scala.concurrent.Future
-import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.concurrent.duration.{Duration, DurationInt, FiniteDuration}
+import scala.concurrent.{Await, Future}
 
 /**
  * Something that runs alongside the hosted components and needs the service to exist before it can
@@ -60,6 +62,13 @@ trait RuntimeExtension:
    * same ACL as any other caller. There is deliberately no privileged path from here to a handler.
    */
   def routes: Vector[ServedRoute] = Vector.empty
+
+  /**
+   * Where this extension serves gRPC, once it has bound — `127.0.0.1:9090` — for a service on this
+   * machine that calls it. Separate from `boundAddress`, which every reader takes for an HTTP
+   * address: a gRPC address offered as one would be an invoke panel that cannot work.
+   */
+  def grpcAddress: Option[String] = None
 
 /** Entry point for defining and starting an ankka service. */
 object Ankka:
@@ -126,6 +135,9 @@ final class ServiceBuilder private[ankka] (
       name: String = "ankka",
       config: Config = ClusterConfig.load()
   ): AnkkaService =
+    // Before the actor system exists, so a service that cannot serve what it was deployed to
+    // serve exits rather than idling with non-daemon threads holding the process open.
+    DeclaredGrpc.check(sys.env.get, extensions.map(_.name))
     // Idempotent for a config the loader produced; for one a caller assembled itself, this is
     // what supplies the overlay it does not have.
     val system = ActorSystem(Behaviors.empty, name, ClusterConfig.layered(config))
@@ -133,6 +145,7 @@ final class ServiceBuilder private[ankka] (
 
   /** Hosts every registered component on an existing actor system. */
   def startWith(system: ActorSystem[?]): AnkkaService =
+    DeclaredGrpc.check(sys.env.get, extensions.map(_.name))
     host(system, ownsSystem = false)
 
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =
@@ -221,6 +234,7 @@ final class ServiceBuilder private[ankka] (
     // Extensions need a cluster member to bind to and a client to call through, so they
     // start only once the node is genuinely up.
     service.awaitReady()
+    service.registerShutdown()
     extensions.foreach { extension =>
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)
@@ -377,6 +391,9 @@ final class AnkkaService private[ankka] (
    */
   def boundAddresses: Vector[String] = extensions.flatMap(_.boundAddress)
 
+  /** Where this service serves gRPC, for a service on this machine that calls it. */
+  def grpcAddresses: Vector[String] = extensions.flatMap(_.grpcAddress)
+
   /** Every route this service's extensions serve, for the console's invoke panel. */
   def routes: Vector[ServedRoute] = extensions.flatMap(_.routes)
 
@@ -402,21 +419,64 @@ final class AnkkaService private[ankka] (
    */
   private[ankka] def observabilityAddress: Option[String] = observability.map(_.address)
 
+  /**
+   * Stops every extension, once, however many paths ask. A lazy val, so the first to ask starts the
+   * stop and every other waits on the same one.
+   *
+   * Two paths do ask. `terminate` does, and so does Pekko's coordinated shutdown
+   * (`registerShutdown`): on SIGTERM the JVM runs every shutdown hook at once, so a service's own
+   * hook calling `terminate` races Pekko's, which ends with the actor system — and its stream
+   * materializer — terminated. A gRPC stream still inside the server's shutdown grace was then
+   * aborted and its caller told `INTERNAL`, instead of being given the grace and then told
+   * `UNAVAILABLE`. Coordinated shutdown waiting on this stop before it terminates the actor system
+   * is what makes "extensions first, then the actor system" hold whichever hook runs first.
+   */
+  private lazy val extensionsStopped: Future[Done] =
+    Future {
+      // First, so the console stops listing a service that is on its way out — and so the registry
+      // entry is withdrawn even if an extension then fails to stop.
+      try observability.foreach(_.stop())
+      catch
+        case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
+      try observe.foreach(_.stop())
+      catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
+      observability = None
+
+      extensions.reverse.foreach { extension =>
+        try extension.stop()
+        catch
+          case failure: Throwable =>
+            system.log.warn(s"extension '${extension.name}' failed to stop", failure)
+      }
+      Done
+    }(AnkkaExecutors.virtual)
+
+  /**
+   * Has coordinated shutdown start stopping the extensions in its first phase, and wait for them in
+   * its last, so the actor system is not terminated under them. Called once, when the service is
+   * started.
+   *
+   * Started, not awaited, in the first phase: the phases between are the node leaving the cluster
+   * and handing its shards off, and those must not wait for the extensions. Holding them back until
+   * every server and client had stopped delayed the handoff, and requests for the departing node's
+   * entities waited past a caller's timeout during a rolling restart — `ExposureClusterSuite`'s
+   * rolling restart under load failed that way, every run, and passed without it.
+   */
+  private[runtime] def registerShutdown(): Unit =
+    val shutdown = CoordinatedShutdown(system)
+    shutdown.addTask(
+      CoordinatedShutdown.PhaseBeforeServiceUnbind,
+      "ankka-start-stopping-extensions"
+    ) { () =>
+      extensionsStopped: Unit
+      Future.successful(Done)
+    }
+    shutdown.addTask(
+      CoordinatedShutdown.PhaseBeforeActorSystemTerminate,
+      "ankka-await-extensions-stopped"
+    )(() => extensionsStopped)
+
   /** Stops every extension, then terminates the actor system if this service created it. */
   def terminate(): Unit =
-    // First, so the console stops listing a service that is on its way out — and so the registry
-    // entry is withdrawn even if an extension then fails to stop.
-    try observability.foreach(_.stop())
-    catch
-      case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
-    try observe.foreach(_.stop())
-    catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
-    observability = None
-
-    extensions.reverse.foreach { extension =>
-      try extension.stop()
-      catch
-        case failure: Throwable =>
-          system.log.warn(s"extension '${extension.name}' failed to stop", failure)
-    }
+    Await.ready(extensionsStopped, Duration.Inf): Unit
     if ownsSystem then system.terminate()

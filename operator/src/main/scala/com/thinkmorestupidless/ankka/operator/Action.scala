@@ -59,6 +59,14 @@ enum Action:
   case RemoveService(namespace: String, name: String, ownerUid: String)
 
   /**
+   * A service's headless gRPC address. Unlike `EnsureService`, applied only when no object of its
+   * name exists or this resource owns the one that does: its name is derived and could be another
+   * service's own address, which the operator must never take over. Removed with `RemoveService`,
+   * which is owner-checked already.
+   */
+  case EnsureGrpcPeers(service: Service, ownerUid: String)
+
+  /**
    * An exposed service's route (feature 005): one HTTPRoute in the service's namespace, attached to
    * the installation's Gateway. Server-side apply, idempotent. Rendered only for a service that is
    * exposed, declares a port, and on an operator that knows the base domain.
@@ -151,6 +159,8 @@ enum Action:
     case EnsureService(svc) =>
       s"ensure service ${svc.getMetadata.getNamespace}/${svc.getMetadata.getName}"
     case RemoveService(ns, name, _) => s"remove service $ns/$name if owned"
+    case EnsureGrpcPeers(svc, _) =>
+      s"ensure service ${svc.getMetadata.getNamespace}/${svc.getMetadata.getName} if unowned or owned"
     case EnsureHttpRoute(r) =>
       s"ensure httproute ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case RemoveHttpRoute(ns, name, _) => s"remove httproute $ns/$name if owned"

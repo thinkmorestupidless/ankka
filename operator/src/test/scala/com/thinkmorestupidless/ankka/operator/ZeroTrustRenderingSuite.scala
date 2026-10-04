@@ -184,6 +184,52 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
     )
   }
 
+  test(
+    "the gRPC port admits the same two peers on its own port, and the HTTP policy is unchanged"
+  ) {
+    val withGrpc = actions(spec.copy(grpcPort = Some(9090)))
+    def named(all: Vector[Action], name: String) = all.collectFirst {
+      case Action.EnsureNetworkPolicy(p) if p.getMetadata.getName == name => p
+    }
+    val grpc = named(withGrpc, "cart-grpc").getOrElse(fail("no grpc policy"))
+    val http = named(withGrpc, "cart-http").getOrElse(fail("no http policy"))
+    val rule = grpc.getSpec.getIngress.asScala.toList match
+      case List(only) => only
+      case other      => fail(s"expected one rule, got $other")
+    assertEquals(rule.getPorts.asScala.map(_.getPort.getIntVal.intValue).toList, List(9090))
+    assertEquals(rule.getFrom, http.getSpec.getIngress.get(0).getFrom)
+    assertEquals(http, named(actions(spec), "cart-http").getOrElse(fail("no http policy")))
+  }
+
+  test("an exposed service's backend TLS policy targets each port it has") {
+    def sections(s: AnkkaServiceSpec) = actions(s)
+      .collectFirst { case Action.EnsureBackendTlsPolicy(p) => p }
+      .getOrElse(fail("no backend TLS policy"))
+      .getSpec
+      .getTargetRefs
+      .asScala
+      .map(_.getSectionName)
+      .toList
+    assertEquals(sections(spec.copy(exposed = true)), List("http"))
+    assertEquals(sections(spec.copy(exposed = true, grpcPort = Some(9090))), List("http", "grpc"))
+    assertEquals(
+      sections(spec.copy(exposed = true, port = None, grpcPort = Some(9090))),
+      List("grpc")
+    )
+  }
+
+  test("without gRPC the grpc policy is removed if owned, and never ensured") {
+    val without = actions(spec)
+    assert(without.exists {
+      case Action.RemoveNetworkPolicy(_, "cart-grpc", _) => true
+      case _                                             => false
+    })
+    assert(!without.exists {
+      case Action.EnsureNetworkPolicy(p) => p.getMetadata.getName == "cart-grpc"
+      case _                             => false
+    })
+  }
+
   test("an exposed service gets a backend TLS policy whose hostname its certificate carries") {
     val exposed = spec.copy(exposed = true)
     val policy = actions(exposed)

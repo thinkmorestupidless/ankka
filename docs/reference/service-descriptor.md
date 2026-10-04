@@ -48,6 +48,12 @@ it. It is private until `ankka services expose cart`.
 }
 ```
 
+A Scala service that serves gRPC beside HTTP declares it, on the default gRPC port:
+
+```json title="service.json"
+{ "name": "cart", "service": { "image": "registry.example.com/acme/cart:1.5.0", "grpc": true } }
+```
+
 A service written in Python declares process hosting and the sidecar protocol its SDK speaks:
 
 ```json title="service.json"
@@ -88,6 +94,8 @@ settings, so one descriptor can be applied to several projects.
 | `annotations` | object of strings | `{}` | Extra annotations on the service's Kubernetes objects. |
 | `http` | boolean | `true` | Whether the service serves HTTP at all. |
 | `port` | integer | `9000` | The port the service listens on. Ignored when `http` is `false`. |
+| `grpc` | boolean | `false` | Whether the service serves gRPC. Embedded hosting only. |
+| `grpcPort` | integer | `9090` | The port the service serves gRPC on. Ignored when `grpc` is `false`. |
 | `resources` | object | small, one instance | Size and instance count, described in [resources](#resources). |
 
 ### image
@@ -141,6 +149,29 @@ Set `"http": false` for a service that serves no HTTP. The platform then renders
 Service, and does not wait for a port to open before reporting the service `Ready`. Omitting `port` is
 not the same thing: an omitted port means 9000.
 
+### grpc and grpcPort
+
+Set `"grpc": true` for a service that serves [gRPC endpoints](../build/grpc-endpoints.md). The platform
+then renders a container port named `grpc`, sets `ANKKA_GRPC_PORT` so the runtime binds there, adds a
+`grpc` port to the service's Kubernetes Service, adds a headless Service named `<name>-grpc-peers` that
+other services balance their calls across, and admits workloads of the installation to the port. The
+service is not `Ready` until it can answer gRPC calls. A descriptor that says nothing about gRPC serves
+none, and nothing about gRPC is rendered for it.
+
+`grpcPort` is the port it serves gRPC on, `9090` unless set. A service may serve gRPC and no HTTP. These
+are refused when the descriptor is applied, each naming the reason:
+
+| The descriptor | The refusal |
+|---|---|
+| `grpcPort` outside 1 to 65535, whether or not `grpc` is `true` | `service grpcPort <n> is outside the range 1-65535` |
+| `grpc` and `http`, with `grpcPort` equal to `port` | `grpcPort <n> is also the service port; gRPC and HTTP are served on different ports` |
+| `grpc` with `process` or `wasm` hosting | `only an embedded service serves gRPC; remove "grpc" or use embedded hosting` |
+| `grpc`, and a name longer than 52 characters | `service name '<name>' is <n> characters; a service that serves gRPC has a name of at most 52` |
+| `grpc`, and a declared `runtime` older than the first that serves gRPC | `runtime <version> does not serve gRPC; it is served from <version>` |
+
+A service whose descriptor declares gRPC and that registers no `GrpcServer` refuses to start, and the
+platform reports it `Failed` with that reason.
+
 ### labels and annotations
 
 Added to the service's Deployment, pods and Service. The platform's own identity labels are applied
@@ -174,6 +205,7 @@ one fact is how an address ends up pointing at a port nothing listens on.
 | Variable | Set because |
 |---|---|
 | `ANKKA_HTTP_PORT` | The runtime binds where Kubernetes expects it. Use `port`. |
+| `ANKKA_GRPC_PORT` | The runtime serves gRPC where Kubernetes expects it. Use `grpcPort`. |
 | `ANKKA_CLUSTER_MODE` | Selects Kubernetes cluster formation. |
 | `POD_IP` | The address a node advertises to its peers. |
 | `ANKKA_CLUSTER_SERVICE` | The Kubernetes Service peers are discovered through. |

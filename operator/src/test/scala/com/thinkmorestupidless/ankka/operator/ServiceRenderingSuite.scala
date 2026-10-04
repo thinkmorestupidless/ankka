@@ -133,17 +133,22 @@ class ServiceRenderingSuite extends munit.FunSuite:
     assertEquals(meta.getAnnotations.get(Labels.GenerationKey), "4")
   }
 
+  // The service's own address, named `cart`. A service that serves no gRPC also has its headless
+  // gRPC address removed if owned, which is a different object and a different case.
+  private def removalsOfTheAddress(actions: Vector[Action]) =
+    actions.collect { case r: Action.RemoveService if r.name == "cart" => r }
+
   test("a port means EnsureService and never RemoveService") {
     val actions = actionsFor(spec)
     assertEquals(actions.count(_.isInstanceOf[Action.EnsureService]), 1)
-    assertEquals(actions.count(_.isInstanceOf[Action.RemoveService]), 0)
+    assertEquals(removalsOfTheAddress(actions), Vector.empty)
   }
 
   test("no port means RemoveService — carrying the owner's uid — and never EnsureService") {
     val actions = actionsFor(spec.copy(port = None), uid = "uid-9")
     assertEquals(actions.count(_.isInstanceOf[Action.EnsureService]), 0)
     assertEquals(
-      actions.collect { case r: Action.RemoveService => r },
+      removalsOfTheAddress(actions),
       Vector(Action.RemoveService("ankka-checkout", "cart", "uid-9"))
     )
   }
@@ -158,4 +163,84 @@ class ServiceRenderingSuite extends munit.FunSuite:
 
   test("rendering twice is identical") {
     assertEquals(serviceFor(spec), serviceFor(spec))
+  }
+
+  // --- gRPC (feature 020)
+
+  private def portsOf(s: AnkkaServiceSpec) =
+    serviceFor(s).getSpec.getPorts.asScala.toList
+      .map(p =>
+        (
+          p.getName,
+          p.getPort.intValue,
+          p.getTargetPort.getIntVal.intValue,
+          Option(p.getAppProtocol)
+        )
+      )
+
+  test("a service with both ports has an address with both, http first, h2c on grpc only") {
+    assertEquals(
+      portsOf(spec.copy(grpcPort = Some(9090))),
+      List(("http", 8080, 8080, None), ("grpc", 9090, 9090, Some("kubernetes.io/h2c")))
+    )
+  }
+
+  test("a service with gRPC and no HTTP has an address with the one port") {
+    assertEquals(
+      portsOf(spec.copy(port = None, grpcPort = Some(9090))),
+      List(("grpc", 9090, 9090, Some("kubernetes.io/h2c")))
+    )
+  }
+
+  test("a service with neither port has no address") {
+    val actions = actionsFor(spec.copy(port = None, grpcPort = None))
+    assert(actions.exists { case Action.RemoveService(_, "cart", _) => true; case _ => false })
+    assert(!actions.exists { case Action.EnsureService(_) => true; case _ => false })
+  }
+
+  test("the node container carries the grpc port and ANKKA_GRPC_PORT only when gRPC is declared") {
+    def container(s: AnkkaServiceSpec) =
+      deploymentFor(s).getSpec.getTemplate.getSpec.getContainers.asScala.head
+    val with_   = container(spec.copy(grpcPort = Some(9090)))
+    val without = container(spec)
+    assert(with_.getPorts.asScala.exists(p => p.getName == "grpc" && p.getContainerPort == 9090))
+    assert(with_.getEnv.asScala.exists(e => e.getName == "ANKKA_GRPC_PORT" && e.getValue == "9090"))
+    assert(!without.getPorts.asScala.exists(_.getName == "grpc"))
+    assert(!without.getEnv.asScala.exists(_.getName == "ANKKA_GRPC_PORT"))
+  }
+
+  test("for process hosting the grpc port is on the node container, which is the sidecar") {
+    val pod = deploymentFor(
+      spec.copy(hosting = "process", grpcPort = Some(9090))
+    ).getSpec.getTemplate.getSpec
+    val (node, app) = (pod.getContainers.asScala(0), pod.getContainers.asScala(1))
+    assert(node.getPorts.asScala.exists(_.getName == "grpc"))
+    assert(!Option(app.getPorts).exists(_.asScala.exists(_.getName == "grpc")))
+  }
+
+  test("a service that serves gRPC has a headless peers address selecting exactly its instances") {
+    val peers = actionsFor(spec.copy(grpcPort = Some(9090)))
+      .collectFirst { case Action.EnsureGrpcPeers(svc, "uid-1") => svc }
+      .getOrElse(fail("no peers address, or not owner-guarded"))
+    assertEquals(peers.getMetadata.getName, "cart-grpc-peers")
+    assertEquals(peers.getSpec.getClusterIP, "None")
+    assertEquals(
+      peers.getSpec.getSelector.asScala.toMap,
+      deploymentFor(spec).getSpec.getSelector.getMatchLabels.asScala.toMap
+    )
+    assertEquals(
+      peers.getSpec.getPorts.asScala.map(p => (p.getName, p.getPort.intValue)).toList,
+      List("grpc" -> 9090)
+    )
+    assert(
+      Option(peers.getMetadata.getOwnerReferences).exists(_.asScala.exists(_.getUid == "uid-1"))
+    )
+  }
+
+  test("a service that serves no gRPC has its peers address removed if owned, and never ensured") {
+    val actions = actionsFor(spec)
+    assert(actions.exists {
+      case Action.RemoveService(_, "cart-grpc-peers", _) => true; case _ => false
+    })
+    assert(!actions.exists { case Action.EnsureGrpcPeers(_, _) => true; case _ => false })
   }

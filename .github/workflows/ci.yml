@@ -80,8 +80,11 @@ jobs:
               # The wire fixtures the console's client is held to are written by a controlplane-api suite,
               # and the topology fixtures are run through the local console's rules by a cli suite.
               - 'console/package/fixtures/**'
-              # The platform's living features: `GherkinSuite` runs them as tests, each scenario as written.
+              # The living features and the glossary their steps are written in: `GherkinSuite`s run
+              # the features as tests, each scenario as written, and suites named for a scenario are
+              # held to its words.
               - 'features/**'
+              - 'GLOSSARY.md'
             # Pages, the tool, the included samples and the files the generated tables are read from.
             docs:
               - *workflow

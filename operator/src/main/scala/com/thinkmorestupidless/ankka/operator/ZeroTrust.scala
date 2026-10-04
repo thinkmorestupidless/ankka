@@ -218,6 +218,7 @@ object ZeroTrust:
 
   def clusterPolicyName(service: String): String = s"$service-cluster"
   def httpPolicyName(service: String): String    = s"$service-http"
+  def grpcPolicyName(service: String): String    = s"$service-grpc"
 
   /**
    * Who may connect to a service's HTTP port: the gateway's proxies, and any workload of this
@@ -232,10 +233,32 @@ object ZeroTrust:
       namespace: String,
       port: Int
   ): NetworkPolicy =
+    workloadsAndGateway(resource, spec, namespace, httpPolicyName(spec.serviceName), port)
+
+  /**
+   * Who may connect to a service's gRPC port: the same peers as its HTTP port, and for the same
+   * reason. A policy of its own rather than a second port on the HTTP one, so that a service that
+   * declares no gRPC keeps the policy object it had, unchanged.
+   */
+  def grpcPolicy(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      port: Int
+  ): NetworkPolicy =
+    workloadsAndGateway(resource, spec, namespace, grpcPolicyName(spec.serviceName), port)
+
+  private def workloadsAndGateway(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      name: String,
+      port: Int
+  ): NetworkPolicy =
     val identity = Labels.identity(spec.projectId, spec.serviceName)
     val managed  = Map(Labels.ManagedByKey -> Labels.ManagedByAnkka).asJava
     new NetworkPolicyBuilder()
-      .withMetadata(metadata(resource, spec, namespace, httpPolicyName(spec.serviceName)))
+      .withMetadata(metadata(resource, spec, namespace, name))
       .withSpec(
         new NetworkPolicySpecBuilder()
           .withPodSelector(new LabelSelectorBuilder().withMatchLabels(identity.asJava).build())
@@ -285,13 +308,17 @@ object ZeroTrust:
       .withMetadata(metadata(resource, spec, namespace, spec.serviceName))
       .withSpec(
         new BackendTLSPolicySpecBuilder()
+          // One per port the service has, so the gateway reaches each over TLS.
           .withTargetRefs(
-            new LocalPolicyTargetReferenceWithSectionNameBuilder()
-              .withGroup("")
-              .withKind("Service")
-              .withName(Names.service(spec.serviceName))
-              .withSectionName("http")
-              .build()
+            (spec.port.map(_ => "http").toVector ++ spec.grpcPort.map(_ => Rendering.GrpcPortName))
+              .map { section =>
+                new LocalPolicyTargetReferenceWithSectionNameBuilder()
+                  .withGroup("")
+                  .withKind("Service")
+                  .withName(Names.service(spec.serviceName))
+                  .withSectionName(section)
+                  .build()
+              }*
           )
           .withValidation(
             new BackendTLSPolicyValidationBuilder()

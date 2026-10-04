@@ -11,7 +11,7 @@ page describes both halves and where state lives.
 ## Inside a service: components and the runtime
 
 A service is a set of components registered with the runtime. Each component is one of a fixed set of
-kinds — entity, view, consumer, workflow, timed action, agent, HTTP endpoint — and
+kinds — entity, view, consumer, workflow, timed action, agent, HTTP endpoint, gRPC endpoint — and
 [Components](components.md) describes each one.
 
 A component's handlers do not perform their own I/O. They return an **effect**, a value describing what
@@ -30,6 +30,7 @@ The runtime is built on [Apache Pekko](https://pekko.apache.org/). What it does 
 | Timed action | a Postgres table of due calls, swept by one instance in the cluster |
 | Agent | an actor in cluster sharding, one per session id, handling one request at a time |
 | HTTP endpoint | a route tree served by Pekko HTTP |
+| gRPC endpoint | a service definition's methods served by grpc-java, on a port of its own |
 
 Components never call each other directly. They use the **component client**, which routes a call to
 wherever the target instance lives in the cluster. Endpoints, workflow steps, consumers, timed actions

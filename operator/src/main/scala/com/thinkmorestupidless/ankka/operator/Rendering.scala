@@ -2,6 +2,9 @@ package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.{
   HTTPBackendRefBuilder,
+  HTTPHeaderMatchBuilder,
+  HTTPRouteMatchBuilder,
+  HTTPRouteTimeoutsBuilder,
   HTTPRoute,
   HTTPRouteBuilder,
   HTTPRouteRuleBuilder,
@@ -199,6 +202,7 @@ object Rendering:
             )
           ) :+
           addressAction(resource, spec, namespace) :+
+          grpcPeersAction(resource, spec, namespace) :+
           routeAction(resource, spec, namespace, settings.baseDomain) :+
           backendTlsAction(resource, spec, namespace, settings.baseDomain)
       )
@@ -227,6 +231,13 @@ object Rendering:
         Vector(
           Action
             .RemoveNetworkPolicy(namespace, ZeroTrust.httpPolicyName(spec.serviceName), ownerUid)
+        )) ++ (spec.grpcPort match
+      case Some(port) =>
+        Vector(Action.EnsureNetworkPolicy(ZeroTrust.grpcPolicy(resource, spec, namespace, port)))
+      case None =>
+        Vector(
+          Action
+            .RemoveNetworkPolicy(namespace, ZeroTrust.grpcPolicyName(spec.serviceName), ownerUid)
         ))
 
   /**
@@ -239,7 +250,7 @@ object Rendering:
       namespace: String,
       baseDomain: Option[String]
   ): Action =
-    (spec.exposed, spec.port, baseDomain) match
+    (spec.exposed, spec.port.orElse(spec.grpcPort), baseDomain) match
       case (true, Some(_), Some(_)) =>
         Action.EnsureBackendTlsPolicy(ZeroTrust.backendTlsPolicy(resource, spec, namespace))
       case _ =>
@@ -324,16 +335,17 @@ object Rendering:
       .build()
 
   /**
-   * Exactly one of these per pass: the address exists when there is a port, and does not when there
-   * is not. After the Deployment, since a Service in front of nothing is only noise.
+   * Exactly one of these per pass: the address exists when there is a port, HTTP or gRPC, and does
+   * not when there is neither. After the Deployment, since a Service in front of nothing is only
+   * noise.
    */
   private def addressAction(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String
   ): Action =
-    spec.port match
-      case Some(port) => Action.EnsureService(service(resource, spec, namespace, port))
+    address(resource, spec, namespace) match
+      case Some(service) => Action.EnsureService(service)
       case None =>
         Action.RemoveService(
           namespace,
@@ -343,9 +355,9 @@ object Rendering:
 
   /**
    * The route, after the address it points at. Rendered only when the service is exposed, has a
-   * port, and the operator knows the base domain; in every other case the route is removed if this
-   * resource owns one — so unexposing, or dropping to `http: false`, takes the route away without
-   * touching the service.
+   * port — HTTP or gRPC — and the operator knows the base domain; in every other case the route is
+   * removed if this resource owns one — so unexposing, or dropping both ports, takes the route away
+   * without touching the service.
    */
   private def routeAction(
       resource: AnkkaService,
@@ -353,9 +365,9 @@ object Rendering:
       namespace: String,
       baseDomain: Option[String]
   ): Action =
-    (spec.exposed, spec.port, baseDomain) match
-      case (true, Some(port), Some(base)) =>
-        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, port, base))
+    (spec.exposed, spec.port.orElse(spec.grpcPort), baseDomain) match
+      case (true, Some(_), Some(base)) =>
+        Action.EnsureHttpRoute(httpRoute(resource, spec, namespace, base))
       case _ =>
         Action.RemoveHttpRoute(
           namespace,
@@ -368,14 +380,52 @@ object Rendering:
    * never read from the resource, so no writer of the resource can point a route at a name the
    * service does not own; the backend carries no namespace, so the API itself forbids it reaching
    * another project's service (contracts/route-object.md).
+   *
+   * One rule per protocol the service serves, gRPC's first. A gRPC call is told from an HTTP
+   * request by its content type, so the platform needs to know nothing of a service's methods; the
+   * match is a full match, so it admits `application/grpc` and `application/grpc+proto` and not
+   * `application/grpc-web`. The gateway applies a fifteen-second timeout to a route that names
+   * none, which would cut every stream, so the gRPC rule says it has none. The HTTP rule is
+   * rendered exactly as it was before gRPC endpoints existed.
    */
   def httpRoute(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
-      port: Int,
       baseDomain: String
   ): HTTPRoute =
+    val grpcRule = spec.grpcPort.map { port =>
+      new HTTPRouteRuleBuilder()
+        .withMatches(
+          new HTTPRouteMatchBuilder()
+            .withHeaders(
+              new HTTPHeaderMatchBuilder()
+                .withName("content-type")
+                .withType("RegularExpression")
+                .withValue(GrpcContentType)
+                .build()
+            )
+            .build()
+        )
+        .withTimeouts(new HTTPRouteTimeoutsBuilder().withRequest("0s").build())
+        .withBackendRefs(
+          new HTTPBackendRefBuilder()
+            .withName(Names.service(spec.serviceName))
+            .withPort(port)
+            .build()
+        )
+        .build()
+    }
+    val httpRule = spec.port.map { port =>
+      new HTTPRouteRuleBuilder()
+        .withBackendRefs(
+          new HTTPBackendRefBuilder()
+            .withName(Names.service(spec.serviceName))
+            .withPort(port)
+            .build()
+        )
+        .build()
+    }
     new HTTPRouteBuilder()
       .withMetadata(identityMeta(resource, spec, namespace, Names.httpRoute(spec.serviceName)))
       .withSpec(
@@ -390,26 +440,114 @@ object Rendering:
               .build()
           )
           .withHostnames(Hostnames.of(spec.serviceName, spec.projectId, baseDomain))
-          .withRules(
-            new HTTPRouteRuleBuilder()
-              .withBackendRefs(
-                new HTTPBackendRefBuilder()
-                  .withName(Names.service(spec.serviceName))
-                  .withPort(port)
-                  .build()
-              )
+          .withRules((grpcRule.toVector ++ httpRule.toVector)*)
+          .build()
+      )
+      .build()
+
+  /** What a gRPC call's content type is, as Envoy matches a header: the whole value. */
+  val GrpcContentType: String = """application/grpc(\+.+)?"""
+
+  /** The headless gRPC address when the service serves gRPC; its removal, if owned, when not. */
+  private def grpcPeersAction(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): Action =
+    val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+    spec.grpcPort match
+      case Some(port) =>
+        Action.EnsureGrpcPeers(grpcPeers(resource, spec, namespace, port), ownerUid)
+      case None => Action.RemoveService(namespace, Names.grpcPeers(spec.serviceName), ownerUid)
+
+  /**
+   * The headless address a service that serves gRPC also has: no cluster IP, so its DNS name
+   * resolves to one address per ready instance, and the platform's own gRPC client balances its
+   * calls across them. A cluster IP balances connections, and a gRPC channel holds one connection
+   * for minutes, so without this a caller would send everything to one instance and a new one would
+   * see nothing. Only ready instances are published, so an instance is in a caller's rotation
+   * exactly while it can answer. Exposed so tests can assert on the object.
+   */
+  def grpcPeers(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      port: Int
+  ): Service =
+    new ServiceBuilder()
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(Names.grpcPeers(spec.serviceName))
+          .withNamespace(namespace)
+          .withLabels(Labels.merged(spec.projectId, spec.serviceName, spec.labels).asJava)
+          .withOwnerReferences(Labels.ownerReference(resource))
+          .build()
+      )
+      .withSpec(
+        new ServiceSpecBuilder()
+          .withClusterIP("None")
+          .withSelector(selectorLabels(spec).asJava)
+          .withPorts(
+            new ServicePortBuilder()
+              .withName(GrpcPortName)
+              .withProtocol("TCP")
+              .withPort(port)
+              .withTargetPort(new IntOrString(port))
               .build()
           )
           .build()
       )
       .build()
 
-  /** Exposed so tests can assert on the object rather than on an action wrapper. */
+  /** The service's address with `port` as its HTTP port, whatever the spec says. */
   def service(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
       namespace: String,
       port: Int
+  ): Service =
+    address(resource, spec.copy(port = Some(port)), namespace).getOrElse(
+      throw IllegalStateException("a service with a port has an address")
+    )
+
+  /**
+   * The service's address: one port per protocol it serves, `http` then `grpc`, or none at all.
+   * Exposed so tests can assert on the object rather than on an action wrapper.
+   *
+   * The `grpc` port says `kubernetes.io/h2c`, which is what makes the gateway speak HTTP/2 to it;
+   * TLS comes separately, from the backend TLS policy, so what reaches the service is HTTP/2 over
+   * TLS despite the name. The `http` port says nothing, and so renders as it always has.
+   */
+  def address(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String
+  ): Option[Service] =
+    val ports = spec.port.map { port =>
+      new ServicePortBuilder()
+        .withName(PortName)
+        .withProtocol("TCP")
+        // The same value twice. A Service is not a place to translate between an outer
+        // and an inner port; nothing here has an outer one.
+        .withPort(port)
+        .withTargetPort(new IntOrString(port))
+        .build()
+    }.toVector ++ spec.grpcPort.map { port =>
+      new ServicePortBuilder()
+        .withName(GrpcPortName)
+        .withProtocol("TCP")
+        .withPort(port)
+        .withTargetPort(new IntOrString(port))
+        .withAppProtocol(GrpcAppProtocol)
+        .build()
+    }.toVector
+    Option.when(ports.nonEmpty)(addressWith(resource, spec, namespace, ports))
+
+  private def addressWith(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      ports: Vector[io.fabric8.kubernetes.api.model.ServicePort]
   ): Service =
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
     val annotations = spec.annotations + (Labels.GenerationKey -> spec.generation.toString)
@@ -435,16 +573,7 @@ object Rendering:
           // behind a workload reporting Ready — ServiceRenderingSuite compares the two rendered
           // objects rather than trusting this comment.
           .withSelector(selectorLabels(spec).asJava)
-          .withPorts(
-            new ServicePortBuilder()
-              .withName(PortName)
-              .withProtocol("TCP")
-              // The same value twice. A Service is not a place to translate between an outer
-              // and an inner port; nothing here has an outer one.
-              .withPort(port)
-              .withTargetPort(new IntOrString(port))
-              .build()
-          )
+          .withPorts(ports*)
           .build()
       )
       .build()
@@ -457,6 +586,19 @@ object Rendering:
 
   /** What the runtime reads its port from — `modules/http`'s `reference.conf`. */
   private val PortEnvVar = "ANKKA_HTTP_PORT"
+
+  /**
+   * The gRPC port's name. Load-bearing, as `http` is: the Service targets it, the backend TLS
+   * policy names it as a section, and its SRV record — which is how another service finds the port
+   * — is `_grpc._tcp`.
+   */
+  val GrpcPortName: String = "grpc"
+
+  /** What the runtime reads its gRPC port from — `modules/grpc`'s `reference.conf`. */
+  private val GrpcPortEnvVar = "ANKKA_GRPC_PORT"
+
+  /** HTTP/2 to the gRPC port, from the gateway and any proxy that reads it. */
+  val GrpcAppProtocol: String = "kubernetes.io/h2c"
 
   /**
    * The CNPG objects this pass needs to ensure, ahead of the Deployment that depends on them.
@@ -817,6 +959,18 @@ object Rendering:
         .withProtocol("TCP")
         .build()
     }
+    // gRPC's pair, from the one field, rendered only when the service declared it — so a service
+    // that did not renders exactly what it did before gRPC endpoints existed.
+    val grpcEnv = spec.grpcPort.map { port =>
+      new EnvVarBuilder().withName(GrpcPortEnvVar).withValue(port.toString).build()
+    }
+    val grpcPorts = spec.grpcPort.map { port =>
+      new ContainerPortBuilder()
+        .withName(GrpcPortName)
+        .withContainerPort(port)
+        .withProtocol("TCP")
+        .build()
+    }
 
     // How a node finds its peers, told to it by the platform — never by the descriptor, which
     // the control plane refuses if it tries. The selector is the very same identity the
@@ -879,11 +1033,11 @@ object Rendering:
       // field the day there is a registry and a re-pushed mutable tag has to be picked up.
       .withImagePullPolicy("IfNotPresent")
       .withEnv(
-        (spec.env.map(environment) ++ portEnv ++ clusterEnv ++ extraEnv ++
+        (spec.env.map(environment) ++ portEnv ++ grpcEnv ++ clusterEnv ++ extraEnv ++
           (if withDatabaseEnv then ZeroTrust.Database.Environment.map(literal) else Vector.empty))*
       )
       .withEnvFrom(envFrom*)
-      .withPorts((containerPorts.toVector ++ clusterPorts)*)
+      .withPorts((containerPorts.toVector ++ grpcPorts.toVector ++ clusterPorts)*)
       .withVolumeMounts(ZeroTrust.mounts(owner, withDatabaseEnv)*)
       .withResources(
         new ResourceRequirementsBuilder().withRequests(quantities).withLimits(quantities).build()

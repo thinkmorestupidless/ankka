@@ -1,4 +1,4 @@
-import { test, expect, seedTenancy, afterProjection } from "../fixtures.ts";
+import { test, expect, seedTenancy, afterProjection, ops, sections } from "../fixtures.ts";
 import type { Page } from "@playwright/test";
 import type { Target } from "../target.ts";
 
@@ -55,6 +55,8 @@ test("US3-2 a service shows every status field and its attributed history", asyn
   for (const label of ["Instances", "Image", "Generation", "Address", "Database", "Runs as", "Stopped by", "Report"]) {
     await expect(page.locator("dt", { hasText: label })).toBeVisible();
   }
+  await sections(page).getByRole("link", { name: "History" }).click();
+  await page.waitForURL(`${target.url}/projects/${project}/services/orders/history`);
   const history = page.getByRole("table");
   await expect(history).toContainText("Applied");
   await expect(history).toContainText(target.kind === "fake" ? "Olive Owner" : "dev");
@@ -116,12 +118,12 @@ test("US3-4 pause, resume, restart, expose and unexpose take effect and show the
   const { project } = await tenancy(page, target, signIn, unique);
   await apply(page, target, project, { name: "ops", service: { image: "ops:1" } });
   await page.waitForURL(`${target.url}/projects/${project}/services/ops`);
-  await page.getByRole("button", { name: "Pause" }).click();
+  await ops(page).getByRole("button", { name: "Pause" }).click();
   await expect(page.locator(".ac-state-line")).toContainText("Paused");
   await expect(page.locator("dt", { hasText: "Stopped by" }).locator("+ dd")).toHaveText("Its members paused it");
-  await page.getByRole("button", { name: "Resume" }).click();
+  await ops(page).getByRole("button", { name: "Resume" }).click();
   await expect(page.locator(".ac-state-line")).toContainText(target.kind === "fake" ? "Updating" : /Updating|Ready|Not deployed/);
-  await page.getByRole("button", { name: "Restart" }).click();
+  await ops(page).getByRole("button", { name: "Restart" }).click();
   await expect(page.locator("dt", { hasText: "Generation" }).locator("+ dd")).toHaveText("2");
   if (target.kind === "fake") {
     // Exposing needs a base domain, which a control plane connected to no cluster does not have.
@@ -130,6 +132,7 @@ test("US3-4 pause, resume, restart, expose and unexpose take effect and show the
   await page.getByRole("button", { name: "Unexpose" }).click();
   await expect(page.getByRole("button", { name: "Expose" })).toBeVisible();
   }
+  await sections(page).getByRole("link", { name: "History" }).click();
   await expect(page.getByRole("table")).toContainText("Restarted");
 });
 
@@ -168,6 +171,6 @@ test("US3-8 a suspended service reads Suspended and its operations are refused, 
   await signIn(page, "owner", `/projects/${project}/services/held`);
   await expect(page.locator(".ac-state-line")).toContainText("Suspended");
   await expect(page.locator("dt", { hasText: "Stopped by" }).locator("+ dd")).toHaveText("Its organization is disabled");
-  await page.getByRole("button", { name: "Restart" }).click();
+  await ops(page).getByRole("button", { name: "Restart" }).click();
   await expect(page.getByRole("alert")).toContainText("is disabled");
 });

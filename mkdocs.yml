@@ -120,6 +120,9 @@ extra:
         kind: external
       control-plane-routes:
         kind: external
+      # Written by console/package/test/docs-properties.test.ts from src/ui/tokens.ts.
+      console-properties:
+        kind: external
     # Files outside docs/ that link to the site. The site's first home, GitHub Pages' project address,
     # is dead; a link to it reads as correct and goes nowhere, so it is refused wherever the site is
     # linked from.

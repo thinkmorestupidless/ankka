@@ -1,4 +1,4 @@
-import { test, expect, seedTenancy, afterProjection } from "../fixtures.ts";
+import { test, expect, seedTenancy, afterProjection, body } from "../fixtures.ts";
 import type { Page } from "@playwright/test";
 
 async function createOrganization(page: Page, url: string, id: string, name: string) {
@@ -79,7 +79,7 @@ test("US2-5 an empty organization is deleted; a non-empty one is refused with th
   // until the listing shows the project, as a person reading the page would.
   await expect(async () => {
     await page.reload();
-    await expect(page.getByRole("link", { name: "Something" })).toBeVisible({ timeout: 1_000 });
+    await expect(body(page).getByRole("link", { name: "Something" })).toBeVisible({ timeout: 1_000 });
   }).toPass({ timeout: 15_000 });
   await page.getByText("Rename or delete").click();
   await page.getByRole("button", { name: "Delete organization" }).click();

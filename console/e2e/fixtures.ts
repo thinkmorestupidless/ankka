@@ -88,3 +88,12 @@ export function seedTenancy(target: Target, ids: { org: string; project: string;
     services: ids.service ? [{ projectId: ids.project, name: ids.service }] : [],
   });
 }
+
+/**
+ * Where a page's own content is, and where its operations are. The shell puts a listing of the
+ * project's services beside every service page and a service's own controls on its shape, so a
+ * name can be on the page more than once; a test reaches for the one it means.
+ */
+export const body = (page: Page) => page.getByRole("main");
+export const ops = (page: Page) => page.getByRole("complementary", { name: "Operations" });
+export const sections = (page: Page) => page.getByRole("navigation", { name: "Sections of the service" });

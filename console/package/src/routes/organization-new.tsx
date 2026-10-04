@@ -4,16 +4,19 @@
  * is a projection and may not show it yet.
  */
 import { redirect, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
+import { act, guard, pageData, text, useConsoleContext, withShell } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs, ConsoleForm, Field, Submit } from "../ui/console.tsx";
+import { ConsoleForm, Field, Submit } from "../ui/console.tsx";
+import { Page } from "../ui/shell.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 
 export const meta: MetaFunction = () => [{ title: "Create an organization · ankka" }];
 
 export async function loader({ context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
-  return guard(ctx, async () => ({ console: await pageData(ctx) }));
+  return guard(ctx, async () => ({
+    console: withShell(await pageData(ctx), { area: "organizations", crumbs: [{ label: "Organizations", to: "" }, { label: "New organization" }] }),
+  }));
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -29,11 +32,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
 export default function NewOrganization() {
   const refusal = useRefusal("create");
   return (
-    <section className="ac-page">
-      <Breadcrumbs trail={[{ label: "Organizations", to: "" }, { label: "New organization" }]} />
+    <Page>
       <h1>Create an organization</h1>
       <p className="ac-lede">You become its first owner. Invite others once it exists.</p>
-      <ConsoleForm to="organizations/new" intent="create" className="ac-form">
+      <ConsoleForm to="organizations/new" intent="create" className="ac-card ac-form">
         <Field
           label="Id"
           name="id"
@@ -46,10 +48,12 @@ export default function NewOrganization() {
         <Field label="Name" name="name" required hint="What people see. You can rename it later." defaultValue={refusal?.values.name} />
         <Refused intent="create" />
         <div>
-          <Submit intent="create">Create organization</Submit>
+          <Submit intent="create" primary>
+            Create organization
+          </Submit>
         </div>
       </ConsoleForm>
-    </section>
+    </Page>
   );
 }
 

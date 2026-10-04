@@ -97,6 +97,8 @@ interface Service {
   detail?: string;
   exposed: boolean;
   paused: boolean;
+  /** What the cluster reports of its database; `null` until it has reported one. */
+  database: string | null;
   history: { kind: string; generation: number; actor?: { subject: string; display?: string; administrative: boolean }; at: string }[];
   logs: Map<string, string[]>;
   previousLogs: Map<string, string[]>;
@@ -211,6 +213,9 @@ export interface FakeSeed {
     mounts?: { path: string; service: string; state: string }[];
     callers?: string[];
     processPort?: number;
+    exposed?: boolean;
+    /** What the cluster reports of its database; `null` until it has reported one. */
+    database?: string | null;
   }[];
 }
 
@@ -266,7 +271,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       desiredInstances: s.desiredInstances,
       detail: s.detail ?? null,
       confirmed: true,
-      database: s.hosting === "web" ? "none" : "provisioned",
+      database: s.hosting === "web" ? "none" : s.database,
       hostname: s.exposed ? `https://${s.name}-${s.projectId}.${options.baseDomain ?? "example.test"}` : null,
       exposed: s.exposed,
       suspended,
@@ -705,6 +710,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       desiredInstances: instances,
       exposed: false,
       paused: false,
+      database: "provisioned",
       history: [],
       logs: new Map(),
       previousLogs: new Map(),
@@ -965,8 +971,9 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           image: s.image ?? `${s.name}:latest`,
           readyInstances: ready,
           desiredInstances: n,
-          exposed: false,
+          exposed: s.exposed ?? false,
           paused: lifecycle === "Paused",
+          database: s.database === undefined ? "provisioned" : s.database,
           history: [{ kind: "applied", generation: 1, at: now() }],
           logs,
           previousLogs: new Map(),

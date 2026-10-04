@@ -3,3 +3,7 @@ html,
 body {
   margin: 0;
 }
+
+body {
+  background: var(--ac-color-mesh-base);
+}

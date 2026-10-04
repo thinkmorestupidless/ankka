@@ -5,11 +5,11 @@
  */
 import { useMemo, useState } from "react";
 import { useLoaderData, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { guard, pageData, useConsoleContext } from "../context.ts";
+import { applyPrimary, guard, pageData, projectShell, useConsoleContext } from "../context.ts";
 import { ControlPlaneError } from "../client/errors.ts";
 import type { ServiceTopology } from "../client/schemas.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs } from "../ui/console.tsx";
+import { Page, ServiceSections } from "../ui/shell.tsx";
 import { useTopologyStream } from "../ui/use-stream.ts";
 import { observedLine, view, edgeMark, totals } from "../ui/topology/layout.ts";
 import { Graph } from "../ui/topology/Graph.tsx";
@@ -21,7 +21,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const { projectId, name } = params as { projectId: string; name: string };
   return guard(ctx, async () => {
-    const [service, project, page] = await Promise.all([ctx.client.getService(projectId, name), ctx.client.getProject(projectId), pageData(ctx)]);
+    const [service, project, services, page] = await Promise.all([ctx.client.getService(projectId, name), ctx.client.getProject(projectId), ctx.client.listServices(projectId), pageData(ctx)]);
     const organization = await ctx.client.getOrganization(project.organizationId);
     let topology: ServiceTopology | null = null;
     let none: string | undefined;
@@ -32,12 +32,21 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       if (e instanceof ControlPlaneError && e.status === 404) none = e.reason;
       else throw e;
     }
-    return { console: page, service, project, organization, topology, none };
+    const shell = projectShell(
+      page,
+      organization,
+      project,
+      services,
+      [{ label: name, to: `projects/${encodeURIComponent(projectId)}/services/${encodeURIComponent(name)}` }, { label: "Topology" }],
+      applyPrimary(projectId, name),
+      name,
+    );
+    return { console: shell, service, project, organization, topology, none };
   });
 }
 
 export default function ServiceTopologyPage() {
-  const { service, project: p, organization: o, topology: initial, none } = useLoaderData<typeof loader>();
+  const { service, project: p, topology: initial, none } = useLoaderData<typeof loader>();
   const { topology, state } = useTopologyStream(p.id, service.name, initial);
   const [showPlatform, setShowPlatform] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -46,17 +55,11 @@ export default function ServiceTopologyPage() {
   const chosen = shown?.nodes.find((n) => n.id === selected) ?? null;
 
   return (
-    <section className="ac-page">
-      <Breadcrumbs
-        trail={[
-          { label: "Organizations", to: "" },
-          { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` },
-          { label: p.name, to: `projects/${encodeURIComponent(p.id)}` },
-          { label: service.name, to: `projects/${encodeURIComponent(p.id)}/services/${encodeURIComponent(service.name)}` },
-          { label: "Topology" },
-        ]}
-      />
-      <h1>Topology of {service.name}</h1>
+    <Page>
+      <div className="ac-head">
+        <h1>Topology of {service.name}</h1>
+        <ServiceSections projectId={p.id} name={service.name} current="topology" />
+      </div>
 
       {none ? <p className="ac-empty">{none}. A topology exists only while an instance runs.</p> : null}
 
@@ -116,7 +119,7 @@ export default function ServiceTopologyPage() {
                 <Graph shown={shown} differs={new Set(differs.keys())} selected={selected} onSelect={setSelected} />
               </div>
               {chosen ? (
-                <aside className="ac-panel ac-topology-detail" aria-label={`About ${chosen.label}`}>
+                <aside className="ac-card ac-topology-detail" aria-label={`About ${chosen.label}`}>
                   <h2>{chosen.label}</h2>
                   <p>{chosen.kind}</p>
                   <h3>Calls</h3>
@@ -138,11 +141,13 @@ export default function ServiceTopologyPage() {
             </div>
           )}
 
-          <h2>As text</h2>
-          <Table shown={shown} differs={differs} />
+          <section className="ac-card" aria-labelledby="as-text">
+            <h2 id="as-text">As text</h2>
+            <Table shown={shown} differs={differs} />
+          </section>
         </>
       ) : null}
-    </section>
+    </Page>
   );
 }
 

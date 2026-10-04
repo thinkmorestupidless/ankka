@@ -1,15 +1,19 @@
 /** Creates a project in an organization, then goes to it, read by id. */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
+import { act, guard, organizationShell, pageData, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs, ConsoleForm, Field, Submit } from "../ui/console.tsx";
+import { ConsoleForm, Field, Submit } from "../ui/console.tsx";
+import { Page } from "../ui/shell.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 
 export const meta: MetaFunction = () => [{ title: "Create a project · ankka" }];
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
-  return guard(ctx, async () => ({ console: await pageData(ctx), organization: await ctx.client.getOrganization(params.organizationId!) }));
+  return guard(ctx, async () => {
+    const [organization, projects, page] = await Promise.all([ctx.client.getOrganization(params.organizationId!), ctx.client.listProjects(), pageData(ctx)]);
+    return { console: organizationShell(page, organization, projects, "projects", [{ label: "New project" }]), organization };
+  });
 }
 
 export async function action({ request, params, context }: ActionFunctionArgs) {
@@ -26,11 +30,10 @@ export default function NewProject() {
   const { organization: o } = useLoaderData<typeof loader>();
   const refusal = useRefusal("create");
   return (
-    <section className="ac-page">
-      <Breadcrumbs trail={[{ label: "Organizations", to: "" }, { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` }, { label: "New project" }]} />
+    <Page>
       <h1>Create a project in {o.name}</h1>
       <p className="ac-lede">A project gets a namespace of its own; each of its services gets its own database.</p>
-      <ConsoleForm intent="create" className="ac-form">
+      <ConsoleForm intent="create" className="ac-card ac-form">
         <Field
           label="Id"
           name="id"
@@ -43,10 +46,12 @@ export default function NewProject() {
         <Field label="Name" name="name" required defaultValue={refusal?.values.name} />
         <Refused intent="create" />
         <div>
-          <Submit intent="create">Create project</Submit>
+          <Submit intent="create" primary>
+            Create project
+          </Submit>
         </div>
       </ConsoleForm>
-    </section>
+    </Page>
   );
 }
 

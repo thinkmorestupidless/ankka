@@ -70,6 +70,12 @@ export function Panels<K extends PanelKind>({ kind, entity, loaded }: { kind: K;
   );
 }
 
+/** Whether the host added anything beside an operation, so a page knows to make room for it. */
+export function useHostActions(operation: Operation): boolean {
+  const { extensions } = useConsole();
+  return (extensions.actions?.[operation]?.length ?? 0) > 0;
+}
+
 export function HostActions({ operation, entity }: { operation: Operation; entity?: unknown }) {
   const { extensions } = useConsole();
   const actions = extensions.actions?.[operation] ?? [];

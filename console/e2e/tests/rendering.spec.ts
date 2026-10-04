@@ -1,4 +1,4 @@
-import { test, expect, seedTenancy } from "../fixtures.ts";
+import { test, expect, seedTenancy, body, ops } from "../fixtures.ts";
 
 test("US7-1 every page is rendered before any script runs", async ({ page, target, signIn, unique, scriptsOff }) => {
   test.skip(scriptsOff, "the scripts-on project blocks scripts itself, to prove the same markup arrives without them");
@@ -22,7 +22,7 @@ test("US7-2 navigation with scripts does not reload the document", async ({ page
   await page.evaluate(() => ((window as unknown as { marker: number }).marker = 42));
   await page.getByRole("link", { name: `Org ${org}` }).click();
   await expect(page.getByRole("heading", { level: 1, name: `Org ${org}` })).toBeVisible();
-  await page.getByRole("link", { name: `Project ${project}` }).click();
+  await body(page).getByRole("link", { name: `Project ${project}` }).click();
   await expect(page.getByRole("heading", { level: 1, name: `Project ${project}` })).toBeVisible();
   // The same document: the marker set before navigating is still there.
   expect(await page.evaluate(() => (window as unknown as { marker?: number }).marker)).toBe(42);
@@ -44,7 +44,7 @@ test("US7-3 every operation works with scripts disabled", async ({ page, target,
   await page.getByRole("link", { name: "Apply a descriptor" }).click();
   await page.getByLabel("Descriptor").fill(JSON.stringify({ name: "plain", service: { image: "plain:1" } }));
   await page.getByRole("button", { name: "Apply" }).click();
-  await page.getByRole("button", { name: "Pause" }).click();
+  await ops(page).getByRole("button", { name: "Pause" }).click();
   await expect(page.locator(".ac-state-line")).toContainText("Paused");
 });
 
@@ -57,7 +57,7 @@ test("US7-4 a second submission while the first is in flight performs nothing", 
   const route = "POST /services/{projectId}/{name}/restart";
   const before = target.controlPlane!.counts.get(route) ?? 0;
   await signIn(page, "owner", `/projects/${project}/services/cart`);
-  await page.getByRole("button", { name: "Restart" }).dblclick();
+  await ops(page).getByRole("button", { name: "Restart" }).dblclick();
   await expect(page.locator("dt", { hasText: "Generation" }).locator("+ dd")).toHaveText("2");
   await page.waitForTimeout(500);
   expect((target.controlPlane!.counts.get(route) ?? 0) - before).toBe(1);

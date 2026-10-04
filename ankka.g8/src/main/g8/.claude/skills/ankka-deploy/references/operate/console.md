@@ -26,8 +26,27 @@ A session ended at the identity provider is noticed within the lifetime of the a
 already holds for you, at most five minutes on the realm as installed. Signing out of the console ends it at
 once.
 
-**Sign out** with the button beside your name. It ends your console session and your session at the
+**Sign out** with the button at the foot of the rail. It ends your console session and your session at the
 identity provider, so the next visit asks you to sign in rather than passing through silently.
+
+## Finding your way
+
+Every page has the same frame around it:
+
+- **The rail**, down the left, holds the console's areas: organizations, projects, services, members and
+  deploy tokens. The area the page belongs to is marked. Projects, members and deploy tokens open those of
+  the organization the page belongs to, and services those of its project; on the front page, where no
+  organization is open yet, they wait until you open one. Signing out is at the rail's foot.
+- **The bar**, along the top, says where you are, as organization, project and service, offers the page's
+  first operation (creating something, or applying a descriptor), and shows who you are signed in as.
+- **The listing**, beside the page, lists what sits beside it: a project's services with each one's state
+  and ready instances, or an organization's projects. The one you are reading is marked, and stays in view
+  however long the list is. The front page, which is itself the list of your organizations, has none.
+- **The inspector**, on the right, holds what you can do to what the page shows. Deleting is at its foot,
+  behind a disclosure you open first. An operation on one row of a table, such as revoking a token, stays in
+  its row, and a page that is a form, such as creating a project, keeps its form.
+
+On a narrow screen the frame stacks in that order, and nothing is hidden. The console is dark.
 
 ## Organizations and projects
 
@@ -51,16 +70,26 @@ A project's page lists its services with each one's state, ready and desired ins
 address. While the page is open it updates itself as the platform reports changes, with no reload; the page
 says so while it is doing it.
 
-A service's page shows everything the platform reports about it and its history: every apply, restart,
-pause and exposure, with who did it and when. The state is always what the control plane reported, never what
-the console expected, and a state the cluster has not confirmed is marked as the last known one. See
+A service has four sections, each a page of its own: its overview, its topology, its logs and its history.
+
+The overview shows the service's **shape**: what the platform runs for it, joined in the direction traffic
+and data flow. Its address on the installation's gateway when it is exposed, the service itself with its
+generation and image, its instances with how many are ready, and its database, or that the cluster has not
+reported one yet. A web-hosted service has no database; its shape shows instead each of its mounts, the
+path on its hostname and the service behind it, marked when that service is missing, paused or serves no
+HTTP. The service's own part carries its logs, pause or resume, and restart, the same operations the
+inspector offers. Below the shape is everything the platform reports about the service. The history
+section lists every apply, restart, pause and exposure, with who did it and when.
+
+The state is always what the control plane reported, never what the console expected, and a state the
+cluster has not confirmed is marked as the last known one. See
 [Service lifecycle states](../reference/lifecycle-states.md) for what each state means.
 
 **Apply a descriptor** by pasting a `service.json` or choosing the file. Applying creates the service, or
 updates it when a service of that name exists. When the control plane refuses a descriptor, every problem it
 names is listed beside the text, which is kept for you to correct.
 
-**Pause, resume, restart, expose and unexpose** are buttons on the service's page. An exposed service's
+**Pause, resume, restart, expose and unexpose** are in the service's inspector. An exposed service's
 address is a link. Deleting a service stops it and keeps its database, so applying the same name again brings
 it back with its data.
 
@@ -71,7 +100,7 @@ its own log lines is followed exactly.
 
 ## A service's topology
 
-A service's page links to its topology: what the service is made of and what calls what, read from every
+A service's topology section shows what the service is made of and what calls what, read from every
 running instance and merged by the control plane. The page says how many instances answered, as in
 "2 of 3 instances answered". A topology missing an instance is marked **partial** and names each instance
 that did not contribute and why — it did not answer in time, its runtime is too old to report one, or it
@@ -99,14 +128,15 @@ after creating it; reloading the page does not show it again and does not create
 
 ## Platform administration
 
-A platform administrator sees an extra section on each organization's page: disable and enable the
+A platform administrator sees an extra section in each organization's inspector: disable and enable the
 organization, set and clear its quota, and add an owner to an organization that has none. Disabling an
 organization suspends its services; enabling it brings back what was running.
 
 ## Without scripts
 
 Every page is rendered on the server and every operation is an ordinary form, so the console works with
-scripts disabled or on a page whose scripts failed to load. Without scripts, pages do not update themselves
+scripts disabled or on a page whose scripts failed to load. The disclosures are the browser's own, the
+sections are links, and every choice is the browser's own select. Without scripts, pages do not update themselves
 and logs are not followed: reload to see what is new.
 
 ## What it does not show

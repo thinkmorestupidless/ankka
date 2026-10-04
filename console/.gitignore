@@ -7,3 +7,4 @@ e2e/report/
 e2e/test-results/
 *.tsbuildinfo
 .env*.local
+package/src/theme.generated.css

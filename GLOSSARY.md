@@ -116,7 +116,7 @@ beside the platform's own.
 
 ### ready
 Of an instance: able to answer what its service declares it serves. Calls are sent
-only to an instance that is ready.
+only to an instance that is ready. Of a service: every instance it asked for is.
 
 ### exposed
 Of a deployed service: reachable from outside the cluster, at its hostname.
@@ -308,9 +308,10 @@ Avoid: proto service, API
 ### method
 One thing a service definition lets a call ask for. Its request is one message or a
 stream, and so is its answer. A method that takes a stream is one whose request is a stream. A
-route's method ("POST") is part of the route's name and is always written inside it.
+route's method ("POST") is part of the route's name and is always written inside it. It is not an
+operation, which is something a member does in the console.
 
-Avoid: rpc, operation
+Avoid: rpc
 
 ### status
 How a gRPC call ended, as whoever called is told: "ok", or the name of one kind of
@@ -368,6 +369,129 @@ have, and what their requests and answers look like. A service answers it only w
 opts in, and then under an ACL stated for reflection alone. It describes every gRPC endpoint of
 the service, whatever that endpoint's own ACL.
 
+## Console
+
+### page
+What the console shows a member for one thing they read: an organization, a project,
+a service, or a section of a service.
+
+### shell
+What every page of the console is shown inside: the rail, the bar, the panel and the
+inspector around the page, over the backdrop. A host mounts the backdrop and the bar at least,
+and the other parts where it has content for them.
+
+### backdrop
+The mesh behind every surface of the console, with the glow at its centre and the dot grid
+across it.
+
+### rail
+The shell's column of areas, marking the one the member is reading and offering
+signing out.
+
+### area
+One of the things the rail offers: organizations, projects, services, members or
+deploy tokens.
+
+### bar
+The shell's top edge: where the member is, the page's primary operation and the
+member's name.
+
+### panel
+The shell's listing of what sits beside the page: a project's services, or an
+organization's projects.
+
+### inspector
+The shell's column of everything the page offers to be done, with the destructive
+operation behind a disclosure at its foot.
+
+### operation
+Something a member does to what a page shows: pausing, restarting, exposing,
+unexposing, deleting, renaming, inviting, applying a descriptor. It is not a timed action's
+action, which is a handler.
+
+### primary operation
+The one operation a page puts first, offered in the bar.
+
+### destructive operation
+An operation that deletes what the page shows.
+
+### further operations
+The operations of a page that are not its primary one, offered together.
+
+### disclosure
+A part of a page that is closed until a member opens it, and opens without scripts.
+
+### overlay
+Something shown over a page: a menu, a dialog, a tooltip. In the console an overlay
+is only an enhancement of a page that exists without it.
+
+### scripts
+The code a browser runs for a page. A member's browser may run none, and every
+operation completes without them.
+
+### section
+One of the things a service's page shows one at a time, each a page of its own: its
+overview, its topology, its logs or its history.
+
+### theme
+The console's dark or light rendering. The console is dark; a host may choose light.
+
+### surface
+A part of the console drawn over the backdrop with the backdrop showing through: the
+rail, the bar, a panel, a card or a part of a shape.
+
+### glow
+The brightest part of the console's backdrop, at the centre of the screen.
+
+### contrast
+How far apart in brightness text and what it sits on are, as a ratio.
+
+### ink
+The colour the console's text is set in.
+
+### face
+The typeface the console's text is set in, which the console serves itself.
+
+### custom property
+One named value of the console's look — a colour, a face, a radius, a space — that a
+host may set. It is not a variable, which is set on a service's process.
+
+### package
+The console as a host takes it: its pages, its sign-in and its shell, with its
+custom properties and its rules.
+
+### website
+The hosted product's own pages, which are a host of the console.
+
+Avoid: site
+
+### rule
+How the console draws something from its custom properties. A host sets custom
+properties and changes no rule.
+
+### origin
+Where a page is served from, as its browser names it.
+
+### shape
+What the platform runs for a deployed service — its address, the service, its
+instances and its database — and how they are joined. It is not the service's topology, which is
+what the service is made of.
+
+### live indicator
+What a page shows while it is changing as the platform reports.
+
+### accessibility violation
+What an automated audit of a page reports against WCAG 2.1 AA.
+
+### reduced motion
+A browser setting asking that nothing on a page move of its own accord.
+
+### forced colours
+A browser setting that replaces every colour of a page with the browser's own.
+
+### narrow screen
+A screen as narrow as a phone's, 400 pixels across.
+
 ## Observability
 
 ### trace
@@ -420,7 +544,7 @@ A named value the platform keeps for a project, which a descriptor's variable ca
 
 ### database
 Where the platform keeps what a service's entities, views and workflows know, and the service's
-secret store.
+secret store. Each deployed service has its own, provisioned by the platform or supplied by the service.
 
 ### logs
 What a service's instances printed.
@@ -510,7 +634,9 @@ What a descriptor says of a service whose image is made with the platform's own 
 version of the platform it was made with.
 
 ### browser
-What a person on the internet sends requests with and is shown the answers in.
+What a person on the internet sends requests with and is shown the answers in: a member's shows
+the console, a visitor's a web-hosted service. It may run no scripts, prefer a theme, ask for
+reduced motion or force its own colours.
 
 ## Identity
 
@@ -1185,7 +1311,8 @@ asking again.
 
 ### host
 A web application that serves the console inside its own look and with its own
-sign-in, and may add things of its own beside the console's. The console's own image is one host.
+sign-in, and may add things of its own beside the console's. It mounts the console package: the
+installation's console is one host, and the hosted product's website another.
 
 ## Graph deltas
 
@@ -1268,41 +1395,47 @@ value, expired, valid, fetched, fetch, unreachable, been, has, had, having, rath
 problems, twice, attached, ignored, settings, its, their, this, these, those, it, them, they, of,
 and, or, a, an, the, to, in, on, by, as, at, up, down, so, if, everyone, while, when, again, go,
 going, do, done, fails, failed, failure, be, being, was, were, now, also, later, over, other's,
-issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less, first,
-installation's, organization's, type, admitted, asking, reachable, kept, keeping, remove, removes,
-removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger, rule, break, breaks,
-slash, holding, newly, exists, try, tries, there, such, present, record, recorded, delete, deleted,
-back, distinct, between, naming, starting, longest, permitted, accepts, declaring, already,
-delivered, missing, honoured, earlier, higher, lower, positive, whole, number, during, beside, far,
-looks, default, bounded, upgrading, empty, nobody, created, creation, because, reserved, sees, lost,
-cart, item, moment, find, form, place, warning, active, replacement, join, joins, joined, cut, side,
-went, held, unchanged, need, someone, anything, copy, everything, always, hour, grow, connection,
-connections, connect, credential's, refuses, exchanged, password, timers, due, rows, wrote, socks,
-redirected, predicted, seconds, checks, checking, checked, check, verify, verifies, unchecked, risks,
-moved, installs, installed, installing, enforce, network, talk, talks, showing, cluster's, gateway's,
-issuer's, control, plane's, member's, developer's, machine's, ports, needs, adds, create, act,
-issued, issue, trust, trusts, against, security, protect, way, builds, depend, depending, prepared,
-prepares, prepare, program, programs, edited, order, writes, carry, creates, labelled, today,
-today's, attributes, invites, renames, deletes, lifetime, stating, stated, ninety, expires, expire,
-expiring, succeeds, released, pushes, pushed, push, tags, tagged, commit, hand, declines, username,
-public, private, plainly, wraps, sign, line, lines, recent, paused, cost, unknown, prices, duration,
-oldest, outcome, body, client, monitoring, collects, draws, provided, follows, refers, copied,
-belongs, days, accounts, ever, took, among, forms, knows, confirms, acting, anyone, get, revoked,
-across, fourth, replied, deletion, nested, stays, speaks, speak, drives, kit, JVM, Docker, Rust,
-toolchain, Scala, Python, TypeScript, items, carts, profile, workflow's, refuse, recovery, recovers,
-recover, failing, passing, behaviour, mid-command, exercised, byte, bytes, compatible, install,
-imported, package, lacks, function, broken, fixed, error, handed, steps, moving, moves, see, seen,
-retried, memory, samples, tested, contents, differs, rules, languages, whichever, loads, load,
-replace, schema, spent, work, approve, begins, warned, happens, happened, cites, cite, nearing,
-words, text, team, teams, ticket, decision, shape, included, include, chosen, characters, Akka's,
-above, whatever, total, therefore, talking, stood, stay, replies, remains, remain, rejected, rate,
-overrides, override, overloaded, note, navigation, moderate, lie, lead, invented, highest, guides,
-guide, forwards, figure, explains, differences, difference, deliberate, delegate, defeat,
-deactivated, activated, copies, configure, condition, computed, author, agree, renewing, renewed,
-browser's, administrator, timed, elsewhere, following, drawn, look, addition, hides, rename, renamed,
-invited, enables, disables, confirmed, detail, milliseconds, assistant, absence, setting, absent,
-something, anyway, identity, proves, known, belong, someone's, themselves, membership, wherever,
-loading, begin, begun, returning, receives, example, cloud, everywhere, people, development, return,
-turned, JavaScript, alters, choice, several, hands, reference, shopping, three, perhaps, single,
-current, plain, describe, describing, checkout, checkouts, applied, caught, uninterrupted, computes,
-outranks, rise, greater, neither, replaces, documented, documentation's, needed, writer, closes
+issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less,
+first, installation's, organization's, type, admitted, asking, reachable, kept, keeping, remove,
+removes, removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger, rule,
+break, breaks, slash, holding, newly, exists, try, tries, there, such, present, record, recorded,
+delete, deleted, back, distinct, between, naming, starting, longest, permitted, accepts, declaring,
+already, delivered, missing, honoured, earlier, higher, lower, positive, whole, number, during,
+beside, far, looks, default, bounded, upgrading, empty, nobody, created, creation, because,
+reserved, sees, lost, cart, item, moment, find, form, place, warning, active, replacement, join,
+joins, joined, cut, side, went, held, unchanged, need, someone, anything, copy, everything, always,
+hour, grow, connection, connections, connect, credential's, refuses, exchanged, password, timers,
+due, rows, wrote, socks, redirected, predicted, seconds, checks, checking, checked, check, verify,
+verifies, unchecked, risks, moved, installs, installed, installing, enforce, network, talk, talks,
+showing, cluster's, gateway's, issuer's, control, plane's, member's, developer's, machine's, ports,
+needs, adds, create, act, issued, issue, trust, trusts, against, security, protect, way, builds,
+depend, depending, prepared, prepares, prepare, program, programs, edited, order, writes, carry,
+creates, labelled, today, today's, attributes, invites, renames, deletes, lifetime, stating,
+stated, ninety, expires, expire, expiring, succeeds, released, pushes, pushed, push, tags, tagged,
+commit, hand, declines, username, public, private, plainly, wraps, sign, line, lines, recent,
+paused, cost, unknown, prices, duration, oldest, outcome, body, client, monitoring, collects,
+draws, provided, follows, refers, copied, belongs, days, accounts, ever, took, among, forms, knows,
+confirms, acting, anyone, get, revoked, across, fourth, replied, deletion, nested, stays, speaks,
+speak, drives, kit, JVM, Docker, Rust, toolchain, Scala, Python, TypeScript, items, carts, profile,
+workflow's, refuse, recovery, recovers, recover, failing, passing, behaviour, mid-command,
+exercised, byte, bytes, compatible, install, imported, package, lacks, function, broken, fixed,
+error, handed, steps, moving, moves, see, seen, retried, memory, samples, tested, contents,
+differs, rules, languages, whichever, loads, load, replace, schema, spent, work, approve, begins,
+warned, happens, happened, cites, cite, nearing, words, text, team, teams, ticket, decision, shape,
+included, include, chosen, characters, Akka's, above, whatever, total, therefore, talking, stood,
+stay, replies, remains, remain, rejected, rate, overrides, override, overloaded, note, navigation,
+moderate, lie, lead, invented, highest, guides, guide, forwards, figure, explains, differences,
+difference, deliberate, delegate, defeat, deactivated, activated, copies, configure, condition,
+computed, author, agree, renewing, renewed, browser's, administrator, timed, elsewhere, following,
+drawn, look, addition, hides, rename, renamed, invited, enables, disables, confirmed, detail,
+milliseconds, assistant, absence, setting, absent, something, anyway, identity, proves, known,
+belong, someone's, themselves, membership, wherever, loading, begin, begun, returning, receives,
+example, cloud, everywhere, people, development, return, turned, JavaScript, alters, choice,
+several, hands, reference, shopping, three, perhaps, single, current, plain, describe, describing,
+checkout, checkouts, applied, caught, uninterrupted, computes, outranks, rise, greater, neither,
+replaces, documented, documentation's, needed, writer, closes, offers, offered, signing, applying,
+foot, hidden, scroll, scrolls, sideways, pauses, saying, overview, open, reloaded, audited,
+visible, keyboard, brightest, point, least, brighter, shipped, colour, accord, blur, opaque,
+readable, border, outline, forces, edge, clipped, below, facts, controls, prefers, preference,
+dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright, enough,
+front, width, would, choose

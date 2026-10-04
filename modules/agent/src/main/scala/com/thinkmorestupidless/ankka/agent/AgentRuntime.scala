@@ -46,10 +46,19 @@ final class AgentRuntime private (
     defaultModel: Option[ModelProvider],
     modelTimeout: FiniteDuration,
     compaction: Option[(CompactionSettings, Summariser)],
-    judgments: Judgments
+    judgments: Judgments,
+    variables: String => Option[String] = sys.env.get
 ) extends RuntimeExtension:
 
   def name: String = "agents"
+
+  /**
+   * Where the runtime reads the variables an agent's MCP servers name — their addresses and their
+   * credentials. The process's environment unless a test gives its own, so a test sets them without
+   * touching the environment of the JVM it runs in.
+   */
+  def withVariables(read: String => Option[String]): AgentRuntime =
+    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, read)
 
   /**
    * Enables compaction: long sessions get their oldest messages replaced by a summary.
@@ -70,7 +79,13 @@ final class AgentRuntime private (
             "AgentRuntime.withDefaultModel, or pass one explicitly"
         )
       case Some(summary) =>
-        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary), judgments)
+        new AgentRuntime(
+          defaultModel,
+          modelTimeout,
+          Some(settings -> summary),
+          judgments,
+          variables
+        )
 
   /**
    * Supplies a judgment provider, so an agent can ask typed questions of a state and a judged
@@ -85,7 +100,13 @@ final class AgentRuntime private (
   ): AgentRuntime =
     if timeout.length <= 0 then
       throw IllegalArgumentException("withJudgments needs a positive timeout")
-    new AgentRuntime(defaultModel, modelTimeout, compaction, Judgments(Some(provider), timeout))
+    new AgentRuntime(
+      defaultModel,
+      modelTimeout,
+      compaction,
+      Judgments(Some(provider), timeout),
+      variables
+    )
 
   /**
    * Everything this runtime needs registered.
@@ -126,7 +147,8 @@ final class AgentRuntime private (
       val client   = service.componentClient
 
       agents.foreach { descriptor =>
-        val typed = descriptor.asInstanceOf[AgentDescriptor[Agent]]
+        val typed    = descriptor.asInstanceOf[AgentDescriptor[Agent]]
+        val mcpTools = connectMcp(typed.componentId, typed.mcpServers, service, timers)
         val _ = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](typed.componentId)) { ctx =>
             AgentHost.behavior(
@@ -138,7 +160,8 @@ final class AgentRuntime private (
               judgments,
               service.secrets,
               service.services,
-              timers
+              timers,
+              mcpTools
             )
           }
         )
@@ -175,6 +198,41 @@ final class AgentRuntime private (
       }
 
   /**
+   * An agent's MCP servers, connected, as tools. Done once per agent when the service starts; a
+   * server that cannot be used fails the start, naming it and the agent.
+   */
+  private def connectMcp(
+      agentId: ComponentId,
+      servers: Vector[mcp.McpServer],
+      service: AnkkaService,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
+  )(using system: ActorSystem[?]): Vector[FunctionTool] =
+    if servers.isEmpty then Vector.empty
+    else
+      val config = system.settings.config
+      def duration(path: String) =
+        scala.concurrent.duration.FiniteDuration(config.getDuration(path).toMillis, "ms")
+      val tools = mcp.McpTools.connect(
+        agentId.toString,
+        servers,
+        variables,
+        service.services,
+        timers.isDefined,
+        mcp.McpTools.Settings(
+          duration("ankka.agent.mcp.connect-timeout"),
+          duration("ankka.agent.mcp.call-timeout"),
+          com.thinkmorestupidless.ankka.core.BuildInfo.version
+        )
+      )
+      system.log.info(
+        "agent '{}' offers {} tool(s) from MCP server(s) {}",
+        agentId,
+        tools.size,
+        servers.map(_.name).mkString(", ")
+      )
+      tools
+
+  /**
    * Hosts every autonomous agent, one sharded instance per instance id.
    *
    * The entity type remembers its entities: an instance working a task has no caller to wake it
@@ -208,6 +266,8 @@ final class AgentRuntime private (
             service.services
           )
         )
+        val mcpTools =
+          connectMcp(descriptor.componentId, descriptor.definition.mcpServers, service, timers)
         val limited = probe.tools.find(_.approval.exists(_.within.isDefined))
         val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools) ++
           limited
@@ -252,7 +312,8 @@ final class AgentRuntime private (
               judgments,
               service.secrets,
               service.services,
-              timers
+              timers,
+              mcpTools
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -363,7 +424,8 @@ private[agent] object AgentHost:
       judgments: Judgments,
       secrets: SecretStore,
       services: ServiceClients,
-      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
+      mcpTools: Vector[FunctionTool] = Vector.empty
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -383,7 +445,8 @@ private[agent] object AgentHost:
           modelTimeout,
           judgments,
           timers,
-          ToolSpans(Some(Observability(ctx.system)), descriptor.componentId.toString)
+          ToolSpans(Some(Observability(ctx.system)), descriptor.componentId.toString),
+          mcpTools
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {

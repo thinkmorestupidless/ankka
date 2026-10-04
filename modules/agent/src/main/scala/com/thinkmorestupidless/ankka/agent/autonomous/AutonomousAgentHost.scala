@@ -74,7 +74,8 @@ private[ankka] object AutonomousAgentHost:
       judgments: Judgments,
       secrets: SecretStore,
       services: ServiceClients,
-      approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None
+      approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
+      mcpTools: Vector[com.thinkmorestupidless.ankka.agent.FunctionTool] = Vector.empty
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -103,6 +104,7 @@ private[ankka] object AutonomousAgentHost:
             judgments,
             emit,
             approvalTimers,
+            mcpTools,
             idle => self ! WorkerIdle(idle),
             () => self ! WorkerStopped,
             Observability(ctx.system)
@@ -500,6 +502,7 @@ private[ankka] object AutonomousAgentHost:
       judgments: Judgments,
       emit: Notification => Unit,
       approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler],
+      mcpTools: Vector[com.thinkmorestupidless.ankka.agent.FunctionTool],
       reportIdle: Boolean => Unit,
       reportStopped: () => Unit,
       observability: Observability
@@ -522,7 +525,8 @@ private[ankka] object AutonomousAgentHost:
           judgments,
           emit,
           approvalTimers,
-          com.thinkmorestupidless.ankka.agent.ToolSpans(Some(observability), componentId.toString)
+          com.thinkmorestupidless.ankka.agent.ToolSpans(Some(observability), componentId.toString),
+          mcpTools
         )
       )
     private def loop: IterationLoop = loopOrNone.get

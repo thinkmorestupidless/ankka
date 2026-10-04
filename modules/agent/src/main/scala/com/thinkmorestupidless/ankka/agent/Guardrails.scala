@@ -23,6 +23,9 @@ private[ankka] object Guardrails:
   enum Direction:
     case Input, Output
 
+    /** What an MCP server's tool answered, before the model is told it. */
+    case Result
+
   /** What the checks of one interaction have spent on judgments. Used from one thread. */
   final class Spent:
     var usage: TokenUsage = TokenUsage.zero
@@ -73,6 +76,7 @@ private[ankka] object Guardrails:
           val verdict = direction match
             case Direction.Input  => guard.checkInput(text)
             case Direction.Output => guard.checkOutput(text)
+            case Direction.Result => guard.checkResult(text)
           verdict.left.toOption.map(Refused(guard.name, _))
       }
       .collectFirst { case Some(refused) => refused }
@@ -86,11 +90,13 @@ private[ankka] object Guardrails:
   ): Option[String] =
     if !guardrail.hasRules then
       throw IllegalStateException(
-        s"judged guardrail '${guardrail.name}' has no rules: add onInput(...) or onOutput(...)"
+        s"judged guardrail '${guardrail.name}' has no rules: add onInput(...), onOutput(...) or " +
+          "onResult(...)"
       )
     val rules = direction match
       case Direction.Input  => guardrail.input
       case Direction.Output => guardrail.output
+      case Direction.Result => guardrail.result
     // Nothing to judge: a handler with no message, a reply with no text.
     if rules.isEmpty || text.isBlank then None
     else

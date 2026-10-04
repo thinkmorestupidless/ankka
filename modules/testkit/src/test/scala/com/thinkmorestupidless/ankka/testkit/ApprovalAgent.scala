@@ -13,7 +13,7 @@ import scala.concurrent.duration.DurationInt
  * Each tool records what it was run with, so a test can assert that a tool did not run, ran once,
  * or ran with the arguments the model proposed.
  */
-final class ApprovalAgent(context: AgentContext) extends Agent:
+final class ApprovalAgent extends Agent:
 
   // docs:start ask
   def ask(question: String): Effect[String] =
@@ -84,7 +84,7 @@ object ApprovalAgent extends Agent.Companion[ApprovalAgent](ComponentId("support
     .requiresApproval(2.seconds)
   // docs:end requires-approval-within
 
-  def create(context: AgentContext) = new ApprovalAgent(context)
+  def create(context: AgentContext) = new ApprovalAgent
 
   val ask     = command("ask")(_.ask)
   val askOnce = command("ask-once")(_.askOnce)

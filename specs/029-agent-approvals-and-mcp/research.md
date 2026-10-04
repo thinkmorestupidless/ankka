@@ -604,3 +604,20 @@ skills' `pages:` lists.
   The server's tool names include hyphens (`get-tiny-image`), which the provider's name rule
   allows. The official Java SDK's dependencies were not re-examined; the client stays our own for
   the service transport regardless (R13, R15).
+- **R14, R16 as built (T050–T054)**: `McpTools.connect` connects each server when `AgentRuntime`
+  starts and gives its tools as `FunctionTool`s carrying the server's approval and origin; the
+  request loop adds them to every effect (never a judgment's) in one place, `withMcp`, and the
+  autonomous loop offers them beside the instance's own. Variables are read through
+  `AgentRuntime.withVariables`, the process's environment by default, so no test-kit change was
+  needed. The start-up refusals are tested on `McpTools.connect` directly (`McpToolsSuite`), with
+  one whole-service case showing a refusal stops the start. A server that is an ankka service is
+  tested through the real `HttpServiceClients` in local mode, plain JSON and an event stream (V6:
+  the service client returns an event-stream answer whole); under mutual TLS it is the same
+  client `ServiceClientSuite` holds, for the reason given for T041.
+- **R17 as built (T055–T057)**: `ResultChecks`, in `ToolRunner`, runs the agent's result
+  guardrails on an MCP tool's result that is not an error; a refusal replaces the result with an
+  error naming the guardrail, so the text reaches neither the model nor the session. The request
+  loop answers a guardrail that cannot decide as it answers any (`guarded`), and the autonomous
+  loop counts it as a failed iteration whose calls are settled again. Shown failing once with the
+  check removed. Not built: a whole-service case for a request agent's judged result guardrail
+  that cannot decide — the path is the one every guardrail fault already takes there.

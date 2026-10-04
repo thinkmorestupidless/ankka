@@ -49,7 +49,8 @@ private[agent] final class AgentLoop(
     modelTimeout: FiniteDuration,
     judgments: Judgments,
     timers: Option[TimerScheduler] = None,
-    spans: ToolSpans = ToolSpans.none
+    spans: ToolSpans = ToolSpans.none,
+    mcpTools: Vector[FunctionTool] = Vector.empty
 ):
 
   private val agentId = descriptor.componentId
@@ -60,7 +61,7 @@ private[agent] final class AgentLoop(
     (effect.failure, effect.judgmentPlan) match
       case (Some(rejection), _) => Left(rejection)
       case (None, Some(plan))   => runJudgment(plan).map(AgentOutcome.Answered(_))
-      case (None, None)         => execute(effect, origin)
+      case (None, None)         => execute(withMcp(effect), origin)
 
   /**
    * Asks the plan's questions and replies from the answers.
@@ -112,7 +113,7 @@ private[agent] final class AgentLoop(
         if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
       prompt = buildPrompt(effect, history, userText)
 
-      ended   <- runToolLoop(provider, effect, Progress.start(prompt))
+      ended   <- runToolLoop(provider, effect, Progress.start(prompt), checksFor(spent))
       outcome <- finish(effect, userText, ended, spent, origin, resumed = false)
     yield outcome
     // A refused or failed interaction writes no message, but what its guardrails spent was spent.
@@ -130,9 +131,10 @@ private[agent] final class AgentLoop(
    * the history, so the approved tools are run at most once.
    */
   def resume[R](
-      effect: AgentEffect[R],
+      effect0: AgentEffect[R],
       turn: SuspendedTurn
   ): Either[CommandError, AgentOutcome[R]] =
+    val effect   = withMcp(effect0)
     val userText = effect.user.getOrElse("")
     val spent    = Guardrails.Spent()
     spent.usage = turn.judgmentUsage
@@ -143,9 +145,9 @@ private[agent] final class AgentLoop(
       state = memoryEntity.call(SessionMemoryEntity.history).invoke()
       history =
         if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
-      progress = settle(effect, turn, buildPrompt(effect, history, userText))
-      ended   <- runToolLoop(provider, effect, progress)
-      outcome <- finish(effect, userText, ended, spent, origin, resumed = true)
+      progress <- settle(effect, turn, buildPrompt(effect, history, userText), checksFor(spent))
+      ended    <- runToolLoop(provider, effect, progress, checksFor(spent))
+      outcome  <- finish(effect, userText, ended, spent, origin, resumed = true)
     yield outcome
     result.left.foreach { _ =>
       endTurn()
@@ -171,7 +173,7 @@ private[agent] final class AgentLoop(
     val described = effect.effect
     described.failure match
       case Some(rejection) => Left(rejection)
-      case None            => executeStreaming(described, emit, origin)
+      case None            => executeStreaming(withMcp(described), emit, origin)
 
   private def executeStreaming(
       effect: AgentEffect[String],
@@ -190,7 +192,7 @@ private[agent] final class AgentLoop(
         if effect.memoryProvider.read then visible(state, effect.memoryProvider) else Vector.empty
       prompt = buildPrompt(effect, history, userText)
 
-      ended <- streamToolLoop(provider, effect, prompt, emit)
+      ended <- streamToolLoop(provider, effect, prompt, emit, checksFor(spent))
 
       // Output guardrails run after the fact when streaming: tokens have already been
       // delivered, so a rejection here stops memory being written but cannot un-send
@@ -307,6 +309,14 @@ private[agent] final class AgentLoop(
       Right(state.copy(suspended = None))
     else Right(state)
 
+  /**
+   * The effect with the agent's MCP servers' tools beside its own. A judgment's effect offers no
+   * tools and is left as it is, as is one that already failed.
+   */
+  private def withMcp[R](effect: AgentEffect[R]): AgentEffect[R] =
+    if mcpTools.isEmpty || effect.judgmentPlan.isDefined || effect.failure.isDefined then effect
+    else effect.tools(mcpTools*)
+
   private def chosenModel(effect: AgentEffect[?]): Either[CommandError, ModelProvider] =
     effect.chosenModel.toRight(
       CommandError(
@@ -345,14 +355,20 @@ private[agent] final class AgentLoop(
   private def settle(
       effect: AgentEffect[?],
       turn: SuspendedTurn,
-      prompt: Vector[ChatMessage]
-  ): Progress =
+      prompt: Vector[ChatMessage],
+      checks: ResultChecks
+  ): Either[CommandError, Progress] = guarded {
     val tools = effect.functionTools.map(tool => tool.name -> tool).toMap
     val decided = turn.requests.flatMap { request =>
       request.decision.map { decision =>
         val result =
           if decision.approved then
-            ToolRunner.run(tools, ToolCall(request.callId, request.tool, request.arguments), spans)
+            ToolRunner.run(
+              tools,
+              ToolCall(request.callId, request.tool, request.arguments),
+              spans,
+              checks
+            )
           else ToolResult(request.callId, request.tool, Approvals.refusal(decision), isError = true)
         result -> decision
       }
@@ -382,6 +398,18 @@ private[agent] final class AgentLoop(
       steps = turn.steps,
       decisions = earlierDecisions ++ decided.map((r, d) => r.callId -> d)
     )
+  }
+
+  private def checksFor(spent: Guardrails.Spent): ResultChecks =
+    ResultChecks(descriptor.resultGuardrails, judgments, spent)
+
+  /** A guardrail that could not decide, as the caller is told it anywhere a guardrail runs. */
+  private def guarded[A](body: => A): Either[CommandError, A] =
+    try Right(body)
+    catch
+      case failed: Guardrails.GuardrailCheckFailed => Left(failed.toCommandError)
+      case failure: JudgmentScriptFailed =>
+        Left(CommandError(failure.getMessage, ErrorCode.Internal))
 
   // ── The loop ──────────────────────────────────────────────────────────────
 
@@ -419,7 +447,8 @@ private[agent] final class AgentLoop(
   private def runToolLoop(
       provider: ModelProvider,
       effect: AgentEffect[?],
-      from: Progress
+      from: Progress,
+      checks: ResultChecks
   ): Either[CommandError, LoopEnd] =
     val tools    = effect.functionTools.map(tool => tool.name -> tool).toMap
     var progress = from
@@ -452,9 +481,10 @@ private[agent] final class AgentLoop(
               )
             )
 
-      step(provider, tools, progress, response) match
-        case Left(ended) => return ended
-        case Right(next) => progress = next
+      guarded(step(provider, tools, progress, response, checks)) match
+        case Left(fault)        => return Left(fault)
+        case Right(Left(ended)) => return ended
+        case Right(Right(next)) => progress = next
     end while
 
     Left(CommandError("unreachable", ErrorCode.Internal))
@@ -463,7 +493,8 @@ private[agent] final class AgentLoop(
       provider: ModelProvider,
       effect: AgentEffect[?],
       prompt: Vector[ChatMessage],
-      emit: String => Unit
+      emit: String => Unit,
+      checks: ResultChecks
   )(using system: ActorSystem[?]): Either[CommandError, LoopEnd] =
     val tools    = effect.functionTools.map(tool => tool.name -> tool).toMap
     var progress = Progress.start(prompt)
@@ -516,9 +547,10 @@ private[agent] final class AgentLoop(
           CommandError(s"${provider.name} stream ended without completing", ErrorCode.Unavailable)
         )
 
-      step(provider, tools, progress, completed.get) match
-        case Left(ended) => return ended
-        case Right(next) => progress = next
+      guarded(step(provider, tools, progress, completed.get, checks)) match
+        case Left(fault)        => return Left(fault)
+        case Right(Left(ended)) => return ended
+        case Right(Right(next)) => progress = next
     end while
 
     Left(CommandError("unreachable", ErrorCode.Internal))
@@ -534,7 +566,8 @@ private[agent] final class AgentLoop(
       provider: ModelProvider,
       tools: Map[String, FunctionTool],
       progress: Progress,
-      response: ModelResponse
+      response: ModelResponse,
+      checks: ResultChecks
   ): Either[Either[CommandError, LoopEnd], Progress] =
     val usage = progress.usage + response.usage
 
@@ -570,7 +603,8 @@ private[agent] final class AgentLoop(
     else
       val waiting =
         response.toolCalls.filter(call => tools.get(call.name).exists(_.approval.isDefined))
-      val results = response.toolCalls.filterNot(waiting.contains).map(call => runTool(tools, call))
+      val results =
+        response.toolCalls.filterNot(waiting.contains).map(call => runTool(tools, call, checks))
       val assistant = ChatMessage.Assistant(response.text, response.toolCalls)
       val steps     = progress.steps + 1
 
@@ -609,8 +643,12 @@ private[agent] final class AgentLoop(
   private def limited(tools: Map[String, FunctionTool], call: ToolCall): Boolean =
     tools.get(call.name).exists(_.approval.exists(_.within.isDefined))
 
-  private def runTool(tools: Map[String, FunctionTool], call: ToolCall): ToolResult =
-    ToolRunner.run(tools, call, spans)
+  private def runTool(
+      tools: Map[String, FunctionTool],
+      call: ToolCall,
+      checks: ResultChecks
+  ): ToolResult =
+    ToolRunner.run(tools, call, spans, checks)
 
   // ── Guardrails ────────────────────────────────────────────────────────────
 

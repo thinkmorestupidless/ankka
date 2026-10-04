@@ -48,14 +48,17 @@ private[ankka] final class IterationLoop(
     judgments: Judgments,
     emit: Notification => Unit,
     timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
-    spans: ToolSpans = ToolSpans.none
+    spans: ToolSpans = ToolSpans.none,
+    mcpTools: Seq[FunctionTool] = Nil
 ):
   import IterationLoop.*
 
   private val componentId = agent.context.componentId
   private val role        = componentId.toString
-  private val tools       = agent.tools.map(t => t.name -> t).toMap
-  private val log         = LoggerFactory.getLogger(getClass)
+  // The agent's own tools, then those its MCP servers had when the service started.
+  private val allTools = agent.tools ++ mcpTools
+  private val tools    = allTools.map(t => t.name -> t).toMap
+  private val log      = LoggerFactory.getLogger(getClass)
 
   private def instance =
     client.forEventSourcedEntity(InstanceEntity.idFor(componentId, instanceId))
@@ -166,7 +169,7 @@ private[ankka] final class IterationLoop(
       settings = ModelSettings(model.modelName),
       systemMessage = Some(systemMessage(taskType, n, budget)),
       messages = firstTurn(taskRecord, dependencies) +: PromptReplay.replay(history(taskRecord.id)),
-      tools = agent.tools.map(_.spec).toVector ++ builtIns(taskType)
+      tools = allTools.map(_.spec).toVector ++ builtIns(taskType)
     )
     val response =
       try Right(Await.result(model.complete(request), modelTimeout))
@@ -252,7 +255,7 @@ private[ankka] final class IterationLoop(
                 n,
                 s"checking the result failed: ${Option(failure.getMessage).getOrElse(failure.toString)}"
               )
-      case None => settle(taskRecord.id, calls)
+      case None => settle(taskRecord.id, n, calls)
 
   /**
    * Gives every call of the response that has no result yet one, as far as decisions allow.
@@ -262,7 +265,24 @@ private[ankka] final class IterationLoop(
    * decided runs, or is answered as refused; one that needs no approval runs; one awaiting a
    * decision waits, and so does the task.
    */
-  private def settle(taskId: String, calls: Vector[ToolCall]): IterationResult =
+  private def settle(taskId: String, n: Int, calls: Vector[ToolCall]): IterationResult =
+    // An MCP server's results pass the result guardrails before the model is told them. One that
+    // cannot decide has refused nothing: the iteration failed, and is tried again — nothing of it
+    // was appended, so the same calls are settled again.
+    val spent  = Guardrails.Spent()
+    val checks = ResultChecks(definition.resultGuardrails, judgments, spent)
+    try settleWith(taskId, calls, checks)
+    catch
+      case failure: Guardrails.GuardrailCheckFailed => failed(taskId, n, failure.getMessage)
+      case failure: JudgmentScriptFailed =>
+        IterationResult.Ended(TaskOutcome.Failed(failure.getMessage))
+    finally recordJudgmentUsage(taskId, spent.usage)
+
+  private def settleWith(
+      taskId: String,
+      calls: Vector[ToolCall],
+      checks: ResultChecks
+  ): IterationResult =
     val (answered, _) = lastResponse(history(taskId))
     val open          = calls.filterNot(c => answered.contains(c.id))
     val recorded = instance
@@ -312,11 +332,11 @@ private[ankka] final class IterationLoop(
 
     val settled = open.flatMap { call =>
       requests.get(call.id) match
-        case None => Some(ToolRunner.run(tools, call, spans) -> None)
+        case None => Some(ToolRunner.run(tools, call, spans, checks) -> None)
         case Some(request) =>
           request.decision.map { decision =>
             val result =
-              if decision.approved then ToolRunner.run(tools, call, spans)
+              if decision.approved then ToolRunner.run(tools, call, spans, checks)
               else ToolResult(call.id, call.name, Approvals.refusal(decision), isError = true)
             result -> Some(decision)
           }

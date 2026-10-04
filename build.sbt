@@ -352,7 +352,7 @@ lazy val telemetryOtlp = project
 /** Unit and integration test support, plus TestModelProvider. */
 lazy val testkit = project
   .in(file("modules/testkit"))
-  .dependsOn(core, sdk, runtime, http, agent)
+  .dependsOn(core, sdk, runtime, http, agent, testPki % Test)
   .settings(commonSettings)
   .settings(
     name := "ankka-testkit",

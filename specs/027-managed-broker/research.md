@@ -198,6 +198,15 @@ accepts a custom engine factory with no keystore configured, and that a renewed 
 by the next connection. If it does not, the fallback is PEM keystores re-read by recreating the
 client on authentication failure, inside the restart the subscriber already has.
 
+**Verified, 2026-10-04** (`KafkaTlsSpike`, `sbt -Dankka.spikes=on 'testkit/testOnly *KafkaTlsSpike'`):
+with Kafka client 3.9.2, the version `pekko-connectors-kafka` 1.2.0 brings, `KafkaTls` named by
+`ssl.engine.factory.class` and no keystore or truststore configured round-trips a record through a
+broker that requires a client certificate; a certificate from another authority is refused; and
+after the directory's files change, the next new connection presents them — shown by swapping in a
+certificate the broker refuses, which is refused, and a good one back, which is accepted. With
+re-reading turned off, that last case fails. The client passes its own configuration, unknown keys
+included, to the factory, so `ankka.tls.directory` reaches it. The fallback is not needed.
+
 ## R11. A component names a topic; the runtime adds the project
 
 **Decision**: `ANKKA_KAFKA_TOPIC_PREFIX` is applied where the runtime hands a topic to Kafka, in

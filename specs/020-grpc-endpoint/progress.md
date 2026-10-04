@@ -60,11 +60,13 @@ unrun). `tasks.md` is the authority on what is ticked; this file says what the o
    passed on the final code except those the rework cannot reach, which passed on the run before it.
 3. T071 by hand on kind (quickstart step 6). Not done: it replaces the operator in the kind cluster
    on this machine, which was running something else, so it is the user's to do.
-4. T072: `@ignore` none, BDD checker 0 findings with 1 spec read, `ci-coverage.py` passes. The
-   golden fixtures are **not** unchanged since T002: each of the six gained exactly two lines,
-   `# remove networkpolicy …/cart-grpc if owned` and `# remove service …/cart-grpc-peers if owned`,
-   read-first owner-checked removals that write nothing where the object does not exist, accepted on
-   purpose in 8766bb9 and 6aa8c84. Whether that meets the gate is the user's call.
+4. T072, run on 2026-10-04 after rebasing onto main (a629d23, with features 019 topology and graph
+   delta publisher): `@ignore` none; `ci-coverage.py` passes; `RenderingGoldenSuite` passes, its
+   record re-pinned to main's rendering at the rebased T002 commit (main now renders the observe
+   port) and this branch differing from it by exactly the two owner-checked removal lines per
+   service, as before. The BDD checker now reports findings, all in main's own specs (019 graph delta
+   publisher, 023–034), identical to its report on main itself; this branch adds none. T072 is
+   unticked only for that: its "0 findings" cannot hold until main's specs are brought to features.
 
 ## Open questions for the user
 

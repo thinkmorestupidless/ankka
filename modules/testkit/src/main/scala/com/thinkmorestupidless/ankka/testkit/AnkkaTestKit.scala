@@ -191,7 +191,13 @@ object AnkkaTestKit:
        * to another service from this one reaches. Kept across `restartService`. Set on this service
        * alone, unlike a system property, which every service in the JVM would read.
        */
-      localServices: Map[String, String] = Map.empty
+      localServices: Map[String, String] = Map.empty,
+      /**
+       * Configuration the service is started with above everything else, on every restart too:
+       * `ankka.telemetry.endpoint` for a test of telemetry export, say. Without it a test's service
+       * names no collector, whatever the developer's own `ANKKA_OTLP_ENDPOINT` says.
+       */
+      settings: Config = ConfigFactory.empty()
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
@@ -208,7 +214,10 @@ object AnkkaTestKit:
     // temp directory they then read, and must keep the one they picked.
     claimRegistryDirectory()
 
-    val config = withLocalServices(configFor(database), localServices)
+    val config = settings
+      .withFallback(ConfigFactory.parseString("ankka.telemetry.endpoint = \"\""))
+      .withFallback(withLocalServices(configFor(database), localServices))
+      .resolve()
 
     val service =
       try

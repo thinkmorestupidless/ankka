@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.testkit.autonomous
 import com.thinkmorestupidless.ankka.agent.*
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.{CommandError, EntityId, ErrorCode}
-import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
+import com.thinkmorestupidless.ankka.runtime.{ProjectionRuntime, TimerRuntime}
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
 
 import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
@@ -26,7 +26,7 @@ class AutonomousApprovalSuite extends munit.FunSuite with LogCapturing:
   override def beforeAll(): Unit =
     kit = AnkkaTestKit.start(
       Seq(Operator.descriptor) ++ AgentRuntime.descriptors,
-      Seq(AgentRuntime.withDefaultModel(model), ProjectionRuntime())
+      Seq(AgentRuntime.withDefaultModel(model), ProjectionRuntime(), TimerRuntime())
     )
 
   override def afterAll(): Unit = if kit != null then kit.stop()
@@ -271,4 +271,39 @@ class AutonomousApprovalSuite extends munit.FunSuite with LogCapturing:
     instance("twice").decide(Decision.refused(second.id, "dana")): Unit
     assertEquals(kit.awaitTask(taskId, Tasks.summary).status, TaskStatus.Completed)
     assertEquals(Operator.runsOf("restart_service").size, 1)
+  }
+
+  // ── A time limit ─────────────────────────────────────────────────────────
+
+  test("an autonomous agent's approval request that expires is refused and the task goes on") {
+    model.expectToolCall("drain_node", Json.obj("node" -> Json.str("n-1")), "call-drain"): Unit
+    val taskId = client.tasks.create(Tasks.summary, "drain node n-1").create()
+    instance("expirer").assign(taskId): Unit
+    val request = awaitingOne("expirer")
+    assert(request.expiresAt.isDefined, request.toString)
+    model.expectCompleteTaskText("left n-1 alone"): Unit
+
+    // drain_node's limit is two seconds; the sweeper polls each second.
+    val done = kit.awaitTask(taskId, Tasks.summary, within = 30.seconds)
+
+    assertEquals(done.status, TaskStatus.Completed)
+    assertEquals(Operator.runsOf("drain_node"), Vector.empty)
+    val expired = resultsOf(taskId).flatMap(_.decision)
+    assertEquals(expired.map(d => (d.expired, d.by)), Vector((true, Decision.Platform)))
+    val told = model.requests(1).messages.collect { case ChatMessage.ToolResults(r) => r }.flatten
+    assert(told.exists(r => r.isError && r.content.contains("expired")), told.toString)
+  }
+
+  test("an autonomous agent with a time limit for approval does not start without TimerRuntime") {
+    val refused = intercept[Throwable](
+      AnkkaTestKit.start(
+        Seq(Operator.descriptor) ++ AgentRuntime.descriptors,
+        Seq(AgentRuntime.withDefaultModel(model), ProjectionRuntime())
+      )
+    )
+    val messages = Iterator.iterate(refused)(_.getCause).takeWhile(_ != null).map(_.getMessage)
+    assert(
+      messages.exists(m => m != null && m.contains("TimerRuntime") && m.contains("drain_node")),
+      messages.mkString(" / ")
+    )
   }

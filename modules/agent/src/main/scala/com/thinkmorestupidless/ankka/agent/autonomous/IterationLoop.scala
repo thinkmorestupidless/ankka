@@ -46,7 +46,8 @@ private[ankka] final class IterationLoop(
     model: ModelProvider,
     modelTimeout: FiniteDuration,
     judgments: Judgments,
-    emit: Notification => Unit
+    emit: Notification => Unit,
+    timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None
 ):
   import IterationLoop.*
 
@@ -280,6 +281,17 @@ private[ankka] final class IterationLoop(
         requestedAt = at,
         expiresAt = tools(call.name).approval.flatMap(_.within).map(at + _.toMillis)
       )
+      // Scheduled before the request is recorded: a timer that finds nothing is done, while a
+      // request with no timer would wait for ever.
+      for
+        scheduler <- timers
+        expiresAt <- request.expiresAt
+      do
+        ApprovalExpiry.schedule(
+          scheduler,
+          ApprovalExpiry.Due(ApprovalExpiry.AutonomousAgent, componentId, instanceId, request.id),
+          expiresAt
+        )
       record(InstanceEvent.ApprovalRequested(request))
       emit(
         Notification.ApprovalRequested(

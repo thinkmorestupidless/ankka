@@ -109,7 +109,15 @@ final class AgentRuntime private (
       )
     }
 
-    startAutonomous(service)
+    // Approval time limits are kept as timers, which need the service's TimerRuntime to fire.
+    val timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] =
+      Option.when(service.extensionNames.contains("timers"))(
+        com.thinkmorestupidless.ankka.runtime.DatabaseTimerScheduler(
+          com.thinkmorestupidless.ankka.runtime.Database()
+        )
+      )
+
+    startAutonomous(service, timers)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
     if agents.isEmpty then system.log.debug("no agents registered")
@@ -129,7 +137,8 @@ final class AgentRuntime private (
               modelTimeout,
               judgments,
               service.secrets,
-              service.services
+              service.services,
+              timers
             )
           }
         )
@@ -174,7 +183,10 @@ final class AgentRuntime private (
    * instance leaves memory only when it passivates itself, which it does when it has nothing to do
    * and nobody is watching.
    */
-  private def startAutonomous(service: AnkkaService)(using system: ActorSystem[?]): Unit =
+  private def startAutonomous(
+      service: AnkkaService,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
+  )(using system: ActorSystem[?]): Unit =
     val autonomousAgents = service.registry.components.collect {
       case a: autonomous.AutonomousAgentDescriptor[?] => a
     }
@@ -196,7 +208,11 @@ final class AgentRuntime private (
             service.services
           )
         )
-        val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools)
+        val limited = probe.tools.find(_.approval.exists(_.within.isDefined))
+        val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools) ++
+          limited
+            .filter(_ => timers.isEmpty)
+            .map(t => ApprovalExpiry.needsTimers(s"tool '${t.name}'"))
         if problems.nonEmpty then
           throw IllegalArgumentException(
             problems.mkString(
@@ -235,7 +251,8 @@ final class AgentRuntime private (
               modelTimeout,
               judgments,
               service.secrets,
-              service.services
+              service.services,
+              timers
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -314,7 +331,8 @@ object AgentRuntime:
       SessionMemoryEntity.descriptor,
       autonomous.TaskEntity.descriptor,
       autonomous.InstanceEntity.descriptor,
-      autonomous.TaskCascade.descriptor
+      autonomous.TaskCascade.descriptor,
+      ApprovalExpiry.platformDescriptor
     )
 
 /**
@@ -344,7 +362,8 @@ private[agent] object AgentHost:
       modelTimeout: FiniteDuration,
       judgments: Judgments,
       secrets: SecretStore,
-      services: ServiceClients
+      services: ServiceClients,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -362,7 +381,8 @@ private[agent] object AgentHost:
           sessionId,
           componentClient,
           modelTimeout,
-          judgments
+          judgments,
+          timers
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {
@@ -384,7 +404,7 @@ private[agent] object AgentHost:
 
           case invoke: EntityProtocol.Invoke if invoke.method == Approvals.DecideMethod =>
             // A decision holds the session as a request does: it may run tools and the model.
-            startDecide(ctx, descriptor, context, loop, componentClient, sessionId, invoke)
+            startDecide(ctx, descriptor, context, loop, componentClient, sessionId, timers, invoke)
             busy
 
           case invoke: EntityProtocol.Invoke =>
@@ -537,6 +557,7 @@ private[agent] object AgentHost:
       loop: AgentLoop,
       componentClient: ComponentClient,
       sessionId: SessionId,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler],
       invoke: EntityProtocol.Invoke
   ): Unit =
     val observability = Observability(ctx.system)
@@ -565,6 +586,17 @@ private[agent] object AgentHost:
           if before.suspended.exists(_.awaiting.isEmpty) then
             memory.call(SessionMemoryEntity.endTurn).invoke(): Unit
           val turn = memory.call(SessionMemoryEntity.decideApproval).invoke(request.decision)
+          timers.foreach(
+            ApprovalExpiry.forget(
+              _,
+              ApprovalExpiry.Due(
+                ApprovalExpiry.RequestAgent,
+                descriptor.componentId,
+                sessionId,
+                request.decision.approvalId
+              )
+            )
+          )
           if turn.awaiting.nonEmpty then awaiting(turn.awaiting)
           else resume(turn)
 
@@ -784,11 +816,21 @@ final class AgentCalls private[agent] (
   def decideAsync[A <: Agent, I, O](handle: CommandHandle[A, I, O])(
       decision: Decision
   ): Future[AgentOutcome[O]] =
-    sendDecision(handle.componentId, handle.name, decision, handle.outputSerializer.fromBytes)
+    sendDecision(
+      handle.componentId,
+      handle.name.toString,
+      decision,
+      handle.outputSerializer.fromBytes
+    )
 
   def decide[A <: Agent, O](handle: NoArgHandle[A, O])(decision: Decision): AgentOutcome[O] =
     ComponentClient.await(
-      sendDecision(handle.componentId, handle.name, decision, handle.outputSerializer.fromBytes),
+      sendDecision(
+        handle.componentId,
+        handle.name.toString,
+        decision,
+        handle.outputSerializer.fromBytes
+      ),
       transport.askTimeout
     )
 
@@ -797,12 +839,22 @@ final class AgentCalls private[agent] (
     ComponentClient.await(
       sendDecision(
         handle.componentId,
-        handle.name,
+        handle.name.toString,
         decision,
         String(_, java.nio.charset.StandardCharsets.UTF_8)
       ),
       transport.askTimeout
     )
+
+  /**
+   * The platform's own decision — an expiry — which names no handler: it goes to whichever turn
+   * holds the request, and nobody is waiting for what the model says next.
+   */
+  private[ankka] def decideAsPlatform(componentId: ComponentId, decision: Decision): Unit =
+    ComponentClient.await(
+      sendDecision(componentId, "", decision, _ => ()),
+      transport.askTimeout
+    ): Unit
 
   /** The session's approval requests that are awaiting a decision. */
   def approvals(): Vector[ApprovalRequest] =
@@ -886,7 +938,7 @@ final class AgentCalls private[agent] (
 
   private def sendDecision[O](
       componentId: ComponentId,
-      handler: MethodName,
+      handler: String,
       decision: Decision,
       decode: Array[Byte] => O
   ): Future[AgentOutcome[O]] =

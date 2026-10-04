@@ -326,6 +326,21 @@ class ApprovalSuite extends munit.FunSuite with LogCapturing:
     assertEquals(agent("s-handle").approvals().map(_.id), Vector(request.id), "nothing decided")
   }
 
+  test("a tool with a time limit for approval is refused in a service with no TimerRuntime") {
+    model.expectToolCall(
+      "close_account",
+      Json.obj("customer" -> Json.str("c-9")),
+      "call-close"
+    ): Unit
+
+    val refused = refusalOf(ask("s-no-timers", "close my account"))
+
+    assertEquals(refused.code, ErrorCode.Internal)
+    assert(refused.getMessage.contains("TimerRuntime"), refused.getMessage)
+    assertEquals(historyOf("s-no-timers").suspended, None, "nothing is recorded")
+    assertEquals(ApprovalAgent.runsOf("close_account"), Vector.empty)
+  }
+
   test("call throws ApprovalAwaited when the turn waits") {
     scriptRefund()
     val thrown = intercept[ApprovalAwaited](

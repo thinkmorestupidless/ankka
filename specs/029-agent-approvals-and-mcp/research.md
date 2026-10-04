@@ -565,3 +565,14 @@ skills' `pages:` lists.
 - **T030**: the awaiting state is a new fixture, `agent-state-awaiting.json`, beside
   `agent-notification-approval-requested.json`; `agent-state.json` is unchanged, so it still shows
   the form with nothing awaiting decodes.
+- **V2 (T032)**: `AnkkaService.extensionNames` already says whether `TimerRuntime` (`"timers"`)
+  is registered. `AgentRuntime.start` builds its own `DatabaseTimerScheduler` over `Database()`
+  when it is, and passes it to both hosts; the timed action is `ankka-approval-expiry`, in
+  `AgentRuntime.descriptors`. `TimedActionDescriptor` gained `platform`, as `ConsumerDescriptor`
+  has, so the console and the topology mark the action as the platform's.
+- **Expiry as built (T035, T036)**: the timer is scheduled before the request is recorded, so a
+  stop between the two leaves a timer that finds nothing and is done rather than a request that
+  waits for ever; a decision deletes it, best effort. A request agent's expiry is sent through
+  `ankka:decide` naming no handler, so it goes to whichever turn holds the request. Without
+  `TimerRuntime`, a request agent's tool with a limit is refused `Internal` before anything runs or
+  is recorded; an autonomous agent with one fails its service's start, naming the tool.

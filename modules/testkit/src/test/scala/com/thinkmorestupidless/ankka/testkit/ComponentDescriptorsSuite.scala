@@ -18,7 +18,13 @@ final class ComponentDescriptorsSuite extends FunSuite:
     val descriptors = AgentRuntime.descriptors
     assertEquals(
       descriptors.map(_.componentId.toString).toSet,
-      Set("ankka-session-memory", "ankka-task", "ankka-agent-instance", "ankka-task-cascade")
+      Set(
+        "ankka-session-memory",
+        "ankka-task",
+        "ankka-agent-instance",
+        "ankka-task-cascade",
+        "ankka-approval-expiry"
+      )
     )
     descriptors.foreach(d => assert(d.platform, s"$d should be a platform component"))
   }
@@ -26,7 +32,7 @@ final class ComponentDescriptorsSuite extends FunSuite:
   test("the session compactor, registered only with compaction, is the platform's too") {
     val descriptors =
       AgentRuntime().withCompaction(CompactionSettings(), Some(_ => "summary")).descriptors
-    assertEquals(descriptors.size, 5, descriptors.toString)
+    assertEquals(descriptors.size, 6, descriptors.toString)
     descriptors.foreach(d => assert(d.platform, s"$d should be a platform component"))
   }
 

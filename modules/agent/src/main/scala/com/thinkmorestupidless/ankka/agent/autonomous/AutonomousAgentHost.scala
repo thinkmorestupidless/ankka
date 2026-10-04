@@ -73,7 +73,8 @@ private[ankka] object AutonomousAgentHost:
       modelTimeout: FiniteDuration,
       judgments: Judgments,
       secrets: SecretStore,
-      services: ServiceClients
+      services: ServiceClients,
+      approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -90,7 +91,8 @@ private[ankka] object AutonomousAgentHost:
           )
           val emit: Notification => Unit = n => self ! Emit(n)
           val model                      = descriptor.definition.model.orElse(defaultModel)
-          val ops                        = Operations(descriptor, instanceId, componentClient, emit)
+          val ops =
+            Operations(descriptor, instanceId, componentClient, emit, approvalTimers)
           val worker = Worker(
             descriptor,
             descriptor.create(context),
@@ -100,6 +102,7 @@ private[ankka] object AutonomousAgentHost:
             modelTimeout,
             judgments,
             emit,
+            approvalTimers,
             idle => self ! WorkerIdle(idle),
             () => self ! WorkerStopped,
             Observability(ctx.system)
@@ -274,7 +277,8 @@ private[ankka] object AutonomousAgentHost:
       descriptor: AutonomousAgentDescriptor[?],
       instanceId: String,
       client: ComponentClient,
-      emit: Notification => Unit
+      emit: Notification => Unit,
+      approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
   ):
     private val componentId = descriptor.componentId
     private val me          = Assignee(componentId.toString, instanceId)
@@ -376,6 +380,17 @@ private[ankka] object AutonomousAgentHost:
         )
       else
         record(InstanceEvent.ApprovalDecided(id, decision))
+        approvalTimers.foreach(
+          com.thinkmorestupidless.ankka.agent.ApprovalExpiry.forget(
+            _,
+            com.thinkmorestupidless.ankka.agent.ApprovalExpiry.Due(
+              com.thinkmorestupidless.ankka.agent.ApprovalExpiry.AutonomousAgent,
+              componentId,
+              instanceId,
+              id
+            )
+          )
+        )
         val taskId = current.map(_.taskId).getOrElse("")
         emit(
           Notification.ApprovalDecided(
@@ -484,6 +499,7 @@ private[ankka] object AutonomousAgentHost:
       modelTimeout: FiniteDuration,
       judgments: Judgments,
       emit: Notification => Unit,
+      approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler],
       reportIdle: Boolean => Unit,
       reportStopped: () => Unit,
       observability: Observability
@@ -496,7 +512,17 @@ private[ankka] object AutonomousAgentHost:
     // Absent when neither the definition nor the runtime names a model: every task then fails, saying so.
     private val loopOrNone =
       model.map(m =>
-        IterationLoop(definition, agent, instanceId, client, m, modelTimeout, judgments, emit)
+        IterationLoop(
+          definition,
+          agent,
+          instanceId,
+          client,
+          m,
+          modelTimeout,
+          judgments,
+          emit,
+          approvalTimers
+        )
       )
     private def loop: IterationLoop = loopOrNone.get
 

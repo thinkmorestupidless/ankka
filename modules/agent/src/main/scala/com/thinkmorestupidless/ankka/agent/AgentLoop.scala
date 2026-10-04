@@ -7,7 +7,7 @@ import com.thinkmorestupidless.ankka.agent.judgment.{
   NoJudgmentProvider
 }
 import com.thinkmorestupidless.ankka.core.*
-import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, TimerScheduler}
 
 import scala.concurrent.duration.FiniteDuration
 import org.apache.pekko.actor.typed.ActorSystem
@@ -47,7 +47,8 @@ private[agent] final class AgentLoop(
     sessionId: SessionId,
     componentClient: ComponentClient,
     modelTimeout: FiniteDuration,
-    judgments: Judgments
+    judgments: Judgments,
+    timers: Option[TimerScheduler] = None
 ):
 
   private val agentId = descriptor.componentId
@@ -264,6 +265,18 @@ private[agent] final class AgentLoop(
       judgmentUsage = spent.usage
     )
     try
+      // Each expiry is scheduled before its request is recorded: a timer that finds nothing finds
+      // the id not held and is done, while a request with no timer would wait for ever.
+      for
+        scheduler <- timers
+        request   <- requests
+        expiresAt <- request.expiresAt
+      do
+        ApprovalExpiry.schedule(
+          scheduler,
+          ApprovalExpiry.Due(ApprovalExpiry.RequestAgent, agentId, sessionId, request.id),
+          expiresAt
+        )
       memoryEntity.call(SessionMemoryEntity.suspendTurn).invoke(turn): Unit
       Right(())
     catch case error: CommandError => Left(error)
@@ -548,6 +561,11 @@ private[agent] final class AgentLoop(
           )
         )
       )
+    else if timers.isEmpty && response.toolCalls.exists(call => limited(tools, call)) then
+      // Refused before anything runs or is recorded: a deadline nothing would ever enforce is
+      // worse than none.
+      val tool = response.toolCalls.find(call => limited(tools, call)).get.name
+      Left(Left(CommandError(ApprovalExpiry.needsTimers(s"tool '$tool'"), ErrorCode.Internal)))
     else
       val waiting =
         response.toolCalls.filter(call => tools.get(call.name).exists(_.approval.isDefined))
@@ -585,6 +603,10 @@ private[agent] final class AgentLoop(
             LoopEnd.Wait(progress.copy(produced = produced, usage = usage, steps = steps), requests)
           )
         )
+
+  /** Whether a call is to a tool that requires approval within a time limit. */
+  private def limited(tools: Map[String, FunctionTool], call: ToolCall): Boolean =
+    tools.get(call.name).exists(_.approval.exists(_.within.isDefined))
 
   private def runTool(tools: Map[String, FunctionTool], call: ToolCall): ToolResult =
     ToolRunner.run(tools, call)

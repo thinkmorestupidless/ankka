@@ -50,3 +50,32 @@ class SettingsSuite extends munit.FunSuite:
       assertEquals(Settings.fromEnvironment().sidecarImage, "ankka-sidecar:9.9.9")
     }
   }
+
+  private val broker = Seq(
+    "ankka.operator.broker-bootstrap" -> "ankka-kafka-bootstrap.ankka-broker.svc:9093",
+    "ankka.operator.broker-namespace" -> "ankka-broker",
+    "ankka.operator.broker-cluster"   -> "ankka"
+  )
+
+  test("an installation with no broker settings has no broker") {
+    assertEquals(Settings.fromEnvironment().broker, None)
+    assertEquals(Settings.default.broker, None)
+  }
+
+  test("all three broker settings are the installation's broker") {
+    withProperties(broker*) {
+      assertEquals(
+        Settings.fromEnvironment().broker,
+        Some(BrokerSettings("ankka-kafka-bootstrap.ankka-broker.svc:9093", "ankka-broker", "ankka"))
+      )
+    }
+  }
+
+  test("some broker settings and not others refuse to start, naming what is missing") {
+    withProperties(broker.take(1)*) {
+      val refused = intercept[IllegalStateException](Settings.fromEnvironment())
+      assert(refused.getMessage.contains("ANKKA_BROKER_NAMESPACE"), refused.getMessage)
+      assert(refused.getMessage.contains("ANKKA_BROKER_CLUSTER"), refused.getMessage)
+      assert(!refused.getMessage.contains("ANKKA_BROKER_BOOTSTRAP"), refused.getMessage)
+    }
+  }

@@ -63,7 +63,12 @@ final case class Settings(
      * installation's `ankka-telemetry` Secret. Written into each service's own Secret, never onto a
      * Deployment, and never printed.
      */
-    otlpHeaders: Option[Settings.Credential] = None
+    otlpHeaders: Option[Settings.Credential] = None,
+    /**
+     * The installation's broker, when it has one (feature 027). `None` means it has none: no
+     * service is told of one, and a service that declares a topic reports that it cannot have it.
+     */
+    broker: Option[BrokerSettings] = None
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -145,7 +150,8 @@ object Settings:
       httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort),
       otlpEndpoint = raw("ankka.operator.otlp-endpoint", PlatformVariables.OtlpEndpoint),
       otlpHeaders =
-        raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_))
+        raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
+      broker = BrokerSettings.read(raw)
     )
 
   private def raw(property: String, variable: String): Option[String] =
@@ -169,3 +175,41 @@ object Settings:
       fallback: FiniteDuration
   ): FiniteDuration =
     raw(property, variable).flatMap(_.toIntOption).map(_.seconds).getOrElse(fallback)
+
+/**
+ * Where the installation's broker is, and where the operator writes the topics and users it holds.
+ *
+ * @param bootstrap
+ *   the address services connect to, `<cluster>-kafka-bootstrap.<namespace>.svc:9093`
+ * @param namespace
+ *   the namespace the broker's topic and user operators watch
+ * @param cluster
+ *   the broker's name, which every topic and user names in its `strimzi.io/cluster` label
+ */
+final case class BrokerSettings(bootstrap: String, namespace: String, cluster: String)
+
+object BrokerSettings:
+
+  /** Each setting: its system property, then the variable the broker component sets. */
+  val Variables: Vector[(String, String)] = Vector(
+    "ankka.operator.broker-bootstrap" -> "ANKKA_BROKER_BOOTSTRAP",
+    "ankka.operator.broker-namespace" -> "ANKKA_BROKER_NAMESPACE",
+    "ankka.operator.broker-cluster"   -> "ANKKA_BROKER_CLUSTER"
+  )
+
+  /**
+   * All three, or none. Some and not others is a component installed by halves, and an operator
+   * that guessed the rest would write topics where no broker reads them; it refuses to start
+   * instead, naming what is missing.
+   */
+  def read(lookup: (String, String) => Option[String]): Option[BrokerSettings] =
+    Variables.map(lookup.tupled) match
+      case Vector(Some(bootstrap), Some(namespace), Some(cluster)) =>
+        Some(BrokerSettings(bootstrap, namespace, cluster))
+      case values if values.forall(_.isEmpty) => None
+      case values =>
+        val missing = Variables.zip(values).collect { case ((_, variable), None) => variable }
+        throw IllegalStateException(
+          s"the broker is configured by halves: ${missing.mkString(", ")} " +
+            s"${if missing.size == 1 then "is" else "are"} not set; set all three or none"
+        )

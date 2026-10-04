@@ -1072,4 +1072,86 @@ spec:
     val (_, appEnv) =
       kubectl("exec", "-n", Namespace, pod, "-c", s"$OrdersService-app", "--", "env")
     assert(!appEnv.contains("/var/run/secrets/ankka"), appEnv)
+
+  // ── a broker the descriptor names (features/broker/supplied.feature) ─────────────────────────
+  //
+  // The Python sample registers its graph consumers, which publish to `cart-graph`, only when it is
+  // told of a broker. A service of its own, with a database of its own: two services sharing one
+  // would delete each other's timers.
+
+  private val GraphService = "graph-cart"
+
+  private lazy val plainKafka: String =
+    deployPostgres("graph-postgres")
+    com.thinkmorestupidless.ankka.operator.PlainKafka.install(k3s, Namespace)
+
+  private def graphSpec: AnkkaServiceSpec =
+    spec().copy(
+      serviceName = GraphService,
+      env = List(
+        EnvEntry("ANKKA_DB_HOST", Some(s"graph-postgres.$Namespace.svc"), None, None),
+        EnvEntry("ANKKA_DB_PORT", Some("5432"), None, None),
+        EnvEntry("ANKKA_DB_NAME", Some("ankka"), None, None),
+        EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
+        EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
+        EnvEntry("ANKKA_KAFKA_BOOTSTRAP_SERVERS", Some(plainKafka), None, None)
+      )
+    )
+
+  /** What a failure needs: the service's reported status, its pods, and both containers' logs. */
+  private def graphDiagnosis(): String =
+    val pods = kubectl("get", "pods", "-n", Namespace, "-o", "wide")._2
+    val logs = podsOf(GraphService).headOption.toVector.flatMap { p =>
+      Vector(GraphService, s"$GraphService-app").map { c =>
+        s"── $c ──\n" + kubectl(
+          "logs",
+          "-n",
+          Namespace,
+          p.getMetadata.getName,
+          "-c",
+          c,
+          "--tail",
+          "40"
+        )._2
+      }
+    }
+    s"status: ${statusOf(GraphService)}\n$pods\n${logs.mkString("\n")}"
+
+  test("a service hosted as a process is ready with the broker its descriptor names") {
+    applyAs(GraphService, graphSpec)
+    val deadline = 300.seconds.fromNow
+    while !podsOf(GraphService).exists(readyOf) && deadline.hasTimeLeft() do Thread.sleep(2000)
+    assert(podsOf(GraphService).exists(readyOf), graphDiagnosis())
+    waitFor(60.seconds)(statusOf(GraphService).exists(_.lifecycle == "Ready"))
+    // Both programs were told of the broker: the sidecar connects to it, and the process registered
+    // the consumers that need one, which a sidecar with no broker would have refused to start.
+    val pod = podsOf(GraphService).find(readyOf).get.getMetadata.getName
+    for container <- Vector(GraphService, s"$GraphService-app") do
+      val (_, env) = kubectl("exec", "-n", Namespace, pod, "-c", container, "--", "env")
+      assert(env.contains(s"ANKKA_KAFKA_BOOTSTRAP_SERVERS=$plainKafka"), s"$container: $env")
+  }
+
+  test(
+    "a consumer of a service hosted as a process publishes to the broker its descriptor names"
+  ) {
+    // A prober holding this service's own certificate, so the case runs alone too.
+    val graphProber =
+      com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, GraphService)
+    val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      graphProber,
+      s"https://$GraphService.$Namespace.svc.cluster.local:9000/carts/graph-c1/items",
+      method = "POST",
+      body = Some("""{"productId":"graph-p1","name":"Pen","quantity":2}""")
+    )
+    assertEquals(code / 100, 2, body)
+    var published = Vector.empty[String]
+    waitFor(120.seconds) {
+      published = com.thinkmorestupidless.ankka.operator.PlainKafka
+        .read(k3s, Namespace, "cart-graph", max = 10, wait = 10.seconds)
+      published.exists(_.contains("graph-c1"))
+    }
+    assert(published.exists(_.contains("graph-c1")), published.mkString("\n"))
+    resources.withName(GraphService).delete(): Unit
   }

@@ -34,6 +34,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
       EnvEntry("ANTHROPIC_API_KEY", None, Some("models"), Some("anthropic")),
       EnvEntry("ANKKA_MODEL_DEFAULT", Some("claude"), None, None),
       EnvEntry("ANKKA_DB_HOST", Some("postgres"), None, None),
+      EnvEntry("ANKKA_AUTH_ISSUERS", Some("customers"), None, None),
       EnvEntry("ANKKA_KAFKA_BOOTSTRAP_SERVERS", Some("kafka.kafka.svc:9092"), None, None)
     )
   )
@@ -97,6 +98,9 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     assert(!node.contains("GREETING"))
     assert(app.contains("GREETING"))
     assert(!app.contains("ANTHROPIC_API_KEY") && !app.contains("ANKKA_DB_HOST"))
+    // The sidecar verifies tokens; the process is handed the principal and never the issuers.
+    assert(node.contains("ANKKA_AUTH_ISSUERS"), "the issuers are the sidecar's")
+    assert(!app.contains("ANKKA_AUTH_ISSUERS"), "the process never sees the issuers")
     // The broker is named to both: the sidecar is what connects to it — without it a consumer
     // that publishes is refused at startup — and the process may register what needs one only
     // where there is one.

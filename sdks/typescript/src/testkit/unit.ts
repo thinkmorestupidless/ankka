@@ -117,7 +117,8 @@ export class Response {
 export interface RequestOptions {
   readonly query?: Readonly<Record<string, string | readonly string[]>>
   readonly headers?: Readonly<Record<string, string>>
-  readonly principal?: Principal
+  /** The verified caller, as the runtime would hand it over; `claims` and `issuer` may be left out. */
+  readonly principal?: Omit<Principal, "claims" | "issuer"> & Partial<Pick<Principal, "claims" | "issuer">>
   readonly metadata?: Metadata
 }
 
@@ -175,7 +176,15 @@ export class EndpointTestKit<C extends Endpoint> {
     }
     const headers = Object.entries(options.headers ?? {}).map(([name, value]) => ({ name, value }))
     const principal = options.principal
-      ? { subject: options.principal.subject, name: options.principal.name ?? undefined, email: options.principal.email ?? undefined, emailVerified: options.principal.emailVerified, roles: [...options.principal.roles] }
+      ? {
+          subject: options.principal.subject,
+          name: options.principal.name ?? undefined,
+          email: options.principal.email ?? undefined,
+          emailVerified: options.principal.emailVerified,
+          roles: [...options.principal.roles],
+          claims: { ...(options.principal.claims ?? {}) },
+          issuer: options.principal.issuer ?? undefined,
+        }
       : undefined
     const req = create(HttpRequestSchema, {
       endpointId: this.#cls.name,

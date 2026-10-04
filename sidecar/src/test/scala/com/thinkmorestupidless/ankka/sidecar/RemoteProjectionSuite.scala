@@ -168,7 +168,9 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
       Settings(s"127.0.0.1:$port", 0, "127.0.0.1", 5.seconds, 1.second, 2.seconds, 2.seconds)
     conversation = GrpcConversation(channel, settings)
     val descriptors =
-      Discovery.validate(double.toSpec).fold(p => fail(p.mkString("; ")), _.descriptors)
+      Discovery
+        .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
+        .fold(p => fail(p.mkString("; ")), _.descriptors)
     kit = AnkkaTestKit.start(
       descriptors,
       Seq(projections, timers),

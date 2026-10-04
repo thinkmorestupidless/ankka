@@ -65,9 +65,11 @@ feature also says what that feature does not do.
 - **The gateway is one caller.** Every request from outside the cluster reads as the gateway, whichever
   hostname it arrived at. Telling users apart is a bearer token the service verifies in
   `Acl.Authenticate`.
-- **The platform authenticates its operators, not your service's users.** The control plane verifies
-  identity-provider tokens; a deployed service's endpoints are protected only by the ACL their author
-  wrote. The platform provisions no identity realm, client or token check for a service's users.
+- **The platform verifies a service's users' tokens and issues none.** A service lists the issuers it
+  accepts, and an authenticated route admits only a token one of them signed. No realm, client or user is
+  provisioned for a service's users, and the platform administers none: the identity provider is the
+  installation's or the service's to run. Only signed JSON Web Tokens whose issuer publishes its keys are
+  verified, every listed issuer must name an audience, and a route accepts any of the service's issuers.
 - **Python and TypeScript services cannot call another service as themselves.** They can be called, and
   read the caller; only a Scala service has a service client that presents its certificate, for HTTP or
   for gRPC.

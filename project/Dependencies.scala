@@ -159,7 +159,7 @@ object Dependencies {
   /** The reflection services, v1 and v1alpha, for a service that opts in (feature 020). */
   val grpcServices: ModuleID = "io.grpc" % "grpc-services" % V.grpc
 
-  /** JOSE/JWT verification for the control plane. Deliberately not in any published module. */
+  /** JOSE/JWT verification; a dependency of `ankka-auth-oidc` and of nothing else (feature 022). */
   val nimbusJoseJwt = "com.nimbusds" % "nimbus-jose-jwt" % V.nimbusJoseJwt
 
   val bcpkix = "org.bouncycastle" % "bcpkix-jdk18on" % V.bouncyCastle

@@ -29,7 +29,8 @@ object WasmDiscovery:
       instance: GuestInstance,
       module: LoadedModule,
       runtimeVersion: String,
-      protocolVersion: String = Discovery.ProtocolVersion
+      protocolVersion: String = Discovery.ProtocolVersion,
+      authConfigured: Boolean
   ): Either[Vector[String], Discovered] =
     val answered = instance
       .call(Abi.Prefix + "discover", SidecarInfo(protocolVersion, runtimeVersion).toByteArray)
@@ -39,7 +40,7 @@ object WasmDiscovery:
         Try(WasmSpec.parseFrom(bytes)).toEither.left
           .map(e => Vector(s"the module's discovery answer is not a WasmSpec: ${e.getMessage}"))
       )
-    val result = answered.flatMap(validate(_, module.exports, protocolVersion))
+    val result = answered.flatMap(validate(_, module.exports, protocolVersion, authConfigured))
     result.left.foreach { problems =>
       log.error(problems.mkString("the runtime refused the module:\n  - ", "\n  - ", ""))
     }
@@ -49,7 +50,8 @@ object WasmDiscovery:
   def validate(
       wasm: WasmSpec,
       exports: Set[String],
-      protocolVersion: String = Discovery.ProtocolVersion
+      protocolVersion: String,
+      authConfigured: Boolean
   ): Either[Vector[String], Discovered] =
     val spec     = wasm.getSpec
     val problems = Vector.newBuilder[String]
@@ -87,7 +89,7 @@ object WasmDiscovery:
     }
 
     val own = problems.result()
-    Discovery.validate(spec, protocolVersion) match
+    Discovery.validate(spec, protocolVersion, authConfigured) match
       case Left(shared)             => Left(own ++ shared)
       case Right(_) if own.nonEmpty => Left(own)
       case Right(discovered) =>

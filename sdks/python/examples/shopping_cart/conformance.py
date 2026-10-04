@@ -499,6 +499,14 @@ class PrivateEndpoint(Endpoint):
     def root(self) -> str:
         return "private"
 
+    @get("/me")
+    def me(self) -> str:
+        p = self.request.principal
+        assert p is not None, "an authenticated route is handed its principal"
+        return json.dumps(
+            {"subject": p.subject, "roles": sorted(p.roles), "tier": p.claims.get("tier"), "issuer": p.issuer}
+        )
+
 
 def reference_service() -> ServiceBuilder:
     """The cart sample plus the conformance extras: what `uv run conformance` serves."""

@@ -40,6 +40,10 @@ export interface Principal {
   readonly email: string | null
   readonly emailVerified: boolean
   readonly roles: readonly string[]
+  /** Every other claim of the verified token, as text. */
+  readonly claims: Readonly<Record<string, string>>
+  /** The service's own name for the issuer that verified the token, from `ANKKA_AUTH_ISSUERS`. */
+  readonly issuer: string | null
 }
 
 /**

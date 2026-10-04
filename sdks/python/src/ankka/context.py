@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from ankka._proto.ankka.protocol.v1 import payload_pb2
@@ -100,11 +102,19 @@ Caller = Gateway | ServiceCaller | LocalCaller
 
 @dataclass(frozen=True)
 class Principal:
+    """Who a verified token names, on a route whose access rule is ``Acl.AUTHENTICATED``.
+
+    ``claims`` holds every other claim of the token, as text; ``issuer`` is the service's own name
+    for the issuer that verified it, as listed in ``ANKKA_AUTH_ISSUERS``.
+    """
+
     subject: str
     name: str | None = None
     email: str | None = None
     email_verified: bool = False
     roles: frozenset[str] = frozenset()
+    claims: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    issuer: str | None = None
 
 
 @dataclass(frozen=True)

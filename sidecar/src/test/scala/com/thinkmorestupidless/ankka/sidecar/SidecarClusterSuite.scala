@@ -61,6 +61,22 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
   private val Namespace     = s"$Prefix-$Project"
   private val Service       = "cart"
 
+  /**
+   * Feature 022: a Python service with one authenticated route, built on the sample's image, and
+   * the issuer whose tokens it accepts. The issuer's keys are served inside the cluster, since the
+   * test issuer's own server is on the host's loopback where no pod can reach it.
+   */
+  private val AuthImage       = s"ankka-auth-probe-python:${BuildInfo.imageTag}"
+  private val AuthService     = "accounts"
+  private val UnlistedService = "accounts-unlisted"
+  private val KeysImage       = "busybox:1.37"
+  private lazy val authIssuer =
+    com.thinkmorestupidless.ankka.auth.oidc.TestIssuer(
+      "https://auth.cluster.test/realms/staff",
+      "staff",
+      "accounts"
+    )
+
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
   private var operator: Operator    = null
@@ -93,11 +109,14 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       assertEquals(build.waitFor(), 0, s"docker build failed:\n$output")
 
       buildModuleImages()
+      buildAuthImage()
 
       k3s = new K3sContainer(DockerImageName.parse(K3sImage))
       k3s.start()
       ClusterImages.importInto(k3s, SidecarImage)
       ClusterImages.importInto(k3s, PythonImage)
+      ClusterImages.importInto(k3s, AuthImage)
+      ClusterImages.importInto(k3s, KeysImage)
       (Vector(WrongAbiImage, NoCopyImage) ++ Option.when(rustBuilt)(RustImage))
         .foreach(ClusterImages.importInto(k3s, _))
 
@@ -128,11 +147,14 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       deployPostgres()
       // Two services never share a database; the wasm one has its own.
       deployPostgres("postgres-rust")
+      deployPostgres("postgres-accounts")
+      deployKeys()
 
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
 
   override def afterAll(): Unit =
+    if k3s != null then authIssuer.stop()
     if operator != null then operator.close()
     if k8s != null then k8s.close()
     if k3s != null then k3s.stop()
@@ -207,6 +229,88 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
     val noCopy = Files.createTempDirectory("no-copy")
     Files.writeString(noCopy.resolve("Dockerfile"), "FROM busybox:1.37\nCMD [\"false\"]\n")
     docker(noCopy, "build", "-q", "-t", NoCopyImage, ".")
+
+  /**
+   * The sample's image with one more module: a service whose only endpoint is `AUTHENTICATED` and
+   * answers what the principal carried. Assembled here, like the module images, so the sample
+   * itself never needs an issuer to start.
+   */
+  private def buildAuthImage(): Unit =
+    val dir = Files.createTempDirectory("auth-probe")
+    Files.writeString(
+      dir.resolve("auth_probe.py"),
+      """import asyncio
+        |import json
+        |
+        |from ankka import Acl, Ankka, Endpoint, get
+        |
+        |
+        |class Me(Endpoint):
+        |    prefix = "/me"
+        |    acl = Acl.AUTHENTICATED
+        |
+        |    @get("/")
+        |    def me(self) -> str:
+        |        p = self.request.principal
+        |        assert p is not None
+        |        return json.dumps({"subject": p.subject, "issuer": p.issuer, "tier": p.claims.get("tier")})
+        |
+        |
+        |if __name__ == "__main__":
+        |    asyncio.run(Ankka.service().register(Me).listen())
+        |""".stripMargin
+    )
+    Files.writeString(
+      dir.resolve("Dockerfile"),
+      s"FROM $PythonImage\nCOPY auth_probe.py /app/examples/auth_probe.py\n" +
+        "CMD [\"python\", \"-m\", \"examples.auth_probe\"]\n"
+    )
+    docker(dir, "build", "-q", "-t", AuthImage, ".")
+
+  /**
+   * The test issuer's published keys, served inside the cluster from a ConfigMap by busybox's web
+   * server: what a real identity provider's keys URL is to a service, and the only way a pod can
+   * reach keys the suite holds.
+   */
+  private def deployKeys(): Unit =
+    val jwks = scala.io.Source.fromURL(authIssuer.jwksUrl).mkString
+    val configMap = new io.fabric8.kubernetes.api.model.ConfigMapBuilder()
+      .withMetadata(new ObjectMetaBuilder().withName("jwks").withNamespace(Namespace).build())
+      .withData(Map("jwks" -> jwks).asJava)
+      .build()
+    k8s.configMaps().inNamespace(Namespace).resource(configMap).serverSideApply(): Unit
+    val manifest = s"""
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: jwks, namespace: $Namespace }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: jwks } }
+  template:
+    metadata: { labels: { app: jwks } }
+    spec:
+      containers:
+        - name: httpd
+          image: $KeysImage
+          imagePullPolicy: IfNotPresent
+          command: [ httpd, -f, -p, "8080", -h, /www ]
+          ports: [ { containerPort: 8080 } ]
+          volumeMounts: [ { name: jwks, mountPath: /www } ]
+          readinessProbe: { tcpSocket: { port: 8080 }, periodSeconds: 2 }
+      volumes: [ { name: jwks, configMap: { name: jwks } } ]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: jwks, namespace: $Namespace }
+spec:
+  selector: { app: jwks }
+  ports: [ { port: 8080, targetPort: 8080 } ]
+"""
+    k8s.load(new java.io.ByteArrayInputStream(manifest.getBytes)).serverSideApply(): Unit
+    waitFor(120.seconds) {
+      val d = k8s.apps().deployments().inNamespace(Namespace).withName("jwks").get()
+      d != null && Option(d.getStatus).flatMap(s => Option(s.getReadyReplicas)).exists(_ > 0)
+    }
 
   /** A plain Postgres with the platform's DDL, as the service's supplied database. */
   private def deployPostgres(name: String = "postgres"): Unit =
@@ -364,6 +468,81 @@ spec:
       ),
       appEnv
     )
+  }
+
+  // ── feature 022: a process-hosted service's users' tokens, on a real pod ────
+
+  private def authSpec(listsIssuer: Boolean): AnkkaServiceSpec =
+    val database = List(
+      EnvEntry("ANKKA_DB_HOST", Some(s"postgres-accounts.$Namespace.svc"), None, None),
+      EnvEntry("ANKKA_DB_PORT", Some("5432"), None, None),
+      EnvEntry("ANKKA_DB_NAME", Some("ankka"), None, None),
+      EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
+      EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None)
+    )
+    val issuers = List(
+      EnvEntry("ANKKA_AUTH_ISSUERS", Some("staff"), None, None),
+      EnvEntry("ANKKA_AUTH_STAFF_ISSUER", Some(authIssuer.issuer), None, None),
+      EnvEntry(
+        "ANKKA_AUTH_STAFF_JWKS_URL",
+        Some(s"http://jwks.$Namespace.svc.cluster.local:8080/jwks"),
+        None,
+        None
+      ),
+      EnvEntry("ANKKA_AUTH_STAFF_AUDIENCE", Some("accounts"), None, None)
+    )
+    spec().copy(
+      serviceName = if listsIssuer then AuthService else UnlistedService,
+      image = AuthImage,
+      env = database ++ (if listsIssuer then issuers else Nil)
+    )
+
+  private def authHttp(token: Option[String]): (Int, String) =
+    com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$AuthService.$Namespace.svc.cluster.local:9000/me/",
+      headers = token.toSeq.map(t => s"Authorization: Bearer $t")
+    )
+
+  test("an authenticated route of a process-hosted service verifies tokens on a real pod") {
+    applyAs(AuthService, authSpec(listsIssuer = true))
+    // Ready at all is the first proof: a sidecar that did not receive the issuers refuses the
+    // route in discovery and never becomes ready.
+    waitFor(300.seconds)(readyReplicasOf(AuthService) >= 1)
+    val pod             = podsOf(AuthService).head.getMetadata.getName
+    val (_, sidecarEnv) = kubectl("exec", "-n", Namespace, pod, "-c", AuthService, "--", "env")
+    val (_, appEnv) =
+      kubectl("exec", "-n", Namespace, pod, "-c", s"$AuthService-app", "--", "env")
+    assert(sidecarEnv.contains("ANKKA_AUTH_ISSUERS=staff"), sidecarEnv)
+    assert(!appEnv.contains("ANKKA_AUTH_"), appEnv)
+
+    assertEquals(authHttp(None)._1, 401, "a request with no token is challenged")
+    val expired = authIssuer.token("ada", expiresIn = (-5).minutes)
+    assertEquals(authHttp(Some(expired))._1, 401, "an expired token is challenged")
+    // The keys are fetched on the first verification, from inside the cluster.
+    val (code, body) =
+      authHttp(Some(authIssuer.token("ada", claims = Map("tier" -> "gold"))))
+    assertEquals(code, 200, body)
+    assert(body.contains("\"subject\": \"ada\""), body)
+    assert(body.contains("\"issuer\": \"staff\""), body)
+    assert(body.contains("\"tier\": \"gold\""), body)
+  }
+
+  test("a process-hosted service with an authenticated route and no issuer listed does not start") {
+    applyAs(UnlistedService, authSpec(listsIssuer = false))
+    def logs: String =
+      podsOf(UnlistedService).map { p =>
+        val name    = p.getMetadata.getName
+        val current = kubectl("logs", "-n", Namespace, name, "-c", UnlistedService)._2
+        val previous =
+          kubectl("logs", "-n", Namespace, name, "-c", UnlistedService, "--previous")._2
+        current + previous
+      }.mkString
+    waitFor(240.seconds)(logs.contains("AUTHENTICATED but no issuer is configured"))
+    assert(logs.contains("ANKKA_AUTH_ISSUERS"), logs)
+    assertEquals(readyReplicasOf(UnlistedService), 0)
   }
 
   private def restartCountOfApp(name: String): Int =

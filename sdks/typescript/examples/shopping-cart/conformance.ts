@@ -317,6 +317,11 @@ export class PrivateEndpoint extends Endpoint {
   static readonly acl = Acl.authenticated
   static readonly routes = {
     root: get("/", s.string, () => "private"),
+    me: get("/me", s.string, (_ep: PrivateEndpoint, req) => {
+      const p = req.principal
+      if (!p) throw new Error("an authenticated route is handed its principal")
+      return JSON.stringify({ subject: p.subject, roles: [...p.roles].sort(), tier: p.claims.tier ?? null, issuer: p.issuer })
+    }),
   }
 }
 

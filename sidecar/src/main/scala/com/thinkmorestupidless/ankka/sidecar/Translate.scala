@@ -134,7 +134,7 @@ private[sidecar] object Translate:
       ByteString.copyFrom(r.body),
       r.principal.map(p =>
         ankka.protocol.v1.endpoint
-          .Principal(p.subject, p.name, p.email, p.emailVerified, p.roles.toSeq)
+          .Principal(p.subject, p.name, p.email, p.emailVerified, p.roles.toSeq, p.claims, p.issuer)
       ),
       Some(toMetadata(r.metadata)),
       Some(toCaller(r.caller))

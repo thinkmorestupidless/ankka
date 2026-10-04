@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import ankka.protocol.v1.discovery.*
+import com.thinkmorestupidless.ankka.auth.oidc.OidcConfig
 import com.thinkmorestupidless.ankka.core.{
   ComponentId,
   ComponentKind,
@@ -36,7 +37,8 @@ object Discovery:
    * 1.1: the caller on every forwarded request and caller-naming ACLs in discovery (feature 014).
    * 1.3: a consumer may answer with several messages, each under its own record key (feature 019).
    * 1.4: metadata on a workflow step, a tool call, a guardrail check, a result check and a view
-   * query, so a call made from any of them is attributed to its handler.
+   * query, so a call made from any of them is attributed to its handler. 1.5: a route's principal
+   * carries the token's other claims and its issuer's name (feature 022).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -73,7 +75,7 @@ object Discovery:
   ): Either[Vector[String], Discovered] =
     val stub = DiscoveryGrpc.stub(channel)
     val spec = awaitSpec(stub, settings, runtimeVersion, protocolVersion)
-    validate(spec, protocolVersion) match
+    validate(spec, protocolVersion, authConfigured = !settings.auth.isEmpty) match
       case Left(problems) =>
         val message = problems.mkString("the sidecar refused the service:\n  - ", "\n  - ", "")
         log.error(message)
@@ -118,10 +120,15 @@ object Discovery:
   /**
    * Pure: what is wrong with a spec, all of it. The rules every spec is held to, whether a process
    * or a module declared it; a module's own rules are added by `wasm.WasmDiscovery`.
+   *
+   * `authConfigured` says whether the sidecar has issuers to verify tokens against. Without them,
+   * an `AUTHENTICATED` endpoint or route is a problem: it could only ever answer 503 (feature 022).
+   * Deliberately no default, so no caller can forget to say.
    */
   def validate(
       spec: Spec,
-      protocolVersion: String = ProtocolVersion
+      protocolVersion: String,
+      authConfigured: Boolean
   ): Either[Vector[String], Discovered] =
     val problems = Vector.newBuilder[String]
 
@@ -247,6 +254,14 @@ object Discovery:
         problems += s"endpoint '${e.id}': prefix '${e.prefix}' must start with '/'"
       if e.acl.isCallers && e.allowCallers.isEmpty then
         problems += s"endpoint '${e.id}': a CALLERS acl must name at least one caller"
+      if !authConfigured then
+        if e.acl.isAuthenticated then
+          problems += s"endpoint '${e.id}' is AUTHENTICATED but no issuer is configured; " +
+            s"set ${OidcConfig.IssuersVariable}"
+        e.routes.filter(_.acl.exists(_.isAuthenticated)).foreach { r =>
+          problems += s"endpoint '${e.id}': route '${r.method.toUpperCase} ${r.template}' is " +
+            s"AUTHENTICATED but no issuer is configured; set ${OidcConfig.IssuersVariable}"
+        }
       e.routes.groupBy(r => (r.method.toUpperCase, r.template)).foreach { (key, dup) =>
         if dup.sizeIs > 1 then
           problems += s"endpoint '${e.id}' declares ${key._1} ${key._2} ${dup.size} times"

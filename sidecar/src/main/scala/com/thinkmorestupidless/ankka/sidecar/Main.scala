@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.sidecar
 
 import com.thinkmorestupidless.ankka.agent.AgentRuntime
+import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig}
 import com.thinkmorestupidless.ankka.core.ComponentDescriptor
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.HttpServer
@@ -36,13 +37,30 @@ object Main:
     sys.exit(run())
 
   /** Returns the exit code, so a test can drive it without `sys.exit` killing the JVM. */
-  def run(): Int =
-    val config   = ClusterConfig.load()
-    val settings = Settings.load(config)
-    // One ActorSystem for the whole process: the conversation needs a scheduler before the
-    // service exists, so the system is created here and handed to the builder.
-    val system = ActorSystem(Behaviors.empty[Nothing], "ankka", ClusterConfig.layered(config))
-    if settings.isModuleMode then runModule(settings, system) else runProcess(settings, system)
+  def run(): Int = run(sys.env)
+
+  /**
+   * The same, over an environment a test supplies. The issuers are read first, before anything is
+   * started or dialled: a malformed set is every problem logged and exit 1, with nothing else done.
+   */
+  private[sidecar] def run(env: Map[String, String]): Int =
+    readAuth(env) match
+      case Left(problems) =>
+        log.error(
+          problems.mkString("refusing to start: the issuers are misconfigured:\n  - ", "\n  - ", "")
+        )
+        1
+      case Right(auth) =>
+        val config   = ClusterConfig.load()
+        val settings = Settings.load(config).copy(auth = auth)
+        // One ActorSystem for the whole process: the conversation needs a scheduler before the
+        // service exists, so the system is created here and handed to the builder.
+        val system = ActorSystem(Behaviors.empty[Nothing], "ankka", ClusterConfig.layered(config))
+        if settings.isModuleMode then runModule(settings, system) else runProcess(settings, system)
+
+  /** The `ANKKA_AUTH_` named set, read once for the whole process (feature 022). */
+  private[sidecar] def readAuth(env: Map[String, String]): Either[Vector[String], OidcConfig] =
+    OidcConfig.fromEnv(env)
 
   /** The process mode: dial the developer's process, discover over gRPC. */
   private def runProcess(settings: Settings, system: ActorSystem[?]): Int =
@@ -89,7 +107,12 @@ object Main:
         .toEither
         .left
         .map(e => Vector(s"the module could not be instantiated: ${e.getMessage}"))
-      discovered <- wasm.WasmDiscovery.discover(bootstrap, module, BuildInfo.version)
+      discovered <- wasm.WasmDiscovery.discover(
+        bootstrap,
+        module,
+        BuildInfo.version,
+        authConfigured = !settings.auth.isEmpty
+      )
     yield (module, imports, discovered)
     started match
       case Left(problems) =>
@@ -146,7 +169,13 @@ object Main:
     // speak is chosen by environment: a producing consumer or a topic-sourced view is refused at
     // startup without it, naming the variable.
     val projections = ProjectionRuntime.fromEnv()
-    val endpoints   = discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
+    // One verifier for every authenticated route: built once, so the issuers' keys are fetched and
+    // held once, and never at start.
+    val authenticated =
+      if settings.auth.isEmpty then RemoteEndpoint.NoVerifier
+      else Oidc.authenticate(settings.auth)
+    val endpoints =
+      discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings, authenticated))
     val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
 
     val http =

@@ -802,7 +802,22 @@ impl Endpoint for PrivateEndpoint {
     }
 
     fn routes() -> Routes<PrivateEndpoint> {
-        Routes::new().get("/", |_: &Request| Ok("private".to_string()))
+        Routes::new()
+            .get("/", |_: &Request| Ok("private".to_string()))
+            .get("/me", |request: &Request| {
+                let p = request
+                    .principal()
+                    .expect("an authenticated route is handed its principal");
+                let mut roles = p.roles.clone();
+                roles.sort();
+                Ok(ankka::serde_json::json!({
+                    "subject": p.subject,
+                    "roles": roles,
+                    "tier": p.claims.get("tier"),
+                    "issuer": p.issuer,
+                })
+                .to_string())
+            })
     }
 }
 

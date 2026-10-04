@@ -9,7 +9,7 @@ related: [concepts/components.md, concepts/effects.md, reference/python-sdk.md, 
 
 # Scala SDK
 
-The Scala SDK is six libraries, published to Maven Central under `com.thinkmorestupidless` for Scala 3 and
+The Scala SDK is seven libraries, published to Maven Central under `com.thinkmorestupidless` for Scala 3 and
 JDK 21. This page lists what each component kind is made of. The guides under Build show each one in use.
 
 ## Artifacts
@@ -20,10 +20,11 @@ JDK 21. This page lists what each component kind is made of. The guides under Bu
 | `ankka-sdk` | `com.thinkmorestupidless.ankka.sdk` | The component base classes and companions, `ChangeSource`, and `ComponentClient`. |
 | `ankka-runtime` | `com.thinkmorestupidless.ankka.runtime` | `Ankka.service`, `ProjectionRuntime`, `TimerRuntime`, `ViewClient` and SQL fragments. |
 | `ankka-http` | `com.thinkmorestupidless.ankka.http` | `HttpEndpoint`, `HttpServer`, `Acl` and the request context. |
+| `ankka-auth-oidc` | `com.thinkmorestupidless.ankka.auth.oidc` | `Oidc.authenticate`, the issuers a service lists, and the token verifier. Add it only when a service has users of its own to verify. |
 | `ankka-agent` | `com.thinkmorestupidless.ankka.agent` | `Agent`, `FunctionTool`, guardrails, session memory, `AgentRuntime` and model providers. |
 | `ankka-testkit` | `com.thinkmorestupidless.ankka.testkit` | Unit testkits, `AnkkaTestKit`, `TestTransport`. `TestModelProvider` is in `ankka-agent`. |
 
-A seventh library, `ankka-controlplane-api`, is published beside these for programs that call the
+An eighth library, `ankka-controlplane-api`, is published beside these for programs that call the
 control plane rather than run as a service. It holds the control plane's request and response types and
 the service descriptor's validation, and depends on `ankka-core` alone. See
 [Control plane HTTP API](control-plane-api.md#from-scala).

@@ -36,6 +36,7 @@ lazy val root = project
       "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,
       "com.thinkmorestupidless" %% "ankka-http"    % ankkaVersion,
       // "com.thinkmorestupidless" %% "ankka-agent" % ankkaVersion,   // agents: uncomment
+      // "com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion,   // your users' tokens: uncomment
       "com.thinkmorestupidless" %% "ankka-testkit" % ankkaVersion % Test,
       "org.scalameta"           %% "munit"         % "1.3.6"      % Test
     ),

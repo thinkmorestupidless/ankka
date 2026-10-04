@@ -42,10 +42,11 @@ import scala.util.control.NonFatal
 final class RemoteEndpoint private (
     spec: EndpointSpec,
     conversation: Conversation,
-    settings: Settings
+    settings: Settings,
+    authenticated: Acl
 ) extends HttpEndpoint(spec.prefix):
 
-  def acl: Acl = RemoteEndpoint.aclOf(spec.acl, spec.allowCallers)
+  def acl: Acl = RemoteEndpoint.aclOf(spec.acl, spec.allowCallers, authenticated)
 
   private val (plain, streaming) = spec.routes.toVector.partition(!_.streaming)
 
@@ -56,7 +57,7 @@ final class RemoteEndpoint private (
         PathTemplate.parse(r.template),
         r.hasBody,
         (args, body) => forward(r, args, body),
-        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers))
+        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers, authenticated))
       )
     }
 
@@ -67,7 +68,7 @@ final class RemoteEndpoint private (
         PathTemplate.parse(r.template),
         r.hasBody,
         (args, body) => conversation.handleHttpStream(forwardOf(r, args, body)),
-        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers))
+        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers, authenticated))
       )
     }
 
@@ -95,7 +96,7 @@ final class RemoteEndpoint private (
       contentType = ctx.header("Content-Type").getOrElse(""),
       body = body,
       principal = ctx.principal.map(p =>
-        RemotePrincipal(p.subject, p.name, p.email, p.emailVerified, p.roles)
+        RemotePrincipal(p.subject, p.name, p.email, p.emailVerified, p.roles, p.claims, p.issuer)
       ),
       caller = ctx.caller match
         case Caller.Gateway          => RemoteCaller.Gateway
@@ -120,8 +121,25 @@ final class RemoteEndpoint private (
         throw HttpProblem(500, failure.error.message)
 
 object RemoteEndpoint:
-  def from(spec: EndpointSpec, conversation: Conversation, settings: Settings): RemoteEndpoint =
-    new RemoteEndpoint(spec, conversation, settings)
+
+  /**
+   * What an `AUTHENTICATED` route answers when the sidecar has no issuer: 503, exactly as a Scala
+   * endpoint with an `Authenticate` that cannot verify would. Discovery refuses such a route before
+   * the service starts (feature 022), so this is the backstop, never the answer a caller sees.
+   */
+  val NoVerifier: Acl =
+    Acl.Authenticate(_ => AuthDecision.Unavailable("no issuer is configured on this sidecar"))
+
+  /**
+   * `authenticated` is the rule every `AUTHENTICATED` route answers with: the issuers' verifier.
+   */
+  def from(
+      spec: EndpointSpec,
+      conversation: Conversation,
+      settings: Settings,
+      authenticated: Acl = NoVerifier
+  ): RemoteEndpoint =
+    new RemoteEndpoint(spec, conversation, settings, authenticated)
 
   /**
    * One mapping, used for an endpoint's ACL and for a route's own.
@@ -130,13 +148,17 @@ object RemoteEndpoint:
    * "the endpoint's" — so a process built against a protocol without the field keeps exactly the
    * endpoint-wide behaviour it was written for.
    */
-  private[sidecar] def aclOf(acl: EndpointSpec.Acl, callers: Seq[CallerMatcherSpec]): Acl =
+  private[sidecar] def aclOf(
+      acl: EndpointSpec.Acl,
+      callers: Seq[CallerMatcherSpec],
+      authenticated: Acl = NoVerifier
+  ): Acl =
     acl match
       case EndpointSpec.Acl.CALLERS =>
         // An empty list would admit only Local — silently open locally and closed in a cluster, the
         // worst shape a misconfiguration can have. Discovery refuses it; this is the backstop.
         if callers.isEmpty then Acl.DenyAll else Acl.AllowCallers(callers.toVector.map(matcherOf))
-      case other => aclOf(other)
+      case other => plainAcl(other, authenticated)
 
   private def matcherOf(spec: CallerMatcherSpec): CallerMatcher = spec.kind match
     case CallerMatcherSpec.Kind.Internet(_) => CallerMatcher.Internet
@@ -147,12 +169,8 @@ object RemoteEndpoint:
     // A matcher kind this sidecar does not know — a newer SDK's — admits nobody rather than guessing.
     case CallerMatcherSpec.Kind.Empty => CallerMatcher.NamedService(Some(""), "")
 
-  private[sidecar] def aclOf(acl: EndpointSpec.Acl): Acl = acl match
-    case EndpointSpec.Acl.DENY_ALL      => Acl.DenyAll
-    case EndpointSpec.Acl.AUTHENTICATED =>
-      // The sidecar configures no verifier; an authenticated route answers 503, exactly as a
-      // Scala endpoint with `Authenticate` and no verifier would.
-      Acl.Authenticate(_ =>
-        AuthDecision.Unavailable("no authenticator is configured on this sidecar")
-      )
-    case _ => Acl.AllowAll
+  private def plainAcl(acl: EndpointSpec.Acl, authenticated: Acl): Acl =
+    acl match
+      case EndpointSpec.Acl.DENY_ALL      => Acl.DenyAll
+      case EndpointSpec.Acl.AUTHENTICATED => authenticated
+      case _                              => Acl.AllowAll

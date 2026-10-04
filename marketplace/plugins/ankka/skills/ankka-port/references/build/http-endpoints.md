@@ -318,9 +318,39 @@ final class GatedEndpoint extends HttpEndpoint("/gated"):
 | `AuthDecision.Forbidden(reason)` | `403`: logged in, and not allowed. |
 | `AuthDecision.Unavailable(reason)` | `503` with `Retry-After`: the check could not be made, for example because signing keys could not be fetched. |
 
-ankka does not ship a check for a specific identity provider for your services. To know which *user* a
-request is for, plug a verified token into `Authenticate`. To know which *workload* sent it, use
-`allowCallers`.
+To know which *user* a request is for, verify their token with `ankka-auth-oidc`, below. To know which
+*workload* sent it, use `allowCallers`.
+
+### Verify your users' tokens
+
+A service whose users sign in with an identity provider lists the issuers it accepts, and an endpoint
+admits a request only when it carries a token one of them signed. Add the module:
+
+```scala
+"com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion
+```
+
+and declare the access rule with `Oidc.authenticate()`, which reads the issuers from the service's
+environment. The handler reads `principal`: the token's subject, name, email, roles, every other claim
+by name, and the issuer that verified it.
+
+```scala
+/** An endpoint whose users sign in with an identity provider the service lists. */
+final class AccountEndpoint(val acl: Acl = Oidc.authenticate()) extends HttpEndpoint("/account"):
+
+  get("/me")(() =>
+    s"${principal.subject} from ${principal.issuer.getOrElse("?")} " +
+      s"roles=${principal.roles.toList.sorted.mkString(",")} " +
+      s"tier=${principal.claims.getOrElse("tier", "")}"
+  )
+```
+
+A request with no token, or a token that is expired, for another audience, from an issuer the service
+does not list, or signed with a shared secret, is answered `401` with a challenge. A request that
+arrives when an issuer's keys cannot be fetched, and none are held, is answered `503`. The service
+fetches nothing when it starts. The issuers are a named set of `ANKKA_AUTH_` variables, described in
+[Identity and machine accounts](../platform/identity.md#a-services-own-users). A service that declares
+the rule and lists no issuer does not start, and says which variable to set.
 
 ### Name who may call
 
@@ -541,9 +571,14 @@ by the same rules, so a literal segment outranks a parameter.
 
 The Python ACL is a required class attribute: an endpoint that declares no `acl` raises `RegistrationError`
 when the class is defined, naming it. `Acl.ALLOW_ALL` admits any caller, `Acl.DENY_ALL` refuses everything,
-and `Acl.AUTHENTICATED` answers `503` for now, because the sidecar has no token verifier configured for a
-service's own routes. A route decorator takes an `acl` of its own, which replaces the endpoint's for that
-route exactly as `withAcl` does in Scala:
+and `Acl.AUTHENTICATED` admits a request carrying a token from one of the issuers the service lists. The
+runtime verifies the token before the process is asked anything, exactly as `Oidc.authenticate()` does in
+Scala, and hands the handler `self.request.principal` with the token's subject, roles, every other claim
+under `claims`, and the name of the issuer that verified it. TypeScript declares `Acl.authenticated` and
+Rust `Acl::Authenticated`, with the same principal. The issuers are the `ANKKA_AUTH_` named set described in
+[Identity and machine accounts](../platform/identity.md#a-services-own-users); a service that declares the
+rule and lists no issuer does not start, and its report names the route and the variable. A route decorator
+takes an `acl` of its own, which replaces the endpoint's for that route exactly as `withAcl` does in Scala:
 
 ```python
 class CartsEndpoint(Endpoint):

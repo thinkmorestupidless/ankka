@@ -13,6 +13,7 @@ import asyncio
 import logging
 import traceback
 from collections.abc import AsyncIterator
+from types import MappingProxyType
 from typing import Any
 
 import grpc
@@ -634,6 +635,8 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
                 p.email if p.HasField("email") else None,
                 p.email_verified,
                 frozenset(p.roles),
+                MappingProxyType(dict(p.claims)),
+                p.issuer if p.HasField("issuer") else None,
             )
         return RequestContext(
             query=tuple((q.name, q.value) for q in request.query),

@@ -47,6 +47,10 @@ message Principal {
   optional string email = 3;
   bool email_verified = 4;
   repeated string roles = 5;
+  // Every other claim of the verified token, as text. Since 1.4.
+  map<string, string> claims = 6;
+  // The service's own name for the issuer that verified the token, from ANKKA_AUTH_ISSUERS. Since 1.4.
+  optional string issuer = 7;
 }
 
 message HttpReply { oneof message { HttpResponse response = 1; Failure failure = 2; } }

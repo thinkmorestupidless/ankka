@@ -37,7 +37,15 @@ function messageOf(e: unknown): string {
 function principalOf(req: HttpRequest): Principal | null {
   const p = req.principal
   if (!p) return null
-  return Object.freeze({ subject: p.subject, name: p.name ?? null, email: p.email ?? null, emailVerified: p.emailVerified, roles: Object.freeze([...p.roles]) })
+  return Object.freeze({
+    subject: p.subject,
+    name: p.name ?? null,
+    email: p.email ?? null,
+    emailVerified: p.emailVerified,
+    roles: Object.freeze([...p.roles]),
+    claims: Object.freeze({ ...p.claims }),
+    issuer: p.issuer ?? null,
+  })
 }
 
 /** The caller the sidecar established; a sidecar that predates protocol 1.1 sends none, which reads as local. */

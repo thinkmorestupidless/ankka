@@ -623,9 +623,23 @@ object ConformanceReference:
       sse("/events")(() => Source.single("tick"))
     }
 
+  /**
+   * Admits only a verified token from the suite's test issuer (feature 022), and says what the
+   * principal carried, so every language is held to the same answer.
+   */
   final class PrivateEndpoint extends HttpEndpoint("/private"):
-    val acl: Acl = Acl.Authenticate(_ => AuthDecision.Unavailable("no authenticator is configured"))
+    val acl: Acl = ConformanceTarget.authenticated
     get("/")(() => "private")
+    get("/me")(() =>
+      Json
+        .obj(
+          "subject" -> Json.Str(principal.subject),
+          "roles"   -> Json.Arr(principal.roles.toVector.sorted.map(Json.Str(_))),
+          "tier"    -> principal.claims.get("tier").fold(Json.Null)(Json.Str(_)),
+          "issuer"  -> principal.issuer.fold(Json.Null)(Json.Str(_))
+        )
+        .render
+    )
 
   val ComponentIds: Set[String] = Set(
     "shopping-cart",

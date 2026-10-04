@@ -12,7 +12,7 @@ import { toJsonSchema } from "./schema.ts"
 import { isCodec } from "./codec.ts"
 import { VERSION } from "./version.ts"
 
-export const PROTOCOL_VERSION = "1.4"
+export const PROTOCOL_VERSION = "1.5"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {

@@ -446,7 +446,8 @@ object ServiceSpec:
    * particular must never hold the one its proxy passes requests under a mount with.
    */
   val PlatformSecretSuffixes: Vector[String] =
-    Vector("-service-tls", "-mount-tls", "-cluster-tls", "-database-tls")
+    // `-telemetry`: the collector's credential, which the operator writes for each service.
+    Vector("-service-tls", "-mount-tls", "-cluster-tls", "-database-tls", "-telemetry")
 
   /** The project database's cluster name, and the prefix of every Secret it is issued. */
   val PlatformSecretPrefix: String = "ankka-db"
@@ -1202,7 +1203,7 @@ object ProjectSecrets:
   val MaxValueBytes: Int = 65536
   val ReservedPrefix     = "ankka-"
   val ReservedSuffixes =
-    Vector("-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key")
+    Vector("-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key", "-telemetry")
   private val ValidName  = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
   private val ValidEntry = """[A-Za-z0-9._-]+""".r
 

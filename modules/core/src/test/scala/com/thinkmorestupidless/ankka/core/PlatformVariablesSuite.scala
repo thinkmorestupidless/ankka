@@ -10,7 +10,7 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the sixteen it renders") {
+  test("the variables the platform alone sets are exactly the eighteen it renders") {
     assertEquals(
       PlatformOnly,
       Set(
@@ -29,7 +29,9 @@ class PlatformVariablesSuite extends munit.FunSuite:
         "ANKKA_SIDECAR_BIND",
         "ANKKA_WASM_MODULE",
         "ANKKA_WASM_INSTANCES",
-        "ANKKA_WASM_MAX_MEMORY_PAGES"
+        "ANKKA_WASM_MAX_MEMORY_PAGES",
+        "ANKKA_OTLP_ENDPOINT",
+        "ANKKA_OTLP_HEADERS"
       )
     )
     assert(PlatformOnly.contains(HttpPort))
@@ -103,4 +105,14 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(withheldFromModule("ANKKA_BASE_DOMAIN"), "read by the runtime, by name")
     assert(!withheldFromModule("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), "shared, so a module may read it")
     assert(!withheldFromModule("MY_SETTING"))
+  }
+
+  test("the telemetry settings are the platform's alone, exactly, and kept from a module") {
+    assert(platformOnly(OtlpEndpoint) && platformOnly(OtlpHeaders))
+    assert(!platformOnly("ANKKA_OTLP_ENDPOINT_X"))
+    assert(withheldFromModule(OtlpEndpoint) && withheldFromModule(OtlpHeaders))
+    assert(
+      !runtimeOnly(OtlpEndpoint),
+      "a process is not given it, and a descriptor may not give it"
+    )
   }

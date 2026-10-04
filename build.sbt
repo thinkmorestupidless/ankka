@@ -471,6 +471,8 @@ lazy val controlPlane = project
     sdk,
     runtime,
     http,
+    // The control plane is an ankka service: it exports its telemetry as any service does.
+    telemetryOtlp,
     // test->test as well: the control plane's suites mint tokens with the module's test issuer, so
     // there is one test issuer as there is one verifier.
     authOidc % "compile;test->test",
@@ -589,9 +591,12 @@ lazy val sidecar = project
     authOidc % "compile;test->test",
     agent,
     protocol,
-    testkit  % Test,
-    operator % "test->test;test->compile",
-    testPki  % Test
+    // The image every process-hosted and module-hosted service runs: it exports for them, so their
+    // developers write no telemetry code. test->test for the fake collector.
+    telemetryOtlp % "compile;test->test",
+    testkit       % Test,
+    operator      % "test->test;test->compile",
+    testPki       % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
@@ -829,7 +834,7 @@ lazy val shoppingCart = project
   // `agent` because the cart carries an assistant, as the Python and TypeScript carts do — the three
   // samples are one service written three times, and a component missing from one makes its
   // documentation page unable to show all three.
-  .dependsOn(sdk, runtime, http, grpc, shoppingCartApi, agent, testkit % Test)
+  .dependsOn(sdk, runtime, http, grpc, shoppingCartApi, agent, telemetryOtlp, testkit % Test)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)

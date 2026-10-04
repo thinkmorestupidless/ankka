@@ -180,4 +180,4 @@ final class ServiceReconciler(
 
 object ServiceReconciler:
   def apply(client: KubernetesClient, settings: Settings): ServiceReconciler =
-    new ServiceReconciler(client, settings, new Fabric8Executor(client))
+    new ServiceReconciler(client, settings, new Fabric8Executor(client, settings.otlpHeaders))

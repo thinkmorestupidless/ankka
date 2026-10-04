@@ -346,6 +346,32 @@ class DescriptorSuite extends munit.FunSuite:
     assert(!process.exists(_.contains("ANKKA_SERVICE_CLIENT_TIMEOUT")), process.toString)
   }
 
+  test("a descriptor may not give a telemetry setting") {
+    import com.thinkmorestupidless.ankka.core.PlatformVariables.{OtlpEndpoint, OtlpHeaders}
+    for name <- Vector(OtlpEndpoint, OtlpHeaders) do
+      for env <- Vector(
+          EnvVar(name, value = Some("http://elsewhere:4318")),
+          EnvVar(name, secretKeyRef = Some(SecretKeyRef("observability", "endpoint")))
+        )
+      do
+        assertEquals(
+          ServiceSpec("i:1", env = Vector(env)).problems,
+          Vector(s"env var '$name' is set by the platform and cannot be declared")
+        )
+  }
+
+  test("a descriptor may not read the collector's credential the platform writes for a service") {
+    val problems = ServiceSpec(
+      "i:1",
+      env =
+        Vector(EnvVar("HEADERS", secretKeyRef = Some(SecretKeyRef("orders-telemetry", "headers"))))
+    ).problems
+    assert(
+      problems.exists(_.contains("secret 'orders-telemetry' is issued by the platform")),
+      problems
+    )
+  }
+
   test("a neighbour of a platform variable is not refused") {
     assertEquals(
       ServiceSpec("i:1", env = Vector(EnvVar("ANKKA_CLUSTER_MODE_X", value = Some("x")))).problems,

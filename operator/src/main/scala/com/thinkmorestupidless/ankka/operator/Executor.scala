@@ -81,7 +81,15 @@ trait Executor:
  * releases its carrier. Failures throw; the reconcile loop classifies and backs off. Nothing here
  * retries internally, because a nested retry makes the loop's backoff budget meaningless.
  */
-final class Fabric8Executor(client: KubernetesClient) extends Executor:
+/**
+ * @param telemetryHeaders
+ *   what the installation sends with its telemetry, which `EnsureTelemetrySecret` writes into each
+ *   service's own Secret: held here and in no action, since actions are printed.
+ */
+final class Fabric8Executor(
+    client: KubernetesClient,
+    telemetryHeaders: Option[Settings.Credential] = None
+) extends Executor:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator.executor")
 
@@ -302,6 +310,30 @@ final class Fabric8Executor(client: KubernetesClient) extends Executor:
           case e: KubernetesClientException if e.getCode == 409 =>
             log.debug("the secret key {}/{} exists; leaving it as it is", namespace, name)
         secretKeysKnown.add((namespace, name)): Unit
+
+    case Action.EnsureTelemetrySecret(namespace, name, labels, owner) =>
+      // Applied on every pass, so a change to the installation's headers reaches every service at
+      // its next reconcile; a running pod reads the new value when it next starts. Owned by the
+      // service, so it goes when the service does. The value is never logged.
+      telemetryHeaders match
+        case None =>
+          log.warn("asked for the telemetry secret {}/{} with no headers to write", namespace, name)
+        case Some(headers) =>
+          val secret = new io.fabric8.kubernetes.api.model.SecretBuilder()
+            .withMetadata(
+              new ObjectMetaBuilder()
+                .withNamespace(namespace)
+                .withName(name)
+                .withLabels(labels.asJava)
+                .withOwnerReferences(owner)
+                .build()
+            )
+            .withType("Opaque")
+            .withStringData(java.util.Map.of(Names.TelemetryHeadersEntry, headers.value))
+            .build()
+          val _ =
+            client.resource(secret).fieldManager(FieldManager).forceConflicts().serverSideApply()
+          log.debug("ensured telemetry secret {}/{}", namespace, name)
 
     case Action.EnsureDatabaseRole(role) =>
       val _ = client.resource(role).fieldManager(FieldManager).forceConflicts().serverSideApply()

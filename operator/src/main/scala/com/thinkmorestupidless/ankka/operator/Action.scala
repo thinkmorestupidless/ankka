@@ -7,6 +7,7 @@ import io.fabric8.kubernetes.api.model.rbac.{Role, RoleBinding}
 import io.fabric8.kubernetes.api.model.{
   ConfigMap,
   GenericKubernetesResource,
+  OwnerReference,
   Secret,
   Service,
   ServiceAccount
@@ -114,6 +115,20 @@ enum Action:
   case EnsureSecretKey(namespace: String, name: String, labels: Map[String, String])
 
   /**
+   * Ensures a service's telemetry Secret holds what the installation sends with its telemetry, so
+   * the workload can read it by reference: a pod can only reference a Secret in its own namespace,
+   * and a Deployment is no place for a credential. It carries no value — this is printed by
+   * `describe` and logged — so the executor, given the installation's headers when it is built,
+   * writes them. Owned by the service, so it goes when the service does.
+   */
+  case EnsureTelemetrySecret(
+      namespace: String,
+      name: String,
+      labels: Map[String, String],
+      owner: OwnerReference
+  )
+
+  /**
    * Must be ensured before the [[EnsureDatabase]] it will own — CNPG rejects a database whose owner
    * role does not exist yet (research R4).
    */
@@ -183,7 +198,8 @@ enum Action:
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>
       s"ensure credentials ${s.getMetadata.getNamespace}/${s.getMetadata.getName} (create-if-absent)"
-    case EnsureSecretKey(ns, name, _) => s"ensure secret key $ns/$name (create-if-absent)"
+    case EnsureSecretKey(ns, name, _)          => s"ensure secret key $ns/$name (create-if-absent)"
+    case EnsureTelemetrySecret(ns, name, _, _) => s"ensure telemetry secret $ns/$name"
     case EnsureDatabaseRole(r) =>
       s"ensure database role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureDatabase(d) =>

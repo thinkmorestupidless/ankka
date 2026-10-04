@@ -19,6 +19,13 @@ object Main:
     val _   = args
     try
       val settings = Settings.fromEnvironment()
+      if settings.otlpHeaders.isDefined && settings.otlpEndpoint.isEmpty then
+        org.slf4j.LoggerFactory
+          .getLogger("ankka.operator")
+          .warn(
+            "ANKKA_OTLP_HEADERS is set and ANKKA_OTLP_ENDPOINT is not: no service is told of a " +
+              "collector, and the headers are not written anywhere"
+          )
       // Credentials come from the operator's own in-cluster identity: fabric8 resolves the
       // service account, then KUBECONFIG, then ~/.kube/config. The control plane never
       // supplies one, which is the point of running the operator in the cluster.

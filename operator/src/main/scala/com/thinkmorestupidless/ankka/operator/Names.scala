@@ -12,6 +12,16 @@ object Names:
   /** The Secret holding a service's secret key, under the entry `key`. */
   def secretKeySecret(serviceName: String): String = s"$serviceName-secret-key"
 
+  /**
+   * The Secret holding what a service sends with its telemetry, written by the operator from the
+   * installation's own (feature 026). Its suffix is one `ServiceSpec.PlatformSecretSuffixes` names,
+   * so no descriptor can read it.
+   */
+  def telemetrySecret(serviceName: String): String = s"$serviceName-telemetry"
+
+  /** The entry of that Secret the headers are under. */
+  val TelemetryHeadersEntry: String = "headers"
+
   /** The entry of that Secret the key is under. */
   val SecretKeyEntry: String = "key"
 

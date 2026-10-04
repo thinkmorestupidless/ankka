@@ -1,11 +1,12 @@
 import com.thinkmorestupidless.ankka.agent.{AgentRuntime, AnthropicProvider}
 import com.thinkmorestupidless.ankka.grpc.{GrpcClients, GrpcServer}
-import com.thinkmorestupidless.ankka.http.{Acl, Callers, HttpServer}
+import com.thinkmorestupidless.ankka.http.{Acl, Callers, EndpointClients, HttpEndpoint, HttpServer}
 import com.thinkmorestupidless.ankka.runtime.{Ankka, ProjectionRuntime}
 import shoppingcart.api.{
   CallersEndpoint,
   CartGrpcEndpoint,
   CartStreamsEndpoint,
+  CheckoutsSeenEndpoint,
   GrpcCallersEndpoint,
   QuestionsEndpoint,
   ShoppingCartEndpoint
@@ -60,7 +61,11 @@ import shoppingcart.application.*
         .register(CheckoutNotifier.descriptor)
         .register(CartGraph.descriptor)
         .register(CartContentsGraph.descriptor)
+        // Reads back the topic the notices go to: this service's own, or, under
+        // CART_CHECKOUTS_TOPIC, a topic another service of the project publishes to.
+        .register(CheckoutsSeen.descriptor)
     }
+  val brokered = sys.env.get(ProjectionRuntime.KafkaEnvVar).exists(_.trim.nonEmpty)
 
   /**
    * The gRPC API, on its own port beside HTTP (9090 unless `ANKKA_GRPC_PORT` says otherwise).
@@ -110,10 +115,12 @@ import shoppingcart.application.*
     }
     .withExtension(
       HttpServer.of(
-        clients => ShoppingCartEndpoint(clients.componentClient),
-        clients => CallersEndpoint(clients.services),
-        clients => QuestionsEndpoint(clients.componentClient),
-        _ => GrpcCallersEndpoint(grpcClients)
+        Seq[EndpointClients => HttpEndpoint](
+          clients => ShoppingCartEndpoint(clients.componentClient),
+          clients => CallersEndpoint(clients.services),
+          clients => QuestionsEndpoint(clients.componentClient),
+          _ => GrpcCallersEndpoint(grpcClients)
+        ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient))*
       )
     )
     .withExtension(grpcClients)

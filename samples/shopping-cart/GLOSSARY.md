@@ -35,6 +35,17 @@ cart starts again with nothing in it.
 
 Avoid: abandon, cancel, clear
 
+### checkout notice
+What the service publishes when a cart is checked out: which cart, and when. Published to a topic,
+where another service, or this one, reads it.
+
+Avoid: checkout event, checkout message
+
+### topic
+Where checkout notices are published and read from, by its name.
+
+Avoid: queue, stream
+
 ## Everyday words
 
 add, adds, addition, remove, removes, removal, hold, holds, empty, only, line, total, already,

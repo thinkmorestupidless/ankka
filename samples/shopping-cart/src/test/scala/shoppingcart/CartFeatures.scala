@@ -2,8 +2,9 @@ package shoppingcart
 
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, GherkinSuite, LogCapturing}
-import shoppingcart.api.ShoppingCartEndpoint
-import shoppingcart.application.ShoppingCartEntity
+import com.thinkmorestupidless.ankka.runtime.{InMemoryBroker, ProjectionRuntime}
+import shoppingcart.api.{CheckoutsSeenEndpoint, ShoppingCartEndpoint}
+import shoppingcart.application.{CheckoutNotifier, CheckoutsSeen, ShoppingCartEntity}
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest as JdkRequest, HttpResponse as JdkResponse}
@@ -32,8 +33,17 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
   private var last: (Int, String) = (0, "")
 
   override def beforeAll(): Unit =
-    server = HttpServer.at("127.0.0.1", 0)(clients => ShoppingCartEndpoint(clients.componentClient))
-    testKit = AnkkaTestKit.start(Seq(ShoppingCartEntity.descriptor), Seq(server))
+    server = HttpServer.at("127.0.0.1", 0)(
+      clients => ShoppingCartEndpoint(clients.componentClient),
+      clients => CheckoutsSeenEndpoint(clients.viewClient)
+    )
+    // The notices go to an in-memory broker, and the view reads them back from it, as the deployed
+    // service does from the installation's broker.
+    val broker = InMemoryBroker()
+    testKit = AnkkaTestKit.start(
+      Seq(ShoppingCartEntity.descriptor, CheckoutNotifier.descriptor, CheckoutsSeen.descriptor),
+      Seq(server, ProjectionRuntime.withBroker(broker, broker))
+    )
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
 
   override def afterAll(): Unit =
@@ -112,6 +122,17 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
 
   When("the customer removes {string}") { (product: String) =>
     last = send("DELETE", s"$cart/items/${id(product)}")
+  }
+
+  Then("the checkout notice of the cart is read from the topic") { () =>
+    // Read through a topic and a projection, so it arrives a moment after the checkout answers.
+    val deadline = 30.seconds.fromNow
+    var seen     = send("GET", s"/checkouts-seen/$scenarioId")
+    while seen._1 != 200 && deadline.hasTimeLeft() do
+      Thread.sleep(200)
+      seen = send("GET", s"/checkouts-seen/$scenarioId")
+    assertEquals(seen._1, 200, s"no checkout notice of the cart was read: ${seen._2}")
+    assert(seen._2.contains(s""""cartId":"$scenarioId""""), seen._2)
   }
 
   When("the customer checks out") { () =>

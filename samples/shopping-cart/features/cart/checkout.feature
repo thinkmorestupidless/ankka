@@ -34,3 +34,8 @@ Feature: Checking out
     Given an empty cart
     When the customer checks out
     Then the checkout is refused because the cart is empty
+
+  Scenario: a checkout is read back from the topic its notice is published to
+    Given a cart holding 1 of "Widget"
+    When the customer checks out
+    Then the checkout notice of the cart is read from the topic

@@ -3,6 +3,8 @@ package com.thinkmorestupidless.ankka.controlplane
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import munit.FunSuite
 
+import scala.jdk.CollectionConverters.*
+
 import java.nio.file.{Files, Path, Paths}
 import scala.sys.process.*
 import scala.util.Try
@@ -521,4 +523,113 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
       .find(_.contains("name: ankka-console-service"))
       .getOrElse(fail("no console certificate"))
     assert(certificate.contains("ankka://platform/console"), certificate)
+  }
+
+  // ── Telemetry (feature 026) ─────────────────────────────────────────────────
+
+  private lazy val collectorOnly = render("../tests/otel-collector")
+
+  /** The parsed Deployment named `name`, from a render. */
+  private def deploymentNamed(render: String, name: String) =
+    io.fabric8.kubernetes.client.utils.Serialization.unmarshal(
+      documentsOfKind(render, "Deployment")
+        .find(_.linesIterator.exists(_.trim == s"name: $name"))
+        .getOrElse(fail(s"no Deployment $name")),
+      classOf[io.fabric8.kubernetes.api.model.apps.Deployment]
+    )
+
+  /** The telemetry variables on one named container of one named Deployment. */
+  private def telemetryOn(render: String, deployment: String) =
+    val container =
+      deploymentNamed(render, deployment).getSpec.getTemplate.getSpec.getContainers.asScala
+        .find(_.getName == deployment)
+        .getOrElse(fail(s"$deployment has no container of its own name"))
+    val env = container.getEnv.asScala.toVector
+    (
+      env.filter(_.getName == "ANKKA_OTLP_ENDPOINT"),
+      env.filter(_.getName == "ANKKA_OTLP_HEADERS")
+    )
+
+  private def namespaceOf(document: String) =
+    """(?m)^  namespace: (\S+)$""".r.findFirstMatchIn(document).map(_.group(1))
+
+  test("an installation that is not a local platform names a collector of its own") {
+    for deployment <- Vector("ankka-operator", "ankka-controlplane") do
+      val (endpoint, headers) = telemetryOn(remote, deployment)
+      assertEquals(endpoint.size, 1, s"$deployment: the address is set once")
+      assertEquals(
+        Option(endpoint.head.getValue).getOrElse(""),
+        "",
+        s"$deployment names a collector"
+      )
+      assertEquals(headers.size, 1, deployment)
+      val ref = headers.head.getValueFrom.getSecretKeyRef
+      assertEquals(
+        (ref.getName, ref.getKey, ref.getOptional.booleanValue),
+        ("ankka-telemetry", "headers", true)
+      )
+    // Neither the platform's collector nor the telemetry store, and nothing of either.
+    assert(
+      !remote.split("(?m)^---$").exists(d => namespaceOf(d).contains("ankka-telemetry")),
+      "the remote overlay renders something in ankka-telemetry"
+    )
+    assert(!remote.contains("ankka-telemetry.svc"), "the remote overlay names a local collector")
+    assert(!remote.contains("grafana/otel-lgtm"), "the remote overlay names the store's image")
+    assert(
+      !remote.contains("opentelemetry-collector"),
+      "the remote overlay names a collector's image"
+    )
+    // Asked of the workloads, not the text: CRD schemas name hostPath too.
+    for kind <- Vector("Deployment", "StatefulSet", "DaemonSet"); d <- documentsOfKind(remote, kind)
+    do assert(!d.contains("hostPath:"), s"a remote $kind mounts a node's files")
+    assert(
+      documentsOfKind(remote, "DaemonSet").isEmpty,
+      "the remote overlay runs an agent on every node"
+    )
+  }
+
+  test("a local platform has a telemetry store, its route, its agent, and its address everywhere") {
+    val address = "http://lgtm.ankka-telemetry.svc.cluster.local:4318"
+    for deployment <- Vector("ankka-operator", "ankka-controlplane") do
+      val (endpoint, headers) = telemetryOn(local, deployment)
+      assertEquals(endpoint.map(_.getValue), Vector(address), deployment)
+      assertEquals(headers.size, 1, deployment)
+    val store = deploymentNamed(local, "lgtm")
+    assertEquals(store.getMetadata.getNamespace, "ankka-telemetry")
+    assert(
+      store.getSpec.getTemplate.getSpec.getContainers.asScala.head.getImage
+        .startsWith("grafana/otel-lgtm:")
+    )
+    val route = documentsOfKind(local, "HTTPRoute")
+      .find(_.contains("name: grafana"))
+      .getOrElse(fail("no route"))
+    assert(route.contains("- grafana.127.0.0.1.sslip.io"), route)
+    assert(!route.contains("BASE_DOMAIN"), "a placeholder survived")
+    assert(route.contains("request: 0s"), "the gateway would cut Grafana at fifteen seconds")
+    val agent = documentsOfKind(local, "DaemonSet")
+      .find(_.contains("name: log-agent"))
+      .getOrElse(fail("no agent"))
+    assert(agent.contains("path: /var/log/pods"), agent)
+    assert(documentsOfKind(local, "ConfigMap").exists(_.contains("name: log-agent")))
+    val policy = documentsOfKind(local, "NetworkPolicy")
+      .find(_.contains("name: lgtm"))
+      .getOrElse(fail("no policy"))
+    assert(policy.contains("app.kubernetes.io/managed-by: ankka"), policy)
+    assert(policy.contains("envoy-gateway-system"), policy)
+    // And not the platform's collector: the two make one namespace.
+    assert(!local.contains("otel/opentelemetry-collector:"), "the local overlay lists both")
+  }
+
+  test("the platform's collector, which no overlay lists, still renders") {
+    val names = collectorOnly
+      .split("(?m)^---$")
+      .toVector
+      .flatMap(d => """(?m)^kind: (\S+)$""".r.findFirstMatchIn(d).map(_.group(1)))
+      .toSet
+    assertEquals(names, Set("Namespace", "ConfigMap", "Deployment", "Service", "NetworkPolicy"))
+    val policy = documentsOfKind(collectorOnly, "NetworkPolicy").head
+    assertEquals("app.kubernetes.io/managed-by: ankka".r.findAllIn(policy).size, 2, policy)
+    assert(policy.contains("port: 4318") && policy.contains("port: 4317"), policy)
+    val config = documentsOfKind(collectorOnly, "ConfigMap").head
+    assert(config.contains("verbosity: detailed"), "the collector would print no ids")
   }

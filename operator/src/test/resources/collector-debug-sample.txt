@@ -1,0 +1,51 @@
+2026-10-04T19:25:27.259Z	info	ResourceSpans #0
+Resource SchemaURL: 
+Resource attributes:
+     -> service.name: Str(orders)
+     -> ankka.project: Str(shop)
+ScopeSpans #0
+ScopeSpans SchemaURL: 
+InstrumentationScope ankka 
+Span #0
+    Trace ID       : 4bf92f3577b34da6a3ce929d0e0e4736
+    Parent ID      : 
+    ID             : 00f067aa0ba902b7
+    Name           : http GET /http/{id}
+    Kind           : Server
+    Start time     : 2025-10-04 17:46:40 +0000 UTC
+    End time       : 2025-10-04 17:46:40.001 +0000 UTC
+    Status code    : Unset
+    Status message : 
+    DroppedAttributesCount: 0
+    DroppedEventsCount: 0
+    DroppedLinksCount: 0
+Attributes:
+     -> ankka.component: Str(http)
+     -> ankka.outcome: Str(ok)
+	{"resource": {"service.instance.id": "6ba8622c-2520-459d-a349-dfcc18f8ebbc", "service.name": "otelcol", "service.version": "0.161.0"}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "traces"}
+2026-10-04T19:25:27.266Z	info	Traces	{"resource": {"service.instance.id": "6ba8622c-2520-459d-a349-dfcc18f8ebbc", "service.name": "otelcol", "service.version": "0.161.0"}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "traces", "resource spans": 1, "spans": 1}
+2026-10-04T19:25:27.266Z	info	ResourceSpans #0
+Resource SchemaURL: 
+Resource attributes:
+     -> service.name: Str(payments)
+     -> ankka.project: Str(shop)
+ScopeSpans #0
+ScopeSpans SchemaURL: 
+InstrumentationScope ankka 
+Span #0
+    Trace ID       : 4bf92f3577b34da6a3ce929d0e0e4736
+    Parent ID      : 00f067aa0ba902b7
+    ID             : b7ad6b7169203331
+    Name           : http GET /{id}
+    Kind           : Server
+    Start time     : 2025-10-04 17:46:40 +0000 UTC
+    End time       : 2025-10-04 17:46:40.001 +0000 UTC
+    Status code    : Unset
+    Status message : 
+    DroppedAttributesCount: 0
+    DroppedEventsCount: 0
+    DroppedLinksCount: 0
+Attributes:
+     -> ankka.component: Str(http)
+     -> ankka.outcome: Str(ok)
+	{"resource": {"service.instance.id": "6ba8622c-2520-459d-a349-dfcc18f8ebbc", "service.name": "otelcol", "service.version": "0.161.0"}, "otelcol.component.id": "debug", "otelcol.component.kind": "exporter", "otelcol.signal": "traces"}

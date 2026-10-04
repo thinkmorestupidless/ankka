@@ -267,7 +267,7 @@ first ankka service.
 - `HttpServer`'s `Tracing.request` reads `traceparent` from the request context already on the
   thread and begins its span with that trace and parent, kind `Server`; with none it mints, as
   now.
-- `Observability` gains `calling(service, method)(body: Option[String] => A)(outcomeOf)`: it
+- `Observability` gains `calling(service, method)(outcomeOf)(body: String => A)`: it
   begins a `Client` span under the thread's current span (or as a root with an unknown caller
   when the thread has no trace), hands `body` the `traceparent` to send, and completes the span
   with the outcome the caller saw. `HttpServiceClients.counted` runs its call inside it and sets
@@ -547,7 +547,7 @@ the service's resource, and an apply that changes nothing rolls nothing.
   variable with an empty value, and `ANKKA_OTLP_HEADERS` from a Secret `ankka-telemetry`, key
   `headers`, `optional: true`, in each one's own namespace.
 - A new component, `kustomization/components/otel-collector/`: a namespace `ankka-telemetry`,
-  the collector (`otel/opentelemetry-collector`, a pinned release) receiving OTLP on 4318 and
+  the collector (`otel/opentelemetry-collector:0.162.0`) receiving OTLP on 4318 and
   4317 and writing to its `debug` exporter in detail, a Service, and a NetworkPolicy admitting
   pods labelled `app.kubernetes.io/managed-by: ankka` in namespaces labelled the same.
 - The local overlay lists the telemetry store's component (R23) instead and sets `otlpEndpoint`
@@ -603,7 +603,7 @@ admits its route):
   gateway's HTTPS listener, and a NetworkPolicy admitting OTLP from pods labelled
   `managed-by: ankka` in namespaces labelled the same and from the log agent, and Grafana's port
   from the gateway's proxy pods and nothing else.
-- **The log agent**: a DaemonSet of `otel/opentelemetry-collector-contrib` (pinned) that reads
+- **The log agent**: a DaemonSet of `otel/opentelemetry-collector-contrib` (0.162.0, the collector's release) that reads
   `/var/log/pods` from the node, read-only, with the `filelog` receiver and its `container`
   parser, which takes the namespace, pod and container from each file's path; lifts
   `trace_id=… span_id=…` from the end of a line into the record's own trace and span ids; names

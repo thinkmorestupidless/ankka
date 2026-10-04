@@ -110,6 +110,19 @@ process is given neither, and a module that asks for either is told it is not se
 `-telemetry` joins `ServiceSpec.PlatformSecretSuffixes`, so a descriptor's `secretKeyRef` may not
 name it and a project secret may not take the name.
 
+## Telemetry store (a local platform only)
+
+Nothing of the platform's own is stored in it: it is Grafana's development container, holding
+what it was sent in its own files, with no volume. It is lost on restart.
+
+| It holds | Sent by | Found by |
+|---|---|---|
+| spans | each instance's exporter, over OTLP | trace id; `service.name`, `ankka.project` |
+| metrics | each instance's exporter, over OTLP | the metric's name; the same resource |
+| log records | the log agent, from each node's pod log files | `service.name` (the container), `ankka.project` (the namespace less its prefix); a record's own trace id and span id, lifted from the end of the line |
+
+The mapping of a log line to a record is in [contracts/operator.md](contracts/operator.md).
+
 ## Resource (what every span and metric of an instance says it is from)
 
 | Attribute | Value | From |

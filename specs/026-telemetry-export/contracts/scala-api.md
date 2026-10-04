@@ -83,12 +83,12 @@ never returned.
 ```scala
 // on Observability
 private[ankka] def calling[A](service: String, method: String)
-    (outcomeOf: A => SpanOutcome)(body: Option[String] => A): A
+    (outcomeOf: A => SpanOutcome)(body: String => A): A
 ```
 
 Begins a `Client` span named for `service` and `method` under the thread's span, or as a root
-with an unknown caller when the thread has none; gives `body` the `traceparent` to send (always
-`Some`, the span's own context); completes the span with `outcomeOf` of the result, or `Failed`
+with an unknown caller when the thread has none; gives `body` the `traceparent` to send, which is
+the span's own context; completes the span with `outcomeOf` of the result, or `Failed`
 if `body` throws and `TimedOut` if it throws a timeout. `service` and `method` are admitted names
 (data-model, *Admitted names*).
 

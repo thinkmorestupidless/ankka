@@ -72,7 +72,7 @@ that lists both does not render.
 |---|---|
 | Namespace | `ankka-telemetry` |
 | ConfigMap | the collector's configuration: OTLP in on 4318 (HTTP) and 4317 (gRPC); traces and metrics out to `debug`, in detail |
-| Deployment | `otel/opentelemetry-collector`, a pinned release, one replica, `imagePullPolicy: IfNotPresent` |
+| Deployment | `otel/opentelemetry-collector:0.162.0`, one replica, `imagePullPolicy: IfNotPresent` |
 | Service | `otel-collector`, 4318 and 4317 |
 | NetworkPolicy | ingress to the collector's pods on those two ports from pods labelled `app.kubernetes.io/managed-by: ankka` in namespaces labelled the same; nothing else |
 
@@ -85,12 +85,12 @@ For a local platform. Decision: [research.md](../research.md), R23.
 | Object | |
 |---|---|
 | Namespace | `ankka-telemetry`, labelled `app.kubernetes.io/managed-by: ankka` so the gateway's listener admits its route |
-| Deployment `lgtm` | `grafana/otel-lgtm`, a pinned release, one replica, `imagePullPolicy: IfNotPresent`, pods labelled `managed-by: ankka`; no volume: what it holds is gone when it restarts |
+| Deployment `lgtm` | `grafana/otel-lgtm:0.35.0`, one replica, `imagePullPolicy: IfNotPresent`, pods labelled `managed-by: ankka`; no volume: what it holds is gone when it restarts |
 | Service `lgtm` | 4318 and 4317 (OTLP), 3000 (Grafana) |
 | HTTPRoute `grafana` | `grafana.<base domain>` on the gateway's `https` listener, to the Service's 3000 |
 | NetworkPolicy | to the store's pods: OTLP from pods labelled `managed-by: ankka` in namespaces labelled the same, and from the log agent; 3000 from the gateway's proxy pods in `envoy-gateway-system`; nothing else |
 | ConfigMap `log-agent` | the agent's configuration, below |
-| DaemonSet `log-agent` | `otel/opentelemetry-collector-contrib`, a pinned release; `/var/log/pods` from the node, read-only; no ServiceAccount grant |
+| DaemonSet `log-agent` | `otel/opentelemetry-collector-contrib:0.162.0`; `/var/log/pods` from the node, read-only; no ServiceAccount grant |
 
 **The log agent** reads every container's log file on its node and sends each line to the store
 as a log record:

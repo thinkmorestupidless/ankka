@@ -1,17 +1,17 @@
 Feature: The collector the platform offers
   An installation's collector is its own. The platform offers one that an installation may add,
   the least there is to send to: it receives telemetry from every project of the installation and
-  from nothing else, and keeps none of it. The platform's own services export as any service
+  from the platform's own services, from nothing else, and keeps none of it. The platform's own services export as any service
   does.
 
   Scenario: a service of any project reaches the platform's collector
-    Given a local platform with the platform's collector added
+    Given an installation with the platform's collector added
     And a deployed service "orders" of the project "shop"
     When "orders" handles 1 request
     Then the platform's collector holds the spans of the request
 
   Scenario: a workload that is not of the installation cannot reach the platform's collector
-    Given a local platform with the platform's collector added
+    Given an installation with the platform's collector added
     When a workload that is not of the installation sends telemetry to the platform's collector
     Then the platform's collector holds none of it
 

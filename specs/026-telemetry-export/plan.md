@@ -110,7 +110,7 @@ renders today; the local console and the observe port answer what they answer to
 never guessed; nothing interned is unbounded; `Test / parallelExecution := false` stays;
 warning-free; no suite binds a fixed port; no test names an image by a literal tag
 
-**Scale/Scope**: 1 new module of about 9 source files and 6 suites; about 22 Scala source files
+**Scale/Scope**: 1 new module of 8 source files and 12 suites; about 22 Scala source files
 changed across `runtime`, `http`, `grpc`, `sidecar`, `core`, `controlplane-api` and `operator`,
 with about 7 new suites and 14 changed; 2 new kustomize components of 6 and 8 files and about 8
 manifest files changed; 4 logging configurations (1 new); `build.sbt`, `project/Dependencies.scala`, the
@@ -190,7 +190,7 @@ modules/telemetry-otlp/                                        # new module: ank
   src/main/scala/…/telemetry/RecordedSpanData.scala            #   a recorded span as the SDK's SpanData
   src/main/scala/…/telemetry/Metrics.scala                     #   three instruments over the totals
   src/main/scala/…/telemetry/Identity.scala                    #   the resource
-  src/test/scala/…/telemetry/FakeCollector.scala, six suites
+  src/test/scala/…/telemetry/FakeCollector.scala, twelve suites
 
 modules/runtime/…/runtime/Recorder.scala                       # high half, kind, anchor, random start, sentinel, cursor
 modules/runtime/…/runtime/InvocationTotals.scala               # new
@@ -246,7 +246,8 @@ the Secret beside the secret key's in the operator's rendering.
 
 Cut by user story, tests before the code they hold. Each slice stands on its own.
 
-1. **Verify first** (research, *Verify first, gathered*): nine short spikes, each a test. Three
+1. **Verify first** (research, *Verify first, gathered*): thirteen facts, each turned into a
+   test. Four about the SDK come first; the rest sit with the slice that relies on them. Three
    could change the design: the JDK sender beside OkHttp, the SDK kept quiet, and the exporter
    accepting a span it did not make. If the SDK cannot be kept quiet, the fallback in R1 is taken
    up with you before anything is built on it.
@@ -259,7 +260,7 @@ Cut by user story, tests before the code they hold. Each slice stands on its own
    no exporter.
 4. **Export** (User Stories 1, 2 and 4). The provider and the builder; the module: settings,
    identity, the span as `SpanData`, the loop and its outage, the metrics, stopping; the fake
-   collector and the module's six suites.
+   collector and the module's suites.
 5. **Logs** (User Story 2). The turbo filter, the four configurations, `TraceLoggingSuite`.
    Independent of slices 3 and 4.
 6. **The operator and the declaration** (User Story 3). The two names, the suffix, the settings,

@@ -360,8 +360,9 @@ not an ankka application.
   The headers MUST reach a workload as a reference to a Secret and never as a literal.
 - **FR-011**: `ServiceSpec.problems` MUST refuse a descriptor that sets either variable.
 - **FR-012**: The sidecar MUST carry the exporter and configure it from its environment.
-- **FR-013**: A kustomization component MUST provide a collector with a zero-trust policy
-  admitting every workload namespace, which keeps nothing. The cloud overlay MUST list no
+- **FR-013**: A kustomization component MUST provide a collector that keeps nothing, with a
+  zero-trust policy admitting the installation's own workloads, every project's and the
+  platform's own services', and nothing else. The cloud overlay MUST list no
   collector and name none until an installer sets one.
 - **FR-019**: A second kustomization component MUST provide a telemetry store for a local
   platform: one that receives OTLP from every workload under the same policy, keeps traces,
@@ -382,9 +383,20 @@ not an ankka application.
 
 ### Key Entities
 
-- **Span**: as recorded today, plus a 128-bit trace id; exported with resource and span attributes.
-- **Export cursor**: the recorder's position of the last exported slot, per exporter.
-- **Platform telemetry settings**: the two installation values the operator injects.
+- **Span**: as recorded today, plus a 128-bit trace id, an id unique across instances, a kind and
+  a mark for an unknown caller; exported with resource and span attributes.
+- **Trace context**: the trace id and parent span a request, a call or a message carries, as
+  `traceparent` between services and as metadata inside one.
+- **Export cursor**: the recorder's position of the last exported span, per exporter, with a
+  count of the spans lost before it reached them.
+- **Invocation totals**: per component and handler, the count by outcome and the summed duration
+  since the instance started.
+- **Telemetry settings**: the collector's address and the headers to send, which the operator
+  injects.
+- **Telemetry Secret**: per service, the headers as the workload reads them; written by the
+  operator, owned by the service.
+- **Platform's collector**: a component that receives telemetry and keeps none.
+- **Telemetry store**: a local platform's store and viewer of traces, metrics and gathered logs.
 
 ## Success Criteria *(mandatory)*
 
@@ -428,8 +440,9 @@ not an ankka application.
 - 025-polyglot-service-client no longer gates this feature: the outbound span is FR-017 here.
   When 025 gives further contexts a service client, those clients record the same span through
   the same code.
-- 027-managed-broker and 023-secret-store reuse the shared sidecar prefix declaration that
-  `ANKKA_OTLP_` joins.
+- 023-secret-store's one declaration of the platform's variables (`PlatformVariables`) is where
+  the two telemetry variables are added, as exact names the platform alone sets;
+  027-managed-broker adds its own there too.
 - 024-replayable-topics changes how a topic is read; a message replayed under it carries the
   `traceparent` it was published with, so whichever of the two is built second must keep FR-016
   holding.

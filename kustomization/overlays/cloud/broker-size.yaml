@@ -1,0 +1,33 @@
+# The installation's broker, sized for the cluster it runs on. The broker component's values are a
+# laptop's: one node, a 2Gi volume and a 512MB heap. Set each value marked SET.
+#
+# More than one node also wants the Kafka's replication settings raised to match
+# (`default.replication.factor`, `min.insync.replicas` and the two internal topics' factors in
+# components/broker/kafka.yaml), which a patch of the `Kafka` beside this one sets.
+#
+# Strimzi's images come from quay.io; a cluster that pulls only through a cache of its own needs
+# that cache to mirror quay.io/strimzi as well.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual
+  namespace: ankka-broker
+spec:
+  replicas: 1 # SET: nodes, each both controller and broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 2Gi # SET: each node's storage
+        deleteClaim: false
+        kraftMetadata: shared
+  jvmOptions:
+    -Xms: 256m # SET
+    -Xmx: 512m # SET: the heap, well inside the memory limit
+  resources:
+    requests:
+      memory: 768Mi # SET
+      cpu: 250m # SET
+    limits:
+      memory: 1Gi # SET

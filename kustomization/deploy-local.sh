@@ -106,6 +106,15 @@ echo "==> installing trust-manager"
 kubectl apply -k kustomization/components/trust-manager --server-side --force-conflicts
 kubectl -n cert-manager rollout status deployment/trust-manager --timeout=180s
 
+echo "==> installing Strimzi"
+# The installation's broker is a Kafka run by Strimzi, and Strimzi's CRDs must exist before the
+# overlay's Kafka, KafkaNodePool and the operator's KafkaTopics and KafkaUsers are instances of one
+# — the same reason as CNPG, and server-side for the same annotation limit. The broker component
+# lists ./strimzi too, so the overlay's apply is a no-op over it.
+kubectl apply -f kustomization/components/broker/namespace.yaml --server-side --force-conflicts
+kubectl apply -k kustomization/components/broker/strimzi --server-side --force-conflicts
+kubectl -n ankka-broker rollout status deployment/strimzi-cluster-operator --timeout=300s
+
 echo "==> building images"
 # Root-level, not per-project: docker:publishLocal aggregates to every project with
 # DockerPlugin enabled (operator, controlPlane, shoppingCart) and silently skips the rest, the same way
@@ -202,6 +211,10 @@ kubectl -n ankka-controlplane rollout status deployment/ankka-controlplane --tim
 
 echo "==> waiting for the console"
 kubectl -n ankka-console rollout status deployment/ankka-console --timeout=300s
+
+echo "==> waiting for the broker"
+# A Kafka is a minute or two on a laptop: a JVM, its storage and Strimzi's entity operator.
+kubectl -n ankka-broker wait --for=condition=Ready kafka/ankka --timeout=600s
 
 echo "==> waiting for the gateway and its certificate"
 kubectl -n ankka-gateway wait --for=condition=Ready certificate/ankka-wildcard --timeout=120s

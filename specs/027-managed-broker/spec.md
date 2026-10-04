@@ -105,11 +105,9 @@ cluster and asserts the pod is ready and a message the consumer publishes is rea
 
 **Acceptance Scenarios**:
 
-1. **Given** the Python sample, process-hosted, with a consumer that publishes to a topic, and a
-   descriptor whose `env` names a Kafka in the cluster, **When** it is deployed to a k3s cluster,
-   **Then** the sidecar connects to the broker and the pod becomes ready.
-2. **Given** that deployment, **When** a change is delivered to the consumer, **Then** the message
-   it publishes is read from the topic.
+- added `features/broker/supplied.feature`: a service hosted as a process is ready with the broker its descriptor names
+- added `features/broker/supplied.feature`: a consumer of a service hosted as a process publishes to the broker its descriptor names
+- added `features/broker/supplied.feature`: a broker variable is given to both programs of a service hosted as a process
 
 ---
 
@@ -132,24 +130,15 @@ status reports the broker phase.
 
 **Acceptance Scenarios**:
 
-1. **Given** a descriptor declaring a topic and setting no `ANKKA_KAFKA_*` variable, **When** it is
-   applied, **Then** the resource carries the topic, and the operator renders a topic named
-   `<project>.<name>` with the declared partitions, a credential for the service, and ACLs granting
-   the service read and write on its project's topics.
-2. **Given** the rendered workload, **When** its environment is inspected, **Then** it carries
-   `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and the `ANKKA_KAFKA_TLS_*` variables, given to both programs of
-   a process-hosted service as a supplied broker variable is, and the service's code names the
-   topic by its declared name.
-3. **Given** a consumer in that service producing to the topic, **When** a change is delivered,
-   **Then** the message is on `<project>.<name>` on the installation's broker.
-4. **Given** a second service in the same project with a view over the same topic name and no
-   `topics` declaration, **When** it starts, **Then** it reads the project's topic and the view
-   fills.
-5. **Given** the service's status, **When** `ankka services get` is run, **Then** it reports a
-   broker phase in the shape of the database phase: waiting while the broker's operator works,
-   ready when the topic and credential exist, failed only for a problem that will not clear.
-6. **Given** a declared topic whose partition count the broker has not yet created, **When** the
-   status is read, **Then** it is waiting, not failed, as a CNPG `Database` racing its role is.
+- added `features/broker/topics.feature`: a declared topic is made on the installation's broker for its project
+- added `features/broker/topics.feature`: a service with a declared topic is told where the installation's broker is
+- added `features/broker/topics.feature`: a service proves which service it is to the broker with its certificate
+- added `features/broker/topics.feature`: both programs of a service hosted as a process are told where the installation's broker is
+- added `features/broker/topics.feature`: a consumer publishes to its project's topic by the name the descriptor declared
+- added `features/broker/topics.feature`: another service of the project reads a declared topic without declaring it
+- added `features/broker/topics.feature`: the status says how far the platform has got with a service's topics
+- added `features/broker/descriptor.feature`: two services of a project that declare one topic agree on its partitions
+- added `features/broker/descriptor.feature`: a topic's partitions can be made more and never fewer
 
 ---
 
@@ -170,20 +159,11 @@ the view has no rows after a message is published in the first project.
 
 **Acceptance Scenarios**:
 
-1. **Given** a service in project B with a view over a topic that exists only as
-   `A.<name>`, **When** it starts, **Then** the broker refuses its credential for that topic, the
-   refusal is logged naming the topic, and the view receives nothing.
-2. **Given** a service in project A, **When** it attempts, through a supplied client in a test, to
-   produce to `B.<name>`, **Then** the broker refuses the write.
-3. **Given** the broker's ACLs, **When** they are listed, **Then** each service's credential has
-   read and write on exactly the topics prefixed with its project and nothing else, and no
-   credential has cluster-wide rights.
-4. **Given** a descriptor that both declares `topics` and sets an `ANKKA_KAFKA_*` variable,
-   **When** it is applied, **Then** it is refused with an error naming both, before any resource
-   is written.
-5. **Given** a descriptor that sets `ANKKA_KAFKA_*` and declares no topics, **When** it is applied,
-   **Then** the service is marked supplied, nothing is provisioned, and the variables reach the
-   service as they do today.
+- added `features/broker/isolation.feature`: a service reads nothing of another project's topic of the same name
+- added `features/broker/isolation.feature`: a service's credential is refused a topic of another project
+- added `features/broker/isolation.feature`: a service's credential reaches the topics of its own project and nothing else
+- added `features/broker/descriptor.feature`: a descriptor's topics are refused when they cannot be made
+- added `features/broker/supplied.feature`: a service whose descriptor names a broker is given nothing on the installation's
 
 ---
 
@@ -202,12 +182,10 @@ earliest offset and assert the message is there; read the status and assert reco
 
 **Acceptance Scenarios**:
 
-1. **Given** a service with a declared topic holding messages, **When** the service is deleted,
-   **Then** the topic and its messages remain on the broker and the credential is retained.
-2. **Given** the same name applied again, **When** the status is read, **Then** the broker phase
-   reports the topic recovered, and the service's consumers resume from their committed offsets.
-3. **Given** a project deleted after its last service, **When** the broker is inspected, **Then**
-   the project's topics remain and the documentation says who removes them.
+- added `features/broker/kept.feature`: a deleted service's topic keeps what was published to it
+- added `features/broker/kept.feature`: a service deployed again finds its topic
+- added `features/broker/kept.feature`: a view of a service deployed again reads on from where it had read to
+- added `features/broker/kept.feature`: a deleted project's topics are kept
 
 ---
 
@@ -226,13 +204,10 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 **Acceptance Scenarios**:
 
-1. **Given** the local overlay, **When** it is applied, **Then** a broker runs in its own namespace
-   with a policy admitting every workload namespace and nothing else, and its own operator if the
-   chosen shape has one.
-2. **Given** the cloud overlay, **When** `RemoteOverlaySuite` renders it, **Then** the broker's
-   sizing and storage are placeholders marked `SET` and the component is the same one.
-3. **Given** `ReservedProjectIdsSuite` and the manifests, **When** the broker component asks for an
-   `ankka://` identity, **Then** it is in the `platform` project.
+- added `features/broker/installation.feature`: a local platform has a broker from the start
+- added `features/broker/installation.feature`: only the services of the installation reach its broker
+- added `features/broker/installation.feature`: an installation in a cluster has the broker a local platform has
+- added `features/broker/installation.feature`: the installation's broker belongs to the platform and to no project of a member
 
 ---
 

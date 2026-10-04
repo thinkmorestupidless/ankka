@@ -291,3 +291,59 @@ final class TraceSuite extends FunSuite:
     assertEquals(assembled.roots.head.children.size, 1)
     assert(!assembled.partial)
   }
+
+  // 128-bit identity, and a call whose caller is unknown
+
+  test("a trace's two halves round-trip through metadata as 32 hex digits") {
+    val out =
+      Trace.into(Metadata.empty, TraceContext(0x0af7651916cd43ddL, -0x77b6c5e4e10ffc1dL, 42L))
+    assertEquals(out.get(Trace.TraceIdKey).map(_.length), Some(32))
+    val in = Trace.inbound(out)
+    assertEquals(
+      (in.traceIdHigh, in.traceId, in.parentSpanId),
+      (0x0af7651916cd43ddL, -0x77b6c5e4e10ffc1dL, 42L)
+    )
+  }
+
+  test("a trace id an older node wrote, 16 digits or fewer, reads as one whose high half is zero") {
+    val older = Metadata.empty.set(Trace.TraceIdKey, "deadbeef").set(Trace.SpanIdKey, "2a")
+    assertEquals(Trace.inbound(older), Trace.Inbound(0L, 0xdeadbeefL, 42L))
+  }
+
+  test("a trace id that is not hex, or is too long, is no trace") {
+    for bad <- Vector("not-hex", "1" * 33, "") do
+      val in = Trace.inbound(Metadata.empty.set(Trace.TraceIdKey, bad))
+      assertEquals(in.parentSpanId, Recorder.UnknownCaller, bad)
+  }
+
+  test("a call that carries no trace begins a fresh trace whose caller is unknown") {
+    val in = Trace.inbound(Metadata.empty)
+    assertEquals(in.parentSpanId, Recorder.UnknownCaller)
+    assertNotEquals(in.traceId, 0L)
+  }
+
+  test("the console's own call is a plain root, not a call from an unknown caller") {
+    val in = Trace.inbound(CallOrigin.into(Metadata.empty, CallOrigin.Console))
+    assertEquals(in.parentSpanId, 0L)
+  }
+
+  test("the current context carries both halves, and the current trace the low half as before") {
+    val r    = Recorder(16)
+    val span = r.begin(7L, 8L, 0L, 1, 2, SpanKind.Internal)
+    Trace.within(span, CallOrigin("cart", "add-item")) {
+      assertEquals(Trace.currentContext, Some(TraceContext(7L, 8L, span.id)))
+      assertEquals(Trace.currentTrace, Some((8L, span.id)))
+      val carried = Trace.inbound(Trace.outbound(Metadata.empty))
+      assertEquals(carried, Trace.Inbound(7L, 8L, span.id))
+    }
+  }
+
+  test("a span whose caller is unknown is assembled as a root, and not as an orphan") {
+    val r    = Recorder(16)
+    val span = r.begin(0L, 5L, Recorder.UnknownCaller, 1, 2, SpanKind.Internal)
+    r.complete(span, SpanOutcome.Ok)
+    val trace = Trace.assemble(5L, r.spansOf(5L), r.oldestOverwritten)
+    assertEquals(trace.roots.size, 1)
+    assert(!trace.roots.head.parentUnknown)
+    assert(!trace.partial)
+  }

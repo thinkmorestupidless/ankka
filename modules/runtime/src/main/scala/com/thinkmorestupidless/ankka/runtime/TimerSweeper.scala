@@ -183,9 +183,7 @@ private[ankka] final class Sweep(
       conversation: Conversation,
       timer: DueTimer
   ): Future[Boolean] =
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
+    val span = observability.recorder.beginRoot(
       componentRef = observability.names.intern(descriptor.componentId.toString),
       handlerRef = observability.names.intern(timer.method.toString)
     )
@@ -194,8 +192,7 @@ private[ankka] final class Sweep(
         Metadata.empty
           .set(TimerSweeper.TimerNameKey, timer.name)
           .set(TimerSweeper.AttemptsKey, timer.attempts.toString),
-        span.traceId,
-        span.id
+        span.context
       ),
       CallOrigin(descriptor.componentId.toString, timer.method.toString)
     )
@@ -252,16 +249,14 @@ private[ankka] final class Sweep(
       // A fired timer is a trace root: it is its own piece of work, not a continuation of
       // whatever scheduled it, possibly days earlier. The recorder holds no actor reference,
       // so calling it from this Future is safe where touching ActorContext would not be.
-      val span = observability.recorder.begin(
-        traceId = Trace.mint(),
-        parentSpanId = 0L,
+      val span = observability.recorder.beginRoot(
         componentRef = observability.names.intern(descriptor.componentId.toString),
         handlerRef = observability.names.intern(timer.method.toString)
       )
       var outcome = SpanOutcome.Failed
       try
         val origin = CallOrigin(descriptor.componentId.toString, timer.method.toString)
-        val effect = Trace.within(span.traceId, span.id, origin)(handler(action, timer.payload))
+        val effect = Trace.within(span, origin)(handler(action, timer.payload))
         outcome = SpanOutcome.Ok
         effect
       finally

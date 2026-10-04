@@ -197,7 +197,7 @@ an exported span that was half one request and half another could not be taken b
 **Decision**: `Recorder.complete` adds the span to `InvocationTotals`, a new dependency-free
 class in `runtime`: for each pair of component and handler, four outcome counts and a sum of
 durations, in `AtomicLongArray`s behind an open-addressed table of packed keys, sized by
-`ankka.observability.max-counted-handlers` (default 4096). A pair that arrives when the table is
+`ankka.observability.max-counted-handlers` (default 1024). A pair that arrives when the table is
 full is counted under one overflow entry, exported as `(other)`. The `Span` handle carries the
 component, the handler and the start time, so a span whose slot was reused before it completed is
 still counted.
@@ -223,6 +223,24 @@ cannot depend on a module whose tests depend on it (R21).
 The pairs are bounded for the reason the names are: components are registered and handlers are
 declared (`R/Observability.scala:255-257`). The overflow entry is so that the table cannot fail,
 as `ExternalServices` has `(other services)`.
+
+**Measured** (T016, `RecorderBenchmark` under `-Dankka.benchmarks=on`, on the development Mac):
+recording one span with both halves, a kind and the tally costs 48 ns, against the 200 ns the suite
+asserts; 107 ns while a second thread reads the ring with a cursor as fast as it can, which is far
+harsher than an exporter reading once a second. Side by side in one JVM, the recorder before and
+after this feature measured 90–115 ns each across three rounds of a harness that allocates a
+handle per span, with no consistent difference: within the noise. The default for
+`max-counted-handlers` is 1024, not the 4096 first written here: 2048 slots of six longs is 96 KiB
+beside the ring's 288 KiB, and a service with more than a thousand pairs of component and handler
+is counted under `(other)` beyond them rather than failing.
+
+**Found while doing it**: `TraceCorrelationSuite` selected the spans of its own call with
+`spanId > recorder.recorded`, which was true only while span ids counted up from one alongside the
+ring's sequence; and `RecorderSuite` asserted every span id positive, which a random start makes
+false half the time. Both now say what they mean. The cursor reads a slot's sequence before and
+after its fields behind `VarHandle` fences, and the writers fence the two stores that bracket the
+fields: on an ARM machine a plain array gives no ordering at all, and a span exported torn cannot
+be taken back.
 
 **Not done**: `/ankka/metrics` goes on counting the window. Pointing it at the totals would make
 its two `counter`s true counters and retire the limitation "Metrics are a window too"; it is a

@@ -41,7 +41,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
    * command that did. It is in memory only: a step resumed after a restart has no request to belong
    * to, and is a trace of its own.
    */
-  private var stepTrace: Option[(Long, Long)] = None
+  private var stepTrace: Option[TraceContext] = None
 
   private val StepTimerKey     = "ankka-step-timeout"
   private val WorkflowTimerKey = "ankka-workflow-timeout"
@@ -135,11 +135,14 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           // The command as a span of its own, as an entity's is: without it a workflow is in no
           // trace and no metric, and nothing it does can be said to be its doing.
           val metadata = MetaEntry.toMetadata(invoke.metadata)
+          val inbound  = Trace.inbound(metadata)
           val span = observability.recorder.begin(
-            traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
-            parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+            traceIdHigh = inbound.traceIdHigh,
+            traceId = inbound.traceId,
+            parentSpanId = inbound.parentSpanId,
             componentRef = componentRef,
-            handlerRef = observability.names.intern(invoke.method)
+            handlerRef = observability.names.intern(invoke.method),
+            kind = SpanKind.Internal
           )
           val started = System.nanoTime()
           // Failed until proven otherwise: if the handler throws, that is what is recorded.
@@ -150,8 +153,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           val attempt: Either[CommandError, WorkflowEffect[S, Any]] =
             try
               val produced = Trace.within(
-                span.traceId,
-                span.id,
+                span,
                 CallOrigin(componentName, invoke.method)
               )(
                 binding
@@ -182,7 +184,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
             case Left(refused) =>
               PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(refused))
             case Right(effect) =>
-              if effect.transition.isDefined then stepTrace = Some((span.traceId, span.id))
+              if effect.transition.isDefined then stepTrace = Some(span.context)
 
               effect.outcome match
                 case Outcome.Fail(error) =>
@@ -279,20 +281,27 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 
     // Everything the step's thread needs, taken on the actor's: the recorder holds no actor
     // reference, and the names are interned here so the thread only writes numbers.
-    val recorder          = observability.recorder
-    val handlerRef        = observability.names.intern(ref.name)
-    val origin            = CallOrigin(componentName, ref.name)
-    val (traceId, parent) = stepTrace.getOrElse((Trace.mint(), 0L))
+    val recorder   = observability.recorder
+    val handlerRef = observability.names.intern(ref.name)
+    val origin     = CallOrigin(componentName, ref.name)
+    val trace      = stepTrace.getOrElse(TraceContext(Trace.mintHigh(), Trace.mint(), 0L))
 
     val execution = Future {
       // The span and the origin belong here, on the thread doing the work, and not around the
       // creation of this Future: a trace set on the actor's thread is invisible to this one. With
       // them, a call the step makes is the step's child in a trace and the step's call in a
       // topology.
-      val span    = recorder.begin(traceId, parent, componentRef, handlerRef)
+      val span = recorder.begin(
+        trace.traceIdHigh,
+        trace.traceId,
+        trace.spanId,
+        componentRef,
+        handlerRef,
+        SpanKind.Internal
+      )
       var outcome = SpanOutcome.Failed
       try
-        val effect = Trace.within(span.traceId, span.id, origin)(
+        val effect = Trace.within(span, origin)(
           StepScope.within(handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]])
         )
         outcome = SpanOutcome.Ok

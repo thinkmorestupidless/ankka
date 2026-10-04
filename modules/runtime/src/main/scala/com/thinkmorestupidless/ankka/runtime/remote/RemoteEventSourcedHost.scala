@@ -9,6 +9,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   MetaEntry,
   Observability,
   Span,
+  SpanKind,
   SpanOutcome,
   StateRecord,
   Trace,
@@ -198,11 +199,14 @@ private[ankka] object RemoteEventSourcedHost:
                 inFlight = Some(invoke)
                 sentNanos = System.nanoTime()
                 val metadata = MetaEntry.toMetadata(invoke.metadata)
+                val inbound  = Trace.inbound(metadata)
                 val span = observability.recorder.begin(
-                  traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
-                  parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+                  traceIdHigh = inbound.traceIdHigh,
+                  traceId = inbound.traceId,
+                  parentSpanId = inbound.parentSpanId,
                   componentRef = componentRef,
-                  handlerRef = observability.names.intern(invoke.method)
+                  handlerRef = observability.names.intern(invoke.method),
+                  kind = SpanKind.Internal
                 )
                 val snapshotRequested =
                   !handler.readOnly && descriptor.snapshotEvery.exists(n =>
@@ -221,7 +225,7 @@ private[ankka] object RemoteEventSourcedHost:
                   // handler is who such a call is from: not whoever called this one, whose name
                   // the metadata arrived with.
                   CallOrigin.into(
-                    Trace.into(metadata, span.traceId, span.id),
+                    Trace.into(metadata, span.context),
                     CallOrigin(component, invoke.method)
                   ),
                   snapshotRequested

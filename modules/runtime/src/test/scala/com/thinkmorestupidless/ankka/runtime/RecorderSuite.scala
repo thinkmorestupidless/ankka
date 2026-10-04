@@ -109,7 +109,70 @@ final class RecorderSuite extends FunSuite:
     val read = r.snapshot()
     assert(read.size <= 1024)
     assert(
-      read.forall(s => s.durationNanos >= 0L && s.spanId > 0L),
+      read.forall(s => s.durationNanos >= 0L && s.spanId != 0L),
       "every span a reader is given is one that was finished being written"
     )
+  }
+
+  // What a collector needs of a span, beyond what a console in the same process does
+
+  test("a span begun with both halves of a trace id reads back with both") {
+    val r    = Recorder(16)
+    val span = r.begin(0x1234L, 0x5678L, 0L, 1, 2, SpanKind.Server)
+    r.complete(span, SpanOutcome.Ok)
+    val read = r.snapshot().head
+    assertEquals((read.traceIdHigh, read.traceId), (0x1234L, 0x5678L))
+    assertEquals(read.kind, SpanKind.Server)
+    assertEquals(span.context, TraceContext(0x1234L, 0x5678L, span.id))
+  }
+
+  test("a span's kind is Internal unless it is said to be another") {
+    val r = Recorder(16)
+    record(r, traceId = 1L)
+    assertEquals(r.snapshot().head.kind, SpanKind.Internal)
+  }
+
+  test("two recorders do not number their spans alike, and neither starts at one") {
+    // Two instances' spans meet in one trace in a collector; a parent id must name one span.
+    val a = record(Recorder(16), traceId = 1L).id
+    val b = record(Recorder(16), traceId = 1L).id
+    assertNotEquals(a, b)
+    assertNotEquals(a, 1L)
+    assertNotEquals(b, 1L)
+  }
+
+  test("no span id is zero or the unknown caller's mark") {
+    val r   = Recorder(16)
+    val ids = (1 to 10_000).map(_ => record(r, traceId = 1L).id)
+    assert(!ids.contains(0L))
+    assert(!ids.contains(Recorder.UnknownCaller))
+  }
+
+  test("a span's start is a time of day once the recorder's clocks are set against each other") {
+    val r    = Recorder(16)
+    val span = record(r, traceId = 1L)
+    val now  = System.currentTimeMillis() * 1_000_000L
+    assert(math.abs(r.epochNanos(span.startedNanos) - now) < 1_000_000_000L)
+  }
+
+  test("a span whose caller is unknown reads as a root that says so") {
+    val r = Recorder(16)
+    r.complete(r.begin(0L, 9L, Recorder.UnknownCaller, 1, 2, SpanKind.Internal), SpanOutcome.Ok)
+    val read = r.snapshot().head
+    assertEquals(read.parentSpanId, 0L)
+    assert(read.callerUnknown)
+    assert(!r.snapshot().exists(s => s.parentSpanId == Recorder.UnknownCaller))
+  }
+
+  test("a root that began a trace is not one whose caller is unknown") {
+    val r = Recorder(16)
+    record(r, traceId = 1L)
+    assert(!r.snapshot().head.callerUnknown)
+  }
+
+  test("every span completed is counted, whatever the window still holds") {
+    val r = Recorder(16)
+    (1 to 1000).foreach(_ => record(r, traceId = 1L))
+    val counted = r.totals.snapshot().map(_.invocations).sum
+    assertEquals(counted, 1000L)
   }

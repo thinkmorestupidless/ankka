@@ -136,11 +136,14 @@ private[ankka] object EventSourcedEntityHost:
             // did for this request. The parent comes from the caller's metadata, which is how a
             // trace survives a sharding hop without any protocol type changing.
             val metadata = MetaEntry.toMetadata(invoke.metadata)
+            val inbound  = Trace.inbound(metadata)
             val span = observability.recorder.begin(
-              traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
-              parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+              traceIdHigh = inbound.traceIdHigh,
+              traceId = inbound.traceId,
+              parentSpanId = inbound.parentSpanId,
               componentRef = componentRef,
-              handlerRef = observability.names.intern(invoke.method)
+              handlerRef = observability.names.intern(invoke.method),
+              kind = SpanKind.Internal
             )
             val started = System.nanoTime()
             // Failed until proven otherwise: if the handler throws, that is what is recorded.
@@ -150,8 +153,7 @@ private[ankka] object EventSourcedEntityHost:
               // ComponentClient call is recorded as this span's child rather than a root.
               val (effect, handlerOutcome) =
                 Trace.within(
-                  span.traceId,
-                  span.id,
+                  span,
                   CallOrigin(descriptor.componentId.toString, invoke.method)
                 )(interpret(binding, entity, invoke))
               outcome = handlerOutcome

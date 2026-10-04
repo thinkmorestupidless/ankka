@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   AnkkaExecutors,
   Observability,
   Span,
+  SpanKind,
   SpanOutcome,
   Trace
 }
@@ -394,7 +395,7 @@ private[grpc] final class Spans(observability: Option[Observability], fullName: 
   def refused(): Unit =
     for o <- observability; (component, handler) <- refs do
       o.recorder.complete(
-        o.recorder.begin(Trace.mint(), 0L, component, handler),
+        o.recorder.beginRoot(component, handler, SpanKind.Server),
         SpanOutcome.Refused
       )
 
@@ -410,9 +411,9 @@ private[grpc] object Spans:
     def within[A](body: => A): A =
       (observability, refs) match
         case (Some(o), Some((component, handler))) =>
-          val opened = o.recorder.begin(Trace.mint(), 0L, component, handler)
+          val opened = o.recorder.beginRoot(component, handler, SpanKind.Server)
           span = Some(opened)
-          Trace.within(opened.traceId, opened.id)(body)
+          Trace.within(opened)(body)
         case _ => body
 
     /** Ends the span with how the call ended; once, whichever writer ended it. */

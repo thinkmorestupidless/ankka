@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   CallOrigin,
   Observability,
   ServedRoute,
+  SpanKind,
   SpanOutcome,
   Trace
 }
@@ -628,15 +629,14 @@ private[ankka] object Tracing:
       system: ActorSystem[?]
   ): A =
     val observability = Observability(system)
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
+    val span = observability.recorder.beginRoot(
       componentRef = observability.names.intern("http"),
-      handlerRef = observability.names.intern(describe)
+      handlerRef = observability.names.intern(describe),
+      kind = SpanKind.Server
     )
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span.traceId, span.id, origin)(body)
+      val result = Trace.within(span, origin)(body)
       outcome = SpanOutcome.Ok
       result
     finally observability.recorder.complete(span, outcome)

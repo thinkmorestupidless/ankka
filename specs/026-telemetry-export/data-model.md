@@ -65,7 +65,7 @@ again, less whatever the ring has overwritten since, which is added to lost.
 
 ## Invocation totals (per instance, in memory, since it started)
 
-A table of at most `ankka.observability.max-counted-handlers` (4096) entries, keyed by
+A table of at most `ankka.observability.max-counted-handlers` (1024) entries, keyed by
 (`componentRef`, `handlerRef`), plus one overflow entry.
 
 | Per entry | Type |
@@ -146,5 +146,5 @@ The mapping of a log line to a record is in [contracts/operator.md](contracts/op
 | `ankka.telemetry.shutdown-timeout` | `3s` | how long a stopping instance spends exporting |
 | `ankka.telemetry.service-name`, `ankka.telemetry.project` | `""` | who the instance says it is, where it has no certificate |
 
-And in `runtime`'s `reference.conf`: `ankka.observability.max-counted-handlers = 4096`,
+And in `runtime`'s `reference.conf`: `ankka.observability.max-counted-handlers = 1024`,
 `ankka.observability.max-external-methods = 256`.

@@ -496,10 +496,10 @@ private[ankka] object AutonomousAgentHost:
 
     /** One piece of work on a task, as a span of its own: a start, or an iteration. */
     private def iteration[A](body: => A): A =
-      val span    = observability.recorder.begin(Trace.mint(), 0L, componentRef, handlerRef)
+      val span    = observability.recorder.beginRoot(componentRef, handlerRef)
       var outcome = SpanOutcome.Failed
       try
-        val result = Trace.within(span.traceId, span.id, origin)(body)
+        val result = Trace.within(span, origin)(body)
         outcome = SpanOutcome.Ok
         result
       finally observability.recorder.complete(span, outcome)

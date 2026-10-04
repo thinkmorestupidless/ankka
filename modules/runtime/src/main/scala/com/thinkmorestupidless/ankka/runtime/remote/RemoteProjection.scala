@@ -98,9 +98,7 @@ private[ankka] final class RemoteView(
       row: Option[Array[Byte]]
   ): Future[ViewOutcome] =
     // A projection has no inbound request, so this span is a trace root — as for a Scala view.
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
+    val span = observability.recorder.beginRoot(
       componentRef = componentRef,
       handlerRef = handlerRef
     )
@@ -110,7 +108,7 @@ private[ankka] final class RemoteView(
           descriptor.componentId,
           change,
           CallOrigin.into(
-            Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
+            Trace.into(changeMetadata(subject, sequence), span.context),
             CallOrigin(descriptor.componentId.toString, "on-change")
           ),
           row.map(bytes => Payload(Payload.Json, descriptor.rowManifest, bytes))
@@ -231,9 +229,7 @@ private[ankka] final class RemoteConsumer(
    * whatever it produces.
    */
   def handle(subject: String, sequence: Long, change: Option[Payload]): Future[Done] =
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
+    val span = observability.recorder.beginRoot(
       componentRef = componentRef,
       handlerRef = handlerRef
     )
@@ -243,7 +239,7 @@ private[ankka] final class RemoteConsumer(
           descriptor.componentId,
           change,
           CallOrigin.into(
-            Trace.into(consumerMetadata(subject, sequence), span.traceId, span.id),
+            Trace.into(consumerMetadata(subject, sequence), span.context),
             CallOrigin(descriptor.componentId.toString, "on-message")
           )
         )

@@ -174,17 +174,20 @@ final class Observability(
       incoming: Metadata,
       streaming: Boolean = false
   )(outcomeOf: A => SpanOutcome)(body: => A): A =
+    val inbound = Trace.inbound(incoming)
     val span = recorder.begin(
-      traceId = Trace.traceIdOf(incoming).getOrElse(Trace.mint()),
-      parentSpanId = Trace.parentSpanIdOf(incoming).getOrElse(0L),
+      traceIdHigh = inbound.traceIdHigh,
+      traceId = inbound.traceId,
+      parentSpanId = inbound.parentSpanId,
       componentRef = names.intern(component),
-      handlerRef = names.intern(handler)
+      handlerRef = names.intern(handler),
+      kind = SpanKind.Internal
     )
     val started = System.nanoTime()
     // Failed until proven otherwise: if the handler throws, that is what is recorded.
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span.traceId, span.id, CallOrigin(component, handler))(body)
+      val result = Trace.within(span, CallOrigin(component, handler))(body)
       outcome = outcomeOf(result)
       result
     finally
@@ -239,7 +242,10 @@ object Observability extends ExtensionId[Observability]:
     def int(path: String, otherwise: Int): Int =
       if config.hasPath(path) then config.getInt(path) else otherwise
     new Observability(
-      Recorder(capacity),
+      Recorder(
+        capacity,
+        int("ankka.observability.max-counted-handlers", Recorder.DefaultCountedHandlers)
+      ),
       new Names,
       CallCounts(
         millis("ankka.observability.call-window", 600_000L),

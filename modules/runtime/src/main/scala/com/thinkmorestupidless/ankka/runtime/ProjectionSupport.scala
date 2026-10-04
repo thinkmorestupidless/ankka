@@ -43,15 +43,13 @@ private[ankka] object ProjectionSupport:
   def handling[A](observability: Observability, component: String, handler: String)(
       body: => A
   ): A =
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
+    val span = observability.recorder.beginRoot(
       componentRef = observability.names.intern(component),
       handlerRef = observability.names.intern(handler)
     )
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span.traceId, span.id, CallOrigin(component, handler))(body)
+      val result = Trace.within(span, CallOrigin(component, handler))(body)
       outcome = SpanOutcome.Ok
       result
     finally observability.recorder.complete(span, outcome)

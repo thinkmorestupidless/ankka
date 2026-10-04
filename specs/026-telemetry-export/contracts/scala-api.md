@@ -33,11 +33,14 @@ object Traceparent:
   def render(context: TraceContext): String      // 00-<32>-<16>-01
 
 object Trace:
-  def mint(): (Long, Long)                                    // high, low; never both zero
+  def mint(): Long                                            // the low half; never zero
+  def mintHigh(): Long                                        // the high half
+  def within[A](span: Span, origin: CallOrigin)(body: => A): A  // the span's whole context
   def currentContext: Option[TraceContext]                    // new
   def currentTrace: Option[(Long, Long)]                      // unchanged: low half and span
   def into(metadata: Metadata, context: TraceContext): Metadata
-  def inbound(metadata: Metadata): Inbound                    // replaces traceIdOf / parentSpanIdOf
+  def traceIdOf(metadata: Metadata): Option[Long]             // kept: the low half, for tests
+  def inbound(metadata: Metadata): Inbound                    // what every host of a call uses
   final case class Inbound(traceIdHigh: Long, traceId: Long, parentSpanId: Long)
 ```
 
@@ -56,6 +59,7 @@ final class Recorder(val capacity: Int):
   def begin(traceIdHigh: Long, traceId: Long, parentSpanId: Long,
             componentRef: Int, handlerRef: Int, kind: SpanKind = SpanKind.Internal): Span
   def complete(span: Span, outcome: SpanOutcome): Unit        // also counts into totals
+  def beginRoot(componentRef: Int, handlerRef: Int, kind: SpanKind = SpanKind.Internal): Span
   def snapshot(): Vector[RecordedSpan]                        // unchanged in what it returns
   def epochNanos(startedNanos: Long): Long                    // new
   def totals: InvocationTotals                                // new

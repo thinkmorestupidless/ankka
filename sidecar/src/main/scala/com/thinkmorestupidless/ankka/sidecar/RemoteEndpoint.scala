@@ -24,7 +24,7 @@ import com.thinkmorestupidless.ankka.runtime.remote.{
   RemoteCaller,
   RemotePrincipal
 }
-import com.thinkmorestupidless.ankka.runtime.{ServedRoute, Trace}
+import com.thinkmorestupidless.ankka.runtime.{ServedRoute, Trace, TraceContext}
 
 import java.util.concurrent.TimeoutException
 import scala.concurrent.Await
@@ -85,8 +85,8 @@ final class RemoteEndpoint private (
       )
 
   private def forwardOf(r: RouteSpec, args: Vector[String], body: Array[Byte]): HttpForward =
-    val ctx               = request
-    val (traceId, spanId) = Trace.currentTrace.getOrElse((Trace.mint(), 0L))
+    val ctx   = request
+    val trace = Trace.currentContext.getOrElse(TraceContext(Trace.mintHigh(), Trace.mint(), 0L))
     HttpForward(
       endpointId = spec.id,
       routeId = r.id,
@@ -103,7 +103,7 @@ final class RemoteEndpoint private (
         case Caller.Service(p, name) => RemoteCaller.Service(p, name)
         case Caller.Local            => RemoteCaller.Local,
       // The request's span, and the route as the caller of whatever the process calls for it.
-      metadata = Trace.outbound(Trace.into(Metadata.empty, traceId, spanId))
+      metadata = Trace.outbound(Trace.into(Metadata.empty, trace))
     )
 
   private def forward(r: RouteSpec, args: Vector[String], body: Array[Byte]): EncodedResponse =

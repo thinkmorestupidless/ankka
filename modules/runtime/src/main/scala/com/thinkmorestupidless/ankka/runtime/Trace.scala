@@ -55,6 +55,23 @@ final case class TraceSpan(
 )
 
 /**
+ * Which trace a piece of work belongs to and which span it is, as a call or a message carries it: a
+ * trace id in two halves, high and low, and a span id. The low half alone is what the consoles key
+ * a trace by.
+ */
+final case class TraceContext(traceIdHigh: Long, traceId: Long, spanId: Long):
+  /** The trace id as W3C and OTLP write it: 32 lower-case hex digits, the high half first. */
+  def traceIdHex: String = TraceContext.hex16(traceIdHigh) + TraceContext.hex16(traceId)
+
+  /** The span id as W3C and OTLP write it: 16 lower-case hex digits. */
+  def spanIdHex: String = TraceContext.hex16(spanId)
+
+object TraceContext:
+  private[runtime] def hex16(value: Long): String =
+    val digits = java.lang.Long.toHexString(value)
+    if digits.length == 16 then digits else "0" * (16 - digits.length) + digits
+
+/**
  * Trace identity, and how it travels.
  *
  * It travels as `Metadata`, and that is the whole mechanism — no protocol type changes, and
@@ -71,23 +88,77 @@ object Trace:
   val TraceIdKey: String = "ankka-trace-id"
   val SpanIdKey: String  = "ankka-span-id"
 
-  /** A fresh trace. Minted at an entry point — an HTTP request, a projection, a timer. */
+  /**
+   * The low half of a fresh trace: never zero, so a trace id is never mistaken for "no trace".
+   * Minted at an entry point — an HTTP request, a projection, a timer — with `mintHigh`.
+   */
   def mint(): Long =
     var id = 0L
     while id == 0L do id = ThreadLocalRandom.current().nextLong()
     id
 
-  /** Writes this trace and the span that will parent the callee's work into outbound metadata. */
-  def into(metadata: Metadata, traceId: Long, parentSpanId: Long): Metadata =
-    metadata
-      .set(TraceIdKey, java.lang.Long.toHexString(traceId))
-      .set(SpanIdKey, java.lang.Long.toHexString(parentSpanId))
+  /**
+   * The high half of a fresh trace. A trace id is 128 bits because a collector keeps traces from
+   * every service of an installation for as long as it is asked to, and 64 random bits collide
+   * after about four billion of them.
+   */
+  def mintHigh(): Long = ThreadLocalRandom.current().nextLong()
 
-  /** Reads a trace from inbound metadata, if the caller was carrying one. */
-  def traceIdOf(metadata: Metadata): Option[Long] = parse(metadata.get(TraceIdKey))
+  /**
+   * Writes this trace and the span that will parent the callee's work into outbound metadata. The
+   * trace id is written as 32 hex digits, the high half first; a node from before 128-bit ids
+   * cannot read that, takes the call as carrying no trace, and starts one — a trace that crosses
+   * two versions of a service during its rolling update is split, and nothing fails.
+   */
+  def into(metadata: Metadata, context: TraceContext): Metadata =
+    metadata
+      .set(TraceIdKey, context.traceIdHex)
+      .set(SpanIdKey, java.lang.Long.toHexString(context.spanId))
+
+  /** As `into`, for a trace whose high half is zero. */
+  def into(metadata: Metadata, traceId: Long, parentSpanId: Long): Metadata =
+    into(metadata, TraceContext(0L, traceId, parentSpanId))
+
+  /** Reads the low half of a trace from inbound metadata, if the caller was carrying one. */
+  def traceIdOf(metadata: Metadata): Option[Long] = traceOf(metadata).map(_._2)
 
   /** Reads the caller's span, which becomes this invocation's parent. */
   def parentSpanIdOf(metadata: Metadata): Option[Long] = parse(metadata.get(SpanIdKey))
+
+  /** Both halves of the trace an inbound call carries: 1 to 32 hex digits, the high half first. */
+  private def traceOf(metadata: Metadata): Option[(Long, Long)] =
+    metadata.get(TraceIdKey).flatMap { value =>
+      if value.isEmpty || value.length > 32 then None
+      else
+        val split = math.max(0, value.length - 16)
+        for
+          high <- if split == 0 then Some(0L) else parse(Some(value.substring(0, split)))
+          low  <- parse(Some(value.substring(split)))
+          if low != 0L || high != 0L
+        yield (high, low)
+    }
+
+  /** The trace and parent a span recorded for a call begins with. */
+  final case class Inbound(traceIdHigh: Long, traceId: Long, parentSpanId: Long)
+
+  /**
+   * The trace a host's span for a *call* begins in: the one the call carries, under the caller's
+   * span. A call that carries none was made outside any handler — every call a handler makes
+   * carries its trace — so its span is the root of a fresh trace whose caller is unknown, and is
+   * marked so; it is never given a parent by guessing. The local console's own calls are not the
+   * service's, and are plain roots.
+   *
+   * Entry points (an endpoint, a projection, a timer) do not use this: they start traces, or
+   * continue one a request or a message carries.
+   */
+  def inbound(metadata: Metadata): Inbound =
+    traceOf(metadata) match
+      case Some((high, low)) => Inbound(high, low, parentSpanIdOf(metadata).getOrElse(0L))
+      case None =>
+        val parent =
+          if CallOrigin.from(metadata).contains(CallOrigin.Console) then 0L
+          else Recorder.UnknownCaller
+        Inbound(mintHigh(), mint(), parent)
 
   /**
    * The trace and span the current thread is working for, if any.
@@ -102,8 +173,21 @@ object Trace:
   private val current = ThreadLocal[Working]()
 
   /** What a thread is working for: the trace, the span, and the handler that span is. */
-  private final class Working(val traceId: Long, val spanId: Long, val origin: CallOrigin)
+  private final class Working(
+      val traceIdHigh: Long,
+      val traceId: Long,
+      val spanId: Long,
+      val origin: CallOrigin
+  )
 
+  /** The trace and span the current thread is working for, both halves of the trace id. */
+  def currentContext: Option[TraceContext] =
+    current.get() match
+      case null                             => None
+      case working if working.traceId == 0L => None
+      case working => Some(TraceContext(working.traceIdHigh, working.traceId, working.spanId))
+
+  /** The low half of the current trace, and the current span. */
   def currentTrace: Option[(Long, Long)] =
     current.get() match
       case null => None
@@ -128,8 +212,12 @@ object Trace:
    * Runs `body` as the work of this span and of this handler, restoring whatever was current
    * before. The form a host uses: a call `body` makes is this span's child and this handler's call.
    */
+  def within[A](span: Span, origin: CallOrigin)(body: => A): A =
+    scoped(Working(span.traceIdHigh, span.traceId, span.id, origin))(body)
+
+  /** As above, for a trace whose high half is zero: the form tests use. */
   def within[A](traceId: Long, spanId: Long, origin: CallOrigin)(body: => A): A =
-    scoped(Working(traceId, spanId, origin))(body)
+    scoped(Working(0L, traceId, spanId, origin))(body)
 
   /**
    * Runs `body` as a handler's work that belongs to no trace: what a handler does between the
@@ -137,7 +225,7 @@ object Trace:
    * iteration. A call made here is the handler's call, and the root of a trace of its own.
    */
   def asOrigin[A](origin: CallOrigin)(body: => A): A =
-    scoped(Working(0L, 0L, origin))(body)
+    scoped(Working(0L, 0L, 0L, origin))(body)
 
   /**
    * What a thread was working for, taken so that the same work can go on somewhere else.
@@ -168,16 +256,20 @@ object Trace:
    * then from an unknown origin, which is the truth.
    */
   def outbound(metadata: Metadata): Metadata =
-    val traced = currentTrace match
-      case Some((traceId, spanId)) => into(metadata, traceId, spanId)
-      case None                    => metadata
+    val traced = currentContext match
+      case Some(context) => into(metadata, context)
+      case None          => metadata
     currentOrigin match
       case Some(origin) => CallOrigin.into(traced, origin)
       case None         => CallOrigin.strip(traced)
 
   /** Runs `body` as the work of this span, for no handler in particular. */
+  def within[A](span: Span)(body: => A): A =
+    scoped(Working(span.traceIdHigh, span.traceId, span.id, null))(body)
+
+  /** As above, for a trace whose high half is zero. */
   def within[A](traceId: Long, spanId: Long)(body: => A): A =
-    scoped(Working(traceId, spanId, null))(body)
+    scoped(Working(0L, traceId, spanId, null))(body)
 
   private def scoped[A](working: Working)(body: => A): A =
     val previous = current.get()

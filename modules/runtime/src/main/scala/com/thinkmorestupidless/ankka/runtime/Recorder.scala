@@ -1,5 +1,7 @@
 package com.thinkmorestupidless.ankka.runtime
 
+import java.lang.invoke.VarHandle
+import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -17,6 +19,16 @@ enum SpanOutcome:
   case Ok, Failed, Refused, TimedOut
 
 /**
+ * What a span was, as a collector sorts spans: the serving of a request from outside, a call to
+ * another service, the handling of a message from a topic, or work inside one service.
+ *
+ * A collector draws an edge between two services by pairing a `Client` span with the `Server` span
+ * that names it as its parent; nothing else can tell it which spans those are.
+ */
+enum SpanKind:
+  case Internal, Server, Client, Consumer
+
+/**
  * Every component invocation the runtime interprets, in a fixed-size ring.
  *
  * This exists here, in `runtime`, because effects are inert data that the runtime interprets — so
@@ -27,33 +39,44 @@ enum SpanOutcome:
  *
  *   - **No dependency.** `ankka-runtime` is published, so anything added here lands in the build of
  *     every application using the platform. There is no metrics library and no tracing library;
- *     there are longs in an array.
+ *     there are longs in an array. Exporting them is another module's work, through `cursor`.
  *   - **Nothing built on the hot path.** A span is ints and longs; no name is copied and nothing is
- *     allocated. Components and handlers arrive already reduced to integers — see `Names`, which
- *     documents the one map lookup that reduction costs, rather than pretending it is free. A
- *     reader turns them back into names later, when somebody is actually looking.
+ *     allocated beyond the handle `begin` returns. Components and handlers arrive already reduced
+ *     to integers — see `Names`, which documents the one map lookup that reduction costs, rather
+ *     than pretending it is free. A reader turns them back into names later, when somebody is
+ *     actually looking. `complete` also counts the span into `totals`: a hash, a probe and two
+ *     atomic adds, because a count since the instance started cannot be read from a ring that
+ *     forgets.
  *   - **Bounded, absolutely.** Capacity is the only knob. The oldest span is overwritten, so memory
  *     is a function of the capacity and nothing else — not of uptime, not of traffic. This is what
- *     lets always-on be a defensible default (SC-003, SC-004).
+ *     lets always-on be a defensible default (SC-003, SC-004). The totals are bounded by the number
+ *     of pairs of component and handler they hold, with one overflow entry beyond it; a cursor
+ *     holds at most a ring's worth of sequences it is waiting on.
  *
- * Spans are written by many threads and read by one occasional reader, so the ring takes writes
- * with a single atomic increment and accepts that a reader may catch a slot mid-write. A reader
- * therefore validates what it reads rather than trusting it; a torn span is dropped, and its trace
- * is reported partial. Locking writers to give a reader a perfect view would be paying on the hot
- * path for the benefit of the cold one.
+ * Spans are written by many threads and read by occasional readers, so the ring takes writes with a
+ * single atomic increment and accepts that a reader may catch a slot mid-write. A reader therefore
+ * validates what it reads rather than trusting it: a slot's sequence is cleared before its fields
+ * are written and published after, behind fences, and a reader checks it before and after reading
+ * the fields. A torn span is dropped, and its trace is reported partial. Locking writers to give a
+ * reader a perfect view would be paying on the hot path for the benefit of the cold one.
+ *
+ * Span ids start at a random number per recorder, so that two instances' spans in one trace do not
+ * share ids; the counter is otherwise exactly as cheap as one that started at one.
  */
-final class Recorder(val capacity: Int):
+final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultCountedHandlers):
   require(capacity > 0 && (capacity & (capacity - 1)) == 0, "capacity must be a power of two")
 
   private val mask = capacity - 1
 
   // One array per field rather than an array of objects: a span costs no allocation at all, and
   // writing one touches a handful of primitive slots.
+  private val traceIdsHigh = new Array[Long](capacity)
   private val traceIds     = new Array[Long](capacity)
   private val spanIds      = new Array[Long](capacity)
   private val parentIds    = new Array[Long](capacity)
   private val componentRef = new Array[Int](capacity)
   private val handlerRef   = new Array[Int](capacity)
+  private val kinds        = new Array[Byte](capacity)
   private val startedNanos = new Array[Long](capacity)
   private val durations    = new Array[Long](capacity)
   private val outcomes     = new Array[Byte](capacity)
@@ -62,39 +85,110 @@ final class Recorder(val capacity: Int):
   private val sequences = new Array[Long](capacity)
 
   private val next   = new AtomicLong(0L)
-  private val spanId = new AtomicLong(0L)
+  private val spanId = new AtomicLong(ThreadLocalRandom.current().nextLong())
+
+  /** When this recorder was made, on both clocks: what turns a span's start into a time of day. */
+  private val anchorEpochNanos = System.currentTimeMillis() * 1_000_000L
+  private val anchorNanoTime   = System.nanoTime()
+
+  /** How many times each handler ran, and for how long, since this recorder was made. */
+  val totals: InvocationTotals = InvocationTotals(countedHandlers)
 
   /** Total spans ever begun — `> capacity` means the oldest have been overwritten. */
   def recorded: Long = next.get()
 
   def oldestOverwritten: Boolean = recorded > capacity
 
+  /** A span's start, `System.nanoTime()` as recorded, as nanoseconds since 1970. */
+  def epochNanos(startedNanos: Long): Long = anchorEpochNanos + (startedNanos - anchorNanoTime)
+
+  /** A span in a trace whose high half is zero, of no particular kind: the form tests use. */
+  def begin(traceId: Long, parentSpanId: Long, componentRef: Int, handlerRef: Int): Span =
+    begin(0L, traceId, parentSpanId, componentRef, handlerRef, SpanKind.Internal)
+
   /**
    * Claims a slot and starts timing. The returned handle is the slot and its sequence packed
-   * together, so `complete` can refuse to write into a slot that has since been reused.
+   * together, so `complete` can refuse to write into a slot that has since been reused; it also
+   * carries what `complete` counts, so a span whose slot was reused is still counted.
+   *
+   * @param parentSpanId
+   *   the span this one is nested under; `0` for a root, and `Recorder.UnknownCaller` for a call
+   *   that carried no trace, which a reader sees as a root whose caller is unknown.
    */
-  def begin(traceId: Long, parentSpanId: Long, componentRef: Int, handlerRef: Int): Span =
-    val seq  = next.incrementAndGet()
-    val slot = ((seq - 1) & mask).toInt
-    val id   = spanId.incrementAndGet()
+  def begin(
+      traceIdHigh: Long,
+      traceId: Long,
+      parentSpanId: Long,
+      componentRef: Int,
+      handlerRef: Int,
+      kind: SpanKind
+  ): Span =
+    val seq     = next.incrementAndGet()
+    val slot    = ((seq - 1) & mask).toInt
+    val id      = nextSpanId()
+    val started = System.nanoTime()
     sequences(slot) = 0L // mark in-flight: a reader must not trust this slot yet
+    VarHandle.storeStoreFence()
+    traceIdsHigh(slot) = traceIdHigh
     traceIds(slot) = traceId
     spanIds(slot) = id
     parentIds(slot) = parentSpanId
     this.componentRef(slot) = componentRef
     this.handlerRef(slot) = handlerRef
-    startedNanos(slot) = System.nanoTime()
+    kinds(slot) = kind.ordinal.toByte
+    startedNanos(slot) = started
     durations(slot) = -1L
     outcomes(slot) = SpanOutcome.Ok.ordinal.toByte
-    Span(slot, seq, id, traceId)
+    Span(slot, seq, id, traceIdHigh, traceId, componentRef, handlerRef, started)
 
-  /** Stops timing and publishes the span. A slot reused since `begin` is left alone. */
+  /** A span that is the root of a fresh trace: an entry point's, which nothing called. */
+  def beginRoot(componentRef: Int, handlerRef: Int, kind: SpanKind = SpanKind.Internal): Span =
+    begin(Trace.mintHigh(), Trace.mint(), 0L, componentRef, handlerRef, kind)
+
+  private def nextSpanId(): Long =
+    var id = spanId.incrementAndGet()
+    while id == 0L || id == Recorder.UnknownCaller do id = spanId.incrementAndGet()
+    id
+
+  /**
+   * Stops timing, counts the span, and publishes it. A slot reused since `begin` is left alone, and
+   * the span is counted all the same: it happened, whether or not the window still holds it.
+   */
   def complete(span: Span, outcome: SpanOutcome): Unit =
+    val duration = System.nanoTime() - span.startedNanos
+    totals.add(span.componentRef, span.handlerRef, outcome, duration)
     val slot = span.slot
     if spanIds(slot) == span.id then
-      durations(slot) = System.nanoTime() - startedNanos(slot)
+      durations(slot) = duration
       outcomes(slot) = outcome.ordinal.toByte
+      VarHandle.storeStoreFence()
       sequences(slot) = span.sequence // publish last: now a reader may trust it
+
+  /**
+   * The span in `slot` if it is complete and is the one `seq` claimed, read so that a slot
+   * overwritten while it was being read is refused rather than returned half one span and half
+   * another.
+   */
+  private def readSlot(slot: Int, seq: Long): RecordedSpan | Null =
+    if sequences(slot) != seq then null
+    else
+      VarHandle.loadLoadFence()
+      val parent = parentIds(slot)
+      val read = RecordedSpan(
+        traceId = traceIds(slot),
+        spanId = spanIds(slot),
+        parentSpanId = if parent == Recorder.UnknownCaller then 0L else parent,
+        componentRef = componentRef(slot),
+        handlerRef = handlerRef(slot),
+        startedNanos = startedNanos(slot),
+        durationNanos = durations(slot),
+        outcome = SpanOutcome.fromOrdinal(outcomes(slot).toInt),
+        traceIdHigh = traceIdsHigh(slot),
+        kind = SpanKind.fromOrdinal(kinds(slot).toInt),
+        callerUnknown = parent == Recorder.UnknownCaller
+      )
+      VarHandle.loadLoadFence()
+      if sequences(slot) == seq && read.durationNanos >= 0L then read else null
 
   /**
    * Every complete span currently held, newest first.
@@ -109,18 +203,9 @@ final class Recorder(val capacity: Int):
     var seq     = end
     val floor   = math.max(1L, end - capacity + 1)
     while seq >= floor do
-      val slot = ((seq - 1) & mask).toInt
-      if sequences(slot) == seq && durations(slot) >= 0L then
-        builder += RecordedSpan(
-          traceId = traceIds(slot),
-          spanId = spanIds(slot),
-          parentSpanId = parentIds(slot),
-          componentRef = componentRef(slot),
-          handlerRef = handlerRef(slot),
-          startedNanos = startedNanos(slot),
-          durationNanos = durations(slot),
-          outcome = SpanOutcome.fromOrdinal(outcomes(slot).toInt)
-        )
+      readSlot(((seq - 1) & mask).toInt, seq) match
+        case null               => ()
+        case span: RecordedSpan => builder += span
       seq -= 1
     builder.result()
 
@@ -128,13 +213,140 @@ final class Recorder(val capacity: Int):
   def spansOf(traceId: Long): Vector[RecordedSpan] =
     snapshot().filter(_.traceId == traceId).sortBy(_.startedNanos)
 
+  /**
+   * A reader that is handed each span once, in the order spans began, for as long as it keeps up
+   * with the ring: what an exporter reads with. Several cursors read independently.
+   */
+  def cursor(): Recorder.Cursor = Recorder.Cursor(this)
+
+  /**
+   * One read of the ring from where a cursor stands, changing nothing: the complete spans after
+   * `position` and among `pending`, oldest first and at most `max`; what the cursor would then wait
+   * on; and how many spans fell out of the ring before it could read them.
+   */
+  private[runtime] def readFrom(
+      position: Long,
+      pending: Vector[Long],
+      max: Int
+  ): Recorder.Batch =
+    val end     = next.get()
+    val floor   = math.max(1L, end - capacity + 1)
+    val spans   = Vector.newBuilder[RecordedSpan]
+    val waiting = Vector.newBuilder[Long]
+    var taken   = 0
+    var lost    = 0L
+
+    // What was in flight when last passed: complete now, still in flight, or overwritten.
+    pending.foreach { seq =>
+      if seq < floor then lost += 1
+      else if taken >= max then waiting += seq
+      else
+        readSlot(((seq - 1) & mask).toInt, seq) match
+          case null =>
+            // Read again with the ring as it is now: a slot claimed since `end` was read is a
+            // span this cursor will never see.
+            if seq < math.max(1L, next.get() - capacity + 1) then lost += 1 else waiting += seq
+          case span: RecordedSpan =>
+            spans += span
+            taken += 1
+    }
+
+    // What has begun since. Anything the ring has already overwritten is counted, not read.
+    var seq = position + 1
+    if seq < floor then
+      lost += floor - seq
+      seq = floor
+    while seq <= end && taken < max do
+      readSlot(((seq - 1) & mask).toInt, seq) match
+        case null => waiting += seq
+        case span: RecordedSpan =>
+          spans += span
+          taken += 1
+      seq += 1
+
+    val held = waiting.result()
+    // A cursor waits on at most a ring's worth: anything older is overwritten by now anyway.
+    val kept = if held.size > capacity then held.takeRight(capacity) else held
+    Recorder.Batch(
+      spans.result(),
+      position = seq - 1,
+      pending = kept,
+      lost = lost + (held.size - kept.size)
+    )
+
 object Recorder:
   def apply(capacity: Int): Recorder = new Recorder(capacity)
 
-/** A claim on a ring slot, held between `begin` and `complete`. Carries no state of its own. */
-final case class Span(slot: Int, sequence: Long, id: Long, traceId: Long)
+  def apply(capacity: Int, countedHandlers: Int): Recorder = new Recorder(capacity, countedHandlers)
 
-/** A span read back out of the ring, with its identifiers still unresolved to names. */
+  /** Pairs of component and handler counted by name before the overflow entry takes the rest. */
+  val DefaultCountedHandlers: Int = 1024
+
+  /**
+   * The parent of a span recorded for a call that carried no trace: a call made outside any
+   * handler, whose caller the service cannot tell. No span has this id. A reader sees such a span
+   * as a root, with `callerUnknown` set, and it is never given a parent by guessing.
+   */
+  val UnknownCaller: Long = Long.MinValue
+
+  /**
+   * A reader of a recorder that is handed each span once.
+   *
+   * `read` changes nothing: a batch that is not committed is read again, less whatever the ring has
+   * overwritten meanwhile, which is then counted lost. So a failed export loses nothing the ring
+   * still holds. A span that was still in flight when the cursor passed it is looked at again on
+   * every read until it completes or is overwritten — a request's root span begins before its
+   * children and ends after them, and a cursor that stopped at it would stall behind every long
+   * request, while one that skipped it would never send a root.
+   */
+  final class Cursor private[Recorder] (recorder: Recorder):
+    @volatile private var position: Long        = 0L
+    @volatile private var pending: Vector[Long] = Vector.empty
+    @volatile private var lostSoFar: Long       = 0L
+
+    /** The next spans, at most `max`, without moving the cursor. */
+    def read(max: Int): Batch = recorder.readFrom(position, pending, max)
+
+    /** Moves the cursor past a batch it read. */
+    def commit(batch: Batch): Unit =
+      position = batch.position
+      pending = batch.pending
+      lostSoFar += batch.lost
+
+    /** Spans that left the ring before this cursor read them, since it was made. */
+    def lost: Long = lostSoFar
+
+    /** Spans begun that this cursor has not passed: one read, for deciding to read sooner. */
+    def unread: Long = recorder.recorded - position
+
+  /** What one read of a cursor found. */
+  final class Batch private[runtime] (
+      val spans: Vector[RecordedSpan],
+      private[runtime] val position: Long,
+      private[runtime] val pending: Vector[Long],
+      val lost: Long
+  )
+
+/** A claim on a ring slot, held between `begin` and `complete`. */
+final case class Span(
+    slot: Int,
+    sequence: Long,
+    id: Long,
+    traceIdHigh: Long,
+    traceId: Long,
+    componentRef: Int,
+    handlerRef: Int,
+    startedNanos: Long
+):
+  /** The context a call made inside this span carries: this span's trace, and this span. */
+  def context: TraceContext = TraceContext(traceIdHigh, traceId, id)
+
+/**
+ * A span read back out of the ring, with its identifiers still unresolved to names.
+ *
+ * `parentSpanId` is `0` for a root and for a span whose caller is unknown; `callerUnknown` tells
+ * the two apart.
+ */
 final case class RecordedSpan(
     traceId: Long,
     spanId: Long,
@@ -143,5 +355,8 @@ final case class RecordedSpan(
     handlerRef: Int,
     startedNanos: Long,
     durationNanos: Long,
-    outcome: SpanOutcome
+    outcome: SpanOutcome,
+    traceIdHigh: Long = 0L,
+    kind: SpanKind = SpanKind.Internal,
+    callerUnknown: Boolean = false
 )

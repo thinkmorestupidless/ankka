@@ -260,7 +260,7 @@ parameter on the kit scopes it to one service. Both SDK kits apply the caller's 
 | a refusal by the service called reaches the calling handler as that refusal | conformance `service.refusal-is-the-answer`, each target |
 | a call to a service that cannot be found fails, naming the service, and is not sent | conformance `service.unresolvable`, each target |
 | a call is not sent to a workload that is not the service asked for | `ServiceClientSuite` (the handshake, existing) and conformance `service.identity-mismatch`, each target |
-| a call to a service whose instance is being replaced is unanswered and is not made again | `ServiceClientSuite`: a listener that accepts and closes, counting connections |
+| a request that may change something is sent at most once when no answer comes | `ServiceClientSuite`: a listener that accepts and closes, counting connections per method |
 | on a developer's machine a service in every language calls another service running there | conformance `service.request-reaches-target` and `service.answer-reaches-handler`, each target; one integration test per SDK through a real sidecar container |
 | a call that is not answered within the time its service is set to wait is unanswered | `ServiceCallsSuite` (`testkit`), with the setting at half a second |
 | the process of a service that calls other services holds no certificate | k3s, `SidecarClusterSuite` |
@@ -347,3 +347,27 @@ Each is cheap, and each would change a decision above if it did not hold.
    runs on (R11).
 6. **Each conformance case fails before the SDK change**, and a filtered run names its wildcard
    (`'*service.*'`).
+
+## Verified during implementation
+
+1. **V1 did not hold for safe methods, and was accepted.** A listener on loopback that accepts each
+   connection and closes it at once saw two connections for a `GET` and for a `HEAD`, and one for
+   `POST`, `PUT`, `DELETE` and `PATCH` (`ServiceClientSuite`, "a request that may change something
+   is sent at most once; a GET or a HEAD at most twice"). The JDK's client treats a connection that
+   closes before any byte of an answer as expired and sends a request of an idempotent-by-name
+   method once more; `jdk.httpclient.disableRetryConnect` covers only a refused connection, where
+   nothing was sent. HTTP allows a client to repeat a safe method, and the decision (clarification,
+   2026-10-04) is to say so rather than replace the client: the scenario is "a request that may
+   change something is sent at most once", with `GET` and `HEAD` at most twice, and the page says it.
+2. **V2 held.** The sidecar image's launcher, `/opt/docker/bin/ankka-sidecar` (native-packager's),
+   puts `JAVA_OPTS` before its own arguments (`:260-261`), and the image has no
+   `conf/application.ini` whose options it would replace. `docker run -e JAVA_OPTS="-Dankka.probe.v2=yes
+   -XshowSettings:properties" … -version` printed `ankka.probe.v2 = yes`. So a test kit's `env`
+   tells a containerised sidecar `ankka.local-services.<name>`, as R13 says.
+
+3. **V3 held.** A trace document names a span's component by its interned name and nothing else:
+   `ObservabilityEndpoint.span` writes `names.nameOf(componentRef)` (`ObservabilityEndpoint.scala:
+   154-166`), the span list does the same (`:269-272`), and the management route labels by name
+   (`ObservabilityRoute.scala:58, 71`). Nothing looks a span's component up in the registry, so a
+   span named `service:local/carts` renders as that name, nested where its parent is. No change to
+   rendering is needed.

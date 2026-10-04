@@ -95,6 +95,10 @@ and is refused; and not the wasm import, which has its own blocking-pool rules a
 - Q: Are the glossary terms the features needed right? → A: Yes: `model`, `SDK` (refusing
   "library"), `conformance suite`, `scripted service` and `skill` stand as defined. "Header" is
   not made a term; the features describe what a call says without it.
+- Q: (implementation, V1) The JDK's client sends a `GET` or `HEAD` once more when its connection
+  closes before any answer, and no setting turns that off. Accept it? → A: Yes. A request that may
+  change something is sent at most once; a `GET` or `HEAD` at most twice, and the documentation
+  says so.
 - Q: What is a handler told when the other service never answers (a refused connection, a
   timeout)? → A: A fourth named error in all three languages, `ServiceUnanswered(service,
   reason)`. `ServiceCallFailed` keeps meaning that the service answered with a status other than
@@ -129,7 +133,7 @@ through the gateway (research R15).
 - added `features/service-calls/calling.feature`: a refusal by the service called reaches the calling handler as that refusal
 - added `features/service-calls/calling.feature`: a call to a service that cannot be found fails, naming the service, and is not sent
 - added `features/service-calls/calling.feature`: a call is not sent to a workload that is not the service asked for
-- added `features/service-calls/calling.feature`: a call to a service whose instance is being replaced is unanswered and is not made again
+- added `features/service-calls/calling.feature`: a request that may change something is sent at most once when no answer comes
 - added `features/service-calls/calling.feature`: on a developer's machine a service in every language calls another service running there
 - added `features/service-calls/calling.feature`: a call that is not answered within the time its service is set to wait is unanswered
 - added `features/service-calls/process.feature`: the process of a service that calls other services holds no certificate
@@ -230,9 +234,12 @@ tested code; the limitations page has no sentence claiming the gap.
   entity's is: it would block the workflow's other commands.
 - **A body larger than the callee accepts.** The callee's refusal is returned as its status and
   body; the client does not retry or truncate.
-- **The callee is mid-replacement.** The connection is refused for up to a second during a rolling
-  update; the client answers `ServiceUnanswered` and does not retry, as the Scala client does not
-  today. A caller that needs retry writes it, or relies on a consumer's redelivery.
+- **The callee is mid-replacement.** The connection is refused or closed for up to a second during
+  a rolling update; the client answers `ServiceUnanswered`. A request that may change something
+  (`POST`, `PUT`, `DELETE`, `PATCH`) is sent at most once. A `GET` or a `HEAD` whose connection
+  closes before any part of an answer arrives may be sent once more, by the JDK's client, which
+  HTTP allows for a safe method and which no setting turns off (research, V1). A caller that needs
+  more retries writes them, or relies on a consumer's redelivery.
 - **The local console's registry names a service that has since stopped.** The local resolver
   answers an address nothing listens on; the error is `ServiceUnanswered`, not unresolvable.
 - **Two calls in flight from one process.** Each is its own RPC on the sidecar's client port and

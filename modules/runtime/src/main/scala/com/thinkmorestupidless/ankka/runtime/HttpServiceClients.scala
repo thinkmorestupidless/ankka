@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.sdk.{
   ServiceClients,
   ServiceIdentityMismatch,
   ServiceResponse,
+  ServiceUnanswered,
   ServiceUnresolvable
 }
 import com.typesafe.config.Config
@@ -33,6 +34,13 @@ import scala.util.control.NonFatal
  *
  * Outside a cluster: `ankka.local-services.<name>` if set, otherwise the entry the named service
  * announced to the local console's registry; plain HTTP.
+ *
+ * Every door to another service goes through here — an endpoint's, a workflow step's, a consumer's,
+ * a timed action's, an agent's, and the sidecar's on behalf of a process — so what is true of one
+ * call is true of all of them: one of four errors when no answer came or nothing was sent
+ * (`ServiceUnresolvable`, `ServiceIdentityMismatch`, `ServiceUnanswered`, and `ServiceCallFailed`
+ * from a typed helper), `ankka.service-client.timeout` for the answer, none of the platform's
+ * headers (`OutboundHeaders`), and a span in the calling handler's trace.
  */
 final class HttpServiceClients(
     config: Config,
@@ -52,6 +60,12 @@ final class HttpServiceClients(
         FiniteDuration(config.getDuration("ankka.tls.reload-interval").toMillis, "ms")
       )
     )
+
+  private val timeoutMillis: Long =
+    if config.hasPath(HttpServiceClients.TimeoutKey) then
+      config.getDuration(HttpServiceClients.TimeoutKey).toMillis
+    else 30_000L
+  private val timeout: Duration = Duration.ofMillis(timeoutMillis)
 
   private val ownProject: String =
     self.map(_.project).orElse(tls.flatMap(_.identity).map(_.project)).getOrElse("local")
@@ -136,28 +150,31 @@ final class HttpServiceClients(
   private def counted(project: String, name: String, method: String)(
       request: => ServiceResponse
   ): ServiceResponse =
-    observability match
-      case None => request
-      case Some(o) =>
-        val origin  = Trace.currentOrigin
-        val callee  = o.externalServices.nameFor(project, name)
-        val handler = HttpServiceClients.methodName(method)
-        val started = System.nanoTime()
-        val response =
-          try request
-          catch
-            case e: HttpTimeoutException =>
-              o.madeUnanswered(origin, callee, handler, Unanswered.TimedOut)
-              throw e
-            case NonFatal(e) =>
-              o.madeUnanswered(origin, callee, handler, Unanswered.Undelivered)
-              throw e
-        val outcome = response.status / 100 match
-          case 4 => SpanOutcome.Refused
-          case 5 => SpanOutcome.Failed
-          case _ => SpanOutcome.Ok
-        o.made(origin, callee, handler, outcome, System.nanoTime() - started)
-        response
+    val target = s"$project/$name"
+    def call: ServiceResponse =
+      observability match
+        case None => request
+        case Some(o) =>
+          o.calling(
+            o.externalServices.nameFor(project, name),
+            HttpServiceClients.methodName(method)
+          )((response: ServiceResponse) =>
+            response.status / 100 match
+              case 4 => SpanOutcome.Refused
+              case 5 => SpanOutcome.Failed
+              case _ => SpanOutcome.Ok
+          )(request)
+    try call
+    catch
+      case e: (ServiceUnresolvable | ServiceIdentityMismatch) => throw e
+      case e: HttpTimeoutException =>
+        throw ServiceUnanswered(
+          target,
+          s"no answer within ${FiniteDuration(timeoutMillis, "ms").toCoarsest}",
+          e
+        )
+      case NonFatal(e) =>
+        throw ServiceUnanswered(target, Option(e.getMessage).getOrElse(e.getClass.getName), e)
 
   private lazy val plain: HttpClient =
     HttpClient
@@ -184,13 +201,13 @@ final class HttpServiceClients(
   ): ServiceResponse =
     val builder = HttpRequest
       .newBuilder(uri)
-      .timeout(Duration.ofSeconds(30))
+      .timeout(timeout)
       .method(
         method,
         body.fold(HttpRequest.BodyPublishers.noBody())(HttpRequest.BodyPublishers.ofByteArray)
       )
     contentType.foreach(c => builder.header("Content-Type", c): Unit)
-    headers.foreach((k, v) => builder.header(k, v): Unit)
+    OutboundHeaders.sent(headers).foreach((k, v) => builder.header(k, v): Unit)
     val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray())
     ServiceResponse(
       response.statusCode,
@@ -200,6 +217,9 @@ final class HttpServiceClients(
     )
 
 object HttpServiceClients:
+
+  /** How long a call waits for its answer. */
+  val TimeoutKey: String = "ankka.service-client.timeout"
 
   /**
    * The methods a call is counted under; any other is `(other)`, so the table of names is bounded.

@@ -339,6 +339,13 @@ class DescriptorSuite extends munit.FunSuite:
     )
   }
 
+  test("a descriptor may say how long the service waits for another service to answer") {
+    val setting = EnvVar("ANKKA_SERVICE_CLIENT_TIMEOUT", value = Some("5s"))
+    assertEquals(ServiceSpec("i:1", env = Vector(setting)).problems, Vector.empty)
+    val process = ServiceSpec("i:1", hosting = ServiceSpec.Process, env = Vector(setting)).problems
+    assert(!process.exists(_.contains("ANKKA_SERVICE_CLIENT_TIMEOUT")), process.toString)
+  }
+
   test("a neighbour of a platform variable is not refused") {
     assertEquals(
       ServiceSpec("i:1", env = Vector(EnvVar("ANKKA_CLUSTER_MODE_X", value = Some("x")))).problems,

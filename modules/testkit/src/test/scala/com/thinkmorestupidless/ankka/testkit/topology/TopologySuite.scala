@@ -9,7 +9,8 @@ import com.thinkmorestupidless.ankka.runtime.{
   CallOrigin,
   InMemoryBroker,
   Observability,
-  ProjectionRuntime
+  ProjectionRuntime,
+  SpanOutcome
 }
 import com.thinkmorestupidless.ankka.sdk.*
 import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, LogCapturing}
@@ -98,6 +99,14 @@ final class TopologySuite extends FunSuite with LogCapturing:
         exchange.getResponseBody.write(body)
         exchange.close()
     )
+    others.createContext(
+      "/refused",
+      exchange =>
+        val body = "no".getBytes("UTF-8")
+        exchange.sendResponseHeaders(403, body.length.toLong)
+        exchange.getResponseBody.write(body)
+        exchange.close()
+    )
     others.start()
     otherNames.foreach(name =>
       sys.props.put(s"ankka.local-services.$name", s"http://127.0.0.1:${others.getAddress.getPort}")
@@ -119,6 +128,11 @@ final class TopologySuite extends FunSuite with LogCapturing:
             "GET",
             "/service/{name}",
             answer(name => clients.services(name).getText("/orders/not-a-handler-name"))
+          ),
+          KitEndpoint.Route(
+            "GET",
+            "/refused/{name}",
+            answer(name => clients.services(name).request("GET", "/refused").status.toString)
           ),
           KitEndpoint.Route(
             "GET",
@@ -309,6 +323,36 @@ final class TopologySuite extends FunSuite with LogCapturing:
     val node            = document.nodes.find(_.id == "service:local/orders")
     assertEquals(node.map(_.kind), Some("ExternalService"), raw)
     assert(!raw.contains("not-a-handler-name"), "a path reached the topology: " + raw)
+  }
+
+  /**
+   * The newest span for `handler` of the endpoint, and the span of the call it made to `service`.
+   */
+  private def endpointAndCall(handler: String, service: String) =
+    val observability  = Observability(kit.service.system)
+    def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
+    val spans          = observability.recorder.snapshot()
+    val endpoint = spans
+      .find(s => name(s.componentRef) == "http" && name(s.handlerRef) == handler)
+      .getOrElse(fail(s"no span for $handler"))
+    val call = spans
+      .find(s => s.traceId == endpoint.traceId && name(s.componentRef) == service)
+      .getOrElse(fail(s"no span for the call to $service in the endpoint's trace"))
+    (endpoint, call, name(call.handlerRef))
+
+  test("a call to another service is a span under the span of the handler that made it") {
+    assertEquals(request("GET", "/t/service/orders"), "hello")
+    val (endpoint, call, method) = endpointAndCall("GET /service/{name}", "service:local/orders")
+    assertEquals(method, "GET")
+    assertEquals(call.parentSpanId, endpoint.spanId, "the call's parent is the endpoint's span")
+    assertEquals(call.outcome, SpanOutcome.Ok)
+  }
+
+  test("a call another service refuses is a refused span, not a failed one") {
+    assertEquals(request("GET", "/t/refused/orders"), "403")
+    val (endpoint, call, _) = endpointAndCall("GET /refused/{name}", "service:local/orders")
+    assertEquals(call.parentSpanId, endpoint.spanId)
+    assertEquals(call.outcome, SpanOutcome.Refused)
   }
 
   test("services beyond the limit are counted together, and no name past it is kept") {

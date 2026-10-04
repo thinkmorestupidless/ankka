@@ -19,6 +19,12 @@ private[ankka] object PlatformVariables:
   /** The service's secret key, which the platform's program alone holds. */
   val SecretKey: String = "ANKKA_SECRET_KEY"
 
+  /**
+   * How long a call to another service waits for its answer. The platform's program makes every
+   * such call, for a process as for itself, so the setting is its.
+   */
+  val ServiceClientTimeout: String = "ANKKA_SERVICE_CLIENT_TIMEOUT"
+
   /** The port the service serves HTTP on. A descriptor declares the port instead. */
   val HttpPort: String = "ANKKA_HTTP_PORT"
 
@@ -61,13 +67,14 @@ private[ankka] object PlatformVariables:
 
   /**
    * For the platform's program and never the developer's. A descriptor may give them — a model's
-   * key, a database it supplies, a secret key of its own, the issuers it accepts tokens from — and
-   * they go to the platform's container only: the sidecar runs the agent loop, connects to the
-   * database, holds the secret store and verifies tokens, handing the process only the principal.
+   * key, a database it supplies, a secret key of its own, the issuers it accepts tokens from, how
+   * long a call to another service waits — and they go to the platform's container only: the
+   * sidecar runs the agent loop, connects to the database, holds the secret store, verifies tokens
+   * and calls other services, handing the process only the principal and the answers.
    */
   val RuntimeOnlyPrefixes: Vector[String] =
     Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
-  val RuntimeOnlyNames: Set[String] = Set(SecretKey)
+  val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout)
 
   /** Where a web-hosted service's program listens. */
   val WebPort: String = "PORT"

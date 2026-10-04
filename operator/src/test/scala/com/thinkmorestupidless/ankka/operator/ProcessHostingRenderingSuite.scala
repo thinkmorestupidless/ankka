@@ -129,6 +129,14 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     assert(!envOf(own(1)).contains("ANKKA_SECRET_KEY"))
   }
 
+  test("how long a call to another service waits reaches the sidecar, which makes the call") {
+    val cs = containers(
+      process.copy(env = List(EnvEntry("ANKKA_SERVICE_CLIENT_TIMEOUT", Some("5s"))))
+    )
+    assertEquals(envOf(cs(0)).get("ANKKA_SERVICE_CLIENT_TIMEOUT"), Some("5s"))
+    assert(!envOf(cs(1)).contains("ANKKA_SERVICE_CLIENT_TIMEOUT"), "the process must not")
+  }
+
   test("a platform setting a descriptor gives is kept from the process") {
     // By iteration over the declaration, so a variable newly made a platform setting is held here
     // with no edit to this suite.

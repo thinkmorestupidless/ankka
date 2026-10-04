@@ -62,12 +62,21 @@ Feature: One service calling another as itself, in every language
       | Python     |
       | TypeScript |
 
-  Scenario: a call to a service whose instance is being replaced is unanswered and is not made again
+  Scenario Outline: a request that may change something is sent at most once when no answer comes
     Given a deployed service "psp-gateway" in the project "payments"
-    And a deployed service "merchant" in the project "payments" none of whose instances is reached
-    When a handler of "psp-gateway" calls "merchant"
+    And a deployed service "merchant" in the project "payments" whose instance closes every connection before answering
+    When a handler of "psp-gateway" calls "merchant" with the method "<method>"
     Then the handler of "psp-gateway" is told that the call was unanswered
-    And the call is sent once
+    And "merchant" is sent the call at most <times>
+
+    Examples:
+      | method | times |
+      | POST   | once  |
+      | PUT    | once  |
+      | DELETE | once  |
+      | PATCH  | once  |
+      | GET    | twice |
+      | HEAD   | twice |
 
   Scenario Outline: on a developer's machine a service in every language calls another service running there
     Given a service "merchant" running on a developer's machine

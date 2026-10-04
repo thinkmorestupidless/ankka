@@ -1305,4 +1305,4 @@ something, anyway, identity, proves, known, belong, someone's, themselves, membe
 loading, begin, begun, returning, receives, example, cloud, everywhere, people, development, return,
 turned, JavaScript, alters, choice, several, hands, reference, shopping, three, perhaps, single,
 current, plain, describe, describing, checkout, checkouts, applied, caught, uninterrupted, computes,
-outranks, rise, greater, neither, replaces, documented, documentation's, needed, writer
+outranks, rise, greater, neither, replaces, documented, documentation's, needed, writer, closes

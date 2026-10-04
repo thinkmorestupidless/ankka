@@ -14,14 +14,20 @@ import java.nio.charset.StandardCharsets
  *
  * Blocking, like `ComponentClient.invoke`: handlers run on virtual threads, where a wait parks the
  * thread and releases its carrier. No retries and no redirects — whether a call is safe to repeat
- * is the caller's to know.
+ * is the caller's to know. How long a call waits is the service's `ankka.service-client.timeout`.
+ * The platform's own headers (`X-Ankka-*`, `Forwarded`, `X-Forwarded-*`, `Host` and the hop-by-hop
+ * ones) are removed before sending: who is calling is the certificate's to say.
  */
 trait ServiceClient:
 
   /** The service this client calls, as `project/name`. */
   def target: String
 
-  /** One request, answered whatever its status. */
+  /**
+   * One request, answered whatever its status. Raises only when no answer came:
+   * `ServiceUnresolvable` and `ServiceIdentityMismatch`, where nothing was sent, and
+   * `ServiceUnanswered`, where the connection failed or the timeout passed.
+   */
   def request(
       method: String,
       path: String,
@@ -69,7 +75,10 @@ final case class ServiceResponse(
 ):
   def text: String = String(body, StandardCharsets.UTF_8)
 
-/** The callee answered, with a status other than 2xx; its status and body as it sent them. */
+/**
+ * The callee answered, with a status other than 2xx; its status and body as it sent them. Raised by
+ * the typed helpers only: `request` returns every answer.
+ */
 final case class ServiceCallFailed(service: String, status: Int, body: String)
     extends RuntimeException(s"$service answered $status: $body")
 
@@ -83,6 +92,17 @@ final case class ServiceUnresolvable(service: String, reason: String)
  */
 final case class ServiceIdentityMismatch(service: String, detail: String)
     extends RuntimeException(s"the service reached as $service is not it: $detail")
+
+/**
+ * No answer came from the service: the connection was refused or broke, or the service's
+ * `ankka.service-client.timeout` passed first. Unlike the two errors above, the service may have
+ * received the request. A request that may change something (`POST`, `PUT`, `DELETE`, `PATCH`) was
+ * sent at most once; a `GET` or a `HEAD` whose connection closed before any answer may have been
+ * sent twice, by the JDK's client, which HTTP allows for a safe method. `cause` is what the JDK
+ * raised.
+ */
+final case class ServiceUnanswered(service: String, reason: String, cause: Throwable | Null = null)
+    extends RuntimeException(s"$service did not answer: $reason", cause)
 
 /**
  * The service exists and serves no gRPC: in a cluster, its address publishes no `grpc` port; on

@@ -1,0 +1,57 @@
+# What the log agent does with each line a pod printed: reads it from the node's pod log files,
+# takes the namespace, the pod and the container from the file's path, lifts the trace id and span
+# id a handler's line ends with into the record's own, names the service by its container and the
+# project by its namespace, and sends it to the store. The line itself is sent as it was printed.
+# STORE_ENDPOINT is the only thing read from the environment, so a test can run this file as it is.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-agent
+  namespace: ankka-telemetry
+data:
+  config.yaml: |
+    receivers:
+      filelog:
+        include: [/var/log/pods/*/*/*.log]
+        # Not its own lines: they would come round again for every one it sent.
+        exclude: [/var/log/pods/ankka-telemetry_log-agent-*/*/*.log]
+        start_at: beginning
+        include_file_path: true
+        operators:
+          # The node's log format, and the namespace, pod and container from the path.
+          - type: container
+          - type: regex_parser
+            if: 'body matches " trace_id=[0-9a-f]{32} span_id=[0-9a-f]{16}$"'
+            regex: ' trace_id=(?P<trace_id>[0-9a-f]{32}) span_id=(?P<span_id>[0-9a-f]{16})$'
+            parse_from: body
+            parse_to: attributes
+            trace:
+              trace_id:
+                parse_from: attributes.trace_id
+              span_id:
+                parse_from: attributes.span_id
+          - type: remove
+            if: 'attributes.trace_id != nil'
+            field: attributes.trace_id
+          - type: remove
+            if: 'attributes.span_id != nil'
+            field: attributes.span_id
+    processors:
+      transform:
+        log_statements:
+          - context: resource
+            statements:
+              - set(attributes["service.name"], attributes["k8s.container.name"])
+              - set(attributes["ankka.project"], attributes["k8s.namespace.name"]) where IsMatch(attributes["k8s.namespace.name"], "^ankka-")
+              - replace_pattern(attributes["ankka.project"], "^ankka-", "")
+              - set(attributes["service.namespace"], attributes["ankka.project"]) where attributes["ankka.project"] != nil
+      batch: {}
+    exporters:
+      otlphttp:
+        endpoint: ${env:STORE_ENDPOINT}
+    service:
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [transform, batch]
+          exporters: [otlphttp]

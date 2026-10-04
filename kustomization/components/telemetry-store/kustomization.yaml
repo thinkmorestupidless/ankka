@@ -1,0 +1,19 @@
+# A local platform's telemetry store: where a developer reads the trace of a request, the metrics
+# of a service and the lines its instances printed, in one place, at https://grafana.<base domain>,
+# with nothing else installed. Grafana's own single-container stack (a collector, Tempo, a
+# Prometheus-compatible store, Loki and Grafana) receives the services' OTLP; an agent on each node
+# gathers what every pod printed, since no service exports its logs, and lifts the trace id off the
+# end of a line so a line is joined to its trace.
+#
+# It is for a developer's machine: it keeps what it holds only until it restarts, and its sign-in is
+# the image's own. The local overlay lists it; an installation that is not a local platform lists
+# neither it nor the otel-collector component, and names a store of its own.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - lgtm.yaml
+  - httproute.yaml
+  - network-policy.yaml
+  - log-agent-config.yaml
+  - log-agent.yaml

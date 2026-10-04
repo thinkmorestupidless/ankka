@@ -1,0 +1,24 @@
+# Where a developer looks: https://grafana.<base domain>, on the gateway's HTTPS listener like the
+# console and the identity provider. Plain HTTP behind the gateway; TLS is the gateway's. The
+# gateway ends a request at fifteen seconds unless a rule says otherwise, and Grafana's longer
+# queries and its live connection need more, so the rule says none.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: grafana
+  namespace: ankka-telemetry
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ankka
+      namespace: ankka-gateway
+      sectionName: https
+  hostnames:
+    - grafana.BASE_DOMAIN
+  rules:
+    - timeouts:
+        request: "0s"
+      backendRefs:
+        - name: lgtm
+          port: 3000

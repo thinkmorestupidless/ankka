@@ -1,0 +1,22 @@
+# Who may send the collector telemetry: the installation's own workloads — every project's services
+# and the platform's own, which are what carry the managed-by label, on their namespaces and their
+# pods — on the two OTLP ports, and nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector
+  namespace: ankka-telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 4318 }
+        - { protocol: TCP, port: 4317 }
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }

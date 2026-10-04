@@ -1,0 +1,7 @@
+# Renders the otel-collector component, which no overlay lists, so that it is always rendered by
+# something: RemoteOverlaySuite asserts its shape here. Inside kustomization/ on purpose — kustomize
+# refuses a component outside the tree of the kustomization that names it.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+components:
+  - ../../components/otel-collector

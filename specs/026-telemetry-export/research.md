@@ -583,7 +583,7 @@ the service's resource, and an apply that changes nothing rolls nothing.
   variable with an empty value, and `ANKKA_OTLP_HEADERS` from a Secret `ankka-telemetry`, key
   `headers`, `optional: true`, in each one's own namespace.
 - A new component, `kustomization/components/otel-collector/`: a namespace `ankka-telemetry`,
-  the collector (`otel/opentelemetry-collector:0.162.0`) receiving OTLP on 4318 and
+  the collector (`otel/opentelemetry-collector:0.161.0`) receiving OTLP on 4318 and
   4317 and writing to its `debug` exporter in detail, a Service, and a NetworkPolicy admitting
   pods labelled `app.kubernetes.io/managed-by: ankka` in namespaces labelled the same.
 - The local overlay lists the telemetry store's component (R23) instead and sets `otlpEndpoint`
@@ -639,7 +639,7 @@ admits its route):
   gateway's HTTPS listener, and a NetworkPolicy admitting OTLP from pods labelled
   `managed-by: ankka` in namespaces labelled the same and from the log agent, and Grafana's port
   from the gateway's proxy pods and nothing else.
-- **The log agent**: a DaemonSet of `otel/opentelemetry-collector-contrib` (0.162.0, the collector's release) that reads
+- **The log agent**: a DaemonSet of `otel/opentelemetry-collector-contrib` (0.161.0, the collector's release) that reads
   `/var/log/pods` from the node, read-only, with the `filelog` receiver and its `container`
   parser, which takes the namespace, pod and container from each file's path; lifts
   `trace_id=… span_id=…` from the end of a line into the record's own trace and span ids; names
@@ -683,7 +683,20 @@ starved by sample JVMs (the trap in `CLAUDE.md`) is not asked to hold a gigabyte
 overlay's shape is `RemoteOverlaySuite`'s, and the deploy script's last check is the proof on a
 real cluster.
 
-**Verify first**: the image's size and start time in CI (about 915 MB compressed); that Tempo,
+**Verified** (T065, T067, `TelemetryStoreSuite`, on the development Mac under OrbStack): the
+image pulls in 165 s once (845 MB uncompressed) and is ready in 83 to 208 s, depending on what else
+the machine is doing; Tempo (3200), the metrics store (9090) and Loki (3100) answer without
+sign-in. The counter arrives as `ankka_invocations_total`, its attributes as `ankka_component`,
+`ankka_handler` and `ankka_outcome`. A gathered line arrives in Loki with `service_name`,
+`service_namespace`, `ankka_project`, and `trace_id` and `span_id` where the line ended with them;
+the image's Grafana provisions Loki with a derived field on exactly the label `trace_id`, linking to
+Tempo, and Tempo with trace-to-logs by `service_name`, so the join works as shipped and no data
+source file is added. The `container` operator needs `include_file_path: true` to read the
+namespace, pod and container from the path. `otel/opentelemetry-collector-contrib` had no 0.162.0
+on Docker Hub, so both collector images are pinned at 0.161.0. A line stamped outside the window a
+Loki query asks for is not returned, which cost one run of the suite.
+
+**Was to verify**: the image's size and start time in CI (about 915 MB compressed); that Tempo,
 the metrics store and Loki answer on the ports the image documents (3200, 9090, 3100) without
 sign-in; that OTLP metrics named `ankka.invocations` are found as the store names them; that a
 log record carrying a trace id is joined to its trace by the Grafana the image provisions, and

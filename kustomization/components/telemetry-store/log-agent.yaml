@@ -1,0 +1,44 @@
+# One agent on every node, reading what every pod on it printed. It asks the API server nothing —
+# the namespace, pod and container are in each file's path — so it holds no grant.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: log-agent
+  namespace: ankka-telemetry
+  labels:
+    app.kubernetes.io/name: log-agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: log-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: log-agent
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: log-agent
+          image: otel/opentelemetry-collector-contrib:0.161.0
+          imagePullPolicy: IfNotPresent
+          args: ["--config=/etc/otel/config.yaml"]
+          env:
+            - name: STORE_ENDPOINT
+              value: http://lgtm.ankka-telemetry.svc.cluster.local:4318
+          # The node's pod log files are root's to read.
+          securityContext:
+            runAsUser: 0
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - { name: config, mountPath: /etc/otel, readOnly: true }
+            - { name: pods, mountPath: /var/log/pods, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: log-agent
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+            type: Directory

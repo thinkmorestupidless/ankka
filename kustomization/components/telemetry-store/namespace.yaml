@@ -1,0 +1,8 @@
+# managed-by: ankka is what the gateway's HTTPS listener admits routes from: the store's address is
+# one of the installation's own.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ankka-telemetry
+  labels:
+    app.kubernetes.io/managed-by: ankka

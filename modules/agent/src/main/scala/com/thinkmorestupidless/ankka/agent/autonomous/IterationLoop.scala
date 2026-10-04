@@ -47,7 +47,8 @@ private[ankka] final class IterationLoop(
     modelTimeout: FiniteDuration,
     judgments: Judgments,
     emit: Notification => Unit,
-    timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None
+    timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
+    spans: ToolSpans = ToolSpans.none
 ):
   import IterationLoop.*
 
@@ -311,11 +312,11 @@ private[ankka] final class IterationLoop(
 
     val settled = open.flatMap { call =>
       requests.get(call.id) match
-        case None => Some(ToolRunner.run(tools, call) -> None)
+        case None => Some(ToolRunner.run(tools, call, spans) -> None)
         case Some(request) =>
           request.decision.map { decision =>
             val result =
-              if decision.approved then ToolRunner.run(tools, call)
+              if decision.approved then ToolRunner.run(tools, call, spans)
               else ToolResult(call.id, call.name, Approvals.refusal(decision), isError = true)
             result -> Some(decision)
           }

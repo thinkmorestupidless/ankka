@@ -382,7 +382,8 @@ private[agent] object AgentHost:
           componentClient,
           modelTimeout,
           judgments,
-          timers
+          timers,
+          ToolSpans(Some(Observability(ctx.system)), descriptor.componentId.toString)
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {

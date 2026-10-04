@@ -48,7 +48,8 @@ private[agent] final class AgentLoop(
     componentClient: ComponentClient,
     modelTimeout: FiniteDuration,
     judgments: Judgments,
-    timers: Option[TimerScheduler] = None
+    timers: Option[TimerScheduler] = None,
+    spans: ToolSpans = ToolSpans.none
 ):
 
   private val agentId = descriptor.componentId
@@ -351,7 +352,7 @@ private[agent] final class AgentLoop(
       request.decision.map { decision =>
         val result =
           if decision.approved then
-            ToolRunner.run(tools, ToolCall(request.callId, request.tool, request.arguments))
+            ToolRunner.run(tools, ToolCall(request.callId, request.tool, request.arguments), spans)
           else ToolResult(request.callId, request.tool, Approvals.refusal(decision), isError = true)
         result -> decision
       }
@@ -609,7 +610,7 @@ private[agent] final class AgentLoop(
     tools.get(call.name).exists(_.approval.exists(_.within.isDefined))
 
   private def runTool(tools: Map[String, FunctionTool], call: ToolCall): ToolResult =
-    ToolRunner.run(tools, call)
+    ToolRunner.run(tools, call, spans)
 
   // ── Guardrails ────────────────────────────────────────────────────────────
 

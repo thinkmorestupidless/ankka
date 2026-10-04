@@ -521,7 +521,8 @@ private[ankka] object AutonomousAgentHost:
           modelTimeout,
           judgments,
           emit,
-          approvalTimers
+          approvalTimers,
+          com.thinkmorestupidless.ankka.agent.ToolSpans(Some(observability), componentId.toString)
         )
       )
     private def loop: IterationLoop = loopOrNone.get

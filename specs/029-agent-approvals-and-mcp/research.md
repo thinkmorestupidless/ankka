@@ -576,3 +576,25 @@ skills' `pages:` lists.
   `ankka:decide` naming no handler, so it goes to whichever turn holds the request. Without
   `TimerRuntime`, a request agent's tool with a limit is refused `Internal` before anything runs or
   is recorded; an autonomous agent with one fails its service's start, naming the tool.
+- **V3 and R12 as built (T038, T040)**: a tool call is a span (`ToolSpans`, in `ToolRunner`),
+  named for the agent's component and the tool, child of the agent's span, with the call's origin
+  left as the agent's handler so topology attribution is unchanged. A call to another service was
+  counted but recorded no span, so "the call appears inside the tool call" could not hold;
+  `HttpServiceClients` now records one in the caller's trace, named for the admitted service and
+  the method — both already bounded for the count.
+- **R11 as built (T039)**: `services` is on both contexts; `sdk` gained `ServiceClients.unavailable`
+  (beside `SecretStore.unavailable`) as the default for a context built with no service, and the
+  HTTP module's own placeholder now points at it.
+- **T041 narrowed**: `AnkkaService.services` resolves other services by Kubernetes DNS whenever TLS
+  is configured, and offers no way to point it at a loopback port, so an in-JVM test cannot run
+  the agent's call under mutual TLS without a runtime change made only for tests.
+  `AgentServiceCallSuite` therefore runs the callee as plain HTTP found through
+  `ankka.local-services`, and holds what this feature adds: the tool reaches the client from its
+  context, the answer reaches the model, a refusal reaches the model as the tool's error, and the
+  call sits inside the tool's span. That the client presents the service's certificate and is
+  admitted by name is the client's own behaviour, held by `ServiceClientSuite`, and on a cluster
+  by T042.
+- **T042 not built yet**: no deployed Scala service can be given a scripted model today
+  (`ANKKA_MODEL_SCRIPT` is read by the sidecar), so the k3s case needs an agent added to a sample
+  image and a way to script its model. Held for the user's decision; SC-003 is met under mutual
+  TLS by `ServiceClientSuite` and the plumbing by `AgentServiceCallSuite` until then.

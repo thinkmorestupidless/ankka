@@ -6,7 +6,11 @@ import com.thinkmorestupidless.ankka.runtime.{
   EntityProtocol,
   AnkkaExecutors,
   AnkkaService,
-  RuntimeExtension
+  MetaEntry,
+  Observability,
+  RuntimeExtension,
+  SpanOutcome,
+  Trace
 }
 import org.apache.pekko.NotUsed
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, HandlerBinding}
@@ -363,6 +367,12 @@ private[agent] object AgentHost:
           case invoke: EntityProtocol.Invoke =>
             descriptor.handler(MethodName(invoke.method)) match
               case None =>
+                // Answered by the host, and no handler ran: a call that was not delivered.
+                Observability(ctx.system).undelivered(
+                  MetaEntry.toMetadata(invoke.metadata),
+                  descriptor.componentId.toString,
+                  None
+                )
                 invoke.replyTo ! EntityProtocol.Rejected(
                   CommandError(
                     s"no handler '${invoke.method}' on agent '${descriptor.componentId}'",
@@ -432,16 +442,29 @@ private[agent] object AgentHost:
     val agent = descriptor.create(context)
     agent._setContext(Some(context))
 
-    val execution = Future {
-      val effect =
-        try binding.decodeAndInvoke(agent, invoke.payload).asInstanceOf[AgentEffect[Any]]
-        finally agent._setContext(None)
+    // Taken here, on the actor's thread; the interaction runs on one of its own.
+    val observability = Observability(ctx.system)
+    val incoming      = MetaEntry.toMetadata(invoke.metadata)
+    val component     = descriptor.componentId.toString
 
-      loop.run(effect) match
-        case Right(value) =>
-          EntityProtocol.Succeeded(binding.encodeReply(value), Vector.empty)
-        case Left(rejection) =>
-          EntityProtocol.Rejected(rejection)
+    val execution = Future {
+      // The whole interaction is the agent's handler at work: the handler itself, and the loop of
+      // model and tool calls its effect describes. So it is one span, and a call a tool makes, or
+      // the loop makes to session memory, is the agent's call. Set here, on the thread that does
+      // the work, and not around this Future.
+      observability.invocation[EntityProtocol.Reply](component, invoke.method, incoming)(
+        Observability.outcomeOf
+      ) {
+        val effect =
+          try binding.decodeAndInvoke(agent, invoke.payload).asInstanceOf[AgentEffect[Any]]
+          finally agent._setContext(None)
+
+        loop.run(effect) match
+          case Right(value) =>
+            EntityProtocol.Succeeded(binding.encodeReply(value), Vector.empty)
+          case Left(rejection) =>
+            EntityProtocol.Rejected(rejection)
+      }
     }(using AnkkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {
@@ -477,17 +500,32 @@ private[agent] object AgentHost:
     val agent = descriptor.create(context)
     agent._setContext(Some(context))
 
-    val execution = Future {
-      val effect =
-        try
-          handle
-            .asInstanceOf[StreamHandle[A, Any]]
-            .decodeAndInvoke(agent, request.payload)
-        finally agent._setContext(None)
+    val observability = Observability(ctx.system)
+    val incoming      = MetaEntry.toMetadata(request.metadata)
+    val component     = descriptor.componentId.toString
 
-      loop.runStreaming(effect, text => request.tokens ! EntityProtocol.Token(text)) match
-        case Right(())       => request.tokens ! EntityProtocol.StreamCompleted
-        case Left(rejection) => request.tokens ! EntityProtocol.StreamFailed(rejection)
+    val execution = Future {
+      // One call, however many tokens it answers with: counted when the stream ends, with how it
+      // ended and how long it ran.
+      observability.invocation[Either[CommandError, Unit]](
+        component,
+        request.method,
+        incoming,
+        streaming = true
+      )(_.fold(Observability.outcomeOf, _ => SpanOutcome.Ok)) {
+        val effect =
+          try
+            handle
+              .asInstanceOf[StreamHandle[A, Any]]
+              .decodeAndInvoke(agent, request.payload)
+          finally agent._setContext(None)
+
+        val ended = loop.runStreaming(effect, text => request.tokens ! EntityProtocol.Token(text))
+        ended match
+          case Right(())       => request.tokens ! EntityProtocol.StreamCompleted
+          case Left(rejection) => request.tokens ! EntityProtocol.StreamFailed(rejection)
+        ended
+      }
     }(using AnkkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {
@@ -527,6 +565,10 @@ final class AgentCalls private[agent] (
    * whole reply.
    */
   def stream[A <: Agent, I](handle: StreamHandle[A, I])(input: I): Source[String, NotUsed] =
+    // The call is made when the source is run, which is often on another thread: an endpoint
+    // hands the source back and the server runs it. It is still the call of whoever asked for the
+    // stream, so who that is is taken here, where they asked.
+    val asked = Trace.capture()
     ActorSource
       .actorRef[EntityProtocol.StreamToken](
         completionMatcher = { case EntityProtocol.StreamCompleted => () },
@@ -537,16 +579,18 @@ final class AgentCalls private[agent] (
         overflowStrategy = OverflowStrategy.fail
       )
       .mapMaterializedValue { tokens =>
-        transport.tell(
-          handle.componentId,
-          EntityId(sessionId),
-          EntityProtocol.InvokeStream(
-            handle.name,
-            handle.inputSerializer.toBytes(input),
-            Vector.empty,
-            tokens
+        Trace.resume(asked) {
+          transport.tell(
+            handle.componentId,
+            EntityId(sessionId),
+            EntityProtocol.InvokeStream(
+              handle.name,
+              handle.inputSerializer.toBytes(input),
+              Vector.empty,
+              tokens
+            )
           )
-        )
+        }
         NotUsed
       }
       .collect { case EntityProtocol.Token(text) => text }

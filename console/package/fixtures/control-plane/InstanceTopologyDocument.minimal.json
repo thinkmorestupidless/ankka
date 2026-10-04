@@ -1,0 +1,1 @@
+{"type":"InstanceTopologyDocument","json":{"service":{"name":"cart","runtime":"0.10.0","instance":"1","startedAt":"2026-09-28T10:00:00Z"},"window":{"seconds":600,"since":"2026-09-28T10:00:00Z","calls":0},"nodes":[],"declared":[],"calls":[]}}

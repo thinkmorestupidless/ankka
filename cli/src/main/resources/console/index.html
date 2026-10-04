@@ -33,6 +33,7 @@
     <section id="detail">
       <div class="tabs" role="tablist">
         <button class="tab" data-panel="components" role="tab">Components</button>
+        <button class="tab" data-panel="topology" role="tab">Topology</button>
         <button class="tab" data-panel="invoke" role="tab">Invoke</button>
         <button class="tab" data-panel="traces" role="tab">Traces</button>
         <button class="tab" data-panel="agents" role="tab">Agents</button>
@@ -48,6 +49,30 @@
           </div>
           <div id="inspect-queries"></div>
           <div id="inspect-result"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-topology" hidden>
+        <p class="empty" id="topology-none" hidden></p>
+        <div id="topology-body" hidden>
+          <div class="controls" id="topology-controls"></div>
+          <div class="topology">
+            <div class="graph" id="topology-graph"></div>
+            <aside id="topology-detail" hidden></aside>
+          </div>
+          <p class="legend">
+            <span class="swatch declared" aria-hidden="true"></span> a declared connection:
+            what a view or a consumer reads, and what a consumer publishes to
+            <span id="topology-legend-calls" hidden>
+              <br><span class="swatch call" aria-hidden="true"></span> an observed call: one
+              component calling another, as the service saw it happen
+              (<span class="call-mark" aria-hidden="true">!</span> a handler failed, or a call got no answer)
+            </span>
+          </p>
+          <p class="observed" id="topology-observed" hidden></p>
+          <!-- The same facts as the picture, for a reader who cannot see it and for one who
+               would rather read them. Always here, never a fallback. -->
+          <div id="topology-text"></div>
         </div>
       </div>
 
@@ -107,6 +132,7 @@
     </section>
   </main>
 
+  <script src="topology.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

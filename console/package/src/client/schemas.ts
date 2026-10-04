@@ -165,6 +165,88 @@ export const logsResponseSchema = z.object({
 });
 export type LogsResponse = z.infer<typeof logsResponseSchema>;
 
+// ── Topology ──────────────────────────────────────────────────────────────
+
+export const topologyHandlerSchema = z.object({
+  name: z.string(),
+  type: z.string(),
+  streaming: optional(z.boolean()),
+});
+export type TopologyHandler = z.infer<typeof topologyHandlerSchema>;
+
+export const topologyNodeSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  layer: z.number().int(),
+  platform: z.boolean(),
+  handlers: z.array(topologyHandlerSchema),
+});
+export type TopologyNode = z.infer<typeof topologyNodeSchema>;
+
+export const declaredEdgeSchema = z.object({ from: z.string(), to: z.string(), kind: z.string() });
+export type DeclaredEdge = z.infer<typeof declaredEdgeSchema>;
+
+export const callPairSchema = z.object({
+  caller: z.string(),
+  callee: z.string(),
+  handled: z.object({ ok: z.number(), refused: z.number(), failed: z.number() }),
+  unanswered: z.object({ timedOut: z.number(), undelivered: z.number() }),
+  durationMillis: z.object({ p50: z.number(), p99: z.number(), max: z.number(), bucketed: z.boolean().default(true) }),
+  streaming: z.boolean().default(false),
+  histogram: z.array(z.number()).default([]),
+});
+export type CallPair = z.infer<typeof callPairSchema>;
+
+export const callEdgeSchema = z.object({ from: z.string(), to: z.string(), pairs: z.array(callPairSchema) });
+export type CallEdge = z.infer<typeof callEdgeSchema>;
+
+export const topologyWindowSchema = z.object({
+  seconds: z.number(),
+  since: z.string(),
+  calls: z.number(),
+  unanswered: z.number().default(0),
+});
+export type TopologyWindow = z.infer<typeof topologyWindowSchema>;
+
+export const instanceTopologyDocumentSchema = z.object({
+  service: z.object({ name: z.string(), runtime: z.string(), instance: z.string(), startedAt: z.string() }),
+  window: topologyWindowSchema,
+  nodes: z.array(topologyNodeSchema),
+  declared: z.array(declaredEdgeSchema),
+  calls: z.array(callEdgeSchema),
+});
+export type InstanceTopologyDocument = z.infer<typeof instanceTopologyDocumentSchema>;
+
+export const instanceStatusSchema = z.enum(["ok", "unreachable", "unsupported", "failed"]);
+export type InstanceStatus = z.infer<typeof instanceStatusSchema>;
+
+export const instanceTopologySchema = z.object({
+  pod: z.string(),
+  status: instanceStatusSchema,
+  problem: optional(z.string()),
+  runtime: optional(z.string()),
+  readAt: optional(z.string()),
+});
+export type InstanceTopology = z.infer<typeof instanceTopologySchema>;
+
+export const topologyDifferenceSchema = z.object({ node: z.string(), presentOn: z.array(z.string()) });
+export type TopologyDifference = z.infer<typeof topologyDifferenceSchema>;
+
+/** `GET /services/{projectId}/{name}/topology`: every instance's topology, merged. */
+export const serviceTopologySchema = z.object({
+  service: z.string(),
+  running: z.number().int(),
+  contributing: z.number().int(),
+  partial: z.boolean(),
+  instances: z.array(instanceTopologySchema),
+  window: topologyWindowSchema,
+  nodes: z.array(topologyNodeSchema),
+  declared: z.array(declaredEdgeSchema),
+  calls: z.array(callEdgeSchema),
+  differences: z.array(topologyDifferenceSchema),
+});
+export type ServiceTopology = z.infer<typeof serviceTopologySchema>;
+
 export const memberSummarySchema = z.object({
   subject: z.string(),
   role: roleSchema,
@@ -272,6 +354,9 @@ export const schemasByType: Record<string, z.ZodType> = {
   HistoryEntry: historyEntrySchema,
   InstanceLogs: instanceLogsSchema,
   LogsResponse: logsResponseSchema,
+  InstanceTopologyDocument: instanceTopologyDocumentSchema,
+  InstanceTopology: instanceTopologySchema,
+  ServiceTopology: serviceTopologySchema,
   MemberSummary: memberSummarySchema,
   InvitationSummary: invitationSummarySchema,
   MembersResponse: membersResponseSchema,

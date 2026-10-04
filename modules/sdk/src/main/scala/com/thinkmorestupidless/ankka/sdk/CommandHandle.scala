@@ -1,6 +1,12 @@
 package com.thinkmorestupidless.ankka.sdk
 
-import com.thinkmorestupidless.ankka.core.{ComponentId, MethodName, Serializer}
+import com.thinkmorestupidless.ankka.core.{
+  ComponentId,
+  DeclaredHandler,
+  HandlerKind,
+  MethodName,
+  Serializer
+}
 
 /**
  * The runtime-facing view of one registered handler.
@@ -18,6 +24,19 @@ private[ankka] sealed trait HandlerBinding[C]:
 
   /** Encodes whatever the Effect finally replied with. */
   private[ankka] def encodeReply(value: Any): Array[Byte]
+
+private[ankka] object HandlerBinding:
+
+  /** What a component's bindings declare: a `query` is a query, anything else a command. */
+  def declared(bindings: Iterable[HandlerBinding[?]]): Vector[DeclaredHandler] =
+    DeclaredHandler.sorted(
+      bindings.map(b =>
+        DeclaredHandler(
+          b.name.toString,
+          if b.readOnly then HandlerKind.Query else HandlerKind.Command
+        )
+      )
+    )
 
 /**
  * A typed reference to a handler that takes one argument.

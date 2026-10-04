@@ -192,5 +192,6 @@ object SessionCompactor:
       outputSerializer = None,
       produceTo = None,
       create = context => new SessionCompactor(context, settings, summariser),
-      parallelism = 1
+      parallelism = 1,
+      platform = true
     )

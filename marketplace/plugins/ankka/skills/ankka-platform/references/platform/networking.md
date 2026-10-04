@@ -163,6 +163,7 @@ Each workload also gets network policies, which refuse a connection before any T
 | The service's HTTP port | the installation gateway's proxy pods, and any pod of an ankka workload in any ankka namespace |
 | 17355 (remoting) and 7626 (management) | the service's own pods only |
 | 7627 (readiness) | anywhere |
+| 7628 (observe) | the control plane's pods, in the control plane's namespace, and nothing else |
 | 5432 on a project's database | that project's ankka workloads, the database's own instances and the database operator |
 
 Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-system`, not in the
@@ -182,11 +183,20 @@ project's cluster ports and database are closed to every other project either wa
 | 17355 | `remoting` | mutual TLS | cluster remoting between the service's own instances |
 | 7626 | `management` | mutual TLS | cluster bootstrap, `/ankka/version` and `/ankka/metrics` |
 | 7627 | `probe` | plain HTTP | `GET /ready`, and nothing else |
+| 7628 | `observe` | mutual TLS | the service's topology, read by the control plane |
 
 A Python or TypeScript service's pod has two more, on its loopback interface only: the process listens on
 9010 for the sidecar, and the sidecar on 9011 for the process. They carry plain gRPC, because the pod's
 loopback interface is shared by the pod's own containers and nothing else; the sidecar holds every
 certificate and terminates every connection from outside the pod.
+
+The observe port is how the control plane reads a deployed service's topology on a member's behalf. Its
+listener presents the service's certificate and requires the control plane's, `ankka://platform/controlplane`,
+refusing any other in the handshake; the network policy admits only the control plane's pods. The control
+plane reaches each instance by its pod address and requires the certificate to carry exactly the identity of
+the service it asked for. A member reading a topology is given the merged document and no credential for
+anything. The control plane is itself deployed by manifest rather than by the operator, so it has no observe
+port of its own.
 
 ## Readiness
 

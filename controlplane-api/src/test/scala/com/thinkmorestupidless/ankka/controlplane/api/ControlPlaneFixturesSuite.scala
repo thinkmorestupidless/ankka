@@ -200,7 +200,122 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       ServiceDescriptor("cart", ServiceSpec("cart:1", runtime = Some("0.7.0"))),
       ServiceDescriptor("cart", ServiceSpec("cart:1"))
     ),
-    fixture("ServiceSpec", ServiceSpec("cart:1", runtime = Some("0.7.0")), ServiceSpec("cart:1"))
+    fixture("ServiceSpec", ServiceSpec("cart:1", runtime = Some("0.7.0")), ServiceSpec("cart:1")),
+    fixture(
+      "ServiceTopology",
+      ServiceTopology(
+        "cart",
+        running = 2,
+        contributing = 1,
+        partial = true,
+        instances = Vector(
+          InstanceTopology(
+            "cart-7d9f-abc",
+            InstanceStatus.Ok,
+            None,
+            Some("0.10.0"),
+            Some(at.toString)
+          ),
+          InstanceTopology(
+            "cart-7d9f-def",
+            InstanceStatus.Unsupported,
+            Some("this instance's runtime (0.9.2) serves no topology")
+          )
+        ),
+        window = TopologyWindow(600L, at.toString, 14L, 1L),
+        nodes = Vector(
+          TopologyNode(
+            "endpoint:/carts",
+            "Endpoint",
+            0,
+            platform = false,
+            Vector(TopologyHandler("POST /carts/{cartId}/items", "route", Some(false)))
+          ),
+          TopologyNode(
+            "cart",
+            "EventSourcedEntity",
+            1,
+            platform = false,
+            Vector(TopologyHandler("add-item", "command"), TopologyHandler("get-cart", "query"))
+          ),
+          TopologyNode("carts-by-customer", "View", 2, platform = false, Vector.empty)
+        ),
+        declared = Vector(DeclaredEdge("cart", "carts-by-customer", "events")),
+        calls = Vector(
+          CallEdge(
+            "endpoint:/carts",
+            "cart",
+            Vector(
+              CallPair(
+                "POST /carts/{cartId}/items",
+                "add-item",
+                HandledCounts(12L, 1L, 0L),
+                UnansweredCounts(1L, 0L),
+                DurationMillis(1.0, 4.0, 4.0),
+                streaming = false
+              )
+            )
+          )
+        ),
+        differences = Vector(TopologyDifference("carts-by-customer", Vector("cart-7d9f-abc")))
+      ),
+      ServiceTopology(
+        "cart",
+        running = 0,
+        contributing = 0,
+        partial = false,
+        instances = Vector.empty,
+        window = TopologyWindow(600L, at.toString, 0L),
+        nodes = Vector.empty,
+        declared = Vector.empty,
+        calls = Vector.empty,
+        differences = Vector.empty
+      )
+    ),
+    fixture(
+      "InstanceTopology",
+      InstanceTopology(
+        "cart-7d9f-abc",
+        InstanceStatus.Failed,
+        Some("the body is not a topology"),
+        Some("0.10.0"),
+        Some(at.toString)
+      ),
+      InstanceTopology("cart-7d9f-abc", InstanceStatus.Ok)
+    ),
+    fixture(
+      "InstanceTopologyDocument",
+      InstanceTopologyDocument(
+        TopologyService("cart", "0.10.0", "4242", at.toString),
+        TopologyWindow(600L, at.toString, 2L, 0L),
+        Vector(TopologyNode("cart", "EventSourcedEntity", 1, platform = false, Vector.empty)),
+        Vector.empty,
+        Vector(
+          CallEdge(
+            "endpoint:/carts",
+            "cart",
+            Vector(
+              CallPair(
+                "POST /carts/{cartId}/items",
+                "add-item",
+                HandledCounts(2L, 0L, 0L),
+                UnansweredCounts(0L, 0L),
+                DurationMillis(1.0, 1.0, 1.0),
+                streaming = false,
+                histogram = Vector.fill(32)(0L).updated(10, 2L)
+              )
+            )
+          )
+        )
+      ),
+      InstanceTopologyDocument(
+        TopologyService("cart", "0.10.0", "1", at.toString),
+        TopologyWindow(600L, at.toString, 0L),
+        Vector.empty,
+        Vector.empty,
+        Vector.empty
+      )
+    )
   ).flatten
 
   test("every fixture matches what the wire codecs write") {

@@ -657,7 +657,9 @@ Then("the cart holds {int} of {string}") { (quantity: Int, product: String) =>
 ```
 
 The suite takes the directory of its features, relative to the working directory; a forked sbt test runs
-in its project's directory, so `GherkinSuite("features")` reads the project's own `features/`. It mixes
+in its project's directory, so `GherkinSuite("features")` reads the project's own `features/`. It also
+takes the path of one `.feature` file, `GherkinSuite("features/cart/items.feature")`, and then runs that
+file's scenarios and no others, which is how several suites share one directory of features. It mixes
 in like any suite, `LogCapturing` included, and starts its service in `beforeAll` as the integration test
 kit does.
 

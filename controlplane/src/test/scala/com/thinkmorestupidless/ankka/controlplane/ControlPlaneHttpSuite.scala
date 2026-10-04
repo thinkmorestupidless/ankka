@@ -1,7 +1,14 @@
 package com.thinkmorestupidless.ankka.controlplane
 
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
-import com.thinkmorestupidless.ankka.controlplane.api.ControlPlaneAcl
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  ControlPlaneAcl,
+  InstanceStatus,
+  InstanceTopology,
+  ServiceTopology
+}
+import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
 import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, RegistryWriter}
 import com.thinkmorestupidless.ankka.http.HttpServer
@@ -58,6 +65,9 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
    */
   private lazy val cluster = new FakeAnkkaServiceClient
 
+  /** What each instance of a service answers when asked for its topology (feature 019). */
+  private val topologies = new ScriptedTopologies
+
   private lazy val registryWriter: RegistryWriter =
     (projectId, server, username, password) =>
       cluster.ensurePullSecret(deployConfig.namespaceFor(projectId), server, username, password)
@@ -70,7 +80,8 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
         auth = Some(identity.config()),
         clock = identity.clock,
         tokens = Some(tokens),
-        registry = Some(registryWriter)
+        registry = Some(registryWriter),
+        topology = Some(topologies)
       )*
     )
     testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server, tokens))
@@ -782,4 +793,132 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
       )._1,
       404
     )
+  }
+
+  // ── Topology (feature 019) ──────────────────────────────────────────────────
+
+  // Its own organization and project: earlier cases delete `checkout`.
+  private lazy val topologyProject: Unit =
+    createOrganizationFor("topo-org")
+    assertEquals(
+      send(
+        "POST",
+        "/projects/topo-proj",
+        Some("""{"name":"Topo","organizationId":"topo-org"}""")
+      )._1,
+      204
+    )
+
+  private def topologyOf(name: String, token: Option[String] = Some(Token)): (Int, String) =
+    send("GET", s"/services/topo-proj/$name/topology", token = token)
+
+  test("a member reads a merged topology: counts summed, instances listed, no histogram") {
+    topologyProject
+    val _ = send("PUT", "/services/topo-proj/topo", Some(descriptor("topo", "cart:1.0")))
+    topologies.script(
+      "topo-proj",
+      "topo",
+      Vector(
+        Topologies.ok("topo-a") -> Some(Topologies.cart("topo-a", 2L)),
+        Topologies.ok("topo-b") -> Some(Topologies.cart("topo-b", 3L))
+      )
+    )
+    val (status, body) = topologyOf("topo")
+    assertEquals(status, 200, body)
+    val merged = readFromString[ServiceTopology](body)
+    assertEquals((merged.running, merged.contributing, merged.partial), (2, 2, false))
+    assertEquals(merged.calls.head.pairs.head.handled.ok, 5L)
+    assert(!body.contains("histogram"), "the merged response drops the histograms")
+    assertEquals(merged.instances.map(_.pod), Vector("topo-a", "topo-b"))
+  }
+
+  test(
+    "a non-member reading a topology gets the 404 a missing service gets, and a deploy token reads it"
+  ) {
+    val stranger      = identity.token("stranger", Some("stranger@example.test"))
+    val (s1, refused) = topologyOf("topo", Some(stranger))
+    assertEquals(s1, 404, refused)
+    val (s2, missing) = send("GET", "/services/topo-proj/topo", token = Some(stranger))
+    assertEquals(s2, 404)
+    assertEquals(refused, missing)
+    assertEquals(topologyOf("nothing-here")._1, 404)
+  }
+
+  test("a service with no running instance answers the message logs gives") {
+    topologyProject
+    val _ = send("PUT", "/services/topo-proj/idle", Some(descriptor("idle", "cart:1.0")))
+    val (status, body) = topologyOf("idle")
+    assertEquals(status, 404, body)
+    assert(body.contains("service 'idle' has no running instance; it may be paused"), body)
+  }
+
+  test("one failed instance of two: 200, partial, contributing 1") {
+    topologies.script(
+      "topo-proj",
+      "topo",
+      Vector(
+        Topologies.ok("topo-a") -> Some(Topologies.cart("topo-a", 2L)),
+        InstanceTopology(
+          "topo-b",
+          InstanceStatus.Failed,
+          Some("the body is not a topology")
+        ) -> None
+      )
+    )
+    val (status, body) = topologyOf("topo")
+    assertEquals(status, 200, body)
+    val merged = readFromString[ServiceTopology](body)
+    assert(merged.partial)
+    assertEquals(merged.contributing, 1)
+    assertEquals(merged.calls.head.pairs.head.handled.ok, 2L)
+    assertEquals(
+      merged.instances.find(_.pod == "topo-b").flatMap(_.problem),
+      Some("the body is not a topology")
+    )
+  }
+
+  test(
+    "SC-007: three instances answering after 1.5s are merged in under 3s; one that never answers costs under 5s"
+  ) {
+    import com.thinkmorestupidless.ankka.controlplane.deploy.InstanceTopologies
+    val pods = Vector("topo-1" -> "10.0.0.1", "topo-2" -> "10.0.0.2", "topo-3" -> "10.0.0.3")
+    def slow(pod: String) =
+      Thread.sleep(1500)
+      Topologies.ok(pod) -> Some(Topologies.cart(pod, 1L))
+    topologies.through = Some(
+      new InstanceTopologies((_, _) => pods, (_, _, pod, _) => slow(pod), perInstance = 2.seconds)
+    )
+    try
+      val started        = System.nanoTime()
+      val (status, body) = topologyOf("topo")
+      val took           = (System.nanoTime() - started) / 1_000_000
+      assertEquals(status, 200, body)
+      val merged = readFromString[ServiceTopology](body)
+      assertEquals(merged.contributing, 3)
+      assertEquals(merged.calls.head.pairs.head.handled.ok, 3L)
+      assert(took < 3000, s"three concurrent 1.5s reads took ${took}ms: they were made in turn")
+
+      topologies.through = Some(
+        new InstanceTopologies(
+          (_, _) => pods,
+          (_, _, pod, _) =>
+            if pod == "topo-2" then { Thread.sleep(60_000); slow(pod) }
+            else slow(pod),
+          perInstance = 2.seconds
+        )
+      )
+      val again    = System.nanoTime()
+      val (s2, b2) = topologyOf("topo")
+      val took2    = (System.nanoTime() - again) / 1_000_000
+      assertEquals(s2, 200, b2)
+      val partial = readFromString[ServiceTopology](b2)
+      assert(partial.partial)
+      assertEquals(partial.contributing, 2)
+      assertEquals(partial.calls.head.pairs.head.handled.ok, 2L)
+      assertEquals(
+        partial.instances.find(_.pod == "topo-2").map(_.status),
+        Some(InstanceStatus.Unreachable)
+      )
+      assert(took2 < 5000, s"a silent instance held the answer for ${took2}ms")
+    finally topologies.through = None
   }

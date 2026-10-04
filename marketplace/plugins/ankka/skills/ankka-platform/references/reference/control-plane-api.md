@@ -117,6 +117,7 @@ The table is generated from the control plane's own route declarations.
 | `POST` | `/services/{projectId}/{name}/expose` | |
 | `POST` | `/services/{projectId}/{name}/unexpose` | |
 | `GET` | `/services/{projectId}/{name}/logs` | |
+| `GET` | `/services/{projectId}/{name}/topology` | |
 | `GET` | `/services/{projectId}/{name}/history` | |
 | `DELETE` | `/services/{projectId}/{name}` | |
 | `GET` | `/auth/whoami` | |
@@ -458,6 +459,33 @@ Members only. Query parameters:
 Response: `{ "instances": [ { "instance": "cart-6d9…", "output": "…", "error": null } ] }`. An instance
 that could not be read carries an `error` rather than failing the whole response. A service with no
 running instance, for example a paused one, answers `404`.
+
+### `GET /services/{projectId}/{name}/topology`
+
+What a deployed service is made of and what calls what, read from each running instance and merged.
+Members only; a non-member is answered `404`, as for the service itself. The control plane reads
+every instance concurrently over the service's observe port, presenting its own certificate, and the
+member receives the merged document and no credential for the service, its instances or the cluster.
+
+Response: `ServiceTopology` — `service`, `running` (instances found), `contributing` (instances that
+answered), `partial`, `instances`, `window`, `nodes`, `declared`, `calls` and `differences`. Each entry
+of `instances` carries `pod` and a `status`:
+
+| `status` | Meaning |
+|---|---|
+| `ok` | The instance answered, and its counts are in the merge. |
+| `unreachable` | It did not answer in time. |
+| `unsupported` | The connection was refused: its runtime serves no topology. |
+| `failed` | It answered with an error, or with something that is not a topology; `problem` says what. |
+
+`partial` is `true` whenever an instance is not `ok`; such an instance contributes nothing and is never
+guessed at. Nodes and declared connections are the union across the instances that answered, and a
+node not on every one of them is listed under `differences` with the pods that have it. Observed calls
+are summed per pair of handlers over a recent window, with `handled` (`ok`, `refused`, `failed`) and
+`unanswered` (`timedOut`, `undelivered`) kept apart: one is counted where a handler ran, the other where
+a caller got no answer, and they are never added together. Durations are read from bucketed histograms,
+so `p50`, `p99` and `max` are bucket edges and say `bucketed: true`. A service with no running instance,
+for example a paused one, answers `404`.
 
 ### `GET /services/{projectId}/{name}/history`
 

@@ -3,7 +3,8 @@ package com.thinkmorestupidless.ankka.sidecar
 import ankka.protocol.v1.discovery.{AutonomousAgentDetail, Component}
 import com.thinkmorestupidless.ankka.agent.{FunctionTool, Guardrail, Json, ToolSpec}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
-import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode}
+import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode, Metadata}
+import com.thinkmorestupidless.ankka.runtime.Trace
 import com.thinkmorestupidless.ankka.runtime.remote.{
   Conversation,
   GuardrailStage,
@@ -89,8 +90,14 @@ object RemoteAutonomousAgent:
     // The process decodes the result as its type and runs its rules, in one call. A process that
     // fails to answer has decided nothing: that throws, and the iteration is tried again, rather
     // than rejecting a result nobody looked at.
+    // The check is the iteration's work, as a tool's run is: the process is told the trace and
+    // the handler, so a call a rule makes is the iteration's call, not nobody's.
     def check(typeName: String)(resultJson: String): TaskType.Verdict =
-      await(conversation.checkTaskResult(id, taskId, typeName, resultJson), callTimeout) match
+      await(
+        conversation
+          .checkTaskResult(id, taskId, typeName, resultJson, Trace.outbound(Metadata.empty)),
+        callTimeout
+      ) match
         case TaskResultVerdict.Accept               => TaskType.Verdict.Accepted(resultJson)
         case TaskResultVerdict.Malformed(problem)   => TaskType.Verdict.Malformed(problem)
         case TaskResultVerdict.Reject(rule, reason) => TaskType.Verdict.Rejected(rule, reason)
@@ -109,12 +116,26 @@ object RemoteAutonomousAgent:
         val name: String = guardName
         override def checkInput(text: String): Either[String, Unit] =
           await(
-            conversation.checkGuardrail(id, session, guardName, GuardrailStage.Input, text),
+            conversation.checkGuardrail(
+              id,
+              session,
+              guardName,
+              GuardrailStage.Input,
+              text,
+              Trace.outbound(Metadata.empty)
+            ),
             callTimeout
           )
         override def checkOutput(text: String): Either[String, Unit] =
           await(
-            conversation.checkGuardrail(id, session, guardName, GuardrailStage.Output, text),
+            conversation.checkGuardrail(
+              id,
+              session,
+              guardName,
+              GuardrailStage.Output,
+              text,
+              Trace.outbound(Metadata.empty)
+            ),
             callTimeout
           )
     }
@@ -122,7 +143,11 @@ object RemoteAutonomousAgent:
     val tools = detail.tools.toVector.map { t =>
       val schema = Json.parse(t.inputSchemaJson).getOrElse(Json.obj("type" -> Json.str("object")))
       FunctionTool.raw(ToolSpec(t.name, t.description, schema)) { arguments =>
-        await(conversation.invokeTool(id, session, t.name, arguments.render), toolTimeout)
+        await(
+          conversation
+            .invokeTool(id, session, t.name, arguments.render, Trace.outbound(Metadata.empty)),
+          toolTimeout
+        )
       }
     }
 

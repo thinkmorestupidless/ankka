@@ -16,6 +16,7 @@ the local console instead.
 | The descriptor's `port`, `9000` by default | `http` | mutual TLS | The service's own routes. Absent with `"http": false`. |
 | `7626` | `management` | mutual TLS | Version, metrics, cluster membership and cluster bootstrap. |
 | `7627` | `probe` | plain HTTP | Readiness, and nothing else. |
+| `7628` | `observe` | mutual TLS | The service's description and its topology, for the control plane alone. |
 | `17355` | `remoting` | mutual TLS | Cluster remoting between the service's instances. |
 
 Management and remoting accept a connection only from another instance of the same service, presenting
@@ -23,6 +24,12 @@ the service's cluster certificate; a network policy refuses every other source b
 HTTP port requires a client certificate from the installation's service authority. The probe port is plain
 because the kubelet holds no certificate, and it answers only `GET /ready`. See
 [Networking and TLS](../platform/networking.md).
+
+The observe port admits exactly one peer, the installation's control plane, which presents the identity
+`ankka://platform/controlplane`; any other certificate, the service's own included, fails the handshake. It
+serves `GET /observability/service` and `GET /observability/topology`, the same documents the local
+endpoint serves, and nothing else. It is not part of readiness: an instance whose observe listener could not
+start is still ready, and the control plane reports it as one whose topology could not be read.
 
 In a process-hosted service these ports belong to the sidecar container; the process container has none.
 
@@ -115,6 +122,7 @@ memory, so it is never started on a deployed instance.
 | Path | Answers |
 |---|---|
 | `GET /observability/service` | The service's name, runtime version, instances with their HTTP address, registered components with their query handlers, and HTTP routes. |
+| `GET /observability/topology` | The service's topology: its nodes, declared connections and the calls observed in the current window, with each pair of handlers' handled and unanswered counts and a duration histogram. |
 | `GET /observability/traces` | Summaries of the traces in the current window, newest first. |
 | `GET /observability/traces/{traceId}` | One trace as a tree of spans. |
 | `GET /observability/sessions/{sessionId}` | An agent session's stored conversation and the tokens it has used. |

@@ -137,5 +137,7 @@ final case class KeyValueEntityDescriptor[C <: KeyValueEntity[S], S](
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.KeyValueEntity
 
+  override def declaredHandlers: Vector[DeclaredHandler] = HandlerBinding.declared(handlers.values)
+
   private[ankka] def handler(name: MethodName): Option[HandlerBinding[C]] =
     handlers.get(name)

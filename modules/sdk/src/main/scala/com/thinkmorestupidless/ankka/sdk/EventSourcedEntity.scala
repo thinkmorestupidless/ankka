@@ -158,6 +158,12 @@ object EventSourcedEntity:
       bindings += handle
       handle
 
+    /**
+     * Whether this is one of the platform's own entities. Only the platform can say so: a service's
+     * entity cannot override a member it cannot see.
+     */
+    private[ankka] def platform: Boolean = false
+
     /** Everything the runtime needs to host this entity. */
     final def descriptor: EventSourcedEntityDescriptor[C, S, E] =
       val seen = bindings.groupBy(_.name).collect {
@@ -174,7 +180,8 @@ object EventSourcedEntity:
         eventSerializer,
         create,
         snapshotEvery,
-        bindings.map(b => b.name -> b).toMap
+        bindings.map(b => b.name -> b).toMap,
+        platform
       )
 
 /** The registered form of an event sourced entity. */
@@ -184,9 +191,12 @@ final case class EventSourcedEntityDescriptor[C <: EventSourcedEntity[S, E], S, 
     eventSerializer: Serializer[E],
     create: EventSourcedEntityContext => C,
     snapshotEvery: Option[Int],
-    handlers: Map[MethodName, HandlerBinding[C]]
+    handlers: Map[MethodName, HandlerBinding[C]],
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.EventSourcedEntity
+
+  override def declaredHandlers: Vector[DeclaredHandler] = HandlerBinding.declared(handlers.values)
 
   private[ankka] def handler(name: MethodName): Option[HandlerBinding[C]] =
     handlers.get(name)

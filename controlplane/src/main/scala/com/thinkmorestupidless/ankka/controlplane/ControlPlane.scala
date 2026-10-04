@@ -79,7 +79,12 @@ object ControlPlane:
        * and a project's namespace is named from the same configuration. `None` — a control plane
        * with no cluster behind it — makes the registry routes answer unavailable.
        */
-      registry: Option[RegistryWriter] = None
+      registry: Option[RegistryWriter] = None,
+      /**
+       * Where a deployed service's instances are asked for their topology (feature 019). The
+       * default reads the pods over the observe port; a suite scripts one.
+       */
+      topology: Option[com.thinkmorestupidless.ankka.controlplane.deploy.TopologyReader] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -90,7 +95,11 @@ object ControlPlane:
       clients => ProjectEndpoint(clients, acl, clock, registry),
       // `logs` keeps its own default rather than being built from `deploy`: that is the behaviour
       // this call has always had, and changing it here would be an unrelated fix smuggled in.
-      clients => ServiceEndpoint(clients, acl, deploy, clock = clock),
+      clients =>
+        topology match
+          case Some(reader) =>
+            ServiceEndpoint(clients, acl, deploy, clock = clock, topology = reader)
+          case None => ServiceEndpoint(clients, acl, deploy, clock = clock),
       clients => WhoamiEndpoint(clients, acl, clock)
     ) ++ auth.map(config =>
       (_: com.thinkmorestupidless.ankka.http.EndpointClients) => AuthDiscoveryEndpoint(config)

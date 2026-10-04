@@ -155,6 +155,11 @@ final class RotatingTls(
           case x: X509ExtendedTrustManager => SameIdentityTrustManager(x, own.toSet)
           case other                       => other
         }
+      case Peers.Exactly(uri) =>
+        trustManagers.getTrustManagers.map {
+          case x: X509ExtendedTrustManager => SameIdentityTrustManager(x, Set(uri))
+          case other                       => other
+        }
 
     val context = SSLContext.getInstance("TLS")
     context.init(keyManagers.getKeyManagers, trust, new SecureRandom())
@@ -189,6 +194,14 @@ object RotatingTls:
      * other service is not a peer — the rule Pekko's remoting applies to itself.
      */
     case SameIdentity
+
+    /**
+     * Only a certificate carrying exactly this `ankka://` identity, in both directions. For a port
+     * one named peer may read and nobody else — a workload's observe listener admits the control
+     * plane, and the control plane reading it expects the very service it asked for — where the
+     * peer is reached by pod IP, so its name is nothing a certificate could be checked against.
+     */
+    case Exactly(uri: String)
 
   /**
    * The authority's verdict, then one more: the peer's leaf must carry one of `required`'s URIs.

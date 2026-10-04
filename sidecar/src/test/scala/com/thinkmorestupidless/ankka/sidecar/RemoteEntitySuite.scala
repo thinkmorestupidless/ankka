@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.{Payload, PayloadKeys}
+import com.thinkmorestupidless.ankka.runtime.{CallCounts, Observability}
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
@@ -207,4 +208,53 @@ class RemoteEntitySuite extends munit.FunSuite with LogCapturing:
       s"expected the stream to close on passivation ($streams → ${double.liveStreams})"
     )
     assertEquals(count("n"), "1")
+  }
+
+  // A scenario of `features/topology/observed-calls.feature`, run here because only a component in
+  // another language has a host that answers for an instance that has gone: it keeps the calls
+  // waiting on its process in a queue of its own and answers each of them when it stops. A Scala
+  // component's caller would wait, and be counted as timed out.
+  test("a call that reaches no instance is counted as undelivered") {
+    assertEquals(invoke("u", "record"), Right("done"))
+    // The counts of the service that is about to stop: a restarted one counts afresh. Other cases
+    // of this suite have called `count` too, so what is asserted is what this one adds.
+    val observability = Observability(kit.service.system)
+    def name(id: Int) = observability.names.nameOf(id).getOrElse("?")
+    def toCount =
+      observability.calls
+        .snapshot(System.currentTimeMillis())
+        .pairs
+        .filter(p => name(p.calleeComponent) == "conformance" && name(p.calleeHandler) == "count")
+    val before = toCount
+    assertEquals(before.map(p => name(p.callerComponent)), Vector(CallCounts.UnknownOrigin))
+
+    // One call the process never answers, and one waiting behind it. The first may be given up
+    // on before the instance stops; the second is then the one in flight. Either way the second
+    // is still unanswered when the instance stops, for as long as two command timeouts.
+    double.knobs.neverReply = true
+    val first  = invokeAsync("u", "record")
+    val second = invokeAsync("u", "count")
+    Thread.sleep(300)
+    try kit.restartService()
+    finally double.knobs.neverReply = false
+
+    val after = toCount
+    assertEquals(
+      after.map(_.undelivered),
+      before.map(_.undelivered + 1),
+      "no handler ran, and the host said so"
+    )
+    assertEquals(after.map(_.handled), before.map(_.handled), "and it is not a handled call")
+    assertEquals(after.map(_.timedOut), before.map(_.timedOut), "nor one the caller waited out")
+    assertEquals(
+      after.map(p => name(p.callerComponent)),
+      Vector(CallCounts.UnknownOrigin),
+      "and a test is nobody's handler"
+    )
+    // The callers were told, and not left to time out.
+    assert(Try(Await.result(second, 10.seconds)).isFailure)
+    val _ = Try(Await.result(first, 10.seconds))
+
+    // And the instance is there again for the next call.
+    assertEquals(count("u"), "1")
   }

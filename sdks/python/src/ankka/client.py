@@ -125,6 +125,7 @@ class Calls:
 @dataclass(frozen=True)
 class Views:
     _stub: client_pb2_grpc.ClientStub
+    _metadata: Metadata = Metadata()
 
     async def get(self, view_id: str, key: str, row: Any) -> Any | None:
         """One row by key, decoded as ``row``'s default codec, or None."""
@@ -141,6 +142,7 @@ class Views:
             view_id=view_id,
             name=name,
             payload=payload_pb2.Payload(content_type="text/plain", manifest="string", data=(key or "").encode()),
+            metadata=self._metadata.to_pb(),
         )
         answer = await self._stub.Query(request)
         if answer.HasField("error"):
@@ -203,7 +205,7 @@ class ComponentClient:
 
     @property
     def views(self) -> Views:
-        return Views(self._stub)
+        return Views(self._stub, self._metadata)
 
     @property
     def timers(self) -> Timers:

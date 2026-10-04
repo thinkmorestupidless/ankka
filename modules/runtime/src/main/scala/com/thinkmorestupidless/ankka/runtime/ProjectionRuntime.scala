@@ -128,21 +128,25 @@ final class ProjectionRuntime private (
   ): Unit =
     val problems = Vector.newBuilder[String]
 
-    (views.map(v => v.componentId -> v.source) ++ consumers.map(c => c.componentId -> c.source))
-      .foreach {
-        case (id, source: ChangeSource.Topic[?]) if subscriber.isEmpty =>
-          problems += s"'$id' consumes topic '${source.topic}' but no MessageSubscriber " +
-            "was configured; pass one to ProjectionRuntime.withBroker, or set " +
+    // What each declared is read through `DeclaredConnections`, as the topology reads it: what
+    // this refuses to start and what a console draws are the same reading of the same descriptor.
+    (views ++ consumers).foreach { component =>
+      DeclaredConnections.sourceOf(component) match
+        case Some(DeclaredSource.Topic(topic)) if subscriber.isEmpty =>
+          problems += s"'${component.componentId}' consumes topic '$topic' but no " +
+            "MessageSubscriber was configured; pass one to ProjectionRuntime.withBroker, or set " +
             s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
         case _ => ()
-      }
+    }
 
     consumers.foreach { consumer =>
-      if consumer.produceTo.isDefined && publisher.isEmpty then
-        problems += s"consumer '${consumer.componentId}' publishes to " +
-          s"'${consumer.produceTo.get}' but no MessagePublisher was configured; " +
-          "pass one to ProjectionRuntime.withPublisher, or set " +
-          s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
+      DeclaredConnections.destinationOf(consumer).foreach { topic =>
+        if publisher.isEmpty then
+          problems += s"consumer '${consumer.componentId}' publishes to " +
+            s"'$topic' but no MessagePublisher was configured; " +
+            "pass one to ProjectionRuntime.withPublisher, or set " +
+            s"${ProjectionRuntime.KafkaEnvVar} for ProjectionRuntime.fromEnv"
+      }
     }
 
     val found = problems.result()
@@ -161,23 +165,27 @@ final class ProjectionRuntime private (
   ): Unit =
     val problems = Vector.newBuilder[String]
 
-    (views.map(v => v.componentId -> v.source) ++ consumers.map(c => c.componentId -> c.source))
-      .foreach {
-        case (id, RemoteSource.Topic(topic)) if subscriber.isEmpty =>
-          problems += s"'$id' consumes topic '$topic' but no MessageSubscriber " +
-            "was configured; pass one to ProjectionRuntime.withBroker"
-        case (id, RemoteSource.Component(kind, sourceId))
-            if kind != ComponentKind.EventSourcedEntity && kind != ComponentKind.KeyValueEntity =>
-          problems += s"'$id' subscribes to $kind '$sourceId', which has no change stream; " +
-            "a view or consumer follows an event sourced entity, a key value entity or a topic"
-        case _ => ()
-      }
+    (views.map(v => v -> v.source) ++ consumers.map(c => c -> c.source)).foreach {
+      (component, source) =>
+        val id = component.componentId
+        (DeclaredConnections.sourceOf(component), source) match
+          case (Some(DeclaredSource.Topic(topic)), _) if subscriber.isEmpty =>
+            problems += s"'$id' consumes topic '$topic' but no MessageSubscriber " +
+              "was configured; pass one to ProjectionRuntime.withBroker"
+          // A source `DeclaredConnections` does not read as one: a component with no change stream.
+          case (None, RemoteSource.Component(kind, sourceId)) =>
+            problems += s"'$id' subscribes to $kind '$sourceId', which has no change stream; " +
+              "a view or consumer follows an event sourced entity, a key value entity or a topic"
+          case _ => ()
+    }
 
     consumers.foreach { consumer =>
-      if consumer.producesTo.isDefined && publisher.isEmpty then
-        problems += s"consumer '${consumer.componentId}' publishes to " +
-          s"'${consumer.producesTo.get}' but no MessagePublisher was configured; " +
-          "pass one to ProjectionRuntime.withPublisher"
+      DeclaredConnections.destinationOf(consumer).foreach { topic =>
+        if publisher.isEmpty then
+          problems += s"consumer '${consumer.componentId}' publishes to " +
+            s"'$topic' but no MessagePublisher was configured; " +
+            "pass one to ProjectionRuntime.withPublisher"
+      }
     }
 
     val found = problems.result()
@@ -244,7 +252,7 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => ConsumerEventHandler(typed, publisher, client)
+            () => ConsumerEventHandler(typed, publisher, client, Observability(system))
           )
         }
 
@@ -255,13 +263,13 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => ConsumerStateHandler(typed, publisher, client)
+            () => ConsumerStateHandler(typed, publisher, client, Observability(system))
           )
         }
 
       case ChangeSource.Topic(topic, _) =>
         subscriber.foreach { broker =>
-          val handler = ConsumerTopicHandler(typed, publisher, client)
+          val handler = ConsumerTopicHandler(typed, publisher, client, Observability(system))
           broker.subscribe(topic, processName, handler.process)
           system.log.info("consumer '{}' consuming topic '{}'", typed.componentId, topic)
         }
@@ -494,6 +502,8 @@ private final class ViewStateHandler(
   private val database           = Database()
   private val view  = descriptor.create(SimpleViewContext(descriptor.componentId, client))
   private val table = descriptor.tableName
+  // Taken at construction, as the event handler's is: `process` runs on the projection's threads.
+  private val observability = Observability(system)
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)
@@ -508,13 +518,19 @@ private final class ViewStateHandler(
 
         val effect =
           try
-            change match
-              // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
-              case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-                view.onDelete
-              case updated: UpdatedDurableState[StateRecord] =>
-                view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
-              case _: DeletedDurableState[StateRecord] => view.onDelete
+            ProjectionSupport.handling(
+              observability,
+              descriptor.componentId.toString,
+              ViewDescriptor.OnChange.name
+            ) {
+              change match
+                // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+                case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+                  view.onDelete
+                case updated: UpdatedDurableState[StateRecord] =>
+                  view.onChange(descriptor.source.decoder.fromBytes(updated.value.payload))
+                case _: DeletedDurableState[StateRecord] => view.onDelete
+            }
           finally view._setContext(None)
 
         effect match
@@ -535,8 +551,11 @@ private final class ViewStateHandler(
 private final class ConsumerEventHandler(
     descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
     publisher: Option[MessagePublisher],
-    client: ComponentClient
+    client: ComponentClient,
+    observability: Observability
 ) extends Handler[EventEnvelope[JournalRecord]]:
+
+  private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client))
@@ -550,11 +569,13 @@ private final class ConsumerEventHandler(
     )
     val effect =
       try
-        record.kind match
-          case JournalRecord.KindDomain =>
-            consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
-          case JournalRecord.KindDeleted => consumer.onDelete
-          case _                         => ConsumerEffect.Ignore
+        ProjectionSupport.handling(observability, id, ConsumerDescriptor.OnMessage.name) {
+          record.kind match
+            case JournalRecord.KindDomain =>
+              consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
+            case JournalRecord.KindDeleted => consumer.onDelete
+            case _                         => ConsumerEffect.Ignore
+        }
       finally consumer._setContext(None)
 
     ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher)
@@ -563,8 +584,11 @@ private final class ConsumerEventHandler(
 private final class ConsumerStateHandler(
     descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
     publisher: Option[MessagePublisher],
-    client: ComponentClient
+    client: ComponentClient,
+    observability: Observability
 ) extends Handler[DurableStateChange[StateRecord]]:
+
+  private val id = descriptor.componentId.toString
 
   private val consumer =
     descriptor.create(SimpleConsumerContext(descriptor.componentId, client))
@@ -579,13 +603,15 @@ private final class ConsumerStateHandler(
     consumer._setContext(Some(SimpleChangeContext(subject, revision, localOrigin = true)))
     val effect =
       try
-        change match
-          // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
-          case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
-            consumer.onDelete
-          case updated: UpdatedDurableState[StateRecord] =>
-            consumer.onMessage(descriptor.source.decoder.fromBytes(updated.value.payload))
-          case _: DeletedDurableState[StateRecord] => consumer.onDelete
+        ProjectionSupport.handling(observability, id, ConsumerDescriptor.OnMessage.name) {
+          change match
+            // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
+            case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
+              consumer.onDelete
+            case updated: UpdatedDurableState[StateRecord] =>
+              consumer.onMessage(descriptor.source.decoder.fromBytes(updated.value.payload))
+            case _: DeletedDurableState[StateRecord] => consumer.onDelete
+        }
       finally consumer._setContext(None)
 
     ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher)

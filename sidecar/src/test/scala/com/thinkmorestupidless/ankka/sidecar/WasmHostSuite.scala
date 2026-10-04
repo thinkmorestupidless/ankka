@@ -617,13 +617,19 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       val plan =
         await(talk.plan(PlanRequest(cartId, "session", MethodName("ask"), json("unit", ""), at)))
       assertEquals(plan.map(_.user), Right(Some("hello")))
-      assertEquals(await(talk.invokeTool(cartId, "session", "lookup", "{}")), Right("tool ran"))
       assertEquals(
-        await(talk.checkGuardrail(cartId, "session", "polite", GuardrailStage.Input, "hi")),
+        await(talk.invokeTool(cartId, "session", "lookup", "{}", Metadata.empty)),
+        Right("tool ran")
+      )
+      assertEquals(
+        await(
+          talk
+            .checkGuardrail(cartId, "session", "polite", GuardrailStage.Input, "hi", Metadata.empty)
+        ),
         Right(())
       )
       assertEquals(
-        await(talk.checkTaskResult(cartId, "t-1", "answer", "{}")),
+        await(talk.checkTaskResult(cartId, "t-1", "answer", "{}", Metadata.empty)),
         TaskResultVerdict.Accept
       )
       val http = await(
@@ -643,7 +649,8 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       ).fold(f => fail(f.toString), identity)
       assertEquals((http.status, String(http.body, "UTF-8")), (200, "hello"))
       val workflow = talk.open(Init(ComponentKind.Workflow, cartId, EntityId("w1"), None))
-      val step     = await(workflow.runStep(7, "first", None)).fold(f => fail(f.toString), identity)
+      val step = await(workflow.runStep(7, "first", None, Metadata.empty))
+        .fold(f => fail(f.toString), identity)
       assertEquals(
         (step.commandId, step.next),
         (7L, com.thinkmorestupidless.ankka.core.effect.StepOutcome.End)

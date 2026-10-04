@@ -68,7 +68,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     // The node carries every port and the readiness probe; the app carries none.
     assertEquals(
       node.getPorts.asScala.map(_.getName).toSet,
-      Set("http", "management", "remoting", "probe")
+      Set("http", "management", "remoting", "probe", "observe")
     )
     assertEquals(node.getReadinessProbe.getHttpGet.getPort.getStrVal, "probe")
     assert(app.getPorts.isEmpty)

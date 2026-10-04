@@ -27,6 +27,22 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
 ):
   import EntityProtocol.*
 
+  // Taken here, where the engine is built inside the actor's setup: a step runs on a thread of its
+  // own and may not ask the context for anything.
+  private val observability = Observability(ctx.system)
+  private val componentName = descriptor.componentId.toString
+  private val componentRef  = observability.names.intern(componentName)
+
+  /**
+   * The trace the workflow's steps belong to: the command that set them going, and its span.
+   *
+   * A step runs after the command that started it has replied, so nothing on a thread connects the
+   * two. Remembered here, a step is in the trace of the request that caused it and under the
+   * command that did. It is in memory only: a step resumed after a restart has no request to belong
+   * to, and is a trace of its own.
+   */
+  private var stepTrace: Option[(Long, Long)] = None
+
   private val StepTimerKey     = "ankka-step-timeout"
   private val WorkflowTimerKey = "ankka-workflow-timeout"
   private val PauseTimerKey    = "ankka-pause-timeout"
@@ -91,6 +107,8 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     else
       descriptor.handler(MethodName(invoke.method)) match
         case None =>
+          // Answered by the engine, and no handler ran: undelivered, under no name that was sent.
+          observability.undelivered(MetaEntry.toMetadata(invoke.metadata), componentName, None)
           PekkoEffect.reply(invoke.replyTo)(
             EntityProtocol.Rejected(
               CommandError(
@@ -114,12 +132,46 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
             )
           )
 
+          // The command as a span of its own, as an entity's is: without it a workflow is in no
+          // trace and no metric, and nothing it does can be said to be its doing.
+          val metadata = MetaEntry.toMetadata(invoke.metadata)
+          val span = observability.recorder.begin(
+            traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
+            parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+            componentRef = componentRef,
+            handlerRef = observability.names.intern(invoke.method)
+          )
+          val started = System.nanoTime()
+          // Failed until proven otherwise: if the handler throws, that is what is recorded.
+          var spanOutcome = SpanOutcome.Failed
           val effect =
             try
-              binding
-                .decodeAndInvoke(workflow, invoke.payload)
-                .asInstanceOf[WorkflowEffect[S, Any]]
-            finally workflow._setContext(None)
+              val produced = Trace.within(
+                span.traceId,
+                span.id,
+                CallOrigin(componentName, invoke.method)
+              )(
+                binding
+                  .decodeAndInvoke(workflow, invoke.payload)
+                  .asInstanceOf[WorkflowEffect[S, Any]]
+              )
+              // A refusal is the workflow working: it said no, and nothing went wrong.
+              spanOutcome = produced.outcome match
+                case Outcome.Fail(_) => SpanOutcome.Refused
+                case _               => SpanOutcome.Ok
+              produced
+            finally
+              observability.recorder.complete(span, spanOutcome)
+              observability.handled(
+                metadata,
+                componentName,
+                invoke.method,
+                spanOutcome,
+                System.nanoTime() - started
+              )
+              workflow._setContext(None)
+
+          if effect.transition.isDefined then stepTrace = Some((span.traceId, span.id))
 
           effect.outcome match
             case Outcome.Fail(error) =>
@@ -214,8 +266,27 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
     val workflow = descriptor.create(context)
     workflow._setState(value)
 
+    // Everything the step's thread needs, taken on the actor's: the recorder holds no actor
+    // reference, and the names are interned here so the thread only writes numbers.
+    val recorder          = observability.recorder
+    val handlerRef        = observability.names.intern(ref.name)
+    val origin            = CallOrigin(componentName, ref.name)
+    val (traceId, parent) = stepTrace.getOrElse((Trace.mint(), 0L))
+
     val execution = Future {
-      handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]]
+      // The span and the origin belong here, on the thread doing the work, and not around the
+      // creation of this Future: a trace set on the actor's thread is invisible to this one. With
+      // them, a call the step makes is the step's child in a trace and the step's call in a
+      // topology.
+      val span    = recorder.begin(traceId, parent, componentRef, handlerRef)
+      var outcome = SpanOutcome.Failed
+      try
+        val effect = Trace.within(span.traceId, span.id, origin)(
+          handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]]
+        )
+        outcome = SpanOutcome.Ok
+        effect
+      finally recorder.complete(span, outcome)
     }(using AnkkaExecutors.virtual)
 
     ctx.pipeToSelf(execution) {

@@ -2,6 +2,7 @@ package com.thinkmorestupidless.ankka.testkit
 
 import com.thinkmorestupidless.ankka.agent.{SessionMemoryEntity, SessionMessage, TokenUsage}
 import com.thinkmorestupidless.ankka.core.EntityId
+import com.thinkmorestupidless.ankka.http.HttpServer
 import munit.FunSuite
 
 import java.net.URI
@@ -29,7 +30,12 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
   override def beforeAll(): Unit =
     registryDir = Files.createTempDirectory("ankka-console-suite")
     sys.props.put("ankka.running.dir", registryDir.toString)
-    testKit = AnkkaTestKit.start(ProfileEntity.descriptor, SessionMemoryEntity.descriptor)
+    // Loopback and an ephemeral port: this suite must run beside a service on 9000.
+    val server = HttpServer.at("127.0.0.1", 0)(_ => QueryEndpoint())
+    testKit = AnkkaTestKit.start(
+      Seq(ProfileEntity.descriptor, SessionMemoryEntity.descriptor),
+      Seq(server)
+    )
 
   override def afterAll(): Unit =
     if testKit != null then testKit.stop()
@@ -39,6 +45,16 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
     val address = observabilityAddress
     val response = client.send(
       HttpRequest.newBuilder(URI.create(address + path)).GET().build(),
+      HttpResponse.BodyHandlers.ofString()
+    )
+    (response.statusCode(), response.body)
+
+  private def post(path: String): (Int, String) =
+    val response = client.send(
+      HttpRequest
+        .newBuilder(URI.create(observabilityAddress + path))
+        .POST(HttpRequest.BodyPublishers.noBody())
+        .build(),
       HttpResponse.BodyHandlers.ofString()
     )
     (response.statusCode(), response.body)
@@ -68,6 +84,47 @@ final class ConsoleEndpointSuite extends FunSuite with LogCapturing:
     assert(body.contains("profile"), "the registered entity is listed")
     assert(body.contains("\"instances\""), "instances is a list, even holding one")
     assert(body.contains("\"routes\""), "routes is present, even when empty")
+  }
+
+  test("each route names the endpoint that serves it, and says everything it said before") {
+    val (status, body) = get("/observability/service")
+    assertEquals(status, 200)
+    assert(
+      body.contains(
+        """{"method":"GET","path":"/search/in/{category}","streaming":false,""" +
+          """"endpoint":"endpoint:/search"}"""
+      ),
+      body
+    )
+  }
+
+  test("the topology has a node for each component and each endpoint, before anything is asked") {
+    val (status, body) = get("/observability/topology")
+    assertEquals(status, 200, body)
+    assert(
+      body.contains(""""id":"profile","kind":"KeyValueEntity","layer":2,"platform":false"""),
+      body
+    )
+    assert(
+      body.contains(
+        """"id":"ankka-session-memory","kind":"EventSourcedEntity","layer":2,"platform":true"""
+      ),
+      body
+    )
+    assert(body.contains(""""id":"endpoint:/search","kind":"Endpoint","layer":0"""), body)
+    assert(body.contains("""{"name":"GET /search/in/{category}","type":"route""""), body)
+    assert(body.contains("""{"name":"get","type":"query"}"""), "the entity's handlers are listed")
+    // Nothing is connected yet in this document, and nothing has been counted.
+    assert(body.contains(""""declared":[],"calls":[]"""), body)
+  }
+
+  test("the topology is read, never written: anything but GET is refused") {
+    val (status, body) = post("/observability/topology")
+    assertEquals(status, 405, body)
+  }
+
+  test("only the topology answers at its path") {
+    assertEquals(get("/observability/topology/cart")._1, 404)
   }
 
   test("a request produces a trace, and the window says it is a window") {

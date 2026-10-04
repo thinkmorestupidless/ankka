@@ -2,7 +2,12 @@ package com.thinkmorestupidless.ankka.controlplane.api
 
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.application.{ServiceEntity, ServiceRows}
-import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, PodLogs}
+import com.thinkmorestupidless.ankka.controlplane.deploy.{
+  DeployConfig,
+  InstanceTopologies,
+  PodLogs,
+  TopologyReader
+}
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
@@ -29,7 +34,8 @@ final class ServiceEndpoint(
     val acl: Acl,
     deploy: DeployConfig = DeployConfig.default,
     logs: PodLogs = PodLogs(DeployConfig.default.namespacePrefix),
-    protected val clock: java.time.Clock = java.time.Clock.systemUTC()
+    protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
+    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
 ) extends HttpEndpoint("/services")
     with Attributing:
 
@@ -211,6 +217,24 @@ final class ServiceEndpoint(
             case Left(problem) => InstanceLogs(pod, "", error = Some(problem))
         }
       )
+  }
+
+  /**
+   * The service's topology, as its instances report it and merged (feature 019). Read as the
+   * control plane, over a port only it may open; the member gets the merged document and no
+   * credential for anything. Authorized exactly as logs: a non-member is told the service does not
+   * exist.
+   */
+  get("/{projectId}/{name}/topology") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false)
+    val _    = entity(projectId, name).call(ServiceEntity.get).invoke()
+    val read = topology.read(projectId, name)
+    if read.isEmpty then
+      throw CommandError(
+        s"service '$name' has no running instance; it may be paused",
+        ErrorCode.NotFound
+      )
+    else TopologyMerge.merge(name, read.size, read)
   }
 
   /** Who did what to this service, newest first (feature 008, FR-025). */

@@ -7,7 +7,8 @@ import com.thinkmorestupidless.ankka.runtime.{
   InMemoryBroker,
   ProjectionRuntime,
   ServedRoute,
-  TimerRuntime
+  TimerRuntime,
+  TopologyJson
 }
 import com.thinkmorestupidless.ankka.sidecar.{
   Discovery,
@@ -74,12 +75,19 @@ trait ConformanceTarget:
   def readOnlyHandlers: Set[(String, String)]
   def endpointRoutes: Set[String]
 
+  /** The target's topology, as its own runtime renders it for a console. */
+  def topology: String
+
   /** A discovery with this protocol version; `Left` is the refusal. Process targets only. */
   def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]]
 
   def stop(): Unit
 
 object ConformanceTarget:
+
+  /** Rendered by the runtime hosting the target, whatever language the target is written in. */
+  private def topologyOf(kit: AnkkaTestKit): String =
+    TopologyJson.of(kit.service, "conformance", "conformance-1", "2026-01-01T00:00:00Z")
 
   def fromProperty(model: TestModelProvider): ConformanceTarget =
     sys.props.get("ankka.conformance.target").filter(_.nonEmpty) match
@@ -127,6 +135,7 @@ object ConformanceTarget:
         ("checkout", "status")
       )
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
+    def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
     def stop(): Unit                                                                = kit.stop()
 
@@ -212,6 +221,7 @@ object ConformanceTarget:
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))
         .toSet
     def endpointRoutes: Set[String] = served.map(r => s"${r.method} ${r.path}").toSet
+    def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(Discovery.discover(channel, settings, BuildInfo.version, protocolVersion).map(_ => ()))
     def stop(): Unit =
@@ -314,6 +324,7 @@ object ConformanceTarget:
         .flatMap(c => c.handlers.filter(_.readOnly).map(h => (c.id, h.name)))
         .toSet
     def endpointRoutes: Set[String] = served.map(r => s"${r.method} ${r.path}").toSet
+    def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(discover(protocolVersion).map(_ => ()))
     def stop(): Unit = Try(kit.stop()): Unit

@@ -50,6 +50,91 @@ final class TraceSuite extends FunSuite:
     assertEquals(Trace.parentSpanIdOf(out), Some(-2L))
   }
 
+  // Who is calling
+
+  test("nothing is current outside a scope, and a scope ends with its body") {
+    assertEquals(Trace.currentOrigin, None)
+    assertEquals(Trace.currentTrace, None)
+    Trace.within(7L, 8L, CallOrigin("checkout", "reserve")) {
+      assertEquals(Trace.currentOrigin, Some(CallOrigin("checkout", "reserve")))
+      assertEquals(Trace.currentTrace, Some((7L, 8L)))
+    }
+    assertEquals(Trace.currentOrigin, None)
+    assertEquals(Trace.currentTrace, None)
+  }
+
+  test("an inner scope is the inner handler's, and the outer one's again when it ends") {
+    Trace.within(1L, 2L, CallOrigin("endpoint:/carts", "POST /carts/{cartId}/items")) {
+      Trace.within(1L, 3L, CallOrigin("shopping-cart", "add-item")) {
+        assertEquals(Trace.currentOrigin, Some(CallOrigin("shopping-cart", "add-item")))
+      }
+      assertEquals(
+        Trace.currentOrigin,
+        Some(CallOrigin("endpoint:/carts", "POST /carts/{cartId}/items"))
+      )
+      assertEquals(Trace.currentTrace, Some((1L, 2L)))
+    }
+  }
+
+  test("a scope ends when its body throws") {
+    intercept[IllegalStateException] {
+      Trace.within(1L, 2L, CallOrigin("checkout", "reserve"))(throw IllegalStateException("no"))
+    }
+    assertEquals(Trace.currentOrigin, None)
+  }
+
+  test("a span set for no handler in particular has a trace and no origin") {
+    Trace.within(1L, 2L) {
+      assertEquals(Trace.currentTrace, Some((1L, 2L)))
+      assertEquals(Trace.currentOrigin, None)
+    }
+  }
+
+  test("a handler at work between spans is an origin in no trace") {
+    Trace.asOrigin(CallOrigin("helper", "iteration")) {
+      assertEquals(Trace.currentOrigin, Some(CallOrigin("helper", "iteration")))
+      assertEquals(Trace.currentTrace, None)
+    }
+  }
+
+  test("work handed to another thread has no origin: it is not carried, and not guessed") {
+    var seen: Option[CallOrigin] = Some(CallOrigin("never", "set"))
+    Trace.within(1L, 2L, CallOrigin("checkout", "reserve")) {
+      val other = Thread(() => seen = Trace.currentOrigin)
+      other.start()
+      other.join()
+    }
+    assertEquals(seen, None)
+  }
+
+  test("a call carries the calling thread's trace and origin") {
+    val out = Trace.within(0xabcL, 9L, CallOrigin("checkout", "reserve")) {
+      Trace.outbound(Metadata.empty.set("other", "kept"))
+    }
+    assertEquals(Trace.traceIdOf(out), Some(0xabcL))
+    assertEquals(Trace.parentSpanIdOf(out), Some(9L))
+    assertEquals(CallOrigin.from(out), Some(CallOrigin("checkout", "reserve")))
+    assertEquals(out.get("other"), Some("kept"))
+  }
+
+  test("an origin a handler forwarded is replaced by the handler's own") {
+    val forwarded = CallOrigin.into(Metadata.empty, CallOrigin("endpoint:/carts", "POST /carts"))
+    val out = Trace.within(1L, 2L, CallOrigin("checkout", "reserve"))(Trace.outbound(forwarded))
+    assertEquals(CallOrigin.from(out), Some(CallOrigin("checkout", "reserve")))
+  }
+
+  test("an origin forwarded from a thread that has none is taken out, not passed on") {
+    val forwarded = Trace.into(
+      CallOrigin.into(Metadata.empty, CallOrigin("endpoint:/carts", "POST /carts")),
+      5L,
+      6L
+    )
+    val out = Trace.outbound(forwarded)
+    assertEquals(CallOrigin.from(out), None)
+    // The trace it was given is the caller's to forward, and stays.
+    assertEquals(Trace.traceIdOf(out), Some(5L))
+  }
+
   test("metadata without a trace reads as absent, not as zero") {
     assertEquals(Trace.traceIdOf(Metadata.empty), None)
     assertEquals(Trace.parentSpanIdOf(Metadata.empty), None)

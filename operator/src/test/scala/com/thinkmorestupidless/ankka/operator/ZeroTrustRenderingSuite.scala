@@ -120,6 +120,26 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
     )
     val probe = rules.find(_.getPorts.asScala.exists(_.getPort.getIntVal == 7627)).get
     assert(probe.getFrom == null || probe.getFrom.isEmpty, "the probe port must admit every source")
+    // The observe port: exactly one source, the control plane's pods in the control plane's
+    // namespace, and no other rule so much as mentions the port.
+    val observing = rules.filter(_.getPorts.asScala.exists(_.getPort.getIntVal == 7628))
+    assertEquals(observing.size, 1, s"rules naming 7628: $observing")
+    val observe = observing.head
+    assertEquals(observe.getPorts.asScala.map(_.getPort.getIntVal.intValue).toList, List(7628))
+    val sources = observe.getFrom.asScala.toList
+    assertEquals(sources.size, 1, sources.toString)
+    assertEquals(
+      sources.head.getNamespaceSelector.getMatchLabels.asScala.toMap,
+      Map("kubernetes.io/metadata.name" -> "ankka-controlplane")
+    )
+    assertEquals(
+      sources.head.getPodSelector.getMatchLabels.asScala.toMap,
+      Map("app.kubernetes.io/name" -> "ankka-controlplane")
+    )
+    assert(
+      cluster.getPorts.asScala.forall(_.getPort.getIntVal != 7628),
+      "the cluster rule admits it"
+    )
     // The policy selects exactly what the Deployment selects, so it cannot miss a pod.
     val deployment = actions(spec).collectFirst { case Action.ApplyDeployment(d) => d }.get
     assertEquals(

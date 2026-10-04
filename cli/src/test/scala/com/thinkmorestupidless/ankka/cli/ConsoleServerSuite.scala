@@ -37,6 +37,12 @@ final class ConsoleServerSuite extends FunSuite:
     def trace(name: String, traceId: String): Option[String] =
       Option.when(name == "orders" && traceId == "abc")("""{"traceId":"abc","spans":[]}""")
 
+    def topology(name: String): Option[QueryResponse] = name match
+      case "orders" => Some(QueryResponse(200, """{"nodes":[],"declared":[],"calls":[]}"""))
+      // A service on a runtime older than the topology, as `LocalSource` reports one.
+      case "legacy" => Some(QueryResponse(501, LocalSource.TopologyUnsupported))
+      case _        => None
+
     def session(name: String, sessionId: String): Option[String] =
       Option.when(name == "orders" && sessionId == "s1")("""{"messages":[],"usage":{}}""")
 
@@ -98,6 +104,29 @@ final class ConsoleServerSuite extends FunSuite:
       assert(get(server, "/api/traces/orders")._2.contains("capacity"))
       assert(get(server, "/api/traces/orders/abc")._2.contains("spans"))
       assert(get(server, "/api/session/orders/s1")._2.contains("usage"))
+    }
+  }
+
+  test("the topology route passes the service's document through") {
+    withConsole(FakeSource()) { server =>
+      assertEquals(
+        get(server, "/api/topology/orders"),
+        (200, """{"nodes":[],"declared":[],"calls":[]}""")
+      )
+    }
+  }
+
+  test("a service too old to report its topology says so, rather than reading as gone") {
+    withConsole(FakeSource()) { server =>
+      val (status, body) = get(server, "/api/topology/legacy")
+      assertEquals(status, 501)
+      assert(body.contains("does not report its topology"), body)
+    }
+  }
+
+  test("the topology of a service the source does not have is a 404") {
+    withConsole(FakeSource()) { server =>
+      assertEquals(get(server, "/api/topology/ghost")._1, 404)
     }
   }
 

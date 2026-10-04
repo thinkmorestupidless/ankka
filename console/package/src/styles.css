@@ -479,3 +479,78 @@
     margin-bottom: 0.5rem;
   }
 }
+
+/* A service's topology: the picture and its detail side by side, the same facts as tables below. */
+.ac-topology {
+  display: flex;
+  gap: var(--ac-step);
+  align-items: flex-start;
+}
+.ac-topology-picture {
+  overflow-x: auto;
+  min-width: 0;
+  flex: 1;
+}
+.ac-topology-detail {
+  flex: 0 0 20rem;
+}
+.ac-topology-node rect {
+  fill: var(--ac-surface);
+  stroke: var(--ac-reed);
+  stroke-width: 1;
+}
+.ac-topology-node {
+  cursor: pointer;
+}
+.ac-topology-node:focus-visible rect,
+.ac-topology-selected rect {
+  stroke: var(--ac-amber);
+  stroke-width: 2;
+}
+.ac-topology-node:focus {
+  outline: none;
+}
+.ac-topology-outside rect,
+.ac-topology-differs rect {
+  stroke-dasharray: 4 3;
+}
+.ac-topology-platform rect {
+  fill: var(--ac-water);
+}
+.ac-topology-name {
+  fill: var(--ac-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.ac-topology-kind {
+  fill: var(--ac-reed);
+  font-size: 11px;
+}
+.ac-topology-declared {
+  fill: none;
+  stroke: var(--ac-reed);
+  stroke-width: 1.25px;
+}
+.ac-topology-call {
+  fill: none;
+  stroke: var(--ac-ink);
+  stroke-dasharray: 5 4;
+}
+.ac-topology-warning {
+  stroke: var(--ac-red);
+}
+.ac-topology-mark {
+  fill: var(--ac-red);
+  font-weight: 700;
+  font-size: 14px;
+}
+@media (max-width: 48rem) {
+  .ac-topology {
+    flex-direction: column;
+  }
+  .ac-topology-detail {
+    flex-basis: auto;
+    width: 100%;
+  }
+}
+

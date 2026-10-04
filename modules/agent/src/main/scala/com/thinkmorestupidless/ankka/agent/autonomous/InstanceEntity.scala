@@ -229,6 +229,9 @@ object InstanceEntity
       eventSerializer = Codecs.serializer[InstanceEvent]("agent-instance-event")
     ):
 
+  /** The platform's own: it keeps what the platform needs, and no service wrote it. */
+  override private[ankka] def platform: Boolean = true
+
   /** One entity type serves every autonomous agent, so its id names both. */
   def idFor(componentId: ComponentId, instanceId: String): EntityId =
     EntityId(s"$componentId/$instanceId")

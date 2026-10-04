@@ -39,6 +39,7 @@ object ConsoleServer:
     server.createContext("/api/services", exchange => handler.services(exchange))
     server.createContext("/api/service/", exchange => handler.service(exchange))
     server.createContext("/api/traces/", exchange => handler.traces(exchange))
+    server.createContext("/api/topology/", exchange => handler.topology(exchange))
     server.createContext("/api/invoke/", exchange => handler.invoke(exchange))
     server.createContext("/api/session/", exchange => handler.session(exchange))
     server.createContext("/api/invoke-stream/", exchange => handler.invokeStream(exchange))
@@ -89,6 +90,14 @@ object ConsoleServer:
       source.service(name) match
         case Some(body) => json200(exchange, body)
         case None       => notFound(exchange)
+
+    def topology(exchange: HttpExchange): Unit =
+      val name = exchange.getRequestURI.getPath.stripPrefix("/api/topology/")
+      source.topology(name) match
+        // The status travels: a service that cannot report its topology says so, and that reason
+        // is what the panel shows.
+        case Some(response) => json(exchange, response.status, response.body)
+        case None           => notFound(exchange)
 
     def traces(exchange: HttpExchange): Unit =
       val path = exchange.getRequestURI.getPath.stripPrefix("/api/traces/")

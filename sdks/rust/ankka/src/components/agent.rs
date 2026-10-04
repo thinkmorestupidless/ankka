@@ -298,7 +298,13 @@ impl<C> Tools<C> {
     /// Runs one tool for `owner`, answering what the model is told.
     pub(super) fn invoke(&self, owner: &str, request: &proto::ToolRequest) -> proto::ToolResult {
         use proto::tool_result::Result as R;
-        let ctx = session_context(&request.component_id, &request.session_id, None);
+        // What the runtime says about the tool's run: its trace, and the agent's handler as the
+        // caller of whatever the tool calls. A runtime before 1.3 sends none.
+        let ctx = session_context(
+            &request.component_id,
+            &request.session_id,
+            request.metadata.as_ref(),
+        );
         let result = match self.entries.iter().find(|(n, ..)| *n == request.tool) {
             None => R::Error(format!("{owner} has no tool '{}'", request.tool)),
             Some((.., run)) => match run(&request.arguments_json, &ctx) {
@@ -371,7 +377,13 @@ impl<C> Guardrails<C> {
         request: &proto::GuardrailRequest,
     ) -> proto::GuardrailResult {
         use proto::guardrail_result::Result as R;
-        let ctx = session_context(&request.component_id, &request.session_id, None);
+        // What the runtime says about this check: its trace, and the agent's handler as the caller
+        // of whatever the guardrail calls. A runtime before 1.3 sends none.
+        let ctx = session_context(
+            &request.component_id,
+            &request.session_id,
+            request.metadata.as_ref(),
+        );
         let stage = if request.stage == proto::guardrail_request::Stage::Output as i32 {
             Stage::Output
         } else {

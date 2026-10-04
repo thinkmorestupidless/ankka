@@ -145,6 +145,10 @@ final class ServiceBuilder private[ankka] (
     )
     val sharding = ClusterSharding(system)
 
+    // What the service declared, before anything can call anything: a name in a call's metadata is
+    // believed only when it is one of these. The routes are added once the endpoints have started.
+    Observability(system).declare(DeclaredNames.of(registry, Vector.empty))
+
     // Before formation: in Kubernetes the readiness check is served by the management endpoint
     // formation starts, and it must be able to see every extension's answer from its first call.
     ExtensionsReadiness(system).register(extensions.flatMap(_.readiness))
@@ -221,6 +225,7 @@ final class ServiceBuilder private[ankka] (
       system.log.info("starting ankka extension '{}'", extension.name)
       extension.start(service)
     }
+    Observability(system).declare(DeclaredNames.of(registry, service.routes))
 
     // After the extensions, so the endpoint can report the address they bound. Local mode only:
     // in Kubernetes the pod is the registry and management is the exposure, and management is
@@ -235,8 +240,11 @@ final class ServiceBuilder private[ankka] (
     // builder is a singleton that would keep only the most recently started endpoint. It was a
     // `var` on this object that nothing ever read, so nothing ever withdrew the registration and
     // every locally-run service leaked its entry into `~/.ankka/running` permanently.
+    val documents = ObservabilityDocuments(service, system.name)
     if runningLocally then
-      service.attachObservability(ObservabilityEndpoint.start(service, system.name))
+      service.attachObservability(ObservabilityEndpoint.start(service, system.name, documents))
+    // In a cluster the reader is the installation's control plane, over a port only it may open.
+    else service.attachObserve(ObserveServer.startIfEnabled(system, documents))
 
     service
 
@@ -300,8 +308,20 @@ final class ServiceBuilder private[ankka] (
  * `streaming` is not decoration: a streaming response has no end the panel can wait for, so it has
  * to be read as it arrives. An agent's stream may run for a minute, and a panel that buffers shows
  * nothing for the whole of the interesting part.
+ *
+ * `endpoint` names the endpoint that serves the route, as a topology names it (`endpoint:/carts`).
+ * A request's span says only that HTTP served it and by which route; this is what puts that route,
+ * and every call made from it, on the endpoint a developer wrote.
  */
-final case class ServedRoute(method: String, path: String, streaming: Boolean)
+final case class ServedRoute(method: String, path: String, streaming: Boolean, endpoint: String)
+
+object ServedRoute:
+  /**
+   * An endpoint's id in a topology. Its prefix is its name, in every language: a Scala endpoint has
+   * no id of its own, and one in another language is served by the same HTTP server under the same
+   * prefix.
+   */
+  def endpointId(name: String): String = s"endpoint:$name"
 
 /** A running ankka service. */
 final class AnkkaService private[ankka] (
@@ -323,7 +343,7 @@ final class AnkkaService private[ankka] (
    * calls another needs it, and in a cluster it reads the service's certificate.
    */
   lazy val services: com.thinkmorestupidless.ankka.sdk.ServiceClients =
-    HttpServiceClients(system.settings.config, None)
+    HttpServiceClients(system.settings.config, None, observability = Some(Observability(system)))
 
   /**
    * The names of the extensions this service runs — so one extension can say when another it relies
@@ -368,6 +388,20 @@ final class AnkkaService private[ankka] (
   private[runtime] def attachObservability(endpoint: Option[ObservabilityEndpoint]): Unit =
     observability = endpoint
 
+  /** The observe listener, when this service is running in a cluster that enables one. */
+  @volatile private var observe: Option[ObserveServer] = None
+
+  private[runtime] def attachObserve(server: Option[ObserveServer]): Unit = observe = server
+
+  /** The observe listener's port, for a suite that reads what the control plane would read. */
+  private[ankka] def observePort: Option[Int] = observe.map(_.port)
+
+  /**
+   * Where the local console endpoint answers, when there is one. For a suite that reads what the
+   * console would read, without going by way of the registry directory to find the address.
+   */
+  private[ankka] def observabilityAddress: Option[String] = observability.map(_.address)
+
   /** Stops every extension, then terminates the actor system if this service created it. */
   def terminate(): Unit =
     // First, so the console stops listing a service that is on its way out — and so the registry
@@ -375,6 +409,8 @@ final class AnkkaService private[ankka] (
     try observability.foreach(_.stop())
     catch
       case failure: Throwable => system.log.warn("observability endpoint failed to stop", failure)
+    try observe.foreach(_.stop())
+    catch case failure: Throwable => system.log.warn("observe listener failed to stop", failure)
     observability = None
 
     extensions.reverse.foreach { extension =>

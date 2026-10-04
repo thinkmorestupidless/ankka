@@ -15,6 +15,7 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName
 }
 import com.thinkmorestupidless.ankka.runtime.remote.{Payload, PayloadKeys}
+import com.thinkmorestupidless.ankka.runtime.{CallCounts, CallOrigin, Observability, Trace}
 import com.thinkmorestupidless.ankka.sdk.WorkflowLifecycle
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
 import io.grpc.{ManagedChannel, ManagedChannelBuilder, Server}
@@ -63,6 +64,7 @@ class RemoteWorkflowSuite extends munit.FunSuite with LogCapturing:
           modeOf(state) match
             case "slow"  => Next.TransitionTo("slow")
             case "call"  => Next.TransitionTo("call")
+            case "forge" => Next.TransitionTo("forge")
             case "pause" => Next.TransitionTo("wait")
             case _       => Next.TransitionTo("charge", Some("42"))
         )
@@ -76,27 +78,14 @@ class RemoteWorkflowSuite extends munit.FunSuite with LogCapturing:
         neverAnswer.await()
         StepResult(None, Next.End)
       ),
-      "call" -> ((state, _) =>
-        val channel =
-          ManagedChannelBuilder.forAddress("127.0.0.1", callbackPort).usePlaintext().build()
-        try
-          val reply = ClientGrpc
-            .blockingStub(channel)
-            .invoke(
-              InvokeRequest(
-                Kind.EVENT_SOURCED_ENTITY,
-                "conformance",
-                "wf-target",
-                "record",
-                Some(pb.Payload("text/plain", "string", ByteString.copyFromUtf8("from-step"))),
-                Some(pb.Metadata())
-              )
-            )
-          reply.result match
-            case InvokeReply.Result.Reply(_) =>
-              StepResult(Some(withStatus(state, "called")), Next.End)
-            case other => throw RuntimeException(s"the call failed: $other")
-        finally channel.shutdownNow(): Unit
+      // Forwards what the sidecar said about the step, as an SDK's client does for its handler.
+      "call" -> ((state, _) => callBack(state, toldForStep("call"))),
+      // Says it is somebody the service has never heard of.
+      "forge" -> ((state, _) =>
+        callBack(
+          state,
+          Some(pb.Metadata(Seq(pb.Metadata.Entry(CallOrigin.MetadataKey, "nobody#nothing"))))
+        )
       ),
       "wait" -> ((state, _) =>
         StepResult(Some(withStatus(state, "waiting")), Next.Pause(Some(1500L), Some("resume")))
@@ -116,6 +105,39 @@ class RemoteWorkflowSuite extends munit.FunSuite with LogCapturing:
       )
     )
   )
+
+  /** What the sidecar sent with the latest run of a step: its trace, and who the step is. */
+  private def toldForStep(step: String): Option[pb.Metadata] =
+    double
+      .messagesOf {
+        case in: WorkflowIn if in.message.runStep.exists(_.step == step) =>
+          in.message.runStep.get.metadata
+      }
+      .lastOption
+      .flatten
+
+  /** A step calling another component back through the sidecar's client service. */
+  private def callBack(state: Option[String], metadata: Option[pb.Metadata]): StepResult =
+    val channel =
+      ManagedChannelBuilder.forAddress("127.0.0.1", callbackPort).usePlaintext().build()
+    try
+      val reply = ClientGrpc
+        .blockingStub(channel)
+        .invoke(
+          InvokeRequest(
+            Kind.EVENT_SOURCED_ENTITY,
+            "conformance",
+            "wf-target",
+            "record",
+            Some(pb.Payload("text/plain", "string", ByteString.copyFromUtf8("from-step"))),
+            metadata
+          )
+        )
+      reply.result match
+        case InvokeReply.Result.Reply(_) =>
+          StepResult(Some(withStatus(state, "called")), Next.End)
+        case other => throw RuntimeException(s"the call failed: $other")
+    finally channel.shutdownNow(): Unit
 
   private var double: ProcessDouble   = scala.compiletime.uninitialized
   private var channel: ManagedChannel = scala.compiletime.uninitialized
@@ -213,6 +235,64 @@ class RemoteWorkflowSuite extends munit.FunSuite with LogCapturing:
     eventually()(Some(lifecycle("w3")).filter(_.isCompleted))
     assertEquals(status("w3"), "call|called")
     assertEquals(invoke("conformance", "wf-target", "count"), Right("1"))
+  }
+
+  /** The calls the service counted, as (who called, from which handler, what, which handler). */
+  private def counted: Map[(String, String, String, String), Long] =
+    val observability = Observability(kit.service.system)
+    def name(id: Int) = observability.names.nameOf(id).getOrElse("?")
+    observability.calls
+      .snapshot(System.currentTimeMillis())
+      .pairs
+      .map { p =>
+        (
+          name(p.callerComponent),
+          name(p.callerHandler),
+          name(p.calleeComponent),
+          name(p.calleeHandler)
+        ) -> p.ok
+      }
+      .toMap
+
+  private def entries(metadata: Option[pb.Metadata]): Map[String, String] =
+    metadata.toSeq.flatMap(_.entries).map(e => e.key -> e.value).toMap
+
+  test("a step's call is the step's own, and never that of whoever started the workflow") {
+    assertEquals(invoke("order", "w3b", "start", "call"), Right("started"))
+    eventually()(Some(lifecycle("w3b")).filter(_.isCompleted))
+
+    // The process is told which step it is running, and in which trace...
+    val told = entries(toldForStep("call"))
+    assertEquals(told.get(CallOrigin.MetadataKey), Some("order#call"))
+    assert(told.contains(Trace.TraceIdKey) && told.contains(Trace.SpanIdKey), told.toString)
+    // ...and a command is told it is the command, though the test that sent it is nobody.
+    val start = double.messagesOf {
+      case in: WorkflowIn if in.message.command.exists(_.name == "start") =>
+        entries(in.message.command.get.metadata)
+    }.last
+    assertEquals(start.get(CallOrigin.MetadataKey), Some("order#start"))
+
+    // So the call the step made, forwarding what it was told, is counted as the step's.
+    val _ = eventually()(counted.get(("order", "call", "conformance", "record")).filter(_ >= 1))
+  }
+
+  test("a caller a process made up is not believed, and is not remembered") {
+    val nobody = (CallCounts.UnknownOrigin, CallCounts.UnknownOrigin, "conformance", "record")
+    val before = counted.getOrElse(nobody, 0L)
+
+    assertEquals(invoke("order", "w3c", "start", "forge"), Right("started"))
+    eventually()(Some(lifecycle("w3c")).filter(_.isCompleted))
+    assertEquals(status("w3c"), "forge|called")
+
+    val _ = eventually()(counted.get(nobody).filter(_ == before + 1))
+    assert(
+      !counted.keys.exists((caller, handler, _, _) => caller == "nobody" || handler == "nothing")
+    )
+    // Nor were the names it gave kept: the table holds what the service declared, and those are not.
+    val names = Observability(kit.service.system).names
+    val held  = (0 until names.size).flatMap(names.nameOf)
+    assert(held.contains("forge"), "the step it ran is a name the service declared")
+    assert(!held.contains("nobody") && !held.contains("nothing"), held.toString)
   }
 
   test("W4 a pause survives a restart of the service and its timeout step runs afterwards") {

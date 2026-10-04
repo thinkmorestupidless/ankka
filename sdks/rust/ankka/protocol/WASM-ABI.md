@@ -68,7 +68,11 @@ clock of its own; `ankka.now` is the one it reads. An entity or workflow command
 carries `ankka.sequence`, the journal sequence the state it is handed reflects. A consumer's request
 carries `ankka.sequence` for the change it is handed and `ankka.protocol`, the protocol version the
 host speaks: a guest answers `produce_all` only when that entry is `1.3` or later, and fails the
-call otherwise, because an earlier host reads a reply it does not know as no effect.
+call otherwise, because an earlier host reads a reply it does not know as no effect. The trace entries
+are `ankka-trace-id`, `ankka-span-id` and `ankka-caller`, the handler whose work the request is; a module
+passes a handler's metadata unchanged to the calls it makes through the imports, and never writes
+`ankka-caller` itself. The host ignores a caller that does not name a component and handler the service
+declared.
 
 ## Imports the guest may use (module `ankka1`)
 

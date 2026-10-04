@@ -48,9 +48,9 @@ final class RemoteAgent(
 ) extends Agent:
 
   private[sidecar] def plan(name: MethodName, bytes: Array[Byte]): AgentEffect[String] =
-    val metadata = Trace.currentTrace
-      .map((traceId, spanId) => Trace.into(Metadata.empty, traceId, spanId))
-      .getOrElse(Metadata.empty)
+    // The agent's span and its name, as the host set them on this thread: what the process
+    // forwards when its handler calls another component.
+    val metadata = Trace.outbound(Metadata.empty)
     val request =
       PlanRequest(spec.componentId, sessionId, name, Payload(Payload.Json, "", bytes), metadata)
     Await.result(conversation.plan(request), planTimeout) match
@@ -105,7 +105,13 @@ final class RemoteAgent(
     val session   = sessionId
     val component = spec.componentId
     FunctionTool.raw(ToolSpec(name, declared.description, declared.inputSchema)) { arguments =>
-      Await.result(conversation.invokeTool(component, session, name, arguments.render), toolTimeout)
+      // Run by the loop, on the thread the host made the agent's: the tool is told the trace and
+      // the handler it runs for, so that a call it makes is the agent's.
+      Await.result(
+        conversation
+          .invokeTool(component, session, name, arguments.render, Trace.outbound(Metadata.empty)),
+        toolTimeout
+      )
     }
 
   private def guardrail(guardName: String): Guardrail =
@@ -113,14 +119,30 @@ final class RemoteAgent(
     val component = spec.componentId
     new Guardrail:
       val name: String = guardName
+      // The check is the handler's work, as a tool's run is: the process is told the trace and
+      // the handler, so a call the guardrail makes is the handler's call.
       override def checkInput(text: String): Either[String, Unit] =
         Await.result(
-          conversation.checkGuardrail(component, session, guardName, GuardrailStage.Input, text),
+          conversation.checkGuardrail(
+            component,
+            session,
+            guardName,
+            GuardrailStage.Input,
+            text,
+            Trace.outbound(Metadata.empty)
+          ),
           planTimeout
         )
       override def checkOutput(text: String): Either[String, Unit] =
         Await.result(
-          conversation.checkGuardrail(component, session, guardName, GuardrailStage.Output, text),
+          conversation.checkGuardrail(
+            component,
+            session,
+            guardName,
+            GuardrailStage.Output,
+            text,
+            Trace.outbound(Metadata.empty)
+          ),
           planTimeout
         )
 

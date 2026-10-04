@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useConsole } from "./console.tsx";
-import type { ServiceStatus } from "../client/schemas.ts";
+import type { ServiceStatus, ServiceTopology } from "../client/schemas.ts";
 
 export type StreamState = "connecting" | "live" | "gone" | "off";
 
@@ -27,7 +27,7 @@ function useEvents(path: string | null, handlers: Record<string, (data: unknown)
     source.onopen = () => setState("live");
     const on = (name: string, f: (data: unknown) => void) =>
       source.addEventListener(name, (e) => f(JSON.parse((e as MessageEvent<string>).data)));
-    for (const name of ["status", "services", "logs"]) on(name, (d) => ref.current[name]?.(d));
+    for (const name of ["status", "services", "logs", "topology"]) on(name, (d) => ref.current[name]?.(d));
     on("session-ended", () => {
       source.close();
       window.location.assign(href(`auth/sign-in?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`));
@@ -82,3 +82,15 @@ export function useServiceStream(
   });
   return { status, byInstance, state };
 }
+
+/** A deployed service's merged topology, sent again whenever it changes. */
+export function useTopologyStream(projectId: string, name: string, initial: ServiceTopology | null) {
+  const [topology, setTopology] = useState(initial);
+  useEffect(() => setTopology(initial), [initial]);
+  const path = initial ? `stream/services/${encodeURIComponent(projectId)}/${encodeURIComponent(name)}?topology` : null;
+  const state = useEvents(path, {
+    topology: (d) => setTopology(d as ServiceTopology),
+  });
+  return { topology, state };
+}
+

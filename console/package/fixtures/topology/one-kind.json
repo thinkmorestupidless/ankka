@@ -1,0 +1,58 @@
+{
+  "scenario": "reading one kind of component leaves the other kinds out",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0
+    },
+    "nodes": [
+      {
+        "id": "cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "profile",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "carts-by-customer",
+        "kind": "View",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [
+      {
+        "from": "cart",
+        "to": "carts-by-customer",
+        "kind": "events"
+      }
+    ],
+    "calls": []
+  },
+  "options": {
+    "kinds": [
+      "View"
+    ]
+  },
+  "expected": {
+    "shown": [
+      "carts-by-customer"
+    ],
+    "declared": []
+  }
+}

@@ -1,7 +1,16 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.github.plokhotnyuk.jsoniter_scala.core.*
-import com.thinkmorestupidless.ankka.core.Codecs
+import com.thinkmorestupidless.ankka.core.{
+  Codecs,
+  ComponentDescriptor,
+  ComponentId,
+  ComponentKind,
+  ComponentRegistry,
+  DeclaredHandler,
+  HandlerKind,
+  Metadata
+}
 import munit.FunSuite
 
 /**
@@ -90,6 +99,58 @@ final class RecorderBenchmark extends FunSuite:
       recordingOnly < 200.0,
       f"recording a span cost $recordingOnly%.1f ns — that is no longer a cheap constant, " +
         "and the always-on decision should be revisited before anything is built on it."
+    )
+  }
+
+  test("the cost of counting one call, with what it takes to say who made it") {
+    val observability = new Observability(
+      Recorder(4096),
+      new Names,
+      CallCounts(600_000L, 60, System.currentTimeMillis())
+    )
+    val component = new ComponentDescriptor:
+      val componentId: ComponentId = ComponentId("shopping-cart")
+      val kind: ComponentKind      = ComponentKind.EventSourcedEntity
+      override def declaredHandlers: Vector[DeclaredHandler] =
+        Vector(DeclaredHandler("add-item", HandlerKind.Command))
+    observability.declare(
+      DeclaredNames.of(
+        ComponentRegistry.fromOrThrow(Seq(component)),
+        Vector(ServedRoute("POST", "/carts/{cartId}/items", streaming = false, "endpoint:/carts"))
+      )
+    )
+    val origin = CallOrigin("endpoint:/carts", "POST /carts/{cartId}/items")
+
+    // The caller's half: the trace and its own name written into the call's metadata.
+    val stamping = nanosPerOp(Warmup, Iterations) { i =>
+      val _ = Trace.within(i.toLong + 1, 1L, origin)(Trace.outbound(Metadata.empty))
+    }
+    // The host's half: the name read back, checked against what was declared, and counted.
+    val carried = CallOrigin.into(Trace.into(Metadata.empty, 7L, 1L), origin)
+    val counting = nanosPerOp(Warmup, Iterations) { i =>
+      observability.handled(carried, "shopping-cart", "add-item", SpanOutcome.Ok, i.toLong)
+    }
+    // The counter alone, as it would be with the names already in hand.
+    val key = CallCounts.key(1, 2, 3, 4).get
+    val now = System.currentTimeMillis()
+    val counterOnly = nanosPerOp(Warmup, Iterations) { i =>
+      observability.calls.handled(key, SpanOutcome.Ok, i.toLong, streaming = false, now)
+    }
+
+    println(f"""
+         |  saying who is calling (caller's side)   : $stamping%.1f ns
+         |  reading it, checking it and counting it : $counting%.1f ns
+         |  of which the counter itself             : $counterOnly%.1f ns
+         |
+         |  A call costs ${stamping + counting}%.1f ns more than it did. That fits inside 1%% of any
+         |  invocation costing more than ${(stamping + counting) / 0.01}%.0f ns; the assertion against a
+         |  real service is ServiceRecordingCostSuite's.
+         |""".stripMargin)
+
+    assertEquals(observability.calls.snapshot(now).pairs.map(_.ok).sum, (Warmup + Iterations) * 2L)
+    assert(
+      stamping + counting < 2000.0,
+      f"attributing and counting a call cost ${stamping + counting}%.1f ns: no longer a small constant."
     )
   }
 

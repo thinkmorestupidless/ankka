@@ -112,7 +112,8 @@ trait InstanceSession:
   def runStep(
       id: Long,
       step: String,
-      input: Option[Array[Byte]]
+      input: Option[Array[Byte]],
+      metadata: Metadata
   ): Future[Either[ProcessFailure, StepReply]]
 
   /** Passivation or a violation. The process releases the instance's state when it sees this. */
@@ -161,7 +162,7 @@ enum ConsumerOutcome:
  * with anything an earlier runtime would not understand.
  */
 object WireProtocol:
-  val Version: String     = "1.3"
+  val Version: String     = "1.4"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -262,27 +263,36 @@ trait Conversation:
       componentId: ComponentId,
       sessionId: String,
       tool: String,
-      argumentsJson: String
+      argumentsJson: String,
+      metadata: Metadata
   ): Future[Either[String, String]]
 
+  /**
+   * Checks one guardrail in the process. `metadata` is what the process is told about the check:
+   * the trace, and the handler whose call it is, so a call the guardrail makes is that handler's.
+   */
   def checkGuardrail(
       componentId: ComponentId,
       sessionId: String,
       guardrail: String,
       stage: GuardrailStage,
-      text: String
+      text: String,
+      metadata: Metadata
   ): Future[Either[String, Unit]]
 
   /**
    * Asks the process to check an autonomous agent's result: decode it as the task type's result and
    * run the type's rules. A rule that threw fails the future, which the agent treats as a failed
-   * iteration rather than as a verdict — the process did not decide anything.
+   * iteration rather than as a verdict — the process did not decide anything. `metadata` is what
+   * the process is told about the check, as for a guardrail: a call a rule makes is the
+   * iteration's.
    */
   def checkTaskResult(
       componentId: ComponentId,
       taskId: String,
       taskType: String,
-      resultJson: String
+      resultJson: String,
+      metadata: Metadata
   ): Future[TaskResultVerdict]
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]]

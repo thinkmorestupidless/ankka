@@ -175,6 +175,7 @@ impl Client {
             view_id: view_id.to_string(),
             name: name.to_string(),
             payload: Some(encode_payload(&payload).map_err(encoding)?),
+            metadata: Some(self.metadata.to_proto()),
         };
         let reply: proto::QueryReply = answer(Import::Query, request);
         match reply.result {

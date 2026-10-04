@@ -1,0 +1,305 @@
+{
+  "scenario": null,
+  "about": "an observed call is marked as going wrong for a failure or a call nothing answered, and never for refusals alone",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 64,
+      "unanswered": 1
+    },
+    "nodes": [
+      {
+        "id": "endpoint:/carts",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shopping-cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "wallet",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "endpoint:/carts",
+        "to": "shopping-cart",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "add-item",
+            "handled": {
+              "ok": 9,
+              "refused": 40,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "from": "endpoint:/carts",
+        "to": "wallet",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "debit",
+            "handled": {
+              "ok": 9,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          },
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "balance",
+            "handled": {
+              "ok": 3,
+              "refused": 0,
+              "failed": 1
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "from": "shopping-cart",
+        "to": "wallet",
+        "pairs": [
+          {
+            "caller": "add-item",
+            "callee": "debit",
+            "handled": {
+              "ok": 2,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 1,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "expected": {
+    "calls": [
+      "endpoint:/carts>shopping-cart",
+      "endpoint:/carts>wallet",
+      "shopping-cart>wallet"
+    ],
+    "marks": {
+      "endpoint:/carts>shopping-cart": null,
+      "endpoint:/carts>wallet": "warning",
+      "shopping-cart>wallet": "warning"
+    },
+    "counts": {
+      "endpoint:/carts>shopping-cart": {
+        "handled": 49,
+        "unanswered": 0
+      },
+      "endpoint:/carts>wallet": {
+        "handled": 13,
+        "unanswered": 0
+      },
+      "shopping-cart>wallet": {
+        "handled": 2,
+        "unanswered": 1
+      }
+    }
+  }
+}

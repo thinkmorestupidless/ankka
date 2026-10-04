@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.thinkmorestupidless.ankka.core.{ComponentId, EntityId}
-import com.thinkmorestupidless.ankka.runtime.EntityProtocol
+import com.thinkmorestupidless.ankka.runtime.{EntityProtocol, Trace}
 import com.thinkmorestupidless.ankka.sdk.CallTransport
 import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.{Flow, Source}
@@ -25,6 +25,9 @@ private[ankka] object NotificationSource:
       componentId: ComponentId,
       instanceId: String
   ): Source[Notification, NotUsed] =
+    // As for an agent's stream: the subscription is sent when the source is run, and is the call
+    // of whoever asked for it here.
+    val asked = Trace.capture()
     ActorSource
       .actorRef[EntityProtocol.StreamToken](
         completionMatcher = { case EntityProtocol.StreamCompleted => () },
@@ -34,16 +37,18 @@ private[ankka] object NotificationSource:
         overflowStrategy = OverflowStrategy.dropHead
       )
       .mapMaterializedValue { subscriber =>
-        transport.tell(
-          componentId,
-          EntityId(instanceId),
-          EntityProtocol.InvokeStream(
-            HostProtocol.Notifications.toString,
-            Array.emptyByteArray,
-            Vector.empty,
-            subscriber
+        Trace.resume(asked) {
+          transport.tell(
+            componentId,
+            EntityId(instanceId),
+            EntityProtocol.InvokeStream(
+              HostProtocol.Notifications.toString,
+              Array.emptyByteArray,
+              Vector.empty,
+              subscriber
+            )
           )
-        )
+        }
         NotUsed
       }
       .collect { case EntityProtocol.Token(text) =>

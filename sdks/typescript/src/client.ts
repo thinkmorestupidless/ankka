@@ -159,9 +159,11 @@ export class TypedCalls<C> {
 /** View queries: rows come back as a JSON array decoded with the row shape. */
 export class Views {
   readonly #connection: Connection
+  readonly #metadata: Metadata
 
-  constructor(connection: Connection) {
+  constructor(connection: Connection, metadata: Metadata = {}) {
     this.#connection = connection
+    this.#metadata = metadata
   }
 
   async get<Row>(viewId: string, key: string, row: Shape<Row>): Promise<Row | null> {
@@ -174,7 +176,7 @@ export class Views {
   }
 
   async query<Row>(viewId: string, name: string, key: string | null, row: Shape<Row>): Promise<Row[]> {
-    const answer = await stubOf(this.#connection).query({ viewId, name, payload: encodePayload(textCodecs.string, key ?? "") })
+    const answer = await stubOf(this.#connection).query({ viewId, name, payload: encodePayload(textCodecs.string, key ?? ""), metadata: metadataToProto(this.#metadata) })
     switch (answer.result.case) {
       case "rows": {
         const text = new TextDecoder().decode(answer.result.value.data)
@@ -237,7 +239,7 @@ export class ComponentClient {
   constructor(address: string = process.env.ANKKA_SIDECAR_ADDRESS ?? "127.0.0.1:9011", connection?: Connection, metadata: Metadata = {}) {
     this.#connection = connection ?? { address, transport: undefined, stub: undefined }
     this.#metadata = metadata
-    this.views = new Views(this.#connection)
+    this.views = new Views(this.#connection, metadata)
     this.timers = new Timers(this.#connection)
   }
 

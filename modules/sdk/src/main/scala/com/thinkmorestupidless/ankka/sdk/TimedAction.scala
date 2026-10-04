@@ -157,5 +157,8 @@ final case class TimedActionDescriptor[A <: TimedAction](
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.TimedAction
 
+  override def declaredHandlers: Vector[DeclaredHandler] =
+    DeclaredHandler.sorted(handlers.keys.map(m => DeclaredHandler(m.toString, HandlerKind.Action)))
+
   private[ankka] def handler(name: MethodName): Option[(A, Array[Byte]) => TimedActionEffect] =
     handlers.get(name)

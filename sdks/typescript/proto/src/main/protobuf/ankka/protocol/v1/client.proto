@@ -27,7 +27,8 @@ message InvokeReply { oneof result { Outcome.Reply reply = 1; Error error = 2; }
 
 message StreamToken { oneof token { string text = 1; Empty completed = 2; Error failed = 3; } }
 
-message QueryRequest { string view_id = 1; string name = 2; Payload payload = 3; }
+// `metadata` (1.3): what the handler asking was given, as on `InvokeRequest`.
+message QueryRequest { string view_id = 1; string name = 2; Payload payload = 3; Metadata metadata = 4; }
 message QueryReply   { oneof result { Payload rows = 1; Error error = 2; } }
 
 message ScheduleRequest {

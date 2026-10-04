@@ -1,0 +1,119 @@
+{
+  "scenario": null,
+  "about": "a call that was never delivered marks its observed call, though no handler failed",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 0,
+      "unanswered": 1
+    },
+    "nodes": [
+      {
+        "id": "endpoint:/carts",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shopping-cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "wallet",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "endpoint:/carts",
+        "to": "shopping-cart",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "(undeclared)",
+            "handled": {
+              "ok": 0,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 1
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "expected": {
+    "marks": {
+      "endpoint:/carts>shopping-cart": "warning"
+    },
+    "counts": {
+      "endpoint:/carts>shopping-cart": {
+        "handled": 0,
+        "unanswered": 1
+      }
+    },
+    "weights": {
+      "endpoint:/carts>shopping-cart": 1
+    }
+  }
+}

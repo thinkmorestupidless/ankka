@@ -102,7 +102,10 @@ export async function handleTool(req: ToolRequest, ctx: ServerContext): Promise<
   const registered = ctx.registry.of("agent", req.componentId)
   if (!registered) return create(ToolResultSchema, { result: { case: "error", value: `no agent ${JSON.stringify(req.componentId)} is registered` } })
   const agent = new registered.cls() as Agent
-  agent._bind(req.sessionId, {}, ctx.client)
+  // What the sidecar says about the tool's run: its trace, and the agent's handler as the caller of
+  // whatever the tool calls. A sidecar before 1.3 sends none.
+  const metadata = metadataFromProto(req.metadata)
+  agent._bind(req.sessionId, metadata, ctx.client.withMetadata(metadata))
   try {
     return create(ToolResultSchema, { result: { case: "ok", value: await runTool(registered, agent, req.tool, req.argumentsJson) } })
   } catch (e) {
@@ -130,7 +133,7 @@ async function handleAutonomousTool(registered: RegisteredAutonomousAgent, req: 
   const tool = registered.tools.get(req.tool)
   if (!tool) return create(ToolResultSchema, { result: { case: "error", value: `no tool ${JSON.stringify(req.tool)} on ${registered.id}` } })
   const agent = new registered.cls() as AutonomousAgent
-  agent._bind(req.sessionId, ctx.client)
+  agent._bind(req.sessionId, ctx.client.withMetadata(metadataFromProto(req.metadata)))
   try {
     let input: unknown
     if (isCodec(tool.input)) input = (tool.input as Codec<unknown>).decode(new TextEncoder().encode(req.argumentsJson))

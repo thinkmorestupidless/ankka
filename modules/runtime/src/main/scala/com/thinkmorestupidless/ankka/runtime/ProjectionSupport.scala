@@ -32,6 +32,30 @@ private[ankka] object ProjectionSupport:
       Database.bind(session.createStatement(fragment.render), fragment)
     )(row => serializer.fromBytes(row.get("payload", classOf[String]).getBytes("UTF-8")))
 
+  /**
+   * Runs a view's or a consumer's one handler as a span of its own, and as the origin of whatever
+   * the handler calls.
+   *
+   * A trace root, as every projection's work is: it is caught up from a journal or a topic, not
+   * continued from whatever wrote the change. Without the span a consumer does not appear in a
+   * trace or a metric at all, and without the origin a call it makes is from nobody.
+   */
+  def handling[A](observability: Observability, component: String, handler: String)(
+      body: => A
+  ): A =
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = observability.names.intern(component),
+      handlerRef = observability.names.intern(handler)
+    )
+    var outcome = SpanOutcome.Failed
+    try
+      val result = Trace.within(span.traceId, span.id, CallOrigin(component, handler))(body)
+      outcome = SpanOutcome.Ok
+      result
+    finally observability.recorder.complete(span, outcome)
+
   /** Sets up the view's per-change state, runs it, and always clears the context. */
   def runView(
       view: View[Any, Any],
@@ -47,26 +71,17 @@ private[ankka] object ProjectionSupport:
     // A projection has no inbound request, so this span is a trace root — correctly so. A view
     // catching up is its own piece of work, not part of whatever wrote the event minutes ago,
     // and threading the writer's trace into it would make one request appear to last for hours.
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
-      componentRef = observability.names.intern(descriptor.componentId.toString),
-      handlerRef = observability.names.intern("on-change")
-    )
-    var outcome = SpanOutcome.Failed
     try
-      val effect = record.kind match
-        case JournalRecord.KindDomain =>
-          view.onChange(descriptor.source.decoder.fromBytes(record.payload))
-        case JournalRecord.KindDeleted => view.onDelete
-        // A TTL being set is a storage fact, not a domain change — nothing for a view
-        // to project. The row disappears when the deletion itself is journalled.
-        case _ => ViewEffect.Ignore
-      outcome = SpanOutcome.Ok
-      effect
-    finally
-      observability.recorder.complete(span, outcome)
-      view._setContext(None)
+      handling(observability, descriptor.componentId.toString, ViewDescriptor.OnChange.name) {
+        record.kind match
+          case JournalRecord.KindDomain =>
+            view.onChange(descriptor.source.decoder.fromBytes(record.payload))
+          case JournalRecord.KindDeleted => view.onDelete
+          // A TTL being set is a storage fact, not a domain change — nothing for a view
+          // to project. The row disappears when the deletion itself is journalled.
+          case _ => ViewEffect.Ignore
+      }
+    finally view._setContext(None)
 
   /** Writes the row change through the projection's transaction. */
   def applyView[A](
@@ -135,11 +150,24 @@ private[ankka] object ProjectionSupport:
       )
     else
       given ExecutionContext = ExecutionContext.parasitic
-      val sent = enriched.map { m =>
-        try target.publish(topic, m.key, m.payload, m.metadata)
-        catch case NonFatal(failure) => Future.failed(failure)
-      }
-      Future.sequence(sent).map(_ => Done)
+      // One after another, each once the previous is answered. Started together they reach the
+      // broker in whatever order the publisher's own threads hand them over — Pekko's
+      // `SendProducer` sends through a callback — so two messages under one key could land on
+      // their shared partition out of the order the consumer gave them. A refused message does not
+      // stop the ones after it; the result fails with the first refusal once all were tried.
+      def send(m: Encoded): Future[Option[Throwable]] =
+        val sent =
+          try target.publish(topic, m.key, m.payload, m.metadata)
+          catch case NonFatal(failure) => Future.failed(failure)
+        sent.map(_ => None).recover { case NonFatal(failure) => Some(failure) }
+      enriched
+        .foldLeft(Future.successful(Option.empty[Throwable])) { (first, m) =>
+          first.flatMap(earlier => send(m).map(earlier.orElse(_)))
+        }
+        .flatMap {
+          case Some(failure) => Future.failed(failure)
+          case None          => Future.successful(Done)
+        }
 
   private def weightOf(message: Encoded): Long =
     message.payload.length.toLong + message.key.fold(0)(_.length) +

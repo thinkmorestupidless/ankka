@@ -1,0 +1,375 @@
+{
+  "scenario": null,
+  "about": "an observed call is drawn heavier for each power of ten of the calls that were handled, and no heavier than five",
+  "document": {
+    "service": {
+      "name": "cart",
+      "runtime": "0.0.0",
+      "instance": "1",
+      "startedAt": "2026-10-01T09:12:03Z"
+    },
+    "window": {
+      "seconds": 600,
+      "since": "2026-10-01T09:12:03Z",
+      "calls": 5002018,
+      "unanswered": 0
+    },
+    "nodes": [
+      {
+        "id": "endpoint:/carts",
+        "kind": "Endpoint",
+        "layer": 0,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "shopping-cart",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "wallet",
+        "kind": "KeyValueEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "stock",
+        "kind": "EventSourcedEntity",
+        "layer": 2,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "prices",
+        "kind": "View",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      },
+      {
+        "id": "audit",
+        "kind": "Consumer",
+        "layer": 3,
+        "platform": false,
+        "handlers": []
+      }
+    ],
+    "declared": [],
+    "calls": [
+      {
+        "from": "endpoint:/carts",
+        "to": "shopping-cart",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "add-item",
+            "handled": {
+              "ok": 9,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "from": "endpoint:/carts",
+        "to": "wallet",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "debit",
+            "handled": {
+              "ok": 6,
+              "refused": 4,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "from": "endpoint:/carts",
+        "to": "stock",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "reserve",
+            "handled": {
+              "ok": 999,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "from": "endpoint:/carts",
+        "to": "prices",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "get",
+            "handled": {
+              "ok": 1000,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      },
+      {
+        "from": "endpoint:/carts",
+        "to": "audit",
+        "pairs": [
+          {
+            "caller": "POST /carts/{cartId}/items",
+            "callee": "note",
+            "handled": {
+              "ok": 5000000,
+              "refused": 0,
+              "failed": 0
+            },
+            "unanswered": {
+              "timedOut": 0,
+              "undelivered": 0
+            },
+            "durationMillis": {
+              "p50": 2,
+              "p99": 8,
+              "max": 8,
+              "bucketed": true
+            },
+            "histogram": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "streaming": false
+          }
+        ]
+      }
+    ]
+  },
+  "options": {},
+  "expected": {
+    "weights": {
+      "endpoint:/carts>shopping-cart": 1,
+      "endpoint:/carts>wallet": 2,
+      "endpoint:/carts>stock": 3,
+      "endpoint:/carts>prices": 4,
+      "endpoint:/carts>audit": 5
+    }
+  }
+}

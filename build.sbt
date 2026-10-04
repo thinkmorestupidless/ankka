@@ -333,6 +333,22 @@ lazy val agent = project
     libraryDependencies ++= Seq(anthropicJava, pekkoHttp, pekkoStreamTyped)
   )
 
+/**
+ * Telemetry export (feature 026): the recorder's spans and the runtime's invocation totals sent to
+ * an OpenTelemetry collector over OTLP. A module of its own so that the OpenTelemetry SDK reaches a
+ * service only through this dependency: `runtime` records with no library at all. A service names
+ * it in its build and nowhere else, because the runtime finds its extension through a declared
+ * provider (`RuntimeExtensionProvider`); with no collector configured it starts nothing.
+ */
+lazy val telemetryOtlp = project
+  .in(file("modules/telemetry-otlp"))
+  .dependsOn(runtime, testPki % Test, http % Test, grpc % Test, grpcFixtures % Test, testkit % Test)
+  .settings(commonSettings)
+  .settings(
+    name := "ankka-telemetry-otlp",
+    libraryDependencies ++= Seq(otelExporterOtlp, otelSenderJdk, testcontainersPg % Test)
+  )
+
 /** Unit and integration test support, plus TestModelProvider. */
 lazy val testkit = project
   .in(file("modules/testkit"))
@@ -884,6 +900,7 @@ lazy val root = project
     authOidc,
     agent,
     testkit,
+    telemetryOtlp,
     controlPlaneApi,
     crd,
     operator,

@@ -66,6 +66,15 @@ object Dependencies {
      * the intended way to find out.
      */
     val jackson = "2.21.4"
+
+    /**
+     * The OpenTelemetry SDK's OTLP exporters, in `ankka-telemetry-otlp` only: `runtime` records
+     * spans with no library at all, and this module hands them to the SDK's exporter (feature 026,
+     * R2). Its OTLP exporter defaults to an OkHttp sender, which is excluded for the JDK's own HTTP
+     * client: OkHttp is not on the classpath of `runtime` or the control plane, and a sender is one
+     * more thing an image would carry for nothing.
+     */
+    val openTelemetry = "1.66.0"
   }
 
   // ── Pekko ────────────────────────────────────────────────────────────────
@@ -155,6 +164,13 @@ object Dependencies {
   val grpcNettyShaded: ModuleID = "io.grpc" % "grpc-netty-shaded" % V.grpc
   val grpcStub: ModuleID        = "io.grpc" % "grpc-stub"         % V.grpc
   val grpcProtobuf: ModuleID    = "io.grpc" % "grpc-protobuf"     % V.grpc
+
+  // ── Telemetry export (feature 026) ───────────────────────────────────────
+  val otelExporterOtlp: ModuleID =
+    ("io.opentelemetry" % "opentelemetry-exporter-otlp" % V.openTelemetry)
+      .exclude("io.opentelemetry", "opentelemetry-exporter-sender-okhttp")
+  val otelSenderJdk: ModuleID =
+    "io.opentelemetry" % "opentelemetry-exporter-sender-jdk" % V.openTelemetry
 
   /** The reflection services, v1 and v1alpha, for a service that opts in (feature 020). */
   val grpcServices: ModuleID = "io.grpc" % "grpc-services" % V.grpc

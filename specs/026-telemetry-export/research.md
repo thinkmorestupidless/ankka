@@ -76,7 +76,18 @@ repository bridges, so they would print to stderr once a batch. HTTP with the JD
 smallest classpath: `runtime` and the control plane have no grpc-java (`build.sbt:213-246, 457`),
 and OkHttp arrives today only with the Anthropic client in `agent`.
 
-**Verify first**: (1) excluding the OkHttp sender and adding the JDK one is enough for the
+**Verified** (T004–T006, `SenderSuite`, `SpanDataSuite`, `SdkBehaviourSuite`): all four hold. The
+JDK sender is the only `io.opentelemetry.sdk.common.export.HttpSenderProvider` found, beside
+OkHttp; a hand-built `SpanData` is exported with its ids as given and an empty parent for a root;
+with the two JUL loggers `OFF` a failed export prints nothing (left alone it prints `SEVERE: Failed
+to export 1 spans` per batch, which is the line a batch FR-006 forbids); an asynchronous counter is
+cumulative and monotonic from one start time. Two things learnt: the exporters **retry by default**,
+so the module builds them with `setRetryPolicy(null)` and keeps back-off in its own loop; and
+`opentelemetry-proto`, planned as the fake collector's decoder, needs protobuf-java 4 beside the
+ScalaPB 3 code of the module's test classpath, so the fake collector reads the wire format by field
+number instead.
+
+**Was to verify**: (1) excluding the OkHttp sender and adding the JDK one is enough for the
 exporter to pick it, in sbt, with no `ServiceLoader` conflict when `agent` puts OkHttp on the
 classpath beside it; (2) implementing `SpanData` outside the SDK is accepted by the exporter's
 marshaller (ids as 32 and 16 hex, parent "invalid" for a root); (3) the SDK's loggers are
@@ -661,7 +672,7 @@ own for the address it is reached at.
 a pure suite to a k3s cluster, so each is a test named after it (the rule for a scenario no one
 suite can reach). A **fake collector**, in the new module's tests, is a JDK `HttpServer` on an
 ephemeral port that parses `ExportTraceServiceRequest` and `ExportMetricsServiceRequest` with
-`opentelemetry-proto` (a test dependency), records the paths asked for, and can be closed and
+its own reader of protobuf's wire format, records the paths asked for, and can be closed and
 reopened on the same port.
 
 | Scenario | Held by |

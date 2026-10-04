@@ -73,7 +73,8 @@ every SDK carries a call's metadata through untouched, and no protocol message c
 
 **Primary Dependencies**: `io.opentelemetry:opentelemetry-exporter-otlp` 1.66.0 with its OkHttp
 sender excluded and `opentelemetry-exporter-sender-jdk` in its place, in the new module only;
-`io.opentelemetry.proto:opentelemetry-proto` in that module's tests. `runtime` gains none: the
+no others: the fake collector reads OTLP's protobuf by field number, since `opentelemetry-proto`
+needs protobuf-java 4 beside the ScalaPB 3 code on the module's test classpath. `runtime` gains none: the
 log ids use logback, which it already has.
 
 **Storage**: none. No table, no event, no stored format and no field on the `AnkkaService`

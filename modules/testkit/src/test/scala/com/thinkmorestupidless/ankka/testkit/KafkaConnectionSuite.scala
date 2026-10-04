@@ -52,7 +52,15 @@ class KafkaConnectionSuite extends munit.FunSuite with LogCapturing:
       .withEnv("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false")
     kafka.start()
     bootstrap = kafka.getBootstrapServers
-    system = ActorSystem(Behaviors.empty, "kafka-connection")
+    // A local system: Kafka's clients need no cluster, and a cluster provider binds Pekko's fixed
+    // default remoting port, which any other test JVM on the machine may hold.
+    system = ActorSystem(
+      Behaviors.empty,
+      "kafka-connection",
+      com.typesafe.config.ConfigFactory
+        .parseString("pekko.actor.provider = local")
+        .withFallback(com.typesafe.config.ConfigFactory.load())
+    )
     create("money.transactions", "money.incoming")
 
   override def afterAll(): Unit =
@@ -167,10 +175,14 @@ class KafkaConnectionSuite extends munit.FunSuite with LogCapturing:
 
   test("a consumer that publishes to a topic no descriptor declares waits for it") {
     val publisher = KafkaPublisher(KafkaConnection(bootstrap, topicPrefix = "money."))
+    val started   = System.nanoTime()
     val refused = Try(
       Await.result(publisher.publish("entries", "early".getBytes(UTF_8), Metadata.empty), 2.minutes)
     )
+    val waited = scala.concurrent.duration.Duration.fromNanos(System.nanoTime() - started)
     assert(refused.isFailure, "a topic nobody declared was made by publishing to it")
+    // Each attempt holds the projection's thread for a bounded time, not Kafka's minute.
+    assert(waited < KafkaPublisher.TopicWait + 10.seconds, s"the attempt waited $waited")
     assert(!admin(_.listTopics().names().get().asScala.contains("money.entries")))
     // Declared, and the next attempt is delivered.
     create("money.entries")

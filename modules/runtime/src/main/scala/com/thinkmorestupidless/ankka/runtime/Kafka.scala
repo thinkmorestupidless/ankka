@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.core.Metadata
 import com.thinkmorestupidless.ankka.sdk.StartFrom
 import org.apache.kafka.clients.consumer.{ConsumerConfig, KafkaConsumer, OffsetAndMetadata}
-import org.apache.kafka.clients.producer.{Producer, ProducerRecord}
+import org.apache.kafka.clients.producer.{Producer, ProducerConfig, ProducerRecord}
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.header.internals.RecordHeader
 import org.apache.kafka.common.serialization.{
@@ -133,6 +133,14 @@ final class KafkaPublisher private (
       made.getOrElse {
         val created = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
           .withBootstrapServers(connection.bootstrapServers)
+          // A send waits for its topic's metadata on the thread that calls it, which is the
+          // projection's. For a topic nobody has declared that wait would be a minute, Kafka's
+          // default, on every attempt; bounded, the send fails, the log names the topic and the
+          // change comes again with the projection's backoff, holding no thread meanwhile.
+          .withProperty(
+            ProducerConfig.MAX_BLOCK_MS_CONFIG,
+            KafkaPublisher.TopicWait.toMillis.toString
+          )
           .withProperties(connection.properties)
           .createKafkaProducer()
         made = Some(created)
@@ -183,6 +191,9 @@ final class KafkaPublisher private (
   def close(): Unit = made.foreach(_.close())
 
 object KafkaPublisher:
+
+  /** The longest a send waits for its topic to be known before it fails and is tried again. */
+  val TopicWait: FiniteDuration = 5.seconds
 
   /**
    * Connects to `bootstrapServers`.

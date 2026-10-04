@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
-import com.thinkmorestupidless.ankka.agent.TokenUsage
+import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Json, TokenUsage}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.Serializer
 
@@ -68,6 +68,46 @@ class AutonomousFixturesSuite extends munit.FunSuite with LogCapturing:
           Vector("t-2"),
           usage,
           usage
+        ),
+        AgentState.serializer
+      ),
+      fixture(
+        "agent-notification-approval-requested",
+        Notification.ApprovalRequested(
+          "operator",
+          "i-1",
+          "t-1",
+          "a-1",
+          "restart_service",
+          """{"service":"cart"}""",
+          Some(1805L),
+          5L
+        ),
+        Notification.serializer
+      ),
+      // Its own file: `agent-state.json` stays as a state with nothing awaiting is written.
+      fixture(
+        "agent-state-awaiting",
+        AgentState(
+          "operator",
+          "i-1",
+          Phase.Working,
+          suspended = false,
+          terminated = false,
+          Some(AgentState.Current("t-1", 1, Some(4))),
+          Vector.empty,
+          usage,
+          usage,
+          awaiting = Vector(
+            ApprovalRequest(
+              "a-1",
+              "call-1",
+              "restart_service",
+              Json.obj("service" -> Json.str("cart")),
+              5L,
+              expiresAt = Some(1805L)
+            )
+          )
         ),
         AgentState.serializer
       )

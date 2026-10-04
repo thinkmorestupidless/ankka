@@ -290,7 +290,8 @@ object AutonomousAgentDescriptor:
         HostProtocol.Dequeue,
         HostProtocol.Suspend,
         HostProtocol.Resume,
-        HostProtocol.Terminate
+        HostProtocol.Terminate,
+        HostProtocol.Decide
       ).map(method => DeclaredHandler(method.toString, HandlerKind.Command)) ++ Vector(
         DeclaredHandler(HostProtocol.Notifications.toString, HandlerKind.Stream),
         DeclaredHandler(Iteration, HandlerKind.Step)

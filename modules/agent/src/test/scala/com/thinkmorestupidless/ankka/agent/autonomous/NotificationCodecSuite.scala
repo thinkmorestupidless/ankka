@@ -29,6 +29,8 @@ class NotificationCodecSuite extends munit.FunSuite:
     TaskApproachingMaxIterations(c, i, t, 4, 5, 1L),
     RepeatedIterationFailure(c, i, t, 3, 1L),
     TaskDependencyStuck(c, i, t, "t-0", 300000L, 1L),
+    ApprovalRequested(c, i, t, "a-1", "restart_service", """{"service":"cart"}""", Some(9L), 1L),
+    ApprovalDecided(c, i, t, "a-1", approved = false, "dana", Some("not now"), expired = false, 1L),
     Dropped(c, i, 976, 1L)
   )
 

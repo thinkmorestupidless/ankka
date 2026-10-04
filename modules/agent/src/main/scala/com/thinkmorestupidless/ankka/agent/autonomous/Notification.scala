@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
-import com.thinkmorestupidless.ankka.agent.TokenUsage
+import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, TokenUsage}
 import com.thinkmorestupidless.ankka.core.{Codecs, Serializer}
 
 /**
@@ -121,6 +121,36 @@ enum Notification:
       at: Long
   )
 
+  // ── Approvals ─────────────────────────────────────────────────────────────
+  /**
+   * The model called a tool that requires approval; nothing more happens on the task until decided.
+   */
+  case ApprovalRequested(
+      componentId: String,
+      instanceId: String,
+      taskId: String,
+      approvalId: String,
+      tool: String,
+      arguments: String,
+      expiresAt: Option[Long],
+      at: Long
+  )
+
+  /**
+   * An approval request was decided — by a person, or by the platform when its time limit passed.
+   */
+  case ApprovalDecided(
+      componentId: String,
+      instanceId: String,
+      taskId: String,
+      approvalId: String,
+      approved: Boolean,
+      by: String,
+      note: Option[String],
+      expired: Boolean,
+      at: Long
+  )
+
   // ── The stream itself ─────────────────────────────────────────────────────
   /**
    * The subscriber fell behind and `count` notifications were dropped here. Emitted by the
@@ -142,7 +172,8 @@ final case class AgentState(
     currentTask: Option[AgentState.Current],
     queued: Vector[String],
     usage: TokenUsage,
-    taskUsage: TokenUsage
+    taskUsage: TokenUsage,
+    awaiting: Vector[ApprovalRequest] = Vector.empty
 )
 
 object AgentState:
@@ -164,5 +195,6 @@ object AgentState:
       record.current.map(w => Current(w.taskId, w.iteration, budget)),
       record.queue,
       record.usage,
-      record.taskUsage
+      record.taskUsage,
+      record.current.map(_.awaiting).getOrElse(Vector.empty)
     )

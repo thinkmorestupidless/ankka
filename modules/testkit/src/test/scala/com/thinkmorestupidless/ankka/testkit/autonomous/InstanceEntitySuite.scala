@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
-import com.thinkmorestupidless.ankka.agent.TokenUsage
+import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Decision, Json, TokenUsage}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.agent.autonomous.InstanceEvent as E
 import com.thinkmorestupidless.ankka.core.{ComponentId, ErrorCode}
@@ -152,6 +152,59 @@ class InstanceEntitySuite extends munit.FunSuite with LogCapturing:
     record(k, E.TaskDequeued("b", "cancelled by caller", 3L))
     assertEquals(k.currentState.queue, Vector("a", "c"))
     assertRefused(record(k, E.TaskDequeued("b", "again", 4L)), ErrorCode.Conflict, "not queued")
+  }
+
+  // ── Approval requests ────────────────────────────────────────────────────
+
+  private def request(id: String, callId: String = "c-1") =
+    ApprovalRequest(id, callId, "restart_service", Json.obj(), 5L)
+
+  test("an approval request needs a task") {
+    val k = withQueue("a")
+    assertRefused(record(k, E.ApprovalRequested(request("r-1"))), ErrorCode.Conflict, "not working")
+  }
+
+  test("an approval request is recorded once per call, however often it is asked") {
+    val k = working("a")
+    record(k, E.ApprovalRequested(request("r-1")))
+    assert(!record(k, E.ApprovalRequested(request("r-2"))).persisted, "the same call again")
+    assertEquals(k.currentState.current.map(_.approvals.map(_.id)), Some(Vector("r-1")))
+  }
+
+  test("a decision is refused for an unknown id, a decided one, or one that names nobody") {
+    val k = working("a")
+    record(k, E.ApprovalRequested(request("r-1")))
+    assertRefused(
+      record(k, E.ApprovalDecided("r-404", Decision.approved("r-404", "dana"))),
+      ErrorCode.NotFound,
+      "r-404"
+    )
+    assertRefused(
+      record(k, E.ApprovalDecided("r-1", Decision.approved("r-1", ""))),
+      ErrorCode.BadRequest,
+      "name who made it"
+    )
+    record(k, E.ApprovalDecided("r-1", Decision.approved("r-1", "dana")))
+    assertRefused(
+      record(k, E.ApprovalDecided("r-1", Decision.refused("r-1", "sam"))),
+      ErrorCode.Conflict,
+      "is decided"
+    )
+  }
+
+  test("starting the next iteration, or ending the task, clears the approval requests") {
+    val k = working("a")
+    record(k, E.ApprovalRequested(request("r-1")))
+    record(k, E.IterationStarted(2, 6L))
+    assertEquals(k.currentState.current.map(_.approvals), Some(Vector.empty))
+    record(k, E.ApprovalRequested(request("r-2", "c-2")))
+    record(k, E.TaskEnded("a", TaskOutcome.Cancelled("cancelled by caller"), 2, 7L))
+    assertEquals(k.currentState.current, None)
+    assertRefused(
+      record(k, E.ApprovalDecided("r-2", Decision.approved("r-2", "dana"))),
+      ErrorCode.NotFound,
+      "r-2"
+    )
   }
 
   test("phase is a word on the wire") {

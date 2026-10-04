@@ -123,5 +123,16 @@ private[ankka] object Approvals:
   /** The prefix a developer's handler may not take. */
   val ReservedPrefix: String = "ankka:"
 
+  /**
+   * What the model is told for a call a person, or the platform, refused — the same in every loop,
+   * so a model reads a refusal one way whichever kind of agent it serves.
+   */
+  def refusal(decision: Decision): String =
+    if decision.expired then
+      "The approval request for this tool call expired with no decision; the tool did not run."
+    else
+      s"A person (${decision.by}) refused this tool call; the tool did not run." +
+        decision.note.map(note => s" Their note: $note").getOrElse("")
+
   /** A fresh approval id: opaque, unique within its session or instance. */
   def newId(): String = java.util.UUID.randomUUID().toString

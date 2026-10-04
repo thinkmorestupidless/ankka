@@ -339,7 +339,7 @@ private[agent] final class AgentLoop(
         val result =
           if decision.approved then
             ToolRunner.run(tools, ToolCall(request.callId, request.tool, request.arguments))
-          else ToolResult(request.callId, request.tool, refusal(decision), isError = true)
+          else ToolResult(request.callId, request.tool, Approvals.refusal(decision), isError = true)
         result -> decision
       }
     }
@@ -368,14 +368,6 @@ private[agent] final class AgentLoop(
       steps = turn.steps,
       decisions = earlierDecisions ++ decided.map((r, d) => r.callId -> d)
     )
-
-  /** What the model is told for a call a person, or the platform, refused. */
-  private def refusal(decision: Decision): String =
-    if decision.expired then
-      "The approval request for this tool call expired with no decision; the tool did not run."
-    else
-      s"A person (${decision.by}) refused this tool call; the tool did not run." +
-        decision.note.map(note => s" Their note: $note").getOrElse("")
 
   // ── The loop ──────────────────────────────────────────────────────────────
 

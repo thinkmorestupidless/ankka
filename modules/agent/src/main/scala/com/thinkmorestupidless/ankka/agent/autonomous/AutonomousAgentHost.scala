@@ -312,6 +312,7 @@ private[ankka] object AutonomousAgentHost:
             emit(Notification.Resumed(componentId, instanceId, now()))
             done
           case HostProtocol.Terminate => terminate()
+          case HostProtocol.Decide    => decide(HostProtocol.decide.fromBytes(payload))
           case HostProtocol.Dequeue =>
             val request = HostProtocol.dequeue.fromBytes(payload)
             val current = get()
@@ -338,6 +339,58 @@ private[ankka] object AutonomousAgentHost:
       catch case e: CommandError => Left(e)
 
     private val done: Either[CommandError, Array[Byte]] = Right(Array.emptyByteArray)
+
+    /**
+     * Records a decision on one of the current iteration's approval requests; the worker, poked
+     * once this operation ends, settles the call.
+     *
+     * An id the record no longer holds — its iteration went on — is still a conflict when the
+     * task's session shows the result it produced, decided. Otherwise the record answers: not found
+     * for an id it never held or one whose task is over, which is what a discarded request is.
+     */
+    private def decide(
+        decision: com.thinkmorestupidless.ankka.agent.Decision
+    ): Either[CommandError, Array[Byte]] =
+      val id      = decision.approvalId
+      val current = get().current
+      val held    = current.exists(_.approvals.exists(_.id == id))
+      val decidedBefore = !held && current.exists { w =>
+        client
+          .forEventSourcedEntity(EntityId(IterationLoop.sessionIdFor(w.taskId)))
+          .call(com.thinkmorestupidless.ankka.agent.SessionMemoryEntity.history)
+          .invoke()
+          .messages
+          .exists {
+            case m: com.thinkmorestupidless.ankka.agent.SessionMessage.ToolResultMessage =>
+              m.decision.exists(_.approvalId == id)
+            case _ => false
+          }
+      }
+      if decidedBefore && com.thinkmorestupidless.ankka.agent.Decision.problem(decision).isEmpty
+      then
+        Left(
+          CommandError(
+            s"instance '$instanceId': approval request '$id' is decided",
+            ErrorCode.Conflict
+          )
+        )
+      else
+        record(InstanceEvent.ApprovalDecided(id, decision))
+        val taskId = current.map(_.taskId).getOrElse("")
+        emit(
+          Notification.ApprovalDecided(
+            componentId,
+            instanceId,
+            taskId,
+            id,
+            decision.approved,
+            decision.by,
+            decision.note,
+            decision.expired,
+            now()
+          )
+        )
+        done
 
     private def codeOf(name: String): ErrorCode =
       ErrorCode.values.find(_.toString == name).getOrElse(ErrorCode.Internal)
@@ -539,7 +592,13 @@ private[ankka] object AutonomousAgentHost:
             idle(false)
             // Everything done for a task — guardrails at its start, tools and rules in its
             // iterations — runs knowing which task it is for.
-            AutonomousAgent.CurrentTask.within(w.taskId)(iteration(work(w)))
+            val waiting = AutonomousAgent.CurrentTask.within(w.taskId)(iteration(work(w)))
+            if waiting then
+              // Waiting on a person is not working: nothing is spent, nothing counted, and the
+              // instance may leave memory. A decision, a cancellation or a suspension is an
+              // operation, and every operation wakes the worker.
+              idle(true)
+              pause(1.hour)
           case None =>
             nextRunnable(rec) match
               case Some(id) =>
@@ -605,27 +664,33 @@ private[ankka] object AutonomousAgentHost:
         }
         .nextOption()
 
-    private def work(w: Working): Unit =
+    /** Works on the current task; true when it waits on an approval decision. */
+    private def work(w: Working): Boolean =
       val t = taskRecord(w.taskId)
       if t.status.terminal || !t.assignee.contains(me) then
         // Ended some other way — cancelled by a caller or a cascade, or handed back.
         end(w.taskId, outcomeOf(t))
+        false
       else
         definition.accepted(t.typeName) match
-          case None => fail(t, s"'$componentId' does not accept '${t.typeName}' tasks")
+          case None =>
+            fail(t, s"'$componentId' does not accept '${t.typeName}' tasks")
+            false
           case Some(_) if loopOrNone.isEmpty =>
             fail(
               t,
               s"'$componentId' has no model: set one with model(...) on its definition, or " +
                 "configure a default provider on the AgentRuntime"
             )
+            false
           case Some(_) if unanswerable.nonEmpty =>
             fail(t, AgentRuntime.noJudgmentProvider(componentId, unanswerable.get))
+            false
           case Some(acceptance) =>
             if !w.started then start(t)
             else if t.status == TaskStatus.ResultRejected then
               task(t.id).call(TaskEntity.start).invoke(): Unit
-            if running then iterate(t, acceptance)
+            running && iterate(t, acceptance)
 
     private def start(t: TaskRecord): Unit =
       loop.startCheck(t) match
@@ -640,10 +705,10 @@ private[ankka] object AutonomousAgentHost:
           record(InstanceEvent.TaskStarted(t.id, now()))
           emit(Notification.TaskStarted(componentId, instanceId, t.id, now()))
 
-    private def iterate(t0: TaskRecord, acceptance: TaskAcceptance): Unit =
+    private def iterate(t0: TaskRecord, acceptance: TaskAcceptance): Boolean =
       val rec = get()
       rec.current.filter(_.taskId == t0.id).filter(_.started) match
-        case None => () // failed at start, or ended: the next round sees it
+        case None => false // failed at start, or ended: the next round sees it
         case Some(w) =>
           val t      = taskRecord(t0.id)
           val budget = acceptance.budget
@@ -661,6 +726,7 @@ private[ankka] object AutonomousAgentHost:
           val iteration = after.current.map(_.iteration).getOrElse(w.iteration)
           val usage     = after.taskUsage
           result match
+            case IterationLoop.IterationResult.Waiting        => ()
             case IterationLoop.IterationResult.Continue       => ()
             case IterationLoop.IterationResult.Faulted(error) => faulted(t, after, error)
             case IterationLoop.IterationResult.Completed(result) =>
@@ -690,6 +756,7 @@ private[ankka] object AutonomousAgentHost:
                   end(t.id, outcomeOf(taskRecord(t.id)))
             case IterationLoop.IterationResult.Ended(TaskOutcome.Failed(reason)) => fail(t, reason)
             case IterationLoop.IterationResult.Ended(other)                      => end(t.id, other)
+          result == IterationLoop.IterationResult.Waiting
 
     /**
      * An iteration — or a task's start check — failed: pause and try again, or fail the task once

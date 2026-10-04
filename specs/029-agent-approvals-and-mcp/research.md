@@ -551,3 +551,17 @@ skills' `pages:` lists.
   event as `event:approval`, with no space, which the SSE grammar allows.
 - **Until Phase 8 (T063)**: the sidecar's `ClientLogic` ends a stream whose turn waits with a
   `CONFLICT` failure naming the wait, so a process is never left on an open stream.
+- **R8 as built (T023, T028)**: no `SettleCalls` resume point was added. `RunTools` now means
+  "the last response's calls do not all have results", read by call id from the results after it,
+  and settling is what running them does: record any missing approval request first, then run the
+  calls with no approval and those decided, and answer refused ones. The existing `ResumePointSuite`
+  fixture answered call `c` after a response whose call was `c1`; it now answers the call it
+  follows, which the stricter rule needs.
+- **V8 (T025)**: a waiting autonomous instance passivates (the operator fixture's
+  `idlePassivationAfter` is one second) and comes back on `decide`, and on a cancelled task's
+  dequeue. A waiting worker reports itself idle and pauses until an operation pokes it; a version
+  that kept going round its task left the budget untouched too, so the budget case also asserts the
+  instance leaves memory — shown failing once with the wait removed.
+- **T030**: the awaiting state is a new fixture, `agent-state-awaiting.json`, beside
+  `agent-notification-approval-requested.json`; `agent-state.json` is unchanged, so it still shows
+  the form with nothing awaiting decodes.

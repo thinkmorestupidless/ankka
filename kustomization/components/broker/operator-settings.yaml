@@ -1,0 +1,20 @@
+# Tells ankka's operator the installation has a broker, and where. All three or none: the operator
+# refuses to start with some and not others. Named by the operator's container, so the patch merges
+# into it and does not add a second container.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_BROKER_BOOTSTRAP
+              value: ankka-kafka-bootstrap.ankka-broker.svc:9093
+            - name: ANKKA_BROKER_NAMESPACE
+              value: ankka-broker
+            - name: ANKKA_BROKER_CLUSTER
+              value: ankka

@@ -12,7 +12,7 @@ Held by `RemoteOverlaySuite`, `ReservedProjectIdsSuite` and the broker's k3s sui
 | `Certificate` `ankka-broker` | `ankka-broker` | `ankka://platform/broker`, DNS names of the bootstrap and broker Services, issued by `ankka-service`, one year, renewed 30 days before |
 | `KafkaNodePool` `dual` | `ankka-broker` | one node, both roles, a persistent claim |
 | `Kafka` `ankka` | `ankka-broker` | one `tls` listener on 9093 as research R3; `authorization: simple`; `auto.create.topics.enable: false`; topic and user operators |
-| `NetworkPolicy` | `ankka-broker` | 9093 from pods of ankka workloads in any ankka namespace, and from the namespace itself; nothing else |
+| the listener's `networkPolicyPeers` | `ankka-broker` | 9093 from pods of ankka workloads in ankka's namespaces; nothing else. Strimzi writes the listener's network policy itself and admits every pod without this, and a second, stricter policy could not narrow it, since policies only add |
 | `Role` and `RoleBinding` | `ankka-broker` | the ankka operator's grant on topics and users |
 | a patch | the ankka operator's Deployment | the three `ANKKA_BROKER_*` settings |
 

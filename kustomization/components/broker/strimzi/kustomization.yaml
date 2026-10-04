@@ -1,0 +1,27 @@
+# Strimzi's cluster operator and its CRDs, placed in ankka-broker. A nested Kustomization rather than
+# the Component setting `namespace:` itself, because a Component's transformers run over everything
+# the overlay had accumulated before it; scoped this way the transformer sees only Strimzi's files.
+#
+# Pinned to an exact release, as CNPG's and the Keycloak operator's are: a CRD schema must not change
+# under a running platform without a deliberate bump here. The operator watches its own namespace
+# only, so every Kafka, KafkaTopic and KafkaUser ankka has lives in ankka-broker.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ankka-broker
+resources:
+  - https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.2.0/strimzi-cluster-operator-1.2.0.yaml
+patches:
+  # The namespace transformer does not reach a binding's subjects, and upstream names "myproject" in
+  # all seven; an operator whose ServiceAccount is bound in another namespace can do nothing.
+  - target:
+      kind: RoleBinding
+    patch: |-
+      - op: replace
+        path: /subjects/0/namespace
+        value: ankka-broker
+  - target:
+      kind: ClusterRoleBinding
+    patch: |-
+      - op: replace
+        path: /subjects/0/namespace
+        value: ankka-broker

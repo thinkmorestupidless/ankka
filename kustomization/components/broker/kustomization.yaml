@@ -1,0 +1,21 @@
+# The installation's broker: one Kafka, run by Strimzi, for every project (feature 027).
+#
+# Services find it through the ankka operator, which this component tells where it is (the patch);
+# an installation without this component has no broker, and its operator renders nothing of one.
+# The listener serves a certificate cert-manager issued from the installation's service authority
+# and trusts that authority by its certificate alone, so a service is known to the broker by the
+# certificate it already holds, and the broker is never given a key it could mint identities with.
+#
+# Strimzi's CRDs must exist before a Kafka can be applied, as CNPG's must before a Cluster:
+# deploy-local.sh applies ./strimzi first, and this component (which names it too) is idempotent
+# over it.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - strimzi
+  - certificate.yaml
+  - kafka.yaml
+  - operator-role.yaml
+patches:
+  - path: operator-settings.yaml

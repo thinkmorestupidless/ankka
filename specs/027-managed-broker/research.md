@@ -81,6 +81,10 @@ within 12 s. A 24-hour certificate, which every other workload has, would restar
 The broker's certificate is therefore long-lived (one year, renewed 30 days before), and its renewal
 is a rolling restart Strimzi performs.
 
+**Who may connect** is the listener's `networkPolicyPeers`: Strimzi generates the listener's
+network policy itself and admits every pod without it, and a policy of ankka's beside it could not
+narrow that, since network policies only add (found writing the component).
+
 **Security**: Strimzi's super users are subjects with `O=io.strimzi`; ankka's subjects are a common
 name alone and cannot equal one. A mount certificate, the gateway's and the platform's own have no
 subject and are `User:`, with no permission.

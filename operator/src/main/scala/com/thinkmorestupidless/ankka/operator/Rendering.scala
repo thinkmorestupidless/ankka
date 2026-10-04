@@ -281,7 +281,8 @@ object Rendering:
         Vector(
           Action
             .RemoveNetworkPolicy(namespace, ZeroTrust.httpPolicyName(spec.serviceName), ownerUid)
-        )) ++ (spec.grpcPort match
+        )
+    ) ++ (spec.grpcPort match
       case Some(port) =>
         Vector(Action.EnsureNetworkPolicy(ZeroTrust.grpcPolicy(resource, spec, namespace, port)))
       case None =>

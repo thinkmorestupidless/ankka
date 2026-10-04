@@ -440,10 +440,16 @@ class WebHostingRenderingSuite extends munit.FunSuite:
       generation = 7L
     )
     assertEquals(actions(changed), actions(web.copy(generation = 7L)))
-    assert(!actions(changed).exists {
-      case Action.RemoveNetworkPolicy(_, _, _) | Action.RemoveService(_, _, _) => true
-      case _                                                                   => false
-    })
+    // Nothing the embedded service had is removed. The removals left are the gRPC policy and the
+    // gRPC peers address, which every service that serves no gRPC renders whatever its hosting.
+    val removed = actions(changed).collect {
+      case Action.RemoveNetworkPolicy(_, name, _) => name
+      case Action.RemoveService(_, name, _)       => name
+    }
+    assertEquals(
+      removed.toSet,
+      Set(ZeroTrust.grpcPolicyName(changed.serviceName), Names.grpcPeers(changed.serviceName))
+    )
   }
 
   test("a service changed from web to embedded renders exactly what a fresh embedded one does") {

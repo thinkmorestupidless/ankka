@@ -468,7 +468,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   protected var lastGiven: String = ""
 
   Given(
-    "a service {string} deployed in the project {string} whose access rule admits the internet"
+    "a service {string} deployed in the project {string} whose ACL admits the internet"
   ) { (name: String, inProject: String) =>
     deployCallee(name, inProject, Acl.allowCallers(Callers.internet))
   }
@@ -677,7 +677,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
   }
 
   Given(
-    "a service {string} deployed in the project {string} whose access rule admits only {string}"
+    "a service {string} deployed in the project {string} whose ACL admits only {string}"
   ) { (name: String, inProject: String, admitted: String) =>
     deployCallee(name, inProject, Acl.allowCallers(Callers.service(admitted)))
   }

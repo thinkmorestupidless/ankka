@@ -226,6 +226,23 @@ ankka-shop
         "port" : 7627,
         "protocol" : "TCP"
       } ]
+    }, {
+      "from" : [ {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "ankka-controlplane"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/name" : "ankka-controlplane"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 7628,
+        "protocol" : "TCP"
+      } ]
     } ],
     "podSelector" : {
       "matchLabels" : {
@@ -304,6 +321,11 @@ ankka-shop
     "policyTypes" : [ "Ingress" ]
   }
 }
+---
+# RemoveNetworkPolicy
+ankka-shop
+cart-grpc
+00000000-0000-0000-0000-000000000001
 ---
 # ApplyDeployment
 {
@@ -434,6 +456,10 @@ ankka-shop
             "containerPort" : 7627,
             "name" : "probe",
             "protocol" : "TCP"
+          }, {
+            "containerPort" : 7628,
+            "name" : "observe",
+            "protocol" : "TCP"
           } ],
           "readinessProbe" : {
             "httpGet" : {
@@ -525,6 +551,11 @@ ankka-shop
     "type" : "ClusterIP"
   }
 }
+---
+# RemoveService
+ankka-shop
+cart-grpc-peers
+00000000-0000-0000-0000-000000000001
 ---
 # EnsureHttpRoute
 {

@@ -409,6 +409,12 @@ feature files one at a time.
 seeded from 019's copy, then merges with one small hunk. If 019 is delayed, the first task
 cherry-picks those four pieces from it, unchanged, so the later merge is a no-op for them.
 
+
+**At merge, 2026-10-04.** Feature 019 reached `main` with the `features` job, the glossary and the
+root `features/` directory, and this branch was rebased onto it: the plumbing is `main`'s, and the
+glossary is `main`'s with this feature's terms added. `main` runs the job as a report that does not
+fail a build, because the specs that arrived beside 019 (and 023 onwards) still keep their scenarios
+in the spec.
 ## R18. What the proxy answers by itself
 
 **Decision**: every answer the proxy gives without the process or a service having answered

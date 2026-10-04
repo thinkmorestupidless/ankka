@@ -405,14 +405,8 @@ it is exposed.
 Everyone and everything outside the platform. A request from the internet reaches a service only
 through its hostname.
 
-### access rule
-What a service's endpoint says about who may call it. Exposing a service changes who can reach it,
-never whom its access rule admits.
-
-Avoid: ACL
-
 ### admit
-Of an access rule, or of a web-hosted service's descriptor: allow a call or a request from the one who
+Of an ACL, or of a web-hosted service's descriptor: allow a call or a request from the one who
 made it.
 
 ### secret
@@ -475,7 +469,7 @@ requests under it. As a verb: declare one. The proxy passes a request under a mo
 mounted service, which is told that it came from the internet. A mount does not expose the
 mounted service and gives it no hostname.
 
-Avoid: route, rewrite, proxy rule
+Avoid: rewrite, proxy rule
 
 ### port
 The number a program listens for requests on. A service has one; in a web-hosted service's

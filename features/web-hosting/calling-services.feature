@@ -1,6 +1,6 @@
 Feature: A web-hosted service calling other services
   The process of a web-hosted service calls another service at the calling address, and the proxy sends
-  the call on as the web-hosted service. The service called is told who called it, so its access rule
+  the call on as the web-hosted service. The service called is told who called it, so its ACL
   can admit the web-hosted service and nothing else, and it never has to be exposed.
 
   Background:
@@ -26,7 +26,7 @@ Feature: A web-hosted service calling other services
     Then "invoices" is told that the call came from the service "web" in the project "shop"
 
   Scenario: a service that admits only the web-hosted service is not reachable from the internet
-    Given a service "cart" deployed in the project "shop" whose access rule admits only "web"
+    Given a service "cart" deployed in the project "shop" whose ACL admits only "web"
     And "cart" is not exposed
     And "web" is exposed
     When a person on the internet asks "web" for what its process reads from "cart"
@@ -34,7 +34,7 @@ Feature: A web-hosted service calling other services
     And a person on the internet who sends a request to "cart" without "web" is refused
 
   Scenario: a service that admits only the web-hosted service refuses every other service
-    Given a service "cart" deployed in the project "shop" whose access rule admits only "web"
+    Given a service "cart" deployed in the project "shop" whose ACL admits only "web"
     When the service "orders" in the project "shop" calls "cart"
     Then "orders" is refused
 

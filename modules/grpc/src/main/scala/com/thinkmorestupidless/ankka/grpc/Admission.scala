@@ -53,7 +53,12 @@ private[grpc] final class Admission(val tls: Boolean, val self: RotatingTls.Iden
         .flatMap(_.headOption)
         .collect { case certificate: X509Certificate => certificate } match
         case Some(certificate) =>
-          Caller.fromCertificate(certificate).left.map(Status.PERMISSION_DENIED.withDescription)
+          // Read with this service's own identity, as the HTTP server reads it, so a certificate
+          // means one caller whichever port it is presented on.
+          Caller
+            .fromCertificate(certificate, Some(self))
+            .left
+            .map(Status.PERMISSION_DENIED.withDescription)
         case None => Left(Status.PERMISSION_DENIED.withDescription("no client certificate"))
     else
       Right(CallMetadata.localCaller(headers).map(LocalCallers.callerFrom).getOrElse(Caller.Local))

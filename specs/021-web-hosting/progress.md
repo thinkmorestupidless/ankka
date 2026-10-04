@@ -17,6 +17,12 @@ which tasks are done (`[X]`); this note records what the task list cannot.
   (FR-005), history and listings (FR-012) and a mounts change through the control plane (FR-029) are
   not asserted for a web-hosted service; SC-004 exercises two cart operations, not all; SC-006 runs the
   template locally and the sample on a cluster, not one interface in both.
+- **Rebased onto `main` with features 019 (topology) and 020 (gRPC)**, 2026-10-04. Where both met:
+  a web-hosted service is refused gRPC like any non-embedded one; gRPC's admission reads a
+  certificate with the service's own identity, as HTTP's does; the operator renders the gRPC policy
+  removal for a web-hosted pod as for every service without gRPC; the four pinned renderings were
+  retaken from `main`'s operator, which added the observe port, and still match what this branch
+  renders for every hosting but web.
 - **Left: T050's timing**, the first-interface guide followed once by someone who did not write it
   (SC-002). Its older-runtime proof is done (R3).
 - **Branch protection must require the new `web` job** once the pull request exists.

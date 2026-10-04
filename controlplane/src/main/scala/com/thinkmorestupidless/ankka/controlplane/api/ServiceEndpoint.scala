@@ -34,13 +34,9 @@ final class ServiceEndpoint(
     clients: EndpointClients,
     val acl: Acl,
     deploy: DeployConfig = DeployConfig.default,
-import com.thinkmorestupidless.ankka.controlplane.deploy.{
-  DeployConfig,
-  InstanceTopologies,
-  PodLogReader,
-  PodLogs,
-  TopologyReader
-}
+    logs: PodLogReader = PodLogs(DeployConfig.default.namespacePrefix),
+    protected val clock: java.time.Clock = java.time.Clock.systemUTC(),
+    topology: TopologyReader = InstanceTopologies(DeployConfig.default.namespacePrefix)
 ) extends HttpEndpoint("/services")
     with Attributing:
 

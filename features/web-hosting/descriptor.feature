@@ -41,12 +41,12 @@ Feature: Describing a web-hosted service
 
     Examples:
       | mounts                                                  | why                                         |
-      | "cart" mounted at "api/cart"                            | that a path starts with "/"                 |
+      | "cart" mounted at "backend/cart"                            | that a path starts with "/"                 |
       | "cart" mounted at "/"                                   | that a mount cannot be every path           |
-      | "cart" mounted at "/api" and "orders" mounted at "/api" | that the path is mounted more than once     |
-      | "cart" mounted at "/api" and "orders" mounted at "/api/orders" | that one mount is inside another     |
-      | "Cart Service" mounted at "/api/cart"                   | that "Cart Service" cannot name a service   |
-      | "web" mounted at "/api/web"                             | that a web-hosted service cannot mount itself      |
+      | "cart" mounted at "/backend" and "orders" mounted at "/backend" | that the path is mounted more than once     |
+      | "cart" mounted at "/backend" and "orders" mounted at "/backend/orders" | that one mount is inside another     |
+      | "Cart Service" mounted at "/backend/cart"                   | that "Cart Service" cannot name a service   |
+      | "web" mounted at "/backend/web"                             | that a web-hosted service cannot mount itself      |
 
   Scenario Outline: the services a web-hosted service admits are refused when they are malformed
     Given a descriptor for the web-hosted service "web" that admits <admitted>
@@ -68,7 +68,7 @@ Feature: Describing a web-hosted service
 
     Examples:
       | with                                  | why                                         |
-      | with "orders" mounted at "/api/orders" | that only a web-hosted service has mounts          |
+      | with "orders" mounted at "/backend/orders" | that only a web-hosted service has mounts          |
       | that admits the service "orders"      | that only a web-hosted service names the services it admits |
 
   Scenario: every problem with a descriptor is named at once

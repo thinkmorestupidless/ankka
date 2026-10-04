@@ -109,7 +109,14 @@ object ControlPlane:
         )
         topology match
           case Some(reader) =>
-            ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock, topology = reader)
+            ServiceEndpoint(
+              clients,
+              acl,
+              deploy,
+              logs = logReader,
+              clock = clock,
+              topology = reader
+            )
           case None => ServiceEndpoint(clients, acl, deploy, logs = logReader, clock = clock),
       clients => WhoamiEndpoint(clients, acl, clock)
     ) ++ auth.map(config =>

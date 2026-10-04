@@ -5,30 +5,30 @@ Feature: Mounting services under a web-hosted service
   address it was shown the interface from, and none of those services has to be exposed.
 
   Background:
-    Given a service "cart" deployed in the project "shop" whose access rule admits the internet
+    Given a service "cart" deployed in the project "shop" whose ACL admits the internet
     And "cart" is not exposed
-    And a web-hosted service "web" deployed in the project "shop" with "cart" mounted at "/api/cart"
+    And a web-hosted service "web" deployed in the project "shop" with "cart" mounted at "/backend/cart"
     And "web" is exposed
 
   Scenario: a request under a mount reaches the mounted service
-    When a browser sends a request for "/api/cart/carts/c1" to "web"
+    When a browser sends a request for "/backend/cart/carts/c1" to "web"
     Then "cart" is given a request for "/carts/c1"
     And "cart" is told that the request came from the internet
     And the browser is given the answer of "cart"
 
   Scenario Outline: one web-hosted service mounts several services, each under its own path
-    Given a service "orders" deployed in the project "shop" whose access rule admits the internet
-    And a service "catalogue" deployed in the project "shop" whose access rule admits the internet
-    And "web" also has "orders" mounted at "/api/orders" and "catalogue" mounted at "/api/catalogue"
+    Given a service "orders" deployed in the project "shop" whose ACL admits the internet
+    And a service "catalogue" deployed in the project "shop" whose ACL admits the internet
+    And "web" also has "orders" mounted at "/backend/orders" and "catalogue" mounted at "/backend/catalogue"
     When a browser sends a request for "<sent>" to "web"
     Then "<service>" is given a request for "<given>"
     And no other mounted service is given a request
 
     Examples:
       | sent                    | service   | given       |
-      | /api/cart/carts/c1      | cart      | /carts/c1   |
-      | /api/orders/orders/o1   | orders    | /orders/o1  |
-      | /api/catalogue/items/i1 | catalogue | /items/i1   |
+      | /backend/cart/carts/c1      | cart      | /carts/c1   |
+      | /backend/orders/orders/o1   | orders    | /orders/o1  |
+      | /backend/catalogue/items/i1 | catalogue | /items/i1   |
 
   Scenario: a web-hosted service mounted under another is told the address the browser used
     Given a web-hosted service "admin" deployed in the project "shop"
@@ -49,7 +49,7 @@ Feature: Mounting services under a web-hosted service
     And "admin" is exposed
     When a browser sends a request for "/cart/carts/c1" to "admin"
     Then "cart" is given a request for "/carts/c1"
-    And a request for "/api/cart/carts/c1" to "web" still reaches "cart"
+    And a request for "/backend/cart/carts/c1" to "web" still reaches "cart"
 
   Scenario Outline: a request outside every mount reaches the process
     When a browser sends a request for "<path>" to "web"
@@ -59,27 +59,27 @@ Feature: Mounting services under a web-hosted service
     Examples:
       | path          |
       | /about        |
-      | /api          |
-      | /api/cartoons |
+      | /backend          |
+      | /backend/cartoons |
 
   Scenario: a service that admits only the web-hosted service refuses a request under a mount
-    Given a service "ledger" deployed in the project "shop" whose access rule admits only "web"
-    And "web" also has "ledger" mounted at "/api/ledger"
-    When a browser sends a request for "/api/ledger/entries" to "web"
+    Given a service "ledger" deployed in the project "shop" whose ACL admits only "web"
+    And "web" also has "ledger" mounted at "/backend/ledger"
+    When a browser sends a request for "/backend/ledger/entries" to "web"
     Then the browser is given the refusal of "ledger"
     And "ledger" answers a call the process of "web" makes at the calling address
 
   Scenario: a mounted service too old to know a mount refuses a request under one
     Given a service "ledger" deployed in the project "shop", too old to be told that a request came under a mount
-    And "web" also has "ledger" mounted at "/api/ledger"
-    When a browser sends a request for "/api/ledger/entries" to "web"
+    And "web" also has "ledger" mounted at "/backend/ledger"
+    When a browser sends a request for "/backend/ledger/entries" to "web"
     Then the browser is given a refusal
     And "ledger" is not told that a call came from the service "web"
 
   Scenario Outline: a request under a mount with no service to call is answered by the proxy
-    Given "web" also has "ledger" mounted at "/api/ledger"
+    Given "web" also has "ledger" mounted at "/backend/ledger"
     And the service "ledger" <state>
-    When a browser sends a request for "/api/ledger/entries" to "web"
+    When a browser sends a request for "/backend/ledger/entries" to "web"
     Then the proxy answers that "ledger" cannot be reached
     And the process of "web" is given no request
 
@@ -92,4 +92,4 @@ Feature: Mounting services under a web-hosted service
   Scenario: mounts change without another image
     When a member applies the descriptor of "web" with the same image and "cart" mounted at "/cart"
     Then a request for "/cart/carts/c1" to "web" reaches "cart"
-    And a request for "/api/cart/carts/c1" to "web" reaches the process
+    And a request for "/backend/cart/carts/c1" to "web" reaches the process

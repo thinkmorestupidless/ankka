@@ -15,12 +15,12 @@ Feature: Running a web-hosted service on a developer's machine
 
   Scenario: mounts answer at the same paths on a developer's machine
     Given the service "cart" running on that machine
-    And the descriptor of "web" has "cart" mounted at "/api/cart"
-    When a browser sends a request for "/api/cart/carts/c1" to the proxy
+    And the descriptor of "web" has "cart" mounted at "/backend/cart"
+    When a browser sends a request for "/backend/cart/carts/c1" to the proxy
     Then "cart" is given a request for "/carts/c1"
 
   Scenario: a request outside every mount reaches the developer's process
-    Given the descriptor of "web" has "cart" mounted at "/api/cart"
+    Given the descriptor of "web" has "cart" mounted at "/backend/cart"
     When a browser sends a request for "/about" to the proxy
     Then the process is given a request for "/about"
 

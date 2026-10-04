@@ -92,10 +92,10 @@ Feature: Deploying a web-hosted service
     And the refusal says that the organization has every service its quota allows
 
   Scenario: a member is shown that a service is a web-hosted service
-    Given a web-hosted service "web" deployed in the project "shop" with "cart" mounted at "/api/cart"
+    Given a web-hosted service "web" deployed in the project "shop" with "cart" mounted at "/backend/cart"
     When a member reads the status of "web"
     Then the status says that the hosting of "web" is web hosting
-    And the status shows the mount of "cart" at "/api/cart"
+    And the status shows the mount of "cart" at "/backend/cart"
     And the status shows which services "web" admits
 
   Scenario: the size a descriptor asks for is the size of the process
@@ -107,6 +107,6 @@ Feature: Deploying a web-hosted service
   Scenario: a mount of a service that does not exist is applied and marked
     Given a web-hosted service "web" deployed in the project "shop"
     And no service "ledger" in the project "shop"
-    When a member applies the descriptor of "web" with "ledger" mounted at "/api/ledger"
+    When a member applies the descriptor of "web" with "ledger" mounted at "/backend/ledger"
     Then "web" is ready
     And the status of "web" marks the mount of "ledger" as having no service

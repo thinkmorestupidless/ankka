@@ -55,6 +55,13 @@ class WebHostingDescriptorSuite extends munit.FunSuite:
     )
   }
 
+  test("a web-hosted service serves no gRPC: its proxy serves HTTP alone") {
+    refused(
+      web.copy(grpc = true),
+      "only an embedded service serves gRPC; remove \"grpc\" or use embedded hosting"
+    )
+  }
+
   test("a web-hosted service declares no protocol and no runtime") {
     refused(
       web.copy(protocol = Some("1.0")),

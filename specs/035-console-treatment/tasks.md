@@ -192,7 +192,7 @@ product's website keeps working on the new package; the docs say how.
 - [X] T054 [P] Re-run `console/package/test/host-size.test.ts` and record the host's line count in `specs/035-console-treatment/plan.md` under Scale/Scope
 - [ ] T055 Run `quickstart.md` end to end, including `just test-console-compose` against the compose stack and both "show it can fail" steps; fix anything it finds
 - [X] T056 [P] Add the traps this feature found to `CLAUDE.md`'s *Traps* list (at least: a Tailwind utility reads a property through `var()` only under `@theme`, never `@theme inline`; Base UI's Switch is a button, not a form control; a `display: contents` wrapper must not be a landmark) and update the *Console* section's description of the package's styling
-- [ ] T057 Open the pull request from `035-console-treatment` with the spec's summary, the Lakeglass artifact link, and the `ankka-cloud` follow-up named; CI's `console` and `docs` jobs must pass
+- [X] T057 Open the pull request from `035-console-treatment` with the spec's summary, the Lakeglass artifact link, and the `ankka-cloud` follow-up named; CI's `console` and `docs` jobs must pass
 
 ---
 

@@ -234,6 +234,13 @@ handle per span, with no consistent difference: within the noise. The default fo
 beside the ring's 288 KiB, and a service with more than a thousand pairs of component and handler
 is counted under `(other)` beyond them rather than failing.
 
+Against a real service (T062, `ExporterCostSuite`, the same JVM and machine): a real invocation
+costs 3.2–4.2 ms; what observing it costs is 485 ns with no exporter (`ServiceRecordingCostSuite`,
+0.015%), 810 ns with an exporter reading the window and sending to a collector that answers
+(0.023%), and 805 ns with the collector unreachable (0.019%) — inside the 1% budget by forty
+times. The extra 300 ns is the reader thread sharing the ring's cache lines with a writer that
+records two million spans back to back, which no service does.
+
 **Found while doing it**: `TraceCorrelationSuite` selected the spans of its own call with
 `spanId > recorder.recorded`, which was true only while span ids counted up from one alongside the
 ring's sequence; and `RecorderSuite` asserted every span id positive, which a random start makes

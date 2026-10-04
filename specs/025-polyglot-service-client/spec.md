@@ -359,6 +359,7 @@ tested code; the limitations page has no sentence claiming the gap.
   and must call merchant, payouts and others as themselves.
 - 030-wasm-request-and-clock reuses the `Request` message and the sidecar's handling of it.
 - 029-agent-approvals-and-mcp depends on the agent context carrying `ServiceClients` (FR-009).
-- 026-telemetry-export depends on the outbound span of FR-011 to propagate trace context on the
-  same call.
+- 026-telemetry-export records the outbound span itself (its FR-017) for the service clients
+  that exist before this feature; FR-011 here is that the clients this feature adds record the
+  same span through the same code, whichever of the two is built first.
 - No dependency on any other spec in this set.

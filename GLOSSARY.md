@@ -503,6 +503,75 @@ Something asked of a service from outside it, which an endpoint serves by one of
 ### root
 Of a trace: what the rest of the trace was done for, and is nested under.
 
+### span
+One handler's part of a trace: which component and handler ran, when, for how long,
+how it ended, and which span it was nested under. An endpoint's serving of a request is a span,
+and so is a call one service makes to another. A trace is made of spans.
+
+### parent
+Of a span: the span it is nested under. A root has none, and neither does a span with
+an unknown caller, which is never given one.
+
+### trace id
+What every span of one trace carries and no span of another does. It is the size and
+shape a collector expects, so that spans from different services join by it.
+
+### trace context
+What a request, a call or a message published to a topic carries to say which trace it
+belongs to and which span made it: a trace id and the span that is to be the parent. A service takes it as it is given; it proves
+nothing about who sent it, and nothing is admitted or refused by it.
+
+Avoid: traceparent, trace header
+
+### telemetry
+What a service exports about itself: its spans and its metrics. A service's logs are
+not telemetry: they are read where they were printed and never exported.
+
+### export
+Of an instance: send its telemetry to the collector. What is exported is a copy; the
+instance's trace window and its logs are read as before.
+
+Avoid: ship, push
+
+### collector
+The program an installation's services export to. It is the installation's own, not
+the platform's; where telemetry is kept and shown after it is the installation's business.
+
+### platform's collector
+A collector the platform offers, which an installation may add so that it has
+somewhere to send. It keeps nothing.
+
+### telemetry store
+What a local platform keeps its services' telemetry and logs in and shows them through: the trace
+of a request, the metrics of a service, and what its instances printed, joined to the traces they
+belong to. It is for a developer's machine: it keeps nothing when it restarts. An installation
+that is not a local platform has none of the platform's; where its telemetry is kept is its own
+business. It is not the platform's collector, which keeps nothing at all.
+
+Avoid: observability stack, dashboard
+
+### telemetry settings
+The installation's statement of which collector its services export to, and what to
+send with the telemetry so that the collector accepts it. They are platform settings the platform
+alone sets: a descriptor may not give them.
+
+### metric
+A number a service exports about itself: how many times a handler ran and for how
+long, counted since the instance started and never over the trace window.
+
+### trace window
+The most recent spans an instance holds, which the local console and the console read
+traces from. It is counted in spans, not in time: when it is full, each new span replaces the
+oldest. It is not the window of a topology.
+
+Avoid: ring, buffer
+
+### lost span
+A span that left the trace window before it was exported. It is never exported; a
+metric counts how many there were.
+
+Avoid: dropped span, overwritten span
+
 ## Deploying
 
 ### local platform

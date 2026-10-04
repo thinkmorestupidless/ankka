@@ -92,12 +92,12 @@ message Principal {
   optional string email = 3;
   bool email_verified = 4;
   repeated string roles = 5;
-  map<string, string> claims = 6;   // NEW in 1.4
-  optional string issuer = 7;       // NEW in 1.4
+  map<string, string> claims = 6;   // NEW in 1.5
+  optional string issuer = 7;       // NEW in 1.5
 }
 ```
 
-Protocol version `1.4`. The SDK types mirror it: Python `Principal.claims: Mapping[str, str]`,
+Protocol version `1.5`. The SDK types mirror it: Python `Principal.claims: Mapping[str, str]`,
 `issuer: str | None`; TypeScript `claims: Readonly<Record<string, string>>`, `issuer: string | null`;
 Rust `claims: BTreeMap<String, String>`, `issuer: Option<String>`.
 

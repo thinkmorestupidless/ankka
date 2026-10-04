@@ -127,8 +127,8 @@ modules/auth-oidc/                                   # NEW sbt project `authOidc
 modules/http/src/main/scala/…/http/HttpEndpoint.scala   # Principal gains issuer: Option[String] = None
 
 protocol/src/main/protobuf/ankka/protocol/v1/endpoint.proto   # Principal: map<string,string> claims = 6; optional string issuer = 7
-protocol/README.md, docs/reference/sidecar-protocol.md         # version 1.4
-modules/runtime/src/main/scala/…/runtime/remote/Conversation.scala   # WireProtocol.Version = "1.4"
+protocol/README.md, docs/reference/sidecar-protocol.md         # version 1.5
+modules/runtime/src/main/scala/…/runtime/remote/Conversation.scala   # WireProtocol.Version = "1.5"
 
 sidecar/src/main/scala/…/sidecar/
 ├── Main.scala                                       # build(…, auth: Option[OidcConfig]); run reads OidcConfig.fromEnv, refuses a malformed set
@@ -139,7 +139,7 @@ sidecar/src/test/scala/…/sidecar/
 ├── DiscoveryAuthSuite.scala                         # NEW: refusal names the route and the variable, beside another problem
 └── conformance/{ConformanceSuite,ConformanceTarget,ConformanceReference}.scala   # http.auth-* cases; a test issuer per run; /private/me
 
-sdks/python/src/ankka/{context.py,server.py,service.py}          # Principal.claims, .issuer; PROTOCOL_VERSION "1.4"
+sdks/python/src/ankka/{context.py,server.py,service.py}          # Principal.claims, .issuer; PROTOCOL_VERSION "1.5"
 sdks/python/examples/shopping_cart/conformance.py                 # /private/me
 sdks/typescript/src/{context.ts,server.ts,spec.ts}                 # same
 sdks/typescript/examples/shopping-cart/conformance.ts

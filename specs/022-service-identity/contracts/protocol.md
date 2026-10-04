@@ -14,7 +14,7 @@ message Principal {
 }
 ```
 
-Version `1.3` → `1.4`. A process declaring `1.3` is accepted by a `1.4` sidecar and receives a
+Version `1.4` → `1.5`. A process declaring `1.4` is accepted by a `1.5` sidecar and receives a
 principal whose two new fields it cannot read. The sidecar fills both on every `AUTHENTICATED`
 route.
 
@@ -31,7 +31,7 @@ route in the discovery report, with the text in `data-model.md` §5.
 | TypeScript | `Principal { subject, name, email, emailVerified, roles, claims: Readonly<Record<string, string>>, issuer: string \| null }` | `static readonly acl = Acl.authenticated` or `{ acl: Acl.authenticated }` on a route |
 | Rust | `Principal { subject, name, email, email_verified, roles, claims: BTreeMap<String, String>, issuer: Option<String> }` | `Acl::Authenticated` |
 
-Each SDK's `PROTOCOL_VERSION` becomes `"1.4"`.
+Each SDK's `PROTOCOL_VERSION` becomes `"1.5"`.
 
 ## Conformance cases
 

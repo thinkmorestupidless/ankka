@@ -85,11 +85,11 @@ the test issuer the suite runs and passes it to `build`.
 where tests reach in (`imports`, `models`). `Settings.load` reads `sys.env` directly, which a test
 cannot set; the `OidcConfig` parameter follows `models: Models = Models.fromEnv()`'s shape.
 
-## R5. The protocol gains claims and issuer; version 1.4
+## R5. The protocol gains claims and issuer; version 1.5
 
 **Decision**: `endpoint.proto` `Principal` gains `map<string, string> claims = 6;` and
-`optional string issuer = 7;`. `WireProtocol.Version` becomes `"1.4"`; the three SDKs declare
-`"1.4"`; `protocol/README.md` and `docs/reference/sidecar-protocol.md` record what 1.4 added.
+`optional string issuer = 7;`. `WireProtocol.Version` becomes `"1.5"`; the three SDKs declare
+`"1.5"`; `protocol/README.md` and `docs/reference/sidecar-protocol.md` record what 1.5 added.
 `Translate.toPrincipal` fills both. Python's `Principal` gains `claims: Mapping[str, str]` (a
 `MappingProxyType` over a dict, frozen like the rest) and `issuer: str | None`; TypeScript's
 `claims: Readonly<Record<string, string>>` and `issuer: string | null`; Rust's
@@ -97,8 +97,9 @@ cannot set; the `OidcConfig` parameter follows `models: Models = Models.fromEnv(
 
 **Rationale**: `endpoint.proto:44-50` has five fields; the Scala `Principal` has six
 (`HttpEndpoint.scala:45-52`) and gains a seventh. `docs/reference/sidecar-protocol.md:184` says
-adding an optional field is a minor change, and 1.1 to 1.3 each did exactly this. An SDK on 1.3
-against a 1.4 sidecar is accepted (same major, lower minor) and simply never sees the two fields.
+adding an optional field is a minor change, and 1.1 to 1.4 each did exactly this; 1.4 was taken by
+feature 019 while this was in review, so this change is 1.5. An SDK on 1.4
+against a 1.5 sidecar is accepted (same major, lower minor) and simply never sees the two fields.
 
 **Alternatives**: carry claims in `roles` or `name` (rejected: a lie); a major bump (rejected:
 nothing is removed or changed).
@@ -194,7 +195,7 @@ jobs), so the new cases run there with no workflow change.
 - `docs/reference/limitations.md:45`: the entry becomes "The platform verifies a service's users'
   tokens and issues none": no realm, client or user is provisioned.
 - `docs/reference/scala-sdk.md`: `ankka-auth-oidc` in the module table.
-- `docs/reference/sidecar-protocol.md`, `protocol/README.md`: 1.4.
+- `docs/reference/sidecar-protocol.md`, `protocol/README.md`: 1.5.
 - `CLAUDE.md`: eight published modules; a line under Architecture for the module.
 - `just docs-sync` refreshes the included sample and the skills that carry these pages
   (`ankka-endpoints`, `ankka-platform`); `just docs` must pass.

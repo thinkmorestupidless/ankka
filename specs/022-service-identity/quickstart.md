@@ -39,7 +39,7 @@ cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test &
 cd sdks/rust && cargo test --workspace && ./conformance.sh
 ```
 
-Expected: each target passes the `http.auth-*` cases; each SDK declares protocol `1.4`; the
+Expected: each target passes the `http.auth-*` cases; each SDK declares protocol `1.5`; the
 regenerated stubs carry `claims` and `issuer`.
 
 ## 5. The operator routes the prefix

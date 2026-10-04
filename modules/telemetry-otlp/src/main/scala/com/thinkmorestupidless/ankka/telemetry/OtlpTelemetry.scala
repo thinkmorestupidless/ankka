@@ -52,9 +52,10 @@ final class OtlpTelemetry(settings: TelemetrySettings) extends RuntimeExtension:
       settings,
       outage
     ).start()
-    running = Some(OtlpTelemetry.Running(loop, exporter))
+    val metrics = Metrics(recorder, observability.names, cursor, resource, settings, outage)
+    running = Some(OtlpTelemetry.Running(loop, exporter, metrics))
     log.info(
-      "telemetry: exporting spans to the collector at {}://{} as service '{}'",
+      "telemetry: exporting spans and metrics to the collector at {}://{} as service '{}'",
       settings.endpoint.getScheme,
       settings.endpoint.getAuthority,
       identity.service
@@ -65,17 +66,25 @@ final class OtlpTelemetry(settings: TelemetrySettings) extends RuntimeExtension:
       running = None
       val deadline = System.nanoTime() + settings.shutdownTimeout.toNanos
       r.loop.stop(settings.shutdownTimeout)
-      val left = math.max(1L, (deadline - System.nanoTime()) / 1_000_000L)
+      def left = math.max(1L, (deadline - System.nanoTime()) / 1_000_000L)
+      r.metrics.stop(left)
       r.exporter.shutdown().join(left, TimeUnit.MILLISECONDS): Unit
     }
 
   /** The export loop, for a test that asks how often it tried. */
   private[telemetry] def loop: Option[ExportLoop] = running.map(_.loop)
 
+  /** The metrics, for a test that does not wait an interval. */
+  private[telemetry] def metrics: Option[Metrics] = running.map(_.metrics)
+
 object OtlpTelemetry:
   val Name = "telemetry-otlp"
 
-  private final case class Running(loop: ExportLoop, exporter: OtlpHttpSpanExporter)
+  private final case class Running(
+      loop: ExportLoop,
+      exporter: OtlpHttpSpanExporter,
+      metrics: Metrics
+  )
 
   /**
    * The SDK logs a failed export through `java.util.logging`, once a batch, which nothing in a

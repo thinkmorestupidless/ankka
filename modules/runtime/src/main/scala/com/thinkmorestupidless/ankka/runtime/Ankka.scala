@@ -195,6 +195,8 @@ final class ServiceBuilder private[ankka] (
     // stopped first.
     val extensions =
       this.extensions ++ RuntimeExtensionProvider.provided(system.settings.config)
+    // Before anything runs a handler: every line a handler writes names its trace from here on.
+    TraceLogging.install()
     val registry = validate.fold(
       problems =>
         throw IllegalArgumentException(

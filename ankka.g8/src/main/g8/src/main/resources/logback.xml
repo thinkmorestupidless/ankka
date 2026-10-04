@@ -3,10 +3,12 @@
        deployed service that means the whole r2dbc wire protocol, row by row, on stdout. Found by
        reading this sample's logs in a real pod (feature 003). logback.xml rather than
        logback-test.xml, so it is what the packaged image uses; the testkit's own
-       logback-test.xml still wins under test, which is the order logback looks them up in. -->
+       logback-test.xml still wins under test, which is the order logback looks them up in.
+       A line a handler writes ends with the trace and span it belongs to, which is what lets a log
+       store join this service's logs to its traces; a line with neither ends as it always did. -->
   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
     <encoder>
-      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{30} - %msg%n</pattern>
+      <pattern>%d{HH:mm:ss.SSS} %-5level %logger{30} - %msg%replace( trace_id=%X{trace_id} span_id=%X{span_id}){' trace_id= span_id=\$', ''}%n</pattern>
     </encoder>
   </appender>
 

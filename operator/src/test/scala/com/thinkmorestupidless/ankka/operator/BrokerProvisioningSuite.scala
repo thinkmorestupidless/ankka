@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, TopicEntry}
+import com.thinkmorestupidless.ankka.operator.strimzi.{KafkaTopicStatus, StrimziCondition}
 
 import java.time.Instant
 
@@ -22,7 +23,7 @@ class BrokerProvisioningSuite extends munit.FunSuite:
 
   private def ready(at: Instant = later) =
     StrimziObjectState(exists = true, ready = Some(true), createdAt = Some(at))
-  private def topic(partitions: Int, state: StrimziObjectState = ready()) =
+  private def topic(partitions: Int, state: StrimziObjectState) =
     TopicState(state, Some(partitions))
 
   private def allReady(at: Instant = later) = BrokerObservation(
@@ -138,6 +139,32 @@ class BrokerProvisioningSuite extends munit.FunSuite:
     assertEquals(
       BrokerProvisioning.topicsToRender(fewer, broker, allReady()),
       Some(Vector(TopicEntry("wallet-events", 3)))
+    )
+  }
+
+  test("a condition about an earlier generation of a topic is not yet reported, which waits") {
+    val readyAt = (generation: Long) =>
+      Some(KafkaTopicStatus(Vector(StrimziCondition("Ready", "True")), Some(generation)))
+    // Asked for more partitions: the resource is at generation 2 and Strimzi still says Ready of 1.
+    val stale = StrimziObjectState.found(Some(2L), readyAt(1L), Some(later))
+    assertEquals(stale.ready, None)
+    assertEquals(
+      decide(
+        declaring.copy(topics =
+          List(TopicEntry("transactions", 24), TopicEntry("wallet-events", 3))
+        ),
+        allReady().copy(topics = allReady().topics.updated("money.transactions", topic(24, stale)))
+      ),
+      BrokerPlan.Waiting(Some("waiting for the broker to make topic 'money.transactions'"))
+    )
+    // Once Strimzi has acted on generation 2, its condition is read.
+    assertEquals(StrimziObjectState.found(Some(2L), readyAt(2L), Some(later)).ready, Some(true))
+    // A status that names no generation is taken as it is.
+    assertEquals(
+      StrimziObjectState
+        .found(Some(2L), Some(KafkaTopicStatus(Vector(StrimziCondition("Ready", "True")))), None)
+        .ready,
+      Some(true)
     )
   }
 

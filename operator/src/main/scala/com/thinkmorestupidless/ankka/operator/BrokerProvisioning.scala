@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.operator
 
 import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, TopicEntry}
+import com.thinkmorestupidless.ankka.operator.strimzi.StrimziStatus
 
 import java.time.Instant
 
@@ -56,6 +57,29 @@ final case class StrimziObjectState(
 
 object StrimziObjectState:
   val absent: StrimziObjectState = StrimziObjectState(exists = false)
+
+  /**
+   * An object that exists, as its status describes it. A condition about an earlier generation of
+   * the object says nothing about this one: the broker's operator has not yet acted on what was
+   * last applied — a topic asked for more partitions, say, still reads `Ready` from before — so it
+   * is read as not yet reported, which is waiting.
+   */
+  def found(
+      generation: Option[Long],
+      status: Option[StrimziStatus],
+      createdAt: Option[Instant]
+  ): StrimziObjectState =
+    val current = (generation, status.flatMap(_.observedGeneration)) match
+      case (Some(applied), Some(observed)) => observed >= applied
+      case _                               => true
+    val ready = status.filter(_ => current).flatMap(_.ready)
+    StrimziObjectState(
+      exists = true,
+      ready = ready.map(_.status == "True"),
+      reason = ready.flatMap(_.reason),
+      message = ready.flatMap(_.message),
+      createdAt = createdAt
+    )
 
 /** A topic as found: its state, and the partitions its resource asks for. */
 final case class TopicState(state: StrimziObjectState, partitions: Option[Int] = None)

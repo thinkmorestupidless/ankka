@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.operator.strimzi
 
 import com.fasterxml.jackson.annotation.{JsonIgnoreProperties, JsonInclude}
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import io.fabric8.kubernetes.api.model.{Namespaced, ObjectMetaBuilder}
 import io.fabric8.kubernetes.client.CustomResource
 import io.fabric8.kubernetes.model.annotation.{Group, Kind, Plural, Version}
@@ -48,6 +49,9 @@ final case class KafkaUserSpec(
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class KafkaUserStatus(
     conditions: Vector[StrimziCondition] = Vector.empty,
+    // Erasure hides an Option's element from Jackson, which reads the number as an Integer; the
+    // first comparison with a generation then fails to unbox it.
+    @JsonDeserialize(contentAs = classOf[java.lang.Long])
     observedGeneration: Option[Long] = None,
     /** The principal the broker knows the user as: `CN=<project>.<service>`. */
     username: Option[String] = None

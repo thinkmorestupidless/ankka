@@ -225,6 +225,11 @@ class BrokerRenderingSuite extends munit.FunSuite:
     assertEquals(now.map(_.describe), before.map(_.describe))
     assertEquals(containers(now).map(env), containers(before).map(env))
     assertEquals(commonName(now), None)
+    // A declared topic changes nothing either: with no broker there is nowhere to make it, and the
+    // status says so (BrokerProvisioningSuite).
+    val declared = actions(declaring, withoutBroker)
+    assertEquals(declared.map(_.describe), before.map(_.describe))
+    assertEquals(containers(declared).map(env), containers(before).map(env))
   }
 
   test("a topic is never rendered with fewer partitions than it has") {

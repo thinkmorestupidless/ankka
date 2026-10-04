@@ -95,6 +95,15 @@ class StrimziModelsSuite extends munit.FunSuite:
       )
     )
     assertEquals(status.observedGeneration, Some(3L))
+    // Read as a Long, as the operator compares it with the resource's generation: equality alone
+    // passes for a boxed Integer too.
+    assertEquals(status.observedGeneration.map(_ + 1L), Some(4L))
+    assertEquals(
+      com.thinkmorestupidless.ankka.operator.StrimziObjectState
+        .found(Some(4L), Some(status), None)
+        .ready,
+      None
+    )
   }
 
   test("a user's status names the principal the broker knows it as") {
@@ -103,6 +112,7 @@ class StrimziModelsSuite extends munit.FunSuite:
     val status = serialization.unmarshal(json, classOf[KafkaUserStatus])
     assertEquals(status.username, Some("CN=money.wallet"))
     assertEquals(status.ready.map(_.status), Some("True"))
+    assertEquals(status.observedGeneration.map(_ + 1L), Some(2L))
   }
 
   test("the identities are Strimzi's v1 kinds") {

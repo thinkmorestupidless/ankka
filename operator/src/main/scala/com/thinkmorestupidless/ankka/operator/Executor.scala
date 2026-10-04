@@ -626,13 +626,10 @@ final class Fabric8Executor(
       found match
         case None => StrimziObjectState.absent
         case Some(resource) =>
-          val ready = status.flatMap(_.ready)
-          StrimziObjectState(
-            exists = true,
-            ready = ready.map(_.status == "True"),
-            reason = ready.flatMap(_.reason),
-            message = ready.flatMap(_.message),
-            createdAt = parseTimestamp(resource.getMetadata.getCreationTimestamp)
+          StrimziObjectState.found(
+            Option(resource.getMetadata.getGeneration).map(_.longValue),
+            status,
+            parseTimestamp(resource.getMetadata.getCreationTimestamp)
           )
     // A cluster without Strimzi's resource types reads as nothing made yet, not as a failure.
     def get[A](read: => A): Option[A] =

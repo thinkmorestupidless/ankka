@@ -1,6 +1,11 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaSerialization, AnkkaService, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaSerialization,
+  AnkkaService,
+  AnkkaServiceSpec,
+  TopicEntry
+}
 import io.fabric8.kubernetes.api.model.{HasMetadata, ObjectMetaBuilder}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -62,7 +67,20 @@ class RenderingGoldenSuite extends munit.FunSuite:
     )
   )
 
-  cases.foreach { (name, spec, settings, plan) =>
+  /**
+   * A service with a declared topic, in an installation with a broker (feature 027): its user, its
+   * topic, its certificate's common name and the variables that tell it where the broker is.
+   */
+  private val brokerCases: Vector[(String, AnkkaServiceSpec, Settings, ProvisioningPlan)] = Vector(
+    (
+      "broker",
+      base.copy(topics = List(TopicEntry("orders", 3)), provisionDatabase = false),
+      Settings.default.copy(broker = Some(BrokerStack.settings)),
+      ProvisioningPlan.Supplied
+    )
+  )
+
+  (cases ++ brokerCases).foreach { (name, spec, settings, plan) =>
     test(s"what is rendered for '$name' is what was rendered before") {
       val rendered = render(spec, settings, plan)
       val file     = directory.resolve(s"$name.txt")
@@ -85,7 +103,8 @@ class RenderingGoldenSuite extends munit.FunSuite:
         .build()
     )
     resource.setSpec(spec)
-    Rendering.render(resource, settings, plan) match
+    val topics = BrokerProvisioning.topicsToRender(spec, settings.broker, BrokerObservation.empty)
+    Rendering.render(resource, settings, plan, topics) match
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
       case Right(actions) => actions.map(document).mkString("\n")
 
@@ -123,4 +142,6 @@ class RenderingGoldenSuite extends munit.FunSuite:
     case Action.EnsureIssuer(i)           => Some(i)
     case Action.EnsureNetworkPolicy(p)    => Some(p)
     case Action.EnsureBackendTlsPolicy(p) => Some(p)
+    case Action.EnsureKafkaUser(u)        => Some(u)
+    case Action.EnsureKafkaTopic(t)       => Some(t)
     case _                                => None

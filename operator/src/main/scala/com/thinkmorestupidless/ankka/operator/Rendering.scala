@@ -63,7 +63,13 @@ import io.fabric8.kubernetes.api.model.{
   VolumeBuilder,
   VolumeMountBuilder
 }
-import com.thinkmorestupidless.ankka.crd.{EnvEntry, Hostnames, AnkkaService, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{
+  EnvEntry,
+  Hostnames,
+  AnkkaService,
+  AnkkaServiceSpec,
+  TopicEntry
+}
 
 import scala.jdk.CollectionConverters.*
 
@@ -198,10 +204,22 @@ object Rendering:
   def render(
       resource: AnkkaService,
       settings: Settings,
-      databasePlan: ProvisioningPlan
+      databasePlan: ProvisioningPlan,
+      brokerTopics: Option[Vector[TopicEntry]] = None
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
+    // The installation's broker, when this service is known to it (`BrokerProvisioning.topicsToRender`
+    // decided): its user and topics are rendered, its certificate names it, and its runtime is told
+    // where the broker is. `None` renders exactly what was rendered before the broker existed.
+    val broker = for
+      topics   <- brokerTopics
+      settings <- settings.broker
+    yield (topics, settings)
+    val deployed = broker.fold(spec) { (_, b) =>
+      spec.copy(env = spec.env ++ StrimziRendering.environment(spec, b))
+    }
+    val commonName = broker.map(_ => BrokerNames.user(spec.projectId, spec.serviceName))
 
     val problems =
       Names.namespaceProblems(settings.namespacePrefix, spec.projectId) ++
@@ -230,11 +248,12 @@ object Rendering:
           identityActions(resource, spec, namespace) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
-          zeroTrustActions(resource, spec, namespace) :+
+          zeroTrustActions(resource, spec, namespace, commonName) ++
+          brokerActions(spec, broker) :+
           Action.ApplyDeployment(
             deployment(
               resource,
-              spec,
+              deployed,
               namespace,
               databasePlan,
               settings.sidecarImage,
@@ -324,10 +343,24 @@ object Rendering:
    * (feature 014) — before the Deployment, so the Secrets exist by the time a pod asks the kubelet
    * for them. A pod scheduled first waits on its volume and starts once cert-manager has issued.
    */
+  /**
+   * The service's user and the topics it declares, on the installation's broker (feature 027):
+   * before the Deployment, so the user is being made by the time the runtime first connects.
+   */
+  private def brokerActions(
+      spec: AnkkaServiceSpec,
+      broker: Option[(Vector[TopicEntry], BrokerSettings)]
+  ): Vector[Action] =
+    broker.toVector.flatMap { (topics, settings) =>
+      Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)) +:
+        topics.map(t => Action.EnsureKafkaTopic(StrimziRendering.topic(spec, t, settings)))
+    }
+
   private def zeroTrustActions(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      commonName: Option[String]
   ): Vector[Action] =
     val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
     // The HTTP policy, then the gRPC one: the order every hosting renders them in.
@@ -366,7 +399,9 @@ object Rendering:
       // others with, and the runtime's HTTP server starts in every ankka service, exposed or not.
       Vector(
         Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
-        Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
+        Action.EnsureCertificate(
+          ZeroTrust.serviceCertificate(resource, spec, namespace, commonName)
+        ),
         Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
       ) ++ http
 

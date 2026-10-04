@@ -18,6 +18,7 @@ import com.thinkmorestupidless.ankka.operator.cnpg.{
   PostgresDatabase,
   PostgresDatabaseRole
 }
+import com.thinkmorestupidless.ankka.operator.strimzi.{KafkaTopicResource, KafkaUserResource}
 
 /**
  * Something that should happen to the cluster, as a value.
@@ -138,6 +139,15 @@ enum Action:
   case EnsureDatabase(database: PostgresDatabase)
 
   /**
+   * A service's user on the installation's broker, with its permissions (feature 027). Server-side
+   * apply; idempotent. There is no action that removes one, or a topic.
+   */
+  case EnsureKafkaUser(user: KafkaUserResource)
+
+  /** A declared topic on the installation's broker. Server-side apply; idempotent. */
+  case EnsureKafkaTopic(topic: KafkaTopicResource)
+
+  /**
    * The schema `ConfigMap`, one per project namespace, mounted by every service's schema-init
    * container. Re-applied on every reconcile so a schema change reaches existing namespaces.
    */
@@ -204,6 +214,10 @@ enum Action:
       s"ensure database role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureDatabase(d) =>
       s"ensure database ${d.getMetadata.getNamespace}/${d.getMetadata.getName}"
+    case EnsureKafkaUser(u) =>
+      s"ensure kafka user ${u.getMetadata.getNamespace}/${u.getMetadata.getName}"
+    case EnsureKafkaTopic(t) =>
+      s"ensure kafka topic ${t.getMetadata.getNamespace}/${t.getMetadata.getName}"
     case EnsureSchemaConfig(cm) =>
       s"ensure schema config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
     case NoAction => "nothing to do"

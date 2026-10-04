@@ -55,6 +55,12 @@ trait Executor:
   def resourceCreatedAt(namespace: String, name: String): Option[Instant]
 
   /**
+   * What `BrokerProvisioning.decide` needs: the service's user and each of `topics`, by the name
+   * the broker holds it under, in the broker's namespace (feature 027).
+   */
+  def observeBroker(namespace: String, user: String, topics: Vector[String]): BrokerObservation
+
+  /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
    */
@@ -343,6 +349,18 @@ final class Fabric8Executor(
         role.getMetadata.getName
       )
 
+    case Action.EnsureKafkaUser(user) =>
+      val _ = client.resource(user).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug("ensured kafka user {}/{}", user.getMetadata.getNamespace, user.getMetadata.getName)
+
+    case Action.EnsureKafkaTopic(topic) =>
+      val _ = client.resource(topic).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured kafka topic {}/{}",
+        topic.getMetadata.getNamespace,
+        topic.getMetadata.getName
+      )
+
     case Action.EnsureDatabase(database) =>
       val _ =
         client.resource(database).fieldManager(FieldManager).forceConflicts().serverSideApply()
@@ -594,6 +612,48 @@ final class Fabric8Executor(
       roleHasPassword = role
         .flatMap(r => Option(r.getSpec))
         .exists(spec => !spec.disablePassword.contains(true))
+    )
+
+  override def observeBroker(
+      namespace: String,
+      user: String,
+      topics: Vector[String]
+  ): BrokerObservation =
+    def state(
+        found: Option[io.fabric8.kubernetes.api.model.HasMetadata],
+        status: => Option[com.thinkmorestupidless.ankka.operator.strimzi.StrimziStatus]
+    ): StrimziObjectState =
+      found match
+        case None => StrimziObjectState.absent
+        case Some(resource) =>
+          val ready = status.flatMap(_.ready)
+          StrimziObjectState(
+            exists = true,
+            ready = ready.map(_.status == "True"),
+            reason = ready.flatMap(_.reason),
+            message = ready.flatMap(_.message),
+            createdAt = parseTimestamp(resource.getMetadata.getCreationTimestamp)
+          )
+    // A cluster without Strimzi's resource types reads as nothing made yet, not as a failure.
+    def get[A](read: => A): Option[A] =
+      try Option(read)
+      catch case e: KubernetesClientException if e.getCode == 404 => None
+    val users = client
+      .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaUserResource])
+      .inNamespace(namespace)
+    val topicClient = client
+      .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaTopicResource])
+      .inNamespace(namespace)
+    val foundUser = get(users.withName(user).get())
+    BrokerObservation(
+      user = state(foundUser, foundUser.flatMap(u => Option(u.getStatus))),
+      topics = topics.map { name =>
+        val found = get(topicClient.withName(name).get())
+        name -> TopicState(
+          state(found, found.flatMap(t => Option(t.getStatus))),
+          found.flatMap(t => Option(t.getSpec)).map(_.partitions)
+        )
+      }.toMap
     )
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =

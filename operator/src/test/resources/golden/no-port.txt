@@ -502,6 +502,23 @@
         "port" : 7627,
         "protocol" : "TCP"
       } ]
+    }, {
+      "from" : [ {
+        "namespaceSelector" : {
+          "matchLabels" : {
+            "kubernetes.io/metadata.name" : "ankka-controlplane"
+          }
+        },
+        "podSelector" : {
+          "matchLabels" : {
+            "app.kubernetes.io/name" : "ankka-controlplane"
+          }
+        }
+      } ],
+      "ports" : [ {
+        "port" : 7628,
+        "protocol" : "TCP"
+      } ]
     } ],
     "podSelector" : {
       "matchLabels" : {
@@ -639,6 +656,10 @@
           }, {
             "containerPort" : 7627,
             "name" : "probe",
+            "protocol" : "TCP"
+          }, {
+            "containerPort" : 7628,
+            "name" : "observe",
             "protocol" : "TCP"
           } ],
           "readinessProbe" : {

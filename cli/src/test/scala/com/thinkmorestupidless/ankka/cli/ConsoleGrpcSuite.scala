@@ -25,6 +25,7 @@ final class ConsoleGrpcSuite extends FunSuite:
           """{"method":"GRPC","path":"shoppingcart.v1.CartService/GetCart","streaming":false}]}"""
       )
     def traces(name: String): Option[String]              = None
+    def topology(name: String): Option[QueryResponse]     = None
     def trace(name: String, id: String): Option[String]   = None
     def session(name: String, id: String): Option[String] = None
     def invoke(name: String, r: InvokeRequest): Option[InvokeResponse] =

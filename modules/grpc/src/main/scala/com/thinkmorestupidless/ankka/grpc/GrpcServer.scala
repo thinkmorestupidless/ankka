@@ -148,10 +148,14 @@ final class GrpcServer private (
             failure
           )
     server = Some(started)
-    served = endpoints.flatMap(_.methods.map { method =>
-      // A description for the local console, which lists a method and offers no way to call it.
-      ServedRoute("GRPC", method.fullName, streaming = method.kind != MethodKind.Unary)
-    })
+    served = endpoints.flatMap { endpoint =>
+      // A description for the local console, which lists a method and offers no way to call it,
+      // and for the topology, which draws an endpoint per service definition with its methods.
+      val id = ServedRoute.endpointId(endpoint.service.getName)
+      endpoint.methods.map { method =>
+        ServedRoute("GRPC", method.fullName, streaming = method.kind != MethodKind.Unary, id)
+      }
+    }
 
     endpoints.foreach(
       _.methods.foreach(method =>

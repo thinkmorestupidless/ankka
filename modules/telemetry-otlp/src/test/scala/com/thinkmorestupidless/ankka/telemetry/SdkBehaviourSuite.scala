@@ -83,8 +83,16 @@ class SdkBehaviourSuite extends munit.FunSuite with LogCapturing:
       provider.shutdown().join(5, TimeUnit.SECONDS)
       spans.shutdown().join(5, TimeUnit.SECONDS): Unit
 
+  /** Runs `body` with the SDK's loggers at `level`, putting back whatever they were. */
+  private def withSdkLoggers[A](level: Level)(body: => A): A =
+    val previous = sdkLoggers.map(name => name -> Logger.getLogger(name).getLevel)
+    sdkLoggers.foreach(Logger.getLogger(_).setLevel(level))
+    try body
+    finally previous.foreach((name, was) => Logger.getLogger(name).setLevel(was))
+
   test("left alone, the SDK reports a failed export: the capture below can see it") {
-    val (records, err) = captured(failToExport())
+    // At the SDK's own level, whatever an exporter started earlier in this JVM set it to.
+    val (records, err) = withSdkLoggers(Level.INFO)(captured(failToExport()))
     assert(
       records.nonEmpty || err.nonEmpty,
       "nothing was reported, so the next case proves nothing"
@@ -92,14 +100,12 @@ class SdkBehaviourSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("with its loggers off, the SDK reports nothing of a failed export") {
-    val previous = sdkLoggers.map(name => name -> Logger.getLogger(name).getLevel)
-    sdkLoggers.foreach(Logger.getLogger(_).setLevel(Level.OFF))
-    try
+    withSdkLoggers(Level.OFF) {
       val (records, err) = captured(failToExport())
       val fromSdk        = records.filter(_.getLoggerName.startsWith("io.opentelemetry"))
       assertEquals(fromSdk.map(_.getMessage), Vector.empty)
       assertEquals(err, "")
-    finally previous.foreach((name, level) => Logger.getLogger(name).setLevel(level))
+    }
   }
 
   test("an asynchronous counter is exported as a cumulative sum from a start that does not move") {

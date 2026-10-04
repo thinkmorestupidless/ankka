@@ -96,25 +96,26 @@ final class ServiceBuilder private[ankka] (
     private val descriptors: Vector[ComponentDescriptor],
     private val extensions: Vector[RuntimeExtension] = Vector.empty,
     private val conversation: Option[remote.Conversation] = None,
-    private val identityOverride: Option[Either[String, ServiceIdentity]] = None
+    private val identityOverride: Option[Either[String, ServiceIdentity]] = None,
+    private val wrapServices: ServiceClients => ServiceClients = scala.Predef.identity
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
-    ServiceBuilder(descriptors :+ descriptor, extensions, conversation, identityOverride)
+    ServiceBuilder(descriptors :+ descriptor, extensions, conversation, identityOverride, wrapServices)
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
-    ServiceBuilder(descriptors ++ more, extensions, conversation, identityOverride)
+    ServiceBuilder(descriptors ++ more, extensions, conversation, identityOverride, wrapServices)
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
   def withExtension(extension: RuntimeExtension): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions :+ extension, conversation, identityOverride)
+    ServiceBuilder(descriptors, extensions :+ extension, conversation, identityOverride, wrapServices)
 
   /**
    * Who the service is, stated outright rather than read from where it runs. For tests: a test kit
    * plays a deployed service, or a local one with a name, without a certificate or a variable.
    */
   private[ankka] def withIdentity(identity: Either[String, ServiceIdentity]): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, conversation, Some(identity))
+    ServiceBuilder(descriptors, extensions, conversation, Some(identity), wrapServices)
 
   /**
    * How remote descriptors (feature 009) reach the developer's process. Supplied by the sidecar; an
@@ -122,7 +123,21 @@ final class ServiceBuilder private[ankka] (
    * validation error, not a hang at first command.
    */
   def withConversation(conversation: remote.Conversation): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions, Some(conversation), identityOverride)
+    ServiceBuilder(descriptors, extensions, Some(conversation), identityOverride, wrapServices)
+
+  /**
+   * Wraps the service's client for other services before anything receives it. For a test that
+   * needs an outcome a machine without certificates cannot produce — an identity mismatch — and
+   * nothing else.
+   */
+  private[ankka] def withServices(wrap: ServiceClients => ServiceClients): ServiceBuilder =
+    ServiceBuilder(
+      descriptors,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices.andThen(wrap)
+    )
 
   /** Validates the definition without starting anything. */
   def validate: Either[Vector[String], ComponentRegistry] =
@@ -200,13 +215,16 @@ final class ServiceBuilder private[ankka] (
         )
     val secrets: SecretStore = DatabaseSecretStore(Database()(using system), secretKey)
 
+    // And the one client for other services that every component which may call one is given.
+    val services: ServiceClients = wrapServices(ServiceBuilder.LazyServices(system))
+
     registry.components.foreach {
       case descriptor: EventSourcedEntityDescriptor[?, ?, ?] =>
         initEventSourced(sharding, descriptor, componentClient)
       case descriptor: KeyValueEntityDescriptor[?, ?] =>
         initKeyValue(sharding, descriptor, componentClient)
       case descriptor: WorkflowDescriptor[?, ?] =>
-        initWorkflow(sharding, descriptor, componentClient, secrets)
+        initWorkflow(sharding, descriptor, componentClient, secrets, services)
       case descriptor: remote.RemoteKeyValueDescriptor =>
         val _ = sharding.init(
           Entity(EntityKeys.forComponent(descriptor.componentId)) { ctx =>
@@ -219,7 +237,8 @@ final class ServiceBuilder private[ankka] (
           sharding,
           remote.RemoteWorkflowHost.descriptor(descriptor, conversation.get, askTimeout),
           componentClient,
-          secrets
+          secrets,
+          services
         )
       case descriptor: remote.RemoteEventSourcedDescriptor =>
         // `conversation.get` is safe: `validate` refused the registry without one.
@@ -259,7 +278,8 @@ final class ServiceBuilder private[ankka] (
       extensions,
       conversation,
       secrets,
-      serviceIdentity
+      serviceIdentity,
+      services
     )
 
     // Extensions need a cluster member to bind to and a client to call through, so they
@@ -317,7 +337,8 @@ final class ServiceBuilder private[ankka] (
       sharding: ClusterSharding,
       descriptor: WorkflowDescriptor[?, ?],
       componentClient: ComponentClient,
-      secrets: SecretStore
+      secrets: SecretStore,
+      services: ServiceClients
   ): Unit =
     type AnyWorkflow = Workflow[Any]
     val typed = descriptor.asInstanceOf[WorkflowDescriptor[AnyWorkflow, Any]]
@@ -327,7 +348,8 @@ final class ServiceBuilder private[ankka] (
           typed,
           EntityId(ctx.entityId),
           componentClient,
-          secrets
+          secrets,
+          services
         )
       }
     )
@@ -393,15 +415,15 @@ final class AnkkaService private[ankka] (
      * Who this service is — what its topic sources' consumer groups are named for — or the sentence
      * saying why that could not be read. See `ServiceIdentity`.
      */
-    val identity: Either[String, ServiceIdentity] = Right(ServiceIdentity.unnamed)
+    val identity: Either[String, ServiceIdentity] = Right(ServiceIdentity.unnamed),
+    /**
+     * Other services, called as this one. Every component that may call one — an endpoint, a
+     * workflow's step, a consumer, a timed action, an agent — and the sidecar on behalf of a
+     * process is given this same one. Nothing behind it is built until the first call, since only a
+     * service that calls another needs it, and in a cluster it reads the service's certificate.
+     */
+    val services: ServiceClients = ServiceBuilder.noServices
 ):
-
-  /**
-   * Other services, called as this one (feature 014). Built on first use, since only a service that
-   * calls another needs it, and in a cluster it reads the service's certificate.
-   */
-  lazy val services: com.thinkmorestupidless.ankka.sdk.ServiceClients =
-    HttpServiceClients(system.settings.config, None, observability = Some(Observability(system)))
 
   /**
    * The names of the extensions this service runs — so one extension can say when another it relies
@@ -524,3 +546,21 @@ final class AnkkaService private[ankka] (
   def terminate(): Unit =
     Await.ready(extensionsStopped, Duration.Inf): Unit
     if ownsSystem then system.terminate()
+
+object ServiceBuilder:
+
+  /**
+   * The service's client for other services, built on its first call: `HttpServiceClients` reads
+   * the service's certificate in a cluster, and a service that calls nobody should not.
+   */
+  private[runtime] final class LazyServices(system: ActorSystem[?]) extends ServiceClients:
+    private lazy val clients: ServiceClients =
+      HttpServiceClients(system.settings.config, None, observability = Some(Observability(system)))
+    def apply(name: String): ServiceClient                  = clients(name)
+    def apply(project: String, name: String): ServiceClient = clients(project, name)
+
+  /** For a service built without one: every call says so. */
+  val noServices: ServiceClients = new ServiceClients:
+    def apply(name: String): ServiceClient = apply("", name)
+    def apply(project: String, name: String): ServiceClient =
+      throw IllegalStateException(s"no service client is configured; cannot call '$name'")

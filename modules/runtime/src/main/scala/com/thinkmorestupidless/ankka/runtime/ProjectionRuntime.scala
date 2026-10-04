@@ -121,7 +121,7 @@ final class ProjectionRuntime private (
         )
 
       views.foreach(startView(_, client))
-      consumers.foreach(startConsumer(_, client, service.secrets))
+      consumers.foreach(startConsumer(_, client, service.secrets, service.services))
 
       if remoteViews.nonEmpty || remoteConsumers.nonEmpty then
         // `validate` refused a registry holding remote descriptors without a conversation.
@@ -475,7 +475,8 @@ final class ProjectionRuntime private (
   private def startConsumer(
       descriptor: ConsumerDescriptor[?, ?, ?],
       client: ComponentClient,
-      secrets: SecretStore
+      secrets: SecretStore,
+      services: ServiceClients
   )(using system: ActorSystem[?]): Unit =
     type AnyConsumer = Consumer[Any, Any]
     val typed       = descriptor.asInstanceOf[ConsumerDescriptor[AnyConsumer, Any, Any]]
@@ -489,7 +490,15 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => ConsumerEventHandler(typed, publisher, client, Observability(system), secrets)
+            () =>
+              ConsumerEventHandler(
+                typed,
+                publisher,
+                client,
+                Observability(system),
+                secrets,
+                services
+              )
           )
         }
 
@@ -500,14 +509,22 @@ final class ProjectionRuntime private (
             ProjectionId(processName, s"${range.min}-${range.max}"),
             sourceId,
             range,
-            () => ConsumerStateHandler(typed, publisher, client, Observability(system), secrets)
+            () =>
+              ConsumerStateHandler(
+                typed,
+                publisher,
+                client,
+                Observability(system),
+                secrets,
+                services
+              )
           )
         }
 
       case ChangeSource.Topic(topic, _, startFrom) =>
         subscriber.foreach { broker =>
           val handler =
-            ConsumerTopicHandler(typed, publisher, client, Observability(system), secrets)
+            ConsumerTopicHandler(typed, publisher, client, Observability(system), secrets, services)
           // `validate` refused a consumer over a topic that declares nowhere.
           val start   = startFrom.getOrElse(StartFrom.Earliest)
           val version = typed.version.getOrElse(1)
@@ -841,13 +858,14 @@ private final class ConsumerEventHandler(
     publisher: Option[MessagePublisher],
     client: ComponentClient,
     observability: Observability,
-    secrets: SecretStore
+    secrets: SecretStore,
+    services: ServiceClients
 ) extends Handler[EventEnvelope[JournalRecord]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets))
+    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   def process(envelope: EventEnvelope[JournalRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(envelope.persistenceId)
@@ -875,13 +893,14 @@ private final class ConsumerStateHandler(
     publisher: Option[MessagePublisher],
     client: ComponentClient,
     observability: Observability,
-    secrets: SecretStore
+    secrets: SecretStore,
+    services: ServiceClients
 ) extends Handler[DurableStateChange[StateRecord]]:
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets))
+    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   def process(change: DurableStateChange[StateRecord]): Future[Done] =
     val subject = PersistenceId.extractEntityId(change.persistenceId)

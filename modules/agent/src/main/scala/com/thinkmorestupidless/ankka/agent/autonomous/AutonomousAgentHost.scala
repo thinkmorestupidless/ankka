@@ -13,7 +13,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   SpanOutcome,
   Trace
 }
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceClients}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.{ActorRef, Behavior, PostStop}
 import org.apache.pekko.cluster.sharding.typed.scaladsl.ClusterSharding
@@ -72,7 +72,8 @@ private[ankka] object AutonomousAgentHost:
       defaultModel: Option[ModelProvider],
       modelTimeout: FiniteDuration,
       judgments: Judgments,
-      secrets: SecretStore
+      secrets: SecretStore,
+      services: ServiceClients
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -84,7 +85,8 @@ private[ankka] object AutonomousAgentHost:
             instanceId,
             componentClient,
             defaultModel,
-            secrets
+            secrets,
+            services
           )
           val emit: Notification => Unit = n => self ! Emit(n)
           val model                      = descriptor.definition.model.orElse(defaultModel)

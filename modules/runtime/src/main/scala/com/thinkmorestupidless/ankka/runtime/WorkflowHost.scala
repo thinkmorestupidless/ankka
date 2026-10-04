@@ -55,7 +55,8 @@ private[ankka] object WorkflowHost:
       descriptor: WorkflowDescriptor[W, S],
       workflowId: EntityId,
       componentClient: ComponentClient,
-      secrets: SecretStore
+      secrets: SecretStore,
+      services: ServiceClients
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -63,7 +64,8 @@ private[ankka] object WorkflowHost:
           workflowId,
           descriptor.componentId,
           componentClient,
-          StepScope.stepsOnly(secrets)
+          StepScope.stepsOnly(secrets),
+          StepScope.stepsOnly(services)
         )
 
         // One instance for settings and the empty state. Command handling and step

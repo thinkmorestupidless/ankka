@@ -1,7 +1,12 @@
 package com.thinkmorestupidless.ankka.runtime
 
 import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
-import com.thinkmorestupidless.ankka.sdk.SecretStore
+import com.thinkmorestupidless.ankka.sdk.{
+  SecretStore,
+  ServiceClient,
+  ServiceClients,
+  ServiceResponse
+}
 
 /**
  * Whether the calling thread is running a workflow's step.
@@ -33,3 +38,26 @@ private[ankka] object StepScope:
     def put(name: String, value: String): Unit = { require(); underlying.put(name, value) }
     def get(name: String): Option[String]      = { require(); underlying.get(name) }
     def delete(name: String): Unit             = { require(); underlying.delete(name) }
+
+  /**
+   * Clients for other services that make a call only from inside a step. Obtaining one anywhere is
+   * harmless; a request made outside a step is refused, for the reason a secret is.
+   */
+  def stepsOnly(underlying: ServiceClients): ServiceClients = new ServiceClients:
+    def apply(name: String): ServiceClient                  = guarded(underlying(name))
+    def apply(project: String, name: String): ServiceClient = guarded(underlying(project, name))
+    private def guarded(client: ServiceClient): ServiceClient = new ServiceClient:
+      def target: String = client.target
+      def request(
+          method: String,
+          path: String,
+          body: Option[Array[Byte]],
+          contentType: Option[String],
+          headers: Seq[(String, String)]
+      ): ServiceResponse =
+        if !active then
+          throw CommandError(
+            "a workflow calls another service in a step, not in a command handler",
+            ErrorCode.BadRequest
+          )
+        client.request(method, path, body, contentType, headers)

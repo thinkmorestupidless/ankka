@@ -10,6 +10,7 @@ import { CheckoutLog } from "./checkoutLog.ts"
 import { CheckoutWorkflow } from "./checkoutWorkflow.ts"
 import { CartAssistant } from "./assistant.ts"
 import { ShoppingCartEndpoint } from "./endpoint.ts"
+import { CallingEndpoint } from "./calling.ts"
 
 /**
  * The whole inventory: registration is explicit, so nothing is discovered by scanning. The cart's graph
@@ -25,6 +26,7 @@ export function service() {
     .register(CheckoutWorkflow)
     .register(CartAssistant)
     .register(ShoppingCartEndpoint)
+    .register(CallingEndpoint)
   return process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS ? cart.register(CartGraph).register(CartContentsGraph) : cart
 }
 

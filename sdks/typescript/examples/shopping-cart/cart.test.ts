@@ -1,9 +1,12 @@
 // The cart's own tests: the entity through the unit testkit (no sidecar), and, with ANKKA_SLOW=1 and
 // Docker, the whole service through the real sidecar and a throwaway Postgres.
 import { test, describe } from "node:test"
+import { createServer as createHttpServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import assert from "node:assert/strict"
-import { done, type ComponentClient } from "ankka"
-import { AnkkaTestKit, ConsumerTestKit, EventSourcedTestKit, GraphConsumerTestKit, KeyValueTestKit } from "ankka/testkit"
+import { Ankka, done, ScriptedServices, type ComponentClient, type Services } from "ankka"
+import { AnkkaTestKit, ConsumerTestKit, EndpointTestKit, EventSourcedTestKit, GraphConsumerTestKit, KeyValueTestKit } from "ankka/testkit"
+import { CallingEndpoint } from "./calling.ts"
 import { CartGraph } from "./cartGraph.ts"
 import { CartContentsGraph } from "./cartContentsGraph.ts"
 import type { ShoppingCart } from "./domain.ts"
@@ -206,6 +209,50 @@ describe("the cart's graph, without a sidecar or a broker", () => {
     } finally {
       if (before === undefined) delete process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS
       else process.env.ANKKA_KAFKA_BOOTSTRAP_SERVERS = before
+    }
+  })
+})
+
+describe("calling another service, without a sidecar", () => {
+  test("the calling endpoint answers what the other service answered", async () => {
+    const scripted = new ScriptedServices()
+      .answer("carts", (request) => ScriptedServices.text(`you asked ${request.path}`))
+      .unresolvable("ledger")
+    class Scripted extends CallingEndpoint {
+      override get services(): Services {
+        return scripted
+      }
+    }
+    const kit = EndpointTestKit.of(Scripted)
+    assert.equal((await kit.get("/calling/call/carts")).text(), "you asked /callers/whoami")
+    assert.equal((await kit.get("/calling/call/carts", { query: { path: "/callers/orders-alone" } })).text(), "you asked /callers/orders-alone")
+    assert.equal((await kit.get("/calling/call/ledger")).status, 503)
+  })
+})
+
+describe("calling another service through the real sidecar", { skip: slow }, () => {
+  test("a call to another service goes through the sidecar to where it was told", async () => {
+    // The sidecar in its container is told where another service is as a Scala service would be
+    // (`ankka.local-services.<name>`, through `JAVA_OPTS`), and the call reaches a stand-in here.
+    const received: string[] = []
+    const standIn = createHttpServer((request, response) => {
+      received.push(request.url ?? "")
+      response.writeHead(200, { "Content-Type": "text/plain" }).end("the stand-in answered")
+    })
+    await new Promise<void>((r) => standIn.listen(0, "0.0.0.0", () => r()))
+    const address = `http://host.docker.internal:${(standIn.address() as AddressInfo).port}`
+    try {
+      const kit = await AnkkaTestKit.start(Ankka.service().register(CallingEndpoint), { env: { JAVA_OPTS: `-Dankka.local-services.carts=${address}` } })
+      try {
+        const answered = await kit.http.get("/calling/call/carts")
+        assert.deepEqual([answered.status, answered.text()], [200, "the stand-in answered"])
+        assert.deepEqual(received, ["/callers/whoami"])
+      } finally {
+        await kit.stop()
+      }
+    } finally {
+      standIn.closeAllConnections()
+      await new Promise<void>((r) => standIn.close(() => r()))
     }
   })
 })

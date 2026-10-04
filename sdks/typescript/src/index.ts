@@ -64,6 +64,11 @@ export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, po
 export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
 export { ComponentClient, Calls, TypedCalls, Invocation, Views, Timers, Secrets, InMemorySecrets, noSecrets, type TimerTarget, type ComponentRef } from "./client.ts"
 export {
+  Services, ServiceClient, ScriptedServices, noServices,
+  ServiceError, ServiceUnresolvable, ServiceIdentityMismatch, ServiceUnanswered, ServiceCallFailed,
+  type ServiceResponse, type ServiceRequest, type ServiceHeaders,
+} from "./services.ts"
+export {
   Ankka, ServiceBuilder, Registry, RegistrationError,
   type ServiceOptions, type RegisteredComponent, type RegisteredEndpoint, type Source,
   type RegisteredEventSourced, type RegisteredKeyValue, type RegisteredWorkflow, type RegisteredView, type RegisteredConsumer, type RegisteredTimedAction, type RegisteredAgent,

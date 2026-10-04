@@ -10,6 +10,7 @@ import type { Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { GuardrailRef, HandlerTable, ToolRef } from "./handlers.ts"
 import { AgentEffects } from "./effects/agent.ts"
+import { servicesFor, type Services } from "./services.ts"
 
 export abstract class Agent {
   readonly effects: AgentEffects = new AgentEffects()
@@ -42,6 +43,18 @@ export abstract class Agent {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #services: Services | undefined
+
+  /** Other services, called as this one, through the runtime: `this.services.service("orders")`. */
+  get services(): Services {
+    return this.#services ?? servicesFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.services = new ScriptedServices()`. */
+  set services(services: Services) {
+    this.#services = services
   }
 
   /** @internal */

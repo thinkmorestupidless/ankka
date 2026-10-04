@@ -7,6 +7,7 @@ import com.thinkmorestupidless.ankka.controlplane.application.*
 import com.thinkmorestupidless.ankka.controlplane.auth.{AuthConfig, DeployTokenIndex}
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
+  ProjectSecretWriter,
   RegistryWriter,
   ServiceProjector
 }
@@ -90,7 +91,9 @@ object ControlPlane:
        * cluster, as this call always has; a suite passes one that records which container it was
        * asked for.
        */
-      logs: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PodLogReader] = None
+      logs: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PodLogReader] = None,
+      /** Where a project secret's entries go; the projector too, for the same reasons. */
+      secrets: Option[ProjectSecretWriter] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -98,7 +101,7 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry),
+      clients => ProjectEndpoint(clients, acl, clock, registry, secrets),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -153,11 +156,27 @@ object ControlPlane:
     val server = (interface, port) match
       case (Some(host), Some(bindPort)) =>
         HttpServer.at(host, bindPort)(
-          endpoints(acl, deploy, auth, policy, tokens = tokens, registry = Some(projector))*
+          endpoints(
+            acl,
+            deploy,
+            auth,
+            policy,
+            tokens = tokens,
+            registry = Some(projector),
+            secrets = Some(projector)
+          )*
         )
       case _ =>
         HttpServer.of(
-          endpoints(acl, deploy, auth, policy, tokens = tokens, registry = Some(projector))*
+          endpoints(
+            acl,
+            deploy,
+            auth,
+            policy,
+            tokens = tokens,
+            registry = Some(projector),
+            secrets = Some(projector)
+          )*
         )
     val base = Ankka.service
       .registerAll(componentsWith(projector))

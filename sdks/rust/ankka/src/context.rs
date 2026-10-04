@@ -107,6 +107,7 @@ pub struct Context {
     entity_id: String,
     sequence: i64,
     metadata: Metadata,
+    secrets: bool,
 }
 
 impl Context {
@@ -123,7 +124,22 @@ impl Context {
             entity_id: entity_id.into(),
             sequence,
             metadata,
+            secrets: false,
         }
+    }
+
+    /// This context with the secret store: what the runtime builds for an endpoint, a workflow
+    /// step, a consumer, a timed action and an agent, and a test builds for one of those.
+    pub fn with_secrets(mut self) -> Context {
+        self.secrets = true;
+        self
+    }
+
+    /// The service's secret store, or `None` in an entity, a view and a workflow's command handler.
+    /// A read there would put a database call on a single-writer path, and a value read there is
+    /// one line away from an event or a state.
+    pub fn secrets(&self) -> Option<crate::secrets::Secrets> {
+        self.secrets.then(crate::secrets::Secrets::new)
     }
 
     /// The component handling the call.

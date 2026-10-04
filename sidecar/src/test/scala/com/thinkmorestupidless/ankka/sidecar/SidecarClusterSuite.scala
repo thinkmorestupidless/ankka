@@ -315,8 +315,12 @@ spec:
   /** A plain Postgres with the platform's DDL, as the service's supplied database. */
   private def deployPostgres(name: String = "postgres"): Unit =
     val ddl =
-      Vector("10-journal-postgres.sql", "20-projection-postgres.sql", "30-timers-postgres.sql")
-        .map(n => n -> new String(getClass.getResourceAsStream(s"/ankka/ddl/$n").readAllBytes()))
+      Vector(
+        "10-journal-postgres.sql",
+        "20-projection-postgres.sql",
+        "30-timers-postgres.sql",
+        "40-secrets-postgres.sql"
+      ).map(n => n -> new String(getClass.getResourceAsStream(s"/ankka/ddl/$n").readAllBytes()))
     val configMap = new io.fabric8.kubernetes.api.model.ConfigMapBuilder()
       .withMetadata(
         new ObjectMetaBuilder().withName(s"$name-ddl").withNamespace(Namespace).build()

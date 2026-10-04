@@ -87,6 +87,8 @@
   } ]
 }
 
+# ensure secret key ankka-checkout/cart-secret-key (create-if-absent)
+
 # ensure certificate ankka-checkout/cart-cluster
 {
   "apiVersion" : "cert-manager.io/v1",
@@ -400,6 +402,14 @@
           }, {
             "name" : "ANKKA_NAMESPACE_PREFIX",
             "value" : "ankka"
+          }, {
+            "name" : "ANKKA_SECRET_KEY",
+            "valueFrom" : {
+              "secretKeyRef" : {
+                "key" : "key",
+                "name" : "cart-secret-key"
+              }
+            }
           } ],
           "image" : "registry.example.com/acme/cart:1.4.2",
           "imagePullPolicy" : "IfNotPresent",

@@ -7,7 +7,6 @@ shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
 ## The platform
 
-
 ### service
 A set of components registered together and run as one.
 
@@ -72,7 +71,7 @@ A part of a component that the platform runs: a command, a step, a timed action'
 agent's handler. Each is declared with a name.
 
 ### command
-A handler that may change an entity's state.
+A handler that may change the state of an entity or of a workflow.
 
 ### topic
 A named stream of messages that a view or a consumer can read and a consumer can publish to.
@@ -149,7 +148,6 @@ settings.
 
 ## People
 
-
 ### developer
 A person building a service, who runs it on their own machine.
 
@@ -178,7 +176,6 @@ What the platform publishes for the people who build on it.
 A credential a machine holds to act as a member of an organization.
 
 ## Topology
-
 
 ### topology
 What a service says it is made of and how the parts are connected: its components,
@@ -288,7 +285,6 @@ Of a service: running in a project on the platform, not on a developer's machine
 
 ## gRPC
 
-
 ### gRPC
 A way of asking a service for something by calling a method of a service definition.
 A service serves gRPC when it has a gRPC endpoint that can be called; a descriptor declares gRPC
@@ -374,7 +370,6 @@ the service, whatever that endpoint's own ACL.
 
 ## Observability
 
-
 ### trace
 Everything the components of a service did for one request or one event, and how they were nested.
 
@@ -385,7 +380,6 @@ Something asked of a service from outside it, which an endpoint serves by one of
 Of a trace: what the rest of the trace was done for, and is nested under.
 
 ## Deploying
-
 
 ### local platform
 A platform on a developer's own machine.
@@ -425,7 +419,8 @@ made it.
 A named value the platform keeps for a project, which a descriptor's variable can be taken from.
 
 ### database
-Where the platform keeps what a service's entities, views and workflows know.
+Where the platform keeps what a service's entities, views and workflows know, and the service's
+secret store.
 
 ### logs
 What a service's instances printed.
@@ -448,8 +443,15 @@ Change how many instances a deployed service has.
 ### sample
 A service the platform publishes as an example, such as the shopping cart.
 
-## Web hosting
+### platform setting
+A variable the platform's own program reads. Some the platform alone sets, and a
+descriptor may not give them; the others a descriptor may give, and they are for the platform's
+program and never for the developer's: a process is not given them, and a module that asks for one
+is told that it is not set.
 
+Avoid: reserved variable, platform variable
+
+## Web hosting
 
 ### web hosting
 The hosting in which a service's image is any program that serves requests, run beside the
@@ -570,6 +572,46 @@ How long a service waits for an issuer to answer for its keys.
 A key that both signs and checks a token, so that anyone who can check it can also forge
 it. A service never accepts a token signed with one.
 
+## Secrets
+
+### secret store
+Where a service keeps its service secrets: in its database, and apart from everything
+its components know. It is not a component, and nothing a component records or a view is built
+from ever holds what is in it. An entity and a view are given none; every other component of the
+service keeps and reads through the same one.
+
+Avoid: vault
+
+### service secret
+A named value a service keeps in its secret store while it runs and reads back by that
+name, such as a credential a person gave it. The value is text, never empty, and no larger than
+the secret store's limit. It belongs to the one service that kept it; another
+service cannot read it. It is not a project secret, which a member sets before a service starts.
+
+Avoid: runtime secret
+
+### secret key
+What a service's secret store encrypts its service secrets with. Each service has its
+own. The platform makes one for a deployed service unless its descriptor gives one, and keeps it
+when the service is deleted; on a developer's machine the developer gives one. It is a platform
+setting. It is not an entry of a project secret, and it is not an issuer's keys.
+
+Avoid: encryption key, master key
+
+### encrypted
+Of a service secret as the database holds it: unreadable by anyone who does not have
+the service's secret key.
+
+### project secret
+A named set of entries the platform keeps for a project, which a descriptor's variable
+can be taken from. A member sets and removes its entries; the platform gives its values to a
+service's instances when they start and shows them to nobody. A project secret with no entry left
+is no longer listed.
+
+Avoid: static secret
+
+### entry
+One named value of a project secret. A descriptor's variable is taken from one entry.
 
 ## Everyday words
 
@@ -596,5 +638,8 @@ value, expired, valid, fetched, fetch, unreachable, been, has, had, having, rath
 problems, twice, attached, ignored, settings, its, their, this, these, those, it, them, they, of,
 and, or, a, an, the, to, in, on, by, as, at, up, down, so, if, everyone, while, when, again, go,
 going, do, done, fails, failed, failure, be, being, was, were, now, also, later, over, other's,
-issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less,
-first, installation's, organization's, type, admitted, asking, reachable
+issuers', service's, email, address, whether, dates, date, slow, arrive, arriving, well, less, first,
+installation's, organization's, type, admitted, asking, reachable, kept, keeping, remove, removes,
+removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger, rule, break, breaks,
+slash, holding, newly, exists, try, tries, there, such, present, record, recorded, delete, deleted,
+back

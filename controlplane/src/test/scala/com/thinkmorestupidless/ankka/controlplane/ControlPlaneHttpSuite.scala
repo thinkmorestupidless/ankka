@@ -10,7 +10,11 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
 }
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.auth.DeployTokenIndex
-import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, RegistryWriter}
+import com.thinkmorestupidless.ankka.controlplane.deploy.{
+  DeployConfig,
+  ProjectSecretWriter,
+  RegistryWriter
+}
 import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.runtime.ProjectionRuntime
 import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
@@ -72,6 +76,12 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     (projectId, server, username, password) =>
       cluster.ensurePullSecret(deployConfig.namespaceFor(projectId), server, username, password)
 
+  private lazy val secretWriter: ProjectSecretWriter = new ProjectSecretWriter:
+    def setEntries(projectId: String, name: String, entries: Map[String, String]): Unit =
+      cluster.setSecretEntries(deployConfig.namespaceFor(projectId), name, entries)
+    def removeEntry(projectId: String, name: String, entry: String): Unit =
+      cluster.removeSecretEntry(deployConfig.namespaceFor(projectId), name, entry)
+
   override def beforeAll(): Unit =
     val server = HttpServer.at("127.0.0.1", 0)(
       ControlPlane.endpoints(
@@ -81,7 +91,8 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
         clock = identity.clock,
         tokens = Some(tokens),
         registry = Some(registryWriter),
-        topology = Some(topologies)
+        topology = Some(topologies),
+        secrets = Some(secretWriter)
       )*
     )
     testKit = AnkkaTestKit.start(ControlPlane.components, Seq(ProjectionRuntime(), server, tokens))
@@ -656,6 +667,132 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
       )._1,
       400
     )
+  }
+
+  // ── a project's secrets (feature 023) ──────────────────────────────────
+
+  private def projectFor(org: String, project: String): Unit =
+    createOrganizationFor(org)
+    assertEquals(
+      send("POST", s"/projects/$project", Some(s"""{"name":"App","organizationId":"$org"}"""))._1,
+      204
+    )
+
+  private def setSecret(
+      project: String,
+      name: String,
+      entries: String,
+      token: Option[String] = Some(Token)
+  ) =
+    send(
+      "PUT",
+      s"/projects/$project/secrets/$name",
+      Some(s"""{"entries":{$entries}}"""),
+      token = token
+    )
+
+  test("a member sets a project secret, and its value goes only to the cluster") {
+    projectFor("sec-a", "sec-a-app")
+    val (status, body) = setSecret("sec-a-app", "checkout", """"STRIPE_KEY":"sk_live_1"""")
+    assertEquals(status, 204, body)
+    assertEquals(
+      cluster.projectSecret("ankka-sec-a-app", "checkout"),
+      Some(Map("STRIPE_KEY" -> "sk_live_1"))
+    )
+    // Listed at once, from the project's own record: no projection to wait for.
+    val (listed, listing) = send("GET", "/projects/sec-a-app/secrets")
+    assertEquals(listed, 200, listing)
+    assert(listing.contains("\"name\":\"checkout\""), listing)
+    assert(listing.contains("\"entries\":[\"STRIPE_KEY\"]"), listing)
+    assert(!listing.contains("sk_live_1"), s"a value came back: $listing")
+  }
+
+  test("setting an entry keeps the other entries of the project secret") {
+    assertEquals(setSecret("sec-a-app", "checkout", """"WEBHOOK_KEY":"whsec_1"""")._1, 204)
+    // In the cluster itself: an endpoint that replaced the Secret would lose STRIPE_KEY here.
+    assertEquals(
+      cluster.projectSecret("ankka-sec-a-app", "checkout"),
+      Some(Map("STRIPE_KEY" -> "sk_live_1", "WEBHOOK_KEY" -> "whsec_1"))
+    )
+    val (_, listing) = send("GET", "/projects/sec-a-app/secrets")
+    assert(listing.contains("\"entries\":[\"STRIPE_KEY\",\"WEBHOOK_KEY\"]"), listing)
+  }
+
+  test("a member removes an entry of a project secret") {
+    assertEquals(send("DELETE", "/projects/sec-a-app/secrets/checkout?entry=WEBHOOK_KEY")._1, 204)
+    assertEquals(
+      cluster.projectSecret("ankka-sec-a-app", "checkout"),
+      Some(Map("STRIPE_KEY" -> "sk_live_1"))
+    )
+    val (_, listing) = send("GET", "/projects/sec-a-app/secrets")
+    assert(listing.contains("\"entries\":[\"STRIPE_KEY\"]"), listing)
+  }
+
+  test("removing an entry that was never set changes nothing") {
+    val writes = cluster.projectSecretWrites
+    assertEquals(send("DELETE", "/projects/sec-a-app/secrets/checkout?entry=MISSING")._1, 404)
+    assertEquals(cluster.projectSecretWrites, writes, "the cluster must not be touched")
+  }
+
+  test(
+    "a project secret whose last entry is removed is no longer listed, and is listed again when set"
+  ) {
+    assertEquals(send("DELETE", "/projects/sec-a-app/secrets/checkout?entry=STRIPE_KEY")._1, 204)
+    assertEquals(send("GET", "/projects/sec-a-app/secrets")._2, "[]")
+    // The Secret stays in the cluster, empty: the grant has no delete.
+    assertEquals(
+      cluster.projectSecret("ankka-sec-a-app", "checkout"),
+      Some(Map.empty[String, String])
+    )
+    assertEquals(setSecret("sec-a-app", "checkout", """"NEW_KEY":"n1"""")._1, 204)
+    assertEquals(cluster.projectSecret("ankka-sec-a-app", "checkout"), Some(Map("NEW_KEY" -> "n1")))
+    assert(send("GET", "/projects/sec-a-app/secrets")._2.contains("\"entries\":[\"NEW_KEY\"]"))
+  }
+
+  test("a project secret may not take a name the platform uses, and nothing reaches the cluster") {
+    val writes = cluster.projectSecretWrites
+    for name <- Vector("ankka-registry", "cart-db", "cart-secret-key", "cart-cluster-tls") do
+      val (status, body) = setSecret("sec-a-app", name, """"K":"v"""")
+      assertEquals(status, 400, s"$name: $body")
+      assert(body.contains("one the platform uses"), body)
+    assertEquals(cluster.projectSecretWrites, writes)
+  }
+
+  test("a project secret the platform could not keep is not recorded") {
+    projectFor("sec-b", "sec-b-app")
+    cluster.refuseSecrets()
+    try
+      val (status, body) = setSecret("sec-b-app", "checkout", """"K":"v"""")
+      assertEquals(status, 503, body)
+    finally cluster.allowSecrets()
+    assertEquals(send("GET", "/projects/sec-b-app/secrets")._2, "[]")
+  }
+
+  test("a machine holding a deploy token sets, removes and lists a project secret") {
+    projectFor("sec-c", "sec-c-app")
+    val token =
+      Some(secretOf(send("POST", "/organizations/sec-c/tokens", Some("""{"label":"ci"}"""))._2))
+    assertEquals(setSecret("sec-c-app", "checkout", """"A":"1","B":"2"""", token)._1, 204)
+    assertEquals(
+      send("DELETE", "/projects/sec-c-app/secrets/checkout?entry=B", token = token)._1,
+      204
+    )
+    val (status, listing) = send("GET", "/projects/sec-c-app/secrets", token = token)
+    assertEquals(status, 200)
+    assert(listing.contains("\"setBy\":\"ci\""), listing)
+  }
+
+  test("a person who is not a member is told there is no such project") {
+    projectFor("sec-d", "sec-d-app")
+    val stranger = Some(identity.token("stranger", Some("stranger@example.test")))
+    for (status, body) <- Vector(
+        setSecret("sec-d-app", "checkout", """"K":"v"""", stranger),
+        send("DELETE", "/projects/sec-d-app/secrets/checkout?entry=K", token = stranger),
+        send("GET", "/projects/sec-d-app/secrets", token = stranger)
+      )
+    do
+      assertEquals(status, 404, body)
+      assert(body.contains("no such project"), body)
   }
 
   // ── a project's registry (feature 013) ─────────────────────────────────

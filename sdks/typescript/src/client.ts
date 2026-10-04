@@ -4,7 +4,7 @@
 // mapped port after construction. A client handed to a handler is scoped to that request's metadata,
 // so the sidecar records the call as a child span.
 
-import { createClient, type Client as ConnectClient, type Transport } from "@connectrpc/connect"
+import { Code, ConnectError, createClient, type Client as ConnectClient, type Transport } from "@connectrpc/connect"
 import { createGrpcTransport } from "@connectrpc/connect-node"
 import { Client } from "./_proto/ankka/protocol/v1/client_pb.ts"
 import type { Payload, ErrorCode as ProtoErrorCode } from "./_proto/ankka/protocol/v1/payload_pb.ts"
@@ -230,6 +230,127 @@ export class Timers {
   }
 }
 
+// ── The secret store (protocol 1.6) ───────────────────────────────────────────
+
+const SECRETS_SINCE = "1.6"
+export const MAX_SECRET_NAME_LENGTH = 253
+export const MAX_SECRET_VALUE_BYTES = 65536
+const SECRET_NAME_RULE = `a secret's name is 1 to ${MAX_SECRET_NAME_LENGTH} characters, each a letter, a digit, '.', '_', '-' or '/'`
+const VALID_SECRET_NAME = new RegExp(`^[A-Za-z0-9._/-]{1,${MAX_SECRET_NAME_LENGTH}}$`)
+
+/** What is wrong with a secret's name, if anything: the runtime's own rule. */
+export function secretNameProblem(name: string): string | undefined {
+  if (VALID_SECRET_NAME.test(name)) return undefined
+  const shown = name.length > 40 ? `${name.slice(0, 40)}…` : name
+  return `${SECRET_NAME_RULE}; "${shown}" is not`
+}
+
+/** What is wrong with a secret's value, if anything. Never quotes the value. */
+export function secretValueProblem(value: string): string | undefined {
+  if (value === "") return "a secret's value must not be empty"
+  const size = new TextEncoder().encode(value).length
+  return size > MAX_SECRET_VALUE_BYTES ? `a secret's value is at most ${MAX_SECRET_VALUE_BYTES} bytes as UTF-8; this one is ${size}` : undefined
+}
+
+function tooOld(failure: unknown): never {
+  if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+    throw new CommandError({
+      message: `the runtime beside this process does not offer the secret store, which needs protocol ${SECRETS_SINCE}: ${failure.rawMessage}`,
+      code: "INTERNAL",
+    })
+  }
+  throw failure
+}
+
+/**
+ * The service's secret store: named text values the runtime keeps in the service's own database,
+ * encrypted with a key this process never sees. Offered to endpoints, workflow steps, consumers,
+ * timed actions and agents; an entity and a view have no `secrets` at all.
+ *
+ * Every refusal is a `CommandError` with the runtime's code: `BAD_REQUEST` for a name or a value that
+ * breaks its rule, `INTERNAL` when the service has no secret key or a value was kept with another
+ * one, `UNAVAILABLE` when the database cannot be reached.
+ */
+export class Secrets {
+  readonly #client: ComponentClient | undefined
+
+  /** The store reached through `client`'s sidecar; with none, every call throws. */
+  constructor(client?: ComponentClient) {
+    this.#client = client
+  }
+
+  #stub(): ConnectClient<typeof Client> {
+    const connection = this.#client ? connectionOf.get(this.#client) : undefined
+    if (!connection) throw new Error("this secret store is not connected to a runtime; a unit test passes an InMemorySecrets")
+    return stubOf(connection)
+  }
+
+  /** Keeps `value` under `name`, replacing what was there. */
+  async put(name: string, value: string): Promise<void> {
+    const reply = await this.#stub().putSecret({ name, value }).catch(tooOld)
+    if (reply.error) throw new CommandError(errorOf(reply.error))
+  }
+
+  /** The value kept under `name`, or `undefined` when there is none. Never an empty string. */
+  async get(name: string): Promise<string | undefined> {
+    const reply = await this.#stub().getSecret({ name }).catch(tooOld)
+    switch (reply.result.case) {
+      case "value":
+        return reply.result.value
+      case "absent":
+        return undefined
+      case "error":
+        throw new CommandError(errorOf(reply.result.value))
+      default:
+        throw new CommandError({ message: "the runtime answered a secret's read with nothing", code: "INTERNAL" })
+    }
+  }
+
+  /** Removes what is kept under `name`. Removing nothing is not an error. */
+  async delete(name: string): Promise<void> {
+    const reply = await this.#stub().deleteSecret({ name }).catch(tooOld)
+    if (reply.error) throw new CommandError(errorOf(reply.error))
+  }
+}
+
+/** A secret store for unit tests: a map, applying the runtime's rules with its words. */
+export class InMemorySecrets extends Secrets {
+  readonly values = new Map<string, string>()
+
+  override async put(name: string, value: string): Promise<void> {
+    const problem = secretNameProblem(name) ?? secretValueProblem(value)
+    if (problem) throw new CommandError({ message: problem, code: "BAD_REQUEST" })
+    this.values.set(name, value)
+  }
+
+  override async get(name: string): Promise<string | undefined> {
+    const problem = secretNameProblem(name)
+    if (problem) throw new CommandError({ message: problem, code: "BAD_REQUEST" })
+    return this.values.get(name)
+  }
+
+  override async delete(name: string): Promise<void> {
+    const problem = secretNameProblem(name)
+    if (problem) throw new CommandError({ message: problem, code: "BAD_REQUEST" })
+    this.values.delete(name)
+  }
+}
+
+/** A store for unit tests whose every call throws: the unit kit's default, beside `noClient()`. */
+export function noSecrets(): Secrets {
+  return new Secrets(undefined)
+}
+
+const connectionOf = new WeakMap<ComponentClient, Connection>()
+
+/**
+ * @internal The secret store reached through `client`'s sidecar. Not a member of the client, which
+ * an entity holds too: only the component kinds that may have a store call this.
+ */
+export function secretsFor(client: ComponentClient): Secrets {
+  return new Secrets(client)
+}
+
 export class ComponentClient {
   readonly #connection: Connection
   readonly #metadata: Metadata
@@ -241,6 +362,7 @@ export class ComponentClient {
     this.#metadata = metadata
     this.views = new Views(this.#connection, metadata)
     this.timers = new Timers(this.#connection)
+    connectionOf.set(this, this.#connection)
   }
 
   /** Points every client sharing this connection at a new sidecar address (the integration testkit's mapped port). */

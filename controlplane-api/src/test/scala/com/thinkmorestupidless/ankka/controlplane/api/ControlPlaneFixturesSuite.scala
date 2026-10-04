@@ -188,6 +188,21 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       SetRegistry("ghcr.io", "robot", "password"),
       SetRegistry("ghcr.io", "robot", "password")
     ),
+    fixture(
+      "SetProjectSecret",
+      SetProjectSecret(Map("STRIPE_KEY" -> "sk_live_1", "WEBHOOK_KEY" -> "whsec_1")),
+      SetProjectSecret(Map("STRIPE_KEY" -> "sk_live_1"))
+    ),
+    fixture(
+      "ProjectSecretSummary",
+      ProjectSecretSummary(
+        "checkout",
+        Vector("STRIPE_KEY", "WEBHOOK_KEY"),
+        Some(at),
+        Some("Olive Owner")
+      ),
+      ProjectSecretSummary("checkout", Vector("STRIPE_KEY"))
+    ),
     fixture("Rename", Rename("New name"), Rename("New name")),
     fixture("Invite", Invite("new@example.com", Role.Owner), Invite("new@example.com")),
     fixture("RoleChange", RoleChange(Role.Owner), RoleChange(Role.Member)),

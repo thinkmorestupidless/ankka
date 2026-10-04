@@ -4,6 +4,7 @@ description: Write, change or test an ankka workflow (a durable multi-step proce
 pages:
   - build/workflows.md
   - build/timers.md
+  - build/secrets.md
   - build/component-client.md
   - build/multi-agent-orchestration.md
   - concepts/consistency.md

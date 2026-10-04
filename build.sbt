@@ -401,6 +401,12 @@ lazy val operator = project
     // build failure that has nothing to do with what changed.
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.operator.Main"),
     libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test),
+    // The one declaration of which variables are the platform's lives in `core`, read there by the
+    // control plane and the sidecar. The operator compiles the same file rather than depending on
+    // `core`, so "its only ankka dependency is the resource contract" stays a build-level fact. The
+    // file imports nothing outside the standard library; `PlatformDeclarationSuite` holds both.
+    Compile / unmanagedSources += (core / Compile / scalaSource).value /
+      "com/thinkmorestupidless/ankka/core/PlatformVariables.scala",
     // Named, not discovered: the control plane and the sidecar take this module's test classes, and
     // a logback-test.xml here would be a second one beside ankka-testkit's in both.
     Test / javaOptions += "-Dlogback.configurationFile=logback-operator-test.xml",

@@ -13,8 +13,10 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.5`, carried in discovery by both sides and checked by the sidecar.
-It is written once for code in `controlplane-api` (`Protocol.version`) and once here.
+The protocol version is `1.6`, carried in discovery by both sides and checked by the sidecar.
+It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
+the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
+same names for a module.
 
 `MAJOR.MINOR`. Within a major:
 

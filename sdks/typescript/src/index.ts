@@ -62,7 +62,7 @@ export {
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
 export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
-export { ComponentClient, Calls, TypedCalls, Invocation, Views, Timers, type TimerTarget, type ComponentRef } from "./client.ts"
+export { ComponentClient, Calls, TypedCalls, Invocation, Views, Timers, Secrets, InMemorySecrets, noSecrets, type TimerTarget, type ComponentRef } from "./client.ts"
 export {
   Ankka, ServiceBuilder, Registry, RegistrationError,
   type ServiceOptions, type RegisteredComponent, type RegisteredEndpoint, type Source,

@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane.api
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonValueCodec, JsonWriter}
-import com.thinkmorestupidless.ankka.core.Codecs
+import com.thinkmorestupidless.ankka.core.{Codecs, PlatformVariables}
 
 /**
  * A service's desired state.
@@ -248,19 +248,20 @@ final case class ServiceSpec(
     // resolved in favour of one of them.
     val portEnvProblems =
       Option
-        .when(env.exists(_.name == ServiceSpec.PortEnvVar))(
-          s"env var '${ServiceSpec.PortEnvVar}' conflicts with the service port; " +
+        .when(env.exists(_.name == PlatformVariables.HttpPort))(
+          s"env var '${PlatformVariables.HttpPort}' conflicts with the service port; " +
             "declare the port instead"
         )
         .toVector
     // The same rule for the variables that tell a node where it is running and how to find its
     // peers: the platform sets them, and a descriptor that sets them too is two sources of truth
-    // for one fact — refused, not resolved in favour of one of them.
+    // for one fact — refused, not resolved in favour of one of them. The port has its own message
+    // above, because it has a field to point the user at.
     val platformEnvProblems =
       env
         .filter(e =>
-          ServiceSpec.PlatformEnvVars.contains(e.name) || ServiceSpec.SidecarEnvVars
-            .contains(e.name) || ServiceSpec.WasmEnvVars.contains(e.name)
+          PlatformVariables.platformOnly(e.name) &&
+            e.name != PlatformVariables.HttpPort && e.name != PlatformVariables.GrpcPort
         )
         .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
     // Any hosting: a Secret the platform issued holds a certificate's key or an authority's, and a
@@ -307,8 +308,8 @@ final case class ServiceSpec(
           )
           .toVector ++
         Option
-          .when(env.exists(_.name == ServiceSpec.GrpcPortEnvVar))(
-            s"env var '${ServiceSpec.GrpcPortEnvVar}' conflicts with the service grpcPort; " +
+          .when(env.exists(_.name == PlatformVariables.GrpcPort))(
+            s"env var '${PlatformVariables.GrpcPort}' conflicts with the service grpcPort; " +
               "declare the grpcPort instead"
           )
           .toVector ++
@@ -356,7 +357,7 @@ final case class ServiceSpec(
           .toVector
       val reservedProblems =
         env
-          .filter(e => ServiceSpec.WebEnvVars.contains(e.name))
+          .filter(e => PlatformVariables.WebOnly.contains(e.name))
           .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
       val databaseProblems =
         env
@@ -390,31 +391,11 @@ object ServiceSpec:
    */
   val DefaultPort: Int = 9000
 
-  /** What the runtime reads its port from, and what the operator therefore injects. */
-  val PortEnvVar: String = "ANKKA_HTTP_PORT"
-
   /** `ankka.grpc.port`'s default in `modules/grpc`'s `reference.conf`. Adopted, not chosen. */
   val DefaultGrpcPort: Int = 9090
 
-  /** What the runtime reads its gRPC port from, and what the operator therefore injects. */
-  val GrpcPortEnvVar: String = "ANKKA_GRPC_PORT"
-
-  /**
-   * What the platform tells a deployed node about where it is running (feature 004). Set by the
-   * operator on every workload; a descriptor may not set them. `ANKKA_HTTP_PORT` has its own rule
-   * above, with its own message, because it has a field to point the user at.
-   */
-  val PlatformEnvVars: Set[String] = Set(
-    "ANKKA_CLUSTER_MODE",
-    "POD_IP",
-    "ANKKA_CLUSTER_SERVICE",
-    "ANKKA_CLUSTER_POD_SELECTOR",
-    "ANKKA_CLUSTER_CONTACT_POINTS",
-    // How a project id becomes a namespace, which a service calling another by name relies on
-    // (feature 014). A descriptor that set it could point its calls at another installation's
-    // naming, so it is the platform's like the rest.
-    "ANKKA_NAMESPACE_PREFIX"
-  )
+  // Which variables are the platform's is `core`'s `PlatformVariables`, read here, by the operator
+  // and by the module host alike; this object holds no list of its own.
 
   val Embedded: String = "embedded"
   val Process: String  = "process"
@@ -435,9 +416,6 @@ object ServiceSpec:
   /** The ports a web-hosted service's proxy listens on besides the service's own. */
   val ProxyPorts: Set[Int] = Set(7627, 7630)
 
-  /** What the platform tells a web-hosted service's program: where to listen, where to call. */
-  val WebEnvVars: Set[String] = Set("PORT", "ANKKA_SERVICES_URL")
-
   /**
    * The Secrets the platform issues into a project's namespace: a workload's certificates, and its
    * project database's own authorities and certificates. No descriptor of any hosting may read one
@@ -453,41 +431,6 @@ object ServiceSpec:
   def isPlatformSecret(name: String): Boolean =
     PlatformSecretSuffixes.exists(name.endsWith) || name == PlatformSecretPrefix ||
       name.startsWith(PlatformSecretPrefix + "-")
-
-  /**
-   * How the runtime finds and sizes a module (feature 016). The operator sets the module's path;
-   * the other two are the runtime's own tuning, not a descriptor's to set.
-   */
-  val WasmEnvVars: Set[String] =
-    Set("ANKKA_WASM_MODULE", "ANKKA_WASM_INSTANCES", "ANKKA_WASM_MAX_MEMORY_PAGES")
-
-  /**
-   * How the sidecar and the process find each other (feature 009). The operator sets them on the
-   * two containers; a descriptor may not.
-   */
-  val SidecarEnvVars: Set[String] = Set(
-    "ANKKA_PROCESS_PORT",
-    "ANKKA_PROCESS_ADDRESS",
-    "ANKKA_SIDECAR_PORT",
-    "ANKKA_SIDECAR_ADDRESS",
-    "ANKKA_SIDECAR_BIND"
-  )
-
-  /**
-   * A descriptor's variables that belong on the sidecar rather than the process: a model's key and
-   * configuration, because the sidecar runs the agent loop and the process never calls a model.
-   * Prefixes, matched by the operator when it splits the environment. The issuers a service accepts
-   * tokens from are the sidecar's too: it verifies, and the process never holds a keys URL it
-   * cannot use (feature 022).
-   */
-  val SidecarEnvPrefixes: Vector[String] =
-    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
-
-  /**
-   * A descriptor's variables that both containers of a process-hosted service are given: the
-   * broker's. The sidecar connects to it, and the process may want to know there is one.
-   */
-  val SharedEnvPrefixes: Vector[String] = Vector("ANKKA_KAFKA_")
 
 /**
  * A container environment variable, either literal or drawn from a secret.
@@ -1211,6 +1154,73 @@ object Registries:
       if password.isEmpty then Vector("registry password must not be empty") else Vector.empty
     serverProblems ++ usernameProblems ++ passwordProblems
 
+// ── Project secrets (feature 023) ────────────────────────────────────────────
+
+/**
+ * `PUT /projects/{id}/secrets/{name}`: entries of a project secret, merged into what it holds. The
+ * values cross the wire once, under TLS, and appear in no reply and no journal: they are written to
+ * a Kubernetes Secret in the project's namespace, and the control plane records only their names.
+ */
+final case class SetProjectSecret(entries: Map[String, String])
+
+/** What a reader is told about a project secret: its entries' names, never a value. */
+final case class ProjectSecretSummary(
+    name: String,
+    entries: Vector[String],
+    setAt: Option[java.time.Instant] = None,
+    /** A display label, as everywhere else in this API — never a subject key. */
+    setBy: Option[String] = None
+)
+
+/** What is wrong with a project secret, checked identically by the CLI and the server. */
+object ProjectSecrets:
+
+  val MaxNameLength: Int = 253
+  val MaxValueBytes: Int = 65536
+  val ReservedPrefix     = "ankka-"
+  val ReservedSuffixes =
+    Vector("-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key")
+  private val ValidName  = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
+  private val ValidEntry = """[A-Za-z0-9._-]+""".r
+
+  /** What is wrong with a project secret's name, if anything. */
+  def nameProblems(name: String): Vector[String] =
+    if name.isEmpty then Vector("a project secret needs a name")
+    else if name.length > MaxNameLength || !ValidName.matches(name) then
+      Vector(
+        s"project secret name '$name' must be lowercase letters, digits, '-' and '.', begin and " +
+          s"end with a letter or digit, and be at most $MaxNameLength characters"
+      )
+    else if name.startsWith(ReservedPrefix) || ReservedSuffixes.exists(name.endsWith) then
+      Vector(
+        s"project secret name '$name' is one the platform uses for its own Secrets in a project " +
+          s"(names beginning '$ReservedPrefix' or ending ${ReservedSuffixes.mkString("'", "', '", "'")})"
+      )
+    else Vector.empty
+
+  /** What is wrong with an entry's name, if anything. */
+  def entryProblems(entry: String): Vector[String] =
+    if entry.isEmpty || entry.length > MaxNameLength || !ValidEntry.matches(entry) then
+      Vector(
+        s"entry name '$entry' must be 1 to $MaxNameLength letters, digits, '.', '_' or '-'"
+      )
+    else Vector.empty
+
+  /** Everything wrong with setting `entries` on `name`, all at once. Never quotes a value. */
+  def problems(name: String, entries: Map[String, String]): Vector[String] =
+    val noEntries =
+      if entries.isEmpty then Vector("a project secret is set with at least one entry")
+      else Vector.empty
+    val entryNames = entries.keys.toVector.sorted.flatMap(entryProblems)
+    val values = entries.toVector.sortBy(_._1).flatMap { (entry, value) =>
+      val bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
+      if value.isEmpty then Vector(s"entry '$entry' must not be empty")
+      else if bytes > MaxValueBytes then
+        Vector(s"entry '$entry' is at most $MaxValueBytes bytes as UTF-8; it is $bytes")
+      else Vector.empty
+    }
+    nameProblems(name) ++ noEntries ++ entryNames ++ values
+
 /**
  * What is wrong with a create request, all at once, checked identically by the CLI and the server.
  */
@@ -1283,4 +1293,8 @@ object Wire:
   given tokenSummaryCodec: JsonValueCodec[DeployTokenSummary] = Codecs.make[DeployTokenSummary]
   given tokensCodec: JsonValueCodec[Vector[DeployTokenSummary]] =
     Codecs.make[Vector[DeployTokenSummary]]
-  given setRegistryCodec: JsonValueCodec[SetRegistry] = Codecs.make[SetRegistry]
+  given setRegistryCodec: JsonValueCodec[SetRegistry]            = Codecs.make[SetRegistry]
+  given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
+  given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
+  given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =
+    Codecs.make[Vector[ProjectSecretSummary]]

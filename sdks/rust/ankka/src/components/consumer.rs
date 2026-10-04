@@ -97,7 +97,7 @@ impl<C: Consumer> Registered for Registration<C> {
     }
 
     fn consumer(&self, request: proto::ConsumerRequest) -> Option<proto::ConsumerEffect> {
-        let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref());
+        let ctx = change_context(C::COMPONENT_ID, request.metadata.as_ref()).with_secrets();
         let effect = match request.message.filter(|_| !request.deleted) {
             Some(message) => {
                 let message: C::Message = Auto::<C::Message>::new()

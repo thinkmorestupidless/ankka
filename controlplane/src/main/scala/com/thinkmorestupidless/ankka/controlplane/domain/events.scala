@@ -190,6 +190,29 @@ enum ProjectEvent:
   /** The project no longer claims a registry. The Secret itself is left in the cluster. */
   case RegistryCleared(actor: Option[Actor] = None, at: Option[Instant] = None)
 
+  /**
+   * Entries of a project secret were set in the cluster: `entries` names them, merged into what the
+   * secret already had.
+   *
+   * No value is here, and there is no field that could hold one: the values were written to a
+   * Kubernetes Secret in the project's namespace before this event was persisted, and the journal
+   * remembers only that the entries exist. The project is the entity's own id.
+   */
+  case ProjectSecretEntriesSet(
+      name: String,
+      entries: Vector[String],
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** One entry of a project secret was removed from the cluster. The Secret itself stays. */
+  case ProjectSecretEntryRemoved(
+      name: String,
+      entry: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -304,6 +327,14 @@ final case class RecordDeployToken(
  * reaching the journal is worth stealing.
  */
 final case class ConfigureRegistry(server: String, username: String, secretName: String)
+
+/**
+ * `ProjectEntity.setSecretEntries`: the names of entries the cluster already holds. Never a value.
+ */
+final case class SetSecretEntries(name: String, entries: Vector[String])
+
+/** `ProjectEntity.removeSecretEntry`: an entry the cluster no longer holds. */
+final case class RemoveSecretEntry(name: String, entry: String)
 
 /** `DeployTokenEntity.get` — everything the entity knows except the digest. */
 final case class DeployTokenDetail(

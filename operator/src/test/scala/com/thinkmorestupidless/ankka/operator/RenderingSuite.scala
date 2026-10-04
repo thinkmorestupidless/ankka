@@ -144,8 +144,8 @@ class RenderingSuite extends munit.FunSuite:
     val Right(actions) =
       Rendering.render(resource(spec), settings, ProvisioningPlan.Supplied): @unchecked
     // Stated as what it means rather than as a count: nothing is rendered beyond the namespace,
-    // the identity, the certificates and policies zero trust needs, the Deployment and the
-    // service's address. An autoscaler would be another kind of thing — and scaling a sharded
+    // the identity, the secret key, the certificates and policies zero trust needs, the Deployment
+    // and the service's address. An autoscaler would be another kind of thing — and scaling a sharded
     // cluster on a load signal needs draining proven first.
     val unexpected = actions.filterNot {
       case _: Action.EnsureNamespace | _: Action.ApplyDeployment | _: Action.EnsureService |
@@ -153,7 +153,7 @@ class RenderingSuite extends munit.FunSuite:
           _: Action.EnsureRoleBinding | _: Action.EnsureHttpRoute | _: Action.RemoveHttpRoute |
           _: Action.EnsureCertificate | _: Action.EnsureNetworkPolicy |
           _: Action.RemoveNetworkPolicy | _: Action.EnsureBackendTlsPolicy |
-          _: Action.RemoveBackendTlsPolicy =>
+          _: Action.RemoveBackendTlsPolicy | _: Action.EnsureSecretKey =>
         true
       case _ => false
     }
@@ -231,6 +231,55 @@ class RenderingSuite extends munit.FunSuite:
     assertEquals(secret.getValue, null)
     assertEquals(secret.getValueFrom.getSecretKeyRef.getName, "cart-db")
     assertEquals(secret.getValueFrom.getSecretKeyRef.getKey, "password")
+  }
+
+  // ── The secret key ──────────────────────────────────────────────────────────
+
+  private def actionsFor(s: AnkkaServiceSpec) =
+    Rendering
+      .render(resource(s), settings, ProvisioningPlan.Supplied)
+      .fold(p => fail(p.mkString), identity)
+
+  test("a deployed service is given a secret key of its own") {
+    val env = deploymentFor(spec).getSpec.getTemplate.getSpec.getContainers.get(0).getEnv.asScala
+    val key = env.find(_.getName == "ANKKA_SECRET_KEY").getOrElse(fail("no ANKKA_SECRET_KEY"))
+    assertEquals(key.getValue, null, "the key is a reference, never a value in the pod template")
+    assertEquals(key.getValueFrom.getSecretKeyRef.getName, "cart-secret-key")
+    assertEquals(key.getValueFrom.getSecretKeyRef.getKey, "key")
+  }
+
+  test(
+    "the key's Secret is made before the Deployment that names it, and its description holds no key"
+  ) {
+    val actions = actionsFor(spec)
+    val ensure  = actions.indexWhere(_.isInstanceOf[Action.EnsureSecretKey])
+    val deploy  = actions.indexWhere(_.isInstanceOf[Action.ApplyDeployment])
+    assert(ensure >= 0, actions.map(_.describe).mkString("\n"))
+    assert(ensure < deploy, "a pod cannot start before the Secret it names exists")
+    val Action.EnsureSecretKey(namespace, name, labels) = actions(ensure): @unchecked
+    assertEquals((namespace, name), ("ankka-checkout", "cart-secret-key"))
+    assertEquals(labels, Labels.identity("checkout", "cart"))
+    assertEquals(
+      actions(ensure).describe,
+      "ensure secret key ankka-checkout/cart-secret-key (create-if-absent)"
+    )
+  }
+
+  test("a secret key the descriptor gives is the one the service has") {
+    for supplied <- Vector(
+        EnvEntry("ANKKA_SECRET_KEY", value = Some("their-own")),
+        EnvEntry("ANKKA_SECRET_KEY", secretName = Some("vault"), secretKey = Some("key"))
+      )
+    do
+      val withKey = spec.copy(env = List(supplied))
+      assert(!actionsFor(withKey).exists(_.isInstanceOf[Action.EnsureSecretKey]), supplied.toString)
+      val keys = deploymentFor(withKey).getSpec.getTemplate.getSpec.getContainers
+        .get(0)
+        .getEnv
+        .asScala
+        .filter(_.getName == "ANKKA_SECRET_KEY")
+      assertEquals(keys.size, 1, "the descriptor's, and no second one")
+      assertEquals(Option(keys.head.getValue), supplied.value)
   }
 
   test("the progress deadline is handed to Kubernetes rather than timed here") {

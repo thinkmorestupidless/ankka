@@ -8,7 +8,7 @@ import com.thinkmorestupidless.ankka.core.{
   DeclaredHandler,
   HandlerKind
 }
-import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -60,11 +60,15 @@ trait AutonomousAgentContext:
   /** The service-wide default model, if one is configured. */
   def defaultModel: Option[ModelProvider]
 
+  /** The service's secret store, for a tool that needs a credential. */
+  def secrets: SecretStore
+
 private[ankka] final case class SimpleAutonomousAgentContext(
     componentId: ComponentId,
     instanceId: String,
     componentClient: ComponentClient,
-    defaultModel: Option[ModelProvider]
+    defaultModel: Option[ModelProvider],
+    secrets: SecretStore
 ) extends AutonomousAgentContext
 
 object AutonomousAgent:

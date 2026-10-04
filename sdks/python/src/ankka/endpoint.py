@@ -21,6 +21,7 @@ from ankka._proto.ankka.protocol.v1 import discovery_pb2, payload_pb2
 from ankka.codec import Codec, Done, default_codec_for
 from ankka.context import RequestContext
 from ankka.event_sourced_entity import RegistrationError
+from ankka.secrets import HasSecrets
 
 
 @dataclass(frozen=True)
@@ -212,7 +213,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
 _current: ContextVar[RequestContext | None] = ContextVar("ankka_request", default=None)
 
 
-class Endpoint:
+class Endpoint(HasSecrets):
     """Subclass this. Class attributes: ``prefix`` and ``acl``. Routes are decorated methods."""
 
     prefix: ClassVar[str]

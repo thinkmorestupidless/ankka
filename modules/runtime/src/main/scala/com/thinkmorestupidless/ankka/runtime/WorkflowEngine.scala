@@ -144,7 +144,10 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
           val started = System.nanoTime()
           // Failed until proven otherwise: if the handler throws, that is what is recorded.
           var spanOutcome = SpanOutcome.Failed
-          val effect =
+          // A `CommandError` a handler throws — a refusal from something it called, such as the
+          // secret store refusing a command — is a refusal, answered as one; without this the
+          // caller is never answered and times out.
+          val attempt: Either[CommandError, WorkflowEffect[S, Any]] =
             try
               val produced = Trace.within(
                 span.traceId,
@@ -159,7 +162,11 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
               spanOutcome = produced.outcome match
                 case Outcome.Fail(_) => SpanOutcome.Refused
                 case _               => SpanOutcome.Ok
-              produced
+              Right(produced)
+            catch
+              case refused: CommandError =>
+                spanOutcome = SpanOutcome.Refused
+                Left(refused)
             finally
               observability.recorder.complete(span, spanOutcome)
               observability.handled(
@@ -171,43 +178,47 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
               )
               workflow._setContext(None)
 
-          if effect.transition.isDefined then stepTrace = Some((span.traceId, span.id))
+          attempt match
+            case Left(refused) =>
+              PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(refused))
+            case Right(effect) =>
+              if effect.transition.isDefined then stepTrace = Some((span.traceId, span.id))
 
-          effect.outcome match
-            case Outcome.Fail(error) =>
-              PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
+              effect.outcome match
+                case Outcome.Fail(error) =>
+                  PekkoEffect.reply(invoke.replyTo)(EntityProtocol.Rejected(error))
 
-            case outcome =>
-              val events = Vector.newBuilder[Event[S]]
-              if effect.deleting then events += Event.Deleted
-              effect.stateChange.foreach(value => events += Event.StateUpdated(value))
-              effect.transition.foreach(step => events += Event.TransitionedTo(step))
-              val toPersist = events.result()
+                case outcome =>
+                  val events = Vector.newBuilder[Event[S]]
+                  if effect.deleting then events += Event.Deleted
+                  effect.stateChange.foreach(value => events += Event.StateUpdated(value))
+                  effect.transition.foreach(step => events += Event.TransitionedTo(step))
+                  val toPersist = events.result()
 
-              val nextValue = effect.stateChange.getOrElse(state.value)
+                  val nextValue = effect.stateChange.getOrElse(state.value)
 
-              val builder: EffectBuilder[Event[S], Run[S]] =
-                if toPersist.isEmpty then PekkoEffect.none
-                else PekkoEffect.persist(toPersist.toList)
+                  val builder: EffectBuilder[Event[S], Run[S]] =
+                    if toPersist.isEmpty then PekkoEffect.none
+                    else PekkoEffect.persist(toPersist.toList)
 
-              val withStep =
-                if effect.transition.isDefined then
-                  // The transition is journalled first; only then is the step started.
-                  builder.thenRun { updated =>
-                    armWorkflowTimeout(updated)
-                    ctx.self ! RunPendingStep
-                  }
-                else builder
+                  val withStep =
+                    if effect.transition.isDefined then
+                      // The transition is journalled first; only then is the step started.
+                      builder.thenRun { updated =>
+                        armWorkflowTimeout(updated)
+                        ctx.self ! RunPendingStep
+                      }
+                    else builder
 
-              outcome match
-                case Outcome.Reply(compute, metadata) =>
-                  withStep.thenReply(invoke.replyTo) { _ =>
-                    EntityProtocol.Succeeded(
-                      binding.encodeReply(compute(nextValue)),
-                      MetaEntry.from(metadata)
-                    )
-                  }
-                case _ => withStep.thenNoReply()
+                  outcome match
+                    case Outcome.Reply(compute, metadata) =>
+                      withStep.thenReply(invoke.replyTo) { _ =>
+                        EntityProtocol.Succeeded(
+                          binding.encodeReply(compute(nextValue)),
+                          MetaEntry.from(metadata)
+                        )
+                      }
+                    case _ => withStep.thenNoReply()
 
   /**
    * Answers the engine's own lifecycle query.
@@ -282,7 +293,7 @@ private[ankka] final class WorkflowEngine[W <: Workflow[S], S](
       var outcome = SpanOutcome.Failed
       try
         val effect = Trace.within(span.traceId, span.id, origin)(
-          handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]]
+          StepScope.within(handle.invoke(workflow, ref.input).asInstanceOf[WorkflowStepEffect[S]])
         )
         outcome = SpanOutcome.Ok
         effect

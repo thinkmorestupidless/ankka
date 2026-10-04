@@ -13,6 +13,7 @@
 // `ankka-sidecar:latest`, the image `sbt sidecar/Docker/publishLocal` builds.
 
 import { execFileSync } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -254,6 +255,9 @@ export class AnkkaTestKit {
         ANKKA_DB_NAME: "ankka",
         ANKKA_DB_USER: "ankka",
         ANKKA_DB_PASSWORD: "ankka",
+        // A fresh secret key per kit, so the secret store works with no setup; the caller's `env`
+        // replaces it, and `ANKKA_SECRET_KEY: ""` starts a service with none.
+        ANKKA_SECRET_KEY: randomBytes(32).toString("base64"),
         ...this.#env,
       })
       .withExposedPorts(HTTP_PORT, CALLBACK_PORT)
@@ -292,6 +296,7 @@ export class AnkkaTestKit {
         ANKKA_DB_NAME: "ankka",
         ANKKA_DB_USER: "ankka",
         ANKKA_DB_PASSWORD: "ankka",
+        ANKKA_SECRET_KEY: randomBytes(32).toString("base64"),
         ...env,
       })
       .withExposedPorts(httpPort)

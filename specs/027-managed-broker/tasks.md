@@ -34,7 +34,7 @@ controlPlane / Test / logBuffered := false' …`, so a scenario reports as it en
 
 **Purpose**: the branch is where the work can be done.
 
-- [ ] T001 Bring `main` onto the branch: `git fetch origin && git rebase origin/main`. If feature 024 (pull request #62) is merged, note in `specs/027-managed-broker/research.md` R17 the group id form it shipped and that T008's group prefix matches it; if it is not, note that T028, T033 and T037's reading scenarios are blocked until it is. Verify: `sbt -Dankka.cluster.tests=off compile` is clean.
+- [X] T001 Bring `main` onto the branch: `git fetch origin && git rebase origin/main`. If feature 024 (pull request #62) is merged, note in `specs/027-managed-broker/research.md` R17 the group id form it shipped and that T008's group prefix matches it; if it is not, note that T028, T033 and T037's reading scenarios are blocked until it is. Verify: `sbt -Dankka.cluster.tests=off compile` is clean.
 
 ---
 

@@ -263,6 +263,11 @@ what is already built (User Story 1) and everything on the operator's and contro
 be built before that, and the scenarios in which a view reads a provisioned topic cannot pass
 without it.
 
+**At T001, 2026-10-04**: 024 (pull request #62) is open, not merged; `main` has not moved since this
+branch was cut. T028, T033 and T037's reading scenarios are blocked until it merges; T003's group
+prefix is written to 024's spec (`ankka.<project>.<service>.`) and is checked against what 024
+ships when it lands.
+
 ## R18. Brokers in the k3s suites
 
 - **A plain broker, for User Story 1**: one `apache/kafka` pod with a plaintext listener and a

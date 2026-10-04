@@ -357,7 +357,7 @@ final case class ServiceSpec(
           .toVector
       val reservedProblems =
         env
-          .filter(e => ServiceSpec.WebEnvVars.contains(e.name))
+          .filter(e => PlatformVariables.WebOnly.contains(e.name))
           .map(e => s"env var '${e.name}' is set by the platform and cannot be declared")
       val databaseProblems =
         env
@@ -415,9 +415,6 @@ object ServiceSpec:
 
   /** The ports a web-hosted service's proxy listens on besides the service's own. */
   val ProxyPorts: Set[Int] = Set(7627, 7630)
-
-  /** What the platform tells a web-hosted service's program: where to listen, where to call. */
-  val WebEnvVars: Set[String] = Set("PORT", "ANKKA_SERVICES_URL")
 
   /**
    * The Secrets the platform issues into a project's namespace: a workload's certificates, and its

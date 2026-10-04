@@ -61,6 +61,18 @@ private[ankka] object PlatformVariables:
     Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
   val RuntimeOnlyNames: Set[String] = Set(SecretKey)
 
+  /** Where a web-hosted service's program listens. */
+  val WebPort: String = "PORT"
+
+  /** Where a web-hosted service's program calls the project's services, through its proxy. */
+  val ServicesUrl: String = "ANKKA_SERVICES_URL"
+
+  /**
+   * What the platform tells a web-hosted service's program, by exact name. A web-hosted descriptor
+   * may not give them; to a service of any other hosting they are ordinary names.
+   */
+  val WebOnly: Set[String] = Set(WebPort, ServicesUrl)
+
   /** Given to both programs of a process-hosted service: the broker's. */
   val SharedPrefixes: Vector[String] = Vector("ANKKA_KAFKA_")
 

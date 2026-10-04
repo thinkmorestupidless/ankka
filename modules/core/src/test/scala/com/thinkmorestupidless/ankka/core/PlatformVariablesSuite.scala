@@ -10,11 +10,12 @@ package com.thinkmorestupidless.ankka.core
 class PlatformVariablesSuite extends munit.FunSuite:
   import PlatformVariables.*
 
-  test("the variables the platform alone sets are exactly the fifteen it renders") {
+  test("the variables the platform alone sets are exactly the sixteen it renders") {
     assertEquals(
       PlatformOnly,
       Set(
         "ANKKA_HTTP_PORT",
+        "ANKKA_GRPC_PORT",
         "ANKKA_CLUSTER_MODE",
         "POD_IP",
         "ANKKA_CLUSTER_SERVICE",
@@ -32,12 +33,23 @@ class PlatformVariablesSuite extends munit.FunSuite:
       )
     )
     assert(PlatformOnly.contains(HttpPort))
+    assert(PlatformOnly.contains(GrpcPort))
   }
 
-  test("the variables for the platform's program alone: a model's, a database's, the secret key") {
-    assertEquals(RuntimeOnlyPrefixes, Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_"))
+  test(
+    "the variables for the platform's program alone: a model's, a database's, the issuers', " +
+      "the secret key"
+  ) {
+    assertEquals(
+      RuntimeOnlyPrefixes,
+      Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
+    )
     assertEquals(RuntimeOnlyNames, Set(SecretKey))
     assertEquals(SecretKey, "ANKKA_SECRET_KEY")
+  }
+
+  test("a web-hosted program is told where to listen and where to call") {
+    assertEquals(WebOnly, Set("PORT", "ANKKA_SERVICES_URL"))
   }
 
   test("the broker's variables are given to both programs") {
@@ -47,7 +59,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
   test("the variables the platform's program reads from its own environment") {
     assertEquals(
       RuntimeReadPrefixes,
-      Vector("ANKKA_CLUSTER_", "ANKKA_WASM_", "ANKKA_SIDECAR_", "ANKKA_PROCESS_", "ANKKA_AUTH_")
+      Vector("ANKKA_CLUSTER_", "ANKKA_WASM_", "ANKKA_SIDECAR_", "ANKKA_PROCESS_")
     )
     assertEquals(RuntimeReadNames, Set("ANKKA_BASE_DOMAIN", "ANKKA_HTTPS_PORT"))
   }
@@ -62,6 +74,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(runtimeOnly("ANKKA_DB_HOST"))
     assert(runtimeOnly("ANTHROPIC_API_KEY"))
     assert(runtimeOnly("ANKKA_SECRET_KEY"))
+    assert(runtimeOnly("ANKKA_AUTH_ISSUERS"))
     assert(!runtimeOnly("ANKKA_SECRET_KEYS"))
     assert(!runtimeOnly("ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
     assert(!runtimeOnly("GREETING"))
@@ -76,7 +89,8 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(withheldFromModule("ANKKA_NAMESPACE_PREFIX"), "platform-only")
     assert(withheldFromModule("ANKKA_SECRET_KEY"), "runtime-only by name")
     assert(withheldFromModule("ANKKA_DB_PASSWORD"), "runtime-only by prefix")
-    assert(withheldFromModule("ANKKA_AUTH_ISSUER"), "read by the runtime")
+    assert(withheldFromModule("ANKKA_AUTH_ISSUERS"), "runtime-only by prefix: the issuers")
+    assert(withheldFromModule("ANKKA_CLUSTER_SERVICE_X"), "read by the runtime")
     assert(withheldFromModule("ANKKA_BASE_DOMAIN"), "read by the runtime, by name")
     assert(!withheldFromModule("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), "shared, so a module may read it")
     assert(!withheldFromModule("MY_SETTING"))

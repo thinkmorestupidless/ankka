@@ -139,8 +139,8 @@ object Rendering:
     val PublicAuthority: String = "ANKKA_PROXY_PUBLIC_AUTHORITY"
 
   /** What a web-hosted service's process is told: where to listen, and where to call services. */
-  val ProcessPortEnvVar: String = "PORT"
-  val ServicesUrlEnvVar: String = "ANKKA_SERVICES_URL"
+  val ProcessPortEnvVar: String = PlatformVariables.WebPort
+  val ServicesUrlEnvVar: String = PlatformVariables.ServicesUrl
   val DefaultProcessPort: Int   = 8080
   val CallingPort: Int          = 7630
 

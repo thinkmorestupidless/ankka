@@ -91,6 +91,11 @@ ankka-shop
   } ]
 }
 ---
+# EnsureSecretKey
+ankka-shop
+cart-secret-key
+Map(app.kubernetes.io/managed-by -> ankka, app.kubernetes.io/name -> cart, ankka.thinkmorestupidless.com/project -> shop, ankka.thinkmorestupidless.com/service -> cart)
+---
 # EnsureCertificate
 {
   "apiVersion" : "cert-manager.io/v1",
@@ -429,6 +434,14 @@ cart-grpc
           }, {
             "name" : "ANKKA_NAMESPACE_PREFIX",
             "value" : "ankka"
+          }, {
+            "name" : "ANKKA_SECRET_KEY",
+            "valueFrom" : {
+              "secretKeyRef" : {
+                "key" : "key",
+                "name" : "cart-secret-key"
+              }
+            }
           } ],
           "image" : "registry.example.test/shop/cart:1.4.2",
           "imagePullPolicy" : "IfNotPresent",

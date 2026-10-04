@@ -283,8 +283,10 @@ class DescriptorSuite extends munit.FunSuite:
   }
 
   test("the platform's own variables are refused by name, whatever their value") {
+    // The two ports have rules of their own, which point at the field to declare instead.
     val platformOnly = com.thinkmorestupidless.ankka.core.PlatformVariables.PlatformOnly -
-      com.thinkmorestupidless.ankka.core.PlatformVariables.HttpPort
+      com.thinkmorestupidless.ankka.core.PlatformVariables.HttpPort -
+      com.thinkmorestupidless.ankka.core.PlatformVariables.GrpcPort
     for name <- platformOnly do
       val literal = ServiceSpec("i:1", env = Vector(EnvVar(name, value = Some("x")))).problems
       val fromSecret = ServiceSpec(

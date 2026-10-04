@@ -220,7 +220,8 @@ ankka-shop
   "data" : {
     "10-journal-postgres.sql" : "CREATE TABLE IF NOT EXISTS event_journal(\n  slice INT NOT NULL,\n  entity_type VARCHAR(255) NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  seq_nr BIGINT NOT NULL,\n  db_timestamp timestamp with time zone NOT NULL,\n\n  event_ser_id INTEGER NOT NULL,\n  event_ser_manifest VARCHAR(255) NOT NULL,\n  event_payload BYTEA NOT NULL,\n\n  deleted BOOLEAN DEFAULT FALSE NOT NULL,\n  writer VARCHAR(255) NOT NULL,\n  adapter_manifest VARCHAR(255),\n  tags TEXT ARRAY,\n\n  meta_ser_id INTEGER,\n  meta_ser_manifest VARCHAR(255),\n  meta_payload BYTEA,\n\n  PRIMARY KEY(persistence_id, seq_nr)\n);\n\n-- `event_journal_slice_idx` is only needed if the slice based queries are used\nCREATE INDEX IF NOT EXISTS event_journal_slice_idx ON event_journal(slice, entity_type, db_timestamp, seq_nr);\n\nCREATE TABLE IF NOT EXISTS snapshot(\n  slice INT NOT NULL,\n  entity_type VARCHAR(255) NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  seq_nr BIGINT NOT NULL,\n  write_timestamp BIGINT NOT NULL,\n  ser_id INTEGER NOT NULL,\n  ser_manifest VARCHAR(255) NOT NULL,\n  snapshot BYTEA NOT NULL,\n  meta_ser_id INTEGER,\n  meta_ser_manifest VARCHAR(255),\n  meta_payload BYTEA,\n\n  PRIMARY KEY(persistence_id)\n);\n\nCREATE TABLE IF NOT EXISTS durable_state (\n  slice INT NOT NULL,\n  entity_type VARCHAR(255) NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  revision BIGINT NOT NULL,\n  db_timestamp timestamp with time zone NOT NULL,\n\n  state_ser_id INTEGER NOT NULL,\n  state_ser_manifest VARCHAR(255),\n  state_payload BYTEA NOT NULL,\n  tags TEXT ARRAY,\n\n  PRIMARY KEY(persistence_id, revision)\n);\n\n-- `durable_state_slice_idx` is only needed if the slice based queries are used\nCREATE INDEX IF NOT EXISTS durable_state_slice_idx ON durable_state(slice, entity_type, db_timestamp, revision);\n",
     "20-projection-postgres.sql" : "-- Projection offset stores, from apache/pekko-projection r2dbc-int-test/ddl-scripts.\n-- Journal/snapshot/durable_state tables are created by 10-journal-postgres.sql.\n\nCREATE TABLE IF NOT EXISTS projection_offset_store (\n  projection_name VARCHAR(255) NOT NULL,\n  projection_key VARCHAR(255) NOT NULL,\n  current_offset VARCHAR(255) NOT NULL,\n  manifest VARCHAR(32) NOT NULL,\n  mergeable BOOLEAN NOT NULL,\n  last_updated BIGINT NOT NULL,\n  PRIMARY KEY(projection_name, projection_key)\n);\n\n-- Timestamp based offsets are stored in this table.\nCREATE TABLE IF NOT EXISTS projection_timestamp_offset_store (\n  projection_name VARCHAR(255) NOT NULL,\n  projection_key VARCHAR(255) NOT NULL,\n  slice INT NOT NULL,\n  persistence_id VARCHAR(255) NOT NULL,\n  seq_nr BIGINT NOT NULL,\n  -- timestamp_offset is the db_timestamp of the original event\n  timestamp_offset timestamp with time zone NOT NULL,\n  -- timestamp_consumed is when the offset was stored\n  -- the consumer lag is timestamp_consumed - timestamp_offset\n  timestamp_consumed timestamp with time zone NOT NULL,\n  PRIMARY KEY(slice, projection_name, timestamp_offset, persistence_id, seq_nr)\n);\n\nCREATE TABLE IF NOT EXISTS projection_management (\n  projection_name VARCHAR(255) NOT NULL,\n  projection_key VARCHAR(255) NOT NULL,\n  paused BOOLEAN NOT NULL,\n  last_updated BIGINT NOT NULL,\n  PRIMARY KEY(projection_name, projection_key)\n);\n",
-    "30-timers-postgres.sql" : "-- Scheduled calls owned by the ankka timer runtime.\n--\n-- A table rather than in-memory timers because a scheduled call has to survive the node\n-- that scheduled it. `due_at` is indexed because the sweeper's only query is\n-- \"what is due now\".\nCREATE TABLE IF NOT EXISTS ankka_timers (\n  timer_name   TEXT PRIMARY KEY,\n  component_id TEXT NOT NULL,\n  method       TEXT NOT NULL,\n  payload      BYTEA NOT NULL,\n  due_at       TIMESTAMPTZ NOT NULL,\n  attempts     INT NOT NULL DEFAULT 0,\n  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS ankka_timers_due_idx ON ankka_timers (due_at);\n"
+    "30-timers-postgres.sql" : "-- Scheduled calls owned by the ankka timer runtime.\n--\n-- A table rather than in-memory timers because a scheduled call has to survive the node\n-- that scheduled it. `due_at` is indexed because the sweeper's only query is\n-- \"what is due now\".\nCREATE TABLE IF NOT EXISTS ankka_timers (\n  timer_name   TEXT PRIMARY KEY,\n  component_id TEXT NOT NULL,\n  method       TEXT NOT NULL,\n  payload      BYTEA NOT NULL,\n  due_at       TIMESTAMPTZ NOT NULL,\n  attempts     INT NOT NULL DEFAULT 0,\n  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n\nCREATE INDEX IF NOT EXISTS ankka_timers_due_idx ON ankka_timers (due_at);\n",
+    "40-secrets-postgres.sql" : "-- A service's secret store: values the service keeps and reads back by name, each encrypted\n-- with the service's secret key (ANKKA_SECRET_KEY) before it reaches this table.\n--\n-- The table belongs to the secret store alone. It is not an entity's journal or state, and no\n-- projection reads it, so nothing kept here is ever replayed into a view or a snapshot. Two\n-- services never share a database, so the name alone is the key.\nCREATE TABLE IF NOT EXISTS ankka_secrets (\n  name       TEXT PRIMARY KEY,\n  ciphertext BYTEA NOT NULL,\n  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);\n"
   }
 }
 ---
@@ -313,6 +314,11 @@ ankka-shop
     "namespace" : "ankka-shop"
   } ]
 }
+---
+# EnsureSecretKey
+ankka-shop
+cart-secret-key
+Map(app.kubernetes.io/managed-by -> ankka, app.kubernetes.io/name -> cart, ankka.thinkmorestupidless.com/project -> shop, ankka.thinkmorestupidless.com/service -> cart)
 ---
 # EnsureCertificate
 {
@@ -649,6 +655,14 @@ cart-grpc
           }, {
             "name" : "ANKKA_NAMESPACE_PREFIX",
             "value" : "ankka"
+          }, {
+            "name" : "ANKKA_SECRET_KEY",
+            "valueFrom" : {
+              "secretKeyRef" : {
+                "key" : "key",
+                "name" : "cart-secret-key"
+              }
+            }
           }, {
             "name" : "ANKKA_DB_SSL_MODE",
             "value" : "verify-full"

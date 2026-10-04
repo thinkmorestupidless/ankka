@@ -23,7 +23,9 @@ import java.nio.file.{Files, Path, Paths}
  *
  * The fixtures were written from the operator as it was before web hosting and are never rewritten
  * as a side effect of anything else: only `-Dankka.rendering.pin=true` rewrites them, deliberately,
- * and `ankka.docs.update`, which other suites share, does not.
+ * and `ankka.docs.update`, which other suites share, does not. They have been repinned once since,
+ * on purpose: the secret store (feature 023) gives every service a secret key, its Secret and the
+ * variable naming it, and the table in its schema — a change meant to reach every service.
  */
 class RenderingUnchangedSuite extends munit.FunSuite:
 

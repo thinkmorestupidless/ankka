@@ -63,6 +63,51 @@ private[ankka] object CloudEvents:
     Metadata(headers.toVector)
 
 /**
+ * How a service reaches its broker: where it is, and, on an installation's broker, the certificate
+ * to present and the prefix its project's topics carry.
+ *
+ * A component names a topic as its descriptor declared it; `qualified` is the name the broker
+ * holds, and it is applied where a topic is handed to Kafka and nowhere else, so declared
+ * connections, the topology and the logs keep the name the component wrote. A broker a descriptor
+ * names has no prefix and no TLS directory, which is the connection every service had before.
+ *
+ * @param tlsDirectory
+ *   where cert-manager writes the service certificate; with it the clients use TLS, presenting that
+ *   certificate and following its renewal (`KafkaTls`)
+ */
+final case class KafkaConnection(
+    bootstrapServers: String,
+    tlsDirectory: Option[String] = None,
+    topicPrefix: String = ""
+):
+  def qualified(topic: String): String = topicPrefix + topic
+
+  /** What a Kafka client is configured with beyond the bootstrap address. */
+  def properties: Map[String, String] = tlsDirectory.fold(Map.empty)(KafkaTls.clientProperties)
+
+object KafkaConnection:
+
+  /** The broker's address: given by a descriptor, or by the operator for the installation's. */
+  val BootstrapVariable: String = "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
+
+  /** Where the certificate to present is; written by the operator alone. */
+  val TlsDirectoryVariable: String = "ANKKA_KAFKA_TLS_DIRECTORY"
+
+  /** What the project's topics start with on the broker; written by the operator alone. */
+  val TopicPrefixVariable: String = "ANKKA_KAFKA_TOPIC_PREFIX"
+
+  /** The connection the environment describes, if it names a broker at all. */
+  def fromEnv(env: Map[String, String]): Option[KafkaConnection] =
+    def value(name: String) = env.get(name).map(_.trim).filter(_.nonEmpty)
+    value(BootstrapVariable).map(bootstrap =>
+      KafkaConnection(
+        bootstrap,
+        value(TlsDirectoryVariable),
+        value(TopicPrefixVariable).getOrElse("")
+      )
+    )
+
+/**
  * Publishes to Kafka.
  *
  * Calls the Kafka producer directly, so each `send` reaches it in the order `publish` was called:
@@ -70,12 +115,33 @@ private[ankka] object CloudEvents:
  * `SendProducer` was used here until a change's messages were seen out of order on one partition:
  * its `send` is a callback on the producer's future, run on a multi-threaded dispatcher, so two
  * sends issued in order are two tasks that may run in either.
+ *
+ * The producer is made on first publish: every service of an installation with a broker is told
+ * where it is, and one that never publishes should hold no connection to it.
  */
 final class KafkaPublisher private (
-    producer: Producer[String, Array[Byte]],
+    connection: KafkaConnection,
     manifestOf: String => String
-) extends MessagePublisher
+)(using system: ActorSystem[?])
+    extends MessagePublisher
     with AutoCloseable:
+
+  @volatile private var made: Option[Producer[String, Array[Byte]]] = None
+
+  private def producer: Producer[String, Array[Byte]] =
+    made.getOrElse(synchronized {
+      made.getOrElse {
+        val created = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
+          .withBootstrapServers(connection.bootstrapServers)
+          .withProperties(connection.properties)
+          .createKafkaProducer()
+        made = Some(created)
+        created
+      }
+    })
+
+  /** Whether a producer has been made: not until something is published. */
+  private[ankka] def opened: Boolean = made.isDefined
 
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
     publish(topic, None, payload, metadata)
@@ -87,22 +153,34 @@ final class KafkaPublisher private (
       payload: Array[Byte],
       metadata: Metadata
   ): Future[Done] =
-    val record = ProducerRecord(topic, key.orElse(metadata.subject).orNull, payload)
+    val qualified = connection.qualified(topic)
+    val record    = ProducerRecord(qualified, key.orElse(metadata.subject).orNull, payload)
 
     CloudEvents.headers(metadata, manifestOf(topic)).foreach { (key, value) =>
       record.headers().add(RecordHeader(key, value.getBytes(UTF_8))): Unit
     }
 
+    // A topic nobody declared is not made by publishing to it: the send fails, the delivery is
+    // retried with the backoff the projection has, and the log says which topic it was waiting for.
     val sent = Promise[Done]()
+    def failed(failure: Throwable): Unit =
+      system.log.warn(
+        "could not publish to topic '{}' ({} on the broker): {}",
+        topic,
+        qualified,
+        failure.getMessage
+      )
+      sent.failure(failure): Unit
+
     try
       producer.send(
         record,
-        (_, failure) => if failure == null then sent.success(Done) else sent.failure(failure)
+        (_, failure) => if failure == null then sent.success(Done) else failed(failure)
       ): Unit
-    catch case NonFatal(failure) => sent.failure(failure)
+    catch case NonFatal(failure) => failed(failure)
     sent.future
 
-  def close(): Unit = producer.close()
+  def close(): Unit = made.foreach(_.close())
 
 object KafkaPublisher:
 
@@ -113,17 +191,17 @@ object KafkaPublisher:
    * already encoded by the producing consumer's own serializer.
    */
   def apply(bootstrapServers: String)(using system: ActorSystem[?]): KafkaPublisher =
-    val settings = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
-      .withBootstrapServers(bootstrapServers)
-    new KafkaPublisher(settings.createKafkaProducer(), _ => "message")
+    apply(KafkaConnection(bootstrapServers))
+
+  /** To the broker `connection` describes. */
+  def apply(connection: KafkaConnection)(using system: ActorSystem[?]): KafkaPublisher =
+    new KafkaPublisher(connection, _ => "message")
 
   /** As above, with a per-topic CloudEvents `ce-type`. */
   def withTypes(bootstrapServers: String, typeFor: String => String)(using
       system: ActorSystem[?]
   ): KafkaPublisher =
-    val settings = ProducerSettings(system, StringSerializer(), ByteArraySerializer())
-      .withBootstrapServers(bootstrapServers)
-    new KafkaPublisher(settings.createKafkaProducer(), typeFor)
+    new KafkaPublisher(KafkaConnection(bootstrapServers), typeFor)
 
 /**
  * Consumes from Kafka.
@@ -134,7 +212,7 @@ object KafkaPublisher:
  * broker retains — a broker's retention is a window, not an event journal.
  */
 final class KafkaSubscriber private (
-    bootstrapServers: String,
+    connection: KafkaConnection,
     restart: RestartSettings
 )(using system: ActorSystem[?])
     extends MessageSubscriber:
@@ -153,16 +231,20 @@ final class KafkaSubscriber private (
       subscription: TopicSubscription,
       handle: IncomingMessage => Future[Done]
   ): Subscribed =
+    val qualified = connection.qualified(subscription.topic)
     val settings = ConsumerSettings(system, StringDeserializer(), ByteArrayDeserializer())
-      .withBootstrapServers(bootstrapServers)
+      .withBootstrapServers(connection.bootstrapServers)
+      .withProperties(connection.properties)
       .withGroupId(subscription.group)
       // No longer where a new group starts: the assignment handler decides that, and commits it.
       // This is what a group whose committed offset has aged out of the topic falls back to — the
       // oldest message still there, rather than skipping to the end.
       .withProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
+      // A topic declared after the component started is found within this, not five minutes.
+      .withProperty(ConsumerConfig.METADATA_MAX_AGE_CONFIG, "30000")
 
     val topics = Subscriptions
-      .topics(subscription.topic)
+      .topics(qualified)
       .withPartitionAssignmentHandler(KafkaSubscriber.StartPosition(subscription.startFrom))
 
     val killSwitch = KillSwitches.shared(s"topic-${subscription.topic}-${subscription.group}")
@@ -173,6 +255,17 @@ final class KafkaSubscriber private (
       .onFailuresWithBackoff(restart) { () =>
         Consumer
           .committableSource(settings, topics)
+          // A topic that is not there, or not this project's, fails the stream; the restart asks
+          // again with its backoff, and the log names the topic each time.
+          .mapError { case failure =>
+            system.log.warn(
+              "could not read topic '{}' ({} on the broker): {}",
+              subscription.topic,
+              qualified,
+              failure.getMessage
+            )
+            failure
+          }
           .via(killSwitch.flow)
           .mapAsync(1) { committable =>
             val record = committable.record
@@ -196,8 +289,9 @@ final class KafkaSubscriber private (
 
     running.add(killSwitch): Unit
     system.log.info(
-      "subscribed to topic '{}' as group '{}', starting at {} where the group has never read",
+      "subscribed to topic '{}' ({}) as group '{}', starting at {} where the group has never read",
       subscription.topic,
+      qualified,
       subscription.group,
       subscription.startFrom
     )
@@ -210,11 +304,13 @@ final class KafkaSubscriber private (
    * of each says when the oldest message it holds was published. It commits nothing, and fails when
    * the broker cannot be asked, or a partition that holds messages yields none in time.
    */
-  def earliestRetained(topic: String): Future[Map[Int, Option[Instant]]] =
+  def earliestRetained(declared: String): Future[Map[Int, Option[Instant]]] =
+    val topic = connection.qualified(declared)
     Future {
       blocking {
         val properties = Properties()
-        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers)
+        connection.properties.foreach((key, value) => properties.put(key, value))
+        properties.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, connection.bootstrapServers)
         properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
         val consumer =
           KafkaConsumer[Array[Byte], Array[Byte]](
@@ -311,7 +407,15 @@ object KafkaSubscriber:
       minBackoff: FiniteDuration = 1.second,
       maxBackoff: FiniteDuration = 30.seconds
   )(using system: ActorSystem[?]): KafkaSubscriber =
+    apply(KafkaConnection(bootstrapServers), minBackoff, maxBackoff)
+
+  /** From the broker `connection` describes. */
+  def apply(
+      connection: KafkaConnection,
+      minBackoff: FiniteDuration,
+      maxBackoff: FiniteDuration
+  )(using system: ActorSystem[?]): KafkaSubscriber =
     new KafkaSubscriber(
-      bootstrapServers,
+      connection,
       RestartSettings(minBackoff, maxBackoff, randomFactor = 0.2)
     )

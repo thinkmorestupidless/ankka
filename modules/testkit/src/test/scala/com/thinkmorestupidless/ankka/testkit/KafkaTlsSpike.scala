@@ -157,7 +157,11 @@ class KafkaTlsSpike extends munit.FunSuite with LogCapturing:
     assertEquals(publish(dir, "spike-c", "renewed"), Right(()))
   }
 
-/** testcontainers' self-typed container needs a concrete subclass for Scala 3 to infer. */
+/**
+ * testcontainers' self-typed container needs a concrete subclass for Scala 3 to infer. A fixed host
+ * port is deprecated there, and is what a certificate naming the address needs.
+ */
+@annotation.nowarn("cat=deprecation")
 private final class TlsKafka(port: Int)
     extends FixedHostPortGenericContainer[TlsKafka]("apache/kafka:3.8.0"):
   withFixedExposedPort(port, 9093)

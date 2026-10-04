@@ -1196,10 +1196,12 @@ the package and `package/test/fixture-host/` proves a second host works with no 
 - **On SIGTERM every JVM shutdown hook runs at once, and Pekko's terminates the actor system.**
   A service's own hook calling `terminate()` raced Pekko's coordinated shutdown: a gRPC stream
   still inside the server's shutdown grace lost its materializer and ended `INTERNAL` instead of
-  `UNAVAILABLE`, on some k3s runs and not others. Extensions are now stopped from coordinated
-  shutdown's first phase (`AnkkaService.registerShutdown`, once, whoever asks first), with that
-  phase's timeout raised to 20s in `reference.conf`; `ShutdownOrderSuite` (testkit) runs only
-  coordinated shutdown and fails without it.
+  `UNAVAILABLE`, on some k3s runs and not others. Coordinated shutdown now *starts* stopping the
+  extensions in its first phase and *waits* for them in its last (`AnkkaService.registerShutdown`;
+  the stop runs once, whoever asks first), that phase's timeout raised to 20s in `reference.conf`;
+  `ShutdownOrderSuite` (testkit) runs only coordinated shutdown and fails without it. **Do not make
+  the first phase wait**: holding the cluster leave and shard handoff until every extension had
+  stopped made `ExposureClusterSuite`'s rolling restart under load time out, every run.
 - **The operator re-applies a project namespace's `managed-by` label on every reconcile.** A test
   that removes it to make the gateway refuse a route is racing a platform that heals it — the k3s
   route-rejection case passed or failed on timing. Refuse the route from the gateway's side (its

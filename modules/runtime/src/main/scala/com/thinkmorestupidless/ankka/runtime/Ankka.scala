@@ -423,12 +423,12 @@ final class AnkkaService private[ankka] (
    * Stops every extension, once, however many paths ask. A lazy val, so the first to ask starts the
    * stop and every other waits on the same one.
    *
-   * Two paths do ask. `terminate` does, and so does Pekko's coordinated shutdown, from its first
-   * phase (`registerShutdown`): on SIGTERM the JVM runs every shutdown hook at once, so a service's
-   * own hook calling `terminate` races Pekko's, which ends with the actor system — and its stream
+   * Two paths do ask. `terminate` does, and so does Pekko's coordinated shutdown
+   * (`registerShutdown`): on SIGTERM the JVM runs every shutdown hook at once, so a service's own
+   * hook calling `terminate` races Pekko's, which ends with the actor system — and its stream
    * materializer — terminated. A gRPC stream still inside the server's shutdown grace was then
    * aborted and its caller told `INTERNAL`, instead of being given the grace and then told
-   * `UNAVAILABLE`. Stopping the extensions inside coordinated shutdown, before anything else in it,
+   * `UNAVAILABLE`. Coordinated shutdown waiting on this stop before it terminates the actor system
    * is what makes "extensions first, then the actor system" hold whichever hook runs first.
    */
   private lazy val extensionsStopped: Future[Done] =
@@ -452,13 +452,28 @@ final class AnkkaService private[ankka] (
     }(AnkkaExecutors.virtual)
 
   /**
-   * Has coordinated shutdown stop the extensions in its first phase, so the actor system is not
-   * terminated under them. Called once, when the service is started.
+   * Has coordinated shutdown start stopping the extensions in its first phase, and wait for them in
+   * its last, so the actor system is not terminated under them. Called once, when the service is
+   * started.
+   *
+   * Started, not awaited, in the first phase: the phases between are the node leaving the cluster
+   * and handing its shards off, and those must not wait for the extensions. Holding them back until
+   * every server and client had stopped delayed the handoff, and requests for the departing node's
+   * entities waited past a caller's timeout during a rolling restart — `ExposureClusterSuite`'s
+   * rolling restart under load failed that way, every run, and passed without it.
    */
   private[runtime] def registerShutdown(): Unit =
-    CoordinatedShutdown(system).addTask(
+    val shutdown = CoordinatedShutdown(system)
+    shutdown.addTask(
       CoordinatedShutdown.PhaseBeforeServiceUnbind,
-      "ankka-stop-extensions"
+      "ankka-start-stopping-extensions"
+    ) { () =>
+      extensionsStopped: Unit
+      Future.successful(Done)
+    }
+    shutdown.addTask(
+      CoordinatedShutdown.PhaseBeforeActorSystemTerminate,
+      "ankka-await-extensions-stopped"
     )(() => extensionsStopped)
 
   /** Stops every extension, then terminates the actor system if this service created it. */

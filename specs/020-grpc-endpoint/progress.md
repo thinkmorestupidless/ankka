@@ -27,8 +27,11 @@ unrun). `tasks.md` is the authority on what is ticked; this file says what the o
     listener selector instead, and restores it in a `finally`.
   - **A platform bug**: on SIGTERM, Pekko's coordinated shutdown terminated the actor system while
     a gRPC stream was inside the server's shutdown grace, so the caller saw `INTERNAL`, not
-    `UNAVAILABLE`. Extensions are now stopped from coordinated shutdown's first phase
-    (`AnkkaService.registerShutdown`), and `ShutdownOrderSuite` (testkit) fails without that.
+    `UNAVAILABLE`. Coordinated shutdown now starts stopping the extensions in its first phase and
+    waits for them in its last (`AnkkaService.registerShutdown`); `ShutdownOrderSuite` (testkit)
+    fails without that. A first version waited in the first phase, which delayed the shard handoff
+    and failed `ExposureClusterSuite`'s rolling restart under load every run (it passed with the
+    change disabled); the full `sbt test` on a quiet machine found it.
     The stopping-stream case now uses the echo stream, which depends on nothing but its server.
   - **An operator gap**: a container that refuses to start spends most of each restart booting,
     and in that window its state is `Running`, so the member's detail fell back to the kubelet's
@@ -45,11 +48,23 @@ unrun). `tasks.md` is the authority on what is ticked; this file says what the o
 
 ## Next, in order
 
-1. A green `GrpcClusterSuite` run, then tick T028, T033, T041, T049, T051, T058.
-2. `sbt -Dankka.benchmarks=on 'grpc/testOnly *GrpcBenchmark'` (T065); record its two figures beside the benchmarks line in `research.md`.
-3. Tick T068 (the coverage table has no gaps).
-4. T070 `sbt -Dankka.cluster.tests=off test`, then `caffeinate -i sbt test`.
-5. T071 by hand on kind (quickstart step 6), T072 final gates.
+1. ~~A green `GrpcClusterSuite` run~~ — 28 of 28 on 2026-10-03; T028, T033, T041, T049, T051, T058
+   ticked. ~~The benchmark (T065)~~ — recorded in `research.md`. ~~T068~~ — no gaps.
+2. T070: `sbt -Dankka.cluster.tests=off test` green once the two template fixes landed. The full
+   `caffeinate -i sbt test` on a quiet machine (1h36m, 2026-10-04) passed every suite but
+   `ExposureClusterSuite`'s rolling restart under load, a regression from the first version of the
+   shutdown fix (see above). Reworked; `ExposureClusterSuite` 9/9 and `GrpcClusterSuite` 28/28 then
+   passed together, and `ShutdownOrderSuite` and `GrpcShutdownSuite` still pass. An earlier full run
+   failed `MultiNodeClusterSuite` and `ControlPlaneClusterSuite` while another session's k3s suites
+   ran beside it; both passed in the quiet run. T070 is ticked on that evidence: every suite has
+   passed on the final code except those the rework cannot reach, which passed on the run before it.
+3. T071 by hand on kind (quickstart step 6). Not done: it replaces the operator in the kind cluster
+   on this machine, which was running something else, so it is the user's to do.
+4. T072: `@ignore` none, BDD checker 0 findings with 1 spec read, `ci-coverage.py` passes. The
+   golden fixtures are **not** unchanged since T002: each of the six gained exactly two lines,
+   `# remove networkpolicy …/cart-grpc if owned` and `# remove service …/cart-grpc-peers if owned`,
+   read-first owner-checked removals that write nothing where the object does not exist, accepted on
+   purpose in 8766bb9 and 6aa8c84. Whether that meets the gate is the user's call.
 
 ## Open questions for the user
 

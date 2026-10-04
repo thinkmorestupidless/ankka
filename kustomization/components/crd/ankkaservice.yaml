@@ -193,6 +193,29 @@ spec:
                   description: >-
                     The port a web-hosted service's program listens on, told to it as PORT. Absent
                     for every other hosting.
+                topics:
+                  type: array
+                  description: >-
+                    The topics the descriptor declares, made on the installation's broker as
+                    <project>.<name>. A topic is the project's; a service that only reads one
+                    declares nothing.
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - partitions
+                    properties:
+                      name:
+                        type: string
+                      partitions:
+                        type: integer
+                        minimum: 1
+                provisionBroker:
+                  type: boolean
+                  description: >-
+                    Whether the platform should know this service on the installation's broker.
+                    false when the descriptor names a broker of its own, and for a web-hosted
+                    service.
                 exposed:
                   type: boolean
                   description: >-
@@ -264,6 +287,28 @@ spec:
                       type: string
                     cluster:
                       type: string
+                    recovered:
+                      type: boolean
+                    detail:
+                      type: string
+                broker:
+                  type: object
+                  description: What the platform did about this service on the installation's
+                    broker. Absent for a web-hosted service, and for one that declares no topic in
+                    an installation with no broker.
+                  properties:
+                    phase:
+                      type: string
+                      enum:
+                        - Supplied
+                        - Waiting
+                        - Provisioned
+                        - Recovered
+                        - Failed
+                    topics:
+                      type: array
+                      items:
+                        type: string
                     recovered:
                       type: boolean
                     detail:

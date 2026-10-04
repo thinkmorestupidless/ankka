@@ -198,6 +198,45 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     assert(!json.contains("database"), s"an absent Option should not appear at all: $json")
   }
 
+  test("a resource from before topics declares none and is known to the broker") {
+    val sparse = """{"projectId":"checkout","serviceName":"cart","generation":1,"image":"img:1"}"""
+    val spec   = serialization.unmarshal(sparse, classOf[AnkkaServiceSpec])
+    assertEquals(spec.topics, Nil)
+    assertEquals(spec.provisionBroker, true)
+  }
+
+  test("declared topics and provisionBroker round-trip") {
+    val withTopics = fullSpec.copy(
+      topics = List(TopicEntry("transactions", 12), TopicEntry("wallet-events", 3)),
+      provisionBroker = false
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(withTopics), classOf[AnkkaServiceSpec]),
+      withTopics
+    )
+  }
+
+  test("a BrokerStatus round-trips, and a status with none decodes to None and writes none") {
+    val status = AnkkaServiceStatus(
+      lifecycle = "Ready",
+      broker = Some(
+        BrokerStatus("Recovered", List("money.transactions"), recovered = true, detail = None)
+      )
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(status), classOf[AnkkaServiceStatus]),
+      status
+    )
+    val older = """{"generation":1,"lifecycle":"Ready"}"""
+    assertEquals(serialization.unmarshal(older, classOf[AnkkaServiceStatus]).broker, None)
+    assert(!serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready")).contains("broker"))
+  }
+
+  test("a report that differs only in the broker is a new report") {
+    val a = AnkkaServiceStatus(lifecycle = "Ready", broker = Some(BrokerStatus("Waiting")))
+    assert(!a.sameReport(a.copy(broker = Some(BrokerStatus("Provisioned")))))
+  }
+
   test("a gRPC port is absent from a resource that has none, and round-trips when present") {
     val without = serialization.asJson(fullSpec)
     assert(!without.contains("grpcPort"), without)

@@ -531,7 +531,7 @@ not telemetry: they are read where they were printed and never exported.
 Of an instance: send its telemetry to the collector. What is exported is a copy; the
 instance's trace window and its logs are read as before.
 
-Avoid: ship, push
+Avoid: ship
 
 ### collector
 The program an installation's services export to. It is the installation's own, not

@@ -51,7 +51,10 @@ import scala.concurrent.{Await, ExecutionContext, Future}
  */
 final class ProjectionRuntime private (
     publisherFactory: Option[ActorSystem[?] => MessagePublisher],
-    subscriberFactory: Option[ActorSystem[?] => MessageSubscriber]
+    subscriberFactory: Option[ActorSystem[?] => MessageSubscriber],
+    // Whether the factory makes a publisher this runtime owns (Kafka's, a producer it opened) and so
+    // must close on stop; one handed in, such as a test's broker, is its giver's to close.
+    ownsPublisher: Boolean = false
 ) extends RuntimeExtension:
 
   // Factories rather than instances: a Kafka client needs an ActorSystem, which does not
@@ -688,6 +691,14 @@ final class ProjectionRuntime private (
     subscriptions.forEach(_.stop())
     subscriptions.clear()
     subscriber.foreach(_.stop())
+    // A producer left open keeps its network thread, retrying a broker that may be gone, for the
+    // life of the JVM: one more on every restart of a service in a test.
+    if ownsPublisher then
+      publisher.foreach {
+        case owned: AutoCloseable => owned.close()
+        case _                    => ()
+      }
+    publisher = None
 
 object ProjectionRuntime:
 
@@ -717,7 +728,8 @@ object ProjectionRuntime:
   def withKafka(bootstrapServers: String): ProjectionRuntime =
     new ProjectionRuntime(
       Some(system => KafkaPublisher(bootstrapServers)(using system)),
-      Some(system => KafkaSubscriber(bootstrapServers)(using system))
+      Some(system => KafkaSubscriber(bootstrapServers)(using system)),
+      ownsPublisher = true
     )
 
   /**

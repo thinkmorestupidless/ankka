@@ -54,6 +54,9 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
 
   override def afterAll(): Unit =
     if subscriberStarted then subscriber.stop()
+    // Closed, or its producer retries the stopped broker for the rest of the JVM and logs into
+    // whichever suite runs next — LogCapturingSuite asserts on exactly what is logged.
+    if publisherOpened then kafkaPublisher.close()
     if testKit != null then testKit.stop()
     if kafka != null then kafka.stop()
 
@@ -63,7 +66,11 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
 
   private given org.apache.pekko.actor.typed.ActorSystem[?] = testKit.service.system
 
-  protected lazy val publisher: MessagePublisher = KafkaPublisher(bootstrap)
+  @volatile private var publisherOpened = false
+  private lazy val kafkaPublisher =
+    publisherOpened = true
+    KafkaPublisher(bootstrap)
+  protected def publisher: MessagePublisher = kafkaPublisher
 
   @volatile private var subscriberStarted = false
   protected lazy val subscriber: MessageSubscriber =
@@ -442,6 +449,19 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
     assertEquals(headers.get("content-type"), Some("application/json"))
     assert(headers.contains("ce-id"), headers.toString)
     assert(headers.contains("ce-type"), headers.toString)
+  }
+
+  test("a service that stops closes the Kafka producer it opened") {
+    // Every producer runs one network thread for as long as it is open, so a restart that leaked
+    // the stopped service's producer leaves one more than it found: the new service's replaces it.
+    def producers =
+      Thread.getAllStackTraces.keySet.asScala.count(t =>
+        t.isAlive && t.getName.startsWith("kafka-producer-network-thread")
+      )
+    val before = producers
+    assert(before >= 1, "the running service should have a producer open")
+    testKit.restartService()
+    assertEquals(producers, before, "the stopped service's producer is still open")
   }
 
 /** A consumer that records each message it is handed, with the version it was declared at. */

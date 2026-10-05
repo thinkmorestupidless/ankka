@@ -161,8 +161,10 @@ thinkmorestupidless/tap/ankka`). The formula is canonical in `homebrew/Formula/a
 blocks, each line ending in a comment naming its platform — deliberate, like the plugin's `0.0.0`. The
 release workflow's `homebrew` job waits for every leg of `cli-native`, reads each `.sha256` from the
 release, writes the version and each checksum onto the line naming its platform, refuses to push if a
-placeholder survives, and subtree-pushes `homebrew/` to the tap, exactly as the template and the
-marketplace go. `HomebrewFormulaSuite` pins the placeholders and the comments the job's `sed` matches.
+placeholder survives, then clones the tap, writes `Formula/ankka.rb` and the README, and pushes an
+ordinary commit with one fetch-and-rebase retry — the way the marketplace goes, never a subtree
+force-push: the tap holds other projects' formulae (ankka-flow's among them), and a force push would
+erase them. `HomebrewFormulaSuite` pins the placeholders and the comments the job's `sed` matches.
 The formula needs no JDK. `brew audit --strict` passes, and the proof of the whole thing is a throwaway
 local tap (`brew tap-new`) pointed at a locally built tarball by `file://` URL — with the test formula
 renamed and `keg_only` if a real `ankka` is installed, and `HOMEBREW_NO_AUTOREMOVE=1` on the uninstall:

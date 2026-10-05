@@ -238,7 +238,7 @@ object KeycloakStack:
           "--rolename",
           "platform-admin"
         ))*
-      )
+      ): Unit
 
   /**
    * A person who signs in with a password, created as deploy-local.sh creates `dev`: a verified
@@ -390,7 +390,7 @@ object KeycloakStack:
   private def applyOnNode(k3s: K3sContainer, yaml: String, name: String): Unit =
     val path = s"/tmp/ankka-$name.yaml"
     k3s.copyFileToContainer(Transferable.of(yaml.getBytes(StandardCharsets.UTF_8)), path)
-    exec(k3s, "kubectl", "apply", "--server-side", "--force-conflicts", "-f", path)
+    exec(k3s, "kubectl", "apply", "--server-side", "--force-conflicts", "-f", path): Unit
 
   private def exec(k3s: K3sContainer, args: String*): String =
     val result = k3s.execInContainer(args*)

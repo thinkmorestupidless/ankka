@@ -57,7 +57,7 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
   private def actions(spec: AnkkaServiceSpec, plan: ProvisioningPlan, s: Settings = settings) =
     Rendering.render(resource(spec), s, plan).fold(p => fail(p.mkString("; ")), identity)
 
-  private def deployment(spec: AnkkaServiceSpec, s: Settings = settings): Deployment =
+  private def deployment(spec: AnkkaServiceSpec, s: Settings): Deployment =
     actions(spec, ProvisioningPlan.NotNeeded, s).collectFirst { case Action.ApplyDeployment(d) =>
       d
     }.get

@@ -66,7 +66,7 @@ sbt 'cli/testOnly *ActionSuite'   # the GitHub Action's install and configure st
 sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka init --language python`, run
                                    # against sdks/python (and typescript and rust likewise); needs uv, node and npm, or cargo
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
-sbt compile                       # should be warning-free; -Wunused is on
+sbt compile                       # warning-free by construction: -Werror (compile only, not doc), -Wunused is on
 just features                     # speckit-bdd check: the living features, the glossary and the specs that name them
 just docs                         # uv run --project tools/docs docs build: check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill

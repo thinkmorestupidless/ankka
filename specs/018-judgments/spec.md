@@ -109,36 +109,18 @@ the handler through a running test service, and assert each answer read through 
 the scripted value and type, that the provider saw exactly one request carrying the state and the
 three questions, and that the session's conversation is unchanged.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an agent whose handler describes a judgment with a choice, a score and a yes/no
-   question, **When** the handler is called with a ticket, **Then** the provider receives one
-   request carrying the ticket as the state and all three questions, and the caller receives a
-   judgment holding one answer per question.
-2. **Given** that judgment, **When** the caller reads the choice through its question, **Then** it
-   gets the chosen option as a value of the type the question was declared over, a probability for
-   every option, and a confidence between 0 and 1.
-3. **Given** that judgment, **When** the caller reads the score through its question, **Then** it
-   gets a number on the scale — which may lie between two levels — a probability for every level,
-   and a confidence between 0 and 1.
-4. **Given** that judgment, **When** the caller reads the yes/no through its question, **Then** it
-   gets a probability between 0 and 1 that the answer is yes, and no separate confidence.
-5. **Given** a session that already holds a conversation, **When** a judgment handler is called in
-   that session, **Then** none of the conversation is sent to the provider, and the stored
-   conversation is the same after the call as before it.
-6. **Given** a handler that replies with a value computed from the judgment — a routing decision
-   of the service's own type — **When** it is called, **Then** the caller receives that value and
-   never sees the judgment.
-7. **Given** a service with no judgment provider configured and a handler that names none,
-   **When** the handler is called, **Then** the call fails with an error saying what to configure,
-   and no provider is called.
-8. **Given** a handler that names a provider for its judgment, **When** it is called, **Then**
-   that provider answers rather than the service's default.
-9. **Given** a provider that fails, **When** a judgment handler is called, **Then** the caller
-   receives an error naming the provider and the failure, and nothing is added to the session's
-   conversation.
-10. **Given** a judgment, **When** a caller reads it with a question that was not asked, **Then**
-    the read fails with an error naming the question; it does not return a default.
+- added `features/judgments/asking.feature`: a judgment asks every question of the judged content in one request
+- added `features/judgments/asking.feature`: a choice is read as an option of the type it was declared over
+- added `features/judgments/asking.feature`: a score is read as a place among its levels
+- added `features/judgments/asking.feature`: a yes or no question is read as the probability of yes
+- added `features/judgments/asking.feature`: a judgment neither reads nor changes the session's conversation
+- added `features/judgments/asking.feature`: a handler that replies with a value computed from its judgment gives only that value
+- added `features/judgments/asking.feature`: a judgment with no judgment provider to ask fails saying what to configure
+- added `features/judgments/asking.feature`: a handler that names a judgment provider is answered by it
+- added `features/judgments/asking.feature`: a judgment whose provider fails leaves the conversation as it was
+- added `features/judgments/asking.feature`: an answer read through a question that was not asked is not invented
 
 ---
 
@@ -159,37 +141,18 @@ and its behaviour on each error status. Live, with a key in the environment: ask
 each kind about a fixed state and assert a well-formed answer for each; with no key, the live
 suite reports itself skipped.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the Jev adapter configured with a key from the environment, **When** a judgment is
-   asked for, **Then** one request goes to the provider carrying the model version, the state and
-   every question in the provider's form — a choice with its options and their descriptions, a
-   score with its levels in order, a yes/no with its instructions — and the answers come back
-   mapped onto the questions that asked them.
-2. **Given** an adapter configured without naming a model, **When** a judgment is asked for,
-   **Then** the request names a specific model version, not a moving alias; an alias is sent only
-   when the developer named one.
-3. **Given** any answered judgment, **When** the caller reads which model answered, **Then** it
-   gets the version the provider reported, which for an alias is the version it resolved to.
-4. **Given** an adapter configured with a base address of the operator's choosing, **When** a
-   judgment is asked for, **Then** the request goes to that address in the same form.
-5. **Given** the provider answers that the caller is over its rate limit or that it is
-   overloaded, **When** a judgment is asked for, **Then** the adapter waits and tries again,
-   honouring the provider's own hint for how long, until the judgment's timeout would be
-   exceeded; then the judgment fails.
-6. **Given** the provider refuses the key or refuses the request as invalid, **When** a judgment
-   is asked for, **Then** the judgment fails at once, without a retry, with the provider's message
-   in the error.
-7. **Given** a response that lacks an answer for a question asked, names an option the question
-   did not offer, or carries an answer of another question kind, **When** the judgment is read from it,
-   **Then** the judgment fails with an error naming the question; no answer is invented.
-8. **Given** no response within the judgment's timeout, **When** a judgment is asked for,
-   **Then** it fails with a timeout naming the provider.
-9. **Given** any failure, **When** the error is read or logged, **Then** the key appears in
-   neither.
-10. **Given** no key in the environment, **When** the adapter is constructed from the
-    environment, **Then** construction fails naming the missing variable — at startup, not at the
-    first judgment.
+- added `features/judgments/jev.feature`: one request carries the model version, the judged content and every question
+- added `features/judgments/jev.feature`: the model version sent is a fixed one unless the developer named another
+- added `features/judgments/jev.feature`: a judgment tells its reader which model version answered it
+- added `features/judgments/jev.feature`: a service sends its judgments to the address it was given
+- added `features/judgments/jev.feature`: a busy judgment provider is asked again until the judgment's time limit
+- added `features/judgments/jev.feature`: a judgment the judgment provider refuses fails at once with its message
+- added `features/judgments/jev.feature`: an answer that does not fit its question fails the judgment
+- added `features/judgments/jev.feature`: a judgment the judgment provider does not answer in time fails naming the provider
+- added `features/judgments/jev.feature`: the credential is never shown in a failure
+- added `features/judgments/jev.feature`: a service with no credential in its environment fails as it starts
 
 ---
 
@@ -211,36 +174,18 @@ run. It follows the effect because the effect proves the seam.
 guardrail's question above its threshold and assert the interaction is refused with no model call
 and no memory written; answer below it and assert the interaction proceeds.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an agent with a judged guardrail on its input whose yes/no question has a threshold,
-   **When** a request arrives and the answer's probability is at or above the threshold, **Then**
-   the request is refused as any guardrail refusal is, the error names the guardrail and the
-   question, no text model is called, and nothing is written to the session's conversation.
-2. **Given** the same guardrail, **When** the answer's probability is below the threshold,
-   **Then** the interaction proceeds.
-3. **Given** a judged guardrail on output, **When** the model's reply crosses a threshold,
-   **Then** the reply is refused and not written to the session's conversation.
-4. **Given** a judged guardrail with several questions for one direction, **When** it checks a
-   text, **Then** it makes one provider request carrying all of them, and refuses if any
-   question's rule is met, naming the first in declaration order.
-5. **Given** a deterministic guardrail declared before a judged one, **When** the deterministic
-   one refuses, **Then** the judged one is not run and no provider is called.
-6. **Given** a judged guardrail with a choice question and a set of refused options, or a score
-   question and a level at or above which to refuse, **When** the answer is a refused option or
-   reaches that level, **Then** the interaction is refused.
-7. **Given** a judged guardrail whose provider fails or times out, **When** it checks a text,
-   **Then** the interaction does not proceed, and the error says the check could not be made —
-   distinguishable by its caller from a refusal.
-8. **Given** an autonomous agent with a judged guardrail, **When** a task starts, **Then** the
-   task's instructions are checked before any text model call, and a refusal has the outcome a
-   deterministic guardrail's refusal has.
-9. **Given** the same agent, **When** the model completes the task with a result, **Then** the
-   result is checked, and a refusal is returned to the model with its reason as a deterministic
-   guardrail's is.
-10. **Given** a streaming handler with a judged output guardrail, **When** the stream ends,
-    **Then** the guardrail runs after the text was delivered, as every output guardrail on a
-    stream does, and a refusal keeps the reply out of the session's conversation.
+- added `features/judgments/judged-guardrails.feature`: an input whose answer reaches the threshold is refused before the model is called
+- added `features/judgments/judged-guardrails.feature`: an input whose answer is below the threshold goes on to the model
+- added `features/judgments/judged-guardrails.feature`: a reply a judged guardrail on output refuses is not remembered
+- added `features/judgments/judged-guardrails.feature`: a judged guardrail asks all its questions in one request and names the first that refuses
+- added `features/judgments/judged-guardrails.feature`: a guardrail that refuses first spares the judged guardrail after it
+- added `features/judgments/judged-guardrails.feature`: a judged guardrail refuses a refused option or a level reached
+- added `features/judgments/judged-guardrails.feature`: a judged guardrail that could not ask stops the interaction without refusing it
+- added `features/judgments/judged-guardrails.feature`: an autonomous agent's judged guardrail checks a task's instructions before the model is called
+- added `features/judgments/judged-guardrails.feature`: an autonomous agent's judged guardrail on output sends a refused result back to the model
+- added `features/judgments/judged-guardrails.feature`: a judged guardrail on a stream keeps a refused reply out of the conversation it cannot recall
 
 ---
 
@@ -259,25 +204,14 @@ this story is what makes it a tool a developer can rely on rather than a stub.
 **Independent Test**: A suite over the scripted provider itself: each acceptance scenario below,
 with no service running where none is needed.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a scripted provider with queued answers, **When** judgments are asked for, **Then**
-   each takes the next queued answers in order, and the provider records every request — its
-   state and its questions — for the test to assert on.
-2. **Given** a scripted provider whose queue is empty and which has no standing answer for a
-   question asked, **When** a judgment is asked for, **Then** it fails loudly, naming the
-   questions it had no answer for.
-3. **Given** a queued answer for a question the request does not ask, an option the question does
-   not offer, a score off the question's scale, or a probability outside 0 to 1, **When** it is
-   scripted or used, **Then** the test fails naming the mismatch.
-4. **Given** a standing answer for a question, **When** any number of judgments ask it, **Then**
-   each receives that answer without consuming the queue.
-5. **Given** an agent with a judged guardrail, a scripted judgment provider and a scripted model,
-   **When** a request runs, **Then** the guardrail's judgments draw only on the judgment script
-   and the agent's turns only on the model script.
-6. **Given** a test that scripts only the chosen option or only the yes probability, **When** the
-   answer is read, **Then** the probabilities and confidence it carries are consistent with what
-   was scripted.
+- added `features/judgments/testing.feature`: queued answers are given in order and every request is kept for the test
+- added `features/judgments/testing.feature`: a script with no answer for a question fails naming the question
+- added `features/judgments/testing.feature`: an answer that does not fit its question fails the test naming what does not fit
+- added `features/judgments/testing.feature`: a standing answer is given to every judgment that asks its question
+- added `features/judgments/testing.feature`: an agent's judgments and its model calls draw on their own scripts
+- added `features/judgments/testing.feature`: an answer scripted in part reads as a whole answer that agrees with it
 
 ---
 
@@ -295,19 +229,13 @@ every model call's tokens and silently omits these would be reporting a total th
 including one the guardrail refuses, and read the session's usage: judgment tokens equal the sum
 the scripted provider reported, and the text model's tokens are unchanged by them.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an answered judgment, **When** it is read, **Then** it carries the model version
-   that answered and the tokens the provider reported.
-2. **Given** a session in which judgments were made by a handler's effect and by a judged
-   guardrail, **When** the session's usage is read, **Then** judgment tokens are reported as their
-   own figure, not added to the text model's.
-3. **Given** a judged guardrail that refuses a request, **When** the session's usage is read,
-   **Then** the tokens its judgment spent are counted, although no message was recorded.
-4. **Given** an autonomous agent's task checked by a judged guardrail, **When** the task's session
-   usage is read, **Then** the guardrail's tokens are counted there in the same way.
-5. **Given** a session recorded before this feature, **When** it is read, **Then** it reads as
-   before, with no judgment tokens.
+- added `features/judgments/usage.feature`: an answered judgment says which model version answered it and what it cost
+- added `features/judgments/usage.feature`: a session reports its judgments' usage apart from its model's
+- added `features/judgments/usage.feature`: the usage of a judged guardrail that refused is still counted
+- added `features/judgments/usage.feature`: the usage of an autonomous agent's judged guardrail is counted on its task's session
+- added `features/judgments/usage.feature`: a session recorded before judgments reads as it did
 
 ---
 
@@ -325,27 +253,14 @@ nobody else.
 code; a reader following only the guide produces the triage agent of User Story 1 with a passing
 test.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the documentation, **When** a reader looks for judgments, **Then** there is a guide
-   to building with them whose every code sample is included from tested code, and the concept
-   pages on agents say what a judgment is and how it differs from an interaction with a text
-   model.
-2. **Given** the guide, **When** a reader reaches guardrails, **Then** it states that a judged
-   guardrail reads text its author may have written to defeat it, that it complements
-   deterministic guardrails rather than replacing them, and what happens when the provider cannot
-   be reached.
-3. **Given** the guide, **When** a reader chooses thresholds, **Then** it states that answers can
-   change between model versions, that the adapter therefore pins one, and that the answering
-   version is reported on every judgment.
-4. **Given** the configuration reference, **When** a reader looks up the adapter's settings,
-   **Then** every variable and setting the adapter reads is listed and described.
-5. **Given** the limitations page and the page of differences from Akka, **When** a reader looks
-   for judgments, **Then** the first says they are available to Scala services' agents only and
-   names what is not yet there, and the second says where ankka's judgment API differs from
-   Akka's announced one.
-6. **Given** the documentation build, **When** it runs, **Then** every new page is in the
-   navigation and in at least one skill.
+- added `features/judgments/documentation.feature`: the documentation guides building with judgments from tested code
+- added `features/judgments/documentation.feature`: the documentation says what a judged guardrail can and cannot be trusted with
+- added `features/judgments/documentation.feature`: the documentation says why the model version is fixed
+- added `features/judgments/documentation.feature`: the documentation lists every setting of the judgment provider
+- added `features/judgments/documentation.feature`: the documentation says where judgments are not available and how they differ from Akka's
+- added `features/judgments/documentation.feature`: every page about judgments can be found
 
 ---
 

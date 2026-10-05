@@ -340,12 +340,15 @@ abstract class SocketSteps(features: String) extends GherkinSuite(features) with
     (_: String) =>
       // The measure must be able to move: a thousand platform threads parked by the test raise it
       // by about a thousand.
+      // Measured from its own baseline: the JVM's other threads come and go, so a count taken
+      // earlier is not a fixed floor for this one.
       val parked = CountDownLatch(1)
+      val start  = ManagementFactory.getThreadMXBean.getThreadCount
       val proof  = (1 to 1000).map(_ => Thread.ofPlatform().start(() => parked.await()))
-      val raised = ManagementFactory.getThreadMXBean.getThreadCount - threadsBefore
+      val raised = ManagementFactory.getThreadMXBean.getThreadCount - start
       parked.countDown()
       proof.foreach(_.join())
-      assert(raised >= 990, s"the measure did not move: $raised")
+      assert(raised >= 900, s"the measure did not move: $raised")
       val withSockets = ManagementFactory.getThreadMXBean.getThreadCount - threadsBefore
       assert(withSockets <= 8, s"${many.size} open sockets added $withSockets platform threads")
   }

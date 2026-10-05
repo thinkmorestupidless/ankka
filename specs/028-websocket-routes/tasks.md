@@ -189,8 +189,8 @@ captured output is not the test's to read.
 
 ## Phase 7: The whole build
 
-- [ ] T054 `just features` with no finding in the socket features, and the count of scenarios it read risen by 45; `python3 .github/ci-coverage.py`.
-- [ ] T055 `sbt scalafmtCheckAll scalafmtSbtCheck && sbt compile` warning-free, then `sbt -Dankka.cluster.tests=off test`; the SDK lines of `quickstart.md` run 4 in full, not filtered.
+- [X] T054 `just features` with no finding in the socket features, and the count of scenarios it read risen by 45; `python3 .github/ci-coverage.py`.
+- [X] T055 `sbt scalafmtCheckAll scalafmtSbtCheck && sbt compile` warning-free, then `sbt -Dankka.cluster.tests=off test`; the SDK lines of `quickstart.md` run 4 in full, not filtered.
 - [ ] T056 `quickstart.md` run 7 by hand: the cart on a laptop, Node's `WebSocket`, `closed 1001` on Ctrl-C, the route in the local console with no form.
 - [ ] T057 `caffeinate -i sbt buildAll`, awake. Then the release note of `plan.md`'s last paragraph in the pull request's description: the protocol's minor version rises.
 

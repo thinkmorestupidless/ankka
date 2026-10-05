@@ -5,7 +5,7 @@ Feature: A project's topics are its own
 
   Background:
     Given an installation with a broker
-    And the topic "transactions" of the project "money" on the installation's broker
+    And the topic "transactions" is declared on "money"
     And a deployed service "lobby" in the project "casino"
 
   Scenario: a service reads nothing of another project's topic of the same name

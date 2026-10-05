@@ -26,7 +26,7 @@ Feature: A broker the descriptor names
 
   Scenario: a service whose descriptor names a broker is given nothing on the installation's
     Given an installation with a broker
-    And a descriptor for a service "wallet" that gives the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS" and declares no topic
+    And a descriptor for a service "wallet" that gives the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
     When a member applies the descriptor
     Then the status of "wallet" says that its broker is "Supplied"
     And the installation's broker has no credential for "wallet"

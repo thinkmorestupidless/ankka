@@ -1448,10 +1448,10 @@ topic may be given more and never fewer.
 Avoid: shard
 
 ### declared topic
-A topic a descriptor says its project is to have, which the platform makes on the
-installation's broker. It belongs to the project, not to the service that declared it: every
-service of the project reads it and publishes to it by its name. It is not a declared connection,
-which is a component saying what it reads.
+A topic a member declares on a project, once, with the partitions it has, which the platform makes
+on the installation's broker. Every service of the project reads it and publishes to it by its
+name; no service declares it. It is not a declared connection, which is a component saying what it
+reads or publishes to.
 
 Avoid: managed topic, provisioned topic
 
@@ -1530,4 +1530,4 @@ foot, hidden, scroll, scrolls, sideways, pauses, saying, overview, open, reloade
 visible, keyboard, brightest, point, least, brighter, shipped, colour, accord, blur, opaque,
 readable, border, outline, forces, edge, clipped, below, facts, controls, prefers, preference,
 dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright, enough,
-front, width, would, choose, whoever, clear
+front, width, would, choose, whoever, clear, declaration

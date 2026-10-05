@@ -5,7 +5,8 @@ Feature: The installation's broker
 
   Scenario: a local platform has a broker from the start
     Given a local platform, newly made
-    And a descriptor for the sample "shopping-cart" that declares a topic and gives no broker variable
+    And a project with a declared topic
+    And a descriptor for the sample "shopping-cart" in that project that gives no broker variable
     When a member applies the descriptor
     Then the sample is ready
     And what its consumer publishes is read from the installation's broker
@@ -26,13 +27,14 @@ Feature: The installation's broker
     When the certificate of the broker is read
     Then the certificate names the platform and no project a member can have
 
-  Scenario Outline: a service of an installation with no broker is deployed as it was before
+  Scenario: a service of an installation with no broker is deployed as it was before
     Given an installation with no broker
-    And a descriptor for a service "wallet" that <declares>
+    And a descriptor for a service "wallet"
     When a member applies the descriptor
-    Then <outcome>
+    Then the environment of "wallet" has no broker variable
 
-    Examples:
-      | declares                         | outcome                                                               |
-      | declares no topic                | the environment of "wallet" has no broker variable                    |
-      | declares the topic "transactions" | the status says that the broker of "wallet" is "Failed", and that the installation has no broker |
+  Scenario: a topic declared on an installation with no broker says why it is not made
+    Given an installation with no broker
+    And a project "money"
+    When a member declares the topic "transactions" on "money"
+    Then the topic "transactions" is "Failed", and the installation has no broker

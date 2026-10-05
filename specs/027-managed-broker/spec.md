@@ -13,6 +13,13 @@
 > `ANKKA_KAFKA_` as a prefix given to both programs of a process-hosted service, and the control
 > plane, the operator and the module host all read it. What is left of that story is its proof on a
 > cluster. The description below is the one this spec was written from, defect included.
+>
+> **Revised 2026-10-05.** Topics were first declared in a service's descriptor, with a rule that two
+> services declaring one topic must agree on its partitions. A k3s run showed what that rule implies:
+> a topic two services declare can never be given more partitions, since each one's raise is refused
+> for disagreeing with the other. Topics are now declared on the project, once, which is what they
+> already were in every other respect; a service declares none, and its status names any topic its
+> components use that the project has not declared.
 
 **Input**: User description: "Topics are how ankka services exchange facts, and the platform provides
 no broker: a service names a Kafka it cannot reach on the platform at all when it is process-hosted,
@@ -70,19 +77,23 @@ Five decisions follow.
   per project is not. The project boundary is the ACL, enforced by the broker, not a separate
   broker, and it is a hard one: no service reads or writes a topic of another project. One broker
   is what leaves a later feature able to grant a single topic across that boundary.
-- **Topics are declared in the descriptor and owned by the project.** A descriptor lists
-  `topics: [{name, partitions}]`; the operator renders each as `<project>.<name>`. The runtime
-  maps a component's declared topic name onto the project-qualified one, so service code names
-  `transactions` and the broker sees `money.transactions`. A service reads and writes only its
-  project's topics.
+- **Topics are declared on the project, once.** A topic is the project's in every respect: every
+  service of the project reads and publishes to it, and it outlives every service. So a member
+  declares it on the project, with its partitions, and that one declaration is the only place its
+  count is said; raising it is setting it again. The operator renders each as `<project>.<name>`,
+  and the runtime maps a component's topic name onto the project-qualified one, so service code
+  names `transactions` and the broker sees `money.transactions`. A service declares no topic. What
+  a service's components read and publish to is already known to the platform, from the
+  connections each component declares, so a service's status names any topic it uses that its
+  project has not declared: the check a name typed wrongly needs, made from the code that names it.
 - **The credential is the certificate the service already holds.** The broker trusts the
   installation's service authority and knows a service by its certificate's common name, so no
   password is generated and nothing is stored that could leak. Planning found that the service
   certificate has no common name today and that Kafka knows a TLS client by nothing else, so the
   certificate gains one, naming the project and the service, in an installation that has a broker.
 - **Supplying your own is the escape hatch, exactly as for a database.** A descriptor that sets
-  any `ANKKA_KAFKA_*` variable gets no provisioning and no topics, and `ServiceSpec.problems`
-  refuses `topics` beside it, so a descriptor says one thing.
+  any `ANKKA_KAFKA_*` variable gets no credential and no broker variables of the platform's, and
+  uses the broker it names; its project's declared topics are not made on that broker for it.
 
 This feature is not a change to how topics are read: start positions, qualified consumer group ids
 and rebuild are 024-replayable-topics, which this feature assumes, since the broker's ACL scheme
@@ -113,6 +124,20 @@ consumer in the owning project, to a topic the reader's project owns.
   "message" is a gRPC status's, and the features say what the broker allows or refuses a credential
   rather than "ACL", which is an endpoint's.
 
+### Session 2026-10-05
+
+- Q: Where is a topic declared? → A: On the project, once, by a member, with its partitions. A
+  service's descriptor declares none. Declaring a topic the project has with the same partitions
+  changes nothing; with more, grows it; with fewer, is refused.
+- Q: Does a service list the topics it uses? → A: No: its components already name them, and a
+  second list could disagree with the code. The service's status names any topic its components
+  use that the project has not declared, from the connections they declare to the platform.
+- Q: What does removing a declaration do? → A: The project stops declaring the topic; the topic and
+  what was published to it stay on the broker, as when a service is deleted. Declaring it again
+  finds it, and reports it recovered.
+- Q: What does a service's broker status describe now? → A: Its credential alone. A topic's status
+  is the project's, per topic.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A process-hosted service with a topic is proved on a cluster (Priority: P1)
@@ -137,39 +162,43 @@ cluster and asserts the pod is ready and a message the consumer publishes is rea
 
 ---
 
-### User Story 2 - A service declares a topic and the platform provides it (Priority: P1)
+### User Story 2 - A project declares a topic and its services use it (Priority: P1)
 
-A developer adds `topics: [{"name": "transactions", "partitions": 12}]` to the wallet's descriptor
-and sets no broker variable. On apply the operator creates the topic as `money.transactions` on the
-installation's broker, a credential for the wallet, and ACLs; the pod receives the bootstrap
-address and its TLS settings; the wallet's transaction notifier publishes; and `ankka services get`
-reports the broker phase as ready. A second service in the same project with a view over
-`transactions` reads it with no topic declaration of its own.
+A member declares the topic `transactions` on the project `money` with 12 partitions. The operator
+creates it as `money.transactions` on the installation's broker. Every service of `money` with
+components has a credential and the broker's address already; the wallet's transaction notifier
+publishes to `transactions`, a second service's view over `transactions` reads it, and neither
+descriptor says anything about a broker or a topic. `ankka projects topics list money` reports the
+topic provisioned, and a service whose components use a topic `money` has not declared says so in
+`ankka services get`.
 
 **Why this priority**: This is the feature. Without it every deployment hand-configures a broker
 outside the platform and nothing isolates projects.
 
-**Independent Test**: In the k3s suite with the broker component installed, apply two services in
-one project, one declaring and publishing to a topic, one reading it; assert the topic exists under
+**Independent Test**: In the k3s suite with the broker component installed, declare a topic on a
+project and deploy two services, one publishing to it, one reading it; assert the topic exists under
 the project's name, both pods are ready, a published message reaches the reader's view, and the
-status reports the broker phase.
+project's topic and the services' broker status are reported.
 
 **Acceptance Scenarios**:
 
-- added `features/broker/topics.feature`: a declared topic is made on the installation's broker for its project
-- added `features/broker/topics.feature`: a service with a declared topic is told where the installation's broker is
+- added `features/broker/declaring.feature`: a declared topic is made on the installation's broker for its project
+- added `features/broker/declaring.feature`: a topic declared again is still one declaration
+- added `features/broker/declaring.feature`: a topic's partitions can be made more and never fewer
+- added `features/broker/declaring.feature`: a project's topics say how far the platform has got with them
+- added `features/broker/topics.feature`: a service is told where the installation's broker is
 - added `features/broker/topics.feature`: a service proves which service it is to the broker with its certificate
 - added `features/broker/topics.feature`: both programs of a service hosted as a process are told where the installation's broker is
-- added `features/broker/topics.feature`: a consumer publishes to its project's topic by the name the descriptor declared
-- added `features/broker/topics.feature`: another service of the project reads a declared topic without declaring it
-- added `features/broker/topics.feature`: a service that declares no topic is told where the installation's broker is
-- added `features/broker/topics.feature`: a consumer that publishes to a topic no descriptor declares waits for it
+- added `features/broker/topics.feature`: a consumer publishes to its project's topic by the name the project declared
+- added `features/broker/topics.feature`: every service of the project reads a declared topic
+- added `features/broker/topics.feature`: a consumer that publishes to a topic its project has not declared waits for it
 - added `features/broker/topics.feature`: what waited for a topic is published once the topic is declared
+- added `features/broker/topics.feature`: the status of a service names a topic it uses that its project has not declared
+- added `features/broker/topics.feature`: a topic is no longer named as undeclared once its project declares it
 - added `features/broker/topics.feature`: a web-hosted service is given nothing of the installation's broker
+- added `features/broker/topics.feature`: the status says how far the platform has got with a service's credential
 - added `features/broker/installation.feature`: a service of an installation with no broker is deployed as it was before
-- added `features/broker/topics.feature`: the status says how far the platform has got with a service's topics
-- added `features/broker/descriptor.feature`: two services of a project that declare one topic agree on its partitions
-- added `features/broker/descriptor.feature`: a topic's partitions can be made more and never fewer
+- added `features/broker/installation.feature`: a topic declared on an installation with no broker says why it is not made
 
 ---
 
@@ -195,16 +224,19 @@ the view has no rows after a message is published in the first project.
 - added `features/broker/isolation.feature`: a service reads nothing of another project's topic of the same name
 - added `features/broker/isolation.feature`: a service's credential is refused a topic of another project
 - added `features/broker/isolation.feature`: a service's credential reaches the topics of its own project and nothing else
-- added `features/broker/descriptor.feature`: a descriptor's topics are refused when they cannot be made
+- added `features/broker/declaring.feature`: a topic is refused when it cannot be made
+- added `features/broker/declaring.feature`: a declaration is made on a project of the member's organization only
 - added `features/broker/supplied.feature`: a service whose descriptor names a broker is given nothing on the installation's
 
 ---
 
 ### User Story 4 - Nothing is destroyed, and a re-applied service recovers its topic (Priority: P2)
 
-An operator deletes a service that declared a topic, then applies it again under the same name. The
-topic and every message on it are still there, and the status reports the topic as recovered. A
-platform administrator who wants a topic gone removes it by hand, as for a database.
+An operator deletes a service that published to a topic, then applies it again under the same name.
+The topic and every message on it are still there, and the service's credential is reported
+recovered. A member who removes a topic's declaration from the project leaves the topic and its
+messages on the broker, and declaring it again finds them. A platform administrator who wants a
+topic gone removes it by hand, as for a database.
 
 **Why this priority**: The database rule exists because losing data on a delete is worse than any
 leftover. A broker that deleted a topic with its service would be the first thing on the platform
@@ -216,7 +248,9 @@ earliest offset and assert the message is there; read the status and assert reco
 **Acceptance Scenarios**:
 
 - added `features/broker/kept.feature`: a deleted service's topic keeps what was published to it
-- added `features/broker/kept.feature`: a service deployed again finds its topic
+- added `features/broker/kept.feature`: a service deployed again finds its credential and its topic
+- added `features/broker/kept.feature`: a topic no longer declared keeps what was published to it
+- added `features/broker/kept.feature`: a topic declared again finds what was published to it
 - added `features/broker/kept.feature`: a view of a service deployed again reads on from where it had read to
 - added `features/broker/kept.feature`: a deleted project's topics are kept
 
@@ -232,8 +266,8 @@ notifier publishes to it with no configuration in the sample's descriptor.
 installation that must bring its own Kafka before the first topic works is one where the feature is
 never tried.
 
-**Independent Test**: `kubectl apply -k` of the local overlay brings up the broker; the sample
-deploys with a declared topic; the smoke test publishes and reads.
+**Independent Test**: `kubectl apply -k` of the local overlay brings up the broker; a project
+declares a topic and the sample deploys into it; the smoke test publishes and reads.
 
 **Acceptance Scenarios**:
 
@@ -246,27 +280,31 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 ### Edge Cases
 
-- **A topic declared by two services in one project.** Both declarations must agree on partitions;
-  the second apply that disagrees is refused at the control plane naming the first service. A
-  topic is the project's, declared by whichever service publishes to it first.
-- **A web-hosted service that declares topics.** It has no runtime to read or publish with, so
-  `ServiceSpec.problems` refuses `topics` for web hosting, as it refuses a database variable there.
-- **A service that declares no topic and never touches one.** It is given a credential and the
-  broker's address like any other, and its status carries the broker phase; it connects to
-  nothing until a component of it names a topic.
-- **An installation with no broker.** A service that declares no topic is rendered exactly as
-  before this feature, with no broker phase. One that declares a topic reports the broker phase
-  failed, naming the missing broker, and is not otherwise held back.
+- **Two services that publish to one topic.** Neither declares it; the project does, once, so there
+  is one partition count and nothing for two services to disagree about.
+- **A topic typed wrongly in a component.** The project has not declared it, so it is not made, the
+  component waits, and the service's status names the topic as used and undeclared.
+- **A web-hosted service.** It has no components to read or publish with, and is given nothing of
+  the broker; nothing a project declares changes that.
+- **A service that never touches a topic.** It is given a credential and the broker's address like
+  any other, and its status carries the broker phase; it connects to nothing until a component of
+  it names a topic.
+- **An installation with no broker.** A service is rendered exactly as before this feature, with no
+  broker phase. A topic declared on a project is reported failed, naming the missing broker.
 - **A topic named by a component and declared by nobody.** A mistyped name, or a sample that
-  publishes wherever it finds a broker: the topic is not made, the component waits, and the log
-  names it. The descriptor is the only place a topic comes from.
+  publishes wherever it finds a broker: the topic is not made, the component waits, the log names
+  it and so does the service's status. The project's declarations are the only place a topic comes
+  from.
 - **An installation that gains a broker.** Every service is told where it is, so every service is
   rolled once, and each service certificate is reissued once with its common name. Neither refuses
   a request, and a service that names its own broker is untouched.
-- **A partition count lowered.** Kafka cannot shrink a topic; the apply is refused at the control
-  plane with the reason. Raising it is applied.
-- **A topic name that is not a valid Kafka name once prefixed.** Refused by `ServiceSpec.problems`
-  with the rule, before any resource is written.
+- **A partition count lowered.** Kafka cannot shrink a topic; the declaration is refused with the
+  reason. Raising it is applied.
+- **A declaration removed while services still use the topic.** They go on publishing to and
+  reading it, since it is still on the broker, and their status names it as undeclared.
+- **A project deleted.** Its declarations go with it; its topics stay on the broker.
+- **A topic name that is not a valid Kafka name once prefixed.** Refused when it is declared, with
+  the rule, before any resource is written.
 - **The broker's operator is slow to create a credential.** The status is waiting; the pod starts
   and the sidecar's connection backs off until the credential exists, within the existing restart
   source's backoff.
@@ -295,30 +333,34 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 **Declaration and provisioning**
 
-- **FR-002**: A descriptor MUST be able to declare topics by name and partition count, validated
-  by `ServiceSpec.problems`, projected onto the resource by the control plane and declared in the
-  CRD schema with `CrdSchemaSuite` holding the two together. A web-hosted service MUST be refused
-  them.
-- **FR-003**: The operator MUST render, per declared topic, a topic named `<project>.<name>` with
-  the declared partitions. For every service that is not web-hosted and names no broker of its
-  own, whether or not it declares a topic, it MUST render a credential and ACLs granting read and
-  write on the project's topics and the service's qualified consumer groups, and nothing wider. In
-  an installation with no broker it MUST render none of this for a service that declares no topic.
+- **FR-002**: A member MUST be able to declare a topic on a project, by name and partition count,
+  and remove a declaration. A declaration MUST be refused for a name or a count the broker cannot
+  hold and for fewer partitions than the project already declares; declaring a topic again with the
+  same count MUST change nothing. A project MUST hold one declaration per topic name, and a
+  service's descriptor MUST declare none.
+- **FR-003**: The operator MUST render, per topic a project declares, a topic named
+  `<project>.<name>` with the declared partitions. For every service that is not web-hosted and names
+  no broker of its own, it MUST render a credential granting read and write on the project's topics
+  and the service's qualified consumer groups, and nothing wider. In an installation with no broker
+  it MUST render none of this.
 - **FR-004**: The operator MUST inject the bootstrap address and TLS settings as `ANKKA_KAFKA_*`
-  variables into every service FR-003 gives a credential, which `PlatformVariables` already gives to both programs of a process-hosted service;
-  no second list of names is kept. The runtime MUST map a component's declared topic name to the
-  project-qualified name.
-- **FR-005**: A descriptor that sets any `ANKKA_KAFKA_*` variable MUST be marked supplied and get
-  no provisioning, and one that also declares topics MUST be refused.
-- **FR-006**: The resource's status MUST report a broker phase in the shape of the database phase,
-  treating the broker operator's transient states as waiting.
-- **FR-007**: The platform MUST never delete a topic, a credential or an ACL; a re-applied service
-  MUST report its topic recovered.
-
+  variables into every service FR-003 gives a credential, which `PlatformVariables` already gives to
+  both programs of a process-hosted service; no second list of names is kept. The runtime MUST map a
+  component's topic name to the project-qualified name.
+- **FR-005**: A descriptor that sets any `ANKKA_KAFKA_*` variable MUST be marked supplied and get no
+  credential and no broker variables of the platform's.
+- **FR-006**: The project MUST report each declared topic's phase, and a service's status MUST
+  report its credential's phase, both in the shape of the database phase, treating the broker
+  operator's transient states as waiting.
+- **FR-007**: The platform MUST never delete a topic, a credential or an ACL: not when a service is
+  deleted, a declaration removed or a project deleted. A re-applied service MUST report its credential
+  recovered, and a topic declared again MUST report itself recovered.
 - **FR-011**: The installation's broker MUST create no topic on use. A component that reads or
-  publishes to a topic no descriptor of its project declares MUST wait and try again, the service's
-  log MUST name the topic, and the service MUST stay ready; what waited MUST flow once the topic is
-  declared.
+  publishes to a topic its project does not declare MUST wait and try again, the service's log MUST
+  name the topic, and the service MUST stay ready; what waited MUST flow once the topic is declared.
+- **FR-012**: A service's status MUST name every topic its components read or publish to that its
+  project does not declare, from the connections those components declare to the platform, and
+  MUST stop naming one once it is declared.
 
 **Platform**
 
@@ -332,16 +374,18 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 **Documentation**
 
-- **FR-010**: The topics guide and the configuration reference MUST describe declaration,
-  qualification, the escape hatch and the retention rule, and the limitations page MUST drop "the
-  platform provides no broker".
+- **FR-010**: The topics guide and the configuration reference MUST describe declaring a project's
+  topics, qualification, the undeclared-use report, the escape hatch and the retention rule, and
+  the limitations page MUST drop "the platform provides no broker".
 
 ### Key Entities
 
-- **Topic declaration**: name and partitions on a descriptor; rendered as a project-qualified
-  topic.
-- **Broker credential**: the service's identity on the broker, certificate-backed.
-- **Broker status**: phase, topic names, recovered flag and detail on the resource's status.
+- **Topic declaration**: a name and a partition count on a project, one per name; rendered as a
+  project-qualified topic, with a phase of its own.
+- **Broker credential**: the service's identity on the broker, certificate-backed, with a phase on
+  the service's status.
+- **Undeclared use**: a topic a service's components name that its project does not declare, on the
+  service's status.
 
 ## Success Criteria *(mandatory)*
 
@@ -351,8 +395,9 @@ deploys with a declared topic; the smoke test publishes and reads.
   in a suite that runs with the others.
 - **SC-002**: A service in another project is refused by the broker for a topic it did not
   declare, measured by the broker's own authorization failure, not by a platform check.
-- **SC-003**: A service declaring a topic needs no broker configuration in its descriptor and
-  publishes on first deploy.
+- **SC-003**: A service of a project that declares a topic needs no broker configuration in its
+  descriptor and publishes to the topic on first deploy.
+- **SC-005**: A topic two services publish to can be given more partitions with one change.
 - **SC-004**: Deleting and re-applying a service loses no message on its topic.
 
 ## Assumptions

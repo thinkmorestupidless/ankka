@@ -1,58 +1,46 @@
-Feature: Topics the platform provides
-  A descriptor declares the topics its service publishes to, and the platform makes each on the
-  installation's broker for the service's project. The service is told where the broker is and
-  proves which service it is with the certificate it already has. Its components go on naming a
-  topic by the name the descriptor declared; the broker holds it under a name that carries the
-  project.
+Feature: Using a project's topics
+  Every service of a project with components is told where the installation's broker is, and proves
+  which service it is with the certificate it already has. Its components name a topic by the name
+  the project declared; the broker holds it under a name that carries the project. A component that
+  names a topic its project has not declared waits for it, and the service's status says so.
 
   Background:
     Given an installation with a broker
     And a project "money"
 
-  Scenario: a declared topic is made on the installation's broker for its project
-    Given a descriptor for a service "wallet" in "money" that declares the topic "transactions" with 12 partitions
-    And the descriptor gives no broker variable
-    When a member applies the descriptor
-    Then the installation's broker has the topic "transactions" of "money" with 12 partitions
-    And the broker holds that topic under the name "money.transactions"
-
-  Scenario: a service with a declared topic is told where the installation's broker is
-    Given a deployed service "wallet" in "money" that declares the topic "transactions"
+  Scenario: a service is told where the installation's broker is
+    Given a deployed service "wallet" in "money"
     When the environment of "wallet" is read
     Then it has the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS", naming the installation's broker
 
   Scenario: a service proves which service it is to the broker with its certificate
-    Given a deployed service "wallet" in "money" that declares the topic "transactions"
+    Given a deployed service "wallet" in "money"
     When "wallet" connects to the installation's broker
     Then the broker is told that it is "wallet" of "money" by the certificate of "wallet"
     And the platform keeps no other credential for "wallet" on the broker
 
   Scenario: both programs of a service hosted as a process are told where the installation's broker is
-    Given a deployed service "wallet" in "money" hosted as a process that declares the topic "transactions"
+    Given a deployed service "wallet" in "money" hosted as a process
     When the environment of "wallet" is read
     Then the platform's program of "wallet" is given the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
     And the process of "wallet" is given the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
 
-  Scenario: a consumer publishes to its project's topic by the name the descriptor declared
-    Given a deployed service "wallet" in "money" that declares the topic "transactions"
+  Scenario: a consumer publishes to its project's topic by the name the project declared
+    Given the topic "transactions" is declared on "money"
+    And a deployed service "wallet" in "money"
     And a consumer "notifier" of "wallet" that publishes to the topic "transactions"
     When "notifier" handles an event
     Then what "notifier" published is read from "money.transactions" on the installation's broker
 
-  Scenario: another service of the project reads a declared topic without declaring it
-    Given a deployed service "wallet" in "money" that declares the topic "transactions"
-    And a deployed service "ledger" in "money" that declares no topic, with a view "entries" that reads the topic "transactions"
+  Scenario: every service of the project reads a declared topic
+    Given the topic "transactions" is declared on "money"
+    And a deployed service "wallet" in "money"
+    And a deployed service "ledger" in "money", with a view "entries" that reads the topic "transactions"
     When a consumer of "wallet" publishes to the topic "transactions"
     Then the view "entries" shows what was published
 
-  Scenario: a service that declares no topic is told where the installation's broker is
-    Given a descriptor for a service "ledger" in "money" that declares no topic and gives no broker variable
-    When a member applies the descriptor
-    Then the environment of "ledger" has the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS", naming the installation's broker
-    And the status says that the broker of "ledger" is "Provisioned"
-
-  Scenario: a consumer that publishes to a topic no descriptor declares waits for it
-    Given a deployed service "ledger" in "money" that declares no topic
+  Scenario: a consumer that publishes to a topic its project has not declared waits for it
+    Given a deployed service "ledger" in "money"
     And a consumer "notifier" of "ledger" that publishes to the topic "entries"
     When "notifier" handles an event
     Then the installation's broker has no topic "entries" of "money"
@@ -60,10 +48,22 @@ Feature: Topics the platform provides
     And "ledger" is ready
 
   Scenario: what waited for a topic is published once the topic is declared
-    Given a deployed service "ledger" in "money" that declares no topic
+    Given a deployed service "ledger" in "money"
     And a consumer "notifier" of "ledger" that has handled an event and waits to publish to the topic "entries"
-    When a member applies a descriptor for a service of "money" that declares the topic "entries"
+    When a member declares the topic "entries" on "money"
     Then what "notifier" waited to publish is read from "money.entries" on the installation's broker
+
+  Scenario: the status of a service names a topic it uses that its project has not declared
+    Given a deployed service "ledger" in "money"
+    And a consumer "notifier" of "ledger" that publishes to the topic "entries"
+    When a member reads the status of "ledger"
+    Then the status says that "ledger" uses the topic "entries", which "money" has not declared
+
+  Scenario: a topic is no longer named as undeclared once its project declares it
+    Given a deployed service "ledger" in "money"
+    And a consumer "notifier" of "ledger" that publishes to the topic "entries"
+    When a member declares the topic "entries" on "money"
+    Then the status of "ledger" names no topic its project has not declared
 
   Scenario: a web-hosted service is given nothing of the installation's broker
     Given a descriptor for the web-hosted service "web" in "money"
@@ -71,15 +71,13 @@ Feature: Topics the platform provides
     Then the environment of "web" has no broker variable
     And the installation's broker has no credential for "web"
 
-  Scenario Outline: the status says how far the platform has got with a service's topics
-    Given a deployed service "wallet" in "money" that declares the topic "transactions"
+  Scenario Outline: the status says how far the platform has got with a service's credential
+    Given a deployed service "wallet" in "money"
     And the installation's broker <state>
     When a member reads the status of "wallet"
     Then the status says that the broker of "wallet" is "<word>"
 
     Examples:
-      | state                                            | word        |
-      | has not yet made the topic                       | Waiting     |
-      | has made the topic with fewer partitions so far  | Waiting     |
-      | has made the topic and the credential            | Provisioned |
-      | has a problem with the topic that will not clear | Failed      |
+      | state                            | word        |
+      | has not yet made the credential  | Waiting     |
+      | has made the credential          | Provisioned |

@@ -106,7 +106,7 @@ see `README.md`'s "Databases are provisioned automatically" for the model, and
 
 DDL lives in `kustomization/components/postgres/ddl/` and is the single copy — four files since feature
 023 added `40-secrets-postgres.sql`. A new file is **named in seven lists**, each of which a missed one
-fails only somewhere else: `AnkkaTestKit.DdlResources`, `CnpgRendering.SchemaFiles` (the per-project
+fails only somewhere else: `SharedPostgres.DdlResources` (testkit), `CnpgRendering.SchemaFiles` (the per-project
 `ankka-schema` ConfigMap), `SchemaResourceSuite`, `CnpgRenderingSuite`, `SidecarClusterSuite`, and the
 postgres component's `kustomization.yaml` and `cluster.yaml`. Everything that globs the directory
 (compose, the sidecar image, the template) picks it up unchanged. A local database created before a file
@@ -114,7 +114,7 @@ existed does not have it — Postgres runs `initdb.d` once.
 
 `modules/runtime/src/main/resources/ankka/ddl` and `operator/src/main/resources/ankka/ddl` are
 directory symlinks into it, so the runtime jar carries it, `docker-compose.yml` mounts it through
-the runtime path, and `AnkkaTestKit` copies the same files into its container. A test can never
+the runtime path, and the testkit (`SharedPostgres`) copies the same files into its container. A test can never
 pass against a schema local development does not have. It is canonical under `kustomization/`
 for the load-restrictor reason in the traps: that is the one place kustomize can read it from,
 and everything else follows a symlink.

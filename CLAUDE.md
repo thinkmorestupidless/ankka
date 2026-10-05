@@ -50,7 +50,7 @@ Everything under `docs/` is public; internal design treatments live in the priva
 
 ## Commands
 
-Docker is required — integration suites start their own Postgres, and one starts Kafka,
+Docker is required — integration suites share a Postgres per test JVM, and one starts Kafka,
 via testcontainers. No API key is needed.
 
 ```bash
@@ -140,7 +140,10 @@ owns the logic and the guards. A recipe that reimplements a step becomes a secon
 **CI builds pull requests, and only the parts a pull request touched.** The `changes` job in
 `.github/workflows/ci.yml` maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
 `sdk-typescript`, `sdk-rust`, `console`, `template-scala`); a skipped job counts as a pass. Branch
-protection requires the `template-scala` *summary* job, never the matrix's expanded names.
+protection requires the `template-scala` *summary* job, never the matrix's expanded names. `build` is
+a matrix too, for speed — `build (testkit)`, `build (sidecar)`, `build (rest)` behind a required `build`
+summary — and `rest` is defined by subtraction (`set testkit / Test / test := {}`, likewise `sidecar`),
+so a new module's suites run there unlisted; a module given its own runner must be subtracted from it.
 `.github/ci-coverage.py` holds the map to the tree both ways: every tracked file is claimed by some
 filter (a file no job needs goes under `unchecked` with its reason) and every pattern matches some
 file. So a job that starts reading a new part of the tree needs its filter extended, and a new
@@ -289,8 +292,9 @@ handed to another thread cannot see a thread-local** — request context, trace 
 Two levels, both real. `EventSourcedTestKit` / `KeyValueEntityTestKit` drive one component with no
 actor system, cluster or database — milliseconds — while still round-tripping inputs and replies
 through the component's own serializers. `AnkkaTestKit` boots the whole service against a throwaway
-Postgres; `restartService()` drops every entity from memory, so a test can prove durability rather
-than caching. `TestModelProvider` answers from a script and **fails loudly** when it runs out.
+database — its own, copied from a schema template in one Postgres container the test JVM's kits share
+(`SharedPostgres`, lingering 30s after its last kit); `restartService()` drops every entity from
+memory, so a test can prove durability rather than caching. `TestModelProvider` answers from a script and **fails loudly** when it runs out.
 
 **Ask of every check, before relying on it: could this pass while the thing it checks is false?**
 It applies to a test, a CI step, a smoke test and a readiness wait alike, and most of the traps in

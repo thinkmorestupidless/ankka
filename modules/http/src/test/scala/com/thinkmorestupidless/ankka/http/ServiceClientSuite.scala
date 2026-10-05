@@ -152,14 +152,14 @@ class ServiceClientSuite extends munit.FunSuite:
     private val socket  = ServerSocket(0, 50, InetAddress.getLoopbackAddress)
     val connections     = AtomicInteger()
     val address: String = s"http://127.0.0.1:${socket.getLocalPort}"
-    private val acceptor = Thread.ofVirtual().start { () =>
+    Thread.ofVirtual().start { () =>
       try
         while !socket.isClosed do
           val s = socket.accept()
           connections.incrementAndGet()
           s.close()
       catch case _: java.io.IOException => ()
-    }
+    }: Unit
     def close(): Unit = socket.close()
 
   // The JDK's client sends a GET or a HEAD once more when its connection closes before any part of

@@ -41,8 +41,9 @@ import scala.jdk.CollectionConverters.*
  * Failure is done the real way. `kubectl delete --force` still sends SIGTERM and is a graceful
  * leave; a crash here is `SIGKILL` sent from the k3s node, and a partition is `iptables` on it.
  *
- * Slow, deliberately: twenty simultaneous cold starts (SC-002), because one clean formation is no
- * evidence for a race. Disable with `-Dankka.cluster.tests=off`.
+ * Slow, deliberately: repeated simultaneous cold starts, because one clean formation is no evidence
+ * for a race — twenty in the nightly run (SC-002), five by default (`-Dankka.coldstarts=N`).
+ * Disable with `-Dankka.cluster.tests=off`.
  */
 class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
 
@@ -62,8 +63,11 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
   private val Namespace = s"$Prefix-$Project"
   private val Service   = "cart"
 
-  /** SC-002 asks for at least twenty; override for a quick local run with -Dankka.coldstarts=N. */
-  private val ColdStarts = sys.props.get("ankka.coldstarts").flatMap(_.toIntOption).getOrElse(20)
+  /**
+   * SC-002 asks for at least twenty, which take thirteen minutes; five by default, and the nightly
+   * `cluster` workflow passes `-Dankka.coldstarts=20`.
+   */
+  private val ColdStarts = sys.props.get("ankka.coldstarts").flatMap(_.toIntOption).getOrElse(5)
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null

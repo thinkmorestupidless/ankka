@@ -60,8 +60,17 @@ class EndToEndClusterSuite extends munit.FunSuite with LogCapturing:
   private var ca: Path                                               = null
   private var forward: io.fabric8.kubernetes.client.LocalPortForward = null
   private var httpsPort: Int                                         = 0
-  private lazy val Token: String =
-    KeycloakStack.mintToken(ca, BaseDomain, httpsPort, "e2e-cli", "e2e-secret")
+  // The realm's tokens live five minutes and the suite runs for longer, so one is minted again once
+  // the last is four minutes old, as ControlPlaneClusterSuite does. Minted once, a case that ran
+  // late (on a slower machine than a laptop) failed `authentication required`.
+  @volatile private var minted: Option[(String, Long)] = None
+  private def Token: String =
+    minted.filter((_, at) => System.nanoTime() - at < 4.minutes.toNanos) match
+      case Some((token, _)) => token
+      case None =>
+        val token = KeycloakStack.mintToken(ca, BaseDomain, httpsPort, "e2e-cli", "e2e-secret")
+        minted = Some(token -> System.nanoTime())
+        token
   private val Prefix    = "ankka"
   private val Project   = "checkout"
   private val Namespace = s"$Prefix-$Project"

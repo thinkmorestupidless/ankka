@@ -1,7 +1,7 @@
 # The subset of the build that runs without Docker-in-Docker. The k3s suites (three modules'
-# worth, each starting a Kubernetes node in a container) stay local for now: see CLAUDE.md,
-# "Commands". The Scala template suite runs in its own job, and the Python, TypeScript and Rust
-# template suites in their SDK's job.
+# worth, each starting a Kubernetes node in a container) are not run on a pull request: the `cluster`
+# workflow runs them nightly and on demand, a runner per suite. The Scala template suite runs in its
+# own job, and the Python, TypeScript and Rust template suites in their SDK's job.
 #
 # Only what a change can break is built. The `changes` job maps the files a pull request touched
 # onto the jobs below, and a job whose inputs are untouched is skipped — which GitHub counts as a
@@ -42,6 +42,9 @@ jobs:
       # silently, so this refuses both before the map is used.
       - uses: actions/checkout@v7
       - run: python3 .github/ci-coverage.py
+      # The nightly k3s workflow's matrix comes from this script; run here so a change that breaks it
+      # fails on the pull request rather than the next night.
+      - run: python3 .github/cluster-suites.py
       # On a pull request the action lists the changed files through the API against the base
       # branch; on a manual run there is no diff and every output is true.
       - uses: dorny/paths-filter@v4
@@ -182,6 +185,8 @@ jobs:
             # `ci-coverage.py` can tell a file left out on purpose from one nobody thought about.
             unchecked:
               - '.github/workflows/release.yml'   # runs only on a tag; nothing a pull request builds executes it
+              - '.github/workflows/cluster.yml'   # the k3s suites, nightly and on demand; `changes` runs its matrix script
+              - '.github/cluster-suites.py'
               - '.githooks/**'                    # the pre-commit hook runs on a developer's machine
               - 'Justfile'                        # thin wrappers over commands the jobs run directly
               - '.gitignore'

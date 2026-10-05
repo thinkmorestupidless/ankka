@@ -151,6 +151,16 @@ top-level directory fails CI until someone decides which job reads it. `main` me
 job passed on a head up to date with `main`; pushes to `main` are not built. A full run on demand is
 `gh workflow run ci`.
 
+**The k3s suites run in `.github/workflows/cluster.yml`, nightly on `main` and on demand — never on a
+pull request** — one runner per suite, so a run takes as long as the slowest suite (~20 min) rather
+than the two hours they take in a row. The matrix is `.github/cluster-suites.py`'s: every concrete
+class in a test file that reads `ankka.cluster.tests`, so a new suite runs unlisted; `changes` runs the
+script on every pull request. Each runner is `sbt '<project>/testOnly <class>'`, which builds that
+module's images. The nightly run passes `-Dankka.coldstarts=20` (SC-002; five by default). Check a
+platform change before merging with `gh workflow run cluster --ref <branch>`, one suite with
+`-f suite=<Name>`. Under `CI` the sidecar suite fails, rather than skips, when the Rust module does not
+build.
+
 ## Architecture
 
 ### Effects are inert data; the runtime interprets them

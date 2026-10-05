@@ -95,6 +95,14 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
     if !munitIgnore then
       // The Python image is built here, not by sbt: it is a `docker build`, and the tag is this
       // build's so a stale image from another session is never the one deployed.
+      //
+      // It copies the SDK as it is on disk, and the generated stubs are gitignored: without them
+      // the image builds, and its process dies on `No module named 'ankka._proto'` in every case
+      // after, each waiting out its own timeout. Refused here instead, naming the step.
+      assert(
+        Files.isDirectory(repositoryRoot.resolve("sdks/python/src/ankka/_proto")),
+        "the Python SDK's generated stubs are missing: run `uv run python scripts/proto.py` in sdks/python"
+      )
       val build = new ProcessBuilder(
         "docker",
         "build",
@@ -116,6 +124,9 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       ClusterImages.importInto(k3s, SidecarImage)
       ClusterImages.importInto(k3s, PythonImage)
       ClusterImages.importInto(k3s, AuthImage)
+      // A public image, so pulled rather than assumed: a machine that had never pulled it (a fresh
+      // CI runner) failed the import, while every laptop that had passed.
+      docker(repositoryRoot, "pull", "-q", KeysImage)
       ClusterImages.importInto(k3s, KeysImage)
       (Vector(WrongAbiImage, NoCopyImage) ++ Option.when(rustBuilt)(RustImage))
         .foreach(ClusterImages.importInto(k3s, _))
@@ -153,6 +164,16 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
 
+  // The authentication cases' services are used by no other case, and one of them never starts on
+  // purpose: left running, it restarted a JVM every few minutes through every case after it, on a
+  // node whose CPU the rollout and wasm cases need. Gone after each case, whichever it was.
+  override def afterEach(context: AfterEach): Unit =
+    if !munitIgnore && k8s != null then
+      Vector(AuthService, UnlistedService).foreach(name =>
+        scala.util.Try(resources.withName(name).delete()): Unit
+      )
+    super.afterEach(context)
+
   override def afterAll(): Unit =
     if k3s != null then authIssuer.stop()
     if operator != null then operator.close()
@@ -169,7 +190,62 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
         try check
         catch case _: Throwable => false
       if !passed then Thread.sleep(500)
-    if !passed then fail(s"condition did not hold within $timeout; pods: ${podSummary()}")
+    if !passed then
+      fail(s"condition did not hold within $timeout; pods: ${podSummary()}\n${podDiagnosis()}")
+
+  /**
+   * Why each pod is where it is: every container's state (a waiting reason, a last termination),
+   * the conditions that are not met, and the last lines of every container's log. "Running/false"
+   * alone left a CI failure with nothing to go on.
+   */
+  private def podDiagnosis(): String =
+    try
+      // Every pod in the namespace, not only the cart's: a case waiting on another service (the
+      // wasm cases' `rust-cart`) printed nothing at all.
+      k8s
+        .pods()
+        .inNamespace(Namespace)
+        .list()
+        .getItems
+        .asScala
+        .toSeq
+        .map { p =>
+          val name = p.getMetadata.getName
+          val statuses =
+            Option(p.getStatus.getContainerStatuses).map(_.asScala.toSeq).getOrElse(Nil) ++
+              Option(p.getStatus.getInitContainerStatuses).map(_.asScala.toSeq).getOrElse(Nil)
+          val containers = statuses.map { c =>
+            val state = Option(c.getState.getWaiting)
+              .map(w => s"waiting ${w.getReason}: ${Option(w.getMessage).getOrElse("")}")
+              .orElse(
+                Option(c.getState.getTerminated)
+                  .map(t => s"terminated ${t.getReason} (${t.getExitCode})")
+              )
+              .getOrElse("running")
+            val last = Option(c.getLastState)
+              .flatMap(s => Option(s.getTerminated))
+              .map(t => s", last terminated ${t.getReason} (${t.getExitCode})")
+              .getOrElse("")
+            val log = scala.util
+              .Try(
+                k8s
+                  .pods()
+                  .inNamespace(Namespace)
+                  .withName(name)
+                  .inContainer(c.getName)
+                  .tailingLines(30)
+                  .getLog
+              )
+              .getOrElse("(no log)")
+            s"  [${c.getName}] ready=${c.getReady} restarts=${c.getRestartCount} $state$last\n$log"
+          }
+          val unmet = p.getStatus.getConditions.asScala
+            .filter(_.getStatus != "True")
+            .map(c => s"${c.getType}: ${c.getReason} ${Option(c.getMessage).getOrElse("")}".trim)
+          s"--- $name ${unmet.mkString("; ")}\n${containers.mkString("\n")}"
+        }
+        .mkString("\n")
+    catch case e: Exception => s"(could not diagnose the pods: $e)"
 
   private def nodeExec(command: String*): (Int, String) =
     val result = k3s.execInContainer(command*)
@@ -208,7 +284,12 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       catch case _: java.io.IOException => false
     if rustBuilt then
       docker(rust, "build", "-q", "-f", "examples/shopping-cart/Dockerfile", "-t", RustImage, ".")
-    else println("SidecarClusterSuite: `cargo` is not on PATH; the wasm service's cases skip")
+    // In CI the runner was given cargo to run these cases, so a module that did not build is a
+    // failure: skipped, every wasm case would report green having run nothing.
+    else if sys.env.contains("CI") then
+      fail("the Rust module did not build (is cargo, with wasm32-unknown-unknown, on PATH?)")
+    else
+      println("SidecarClusterSuite: the Rust module did not build; the wasm service's cases skip")
 
     val wrong = Files.createTempDirectory("wrong-abi")
     Files.write(
@@ -484,22 +565,29 @@ spec:
       EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
       EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None)
     )
-    val issuers = List(
-      EnvEntry("ANKKA_AUTH_ISSUERS", Some("staff"), None, None),
-      EnvEntry("ANKKA_AUTH_STAFF_ISSUER", Some(authIssuer.issuer), None, None),
-      EnvEntry(
-        "ANKKA_AUTH_STAFF_JWKS_URL",
-        Some(s"http://jwks.$Namespace.svc.cluster.local:8080/jwks"),
-        None,
-        None
-      ),
-      EnvEntry("ANKKA_AUTH_STAFF_AUDIENCE", Some("accounts"), None, None)
-    )
     spec().copy(
       serviceName = if listsIssuer then AuthService else UnlistedService,
       image = AuthImage,
-      env = database ++ (if listsIssuer then issuers else Nil)
+      env = database ++ (if listsIssuer then issuerEnv else Nil)
     )
+
+  /**
+   * The issuer a service with an authenticated route names, keyed by the suite's test issuer and
+   * served in the cluster by `deployKeys`. A runtime refuses to host an authenticated endpoint with
+   * no issuer, so every service whose code declares one needs these: the accounts service and the
+   * Rust module, whose conformance build has a `PrivateEndpoint`.
+   */
+  private lazy val issuerEnv = List(
+    EnvEntry("ANKKA_AUTH_ISSUERS", Some("staff"), None, None),
+    EnvEntry("ANKKA_AUTH_STAFF_ISSUER", Some(authIssuer.issuer), None, None),
+    EnvEntry(
+      "ANKKA_AUTH_STAFF_JWKS_URL",
+      Some(s"http://jwks.$Namespace.svc.cluster.local:8080/jwks"),
+      None,
+      None
+    ),
+    EnvEntry("ANKKA_AUTH_STAFF_AUDIENCE", Some("accounts"), None, None)
+  )
 
   private def authHttp(token: Option[String]): (Int, String) =
     com.thinkmorestupidless.ankka.operator.InPod.curl(
@@ -697,7 +785,7 @@ spec:
         EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
         EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
         EnvEntry("GREETING", Some("hello from the descriptor"), None, None)
-      ),
+      ) ++ issuerEnv,
       provisionDatabase = false,
       autoscaling = AutoscalingSpec(minInstances = instances, maxInstances = instances),
       restarts = restarts,

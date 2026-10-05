@@ -158,6 +158,12 @@ class OperatorClusterSuite extends munit.FunSuite:
         .asScala
         .map { p =>
           val name = p.getMetadata.getName
+          // A pod that never started has no log, so its phase and the reason it is not scheduled
+          // or not ready ("0/1 nodes are available: 1 Insufficient cpu") are the explanation.
+          val conditions = p.getStatus.getConditions.asScala
+            .filter(c => c.getStatus != "True")
+            .map(c => s"${c.getType}: ${c.getReason} ${Option(c.getMessage).getOrElse("")}".trim)
+          val state = (p.getStatus.getPhase +: conditions).mkString("; ")
           val log = Option(p.getSpec.getContainers.get(0).getName)
             .map(c =>
               scala.util
@@ -173,10 +179,18 @@ class OperatorClusterSuite extends munit.FunSuite:
                 .getOrElse("(no log)")
             )
             .getOrElse("")
-          s"--- $name\n$log"
+          s"--- $name ($state)\n$log"
         }
         .mkString("\n")
     catch case e: Exception => s"(could not read pod logs: $e)"
+
+  /**
+   * The CPU a workload that runs no JVM requests (busybox, pause). A request is reserved whether or
+   * not it is used, and requests equal limits, so at the default 500m every idle service held half
+   * a CPU: on a four-CPU CI runner the services earlier cases leave behind took the node, and the
+   * three- and five-instance cases' pods stayed Pending.
+   */
+  private val IdleCpu = 50
 
   private def spec(generation: Long = 1L, image: String = "busybox:1.36", paused: Boolean = false) =
     AnkkaServiceSpec(
@@ -185,6 +199,7 @@ class OperatorClusterSuite extends munit.FunSuite:
       generation = generation,
       paused = paused,
       image = image,
+      cpuMillis = IdleCpu,
       progressDeadlineSeconds = 30,
       // These are feature 001's own tests, about Deployment rendering and lifecycle — not
       // database provisioning. The escape hatch keeps them independent of CNPG being ready and
@@ -789,6 +804,7 @@ class OperatorClusterSuite extends munit.FunSuite:
         serviceName = "probe",
         generation = 1L,
         image = "registry.k8s.io/pause:3.9",
+        cpuMillis = IdleCpu,
         provisionDatabase = false,
         port = Some(80)
       )
@@ -938,6 +954,7 @@ class OperatorClusterSuite extends munit.FunSuite:
         serviceName = DeafService,
         generation = 1L,
         image = "registry.k8s.io/pause:3.9",
+        cpuMillis = IdleCpu,
         progressDeadlineSeconds = 30,
         provisionDatabase = false,
         port = Some(9000)
@@ -1056,6 +1073,7 @@ class OperatorClusterSuite extends munit.FunSuite:
       serviceName = "legacy",
       generation = 1L,
       image = "registry.k8s.io/pause:3.9",
+      cpuMillis = IdleCpu,
       provisionDatabase = false
     )
     val owner = client
@@ -1131,6 +1149,12 @@ class OperatorClusterSuite extends munit.FunSuite:
     Membership.disjointClusters(podsOf(name).map(membership))
 
   test("27. three instances form one cluster, and every pod agrees on its membership") {
+    // Services no later case uses are deleted first: they hold CPU the three instances here, and
+    // five in case 30, need. Here rather than at the end of their own cases, so a case that failed
+    // halfway still leaves the node clear for these.
+    val finished = Vector(DbService, DbService2, DeafService)
+    finished.foreach(name => resources.inNamespace(Namespace).withName(name).delete(): Unit)
+    waitFor(120.seconds)(finished.forall(podsOf(_).isEmpty))
     writeDb(trioSpec())
     waitFor(240.seconds)(
       statusNamed(ClusteredService).exists(s => s.lifecycle == "Ready" && s.readyInstances == 3)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from collections.abc import AsyncIterator
 
 from ankka import Acl, Done, Endpoint, HttpProblem, Socket, delete, get, post, socket, sse
@@ -60,7 +62,7 @@ class ShoppingCartEndpoint(Endpoint):
                 cart = await self._cart(cartId).call("get-cart").invoke(reply=ShoppingCart)
                 await socket.send(default_codec_for(ShoppingCart).encode(cart).decode("utf-8"))
             else:
-                await socket.send(f'{{"error":"unknown request {text!r}; send refresh"}}')
+                await socket.send(json.dumps({"error": f"unknown request {text!r}; send refresh"}))
     # docs:end socket
 
     # ── The view, the workflow and the notifier's log ──────────────────────

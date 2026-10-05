@@ -218,7 +218,7 @@ async def watch(self, cartId: str, socket: Socket) -> None:
             cart = await self._cart(cartId).call("get-cart").invoke(reply=ShoppingCart)
             await socket.send(default_codec_for(ShoppingCart).encode(cart).decode("utf-8"))
         else:
-            await socket.send(f'{{"error":"unknown request {text!r}; send refresh"}}')
+            await socket.send(json.dumps({"error": f"unknown request {text!r}; send refresh"}))
 ```
 
 **TypeScript**

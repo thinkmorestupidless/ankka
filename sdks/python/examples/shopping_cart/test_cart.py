@@ -609,4 +609,4 @@ def test_the_watch_socket_answers_what_it_does_not_understand_and_ends_with_its_
 
     run = EndpointTestKit.of(ShoppingCartEndpoint, _NoClient()).socket("/carts/c1/watch", ["nonsense"])
     assert run.ended == "finished"
-    assert run.sent == ["{\"error\":\"unknown request 'nonsense'; send refresh\"}"]
+    assert [json.loads(frame) for frame in run.sent] == [{"error": "unknown request 'nonsense'; send refresh"}]

@@ -52,6 +52,13 @@ import scala.concurrent.{ExecutionContext, Future}
  * lives. The trace and span ids in `metadata` are the ones the SDK received with the command or
  * request it is handling, which is what makes the nested call a child span.
  */
+/**
+ * The one call of `ClientLogic` a module's `request` import makes, apart from the rest so that a
+ * suite can stand in for it with no service running.
+ */
+trait ServiceCalls:
+  def request(request: ServiceRequest): Future[ServiceReply]
+
 final class ClientLogic(
     service: AnkkaService,
     settings: Settings,
@@ -61,7 +68,8 @@ final class ClientLogic(
      * taken to be this sidecar's own.
      */
     declaredProtocol: Option[String] = None
-)(using system: ActorSystem[?]):
+)(using system: ActorSystem[?])
+    extends ServiceCalls:
 
   private given ec: ExecutionContext = system.executionContext
   private val transport              = service.componentClient.transportRef

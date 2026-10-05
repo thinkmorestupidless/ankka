@@ -21,6 +21,7 @@ use crate::checkout_workflow::{Checkout, CheckoutWorkflow};
 use crate::domain::ShoppingCartEvent;
 use crate::endpoint::CartApi;
 use crate::entity::ShoppingCart;
+use crate::service_calls::{ServiceAsks, ServiceCallsEndpoint, ServiceRelay, ServiceSteps};
 
 // ── conformance: an entity whose handlers are the protocol's edge cases ──
 
@@ -505,9 +506,108 @@ pub struct Echo {
     pub headers: BTreeMap<String, String>,
 }
 
+/// What a call to another service came to, the same record in every language's reference.
+#[derive(Debug, Default, Serialize)]
+pub struct ServiceCallRecord {
+    pub outcome: String,
+    pub status: i32,
+    #[serde(rename = "contentType")]
+    pub content_type: String,
+    pub body: String,
+    pub answer: String,
+    pub message: String,
+}
+
+impl ServiceCallRecord {
+    fn failed(outcome: &str, error: &ServiceError) -> ServiceCallRecord {
+        ServiceCallRecord {
+            outcome: outcome.to_string(),
+            message: error.to_string(),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct ConformanceEndpoint;
 
 impl ConformanceEndpoint {
+    /// A call to another service (protocol 1.10 for a module), as the case asks for it: `service`,
+    /// `method` and `path` from the query, the body and every `X-Conformance-*` header sent on,
+    /// and two headers no handler may send — the caller's and the host — added to show they never
+    /// arrive. The answer is a record of what the client returned or failed with.
+    fn service_call(request: &Request, body: String) -> Result<ServiceCallRecord, HttpProblem> {
+        let required = |name: &str| {
+            request
+                .query(name)
+                .map(str::to_string)
+                .ok_or_else(|| HttpProblem::new(400, format!("the query needs '{name}'")))
+        };
+        let (service, method, path) =
+            (required("service")?, required("method")?, required("path")?);
+        let mut headers: Vec<(String, String)> = request
+            .headers()
+            .iter()
+            .filter(|(name, _)| name.to_ascii_lowercase().starts_with("x-conformance-"))
+            .cloned()
+            .collect();
+        headers.push(("X-Ankka-Caller".into(), "ankka://elsewhere/impostor".into()));
+        headers.push(("Host".into(), "elsewhere".into()));
+        let client = request
+            .context()
+            .services()
+            .ok_or_else(|| HttpProblem::new(500, "a route may call another service"))?
+            .service(&service);
+        let answered = if request.query("mode") == Some("typed") {
+            let sent: Vec<(&str, &str)> = headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            client
+                .with_headers(&sent)
+                .get_text(&path)
+                .map(|text| ServiceCallRecord {
+                    outcome: "response".into(),
+                    status: 200,
+                    body: text,
+                    ..Default::default()
+                })
+        } else {
+            let has_body = !body.is_empty();
+            let options = RequestOptions {
+                content_type: has_body.then(|| request.content_type().to_string()),
+                body: has_body.then(|| body.into_bytes()),
+                headers,
+            };
+            client
+                .request(&method, &path, options)
+                .map(|answer| ServiceCallRecord {
+                    outcome: "response".into(),
+                    status: i32::from(answer.status),
+                    answer: answer.header("x-answer").unwrap_or_default().to_string(),
+                    body: String::from_utf8_lossy(&answer.body).into_owned(),
+                    content_type: answer.content_type,
+                    ..Default::default()
+                })
+        };
+        Ok(match answered {
+            Ok(record) => record,
+            Err(ServiceError::CallFailed { status, body, .. }) => ServiceCallRecord {
+                outcome: "failed".into(),
+                status: i32::from(status),
+                body: String::from_utf8_lossy(&body).into_owned(),
+                ..Default::default()
+            },
+            Err(e @ ServiceError::Unresolvable { .. }) => {
+                ServiceCallRecord::failed("unresolvable", &e)
+            }
+            Err(e @ ServiceError::IdentityMismatch { .. }) => {
+                ServiceCallRecord::failed("mismatch", &e)
+            }
+            Err(e @ ServiceError::Unanswered { .. }) => ServiceCallRecord::failed("unanswered", &e),
+            Err(e @ ServiceError::Refused(_)) => ServiceCallRecord::failed("refused", &e),
+        })
+    }
+
     fn problems(_: &Request) -> Result<Vec<String>, HttpProblem> {
         // A module reports its problems in the runtime's log at start; one that started has none.
         Ok(Vec::new())
@@ -671,6 +771,7 @@ impl Endpoint for ConformanceEndpoint {
     fn routes() -> Routes<ConformanceEndpoint> {
         Routes::new()
             .get("/problems", ConformanceEndpoint::problems)
+            .post("/service-call", ConformanceEndpoint::service_call)
             .post("/secrets", ConformanceEndpoint::keep_secret)
             .get("/secrets", ConformanceEndpoint::read_secret)
             .delete("/secrets", ConformanceEndpoint::remove_secret)
@@ -933,7 +1034,7 @@ pub fn build() -> Service {
             .register(ProfileGraph),
         None => service,
     };
-    service
+    let service = service
         .register(Reminder)
         .register(ConformanceAssistant)
         .register(ConformanceAnswerer)
@@ -941,5 +1042,16 @@ pub fn build() -> Service {
         .endpoint(ConformanceEndpoint)
         .endpoint(PrivateEndpoint)
         .endpoint(CallersEndpoint)
-        .endpoint(AutonomousEndpoint)
+        .endpoint(AutonomousEndpoint);
+    // What a suite drives to see a module call another service from a consumer and a step, and
+    // read the time and random bytes. Rust's alone, so they are registered only where the module
+    // is told to: every reference declares the same components to the conformance suite.
+    match ankka::config("ANKKA_CONFORMANCE_CALLS") {
+        Some(_) => service
+            .register_as(ServiceAsks, shape)
+            .register(ServiceRelay)
+            .register_as(ServiceSteps, shape)
+            .endpoint(ServiceCallsEndpoint),
+        None => service,
+    }
 }

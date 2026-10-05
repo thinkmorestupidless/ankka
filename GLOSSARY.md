@@ -1502,6 +1502,16 @@ Avoid: dropped
 One of the limited number of things a machine runs a service's work on at once. A
 handler that is waiting holds none.
 
+## Modules
+
+### random bytes
+*Proposed.* Bytes nobody could have known beforehand, which the platform gives a module that asks
+for them. A module has none of its own.
+
+### interrupted
+*Proposed.* Of a module: stopped by the platform part way through what it is doing. A module
+cannot be, so the platform stops waiting for one and never stops the module itself.
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,

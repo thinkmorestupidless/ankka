@@ -14,6 +14,7 @@ pub mod conformance;
 pub mod domain;
 pub mod endpoint;
 pub mod entity;
+pub mod service_calls;
 
 use ankka::Service;
 

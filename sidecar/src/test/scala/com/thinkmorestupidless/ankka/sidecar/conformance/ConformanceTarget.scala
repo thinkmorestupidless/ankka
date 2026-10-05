@@ -322,8 +322,16 @@ object ConformanceTarget:
    * module reads its guest shape from `ANKKA_CONFORMANCE_SHAPE` through the `config` import, set
    * here as an override on the imports rather than in the environment, which a JVM cannot change.
    */
-  final class ModuleTarget(path: Path, shape: String, val model: TestModelProvider)
-      extends ConformanceTarget:
+  /**
+   * `env` is what the module reads through its `config` import beyond the shape and the broker: the
+   * host suite names `ANKKA_CONFORMANCE_CALLS`, which has the reference register what it drives.
+   */
+  final class ModuleTarget(
+      path: Path,
+      shape: String,
+      val model: TestModelProvider,
+      env: Map[String, String] = Map.empty
+  ) extends ConformanceTarget:
     private val settings =
       Settings(
         "127.0.0.1:0",
@@ -344,7 +352,7 @@ object ConformanceTarget:
     private val overrides = Map(
       "ANKKA_CONFORMANCE_SHAPE"       -> shape,
       "ANKKA_KAFKA_BOOTSTRAP_SERVERS" -> "the conformance suite's in-memory broker"
-    )
+    ) ++ env
     private val imports =
       HostImports(
         settings.commandTimeout,

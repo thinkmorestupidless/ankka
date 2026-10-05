@@ -196,7 +196,11 @@ feature also says what that feature does not do.
   open leaves it open.
 - **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
   timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is
-  discarded, but the thread running it is not reclaimed until the module returns.
+  discarded, but the thread running it is not reclaimed until the module returns. A module's call to
+  another service is not ended before that service answers or `ankka.service-client.timeout` passes, thirty
+  seconds unless it is set; a handler whose own deadline is shorter, such as a consumer's, is answered with
+  a fault first, and the abandoned call makes no further call to another service. Lower
+  `ANKKA_SERVICE_CLIENT_TIMEOUT` in the descriptor to bound the wait.
 - **A module cannot forward an autonomous agent's notifications.** They are a live stream, and a module's
   routes cannot stream; read a task's record, or await it, instead.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes

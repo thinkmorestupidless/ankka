@@ -38,5 +38,10 @@ trybuild = "1.0.121"
 prost-build = "0.14"
 protox = "0.9"
 
+# Random bytes outside a module, for a unit test: a module asks the runtime, and Rust's standard
+# library has no source. For the native target only, so no module's dependencies include it.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = "0.3"
+
 [features]
 testkit = ["dep:testcontainers", "dep:ureq"]

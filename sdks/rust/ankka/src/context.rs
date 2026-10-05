@@ -4,9 +4,10 @@ use crate::client::Client;
 use crate::codec::time::Instant;
 use crate::proto;
 
-/// Key/value pairs that travel with a call. Opaque to a handler: the runtime puts its clock
-/// (`ankka.now`) and the trace in here, and a nested call carries them on, which is what makes it a
-/// child span. Keys compare without regard to case.
+/// Key/value pairs that travel with a call. Opaque to a handler: the runtime puts the trace in
+/// here, and a nested call carries it on, which is what makes it a child span. (It also states its
+/// clock when it made the call, `ankka.now`, for a module built before the time could be asked
+/// for; [`Context::now`] does not read it.) Keys compare without regard to case.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Metadata {
     entries: Vec<(String, String)>,
@@ -108,6 +109,7 @@ pub struct Context {
     sequence: i64,
     metadata: Metadata,
     secrets: bool,
+    services: bool,
 }
 
 impl Context {
@@ -125,6 +127,7 @@ impl Context {
             sequence,
             metadata,
             secrets: false,
+            services: false,
         }
     }
 
@@ -133,6 +136,22 @@ impl Context {
     pub fn with_secrets(mut self) -> Context {
         self.secrets = true;
         self
+    }
+
+    /// This context with the clients for other services: what the runtime builds for the same
+    /// handlers that have the secret store, and a test builds for one of those.
+    pub fn with_services(mut self) -> Context {
+        self.services = true;
+        self
+    }
+
+    /// The clients for other services, or `None` in an entity, a view and a workflow's command
+    /// handler. A call to another service waits for as long as that service takes, and a command
+    /// that waited would hold every other command to the same entity behind it. The runtime
+    /// enforces the same rule itself, by ending a call that tries; this is the earlier answer.
+    pub fn services(&self) -> Option<crate::services::Services> {
+        self.services
+            .then(|| crate::services::Services::with_metadata(self.metadata.clone()))
     }
 
     /// The service's secret store, or `None` in an entity, a view and a workflow's command handler.
@@ -168,24 +187,21 @@ impl Context {
         &self.metadata
     }
 
-    /// The runtime's clock when it made the call (`ankka.now`). A module has no clock of its own:
-    /// this is the one to read. Natively, with no runtime to set it, the machine's clock.
+    /// The runtime's clock, read now. A module has no clock of its own: this is the one to read,
+    /// from any handler. It is the time it is called, so two reads in one handler may differ, and
+    /// a handler that needs one time reads it once. An event's time belongs in the event: when the
+    /// event is read again, this is still the present. Natively, with no runtime, the machine's
+    /// clock, or the time a test fixed with the testkit's `with_clock`.
     pub fn now(&self) -> Instant {
-        if let Some(millis) = self
-            .metadata
-            .get("ankka.now")
-            .and_then(|m| m.parse::<i64>().ok())
-        {
-            return Instant::from_epoch_millis(millis);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            Instant::from(std::time::SystemTime::now())
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            panic!("the runtime sets ankka.now on every call; this call has none")
-        }
+        Instant::from_epoch_millis(crate::abi::imports::now())
+    }
+
+    /// Fills `buf` with random bytes from the runtime's secure source, from any handler. An id
+    /// made from them in a command belongs in the event the command persists: read again, the
+    /// command is not run again, and a second fill would be other bytes. Natively, the system's
+    /// source, or the bytes a test fixed with the testkit's `with_random`.
+    pub fn random(&self, buf: &mut [u8]) {
+        crate::abi::imports::random(buf)
     }
 
     /// A client for calling other components, carrying this call's metadata on, so a nested call

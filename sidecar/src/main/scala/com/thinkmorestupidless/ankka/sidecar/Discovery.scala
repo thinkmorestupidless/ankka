@@ -43,7 +43,10 @@ object Discovery:
    * carries the token's other claims and its issuer's name (feature 022). 1.6: the secret store,
    * three calls on `Client` and three module imports (feature 023). 1.7: a topic source declares
    * where it starts, and a view or consumer over a topic its version (feature 024). 1.8: a call to
-   * another service, `Request` on `Client`, made by the runtime as the service (feature 025).
+   * another service, `Request` on `Client`, made by the runtime as the service (feature 025). 1.9:
+   * three imports for a module, `request`, `now` and `random`, and no message changed (feature
+   * 030). 1.10: three imports for a module, `request`, `now` and `random`, and no message changed
+   * (feature 030).
    */
   val ProtocolVersion: String = WireProtocol.Version
 

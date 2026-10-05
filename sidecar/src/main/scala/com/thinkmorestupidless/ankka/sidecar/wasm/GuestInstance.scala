@@ -29,22 +29,33 @@ final class GuestInstance private (val instance: Instance):
   private lazy val alloc = instance.`export`(Abi.Prefix + "alloc")
   private lazy val free  = instance.`export`(Abi.Prefix + "free")
 
-  /** Calls `function` with `request`, and answers the reply's bytes (empty for a zero reply). */
-  def call(function: String, request: Array[Byte]): Either[GuestFault, Array[Byte]] =
+  /**
+   * Calls `function` with `request`, and answers the reply's bytes (empty for a zero reply). The
+   * call's `purpose` is held with the function's name as this thread's `CallSite` for as long as
+   * the call lasts, which is what an import reads to know what it was called from. There is no way
+   * to call without one: a call that stated none would be one the imports' rules could not see.
+   */
+  def call(
+      function: String,
+      request: Array[Byte],
+      purpose: Purpose
+  ): Either[GuestFault, Array[Byte]] =
     brokenBy match
       case Some(f) => Left(GuestFault(function, s"the instance is broken: ${f.message}"))
       case None =>
         try
-          val ptr = alloc.apply(request.length.toLong)(0).toInt
-          instance.memory().write(ptr, request)
-          val out    = instance.`export`(function).apply(ptr.toLong, request.length.toLong)
-          val packed = if out == null || out.isEmpty then 0L else out(0)
-          if packed == 0L then Right(Array.emptyByteArray)
-          else
-            val (rptr, rlen) = (Abi.pointer(packed), Abi.length(packed))
-            val reply        = instance.memory().readBytes(rptr, rlen)
-            free.apply(rptr.toLong, rlen.toLong): Unit
-            Right(reply)
+          CallSite.within(CallSite(function, purpose, this)) {
+            val ptr = alloc.apply(request.length.toLong)(0).toInt
+            instance.memory().write(ptr, request)
+            val out    = instance.`export`(function).apply(ptr.toLong, request.length.toLong)
+            val packed = if out == null || out.isEmpty then 0L else out(0)
+            if packed == 0L then Right(Array.emptyByteArray)
+            else
+              val (rptr, rlen) = (Abi.pointer(packed), Abi.length(packed))
+              val reply        = instance.memory().readBytes(rptr, rlen)
+              free.apply(rptr.toLong, rlen.toLong): Unit
+              Right(reply)
+          }
         catch
           case e: InterruptedException => throw e
           case e: StackOverflowError   => Left(breakWith(function, s"stack overflow: $e"))

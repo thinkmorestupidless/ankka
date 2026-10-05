@@ -29,6 +29,7 @@ import com.thinkmorestupidless.ankka.runtime.remote.*
 import com.thinkmorestupidless.ankka.sidecar.Discovery.Shape
 import com.thinkmorestupidless.ankka.agent.TestModelProvider
 import com.thinkmorestupidless.ankka.runtime.{Database, SqlFragment}
+import com.thinkmorestupidless.ankka.sdk.ServiceResponse
 import com.thinkmorestupidless.ankka.sidecar.conformance.ConformanceTarget
 import com.thinkmorestupidless.ankka.sidecar.wasm.*
 import org.apache.pekko.actor.typed.ActorSystem
@@ -394,7 +395,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       val calls = (0 until 64).map { i =>
         Future(
           pool.withFresh("ankka1_call_out", 10.seconds)(
-            _.call("ankka1_call_out", Array[Byte](i.toByte, 1, 2))
+            _.call("ankka1_call_out", Array[Byte](i.toByte, 1, 2), Purpose.none)
           )
         )(using AnkkaExecutors.virtual)
       }
@@ -420,35 +421,41 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
 
   /**
    * The Rust example built to a module by cargo, or `None` — and a warning naming cargo — where
-   * there is no Rust toolchain, as `RemoteOverlaySuite` does for kubectl.
+   * there is no Rust toolchain, as `RemoteOverlaySuite` does for kubectl. Every build writes the
+   * one file, whatever its features, so the module is copied out before the next build replaces it.
    */
-  private lazy val rustCart: Option[Path] =
+  private def cargoModule(features: String*): Option[Path] =
     val workspace = Path.of(sys.props.getOrElse("user.dir", ".")).resolve("../sdks/rust").normalize
     val found     = Path.of("sdks/rust").toAbsolutePath
     val dir       = if Files.isDirectory(workspace) then workspace else found
+    val command = Vector(
+      "cargo",
+      "build",
+      "-p",
+      "shopping-cart",
+      "--release",
+      "--target",
+      "wasm32-unknown-unknown"
+    ) ++ (if features.isEmpty then Vector.empty else Vector("--features", features.mkString(",")))
     val built =
-      try
-        val process = ProcessBuilder(
-          "cargo",
-          "build",
-          "-p",
-          "shopping-cart",
-          "--release",
-          "--target",
-          "wasm32-unknown-unknown"
-        )
-          .directory(dir.toFile)
-          .inheritIO()
-          .start()
-        process.waitFor() == 0
+      try ProcessBuilder(command*).directory(dir.toFile).inheritIO().start().waitFor() == 0
       catch case _: java.io.IOException => false
     val module = dir.resolve("target/wasm32-unknown-unknown/release/shopping_cart.wasm")
-    if built && Files.isRegularFile(module) then Some(module)
+    if built && Files.isRegularFile(module) then
+      val copy = Files.createTempFile("wasm-host-suite-rust", ".wasm")
+      Files.copy(module, copy, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+      copy.toFile.deleteOnExit()
+      Some(copy)
     else
       log.warn(
-        "skipping the Rust cart's end-to-end case: `cargo` is not on PATH or the build failed"
+        "skipping the Rust module's end-to-end cases: `cargo` is not on PATH or the build failed"
       )
       None
+
+  private lazy val rustCart: Option[Path] = cargoModule()
+
+  /** The conformance reference: the example's module built with its `conformance` feature. */
+  private lazy val rustReference: Option[Path] = cargoModule("conformance")
 
   private def http(method: String, url: String, json: Option[String] = None): (Int, String) =
     val request = HttpRequest.newBuilder(URI.create(url))
@@ -493,6 +500,182 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       assert(rows.forall(_.contains("shopping-cart-event")), rows.toString)
       assert(rows.head.contains(s"""{"type":"ItemAdded","item":$pen}"""), rows.head)
     finally target.stop()
+  }
+
+  // ── A module calling another service, reading the time and asking for random bytes ────
+  //
+  // The Rust reference, told to register what these cases drive (`service_calls.rs`): an entity
+  // that records what was asked and what was answered, the consumer that makes the call for each
+  // thing asked, and a workflow whose step makes one. The other service is the target's scripted
+  // one, on loopback. A case named for a scenario of `features/wasm/` holds it through the crate;
+  // `WasmImportsSuite` holds the runtime's own rule with guests that link no library.
+
+  private var startedCalls: Option[ConformanceTarget.ModuleTarget] = None
+
+  private lazy val calls: ConformanceTarget.ModuleTarget =
+    val target = ConformanceTarget.ModuleTarget(
+      rustReference.get,
+      "stateless",
+      TestModelProvider(),
+      Map("ANKKA_CONFORMANCE_CALLS" -> "on")
+    )
+    startedCalls = Some(target)
+    target
+
+  override def afterAll(): Unit =
+    startedCalls.foreach(_.stop())
+    super.afterAll()
+
+  private def eventually[A](what: String, within: FiniteDuration = 30.seconds)(
+      probe: => Option[A]
+  ): A =
+    val deadline = System.nanoTime() + within.toNanos
+    var found    = probe
+    while found.isEmpty && System.nanoTime() < deadline do
+      Thread.sleep(100)
+      found = probe
+    found.getOrElse(fail(s"never happened within $within: $what"))
+
+  private def ask(id: String, command: String, service: String, path: String): (Int, String) =
+    http(
+      "POST",
+      s"${calls.baseUrl}/service-calls/asks/$id/$command",
+      Some(s"""{"service":"$service","path":"$path"}""")
+    )
+
+  private def asksOf(id: String): String =
+    val (status, body) = http("GET", s"${calls.baseUrl}/service-calls/asks/$id")
+    assertEquals(status, 200, body)
+    body
+
+  private def requestsTo(path: String) = calls.scripted.requests.filter(_.path == path)
+
+  test("the answer of the service called reaches a module's handler as the service made it") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    calls.scripted.answer(request =>
+      ServiceResponse(200, "text/plain", s"credited ${request.path}".getBytes, Vector.empty)
+    )
+    assertEquals(ask("relay-1", "ask", "scripted", "/internal/credits")._1, 204)
+    // The consumer reads the event, calls the service, and sends the entity what it was answered.
+    val state = eventually("the consumer recorded the answer")(
+      Some(asksOf("relay-1")).filter(_.contains("credited"))
+    )
+    assert(
+      state.contains(""""answers":[{"status":200,"body":"credited /internal/credits"}]"""),
+      state
+    )
+    val received = requestsTo("/internal/credits")
+    assertEquals(received.map(_.method), Vector("GET"), received.toString)
+  }
+
+  test("a refusal by the service called reaches a module's handler as that refusal") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    calls.scripted.answer(_ => ServiceResponse(403, "text/plain", "no".getBytes, Vector.empty))
+    try
+      assertEquals(ask("relay-2", "ask", "scripted", "/internal/refused")._1, 204)
+      val state = eventually("the consumer recorded the refusal")(
+        Some(asksOf("relay-2")).filter(_.contains(""""status":403"""))
+      )
+      assert(state.contains(""""answers":[{"status":403,"body":"no"}]"""), state)
+    finally
+      calls.scripted.answer(_ => ServiceResponse(200, "text/plain", "ok".getBytes, Vector.empty))
+  }
+
+  test(
+    "a module's call to a service that cannot be found fails, naming the service, and is not sent"
+  ) {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    val before = calls.scripted.requests.size
+    assertEquals(ask("relay-3", "ask", "ledger", "/internal/credits")._1, 204)
+    val state = eventually("the consumer recorded that no answer came")(
+      Some(asksOf("relay-3")).filter(_.contains(""""status":0"""))
+    )
+    assert(state.contains("cannot reach ledger"), state)
+    assertEquals(calls.scripted.requests.size, before, "a request was sent to somebody")
+  }
+
+  test("an entity whose command failed by calling another service keeps its state") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    assertEquals(ask("kept-1", "ask", "scripted", "/first")._1, 204)
+    assertEquals(ask("kept-1", "ask", "scripted", "/second")._1, 204)
+
+    // The command builds a client its context does not offer, so the crate does not stop it.
+    val (status, body) = ask("kept-1", "ask-in-command", "scripted", "/from-a-command")
+    assertEquals(status, 500, body)
+    assert(
+      body.contains("request may not be called from the command service-asks/ask-in-command"),
+      body
+    )
+
+    assertEquals(ask("kept-1", "ask", "scripted", "/third")._1, 204)
+    def asked(state: String) =
+      """"path":"(/[a-z-]+)"""".r.findAllMatchIn(state).map(_.group(1)).toVector
+    // What the three commands that were handled left, and nothing of the one that was not: read
+    // once the consumer has answered all three, so the scripted service is known to be reachable.
+    val state = eventually("the consumer answered what was asked")(
+      Some(asksOf("kept-1")).filter(s => """"status":200""".r.findAllIn(s).size == 3)
+    )
+    assertEquals(asked(state), Vector("/first", "/second", "/third"))
+    assertEquals(requestsTo("/from-a-command"), Vector.empty)
+  }
+
+  private def stepped(id: String, path: String): String =
+    val asked = s"""{"service":"scripted","path":"$path"}"""
+    assertEquals(http("POST", s"${calls.baseUrl}/service-calls/steps/$id", Some(asked))._1, 204)
+    eventually("the step ran")(
+      Some(http("GET", s"${calls.baseUrl}/service-calls/steps/$id")._2)
+        .filter(_.contains(""""done":true"""))
+    )
+
+  test("a call made from a module's step is nested under the step in the trace") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    val state = stepped("trace-1", "/from-a-step")
+    assert(state.contains(""""status":200"""), state)
+    assertEquals(requestsTo("/from-a-step").size, 1)
+
+    val observability  = com.thinkmorestupidless.ankka.runtime.Observability(calls.system)
+    def name(ref: Int) = observability.names.nameOf(ref).getOrElse("?")
+    val spans          = observability.recorder.snapshot()
+    val step = spans
+      .find(s => name(s.componentRef) == "service-steps" && name(s.handlerRef) == "call")
+      .getOrElse(fail("no span for the step"))
+    val call = spans
+      .find(s => name(s.componentRef) == "service:local/scripted" && s.parentSpanId == step.spanId)
+      .getOrElse(fail(s"no call to the scripted service under the step's span ${step.spanId}"))
+    assertEquals(call.traceId, step.traceId)
+  }
+
+  test("the time a module's step is told is the platform's, read while the step runs") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    val before = System.currentTimeMillis()
+    val state  = stepped("time-1", "/at-a-time")
+    val after  = System.currentTimeMillis()
+    val at =
+      """"at":(\d+)""".r.findFirstMatchIn(state).map(_.group(1).toLong).getOrElse(fail(state))
+    assert(before <= at && at <= after, s"$at is not between $before and $after")
+  }
+
+  test("a module reads the time from every handler") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    // A command and a route; a step is the case before this one. Each waits on nothing.
+    Vector("/service-calls/asks/time-2/now", "/service-calls/now").foreach { path =>
+      val before         = System.currentTimeMillis()
+      val (status, body) = http("GET", s"${calls.baseUrl}$path")
+      val after          = System.currentTimeMillis()
+      assertEquals(status, 200, s"$path: $body")
+      val told = body.trim.toLong
+      assert(before <= told && told <= after, s"$path: $told is not between $before and $after")
+    }
+  }
+
+  test("a module is given random bytes that differ each time it asks") {
+    assume(rustReference.isDefined, "cargo is not on PATH")
+    val (status, body) = http("GET", s"${calls.baseUrl}/service-calls/asks/fill-1/fill")
+    assertEquals(status, 200, body)
+    val fills = """"([0-9a-f]{32})"""".r.findAllMatchIn(body).map(_.group(1)).toVector
+    assertEquals(fills.size, 2, body)
+    assertNotEquals(fills(0), fills(1))
+    assert(fills.forall(_ != "0" * 32), body)
   }
 
   // ── The stateful shape ─────────────────────────────────────────────────────
@@ -600,17 +783,21 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     val commands = CommandPool(1, build, 5.seconds)
     val blocking = BlockingPool(build)
     (1 to 50).foreach(_ =>
-      commands.withAny("ankka1_handle")(_.call("ankka1_handle", getCart))
+      commands.withAny("ankka1_handle")(_.call("ankka1_handle", getCart, Purpose.none))
     ) // warm
     val step = Future(
-      blocking.withFresh("ankka1_call_out", 5.seconds)(_.call("ankka1_call_out", Array[Byte](1)))
+      blocking.withFresh("ankka1_call_out", 5.seconds)(
+        _.call("ankka1_call_out", Array[Byte](1), Purpose.none)
+      )
     )(using
       AnkkaExecutors.virtual
     )
     Thread.sleep(100) // the step is now blocked inside the import
     val timings = (1 to 5).map { _ =>
       val start = System.nanoTime()
-      assert(commands.withAny("ankka1_handle")(_.call("ankka1_handle", getCart)).isRight)
+      assert(
+        commands.withAny("ankka1_handle")(_.call("ankka1_handle", getCart, Purpose.none)).isRight
+      )
       (System.nanoTime() - start) / 1000000
     }
     assert(!step.isCompleted, "the step finished before the commands were measured")
@@ -630,7 +817,9 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     val both =
       (1 to 2).map { i =>
         Future(
-          commands.withAny("ankka1_call_out")(_.call("ankka1_call_out", Array[Byte](i.toByte)))
+          commands.withAny("ankka1_call_out")(
+            _.call("ankka1_call_out", Array[Byte](i.toByte), Purpose.none)
+          )
         )(using
           AnkkaExecutors.virtual
         )

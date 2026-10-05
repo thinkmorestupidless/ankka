@@ -42,7 +42,13 @@ final case class Settings(
      * (feature 022). Empty when none is listed, in which case discovery refuses such a route.
      */
     auth: com.thinkmorestupidless.ankka.auth.oidc.OidcConfig =
-      com.thinkmorestupidless.ankka.auth.oidc.OidcConfig.empty
+      com.thinkmorestupidless.ankka.auth.oidc.OidcConfig.empty,
+    /**
+     * How long the service's client waits for another service's answer
+     * (`ankka.service-client.timeout`). A module's `request` import waits a little longer than this
+     * for the client itself.
+     */
+    serviceClientTimeout: FiniteDuration = 30.seconds
 ):
   def processHost: String = processAddress.split(':').head
   def processPort: Int    = processAddress.split(':').last.toInt
@@ -55,6 +61,10 @@ object Settings:
   val DefaultProcessAddress       = "127.0.0.1:9010"
   val DefaultCallbackPort         = 9011
   val DefaultWasmMaxMemoryPages   = 4096
+
+  /** `HttpServiceClients.TimeoutKey`: the one setting, read here for the module's `request`. */
+  private val ServiceClientTimeoutKey =
+    com.thinkmorestupidless.ankka.runtime.HttpServiceClients.TimeoutKey
 
   def load(config: Config): Settings =
     val env = sys.env
@@ -77,7 +87,11 @@ object Settings:
         .getOrElse(Runtime.getRuntime.availableProcessors)
         .max(1),
       wasmMaxMemoryPages =
-        env.get("ANKKA_WASM_MAX_MEMORY_PAGES").map(_.toInt).getOrElse(DefaultWasmMaxMemoryPages)
+        env.get("ANKKA_WASM_MAX_MEMORY_PAGES").map(_.toInt).getOrElse(DefaultWasmMaxMemoryPages),
+      serviceClientTimeout =
+        if config.hasPath(ServiceClientTimeoutKey) then
+          config.getDuration(ServiceClientTimeoutKey).toScala
+        else 30.seconds
     )
 
   private def parse(text: String): FiniteDuration =

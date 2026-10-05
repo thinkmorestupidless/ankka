@@ -38,7 +38,8 @@ not a template engine, a session store or a cookie API: those belong to the appl
 the certificate on first call) and handed to endpoints, workflow steps, consumers, timed actions and
 agents (feature 025). An entity's and a view's contexts have no `services`; a workflow's is
 `StepScope.stepsOnly`, as its secret store is. A Python or TypeScript process asks its sidecar with
-`Client.Request` (protocol 1.8), and `ClientLogic.request` makes the call with the same client, as the
+`Client.Request` (protocol 1.8) — a module through its `request` import (1.10, `.claude/rules/wasm.md`) —
+and `ClientLogic.request` makes the call with the same client, as the
 handler the forwarded `ankka-caller` names — believed only when declared, so it can refuse an entity's
 handler and a workflow's command handler. What every door shares is the client's, not the sidecar's:
 `ServiceUnanswered` for no answer, `ankka.service-client.timeout` (`ANKKA_SERVICE_CLIENT_TIMEOUT`, a

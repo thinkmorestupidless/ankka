@@ -65,8 +65,7 @@ final class WasmConversation(
     module: LoadedModule,
     settings: Settings,
     imports: HostImports,
-    shapeOf: ComponentId => Shape,
-    now: () => Long = () => System.currentTimeMillis()
+    shapeOf: ComponentId => Shape
 ) extends Conversation:
 
   import Translate.*
@@ -80,9 +79,13 @@ final class WasmConversation(
 
   private def fn(name: String): String = Abi.Prefix + name
 
-  /** The runtime's clock, which is the only one a module has. */
+  /**
+   * The runtime's clock on the call, for a module built before it could ask for the time through
+   * the `now` import: it reads this entry, on every call that carries metadata. The same clock
+   * answers both.
+   */
   private def stamped(metadata: Metadata): Metadata =
-    metadata.set(WasmConversation.Now, now().toString)
+    metadata.set(WasmConversation.Now, imports.clock().toString)
 
   private def failure(id: Long, fault: GuestFault): ProcessFailure =
     ProcessFailure(
@@ -90,11 +93,17 @@ final class WasmConversation(
       CommandError(s"the module failed in ${fault.function}: ${fault.message}", ErrorCode.Internal)
     )
 
-  /** Calls `function` with `request` on `instance`, and reads the reply as an `A`. */
-  private def ask[A](instance: GuestInstance, function: String, request: GeneratedMessage)(
-      parse: Array[Byte] => A
-  ): Either[GuestFault, A] =
-    instance.call(function, request.toByteArray).flatMap { bytes =>
+  /**
+   * Calls `function` with `request` on `instance`, and reads the reply as an `A`. `purpose` is what
+   * the call is for, which the imports read to know what they were called from.
+   */
+  private def ask[A](
+      instance: GuestInstance,
+      function: String,
+      request: GeneratedMessage,
+      purpose: Purpose
+  )(parse: Array[Byte] => A): Either[GuestFault, A] =
+    instance.call(function, request.toByteArray, purpose).flatMap { bytes =>
       Try(parse(bytes)).toEither.left.map { e =>
         instance.markBroken(GuestFault(function, s"an unreadable reply: ${e.getMessage}"))
         GuestFault(function, s"an unreadable reply: ${e.getMessage}")
@@ -120,6 +129,9 @@ final class WasmConversation(
 
   private final class Session(init: Init, kind: Kind, held: HeldState) extends InstanceSession:
 
+    private def purposeOf(handler: Option[String], metadata: Metadata): Purpose =
+      Purpose(init.componentId.toString, handler, metadata)
+
     private def onCommandPool[A](what: String)(
         f: (GuestInstance, Boolean) => Either[GuestFault, A]
     ): Either[GuestFault, A] =
@@ -143,7 +155,9 @@ final class WasmConversation(
             Some(event),
             sequence
           )
-          ask(instance, fn("fold"), request)(FoldReply.parseFrom) match
+          ask(instance, fn("fold"), request, purposeOf(None, Metadata.empty))(
+            FoldReply.parseFrom
+          ) match
             case Right(reply) if reply.failure.isEmpty =>
               held.update(reply.state, sequence)
               Right(true)
@@ -159,10 +173,8 @@ final class WasmConversation(
     def event(sequence: Long, payload: Payload): Unit = held.replayed(sequence, toPayload(payload))
 
     def command(cmd: Command): Future[Either[ProcessFailure, Reply]] = Future {
-      val metadata =
-        Some(
-          toMetadata(stamped(cmd.metadata).set(WasmConversation.Sequence, held.sequence.toString))
-        )
+      val sent     = stamped(cmd.metadata).set(WasmConversation.Sequence, held.sequence.toString)
+      val metadata = Some(toMetadata(sent))
       val command = kind match
         case Kind.EVENT_SOURCED_ENTITY =>
           HandleRequest.Command.EventSourced(
@@ -191,7 +203,9 @@ final class WasmConversation(
             held.toSend(holds),
             command
           )
-          ask(instance, fn("handle"), request)(HandleReply.parseFrom)
+          ask(instance, fn("handle"), request, purposeOf(Some(cmd.name.toString), sent))(
+            HandleReply.parseFrom
+          )
         }
       }
       answered match
@@ -221,6 +235,7 @@ final class WasmConversation(
         metadata: Metadata
     ): Future[Either[ProcessFailure, StepReply]] = Future {
       // A fresh instance holds nothing, so it is always handed the state, whatever the shape.
+      val sent = stamped(metadata)
       val request = StepRequest(
         init.componentId,
         init.entityId,
@@ -230,12 +245,12 @@ final class WasmConversation(
             id,
             step,
             input.map(pb.Payload.parseFrom),
-            Some(Translate.toMetadata(metadata))
+            Some(Translate.toMetadata(sent))
           )
         )
       )
       blocking.withFresh(fn("run_step"), stepTime)(
-        ask(_, fn("run_step"), request)(PbStepReply.parseFrom)
+        ask(_, fn("run_step"), request, purposeOf(Some(step), sent))(PbStepReply.parseFrom)
       ) match
         case Left(fault) => Left(failure(id, fault))
         case Right(reply) if reply.failure.isDefined =>
@@ -252,17 +267,26 @@ final class WasmConversation(
         Future {
           commands.release(held.key, fn("close")) { instance =>
             instance
-              .call(fn("close"), Passivate(init.componentId, init.entityId).toByteArray)
+              .call(
+                fn("close"),
+                Passivate(init.componentId, init.entityId).toByteArray,
+                purposeOf(None, Metadata.empty)
+              )
               .map(_ => ())
           }
         }: Unit
 
   // ── Stateless calls, each on a fresh instance ──────────────────────────────
 
-  private def fresh[A](function: String, request: GeneratedMessage, timeout: FiniteDuration)(
-      parse: Array[Byte] => A
-  ): Future[Either[GuestFault, A]] =
-    Future(blocking.withFresh(fn(function), timeout)(ask(_, fn(function), request)(parse)))
+  private def fresh[A](
+      function: String,
+      request: GeneratedMessage,
+      timeout: FiniteDuration,
+      purpose: Purpose
+  )(parse: Array[Byte] => A): Future[Either[GuestFault, A]] =
+    Future(
+      blocking.withFresh(fn(function), timeout)(ask(_, fn(function), request, purpose)(parse))
+    )
 
   private def orFail[A](answered: Future[Either[GuestFault, A]]): Future[A] =
     answered.flatMap {
@@ -279,29 +303,44 @@ final class WasmConversation(
   def handleView(request: ViewRequest): Future[ViewOutcome] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
     orFail(
-      fresh("view", toViewRequest(stampedRequest), settings.commandTimeout)(ViewEffect.parseFrom)
-    )
-      .map(fromViewEffect)
+      fresh(
+        "view",
+        toViewRequest(stampedRequest),
+        settings.commandTimeout,
+        Purpose(request.componentId.toString, None, stampedRequest.metadata)
+      )(ViewEffect.parseFrom)
+    ).map(fromViewEffect)
 
   def handleConsumer(request: ConsumerRequest): Future[ConsumerOutcome] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
     orFail(
-      fresh("consumer", toConsumerRequest(stampedRequest), settings.commandTimeout)(
-        ConsumerEffect.parseFrom
-      )
+      fresh(
+        "consumer",
+        toConsumerRequest(stampedRequest),
+        settings.commandTimeout,
+        Purpose(request.componentId.toString, None, stampedRequest.metadata)
+      )(ConsumerEffect.parseFrom)
     ).map(fromConsumerEffect)
 
   def invokeTimedAction(request: TimedActionRequest): Future[Either[CommandError, Unit]] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
     orFail(
-      fresh("timed_action", toTimedActionRequest(stampedRequest), settings.commandTimeout)(
-        TimedActionEffect.parseFrom
-      )
+      fresh(
+        "timed_action",
+        toTimedActionRequest(stampedRequest),
+        settings.commandTimeout,
+        Purpose(request.componentId.toString, Some(request.name.toString), stampedRequest.metadata)
+      )(TimedActionEffect.parseFrom)
     ).map(fromTimedActionEffect)
 
   def plan(request: PlanRequest): Future[Either[ProcessFailure, RemotePlan]] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
-    fresh("plan", toPlanRequest(stampedRequest), settings.commandTimeout)(PlanReply.parseFrom).map {
+    fresh(
+      "plan",
+      toPlanRequest(stampedRequest),
+      settings.commandTimeout,
+      Purpose(request.componentId.toString, Some(request.name.toString), stampedRequest.metadata)
+    )(PlanReply.parseFrom).map {
       case Left(fault)  => Left(failure(0L, fault))
       case Right(reply) => fromPlanReply(reply)
     }
@@ -313,9 +352,14 @@ final class WasmConversation(
       argumentsJson: String,
       metadata: Metadata
   ): Future[Either[String, String]] =
+    val sent = stamped(metadata)
     val request =
-      ToolRequest(componentId, sessionId, tool, argumentsJson, Some(Translate.toMetadata(metadata)))
-    orFail(fresh("invoke_tool", request, stepTime)(ToolResult.parseFrom)).map(fromToolResult)
+      ToolRequest(componentId, sessionId, tool, argumentsJson, Some(Translate.toMetadata(sent)))
+    orFail(
+      fresh("invoke_tool", request, stepTime, Purpose(componentId.toString, Some(tool), sent))(
+        ToolResult.parseFrom
+      )
+    ).map(fromToolResult)
 
   def checkGuardrail(
       componentId: ComponentId,
@@ -325,17 +369,24 @@ final class WasmConversation(
       text: String,
       metadata: Metadata
   ): Future[Either[String, Unit]] =
+    val sent = stamped(metadata)
     orFail(
       fresh(
         "check_guardrail",
-        toGuardrailRequest(componentId, sessionId, guardrail, stage, text, metadata),
-        settings.commandTimeout
+        toGuardrailRequest(componentId, sessionId, guardrail, stage, text, sent),
+        settings.commandTimeout,
+        Purpose(componentId.toString, Some(guardrail), sent)
       )(GuardrailResult.parseFrom)
     ).map(fromGuardrailResult)
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]] =
     val stampedRequest = request.copy(metadata = stamped(request.metadata))
-    fresh("http", toHttpRequest(stampedRequest), settings.requestTimeout)(HttpReply.parseFrom).map {
+    fresh(
+      "http",
+      toHttpRequest(stampedRequest),
+      settings.requestTimeout,
+      Purpose(request.endpointId, Some(request.routeId), stampedRequest.metadata)
+    )(HttpReply.parseFrom).map {
       case Left(fault)  => Left(failure(0L, fault))
       case Right(reply) => fromHttpReply(reply)
     }
@@ -352,6 +403,7 @@ final class WasmConversation(
       resultJson: String,
       metadata: Metadata
   ): Future[TaskResultVerdict] =
+    val sent = stamped(metadata)
     orFail(
       fresh(
         "check_task_result",
@@ -360,9 +412,10 @@ final class WasmConversation(
           taskId,
           taskType,
           resultJson,
-          Some(Translate.toMetadata(metadata))
+          Some(Translate.toMetadata(sent))
         ),
-        settings.commandTimeout
+        settings.commandTimeout,
+        Purpose(componentId.toString, Some(taskType), sent)
       )(PbTaskResultVerdict.parseFrom)
     ).map(fromTaskResultVerdict)
 

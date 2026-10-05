@@ -828,7 +828,9 @@ spec:
         EnvEntry("ANKKA_DB_NAME", Some("ankka"), None, None),
         EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
         EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
-        EnvEntry("GREETING", Some("hello from the descriptor"), None, None)
+        EnvEntry("GREETING", Some("hello from the descriptor"), None, None),
+        // Has the reference register what the suite drives to see it call another service.
+        EnvEntry("ANKKA_CONFORMANCE_CALLS", Some("on"), None, None)
       ) ++ issuerEnv,
       provisionDatabase = false,
       autoscaling = AutoscalingSpec(minInstances = instances, maxInstances = instances),
@@ -1037,6 +1039,35 @@ spec:
       )
       assertEquals((code, body), (200, s"admitted: $Project/$OrdersService"))
     finally com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service): Unit
+  }
+
+  test("a module's consumer is admitted by name by a route that admits only its service") {
+    onlyWithRust()
+    startCallers()
+    val route = "/callers/rust-cart-alone"
+    // From the suite's prober, which holds the certificate of the service `cart`: the route admits
+    // the module's service alone, so `cart` is refused, and the admission below is by name.
+    val (refusedCode, refusedBody) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+      k3s,
+      Namespace,
+      prober,
+      s"https://$CartsService.$Namespace.svc.cluster.local:9000$route"
+    )
+    assertEquals(refusedCode, 403, refusedBody)
+    // Asked of the module's entity: its consumer reads the event, calls `carts` through the
+    // module's `request` import, and sends the entity what it was answered. The runtime made the
+    // call with the module's service's certificate, which is all `carts` read.
+    val (asked, askBody) = rustHttp(
+      "/service-calls/asks/admitted-1/ask",
+      Some(s"""{"service":"$CartsService","path":"$route"}""")
+    )
+    assertEquals(asked / 100, 2, askBody)
+    def state = rustHttp("/service-calls/asks/admitted-1")._2
+    waitFor(120.seconds)(state.contains(""""answers":[{"""))
+    assert(
+      state.contains(s"""{"status":200,"body":"admitted: $Project/$RustService"}"""),
+      state
+    )
   }
 
   test("the process of a service that calls other services holds no certificate") {

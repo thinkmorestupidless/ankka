@@ -296,6 +296,11 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     "both programs of a service hosted as a process are told where the installation's broker is" ->
       Map("wallet" -> "till"),
     "a web-hosted service is given nothing of the installation's broker" -> Map("web" -> "kiosk"),
+    // A service applied again under its old name is recovered for as long as its resource lives,
+    // and the kept scenarios do exactly that to "wallet"; the outline's rows need one that was not.
+    "the status says how far the platform has got with a service's topics" -> Map(
+      "wallet" -> "teller"
+    ),
     "a local platform has a broker from the start" -> Map("shopping-cart" -> "shopping-cart")
   )
 
@@ -350,6 +355,7 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       val fields = Vector(
         Some(s""""image":"$image""""),
         hosting.map(h => s""""hosting":"$h""""),
+        Option.when(hosting.contains("process"))(""""protocol":"1.0""""),
         Option.when(hosting.contains("web"))(""""processPort":8080"""),
         Option.when(topics.nonEmpty)(
           topics
@@ -770,20 +776,31 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
 
   Given("the installation's broker has a problem with the topic that will not clear") { () =>
     val p    = project("money")
+    val name = s"$p.transactions"
     val more = partitionsOf(p, "transactions") + 1
     // Grown by hand beyond what the descriptor says: the platform never makes a topic smaller, so
-    // nothing it can do clears this.
-    PkiStack.kubectl(
-      k3s,
-      "patch",
-      "kafkatopic",
-      s"$p.transactions",
-      "-n",
-      Broker,
-      "--type=merge",
-      "-p",
-      s"""{"spec":{"partitions":$more}}"""
-    ): Unit
+    // nothing it can do clears this. A reconcile already under way when the change lands applies
+    // the declared count it read a moment before, so the change is made again until Strimzi has
+    // acted on it; from then on the broker holds more partitions than are declared, and whether
+    // the resource says so or Strimzi refuses the smaller count, the status is the same.
+    waitFor(120.seconds, s"$name being grown to $more by hand") {
+      if jsonPath("kafkatopic", "-n", Broker, name, "{.spec.partitions}") != more.toString then
+        PkiStack.kubectl(
+          k3s,
+          "patch",
+          "kafkatopic",
+          name,
+          "-n",
+          Broker,
+          "--type=merge",
+          "-p",
+          s"""{"spec":{"partitions":$more}}"""
+        ): Unit
+      Thread.sleep(3000)
+      jsonPath("kafkatopic", "-n", Broker, name, "{.spec.partitions}") == more.toString &&
+      jsonPath("kafkatopic", "-n", Broker, name, "{.status.observedGeneration}") ==
+        jsonPath("kafkatopic", "-n", Broker, name, "{.metadata.generation}")
+    }
     afterTheScenario = () =>
       partitions += (p, "transactions") -> more
       ok(apply(appliedAs((a("wallet"), p)))): Unit
@@ -1057,7 +1074,7 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     )
     // The same connection from a workload of the installation is admitted, so the refusal is the
     // workload's, not the address's.
-    val (s, p) = liveServiceIn(project("money"))
+    val (s, p) = liveOrDeployedIn(project("money"))
     val inside = probe(s, p).topics()
     assertEquals(inside.code, 0, inside.output)
   }
@@ -1179,6 +1196,17 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       .collectFirst { case (s, p) if s == service => p }
       .orElse(appliedAs.keys.collectFirst { case (s, p) if s == service => p })
       .getOrElse(project("money"))
+
+  /** A service of `p` that is running, deploying the cart as "wallet" when none is. */
+  private def liveOrDeployedIn(p: String): (String, String) =
+    appliedAs.keys
+      .find((s, pp) =>
+        pp == p && k8s.apps().deployments().inNamespace(ns(pp)).withName(s).get() != null
+      )
+      .getOrElse {
+        deploy("wallet", p, Vector("transactions")): Unit
+        ("wallet", p)
+      }
 
   private def liveServiceIn(p: String): (String, String) =
     appliedAs.keys

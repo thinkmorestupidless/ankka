@@ -25,3 +25,14 @@ Feature: The installation's broker
     Given an installation with a broker
     When the certificate of the broker is read
     Then the certificate names the platform and no project a member can have
+
+  Scenario Outline: a service of an installation with no broker is deployed as it was before
+    Given an installation with no broker
+    And a descriptor for a service "wallet" that <declares>
+    When a member applies the descriptor
+    Then <outcome>
+
+    Examples:
+      | declares                         | outcome                                                               |
+      | declares no topic                | the environment of "wallet" has no broker variable                    |
+      | declares the topic "transactions" | the status says that the broker of "wallet" is "Failed", and that the installation has no broker |

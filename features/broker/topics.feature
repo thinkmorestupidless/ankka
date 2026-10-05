@@ -45,6 +45,32 @@ Feature: Topics the platform provides
     When a consumer of "wallet" publishes to the topic "transactions"
     Then the view "entries" shows what was published
 
+  Scenario: a service that declares no topic is told where the installation's broker is
+    Given a descriptor for a service "ledger" in "money" that declares no topic and gives no broker variable
+    When a member applies the descriptor
+    Then the environment of "ledger" has the variable "ANKKA_KAFKA_BOOTSTRAP_SERVERS", naming the installation's broker
+    And the status says that the broker of "ledger" is "Ready"
+
+  Scenario: a consumer that publishes to a topic no descriptor declares waits for it
+    Given a deployed service "ledger" in "money" that declares no topic
+    And a consumer "notifier" of "ledger" that publishes to the topic "entries"
+    When "notifier" handles an event
+    Then the installation's broker has no topic "entries" of "money"
+    And the logs of "ledger" name the topic "entries"
+    And "ledger" is ready
+
+  Scenario: what waited for a topic is published once the topic is declared
+    Given a deployed service "ledger" in "money" that declares no topic
+    And a consumer "notifier" of "ledger" that has handled an event and waits to publish to the topic "entries"
+    When a member applies a descriptor for a service of "money" that declares the topic "entries"
+    Then what "notifier" waited to publish is read from "money.entries" on the installation's broker
+
+  Scenario: a web-hosted service is given nothing of the installation's broker
+    Given a descriptor for the web-hosted service "web" in "money"
+    When a member applies the descriptor
+    Then the environment of "web" has no broker variable
+    And the installation's broker has no credential for "web"
+
   Scenario Outline: the status says how far the platform has got with a service's topics
     Given a deployed service "wallet" in "money" that declares the topic "transactions"
     And the installation's broker <state>

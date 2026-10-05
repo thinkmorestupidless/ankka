@@ -67,8 +67,9 @@ Five decisions follow.
   against a Kafka in the cluster, so the failure that went unseen stays visible. It needs no
   provisioning, and the Kafka it stands up in k3s is the one every later story's suite uses.
 - **One broker per installation, not per project.** A CNPG cluster per project is cheap; a Kafka
-  per project is not, and a topic's whole value is that services in different projects can share
-  it. The project boundary is the ACL, enforced by the broker, not a separate broker.
+  per project is not. The project boundary is the ACL, enforced by the broker, not a separate
+  broker, and it is a hard one: no service reads or writes a topic of another project. One broker
+  is what leaves a later feature able to grant a single topic across that boundary.
 - **Topics are declared in the descriptor and owned by the project.** A descriptor lists
   `topics: [{name, partitions}]`; the operator renders each as `<project>.<name>`. The runtime
   maps a component's declared topic name onto the project-qualified one, so service code names
@@ -85,7 +86,31 @@ Five decisions follow.
 This feature is not a change to how topics are read: start positions, qualified consumer group ids
 and rebuild are 024-replayable-topics, which this feature assumes, since the broker's ACL scheme
 needs group ids that carry the project. It is not a schema registry and not a grant mechanism for
-cross-project reads, which is an open question below.
+cross-project reads: a fact one project's services need from another's is republished, by a
+consumer in the owning project, to a topic the reader's project owns.
+
+## Clarifications
+
+### Session 2026-10-04
+
+- Q: Can a service read another project's topic? → A: No. The project is a hard boundary in this
+  feature; a cross-project fact needs a consumer in the owning project that republishes to a topic
+  the reader's project owns. Grants are a later feature.
+- Q: Which services are known to the installation's broker? → A: Every service with a runtime (not
+  web-hosted), in an installation that has a broker, is given a credential and the broker's
+  address, unless its descriptor names a broker of its own. Declaring a topic is not what earns
+  them.
+- Q: What happens when a component names a topic no descriptor of its project declares? → A:
+  Nothing is created. The component waits and tries again, the service's log names the missing
+  topic, and the service is still ready; it flows once a service of the project declares the topic.
+- Q: What is the broker made of? → A: Strimzi. Its operator runs the broker, and topics, users and
+  permissions are resources ankka's operator renders. The plan measures what it costs the k3s
+  suites to start and returns to this only if that is unacceptable.
+- Q: Are the four new glossary terms right? → A: Yes: broker (refusing Kafka, message bus, queue),
+  partition (refusing shard), declared topic (refusing managed topic, provisioned topic) and broker
+  variable (refusing Kafka variable). What is published to a topic gets no term of its own, since
+  "message" is a gRPC status's, and the features say what the broker allows or refuses a credential
+  rather than "ACL", which is an endpoint's.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -136,6 +161,11 @@ status reports the broker phase.
 - added `features/broker/topics.feature`: both programs of a service hosted as a process are told where the installation's broker is
 - added `features/broker/topics.feature`: a consumer publishes to its project's topic by the name the descriptor declared
 - added `features/broker/topics.feature`: another service of the project reads a declared topic without declaring it
+- added `features/broker/topics.feature`: a service that declares no topic is told where the installation's broker is
+- added `features/broker/topics.feature`: a consumer that publishes to a topic no descriptor declares waits for it
+- added `features/broker/topics.feature`: what waited for a topic is published once the topic is declared
+- added `features/broker/topics.feature`: a web-hosted service is given nothing of the installation's broker
+- added `features/broker/installation.feature`: a service of an installation with no broker is deployed as it was before
 - added `features/broker/topics.feature`: the status says how far the platform has got with a service's topics
 - added `features/broker/descriptor.feature`: two services of a project that declare one topic agree on its partitions
 - added `features/broker/descriptor.feature`: a topic's partitions can be made more and never fewer
@@ -144,10 +174,12 @@ status reports the broker phase.
 
 ### User Story 3 - A project is the boundary, enforced by the broker (Priority: P1)
 
-A service in project `casino` declares a view over a topic named `transactions`. Its project has no
-such topic; `money` does. The service's credential is refused by the broker for `money.transactions`
-and the view stays empty, and the refusal is in the service's log naming the topic. Nothing in ankka
-had to check anything: the broker's ACL did.
+A service in project `casino` has a view over a topic named `transactions`. Its project has
+declared no such topic; `money` has. The view reads `casino`'s topic of that name, which does not
+exist, so it stays empty and the service's log names the topic it waits for. Nothing of
+`money.transactions` reaches it. And a client holding the `casino` service's credential that asks
+the broker for `money.transactions` by its full name is refused, to read or to write. Nothing in
+ankka had to check anything: the broker's ACL did.
 
 **Why this priority**: Isolation that rests on a naming convention is not isolation. The database
 side closes other projects' databases at the network; the broker must close other projects' topics
@@ -218,6 +250,15 @@ deploys with a declared topic; the smoke test publishes and reads.
   topic is the project's, declared by whichever service publishes to it first.
 - **A web-hosted service that declares topics.** It has no runtime to read or publish with, so
   `ServiceSpec.problems` refuses `topics` for web hosting, as it refuses a database variable there.
+- **A service that declares no topic and never touches one.** It is given a credential and the
+  broker's address like any other, and its status carries the broker phase; it connects to
+  nothing until a component of it names a topic.
+- **An installation with no broker.** A service that declares no topic is rendered exactly as
+  before this feature, with no broker phase. One that declares a topic reports the broker phase
+  failed, naming the missing broker, and is not otherwise held back.
+- **A topic named by a component and declared by nobody.** A mistyped name, or a sample that
+  publishes wherever it finds a broker: the topic is not made, the component waits, and the log
+  names it. The descriptor is the only place a topic comes from.
 - **A partition count lowered.** Kafka cannot shrink a topic; the apply is refused at the control
   plane with the reason. Raising it is applied.
 - **A topic name that is not a valid Kafka name once prefixed.** Refused by `ServiceSpec.problems`
@@ -233,8 +274,9 @@ deploys with a declared topic; the smoke test publishes and reads.
 - **An installation that already runs a Kafka it wants to keep.** The cloud overlay points the
   component's rendering at an external bootstrap address and the operator still renders topics,
   users and ACLs through the broker's own operator, if it is one that can manage an external
-  cluster; if not, every service supplies its own and the feature is off. [NEEDS CLARIFICATION:
-  whether the chosen broker operator supports managing topics on a cluster it did not create.]
+  cluster; if not, every service supplies its own and the feature is off. Whether Strimzi's topic
+  and user operators can manage a cluster they did not create is for the plan to verify; nothing
+  else in this feature depends on the answer.
 - **Consumer group ids.** The qualified form from 024-replayable-topics is what the ACL grants
   group access to; the old unqualified form is refused by the broker, which is deliberate.
 
@@ -254,10 +296,12 @@ deploys with a declared topic; the smoke test publishes and reads.
   CRD schema with `CrdSchemaSuite` holding the two together. A web-hosted service MUST be refused
   them.
 - **FR-003**: The operator MUST render, per declared topic, a topic named `<project>.<name>` with
-  the declared partitions, and per service a credential and ACLs granting read and write on the
-  project's topics and the service's qualified consumer groups, and nothing wider.
+  the declared partitions. For every service that is not web-hosted and names no broker of its
+  own, whether or not it declares a topic, it MUST render a credential and ACLs granting read and
+  write on the project's topics and the service's qualified consumer groups, and nothing wider. In
+  an installation with no broker it MUST render none of this for a service that declares no topic.
 - **FR-004**: The operator MUST inject the bootstrap address and TLS settings as `ANKKA_KAFKA_*`
-  variables, which `PlatformVariables` already gives to both programs of a process-hosted service;
+  variables into every service FR-003 gives a credential, which `PlatformVariables` already gives to both programs of a process-hosted service;
   no second list of names is kept. The runtime MUST map a component's declared topic name to the
   project-qualified name.
 - **FR-005**: A descriptor that sets any `ANKKA_KAFKA_*` variable MUST be marked supplied and get
@@ -266,6 +310,11 @@ deploys with a declared topic; the smoke test publishes and reads.
   treating the broker operator's transient states as waiting.
 - **FR-007**: The platform MUST never delete a topic, a credential or an ACL; a re-applied service
   MUST report its topic recovered.
+
+- **FR-011**: The installation's broker MUST create no topic on use. A component that reads or
+  publishes to a topic no descriptor of its project declares MUST wait and try again, the service's
+  log MUST name the topic, and the service MUST stay ready; what waited MUST flow once the topic is
+  declared.
 
 **Platform**
 
@@ -303,9 +352,9 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 ## Assumptions
 
-- Strimzi is the broker shape the plan evaluates first, since `KafkaTopic` and `KafkaUser` as
-  resources are what make the operator's rendering a pure function; a plain StatefulSet would need
-  the operator to speak the admin protocol itself.
+- Strimzi is the broker: `KafkaTopic` and `KafkaUser` as resources are what make the operator's
+  rendering a pure function, where a plain StatefulSet would need the operator to speak the admin
+  protocol itself. The plan measures what installing it costs the k3s suites' startup.
 - The installation's service authority can be trusted by the broker for TLS client
   authentication, as the per-project database authority is trusted by Postgres.
 - 024-replayable-topics lands first or together, since the ACLs grant the qualified group ids.
@@ -325,12 +374,5 @@ deploys with a declared topic; the smoke test publishes and reads.
 
 ## Open Questions
 
-- Strimzi versus a plain broker: Strimzi gives topics, users and ACLs as resources at the cost of
-  another operator in every installation. [NEEDS CLARIFICATION: decided in the plan after measuring
-  the k3s suite's startup cost with Strimzi installed.]
-- Whether a cross-project read should be grantable per topic in the declaring descriptor, which
-  would let `money.transactions` be read by `casino` services without a relay service in between.
-  The domain plan assumes it is; without it, every cross-project fact needs a consumer in the
-  owning project that republishes to a topic the reader's project owns.
 - Whether the installation's broker is also where the platform's own future needs go, and so
   whether the `platform` project should hold topics.

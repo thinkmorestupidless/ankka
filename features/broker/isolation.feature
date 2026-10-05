@@ -12,6 +12,7 @@ Feature: A project's topics are its own
     Given a view "seen" of "lobby" that reads the topic "transactions"
     When a service of "money" publishes to the topic "transactions"
     Then the view "seen" shows nothing of what was published
+    And the logs of "lobby" name the topic "transactions" as one "casino" has not declared
 
   Scenario Outline: a service's credential is refused a topic of another project
     When something holding the credential of "lobby" <asks> "money.transactions" on the installation's broker

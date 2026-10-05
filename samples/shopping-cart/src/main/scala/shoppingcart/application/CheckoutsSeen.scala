@@ -15,8 +15,11 @@ object CheckoutTopic:
   val name: String =
     sys.env.get("CART_CHECKOUTS_TOPIC").filter(_.trim.nonEmpty).getOrElse("cart-checkouts")
 
-/** A checkout this service has read from the topic. */
-final case class CheckoutSeen(cartId: String, at: Long)
+/**
+ * A checkout this service has read from the topic, and how many notices of it it has read: one,
+ * unless a notice was read again, which is what a reader that starts over from the beginning does.
+ */
+final case class CheckoutSeen(cartId: String, at: Long, notices: Int)
 
 /**
  * The checkouts read back from the topic they are published to: a service consuming a topic, which
@@ -25,7 +28,8 @@ final case class CheckoutSeen(cartId: String, at: Long)
 final class CheckoutsSeenView extends View[CheckoutNotice, CheckoutSeen]:
 
   def onChange(notice: CheckoutNotice): Effect =
-    effects.updateRow(CheckoutSeen(notice.cartId, notice.at))
+    val seen = rowState.fold(0)(_.notices)
+    effects.updateRow(CheckoutSeen(notice.cartId, notice.at, seen + 1))
 
 object CheckoutsSeen
     extends View.Companion[CheckoutsSeenView, CheckoutNotice, CheckoutSeen](

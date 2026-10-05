@@ -133,6 +133,7 @@ class CartFeatures extends GherkinSuite("features") with LogCapturing:
       seen = send("GET", s"/checkouts-seen/$scenarioId")
     assertEquals(seen._1, 200, s"no checkout notice of the cart was read: ${seen._2}")
     assert(seen._2.contains(s""""cartId":"$scenarioId""""), seen._2)
+    assert(seen._2.contains(""""notices":1"""), seen._2)
   }
 
   When("the customer checks out") { () =>

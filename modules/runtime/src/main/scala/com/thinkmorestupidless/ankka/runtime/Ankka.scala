@@ -493,7 +493,7 @@ final class AnkkaService private[ankka] (
             system.log.warn(s"extension '${extension.name}' failed to stop", failure)
       }
       Done
-    }(AnkkaExecutors.virtual)
+    }(using AnkkaExecutors.virtual)
 
   /**
    * Has coordinated shutdown start stopping the extensions in its first phase, and wait for them in

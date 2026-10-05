@@ -119,6 +119,11 @@ lazy val commonSettings = Seq(
     "-Wvalue-discard",
     "-source:3.7"
   ),
+  // Warnings are errors when compiling, so `sbt compile` stays warning-free by construction rather
+  // than by attention. Scoped to `compile`, not `doc`: scaladoc reports its own link warnings, and
+  // a release's `publishSigned` builds docs.
+  Compile / compile / scalacOptions += "-Werror",
+  Test / compile / scalacOptions += "-Werror",
   javacOptions ++= Seq("--release", "21"),
   libraryDependencies ++= commonTest,
   dependencyOverrides ++= pekkoHttpFamily,

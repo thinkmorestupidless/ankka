@@ -58,7 +58,7 @@ trait ToResponse[A]:
    * default; `Respond` is how a handler supplies them. `Content-Type` never goes here: it is
    * `contentType`, and the server sets it from the entity.
    */
-  def headers(value: A): Vector[(String, String)] = Vector.empty
+  def headers(@scala.annotation.unused value: A): Vector[(String, String)] = Vector.empty
 
 object ToResponse:
 

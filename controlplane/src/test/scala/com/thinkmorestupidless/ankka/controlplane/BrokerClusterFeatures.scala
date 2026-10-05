@@ -349,10 +349,17 @@ abstract class BrokerClusterFeatures(feature: String)
   private def partitionsOf(p: String, topic: String): Int =
     partitions.getOrElse((p, topic), if topic == "transactions" then 12 else 3)
 
+  private var declaringScenarios = 0
+
   override def beforeEach(context: BeforeEach): Unit =
     if !munitIgnore then
       scenarioName = aliasesByScenario.keys.find(context.test.name.startsWith).getOrElse("")
       aliases = aliasesByScenario.getOrElse(scenarioName, Map.empty)
+      // Each of the declaring file's scenarios declares "transactions" from nothing, and one grows
+      // it, which no later declaration of fewer partitions can undo: each has a project of its own.
+      if feature == "declaring.feature" then
+        declaringScenarios += 1
+        aliases += "money" -> s"money$declaringScenarios"
       made = Vector.empty
       descriptorOf = None
       lastProbe = None

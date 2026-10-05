@@ -116,6 +116,9 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       ClusterImages.importInto(k3s, SidecarImage)
       ClusterImages.importInto(k3s, PythonImage)
       ClusterImages.importInto(k3s, AuthImage)
+      // A public image, so pulled rather than assumed: a machine that had never pulled it (a fresh
+      // CI runner) failed the import, while every laptop that had passed.
+      docker(repositoryRoot, "pull", "-q", KeysImage)
       ClusterImages.importInto(k3s, KeysImage)
       (Vector(WrongAbiImage, NoCopyImage) ++ Option.when(rustBuilt)(RustImage))
         .foreach(ClusterImages.importInto(k3s, _))

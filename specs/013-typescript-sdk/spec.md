@@ -68,24 +68,14 @@ beside it with the bundled Postgres, add items over HTTP, restart the sidecar, r
 Run the encoding fixtures through the SDK's default codec. Run the conformance suite's event sourced
 and discovery behaviours against it.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an entity written against the SDK and a sidecar started beside it, **When** a command
-   is sent over the endpoint's route, **Then** the handler runs in the developer's process, the
-   events it names are persisted by the sidecar, and the reply is computed from the state after
-   those events.
-2. **Given** an entity with persisted events, **When** the sidecar is restarted and the entity is
-   commanded again, **Then** the process is given the recovered snapshot and the events after it,
-   folds them, and the command runs against the recovered state.
-3. **Given** a query handler, **When** it is written to return a persisting effect, **Then** the
-   program does not compile, and the error names the rule.
-4. **Given** every encoding fixture published with the protocol, **When** the SDK's default codec
-   decodes and re-encodes each one, **Then** every value matches and every byte matches, and a
-   fixture the codec cannot handle is a failure, not a skip.
-5. **Given** a journal written by the Scala shopping cart, **When** the TypeScript cart is pointed at
-   the same database, **Then** it recovers the same carts with the same state, and the reverse.
-6. **Given** a handler that throws, **When** the command runs, **Then** the command fails, nothing is
-   persisted, the entity's state is unchanged, and the process keeps serving.
+- added `features/polyglot/entities.feature`: a command runs its handler in the developer's code and records the events it names
+- added `features/polyglot/entities.feature`: a restarted entity is recovered through the developer's code before its next command
+- added `features/polyglot/entities.feature`: a query that would record an event is refused before the service is built
+- added `features/polyglot/encoding.feature`: every fixture is read and written again exactly by an SDK
+- added `features/polyglot/entities.feature`: a service written in one language recovers what a service written in another recorded
+- added `features/polyglot/entities.feature`: a handler that fails records nothing and the service goes on serving
 
 ---
 
@@ -107,20 +97,13 @@ story test themselves with.
 tests start the sidecar, exercise every route, restart the sidecar and read the state back. Neither
 testkit depends on which test runner the developer chose.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an entity and the unit testkit, **When** a command is sent, **Then** the test sees the
-   events, the new state, the retention and the reply or refusal as values, and the state carries
-   forward to the next command.
-2. **Given** a component whose state contains a value its declared schema cannot encode, **When** a
-   unit test drives it, **Then** the test fails on the encoding, not on first deployment.
-3. **Given** the integration testkit, **When** a test starts it, **Then** Postgres and the sidecar are
-   running with the platform's own schema, the developer's components are served to the sidecar, and
-   the sidecar reports healthy before the test body runs.
-4. **Given** a running integration testkit, **When** the test restarts the sidecar, **Then** a new
-   sidecar runs against the same database and every entity is recovered from the journal.
-5. **Given** a workflow with a pause, **When** the unit testkit runs it to its end, **Then** the test
-   follows the transitions, stops at the pause, and can resume it.
+- added `features/polyglot/testing.feature`: the component test kit shows a command's effect as values
+- added `features/polyglot/testing.feature`: a value the encoding cannot write fails in the component test kit
+- added `features/polyglot/testing.feature`: the test kit is ready before the test begins
+- added `features/polyglot/testing.feature`: the test kit restarts the platform's own program on the same database
+- added `features/polyglot/testing.feature`: the component test kit follows a workflow to where it waits for a command
 
 ---
 
@@ -141,28 +124,24 @@ is where the feature becomes an SDK rather than a demonstration.
 and routes as the Scala reference. The conformance suite runs against it and passes every behaviour.
 Break one behaviour deliberately and the suite names it.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a key value entity, a view, a consumer and a timed action in TypeScript, **When** they
-   are driven through the sidecar, **Then** each behaves as the conformance suite requires: state is
-   updated and read, rows are updated and deleted on the source's events and deletion, messages are
-   consumed and produced, and a timed action fires and is retried on failure.
-2. **Given** a workflow in TypeScript, **When** it is started, **Then** each step runs in the
-   developer's process, transitions and pauses are honoured, a step that throws is retried and failed
-   over as the workflow declared, and a query arriving while a step runs is answered from the state
-   before the step without disturbing the step.
-3. **Given** a workflow step that calls an entity through the SDK's client, **When** the call is
-   made, **Then** it is routed by the sidecar to the target and the reply is decoded into the type
-   the caller named.
-4. **Given** an agent declared with one tool and one guardrail, **When** a message is sent to a
-   session, **Then** the sidecar runs the loop, the tool runs in the developer's process with the
-   model's arguments, the guardrail is consulted, and the session survives the process restarting.
-5. **Given** the conformance suite and the TypeScript reference service, **When** the suite runs,
-   **Then** every behaviour passes; **When** one behaviour is deliberately broken, **Then** the suite
-   names that behaviour and no other.
-6. **Given** a process that declares a handler wire name twice, or an endpoint without an access
-   rule, **When** the service is assembled, **Then** it refuses to start and names every problem at
-   once.
+- added `features/polyglot/components.feature`: a key value entity's state is kept and recovered after a restart
+- added `features/polyglot/components.feature`: a view's rows follow its source's events and are removed with its source
+- added `features/polyglot/components.feature`: a consumer is given each event at least once and in the order its entity recorded them
+- added `features/polyglot/components.feature`: a consumer publishes the messages its handler produces
+- added `features/polyglot/components.feature`: a timer set by a handler runs its timed action, and again after a failure
+- added `features/polyglot/components.feature`: a workflow's steps run in the developer's code and each step is recorded
+- added `features/polyglot/components.feature`: a step that fails is retried and then failed over as the workflow declared
+- added `features/polyglot/components.feature`: a command to a workflow during a step is answered from the state before the step
+- added `features/polyglot/components.feature`: a call through the SDK's client reaches its component wherever it runs
+- added `features/polyglot/agents.feature`: a tool runs in the developer's code with the model's arguments
+- added `features/polyglot/agents.feature`: a guardrail is consulted in the developer's code
+- added `features/polyglot/agents.feature`: a session survives a restart of the developer's code
+- added `features/polyglot/conformance.feature`: the conformance suite passes against the reference service in every language
+- added `features/polyglot/conformance.feature`: a behaviour broken in an SDK is named and no other
+- added `features/polyglot/starting.feature`: a service whose code declares what the platform cannot host does not start
+- added `features/polyglot/starting.feature`: a service whose code declares several problems is told every one at once
 
 ---
 
@@ -184,18 +163,12 @@ shopping cart's image from the example, apply its descriptor to the local instal
 the cart through the platform's gateway. Tag a release and find the package on the registry at that
 version.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an empty project, **When** the developer installs the SDK from the registry, **Then**
-   the package imports, carries its own protocol stubs, and declares every dependency it needs.
-2. **Given** the shopping cart example's image and descriptor, **When** applied to the local
-   installation, **Then** the service reaches `Ready`, the sidecar reports the SDK's name and version
-   in discovery, and the cart is commanded through the platform's gateway.
-3. **Given** a release tag, **When** the release workflow runs, **Then** the package is published at
-   the tag's version, after and only after the platform's own artifacts are, with no credential
-   stored in the repository.
-4. **Given** the continuous integration workflow, **When** a commit changes the protocol without
-   refreshing the SDK's copy of it, **Then** the build fails on that commit.
+- added `features/typescript-sdk/installing.feature`: the TypeScript SDK installed from the package registry carries everything it needs
+- added `features/polyglot/deploying.feature`: a deployed service says which SDK its code was built with
+- added `features/polyglot/releasing.feature`: a release publishes an SDK at its version after the platform's own
+- added `features/polyglot/releasing.feature`: a change to the protocol that an SDK's copy does not have fails the build
 
 ---
 
@@ -215,19 +188,12 @@ explanation. It is last because every page includes samples from code the earlie
 and a reader with Node and Docker installed and no JVM reaches a commanded entity in the time the
 page promises. Every shared skill that says how Python differs also says how TypeScript differs.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the getting-started page for TypeScript, **When** a developer with Node and Docker
-   follows it from an empty directory, **Then** they command an entity through a local sidecar with
-   no JVM and no compiler configuration.
-2. **Given** the reference page, **When** a developer looks up any component kind, the client, the
-   testkits or how a service runs, **Then** the page states it, with a sample included from tested
-   code.
-3. **Given** the TypeScript skill and each shared skill, **When** a coding agent is asked for a
-   TypeScript component of any kind, **Then** the skill it loads states the rules that differ from
-   Scala and Python and the code it writes compiles and passes the unit testkit.
-4. **Given** the documentation build, **When** a page's included sample drifts from its source or a
-   new page is not in the navigation and a skill, **Then** the build fails.
+- added `features/polyglot/documentation.feature`: the first service in a language needs no JVM
+- added `features/polyglot/documentation.feature`: the documentation of a language states every kind of component with a tested sample
+- added `features/polyglot/documentation.feature`: a coding agent writing a component in a language is told how the language differs
+- added `features/polyglot/documentation.feature`: the documentation does not build when a page is out of step with what it is taken from or listed in
 
 ---
 

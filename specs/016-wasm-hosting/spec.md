@@ -79,28 +79,15 @@ the runtime image with it beside the bundled Postgres, add items over HTTP, rest
 the cart back. Run the encoding fixtures through the library's default codec. Run the conformance
 suite's discovery and event sourced behaviours against the module.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a module built from an entity written against the library and a runtime started with
-   it, **When** a command is sent over the endpoint's route, **Then** the handler runs inside the
-   module, the events it names are persisted by the runtime, and the reply is computed from the state
-   after those events.
-2. **Given** an entity with persisted events, **When** the runtime is restarted and the entity is
-   commanded again, **Then** the module is given the recovered snapshot and each event after it to
-   fold, and the command runs against the recovered state.
-3. **Given** a query handler, **When** it is written to return a persisting effect, **Then** the
-   crate does not compile, and the error names the rule.
-4. **Given** every encoding fixture published with the protocol, **When** the library's default codec
-   decodes and re-encodes each one, **Then** every value matches and every byte matches, and a fixture
-   the codec cannot handle is a failure, not a skip.
-5. **Given** a journal written by the Scala shopping cart, **When** the Rust cart is pointed at the
-   same database, **Then** it recovers the same carts with the same state, and the reverse.
-6. **Given** a handler that panics, **When** the command runs, **Then** the command fails, nothing is
-   persisted, the entity's state is unchanged, and the runtime keeps serving every other entity and
-   the next command to this one.
-7. **Given** a module with no valid ABI (a missing export, an export prefix the runtime does not
-   speak, or a file that is not a module), **When** the runtime starts, **Then** it refuses to start
-   and names what was missing or which ABI version was offered and which it speaks.
+- added `features/polyglot/entities.feature`: a command runs its handler in the developer's code and records the events it names
+- added `features/polyglot/entities.feature`: a restarted entity is recovered through the developer's code before its next command
+- added `features/polyglot/entities.feature`: a query that would record an event is refused before the service is built
+- added `features/polyglot/encoding.feature`: every fixture is read and written again exactly by an SDK
+- added `features/polyglot/entities.feature`: a service written in one language recovers what a service written in another recorded
+- added `features/polyglot/entities.feature`: a handler that fails records nothing and the service goes on serving
+- added `features/wasm/loading.feature`: a module the platform cannot load is refused, saying why
 
 ---
 
@@ -122,22 +109,13 @@ are also what the shopping cart example and every later story test themselves wi
 its integration tests build the module, start the runtime with it, exercise every route, restart the
 runtime and read the state back. Neither testkit depends on which test runner the developer chose.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an entity and the unit testkit, **When** a command is sent, **Then** the test sees the
-   events, the new state, the retention and the reply or refusal as values, and the state carries
-   forward to the next command.
-2. **Given** a component whose state contains a value its declared types cannot encode in the
-   platform's encoding, **When** a unit test drives it, **Then** the test fails on the encoding, not on
-   first deployment.
-3. **Given** the integration testkit, **When** a test starts it, **Then** Postgres and the runtime are
-   running with the platform's own schema, the developer's module is loaded, and the runtime reports
-   ready before the test body runs.
-4. **Given** a running integration testkit, **When** the test restarts the runtime, **Then** a new
-   runtime loads the same module against the same database and every entity is recovered from the
-   journal.
-5. **Given** a workflow with a pause, **When** the unit testkit runs it to its end, **Then** the test
-   follows the transitions, stops at the pause, and can resume it.
+- added `features/polyglot/testing.feature`: the component test kit shows a command's effect as values
+- added `features/polyglot/testing.feature`: a value the encoding cannot write fails in the component test kit
+- added `features/polyglot/testing.feature`: the test kit is ready before the test begins
+- added `features/polyglot/testing.feature`: the test kit restarts the platform's own program on the same database
+- added `features/polyglot/testing.feature`: the component test kit follows a workflow to where it waits for a command
 
 ---
 
@@ -161,35 +139,28 @@ routes as the Scala reference. The conformance suite runs against it, once with 
 component declared stateless and once declared stateful, and passes every behaviour both times. Break
 one behaviour deliberately and the suite names it.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a key value entity, a view, a consumer and a timed action in the module, **When** they
-   are driven through the runtime, **Then** each behaves as the conformance suite requires: state is
-   updated and read, rows are updated and deleted on the source's events and deletion, messages are
-   consumed and produced, and a timed action fires and is retried on failure.
-2. **Given** a workflow in the module, **When** it is started, **Then** each step runs inside the
-   module, transitions and pauses are honoured, a step that panics is retried and failed over as the
-   workflow declared, and a query arriving while a step runs is answered from the state before the
-   step without disturbing the step.
-3. **Given** a workflow step that calls an entity through the library's client, **When** the call is
-   made, **Then** the runtime routes it to the target and the reply is decoded into the type the caller
-   named, and while the step waits no other component's command is delayed by it.
-4. **Given** an agent declared with one tool and one guardrail, **When** a message is sent to a
-   session, **Then** the runtime runs the loop, the tool runs inside the module with the model's
-   arguments, the guardrail is consulted, and the session survives the runtime restarting.
-5. **Given** a component declared stateful, **When** its instance is loaded, commanded several times,
-   passivated and commanded again, **Then** the module is handed the state once per load, the
-   commands between see the state the previous command left, and after passivation the module holds
-   nothing for that instance.
-6. **Given** a component declared stateful whose module crashes mid-command, **When** the next
-   command arrives, **Then** the runtime loads a fresh instance from the state it holds, and the
-   command runs against the state before the crash.
-7. **Given** the conformance suite and the reference module, **When** the suite runs in each shape,
-   **Then** every behaviour passes; **When** one behaviour is deliberately broken, **Then** the suite
-   names that behaviour and no other.
-8. **Given** a module that declares a handler wire name twice, an endpoint without an access rule, or
-   a streaming route, **When** discovery runs, **Then** the runtime refuses to start and names every
-   problem at once.
+- added `features/polyglot/components.feature`: a key value entity's state is kept and recovered after a restart
+- added `features/polyglot/components.feature`: a view's rows follow its source's events and are removed with its source
+- added `features/polyglot/components.feature`: a consumer is given each event at least once and in the order its entity recorded them
+- added `features/polyglot/components.feature`: a consumer publishes the messages its handler produces
+- added `features/polyglot/components.feature`: a timer set by a handler runs its timed action, and again after a failure
+- added `features/polyglot/components.feature`: a workflow's steps run in the developer's code and each step is recorded
+- added `features/polyglot/components.feature`: a step that fails is retried and then failed over as the workflow declared
+- added `features/polyglot/components.feature`: a command to a workflow during a step is answered from the state before the step
+- added `features/polyglot/components.feature`: a call through the SDK's client reaches its component wherever it runs
+- added `features/wasm/guest-shapes.feature`: a workflow step waiting on a call delays no command
+- added `features/polyglot/agents.feature`: a tool runs in the developer's code with the model's arguments
+- added `features/polyglot/agents.feature`: a guardrail is consulted in the developer's code
+- added `features/polyglot/agents.feature`: a session survives a restart of the developer's code
+- added `features/wasm/guest-shapes.feature`: a stateful component is handed its state once per load
+- added `features/wasm/guest-shapes.feature`: a stateful component whose module fails mid-command is recovered from the state the platform holds
+- added `features/polyglot/conformance.feature`: the conformance suite passes against the reference service in every language
+- added `features/polyglot/conformance.feature`: a behaviour broken in an SDK is named and no other
+- added `features/polyglot/starting.feature`: a service whose code declares what the platform cannot host does not start
+- added `features/polyglot/starting.feature`: a service whose code declares several problems is told every one at once
+- added `features/wasm/loading.feature`: a module that declares a route answered as a stream is refused
 
 ---
 
@@ -212,26 +183,20 @@ local installation, and command the cart through the platform's gateway. Scale i
 and resume it, expose it. Apply a descriptor whose image hands over no module and read what the
 service reports.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the shopping cart example's module image and a descriptor naming it as a WebAssembly
-   module, **When** applied to the local installation, **Then** the service runs as one container,
-   reaches `Ready`, reports the library's name and version in discovery, and the cart is commanded
-   through the platform's gateway.
-2. **Given** a deployed WebAssembly service, **When** it is scaled, restarted, paused, resumed and
-   exposed, **Then** each behaves exactly as for a Scala service, with the same commands and the same
-   status words, and a rolling replacement refuses no request.
-3. **Given** a descriptor for a WebAssembly module, **When** it sets a variable reserved for the
-   runtime, names the runtime's image, or opens a port for the module, **Then** it is refused before
-   any resource is written, naming the field.
-4. **Given** a descriptor whose variables include a model's key and a database's credentials,
-   **When** the service runs, **Then** the runtime holds them and the module can read neither.
-5. **Given** an image that hands over no module, or exits with an error doing so, **When** a
-   WebAssembly service naming it is applied, **Then** the service's status reports the delivery's
-   failure rather than a pod that silently never starts.
-6. **Given** a deployed service whose module has a valid ABI but crashes on discovery, **When** it is
-   applied, **Then** the service reports `Failed` with the runtime's reason, and a later apply with a
-   fixed image recovers it.
+- added `features/wasm/deploying.feature`: a module is deployed as one program, the platform's own
+- added `features/polyglot/deploying.feature`: a deployed service says which SDK its code was built with
+- added `features/polyglot/deploying.feature`: a service written in another language scales into one cluster without replacing an instance
+- added `features/polyglot/deploying.feature`: a service written in another language is restarted one instance at a time and refuses no request
+- added `features/polyglot/deploying.feature`: a service written in another language is exposed, paused and resumed like any other service
+- `features/secrets/platform-settings.feature`: a descriptor may not give a variable the platform alone sets, however it gives it
+- added `features/polyglot/deploying.feature`: a deployed service runs the platform's own program at the installation's version
+- added `features/wasm/deploying.feature`: a descriptor for a module is refused for what does not apply to it
+*Superseded:* a descriptor opening a port for the module is refused, by the module having no port at all: the platform's own program serves its routes, and a descriptor saying it serves no HTTP is refused
+- `features/secrets/platform-settings.feature`: a module that asks for a platform setting is told that it is not set
+- added `features/wasm/deploying.feature`: an image that does not hand over its module is reported in the status
+- added `features/wasm/deploying.feature`: a module that fails as it declares its components is reported failed until a fixed image is applied
 
 ---
 
@@ -254,26 +219,16 @@ the compose file, command the entity. Add the library from the registry to anoth
 Tag a release and find the crate on the registry at that version. Build the documentation with the
 new pages.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an empty project, **When** the developer adds the library from the registry, **Then** the
-   crate builds for the WebAssembly target and declares every dependency it needs.
-2. **Given** the CLI's initialiser for Rust, **When** it renders a project, **Then** the project builds
-   a module, its compose file starts the runtime of the CLI's own version with that module, and its
-   tests and type checks pass, insisting nothing skipped.
-3. **Given** a release tag, **When** the release workflow runs, **Then** the crate is published at the
-   tag's version, after and only after the platform's own artifacts are, with no credential stored in
-   the repository.
-4. **Given** the continuous integration workflow, **When** a commit changes the protocol without
-   refreshing the library's copy of it, **Then** the build fails on that commit.
-5. **Given** the getting-started page for Rust, **When** a developer with a Rust toolchain and Docker
-   follows it from an empty directory, **Then** they command an entity through a local runtime with no
-   JVM.
-6. **Given** the Rust skill and each shared skill, **When** a coding agent is asked for a Rust
-   component of any kind, **Then** the skill it loads states the rules that differ from the other
-   languages and the code it writes compiles and passes the unit testkit.
-7. **Given** the documentation build, **When** a page's included sample drifts from its source or a
-   new page is not in the navigation and a skill, **Then** the build fails.
+- added `features/wasm/installing.feature`: the Rust SDK added from the package registry builds a module
+- added `features/polyglot/template.feature`: a service started from the template passes its tests with none left out
+- added `features/polyglot/template.feature`: a service started from the template runs beside the platform's own program of the template's version
+- added `features/polyglot/releasing.feature`: a release publishes an SDK at its version after the platform's own
+- added `features/polyglot/releasing.feature`: a change to the protocol that an SDK's copy does not have fails the build
+- added `features/polyglot/documentation.feature`: the first service in a language needs no JVM
+- added `features/polyglot/documentation.feature`: a coding agent writing a component in a language is told how the language differs
+- added `features/polyglot/documentation.feature`: the documentation does not build when a page is out of step with what it is taken from or listed in
 
 ---
 

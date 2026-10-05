@@ -89,29 +89,16 @@ and the cart beside each other. Add items, read the cart, restart both processes
 again and see every item. Prove the same journal is readable by the Scala shopping cart's
 entity, and vice versa.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an entity written against the second language's SDK and a sidecar started beside
-   it, **When** a command is sent to the sidecar, **Then** the handler in the developer's
-   process runs, the events it names are persisted by the sidecar, and the reply it names is
-   returned to the caller.
-2. **Given** an entity whose handler refuses a command, **When** the command is sent, **Then**
-   nothing is persisted and the caller receives the refusal with its error code, exactly as an
-   in-process entity's refusal is reported.
-3. **Given** an entity with persisted events, **When** both processes are restarted and the
-   entity is commanded, **Then** its state is recovered from the journal and every prior event
-   has been folded through the developer's own code before the handler runs.
-4. **Given** a snapshot interval, **When** enough events accumulate, **Then** the sidecar
-   stores a snapshot produced by the developer's process, and a later recovery replays only the
-   events after it.
-5. **Given** a journal written by the Scala shopping cart, **When** the second language's cart
-   is pointed at the same database, **Then** it recovers the same state, and the reverse holds.
-6. **Given** a developer's process that is not running, **When** the sidecar starts, **Then** it
-   waits for the process and reports itself not ready, and becomes ready once the process has
-   described its components.
-7. **Given** a developer's process that describes a component the sidecar cannot host, or two
-   components with one name, **When** the sidecar starts, **Then** it fails to start with a
-   message naming every problem, not the first.
+- added `features/polyglot/entities.feature`: a command runs its handler in the developer's code and records the events it names
+- added `features/polyglot/entities.feature`: a refused command records nothing and its caller is told the refusal
+- added `features/polyglot/entities.feature`: a restarted entity is recovered through the developer's code before its next command
+- added `features/polyglot/entities.feature`: a snapshot is the developer's code's own, and recovery reads only the events after it
+- added `features/polyglot/entities.feature`: a service written in one language recovers what a service written in another recorded
+- added `features/polyglot/starting.feature`: a service is not ready until its process has declared its components
+- added `features/polyglot/starting.feature`: a service whose code declares what the platform cannot host does not start
+- added `features/polyglot/starting.feature`: a service whose code declares several problems is told every one at once
 
 ---
 
@@ -131,25 +118,16 @@ curiosity.
 installation. See it become `Ready`, expose it, add items through the gateway, scale it to three,
 restart it, and see every cart survive.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a descriptor declaring a polyglot service and an image containing only the
-   developer's code, **When** it is applied, **Then** the platform runs the sidecar beside that
-   image in every pod, and the service reports `Ready` only when both containers are.
-2. **Given** a running polyglot service, **When** it is scaled from one instance to three,
-   **Then** the three sidecars form one cluster, and the existing pod is not replaced.
-3. **Given** a running polyglot service, **When** it is restarted, **Then** each pod is replaced
-   one at a time, and requests sent throughout are not refused.
-4. **Given** a polyglot service, **When** it is exposed, paused, resumed and observed through the
-   console, **Then** each behaves exactly as for a Scala service, and the observability console
-   attributes each handler's time to the component and handler that did the work.
-5. **Given** a developer's container that exits, **When** the platform notices, **Then** the pod
-   is reported not ready, the sidecar is not treated as a live cluster member for the purposes
-   of serving requests, and the container is restarted without the sidecar losing its cluster
-   membership.
-6. **Given** a descriptor that names a sidecar image or sets the sidecar's environment
-   variables, **When** it is applied, **Then** it is refused, exactly as a descriptor setting the
-   cluster's own variables is refused today.
+- added `features/polyglot/deploying.feature`: a service hosted as a process runs beside the platform's own program and is ready only when both are
+- added `features/polyglot/deploying.feature`: a service written in another language scales into one cluster without replacing an instance
+- added `features/polyglot/deploying.feature`: a service written in another language is restarted one instance at a time and refuses no request
+- added `features/polyglot/deploying.feature`: a service written in another language is exposed, paused and resumed like any other service
+- added `features/polyglot/deploying.feature`: the trace of a deployed service attributes each handler's time to the component that did the work
+- added `features/polyglot/deploying.feature`: a process that stops is started again while its instance stays in the cluster
+- `features/secrets/platform-settings.feature`: a descriptor may not give a variable the platform alone sets, however it gives it
+- added `features/polyglot/deploying.feature`: a deployed service runs the platform's own program at the installation's version
 
 ---
 
@@ -168,28 +146,18 @@ conversation on the protocol, and an entity proves the protocol.
 checkout workflow. Run the sample's own integration tests against the port through the
 sidecar's HTTP surface.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a key value entity in the second language, **When** it is commanded, **Then** its
-   new state is stored by the sidecar and recovered after a restart.
-2. **Given** a view in the second language over an entity's events, **When** events are
-   persisted, **Then** the view's rows are updated through the developer's projection code and
-   queryable through the sidecar.
-3. **Given** a consumer in the second language, **When** an event it subscribes to is persisted,
-   **Then** it is delivered at least once, in order per entity, and its offset is stored by the
-   sidecar.
-4. **Given** a workflow in the second language, **When** it is started, **Then** each step's
-   code runs in the developer's process, each transition is persisted by the sidecar, and a
-   step that fails is retried and eventually compensated as the step declared.
-5. **Given** a handler in the developer's process that calls another component through the
-   SDK's client, **When** the call is made, **Then** it is routed by the sidecar to the target
-   wherever in the cluster it lives, and the trace shows the call as a child of the handler's
-   span.
-6. **Given** a timed action scheduled by a handler, **When** it comes due, **Then** it is
-   delivered to the developer's process, and a process that is not running when it comes due
-   receives it once it is.
-7. **Given** a component kind the second language's SDK does not implement, **When** the
-   sidecar's discovery finds it declared, **Then** startup fails naming the kind.
+- added `features/polyglot/components.feature`: a key value entity's state is kept and recovered after a restart
+- added `features/polyglot/components.feature`: a view's rows follow its source's events and are removed with its source
+- added `features/polyglot/components.feature`: a consumer is given each event at least once and in the order its entity recorded them
+- added `features/polyglot/components.feature`: a workflow's steps run in the developer's code and each step is recorded
+- added `features/polyglot/components.feature`: a step that fails is retried and then failed over as the workflow declared
+- added `features/polyglot/components.feature`: a call through the SDK's client reaches its component wherever it runs
+- added `features/polyglot/components.feature`: a call made by a handler is nested under that handler in the trace
+- added `features/polyglot/components.feature`: a timer set by a handler runs its timed action, and again after a failure
+- added `features/polyglot/components.feature`: a timer due while the process is not running runs once it is
+- added `features/polyglot/starting.feature`: a service whose code declares what the platform cannot host does not start
 
 ---
 
@@ -209,17 +177,12 @@ it is the largest single conversation on the protocol and depends on the client 
 with a scripted model in the sidecar's test configuration, and prove the tool is invoked in the
 developer's process and the reply streams.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an agent declared in the second language with one tool, **When** a message is sent
-   to a session, **Then** the sidecar drives the model, invokes the tool in the developer's
-   process with the model's arguments, returns the result to the model, and replies.
-2. **Given** a streaming request, **When** the model produces tokens, **Then** they reach the
-   caller as they are produced, encoded as they are today.
-3. **Given** a session with prior turns, **When** the process is restarted, **Then** the session
-   is intact, because it never lived in the developer's process.
-4. **Given** a tool that throws, **When** it is invoked, **Then** the failure reaches the model
-   as a tool error and the loop continues as it does for a Scala tool.
+- added `features/polyglot/agents.feature`: a tool runs in the developer's code with the model's arguments
+- added `features/polyglot/agents.feature`: an agent's reply reaches its caller as a stream while the model produces it
+- added `features/polyglot/agents.feature`: a session survives a restart of the developer's code
+- added `features/polyglot/agents.feature`: a tool that fails is told to the model and the loop goes on
 
 ---
 
@@ -238,16 +201,11 @@ last because it has one SDK to be tested against until P1 to P4 exist.
 **Independent Test**: Run the conformance suite against the second language's SDK and see it
 pass; deliberately break one behaviour in that SDK and see the suite name it.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the conformance suite and an SDK's reference service, **When** the suite runs,
-   **Then** it exercises every message on every conversation of the protocol and reports each
-   behaviour as passing or failing by name.
-2. **Given** an SDK that reports a protocol version the sidecar does not support, **When** the
-   sidecar connects, **Then** it refuses to start and names both versions.
-3. **Given** the Scala SDK, **When** the same suite is run against an in-process reference
-   service, **Then** it passes, so that the suite defines the component model's behaviour for
-   both hosting modes.
+- added `features/polyglot/conformance.feature`: the conformance suite names every behaviour it checks
+- added `features/polyglot/starting.feature`: a service whose code speaks a protocol version the platform does not is refused, naming both
+- added `features/polyglot/conformance.feature`: the conformance suite passes against the reference service in every language
 
 ---
 

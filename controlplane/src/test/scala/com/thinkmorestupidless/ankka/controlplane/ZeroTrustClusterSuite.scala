@@ -189,7 +189,34 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
         try check
         catch case _: Exception => false
       if !passed then Thread.sleep(1000)
-    if !passed then fail(s"$what did not happen within $timeout")
+    if !passed then fail(s"$what did not happen within $timeout\n${clusterState()}")
+
+  /**
+   * What the cluster looked like when a wait gave up: the services as the operator reported them,
+   * every workload and pod, and the most recent events. A wait that only says it ran out of time
+   * cannot say what was stuck, and a k3s failure on CI cannot be looked at afterwards.
+   */
+  private def clusterState(): String =
+    def run(title: String, args: String*): String =
+      val shown =
+        try
+          val result = k3s.execInContainer(("kubectl" +: args)*)
+          if result.getExitCode == 0 then result.getStdout else result.getStderr
+        catch case e: Exception => s"(could not ask: $e)"
+      s"---- $title\n${shown.linesIterator.toVector.takeRight(80).mkString("\n")}"
+    Vector(
+      run(
+        "services",
+        "get",
+        "ankkaservices",
+        "-A",
+        "-o",
+        "custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name," +
+          "LIFECYCLE:.status.lifecycle,READY:.status.readyInstances,DETAIL:.status.detail"
+      ),
+      run("deployments and pods", "get", "deployments,pods", "-A", "-o", "wide"),
+      run("events", "get", "events", "-A", "--sort-by=.lastTimestamp")
+    ).mkString("\n")
 
   private def membership(namespace: String, pod: Pod): Set[String] =
     val (code, body) = InPod.curl(

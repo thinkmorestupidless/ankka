@@ -45,19 +45,13 @@ running workload, every other feature is bookkeeping.
 `ankka services get` until it reports `Ready`, and confirm the workload exists with the image,
 environment and resource sizing from the descriptor.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a project with no service named `cart`, **When** an operator applies a valid `cart`
-   descriptor, **Then** a custom resource for it exists in the cluster, the operator creates the
-   workload, and the service reports `Ready` with `1/1`.
-2. **Given** `cart` is `Ready` at generation 3, **When** the operator applies the same descriptor
-   with a new image tag, **Then** the service reports `UpdateInProgress` at generation 4, the
-   running instance is replaced, and the service returns to `Ready`.
-3. **Given** a descriptor with an environment variable drawn from a secret, **When** it is applied,
-   **Then** the running instance receives that value and the secret value never appears in any
-   status, listing, custom resource or log the platform produces.
-4. **Given** two projects each containing a service named `cart`, **When** both are applied,
-   **Then** both run independently in separate namespaces and neither is mistaken for the other.
+- added `features/deploying/applying.feature`: an applied descriptor becomes a service that is ready
+- added `features/deploying/applying.feature`: a descriptor applied with a new image replaces the instances with ones running it
+- `features/secrets/project-secrets.feature`: a variable taken from a project secret reaches the service
+- added `features/deploying/applying.feature`: a value taken from a project secret is shown nowhere the platform shows a service
+- added `features/deploying/applying.feature`: services of the same name in two projects run apart
 
 ---
 
@@ -73,18 +67,12 @@ deployment that runs but reports badly is still more useful than no deployment.
 **Independent Test**: Drive cluster-side changes and assert the reported lifecycle, counts and
 detail follow each change within the stated latency, with no operator command in between.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** `cart` is `Ready` with `1/1`, **When** the instance terminates, **Then** the service
-   reports a not-ready lifecycle, and returns to `Ready` once it is replaced.
-2. **Given** `cart` is applied with an image tag that does not exist, **Then** the service reports
-   a failed lifecycle with a detail naming the image and the reason, rather than staying
-   `UpdateInProgress` indefinitely.
-3. **Given** a service in steady state that nobody touches, **When** the operator and control plane
-   run for an extended period, **Then** no new observation is recorded and the service's stored
-   history does not grow.
-4. **Given** an observation is produced for generation 4 but arrives after generation 5 has been
-   applied, **Then** it is discarded and the reported status continues to describe generation 5.
+- added `features/deploying/status.feature`: a service whose only instance stops is unavailable until the instance is replaced
+- added `features/deploying/status.feature`: an image that does not exist is reported as failed, with the reason
+- added `features/reconciliation/reports.feature`: a service nobody changes records no new report
+- added `features/reconciliation/reports.feature`: a report about a generation that was replaced is not recorded
 
 ---
 
@@ -101,18 +89,13 @@ actively misled.
 **Independent Test**: Issue each command through the CLI and assert both the reported status and
 the cluster-side outcome, including that a deleted service leaves no objects behind.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** `cart` is `Ready`, **When** the operator pauses it, **Then** no instances run, the
-   service reports `Paused` with `0/0`, and its configuration is retained.
-2. **Given** `cart` is `Paused`, **When** the operator resumes it, **Then** the instance returns and
-   the service reports `Ready`.
-3. **Given** `cart` is `Ready`, **When** the operator restarts it, **Then** the instance is replaced
-   with a new one, the descriptor is unchanged, and the service returns to `Ready`.
-4. **Given** `cart` is running, **When** the operator deletes it, **Then** the custom resource is
-   removed and every object created for it is removed with it, leaving nothing behind.
-5. **Given** `cart` is paused, **When** a new descriptor is applied, **Then** it stays paused and
-   the new descriptor takes effect on resume.
+- added `features/deploying/lifecycle.feature`: a paused service has no instances and keeps its descriptor
+- added `features/deploying/lifecycle.feature`: a resumed service is ready again
+- added `features/deploying/lifecycle.feature`: a restarted service has new instances and the same descriptor
+- added `features/deploying/lifecycle.feature`: a deleted service leaves nothing in the cluster
+- added `features/deploying/lifecycle.feature`: a descriptor applied to a paused service takes effect when it is resumed
 
 ---
 
@@ -129,21 +112,13 @@ because the happy path has to exist before it can be restored.
 **Independent Test**: Introduce each disruption and assert convergence back to desired state, with
 no duplicate objects.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** `cart` is `Ready`, **When** its workload is deleted directly in the cluster, **Then**
-   the operator recreates it and the service returns to `Ready` without an operator command.
-2. **Given** the cluster is unreachable from the control plane, **When** an operator applies a
-   descriptor, **Then** the apply succeeds and the intent is durable, the reported status is marked
-   as not currently confirmable rather than silently stale, and the descriptor is deployed once the
-   cluster returns.
-3. **Given** the operator is restarted while a rollout is in progress, **When** it comes back,
-   **Then** it resumes from the custom resources it finds, produces no second copy of any object,
-   and the service reaches `Ready`.
-4. **Given** the control plane is restarted, **When** it comes back, **Then** it re-projects desired
-   state and resumes consuming status without duplicating anything.
-5. **Given** one service is permanently failing, **Then** every other service continues to be
-   reconciled and reported on normally.
+- added `features/reconciliation/healing.feature`: a workload removed behind the platform's back is made again
+- added `features/reconciliation/healing.feature`: a descriptor applied while the cluster cannot be reached is kept and deployed once it can be
+- added `features/reconciliation/healing.feature`: an operator restarted while a service's instances are replaced finishes without making anything twice
+- added `features/reconciliation/healing.feature`: a restarted control plane goes on without making anything twice
+- added `features/reconciliation/healing.feature`: a service that always fails holds up no other service
 
 ---
 

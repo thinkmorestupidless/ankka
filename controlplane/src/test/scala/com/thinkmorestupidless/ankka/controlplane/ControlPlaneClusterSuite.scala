@@ -708,10 +708,10 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("8. the shipped RBAC, both ways: it can read a log and cannot touch a workload") {
-    // The manifest side is covered cheaply by LogsRbacSuite. This is the half that a manifest
-    // test cannot do: asking the API server, as the control plane's own ServiceAccount rather
-    // than as an admin. CLAUDE.md records why that distinction matters — the suites mostly use
-    // admin credentials, so a *missing* verb fails silently in CI and loudly on a real deploy,
+    // The manifest side is covered cheaply by LogsRbacSuite. This is the half that a manifest test
+    // cannot do: asking the API server, as the control plane's own ServiceAccount rather than as an
+    // admin. .claude/rules/kubernetes.md records why that distinction matters — the suites mostly
+    // use admin credentials, so a *missing* verb fails silently in CI and loudly on a real deploy,
     // which has already happened once (`ensureNamespace` needed `patch` and had only `create`).
     val tokenResult =
       k3s.execInContainer(

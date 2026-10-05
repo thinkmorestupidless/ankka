@@ -37,10 +37,11 @@
 # certificate being the problem. A ClusterIssuer resolves against cert-manager's namespace, which
 # is precisely where the chart put both the secret and the Role.
 #
-# That is the exact mechanic CLAUDE.md records as a trap — "a ClusterIssuer looks up its secret in
-# cert-manager's own namespace, not the Certificate's" — inverted. It made a ClusterIssuer wrong
-# for the local CA, whose secret lives beside the Certificate; it makes a ClusterIssuer the only
-# thing that works here, whose secret lives beside cert-manager. Same property, opposite answer.
+# That is the exact mechanic .claude/rules/kubernetes.md records as a trap — "a ClusterIssuer looks
+# up its secret in cert-manager's own namespace, not the Certificate's" — inverted. It made a
+# ClusterIssuer wrong for the local CA, whose secret lives beside the Certificate; it makes a
+# ClusterIssuer the only thing that works here, whose secret lives beside cert-manager. Same
+# property, opposite answer.
 #
 # Two values to set, both marked SET:
 #   1. `email` — where Let's Encrypt sends expiry warnings.

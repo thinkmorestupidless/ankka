@@ -44,7 +44,7 @@ installation with no broker rendered as before, with no fixture rewritten.
 ## Stories 2 to 4: on a cluster with the installation's broker
 
 ```bash
-caffeinate -i sbt 'set controlPlane / Test / logBuffered := false' 'controlPlane/testOnly *BrokerClusterFeatures'
+caffeinate -i sbt 'set controlPlane / Test / logBuffered := false' 'controlPlane/testOnly *Broker*Features'
 ```
 
 Expected, in a k3s node with Strimzi installed by `BrokerStack` (about a minute and a half on top

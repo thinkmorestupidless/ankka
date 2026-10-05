@@ -7,10 +7,11 @@ switch holds k3s suites, and every concrete top-level class in it is one. The sb
 a file is read from `build.sbt`'s `project.in(file(...))` declarations.
 
 Prints `{"include": [{"suite", "class", "project"}, ...]}`, and fails when it finds none: a matrix
-of nothing would be a green run that tested nothing. An argument narrows it to the suite of that
-name, for running one suite on demand; a name that matches no suite fails the same way.
+of nothing would be a green run that tested nothing. An argument narrows it to the suites it names, for
+running some on demand: a name, or a glob (`Broker*`); one that matches no suite fails the same way.
 """
 
+import fnmatch
 import json
 import pathlib
 import re
@@ -48,7 +49,7 @@ if not suites:
 
 only = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
 if only:
-    suites = [s for s in suites if s["suite"] == only]
+    suites = [s for s in suites if fnmatch.fnmatchcase(s["suite"], only)]
     if not suites:
         sys.exit(f"no k3s suite is named {only}")
 

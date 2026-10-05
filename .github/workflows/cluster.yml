@@ -21,7 +21,7 @@ on:
         description: "MultiNodeClusterSuite's cold-start rounds (SC-002 asks for twenty)"
         default: "5"
       suite:
-        description: "Run only the suite of this name (e.g. SidecarClusterSuite); empty runs all"
+        description: "Run only the suites this name or glob matches (SidecarClusterSuite, Broker*); empty runs all"
         default: ""
 jobs:
   suites:

@@ -56,18 +56,30 @@ import scala.jdk.CollectionConverters.*
  * so a refusal is the broker's own. A service is called from inside its namespace (`InPod`), as the
  * platform admits callers.
  *
- * The scenarios share one installation and run in order; a scenario that would leave something
- * another relies on in a state of its own works on services or a project of its own (`aliases`).
+ * One suite per feature file, below, so the `cluster` workflow gives each a runner of its own and
+ * the files run side by side: in one suite they ran one after another, for most of half an hour of
+ * deploying carts. Each installs its own installation. The scenarios of a file share it and run in
+ * order; a scenario that would leave something another relies on in a state of its own works on
+ * services or a project of its own (`aliases`).
  *
  * Disable with `-Dankka.cluster.tests=off`.
  */
-class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogCapturing:
+abstract class BrokerClusterFeatures(feature: String)
+    extends GherkinSuite(s"../features/broker/$feature")
+    with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 15.minutes
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  override protected def ranElsewhere: Map[String, String] = Map(
+  // Every file's, narrowed to this file's scenarios: a name the file does not hold fails the suite.
+  override protected def ranElsewhere: Map[String, String] =
+    val text = Files.readString(Path.of(s"../features/broker/$feature"))
+    ranElsewhereInAnyFile.filter((name, _) =>
+      text.contains(s"Scenario: $name\n") || text.contains(s"Scenario Outline: $name\n")
+    )
+
+  private def ranElsewhereInAnyFile: Map[String, String] = Map(
     "a topic is refused when it cannot be made"       -> "ProjectTopicsFeature",
     "a topic declared again is still one declaration" -> "ProjectTopicsFeature",
     "a declaration is made on a project of the member's organization only" ->
@@ -1335,99 +1347,108 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
 
   // ═══ the operator's grant on the broker ═══════════════════════════════════
 
-  test("the operator may make and change the broker's topics and users, and remove none") {
-    assume(!munitIgnore)
-    // The component's grant, to the operator's own ServiceAccount, judged by the API server for a
-    // token of that account: not the suite's administrator, and not the in-process operator's.
-    node("kubectl", "create", "namespace", "ankka-operator"): Unit
-    node("kubectl", "create", "serviceaccount", "ankka-operator", "-n", "ankka-operator"): Unit
-    val token =
-      PkiStack.kubectl(k3s, "create", "token", "ankka-operator", "-n", "ankka-operator").trim
-    def asOperator(args: String*): (Int, String) =
-      val r = k3s.execInContainer(
-        (Vector(
-          "kubectl",
-          "--kubeconfig=/dev/null",
-          "--server=https://127.0.0.1:6443",
-          "--insecure-skip-tls-verify",
-          s"--token=$token"
-        ) ++ args)*
-      )
-      (r.getExitCode, (r.getStdout + r.getStderr).trim)
-    def may(verb: String, resource: String): String =
-      asOperator("auth", "can-i", verb, resource, "-n", Broker)._2
-    for resource <- Seq("kafkatopics.kafka.strimzi.io", "kafkausers.kafka.strimzi.io") do
-      assertEquals(may("create", resource), "yes", resource)
-      assertEquals(may("patch", resource), "yes", resource)
-      assertEquals(may("delete", resource), "no", resource)
-    // And a removal attempted with that token is refused by the API server itself.
-    val anyTopic = jsonPath("kafkatopics", "-n", Broker, "{.items[0].metadata.name}")
-    assume(anyTopic.nonEmpty, "no topic to try")
-    val (code, out) = asOperator("delete", "kafkatopic", anyTopic, "-n", Broker)
-    assertNotEquals(code, 0, out)
-    assert(out.contains("forbidden"), out)
-    assert(topicExists(anyTopic), s"$anyTopic was removed")
-  }
+  // The two cases below are the installation's, and run with its feature.
+  private val installation = feature == "installation.feature"
+
+  if installation then
+    test("the operator may make and change the broker's topics and users, and remove none") {
+      assume(!munitIgnore)
+      // The component's grant, to the operator's own ServiceAccount, judged by the API server for a
+      // token of that account: not the suite's administrator, and not the in-process operator's.
+      node("kubectl", "create", "namespace", "ankka-operator"): Unit
+      node("kubectl", "create", "serviceaccount", "ankka-operator", "-n", "ankka-operator"): Unit
+      val token =
+        PkiStack.kubectl(k3s, "create", "token", "ankka-operator", "-n", "ankka-operator").trim
+      def asOperator(args: String*): (Int, String) =
+        val r = k3s.execInContainer(
+          (Vector(
+            "kubectl",
+            "--kubeconfig=/dev/null",
+            "--server=https://127.0.0.1:6443",
+            "--insecure-skip-tls-verify",
+            s"--token=$token"
+          ) ++ args)*
+        )
+        (r.getExitCode, (r.getStdout + r.getStderr).trim)
+      def may(verb: String, resource: String): String =
+        asOperator("auth", "can-i", verb, resource, "-n", Broker)._2
+      for resource <- Seq("kafkatopics.kafka.strimzi.io", "kafkausers.kafka.strimzi.io") do
+        assertEquals(may("create", resource), "yes", resource)
+        assertEquals(may("patch", resource), "yes", resource)
+        assertEquals(may("delete", resource), "no", resource)
+      // And a removal attempted with that token is refused by the API server itself.
+      val anyTopic = jsonPath("kafkatopics", "-n", Broker, "{.items[0].metadata.name}")
+      assume(anyTopic.nonEmpty, "no topic to try")
+      val (code, out) = asOperator("delete", "kafkatopic", anyTopic, "-n", Broker)
+      assertNotEquals(code, 0, out)
+      assert(out.contains("forbidden"), out)
+      assert(topicExists(anyTopic), s"$anyTopic was removed")
+    }
 
   // ═══ installing a broker on a running installation ═══════════════════════
 
-  test(
-    "installing a broker rolls a running service once, gives its certificate its name, and refuses no request meanwhile"
-  ) {
-    assume(!munitIgnore)
-    // Everything else stops: an operator without a broker re-renders every service it finds.
-    for ((s, p), _) <- appliedAs if statusOf(s, p).isDefined do deleteService(s, p)
-    val p = "money"
-    startOperator(operatorSettings.copy(broker = None))
-    val d = Desc("early", p)
-    ok(apply(d))
-    ready("early", p)
-    assert(!environment("early", p)("early").contains("ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
-    assertEquals(jsonPath("certificate", "-n", ns(p), "early-service", "{.spec.commonName}"), "")
-    val before = replicaSets("early", p)
+  if installation then
+    test(
+      "installing a broker rolls a running service once, gives its certificate its name, and refuses no request meanwhile"
+    ) {
+      assume(!munitIgnore)
+      // Everything else stops: an operator without a broker re-renders every service it finds.
+      for ((s, p), _) <- appliedAs if statusOf(s, p).isDefined do deleteService(s, p)
+      val p = "money"
+      startOperator(operatorSettings.copy(broker = None))
+      val d = Desc("early", p)
+      ok(apply(d))
+      ready("early", p)
+      assert(!environment("early", p)("early").contains("ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
+      assertEquals(jsonPath("certificate", "-n", ns(p), "early-service", "{.spec.commonName}"), "")
+      val before = replicaSets("early", p)
 
-    // Requests throughout, from inside the project, as a caller of the service would make them.
-    val failures = ConcurrentLinkedQueue[String]()
-    val calling  = AtomicBoolean(true)
-    val calls    = new java.util.concurrent.atomic.AtomicInteger(0)
-    val caller = Thread.ofVirtual().start { () =>
-      while calling.get() do
-        val (status, body) = call("early", p, "/carts/steady")
-        calls.incrementAndGet(): Unit
-        if status != 200 then failures.add(s"$status $body"): Unit
-        Thread.sleep(250)
-    }
+      // Requests throughout, from inside the project, as a caller of the service would make them.
+      val failures = ConcurrentLinkedQueue[String]()
+      val calling  = AtomicBoolean(true)
+      val calls    = new java.util.concurrent.atomic.AtomicInteger(0)
+      val caller = Thread.ofVirtual().start { () =>
+        while calling.get() do
+          val (status, body) = call("early", p, "/carts/steady")
+          calls.incrementAndGet(): Unit
+          if status != 200 then failures.add(s"$status $body"): Unit
+          Thread.sleep(250)
+      }
 
-    startOperator(operatorSettings)
-    waitFor(300.seconds, "early being given the broker and rolled") {
-      environment("early", p)("early")
-        .get("ANKKA_KAFKA_BOOTSTRAP_SERVERS")
-        .contains(BrokerStack.settings.bootstrap) &&
-      statusOf("early", p).exists(s => s.lifecycle == ServiceLifecycle.Ready && s.confirmed) &&
-      podsOf("early", p).forall(pod => pod.getMetadata.getDeletionTimestamp == null) &&
-      podsOf("early", p).size == 1 && podsOf("early", p).forall(pod =>
-        pod.getSpec.getContainers.asScala
-          .exists(_.getEnv.asScala.exists(_.getName == "ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
+      startOperator(operatorSettings)
+      waitFor(300.seconds, "early being given the broker and rolled") {
+        environment("early", p)("early")
+          .get("ANKKA_KAFKA_BOOTSTRAP_SERVERS")
+          .contains(BrokerStack.settings.bootstrap) &&
+        statusOf("early", p).exists(s => s.lifecycle == ServiceLifecycle.Ready && s.confirmed) &&
+        podsOf("early", p).forall(pod => pod.getMetadata.getDeletionTimestamp == null) &&
+        podsOf("early", p).size == 1 && podsOf("early", p).forall(pod =>
+          pod.getSpec.getContainers.asScala
+            .exists(_.getEnv.asScala.exists(_.getName == "ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
+        )
+      }
+      waitFor(120.seconds, "early's certificate being reissued with its name") {
+        jsonPath(
+          "secret",
+          "-n",
+          ns(p),
+          "early-service-tls",
+          "{.metadata.annotations.cert-manager\\.io/common-name}"
+        ) == s"$p.early"
+      }
+      // A little longer, so a second roll would have begun.
+      Thread.sleep(15000)
+      calling.set(false)
+      caller.join()
+
+      assertEquals(
+        replicaSets("early", p).size - before.size,
+        1,
+        "early was not rolled exactly once"
       )
+      assert(calls.get() > 20, s"only ${calls.get()} requests were made")
+      assertEquals(failures.asScala.toVector, Vector.empty)
     }
-    waitFor(120.seconds, "early's certificate being reissued with its name") {
-      jsonPath(
-        "secret",
-        "-n",
-        ns(p),
-        "early-service-tls",
-        "{.metadata.annotations.cert-manager\\.io/common-name}"
-      ) == s"$p.early"
-    }
-    // A little longer, so a second roll would have begun.
-    Thread.sleep(15000)
-    calling.set(false)
-    caller.join()
-
-    assertEquals(replicaSets("early", p).size - before.size, 1, "early was not rolled exactly once")
-    assert(calls.get() > 20, s"only ${calls.get()} requests were made")
-    assertEquals(failures.asScala.toVector, Vector.empty)
-  }
 
   /** The ReplicaSets of a service's Deployment, one per rollout. */
   private def replicaSets(service: String, p: String): Set[String] =
@@ -1441,3 +1462,10 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       .asScala
       .map(_.getMetadata.getName)
       .toSet
+
+class BrokerDeclaringFeatures    extends BrokerClusterFeatures("declaring.feature")
+class BrokerInstallationFeatures extends BrokerClusterFeatures("installation.feature")
+class BrokerIsolationFeatures    extends BrokerClusterFeatures("isolation.feature")
+class BrokerKeptFeatures         extends BrokerClusterFeatures("kept.feature")
+class BrokerSuppliedFeatures     extends BrokerClusterFeatures("supplied.feature")
+class BrokerTopicsFeatures       extends BrokerClusterFeatures("topics.feature")

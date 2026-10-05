@@ -228,11 +228,11 @@ class ClientRequestSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("a process made for a protocol version before calls to other services is not served one") {
-    val reply = await(logic(declared = Some("1.6")).request(get("scripted")))
-    refused(reply, pb.ErrorCode.BAD_REQUEST, "1.6")
+    val reply = await(logic(declared = Some("1.7")).request(get("scripted")))
     refused(reply, pb.ErrorCode.BAD_REQUEST, "1.7")
+    refused(reply, pb.ErrorCode.BAD_REQUEST, "1.8")
     assertEquals(scripted.requests, Vector.empty)
-    assert(await(logic(declared = Some("1.7")).request(get("scripted"))).result.isResponse)
+    assert(await(logic(declared = Some("1.8")).request(get("scripted"))).result.isResponse)
   }
 
   test("two calls a process makes at once are both answered without waiting for each other") {

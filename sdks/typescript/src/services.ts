@@ -13,7 +13,7 @@ import { metadataToProto } from "./context.ts"
 import { PROTOCOL_VERSION } from "./spec.ts"
 
 /** The protocol that added calls to other services. */
-export const SERVICES_SINCE = "1.7"
+export const SERVICES_SINCE = "1.8"
 
 /** The largest body, either way, a call through the sidecar carries: under gRPC's 4 MiB. */
 export const MAX_BODY_BYTES = 4_000_000

@@ -309,7 +309,7 @@ have no such property. `this.services.service("orders")` or `this.services.servi
 returns })`, `put(…)`, `delete(path)` and `request(method, path, { body, contentType, headers })`. No
 answer is `ServiceUnresolvable`, `ServiceIdentityMismatch` or `ServiceUnanswered`; an answer outside 2xx to
 a typed helper is `ServiceCallFailed`; all four extend `ServiceError`. For a unit test, assign
-`component.services = new ScriptedServices()`; `noServices()` throws on every call. Needs protocol 1.7:
+`component.services = new ScriptedServices()`; `noServices()` throws on every call. Needs protocol 1.8:
 an earlier runtime is reported as too old to call another service. See
 [Calling other services](../build/calling-services.md).
 ## Running a service

@@ -28,7 +28,7 @@ Every SDK ships one, with these components, wire names and routes. The Scala one
 | endpoint | prefix | routes |
 |---|---|---|
 | `carts` | `/carts` | `POST /{cartId}/items`, `DELETE /{cartId}/items/{productId}`, `POST /{cartId}/checkout`, `GET /{cartId}`, `GET /{cartId}/rows` (the view), `GET /awkward` (a literal beside a parameter) |
-| `conformance` | `/conformance` | `POST /{id}/{handler}` (a generic forwarder to the `conformance` entity, body passed through), `GET /{id}/count`, `POST /profile/{id}`, `GET /profile/{id}`, `POST /checkout/{id}`, `GET /checkout/{id}`, `POST /remind/{id}`, `POST /ask/{session}`, `GET /stream/{session}` (SSE), `GET /echo` (returns query parameters and two request headers as JSON), `GET /status/{code}` (answers that status), `GET /boom` (throws), `POST /secrets?name=` (keeps the text body as a service secret; 204), `GET /secrets?name=` (the value, or 404), `DELETE /secrets?name=` (204) — since protocol 1.4; `POST /service-call?service=&method=&path=&mode=raw\|typed` (calls another service through the SDK's client, sending the body, every `X-Conformance-*` header, and an `X-Ankka-Caller` and a `Host` no handler may send; answers the record `{outcome, status, contentType, body, answer, message}`, where `outcome` is `response`, `failed`, `unresolvable`, `mismatch`, `unanswered` or `refused` and `answer` is the `X-Answer` header the other service set) — since protocol 1.7 |
+| `conformance` | `/conformance` | `POST /{id}/{handler}` (a generic forwarder to the `conformance` entity, body passed through), `GET /{id}/count`, `POST /profile/{id}`, `GET /profile/{id}`, `POST /checkout/{id}`, `GET /checkout/{id}`, `POST /remind/{id}`, `POST /ask/{session}`, `GET /stream/{session}` (SSE), `GET /echo` (returns query parameters and two request headers as JSON), `GET /status/{code}` (answers that status), `GET /boom` (throws), `POST /secrets?name=` (keeps the text body as a service secret; 204), `GET /secrets?name=` (the value, or 404), `DELETE /secrets?name=` (204) — since protocol 1.4; `POST /service-call?service=&method=&path=&mode=raw\|typed` (calls another service through the SDK's client, sending the body, every `X-Conformance-*` header, and an `X-Ankka-Caller` and a `Host` no handler may send; answers the record `{outcome, status, contentType, body, answer, message}`, where `outcome` is `response`, `failed`, `unresolvable`, `mismatch`, `unanswered` or `refused` and `answer` is the `X-Answer` header the other service set) — since protocol 1.8 |
 | `private` | `/private` | `GET /` with `acl = AUTHENTICATED` |
 
 ## Targets
@@ -145,7 +145,7 @@ Each is one munit case whose name is the identifier below, so a failure names th
 - `secret.refuses-empty-value` — an empty value is 400.
 - `secret.name-with-slash` — `provider/initech` is kept and read.
 
-**Service calls** (protocol 1.7; the route is `/conformance/service-call`, against `scripted`, a
+**Service calls** (protocol 1.8; the route is `/conformance/service-call`, against `scripted`, a
 service the suite plays on loopback; a module target skips them, having no import for the call yet)
 - `service.request-reaches-target` — the method, the path with its query, the content type, the body and an `X-Conformance-*` header arrive as the handler sent them.
 - `service.answer-reaches-handler` — the status, content type, body and a header the other service set reach the handler.

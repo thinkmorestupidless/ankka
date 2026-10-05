@@ -1,4 +1,4 @@
-# Contract: the sidecar protocol at 1.7
+# Contract: the sidecar protocol at 1.8
 
 What a process sees. Decisions are in [research.md](../research.md) (R5 to R9).
 
@@ -6,9 +6,9 @@ What a process sees. Decisions are in [research.md](../research.md) (R5 to R9).
 
 ```protobuf
 service Client {
-  // … the eight calls of 1.6, unchanged …
+  // … the eight calls of 1.7, unchanged …
 
-  // A call to another service, made by the runtime as this service (protocol 1.7). The runtime
+  // A call to another service, made by the runtime as this service (protocol 1.8). The runtime
   // resolves the service, presents this service's certificate and checks the other's; the
   // process never holds a key. A refusal or a fault is in the reply, never a gRPC status, so
   // that a module's import can carry it the same way.
@@ -69,7 +69,7 @@ and "no answer" is the one reading of an unknown failure that sends nothing twic
 | the service name or the project is not a valid name; the path does not start with `/`; the method is empty | `BAD_REQUEST` | the field |
 | the request's body is over the limit | `BAD_REQUEST` | the limit |
 | the answer's body is over the limit | `INTERNAL` | the limit and the service |
-| the process declared a protocol below 1.7 | `BAD_REQUEST` | both versions |
+| the process declared a protocol below 1.8 | `BAD_REQUEST` | both versions |
 
 ### Who is calling
 
@@ -103,11 +103,11 @@ as given, in order. The answer's headers are returned as the service sent them.
 
 ## Version
 
-- The protocol version is `1.7`. A 1.6 process runs unchanged.
-- A process built for 1.7 calling a 1.6 runtime gets gRPC `UNIMPLEMENTED`; each SDK reports it as
+- The protocol version is `1.8`. A 1.7 process runs unchanged.
+- A process built for 1.8 calling a 1.7 runtime gets gRPC `UNIMPLEMENTED`; each SDK reports it as
   the runtime's protocol being too old to call another service, naming both versions.
-- A process that declared a version below 1.7 in discovery and sends `Request` all the same is
-  answered `error` with `BAD_REQUEST`, naming the version it declared and `1.7`.
+- A process that declared a version below 1.8 in discovery and sends `Request` all the same is
+  answered `error` with `BAD_REQUEST`, naming the version it declared and `1.8`.
 - No import is added to the `ankka1` module. A module cannot call another service until the
   import that carries `ServiceRequest` and `ServiceReply` is added; these two messages are the
   ones it will carry.

@@ -4,7 +4,7 @@ Nothing is stored. No table, no journal event, no snapshot field and no field of
 `AnkkaService` resource is added or changed. What the feature adds is three messages on the wire,
 one error, one setting and one kind of span.
 
-## On the wire (protocol 1.7)
+## On the wire (protocol 1.8)
 
 Exact shapes are in [contracts/protocol.md](contracts/protocol.md).
 

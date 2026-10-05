@@ -21,7 +21,7 @@ service Client {
   rpc PutSecret    (PutSecretRequest)    returns (PutSecretReply);
   rpc DeleteSecret (DeleteSecretRequest) returns (DeleteSecretReply);
 
-  // A call to another service, made by the runtime as this service (protocol 1.7). The runtime
+  // A call to another service, made by the runtime as this service (protocol 1.8). The runtime
   // resolves the service, presents this service's certificate and checks the other's; the process
   // never holds a key. A refusal or a fault is in the reply, never a gRPC status, so that a
   // module's import can carry it the same way.

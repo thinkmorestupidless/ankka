@@ -267,7 +267,7 @@ client with `await get(path, returns)`, `get_text(path)`, `post(path, body, retu
 `put(path, body, returns)`, `delete(path)` and `request(method, path, body=, content_type=, headers=)`.
 No answer is `ServiceUnresolvable`, `ServiceIdentityMismatch` or `ServiceUnanswered`; an answer outside 2xx
 to a typed helper is `ServiceCallFailed`; all four are `ServiceError`. For a unit test, assign
-`component.services = ScriptedServices()`. Needs protocol 1.7: an earlier runtime is reported as too old
+`component.services = ScriptedServices()`. Needs protocol 1.8: an earlier runtime is reported as too old
 to call another service. See [Calling other services](../build/calling-services.md).
 
 ## Running a service

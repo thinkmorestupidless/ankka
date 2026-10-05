@@ -190,7 +190,7 @@ describe("a runtime that cannot call another service", () => {
     const refuse = () => Promise.reject(new ConnectError("Method not found", Code.Unimplemented))
     const stub = new Proxy({}, { get: () => refuse })
     const old = new ComponentClient("old-runtime", { address: "old-runtime", transport: undefined, stub: stub as never })
-    await assert.rejects(new Services(old).service("psp-gateway").getText("/x"), (e: unknown) => e instanceof CommandError && e.code === "INTERNAL" && e.message.includes("1.7"))
+    await assert.rejects(new Services(old).service("psp-gateway").getText("/x"), (e: unknown) => e instanceof CommandError && e.code === "INTERNAL" && e.message.includes("1.8"))
   })
 })
 

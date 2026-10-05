@@ -1314,7 +1314,7 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     }
   }
 
-  // ── Calls to other services (protocol 1.7) ─────────────────────────────────
+  // ── Calls to other services (protocol 1.8) ─────────────────────────────────
   //
   // `features/service-calls/sdks.feature` and the outlines of `calling.feature`: this target is one
   // row of their Examples, and a case named for a scenario holds it for this language. Each drives the reference's `service-call` route,

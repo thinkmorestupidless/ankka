@@ -96,7 +96,7 @@ error classes and the two types.
 
 - **A runtime that is too old.** `UNIMPLEMENTED` from `Request` becomes a `CommandError`
   (`INTERNAL`) saying the runtime beside the process cannot call another service, which needs
-  protocol 1.7, and naming the version the SDK speaks.
+  protocol 1.8, and naming the version the SDK speaks.
 - **A reply with no case set** is a fault (`CommandError`, `INTERNAL`), never an empty answer.
 - **A body over 4,000,000 bytes** is refused by the SDK before anything is sent, naming the limit.
 - **The integration test kit** is unchanged. It starts one service, and its `env` already reaches

@@ -14,7 +14,7 @@ context is handed it; a process asks its sidecar to use it, through one call add
 protocol's `Client` service, and never holds a key.
 
 Technically: the client is made before the components and given to the five contexts that may
-have it, at the sites the secret store was (R1, R2). The protocol gains `Request` at 1.7, with
+have it, at the sites the secret store was (R1, R2). The protocol gains `Request` at 1.8, with
 every outcome in the reply so that a module's import can carry it later (R5, R9). `ClientLogic`
 serves it over the same client, as the handler its metadata names (R6). The client itself changes
 in four small ways, for every door alike: a fourth error for a call nothing answered (R3), a
@@ -72,7 +72,7 @@ what any span costs, and is begun only when the thread is in a trace.
 
 **Constraints**: no certificate or key in a process's container; no second resolver, TLS
 configuration or identity check; no retries, redirects or streaming; an entity's and a view's
-context have no client, by type; nothing unbounded is interned into the recorder's names; a 1.6
+context have no client, by type; nothing unbounded is interned into the recorder's names; a 1.7
 process and every module run unchanged; the three SDK copies of `protocol/` identical to the
 canonical one; `Test / parallelExecution := false` stays; warning-free; no suite binds a fixed
 port
@@ -128,7 +128,7 @@ specs/025-polyglot-service-client/
 ├── quickstart.md        # the validation runs: client → Scala service → sidecar → conformance → SDKs → k3s → docs
 ├── contracts/
 │   ├── scala-api.md         # the errors, who has the client, what it does to a request, test kits
-│   ├── protocol.md          # the wire at 1.7, who is calling, headers, bounds, conformance cases
+│   ├── protocol.md          # the wire at 1.8, who is calling, headers, bounds, conformance cases
 │   └── sdk-apis.md          # Python and TypeScript
 └── tasks.md             # /speckit-tasks, not created here
 ```
@@ -161,8 +161,8 @@ proxy/src/test/…/proxy/OutboundHeadersSuite.scala              # new: the two 
 protocol/src/main/protobuf/ankka/protocol/v1/client.proto
 protocol/README.md
 
-modules/runtime/…/runtime/remote/Conversation.scala            # Version = "1.7"
-controlplane-api/…/api/Compatibility.scala                     # protocol 1.7
+modules/runtime/…/runtime/remote/Conversation.scala            # Version = "1.8"
+controlplane-api/…/api/Compatibility.scala                     # protocol 1.8
 sidecar/…/sidecar/ClientLogic.scala, ClientService.scala       # request; the declared version
 sidecar/…/sidecar/SidecarExtension.scala, Discovery.scala      # the declared version reaches the client service
 sidecar/src/test/…/sidecar/ClientRequestSuite.scala            # new
@@ -205,7 +205,7 @@ because each would change a decision.
    endpoint's calls already show all four.
 2. **Scala components** (User Story 2). The client made before the components, the five
    contexts, the step-only client, the test kits, `ServiceCallsSuite`.
-3. **The protocol and the sidecar** (User Story 1, first half; User Story 3). 1.7, `ClientLogic`,
+3. **The protocol and the sidecar** (User Story 1, first half; User Story 3). 1.8, `ClientLogic`,
    the declared version, `ClientRequestSuite`, the Scala conformance reference and the eight
    cases against it.
 4. **The two SDKs** (User Story 1, second half), independent of each other: `Services`, the
@@ -237,6 +237,6 @@ the platform's surface, each with the simpler thing that was rejected.
 
 - A Scala handler that caught `java.io.IOException` or `HttpTimeoutException` around a call to
   another service now sees `ServiceUnanswered`, with the old exception as its cause.
-- The protocol is 1.7. A process built with the new SDK needs a sidecar of this release to call
-  another service; everything else it does works with a 1.6 sidecar, and a 1.6 process works with
+- The protocol is 1.8. A process built with the new SDK needs a sidecar of this release to call
+  another service; everything else it does works with a 1.7 sidecar, and a 1.7 process works with
   the new sidecar.

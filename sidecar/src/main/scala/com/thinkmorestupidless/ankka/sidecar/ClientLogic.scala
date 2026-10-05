@@ -319,7 +319,7 @@ final class ClientLogic(
       DeleteSecretReply(Some(e))
     )
 
-  // ── Calls to other services (protocol 1.7) ──────────────────────────────────
+  // ── Calls to other services (protocol 1.8) ──────────────────────────────────
   //
   // Made by the runtime's one client for other services, as this service: the resolution, the
   // certificate and the identity check are the ones a Scala handler's call goes through. The
@@ -433,7 +433,7 @@ final class ClientLogic(
 object ClientLogic:
 
   /** The protocol that added `Request`. */
-  val RequestSince: String = "1.7"
+  val RequestSince: String = "1.8"
 
   /** The largest body, either way, a call through the sidecar carries: under gRPC's 4 MiB. */
   val MaxBodyBytes: Int = 4_000_000
@@ -446,7 +446,7 @@ object ClientLogic:
   private[sidecar] def servesRequests(declared: Option[String]): Boolean =
     declared.forall { version =>
       version.split('.').toList match
-        case _ :: minor :: _ => minor.toIntOption.exists(_ >= 7)
+        case _ :: minor :: _ => minor.toIntOption.exists(_ >= 8)
         case _               => false
     }
 

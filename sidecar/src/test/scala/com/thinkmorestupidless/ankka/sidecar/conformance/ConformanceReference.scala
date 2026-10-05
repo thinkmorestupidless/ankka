@@ -541,7 +541,7 @@ object ConformanceReference:
     get("/problems")(() => problems())
 
     // docs:start service-call
-    // A call to another service (protocol 1.7), as the case asks for it: `service`, `method` and
+    // A call to another service (protocol 1.8), as the case asks for it: `service`, `method` and
     // `path` from the query, the body and every `X-Conformance-*` header sent on, and two headers no
     // handler may send — the caller's and the host — added to show they never arrive. The answer is
     // a record of what the client returned or raised, the same in every language.

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 R = TypeVar("R")
 
-SERVICES_SINCE = "1.7"
+SERVICES_SINCE = "1.8"
 MAX_BODY_BYTES = 4_000_000
 
 Headers = Sequence[tuple[str, str]]

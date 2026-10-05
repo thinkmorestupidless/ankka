@@ -38,7 +38,7 @@ sbt 'sidecar/testOnly *ClientRequestSuite'
 
 Expected: an entity's handler of each kind refused, naming the kind; a workflow's command
 refused; a request with no caller made and counted from the unknown caller; a process that
-declared 1.6 refused, naming 1.6 and 1.7; two requests at once, one to a slow service, with the
+declared 1.7 refused, naming 1.7 and 1.8; two requests at once, one to a slow service, with the
 fast one answered first; a body of 4,000,001 bytes refused; each of the runtime's three errors
 arriving as its `failure`.
 

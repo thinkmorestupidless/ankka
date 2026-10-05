@@ -163,24 +163,24 @@ are bounded at 4 MiB for the same reason. The spec puts streaming bodies out of 
 **Alternatives considered**: raising the limits — every SDK and the sidecar would have to agree
 on a new number, and the answer to a large transfer is the object storage feature, not this call.
 
-## R9. Protocol 1.7, checked in both directions
+## R9. Protocol 1.8, checked in both directions
 
-**Decision**: the protocol version becomes `1.7`: `Conversation.scala:165`, `Protocol.version` in
+**Decision**: the protocol version becomes `1.8`: `Conversation.scala:165`, `Protocol.version` in
 `controlplane-api`, `protocol/README.md`, `PROTOCOL_VERSION` in the Python and TypeScript SDKs.
 An SDK reports `UNIMPLEMENTED` from `Request` as the runtime being too old, naming both versions.
 `ClientLogic` is given the version the process declared in discovery and answers `BAD_REQUEST`,
-naming both, to a `Request` from a process that declared less than 1.7. Rust's constant stays at
-1.6.
+naming both, to a `Request` from a process that declared less than 1.8. Rust's constant stays at
+1.7.
 
 **Rationale**: adding a call is a minor by the protocol's own rule (`protocol/README.md:16-17`),
 and the secret store's `SECRETS_SINCE` and `tooOld` are the pattern in both SDKs
 (`secrets.py:28, 61-68`; `client.ts:235, 255-263`). The sidecar holds the process's declared
 version from discovery (`Discovery.scala:75-140`) and passes nothing of it to `ClientService`
 today; FR-003 needs it there. Rust speaks through imports and gains none, and a module that
-declares 1.6 runs unchanged on a 1.7 runtime.
+declares 1.7 runs unchanged on a 1.8 runtime.
 
-**One thing outside this branch**: feature 024 is in progress and may also raise the minor. The
-second of the two to merge takes the next number; nothing else in either changes.
+**Feature 024 merged first** and took 1.7 (where a topic source starts, and the version it reads
+at), so this feature is 1.8. Nothing else in either changed.
 
 ## R10. An outbound call is a span
 
@@ -321,7 +321,7 @@ step, from a test in each language: `ServiceCallsSuite`, `test_services.py` and
 `services.test.ts`. Changed besides: `reference/limitations.md` (the sentence at
 73-75 becomes one about gRPC alone), `build/http-endpoints.md:677-678` (removed),
 `reference/configuration.md` (the variable's prose), `reference/sidecar-protocol.md` (the
-generated table, 1.7 and its paragraph), `reference/scala-sdk.md`, `python-sdk.md`,
+generated table, 1.8 and its paragraph), `reference/scala-sdk.md`, `python-sdk.md`,
 `typescript-sdk.md`, `platform/networking.md` (its link), `build/testing.md` (the doubles), `mkdocs.yml`, and the `pages:` of `ankka-endpoints`,
 `ankka-port`, `ankka-python` and `ankka-typescript`.
 

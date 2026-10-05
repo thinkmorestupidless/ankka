@@ -101,14 +101,26 @@ final class ServiceBuilder private[ankka] (
 ):
 
   def register(descriptor: ComponentDescriptor): ServiceBuilder =
-    ServiceBuilder(descriptors :+ descriptor, extensions, conversation, identityOverride, wrapServices)
+    ServiceBuilder(
+      descriptors :+ descriptor,
+      extensions,
+      conversation,
+      identityOverride,
+      wrapServices
+    )
 
   def registerAll(more: Seq[ComponentDescriptor]): ServiceBuilder =
     ServiceBuilder(descriptors ++ more, extensions, conversation, identityOverride, wrapServices)
 
   /** Adds something that starts once the service is up — see `RuntimeExtension`. */
   def withExtension(extension: RuntimeExtension): ServiceBuilder =
-    ServiceBuilder(descriptors, extensions :+ extension, conversation, identityOverride, wrapServices)
+    ServiceBuilder(
+      descriptors,
+      extensions :+ extension,
+      conversation,
+      identityOverride,
+      wrapServices
+    )
 
   /**
    * Who the service is, stated outright rather than read from where it runs. For tests: a test kit

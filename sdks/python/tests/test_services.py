@@ -172,7 +172,7 @@ def test_a_runtime_that_cannot_call_another_service_is_reported_as_too_old() -> 
     services, _ = _services(old)
     with pytest.raises(CommandError) as refused:
         asyncio.run(services("psp-gateway").get_text("/x"))
-    assert "1.7" in refused.value.error.message
+    assert "1.8" in refused.value.error.message
     assert refused.value.error.code == ErrorCode.INTERNAL
 
 

@@ -154,7 +154,7 @@ writes. It never reads a private key itself.
 | Certificate | Identity | Mounted at | Issued when |
 |---|---|---|---|
 | `<service>-cluster` | `ankka://<project>/<service>` | `/var/run/secrets/ankka/cluster` | always |
-| `<service>-service` | `ankka://<project>/<service>`, and the Service's DNS names | `/var/run/secrets/ankka/service` | always: it is also who the service is when it calls another |
+| `<service>-service` | `ankka://<project>/<service>`, and the Service's DNS names; on an installation with a broker, also the common name `<project>.<service>` | `/var/run/secrets/ankka/service` | always: it is also who the service is when it calls another, and when it connects to the installation's broker |
 | `<service>-database` | common name `<service>`, the database role | `/var/run/secrets/ankka/database` | the platform provisions its database |
 
 The identity is built from the project's id, so the project id `platform`, which the control plane's
@@ -201,6 +201,7 @@ Each workload also gets network policies, which refuse a connection before any T
 | 7627 (readiness) | anywhere; a web-hosted service's pod has a policy of its own for it, since it has no cluster ports |
 | 7628 (observe) | the control plane's pods, in the control plane's namespace, and nothing else |
 | 5432 on a project's database | that project's ankka workloads, the database's own instances and the database operator |
+| 9093 on the installation's broker | any pod of an ankka workload in any ankka namespace |
 
 Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-system`, not in the
 `Gateway`'s. The policy therefore names those pods by the labels Envoy Gateway gives them, for the gateway
@@ -209,7 +210,9 @@ Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-s
 A project is not a network boundary for HTTP or gRPC: a service in one project can open a connection to
 a service in another. Whether the request is served is the callee's ACL's decision, from the caller's certificate.
 That is deliberate — the network decides only that the caller is an ankka workload at all — and a
-project's cluster ports and database are closed to every other project either way.
+project's cluster ports and database are closed to every other project either way. The broker is the
+same: any ankka workload may connect, and the broker itself refuses a service every topic but its own
+project's, by the common name on its certificate. See [The installation's broker](broker.md).
 
 ## The ports an instance uses
 

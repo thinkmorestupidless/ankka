@@ -100,6 +100,7 @@ settings, so one descriptor can be applied to several projects.
 | `mounts` | array of `{ "path", "service" }` | `[]` | With `web` hosting only: paths answered by another service of the project. See [web hosting](#web-hosting). |
 | `callers` | array of strings | `[]` | With `web` hosting only: the services admitted beside the internet. |
 | `processPort` | integer | `8080` | With `web` hosting only: the port the process listens on, told to it as `PORT`. |
+| `topics` | array of `{ "name", "partitions" }` | `[]` | Topics the project is to have on the installation's broker. See [topics](#topics). |
 
 ### image
 
@@ -183,6 +184,42 @@ platform reports it `Failed` with that reason.
 
 Added to the service's Deployment, pods and Service. The platform's own identity labels are applied
 after yours, so a label of yours with the same key as one of the platform's is overwritten.
+
+### topics
+
+The topics the service's project is to have on the installation's broker, each with how many partitions
+it has. The platform makes each one when the descriptor is applied; a topic is never made by publishing to
+it. A topic belongs to the project: every service of the project publishes to it and reads it by the
+declared name, and the broker holds it as `<project>.<name>`.
+
+```json title="service.json"
+{
+  "name": "wallet",
+  "service": {
+    "image": "registry.example.com/money/wallet:1.4.0",
+    "topics": [{ "name": "transactions", "partitions": 12 }]
+  }
+}
+```
+
+| Problem | Message |
+|---|---|
+| a name of the wrong shape | `topic '<name>': a name is lower-case letters, digits, "-" and ".", starting and ending with a letter or digit, at most 100 characters` |
+| `partitions` below 1 or above 1000 | `topic '<name>': partitions <n> is outside the range 1-1000` |
+| the same name twice | `topic '<name>' is declared more than once` |
+| `topics` with `web` hosting | `topics is meaningful only for a service with components; a web-hosted service declares none` |
+| `topics` beside a variable beginning `ANKKA_KAFKA_` in `env` | `topics are declared for the installation's broker, and env var '<name>' names another; remove one` |
+
+Two more are checked against the project when the descriptor is applied, and refused as a conflict:
+
+| Problem | Message |
+|---|---|
+| another service of the project declares the topic with other partitions | `topic '<name>' is declared by '<service>' with <n> partitions; a topic has one count` |
+| fewer partitions than this service last declared | `topic '<name>' has <n> partitions and cannot have fewer; <m> was asked` |
+
+A descriptor that gives a variable beginning `ANKKA_KAFKA_` names a broker of its own, and the platform
+makes nothing for the service on the installation's broker. See [Broker topics](../build/topics.md) and
+[The installation's broker](../platform/broker.md).
 
 ## Web hosting
 

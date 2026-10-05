@@ -38,6 +38,15 @@ own (`ViewGuard`). That pair is the whole of "no row an older handler writes sur
 
 ## Traps
 
+- **The Kafka producer's `send` blocks its caller while it waits for a topic's metadata**, a minute by
+  default, and a consumer's publish runs on the projection's dispatcher thread. A topic nobody declared held
+  a thread a minute per attempt; `KafkaPublisher.TopicWait` bounds it to five seconds, and the change is
+  retried with the projection's backoff. `KafkaConnectionSuite` fails at Kafka's default.
+- **A component names a topic as declared; the broker holds it under the project's prefix.**
+  `KafkaConnection.qualified` is applied where a topic is handed to Kafka and nowhere else — the publisher,
+  the subscriber and `earliestRetained` — so declared connections, the topology and the logs keep the
+  component's name.
+
 - **`protocol/fixtures/` belongs to `core`'s `EncodingFixturesSuite`**, which refuses any file it did not
   generate. The autonomous agent's fixtures live in `protocol/fixtures/autonomous/`, written by
   `AutonomousFixturesSuite` in `testkit`.

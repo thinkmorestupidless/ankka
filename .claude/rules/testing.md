@@ -52,6 +52,11 @@ appenders.
 
 ## Traps
 
+- **A plain `ActorSystem` in a test binds Pekko's fixed default remoting port, 17355**, because the runtime's
+  reference configuration makes the provider `cluster`. Any other test JVM on the machine — another
+  worktree's, say — then fails the suite with `Address already in use`. A suite that needs no cluster
+  builds its system with `pekko.actor.provider = local`.
+
 - **An image tag every session builds is shared by every session on the machine.** `ankka-sidecar:latest`
   and `sample-shopping-cart:latest` are rebuilt by any worktree's `docker:publishLocal`. The Python and
   TypeScript test kits start `ankka-sidecar:latest` for an unreleased SDK, so point `ANKKA_SIDECAR_IMAGE`

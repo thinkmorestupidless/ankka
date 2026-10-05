@@ -11,7 +11,8 @@ related: [build/views.md, build/consumers.md, build/graph.md, concepts/consisten
 
 A view or a consumer can read from a broker topic instead of an entity, and a consumer can publish to one.
 Topics are how an ankka service exchanges messages with systems outside it, including other ankka
-services and services written with no ankka at all. Kafka is the broker ankka ships with.
+services and services written with no ankka at all. Kafka is the broker ankka ships with, and an
+installation of the platform provides one for every project.
 
 ## Reading from a topic
 
@@ -391,7 +392,7 @@ A component that reads or publishes a topic in a service with no broker configur
 rather than started and never delivering anything.
 
 A deployed service is configured by its descriptor, not by its code, so a Scala service that runs on the
-platform names the broker in the environment instead. `ProjectionRuntime.fromEnv()` connects to the broker
+platform finds the broker in its environment instead. `ProjectionRuntime.fromEnv()` connects to the broker
 named by `ANKKA_KAFKA_BOOTSTRAP_SERVERS` and runs entity sources only when the variable is absent:
 
 ```scala
@@ -401,15 +402,95 @@ Ankka.service
   .start()
 ```
 
-Set the variable in the service descriptor's `env`. The platform provides no broker of its own, so its value
-is the address of a Kafka the cluster can reach.
+### The installation's broker
 
-A service behind a sidecar reaches the broker through its sidecar, which connects to the one named by
-`ANKKA_KAFKA_BOOTSTRAP_SERVERS`. Set it in the service descriptor's `env`: the platform gives it to the
-sidecar and to the process as well, so a service can register a component that publishes only where
-there is a broker to publish to. Without it the sidecar refuses to start a service that has such a
-component, naming it. A service hosted as a WebAssembly module reads the same variable through its
-configuration.
+An installation of the platform has one broker, which it provides for every project, as it provides each
+project a database. A service of an installation with a broker is told where it is with no descriptor
+setting at all: the platform gives every service with components `ANKKA_KAFKA_BOOTSTRAP_SERVERS`, and with
+it what the service needs to connect.
+
+A service proves which service it is to the broker with the certificate the platform already issued it.
+There is no password and no second credential. What that certificate may do on the broker is decided by
+the service's project:
+
+- It may read, publish to and describe every topic of its own project.
+- It may read under its own consumer groups, the ones named for it as *Consumer groups* describes.
+- It may do nothing else. It cannot make a topic, and it cannot reach another project's topics: the broker
+  itself refuses.
+
+A web-hosted service has no components and is given nothing of the broker.
+
+### Declaring a topic
+
+A topic on the installation's broker exists because a descriptor declares it, with the number of
+partitions it has:
+
+```json
+{
+  "name": "wallet",
+  "service": {
+    "image": "registry.example.com/money/wallet:1.4.0",
+    "topics": [
+      { "name": "transactions", "partitions": 12 }
+    ]
+  }
+}
+```
+
+The platform makes the topic when the descriptor is applied. A declared topic belongs to the project,
+not to the service that declared it: every service of the project publishes to it and reads it by its
+name, and declares it only if it wants to say how many partitions it has. Two services that declare one
+topic must agree on its partitions, and a topic may be given more partitions later and never fewer. A
+descriptor that breaks either rule is refused, naming the topic.
+
+A component names a topic as the descriptor declared it, `transactions`. The broker holds it under a name
+that carries the project, `money.transactions`, which is what the broker's own tools list. The platform
+adds the project where a topic is handed to the broker and nowhere else, so a component's code, its
+declared connections and the service's logs all use the declared name.
+
+`ankka services get` shows how far the platform has got:
+
+| Broker | Meaning |
+|---|---|
+| `waiting for broker` | The broker has not yet made the service's credential or a topic it declares, or has not yet grown a topic to the partitions asked for. |
+| `provisioned` | The credential and every declared topic are ready. |
+| `recovered existing topics` | The same, and all of it was there before this service was: a service deployed again under its old name. |
+| `supplied` | The descriptor names a broker of its own. |
+| `broker provisioning failed` | Something waiting will not clear, such as a topic that already has more partitions than declared, or an installation with no broker. The detail says which. |
+
+The topics the service declares are listed beneath, by the names the broker holds them under.
+
+### A topic nobody declared
+
+Publishing to a topic does not make it. A component that publishes to a topic no descriptor of its
+project declares waits: each attempt fails within a few seconds, the service logs
+`could not publish to topic` naming the topic, and the change is tried again with the backoff its
+projection has. Nothing is lost, and the service stays ready. Once a descriptor declares the topic, the
+next attempt is delivered.
+
+A component that reads a topic nobody declared waits in the same way, and reads it once it is made.
+
+### What the platform keeps
+
+The platform never removes a topic, what was published to it, or a service's credential. Deleting the
+service leaves them, and so does deleting its project. A service applied again under its old name finds
+its topic as it left it, and its views and consumers read on from where their groups had read to.
+Removing a topic that is no longer wanted is for whoever runs the installation, with the broker's own
+tools; see [The installation's broker](../platform/broker.md).
+
+### A broker of the service's own
+
+A descriptor may name a broker of its own by setting `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in its `env`. The
+service then uses that broker, connecting with no certificate, and the platform makes nothing for it on
+the installation's: no topic and no credential. Such a descriptor declares no topics. An installation
+with no broker works this way for every service, and a descriptor there that declares a topic is
+reported as failed, since there is nowhere to make it.
+
+A service behind a sidecar reaches the broker through its sidecar. The platform gives
+`ANKKA_KAFKA_BOOTSTRAP_SERVERS` to the sidecar and to the process as well, whichever broker it names, so
+a service can register a component that publishes only where there is a broker to publish to. Without it
+the sidecar refuses to start a service that has such a component, naming it. A service hosted as a
+WebAssembly module reads the same variable through its configuration.
 
 ## Message format
 

@@ -41,6 +41,7 @@ The overlay lists the same components as the local one, and patches or replaces 
 | Base domain and HTTPS port | `127.0.0.1.sslip.io`, port 8443 | your domain, port 443 |
 | Identity provider admin | a development secret, `admin`/`admin` | the secret deleted; you create one out of band |
 | Images | unqualified names loaded into the node | your registry, at a pinned release tag |
+| The broker's size | one node, 2Gi, a 512MB heap | the values you set in `broker-size.yaml` |
 
 Both overlays install the same two authorities the platform issues workload certificates from — one for
 traffic between a service's own instances, one for HTTP between services and from the gateway — as
@@ -154,6 +155,16 @@ the control plane's.
 Pin a release tag rather than `latest`. A cluster should run a version that was built, tested and
 published as one.
 
+### The broker
+
+The installation's broker is the `broker` component: Strimzi and one Kafka, which every project's
+services use (see [The installation's broker](broker.md)). The example overlay patches its node pool
+with `broker-size.yaml`, where the node count, each node's storage, the heap and the memory and CPU are
+marked `SET`; the component's own values suit a laptop. Strimzi's images come from quay.io, so a cluster
+that pulls only through a cache of its own needs that cache to mirror quay.io/strimzi too. An
+installation that keeps a Kafka of its own leaves the component out, and its services name that Kafka in
+their descriptors.
+
 ## Apply it, in order
 
 ```bash
@@ -161,7 +172,9 @@ kubectl config current-context       # confirm it is the cluster you mean
 kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
 kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
-# wait for the three controllers to be ready; install a DNS-01 webhook solver here if yours needs one
+kubectl apply -f kustomization/components/broker/namespace.yaml --server-side
+kubectl apply -k kustomization/components/broker/strimzi --server-side --force-conflicts
+# wait for the four controllers to be ready; install a DNS-01 webhook solver here if yours needs one
 kubectl apply -k kustomization/components/trust-manager --server-side --force-conflicts
 kubectl -n cert-manager rollout status deployment/trust-manager
 kubectl apply -k kustomization/components/keycloak-operator --server-side --force-conflicts

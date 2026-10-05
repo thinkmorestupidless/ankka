@@ -50,6 +50,8 @@ A service is a container image and a short descriptor. `ankka services apply` do
 - **Its own database, provisioned automatically**, in its project's Postgres — created on first deploy,
   its schema applied before the service starts, and never deleted when the service is. There is no
   password to manage: the service logs in with a certificate the platform issues and renews.
+- **Topics on the installation's Kafka**, declared once on a project and made by the platform; each
+  service reaches its project's topics, and no other project's, with the same certificate.
 - **Zero-trust networking by default.** Every connection between instances, services and databases is
   mutual TLS with certificates the platform issues and rotates, and a service knows from the certificate
   which service is calling.

@@ -230,6 +230,12 @@ backoff it has; a subscriber to a missing topic logs the name once per backoff a
 Consumers get `metadata.max.age.ms` of 30 seconds, so a topic declared later is found within that.
 The service's readiness is untouched.
 
+**Found after rebasing onto 024, 2026-10-04**: 024 calls the Kafka producer directly, for ordering, and a
+consumer's publish runs on the projection's dispatcher thread. `send` waits for a missing topic's metadata
+on the calling thread, so each attempt held a dispatcher thread for Kafka's default minute. The publisher
+sets `max.block.ms` to five seconds (`KafkaPublisher.TopicWait`); `KafkaConnectionSuite` fails at the
+default.
+
 ## R13. A service that never touches a topic connects to nothing
 
 **Verified**: `KafkaPublisher.apply` builds its `SendProducer` when the runtime starts, and a
@@ -280,6 +286,10 @@ without it.
 branch was cut. T028, T033 and T037's reading scenarios are blocked until it merges; T003's group
 prefix is written to 024's spec (`ankka.<project>.<service>.`) and is checked against what 024
 ships when it lands.
+
+**Later, 2026-10-04**: 024 merged as pull request #62 and this branch is rebased onto it. Its group ids
+are `ankka.<project>.<service>.<kind>.<component>` (`ConsumerGroups`), inside the prefix the user is
+granted, so the prefix stands as written.
 
 ## R18. Brokers in the k3s suites
 

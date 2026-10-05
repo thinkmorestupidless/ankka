@@ -104,6 +104,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/identity.md` — How people and machines authenticate to the ankka control plane through the installation's Keycloak — logging in with the CLI, adding users, platform administrators, machine accounts and the realm.
 - `references/platform/console.md` — Install the web console at console.<base domain>, give it its realm client and secrets, add it to an installation whose realm predates it, run it locally, or leave it out.
 - `references/platform/databases.md` — How the platform provisions a Postgres database for every service with CloudNativePG, why each service must have its own, how data survives deletion, and how to bring your own database instead.
+- `references/platform/broker.md` — The Kafka an installation provides for every project — what the component installs, how a service is known by its certificate, why a project's topics are its own, what is kept, sizing it, and running without it.
 - `references/platform/secrets.md` — The secret key the platform makes for each deployed service, and project secrets — values a member sets for a project, with no cluster credential, that a descriptor's variable takes by secretKeyRef.
 - `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 

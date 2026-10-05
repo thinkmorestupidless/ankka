@@ -26,6 +26,13 @@ feature also says what that feature does not do.
   single-instance Postgres cluster in the project's namespace. A service that needs a different durability
   profile, or has existing data to migrate, supplies its own database through `ANKKA_DB_*` variables, and its
   isolation is then whatever its owner configured.
+- **One broker per installation, and a project is its boundary.** Every project's topics are on the
+  installation's one Kafka, and a service reaches the topics of its own project only. There is no grant
+  that lets a service of one project read or publish to another project's topic. A local platform's broker
+  is a single node.
+- **The platform removes nothing from the broker.** Deleting a service or a project leaves its topics,
+  what was published to them and its user on the broker. Removing them is a manual task for whoever
+  administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
 - **Deleting a service keeps its database.** Nothing the platform does destroys a database. Removing one is a
   manual task for whoever administers the cluster.
 - **Listings can lag.** Organization, project and service listings are read from projections and may miss a
@@ -161,9 +168,12 @@ feature also says what that feature does not do.
   place: values kept with one key fail to read under another. A service secret belongs to the service that
   kept it, and another service asks for what it needs over HTTP. There are no versions of a value and no
   audit of reads. A project secret reaches a pod as an environment variable only, not as a file.
-- **ankka creates no topics and checks none.** A topic a consumer publishes to must exist or be created by
-  the broker on first use. A [graph consumer](../build/graph.md#the-topic)'s topic must be compacted, and
-  it is the pipeline that reads it, not ankka, that creates it so and reports when it is not.
+- **A topic is made only by declaring it, with partitions and nothing else.** On the installation's broker
+  a topic exists because a descriptor declares it; publishing to one nobody declared waits. A declaration
+  says how many partitions a topic has and nothing more: no retention, compaction or other topic setting.
+  A [graph consumer](../build/graph.md#the-topic)'s topic must be compacted, so it is the pipeline that
+  reads it, not ankka, that creates it so and reports when it is not; on a broker a descriptor names, every
+  topic is the broker owner's to create.
 - **A graph consumer's rules are the author's.** That an element has one writing entity, and that an
   element is its whole state, are not checked. A graph consumer writes tombstones and no delete markers,
   so a tombstoned element's record stays in its topic; and there is no source that hands a consumer an

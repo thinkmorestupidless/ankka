@@ -117,31 +117,17 @@ cookie and every byte of HTML, script and storage the browser holds and find no 
 find the Keycloak session gone; let a session expire and find the next request redirected to sign in
 and then back.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a person with no session, **When** they open any console page, **Then** they are sent to
-   the identity provider's sign-in, and after signing in they arrive at the page they asked for,
-   signed in.
-2. **Given** a signed-in person, **When** the browser's cookies, local storage, session storage and
-   every response body are inspected, **Then** no access token, refresh token or identity token
-   appears in any of them, and the session cookie cannot be read by script, is sent only over HTTPS
-   in a cluster, and is not sent on cross-site requests that change state.
-3. **Given** a signed-in person, **When** they sign out, **Then** the console's session is gone, the
-   identity provider's session for them is ended, and opening the console again asks them to sign in.
-4. **Given** a person whose identity provider session has ended — by timeout, by signing out
-   elsewhere, or by an administrator — **When** they next load a page, **Then** they are sent to sign
-   in rather than shown an error, and after signing in they return to that page.
-5. **Given** a sign-in that comes back to the console with a state the console did not issue, or from
-   an identity provider the console does not trust, **When** the callback arrives, **Then** it is
-   refused and no session is created.
-6. **Given** a return-to address supplied by a link, **When** it names another site, **Then** the
-   console ignores it and lands the person on its own front page.
-7. **Given** the console runs as more than one instance, **When** a person's requests reach different
-   instances, **Then** their session works on every one of them, and restarting an instance signs
-   nobody out.
-8. **Given** the identity provider is unreachable, **When** a signed-in person loads a page whose
-   session needs renewing, **Then** they are told the identity provider cannot be reached and asked to
-   retry, and their session is not discarded.
+- added `features/console/signing-in.feature`: a person who has to sign in is brought back to what they asked for
+- added `features/console/signing-in.feature`: a browser signed in to the console holds no token
+- added `features/console/signing-in.feature`: a sign-in to the console cannot be read in the browser or carried by a request from outside the console
+- added `features/console/signing-in.feature`: signing out of the console signs the person out of the issuer too
+- added `features/console/signing-in.feature`: a return from the issuer the console cannot trust signs nobody in
+- added `features/console/signing-in.feature`: a person is never sent outside the console after signing in
+- added `features/console/signing-in.feature`: a person signed in to the console is signed in on every instance of it
+- added `features/console/signing-in.feature`: replacing an instance of the console signs nobody out and refuses no request
+- added `features/console/signing-in.feature`: a person stays signed in while the issuer cannot be reached
 
 ---
 
@@ -163,27 +149,19 @@ the console and read both back with the CLI; rename and delete both; attempt eac
 message shown. Against a control plane restricted to platform administrators, attempt to create an
 organization as a member and see the sign-up address.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a signed-in member of two organizations, **When** they open the console, **Then** they
-   see both, each with its name, id and their role, and nothing about any other organization.
-2. **Given** a platform administrator, **When** they open the console, **Then** they see every
-   organization in the installation, marked as seen by administration rather than membership.
-3. **Given** a signed-in person, **When** they create an organization with an id and a name, **Then**
-   it exists with them as its first owner, and they are taken to it — not to a listing that may not
-   show it yet.
-4. **Given** an organization the person owns, **When** they rename it, **Then** the new name shows
-   everywhere it appears; **When** a member who is not an owner tries, **Then** the rename is not
-   offered, and if attempted anyway is refused with the control plane's reason.
-5. **Given** an organization with no projects, **When** an owner deletes it, **Then** it is gone from
-   their listing; **When** it has projects, **Then** the deletion is refused with the reason.
-6. **Given** an id that belonged to a deleted organization or project, **When** anyone creates one
-   with that id, **Then** the conflict is shown, naming that the id cannot be reused.
-7. **Given** an organization, **When** a member creates, renames and deletes projects in it, **Then**
-   each takes effect and shows, and a project with services cannot be deleted.
-8. **Given** an installation where only the platform administrator creates organizations, **When** a
-   member tries to create one, **Then** the refusal is shown with the installation's sign-up address
-   if it has one.
+- added `features/console/organizations.feature`: a member is shown the organizations they belong to and no other
+- added `features/console/organizations.feature`: a platform administrator is shown every organization of the installation
+- added `features/console/organizations.feature`: a person who creates an organization is its first owner and is taken to it
+- added `features/console/organizations.feature`: an owner renames an organization
+- added `features/console/organizations.feature`: a member who is not an owner cannot rename an organization
+- added `features/console/organizations.feature`: an owner deletes an organization with no projects
+- added `features/console/organizations.feature`: an organization with projects cannot be deleted
+- added `features/console/organizations.feature`: the id of a deleted organization or project cannot be used again
+- added `features/console/organizations.feature`: a member creates, renames and deletes projects
+- added `features/console/organizations.feature`: a project with services cannot be deleted
+- added `features/console/organizations.feature`: where only a platform administrator creates organizations a member is shown where to sign up
 
 ---
 
@@ -204,32 +182,21 @@ descriptor from the console, watch it reach `Ready`, expose it, open its hostnam
 history, pause and resume it, and delete it — each step checked with the CLI. Apply an invalid
 descriptor and read every problem the control plane names.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a project with services, **When** a member opens it, **Then** each service shows its
-   lifecycle state, ready of desired instances, image, generation and hostname when exposed.
-2. **Given** a service, **When** a member opens it, **Then** they see every field the API's service
-   status carries, in words a person can read, and its history with who did what and when.
-3. **Given** a descriptor, **When** a member applies it to a new or existing name, **Then** the
-   service is created or updated and its generation increments; **When** the descriptor is refused,
-   **Then** every problem the control plane names is shown beside the descriptor.
-4. **Given** a service, **When** a member pauses, resumes, restarts, exposes or unexposes it, **Then**
-   the operation takes effect and the page reflects the new state without a full reload, and the
-   state shown is the control plane's, not the console's guess.
-4a. **Given** a service page open in a browser with scripts running, **When** the control plane's
-   report of the service changes — an apply reaching `Ready`, a restart rolling, an operator report
-   of a failure — **Then** the page shows the change without the person doing anything, within the
-   budget in *Success Criteria*, and the same holds for a project's service listing.
-5. **Given** an exposed service, **When** the member reads its page, **Then** its hostname is a link
-   that opens it.
-6. **Given** a service with instances, **When** a member asks for its logs, **Then** they can choose
-   an instance, the previous container, a number of lines and a window in seconds, as the CLI can;
-   and with scripts running, **Then** new lines the service writes appear on the page as they are
-   read, without the person doing anything, until they pause following or leave the page.
-7. **Given** a service, **When** a member deletes it, **Then** it is gone, and applying a descriptor
-   to the same name later creates it again with its generation continuing.
-8. **Given** a service whose organization is disabled, **When** a member views it, **Then** it reads
-   `Suspended`, and every operation is refused with the reason, not hidden.
+- added `features/console/services.feature`: a member is shown every service of a project with its lifecycle
+- added `features/console/services.feature`: a member is shown everything the control plane reports of a service, and its history
+- added `features/console/services.feature`: applying a descriptor creates or changes the service and moves its generation on
+- added `features/console/services.feature`: every problem with a refused descriptor is shown beside it
+- added `features/console/services.feature`: what a member does to a service is shown as the control plane reports it
+- added `features/console/services.feature`: a member watching a service is shown what the control plane reports of it without asking
+- added `features/console/services.feature`: a member opens an exposed service at its hostname
+- added `features/console/services.feature`: a member chooses which logs of a service to read
+- added `features/console/services.feature`: a member following the logs of a service is shown each new line without asking
+- added `features/console/services.feature`: a member who stops following the logs is shown no new line
+- added `features/console/services.feature`: a deleted service is gone
+- added `features/console/services.feature`: a deleted service applied again continues its generation
+- added `features/console/services.feature`: everything a member does to a service of a disabled organization is refused with the reason
 
 ---
 
@@ -250,25 +217,20 @@ them and see the organization appear; change their role and see the change; crea
 secret once, and use it with the CLI; revoke it and see the CLI refused. As an administrator, disable
 the organization and see its services `Suspended`.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an owner, **When** they open an organization's members, **Then** they see every member's
-   subject, name and email where known, their role, and every pending invitation.
-2. **Given** an owner, **When** they invite an email, **Then** the invitation shows as pending, and a
-   person who signs in with that verified email finds the organization on their front page.
-3. **Given** an owner, **When** they change a member's role or remove them, **Then** it takes effect
-   on that member's next request; **When** they try to remove or demote the last owner, **Then** the
-   refusal is shown.
-4. **Given** a member who is not an owner, **When** they open members, **Then** they see the list and
-   none of the controls, and a machine's membership (`token:<id>`) is shown as one.
-5. **Given** an owner, **When** they create a deploy token, **Then** the secret is shown once with a
-   warning that it will not be shown again, and the listing thereafter shows the token's id, name and
-   creation without the secret.
-6. **Given** an owner, **When** they revoke a token, **Then** the next request made with it is refused.
-7. **Given** a platform administrator, **When** they disable an organization, **Then** it is marked
-   disabled, every service in it reads `Suspended`, and enabling it brings back what was running.
-8. **Given** a platform administrator, **When** they set or clear an organization's quota, **Then** the
-   organization's page shows the quota in force.
+- added `features/console/members.feature`: an owner is shown every member of an organization and every pending invitation
+- added `features/console/members.feature`: an invitation is pending until it is claimed
+- added `features/console/members.feature`: a person who signs in with an invited email is a member of the organization
+- added `features/console/members.feature`: what an owner does to a member takes effect on the member's next request
+- added `features/console/members.feature`: the last owner of an organization cannot be removed or made a member who is not an owner
+- added `features/console/members.feature`: a member who is not an owner is shown the members and offered nothing to do to them
+- added `features/console/members.feature`: a deploy token's membership is shown as a machine's
+- added `features/console/members.feature`: a deploy token is shown once, when it is created
+- added `features/console/members.feature`: a revoked deploy token is refused
+- added `features/console/administration.feature`: a disabled organization's services are suspended
+- added `features/console/administration.feature`: enabling an organization brings back what was running
+- added `features/console/administration.feature`: an organization is shown with the quota in force
 
 ---
 
@@ -292,30 +254,17 @@ answers, through the gateway, with a sign-in page; the end-to-end cluster suite 
 drives a sign-in and a project creation through the gateway; from another namespace, a connection to
 its port is refused at the network; its ServiceAccount can do nothing.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the local overlay applied to a kind cluster, **When** the deploy script finishes,
-   **Then** it prints the console's address, and opening it in a browser that trusts the local
-   authority shows the sign-in.
-2. **Given** a deployed console, **When** it calls the control plane, **Then** the call is over mutual
-   TLS, presenting a certificate the installation's service authority issued for the console's own
-   platform identity, verified against the control plane's name.
-3. **Given** a deployed console, **When** the gateway reaches it, **Then** the connection is TLS with
-   the console's certificate verified, and a connection to the console's port from a pod in any other
-   namespace is refused at the network.
-4. **Given** the console's ServiceAccount, **When** its token is used against the Kubernetes API,
-   **Then** every request is refused; the console reaches the control plane and the identity provider
-   and nothing else.
-5. **Given** a console running as two instances, **When** one is deleted, **Then** every signed-in
-   person keeps their session and the deploy reports no failed request.
-6. **Given** a release, **When** its images are published, **Then** the console's is among them, at
-   the same registry and tag, public, and cached beside the others.
-7. **Given** a checkout, **When** a developer starts the compose services, a control plane and the
-   console with the documented commands, **Then** they sign in as the development user and see the
-   control plane's organizations, over plain HTTP, with no certificate to configure.
-8. **Given** the example cloud overlay, **When** an operator sets its placeholders, **Then** the
-   console's image, hostname and client secret are among them, and the development secret is deleted
-   rather than overridden, as the identity provider's is.
+- added `features/console/installing.feature`: installing the platform on a developer's machine tells the developer the console's address
+- added `features/console/installing.feature`: the console calls the control plane as itself and checks whom it called
+- added `features/console/installing.feature`: the gateway reaches the console over a connection it checks and nobody else can read
+- added `features/console/installing.feature`: no workload but the gateway can connect to the console
+- added `features/console/installing.feature`: the console holds no credential the cluster accepts
+- added `features/console/signing-in.feature`: replacing an instance of the console signs nobody out and refuses no request
+- added `features/console/installing.feature`: a release publishes the console's image and the console for hosts at the release's version
+- added `features/console/installing.feature`: a developer runs the console on their own machine with no certificate
+- added `features/console/installing.feature`: the example installation for a cloud asks for the console's settings and keeps no credential from development
 
 ---
 
@@ -340,28 +289,16 @@ store of its own and an added panel and action, against a scripted control plane
 operation in stories 2–4 works there without a change to the package. A version bump of the package
 in that fixture compiles.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a host application with its own layout, **When** it mounts the package under a prefix,
-   **Then** every page in stories 2–4 renders inside that layout at that prefix, and every link
-   between them stays under it.
-2. **Given** a host with its own sign-in, **When** it hands the package a way to obtain the signed-in
-   person's access token, **Then** the package makes every control plane call as that person and
-   never signs anyone in itself.
-3. **Given** a host that keeps sessions in a store, **When** it supplies its own session store to the
-   package's sign-in machinery, **Then** sign-in, renewal and sign-out work against that store, with
-   the sealed cookie as the default it replaced.
-4. **Given** a host, **When** it registers a panel for an organization's page, an action beside a
-   named operation, and a route of its own beside the package's, **Then** each appears where declared
-   and receives the entity it was declared for.
-5. **Given** a host that hides an operation the package offers, **When** a person views the page,
-   **Then** the operation is not shown, and the control plane's own refusal still stands if it is
-   attempted.
-6. **Given** the control plane's wire format for a response, **When** the package's client decodes
-   it, **Then** the decoded value agrees with what the platform's own serializers wrote, checked
-   against fixtures the platform emits rather than examples written by hand.
-7. **Given** a platform release, **When** its images are published, **Then** the package is published
-   beside the TypeScript SDK at the same version, and its version is the one the host pins.
+- added `features/console/hosts.feature`: a host serves the console under a path of its own, inside its own look
+- added `features/console/hosts.feature`: the console calls the control plane as the person the host signed in
+- added `features/console/hosts.feature`: the console keeps sign-ins the way the host does
+- added `features/console/hosts.feature`: what a host adds is shown where it declared it, with what it declared it for
+- added `features/console/hosts.feature`: what a host hides is not offered
+- added `features/console/hosts.feature`: what a host hides is still refused where the control plane refuses it
+- added `features/console/hosts.feature`: the console reads every answer of the control plane as the control plane wrote it
+- added `features/console/installing.feature`: a release publishes the console's image and the console for hosts at the release's version
 
 ---
 
@@ -381,17 +318,12 @@ works with the script loaded is a form that fails silently on a bad connection.
 cluster and on a browser with scripts disabled; walk stories 2–4 with scripts disabled and find every
 operation works.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a signed-in person, **When** they request any page, **Then** the response is the rendered
-   page, and the browser shows it before any script has run.
-2. **Given** a rendered page with scripts running, **When** the person follows a link within the
-   console, **Then** the document is not reloaded and the next page shows within the budget in
-   *Success Criteria*.
-3. **Given** a browser with scripts disabled, **When** the person performs every operation in stories
-   2–4, **Then** each succeeds and shows its result.
-4. **Given** an operation in flight, **When** the person submits it again, **Then** it is not
-   performed twice.
+- added `features/console/responsiveness.feature`: a person is shown what they asked for before the browser runs anything the console sent
+- added `features/console/responsiveness.feature`: moving within the console does not load it again
+- added `features/console/responsiveness.feature`: a person whose browser runs nothing the console sends can do everything the console offers
+- added `features/console/responsiveness.feature`: a request sent twice while it is still being answered is done once
 
 ---
 
@@ -411,21 +343,13 @@ a page that says "the CLI is the only client" beside an installation with a cons
 the identity page lists the console's client beside the CLI's; the local and cloud installation pages
 name the console's address and placeholders.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the limitations page, **When** a reader looks under observability, **Then** the sentence
-   quoted in *Context* is gone, and what the console does not show is stated.
-2. **Given** the identity page, **When** an operator reads about the realm, **Then** the console's
-   client is listed with what it is, and how to add it to an installation whose realm was imported
-   before this feature.
-3. **Given** the installation pages, **When** an operator plans a cluster, **Then** the console's
-   hostname, secret and image are among what they must set, and they find that removing the
-   console is deleting one component from their overlay.
-4. **Given** the documentation tree, **When** it is built, **Then** every new page is in the
-   navigation and in a skill, and every descriptor block in it is valid.
-5. **Given** the package's reference page, **When** a host's developer reads it, **Then** they find
-   how to mount the pages, what the host must supply, every extension point with what it receives,
-   and the version rule.
+- added `features/console/documentation.feature`: the documentation's limitations describe the console rather than its absence
+- added `features/console/documentation.feature`: the documentation of the installation's issuer describes the console's place in it
+- added `features/console/documentation.feature`: the documentation of installing the platform names what the console needs and how to leave it out
+- added `features/console/documentation.feature`: the documentation of the console can be found from its contents and shows only descriptors the platform accepts
+- added `features/console/documentation.feature`: the documentation tells a host's developer how to build on the console
 
 ---
 

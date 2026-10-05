@@ -1,24 +1,29 @@
 # Implementation Plan: Managed Broker — Topics Provisioned, Secured and Injected the Way Databases Are
 
-**Branch**: `027-managed-broker` | **Date**: 2026-10-04 | **Spec**: [spec.md](spec.md)
+**Branch**: `027-managed-broker` | **Date**: 2026-10-04, revised 2026-10-05 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/027-managed-broker/spec.md`
 
 ## Summary
 
 The platform gains a broker the way it has a database. An installation runs one Kafka, under
-Strimzi, as a kustomization component. A descriptor declares the topics its service publishes to;
-the operator renders each as a `KafkaTopic` named for the project, and renders every service that
-has a runtime a `KafkaUser` whose permissions end at its project's topics. The service is told
+Strimzi, as a kustomization component. A member declares a project's topics on the project, once
+each; the operator renders each as a `KafkaTopic` named for the project, and renders every service
+that has a runtime a `KafkaUser` whose permissions end at its project's topics. A service's status
+names any topic its components use that its project has not declared. The service is told
 where the broker is and proves which service it is with the certificate it already holds. A
 project's topics are closed to every other project by the broker itself, nothing is created on use,
 and nothing the platform made is ever removed. A descriptor that names a broker of its own gets
 none of it, exactly as one that supplies a database.
 
-Technically: `ServiceSpec` gains `topics`, projected onto the resource with a `provisionBroker`
-flag (data model). The operator gets a second pure decision, `BrokerProvisioning.decide`, in the
-shape of `Provisioning.decide` (R8), two typed Strimzi resources and two actions with no removal
-(R6), and three settings that say whether the installation has a broker at all (R7). The runtime's
+Technically: the `Project` entity gains declared topics, with routes and a CLI beside project
+secrets, and the control plane writes them as an `AnkkaProject` resource in the project's
+namespace (R20, R21); a service's resource gains only `provisionBroker` (data model). The operator
+gets a `ProjectReconciler` that renders a project's topics and reports each one's phase (R22), a
+decision for a service's credential in the shape of `Provisioning.decide` (R8), two typed Strimzi
+resources and two actions with no removal (R6), and three settings that say whether the
+installation has a broker at all (R7). The services route reads a service's topology for the
+topics it uses (R23). The runtime's
 Kafka clients gain TLS over the `RotatingTls` the service already has (R10), a topic prefix applied
 only where a topic is handed to Kafka (R11), and a producer made on first use (R13). The broker
 component is Strimzi 1.2.0 with one listener that serves a cert-manager certificate and trusts
@@ -39,6 +44,10 @@ was designed (R1, R3, R4, R5). Planning found four things the spec did not have:
   workload has would restart the broker daily (R3).
 - **The broker costs about 1.1 GiB of memory** across four JVMs (measured), which matters most on a
   laptop's local platform. The component bounds each (R1, R19).
+
+The broker's k3s suite then found a fifth (R20): with topics declared in descriptors, a topic two
+services declare can never grow, since each one's raise is refused for disagreeing with the other.
+Topics moved to the project, which is what they already were in every other respect.
 
 ## Technical Context
 
@@ -120,7 +129,7 @@ specs/027-managed-broker/
 ├── data-model.md        # fields and types, layer by layer; the phase's states
 ├── quickstart.md        # how to run each story's proof
 ├── contracts/
-│   ├── descriptor.md    # topics, every refusal, what a member reads
+│   ├── project-topics.md  # declaring a project's topics, every refusal, what a member reads
 │   ├── operator.md      # settings, what is rendered for whom, the grant, the runtime's variables
 │   └── installation.md  # the broker component and both overlays
 └── tasks.md             # /speckit-tasks
@@ -133,36 +142,44 @@ features/broker/                         # the six living features (written)
 GLOSSARY.md                              # broker, partition, declared topic, broker variable (written)
 
 controlplane-api/src/main/scala/.../api/descriptors.scala
-                                         # TopicDeclaration, ServiceSpec.topics and its rules,
-                                         # suppliesBroker; ServiceStatus.broker and .topics
+                                         # ProjectTopics' rules, ProjectTopic, the request body;
+                                         # suppliesBroker; ServiceStatus.broker and .undeclaredTopics
 controlplane/src/main/scala/.../controlplane/
-├── deploy/ServiceProjection.scala       # topics and provisionBroker onto the resource
-├── deploy/StatusIngest.scala            # the broker's phase and topics from the status
-├── domain/{events,model}.scala          # ServiceObserved and Service gain both; the phrases
-├── application/ServiceRows.scala        # the row carries declared topics
-└── api/ServiceEndpoint.scala            # the two checks that need the project's other services
+├── domain/{events,model}.scala          # ProjectTopicDeclared, ProjectTopicRemoved; Project.topics;
+│                                        # ServiceObserved and Service keep the credential's phrase
+├── application/ProjectEntity.scala      # declare-topic (never fewer), remove-topic
+├── api/ProjectEndpoint.scala            # PUT, DELETE, GET /projects/{id}/topics
+├── api/ServiceEndpoint.scala            # undeclaredTopics from the topology, on get; no topic check
+├── deploy/ProjectProjection.scala       # the declarations as an AnkkaProject, on change and swept
+├── deploy/ServiceProjection.scala       # provisionBroker onto the resource; no topics
+└── deploy/StatusIngest.scala            # the credential's phase from the status
 
-crd/src/main/scala/.../crd/AnkkaService.scala      # TopicEntry, provisionBroker, BrokerStatus
-kustomization/components/crd/ankkaservice.yaml     # the schema for all three
+crd/src/main/scala/.../crd/{AnkkaService,AnkkaProject}.scala   # provisionBroker, BrokerStatus;
+                                         # AnkkaProject with its topics and their status
+kustomization/components/crd/{ankkaservice,ankkaproject}.yaml  # the schemas
+kustomization/components/{operator,controlplane}/              # the grants on ankkaprojects
 
 operator/src/main/scala/.../operator/
 ├── Settings.scala                       # BrokerSettings, all three or none
 ├── BrokerNames.scala                    # user, topic, prefixes: one place
-├── BrokerProvisioning.scala             # BrokerPlan, BrokerObservation, decide
+├── BrokerProvisioning.scala             # a service's credential: BrokerPlan, decide
+├── TopicProvisioning.scala              # a declared topic: TopicPlan, decide, topicsToRender
 ├── strimzi/{KafkaTopicResource,KafkaUserResource,StrimziDefinitions}.scala
 ├── StrimziRendering.scala               # the user with its two rules; a topic
-├── Action.scala, Executor.scala         # EnsureKafkaTopic, EnsureKafkaUser, observeBroker
-├── Rendering.scala                      # brokerActions; the three variables
+├── Action.scala, Executor.scala         # EnsureKafkaTopic, EnsureKafkaUser; observe; project status
+├── Rendering.scala                      # the user; the three variables
 ├── ZeroTrust.scala                      # the common name, with a broker
 ├── LifecycleRules.scala                 # brokerStatus
-└── ServiceReconciler.scala              # observe, decide, report
+├── ServiceReconciler.scala              # a service's credential: observe, decide, report
+└── ProjectReconciler.scala              # a project's topics: observe, render, report
 
 modules/runtime/src/main/scala/.../runtime/
-├── Kafka.scala                          # KafkaConnection; prefix; lazy producer; the log line
+├── Kafka.scala                          # KafkaConnection; prefix; lazy producer; bounded wait
 ├── KafkaTls.scala                       # the engine factory over RotatingTls
 └── ProjectionRuntime.scala              # fromEnv reads the three variables
 
-cli/src/main/scala/.../cli/Output.scala            # broker and topics lines
+cli/src/main/scala/.../cli/{Main,Output}.scala     # projects topics set|unset|list; broker and
+                                                   # undeclared topics lines
 console/package/src/{client/schemas.ts,routes/service.tsx}, fixtures/
 
 kustomization/components/broker/         # namespace, Strimzi (nested), certificate, Kafka,
@@ -174,9 +191,11 @@ docs/build/topics.md, docs/reference/{service-descriptor,configuration,limitatio
 docs/platform/{networking,install-cloud}.md, docs/deploy/upgrading.md   # FR-010
 ```
 
-Tests sit beside what they test: `TopicsDescriptorSuite` (`controlplane-api`);
-`BrokerProvisioningSuite`, `BrokerRenderingSuite`, `StrimziModelsSuite`, `BrokerStack` and
-`PlainKafka` (`operator`); `BrokerDescriptorFeature` and `BrokerClusterFeatures` (`controlplane`);
+Tests sit beside what they test: `ProjectTopicsSuite` (`controlplane-api`);
+`BrokerProvisioningSuite`, `TopicProvisioningSuite`, `BrokerRenderingSuite`,
+`ProjectRenderingSuite`, `StrimziModelsSuite`, `BrokerStack` and `PlainKafka` (`operator`);
+`ProjectTopicsFeature` (the declaring rules through the CLI and the real routes),
+`ProjectProjectionSuite` and `BrokerClusterFeatures` (`controlplane`);
 `KafkaConnectionSuite` and `KafkaTlsSpike` (`testkit`, beside `KafkaSuite`); one case in
 `SidecarClusterSuite`.
 
@@ -185,20 +204,25 @@ each change lands beside its database counterpart, in the module that already ow
 
 ## Order of work
 
-1. **The gate** (R10): the runtime's engine factory against a TLS broker in a container. Everything
-   else assumes it.
-2. **User Story 1** alone: the plain broker helper and the `SidecarClusterSuite` case. It needs no
-   provisioning and can merge by itself.
+Steps 1 to 7 were done with topics in the descriptor; the revision of 2026-10-05 is step 8, and
+undoes what of 3 and 4 the descriptor's topics needed.
+
+1. **The gate** (R10): the runtime's engine factory against a TLS broker in a container.
+2. **User Story 1** alone: the plain broker helper and the `SidecarClusterSuite` case.
 3. **Descriptor to resource**: `ServiceSpec`, the projection, the CRD, the status wire, the CLI and
    console lines. Offline.
-4. **The operator**: settings, names, decision, typed resources, rendering, the common name. Offline,
-   with the pinned renderings untouched for the no-broker case.
+4. **The operator**: settings, names, decision, typed resources, rendering, the common name.
 5. **The runtime**: connection, TLS, prefix, lazy producer, the log line.
-6. **The component and overlays**, then `BrokerStack` and `BrokerClusterFeatures` on k3s: topics,
-   isolation, what is kept, the upgrade roll.
+6. **The component and overlays**, then `BrokerStack` and `BrokerClusterFeatures` on k3s.
 7. **The local platform and the documentation.**
-
-Feature 024 must be on the branch before step 6's reading scenarios can pass (R17).
+8. **Topics on the project** (R20–R23), each part offline before the k3s suite runs again:
+   1. the descriptor's topics out: `ServiceSpec.topics`, `TopicEntry`, the endpoint's check, the
+      service's topic status; the operator renders a service's credential only;
+   2. the project's declarations: rules, events, entity commands, routes, CLI, console;
+   3. `AnkkaProject`: the type, its schema, the grants, the projection and the sweep;
+   4. the operator's `ProjectReconciler`, `TopicProvisioning` and the status it writes;
+   5. `undeclaredTopics` from the topology;
+   6. the suite's steps and the documentation, then `BrokerClusterFeatures` on k3s again.
 
 ## Complexity Tracking
 

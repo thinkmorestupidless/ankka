@@ -1,111 +1,132 @@
 # Data Model: Managed Broker
 
-What gains a field or a type, layer by layer. Nothing is stored in a database by this feature; the
-broker's own state is Strimzi's resources.
+What gains a field or a type, layer by layer. The broker's own state is Strimzi's resources; the
+project's declared topics are events of the `Project` entity.
 
-## Descriptor (`controlplane-api`)
+*Revised 2026-10-05: topics are declared on the project (research R20–R23). A descriptor declares
+none, and `TopicDeclaration`, `ServiceSpec.topics`, `TopicEntry` on `AnkkaServiceSpec` and
+`ServiceStatus.topics` are removed.*
 
-**`TopicDeclaration(name: String, partitions: Int)`**, new.
+## Wire (`controlplane-api`)
 
-**`ServiceSpec.topics: Vector[TopicDeclaration] = Vector.empty`**, new. The shared codec omits a
-field at its default, so an existing descriptor's wire form is unchanged.
-
-Rules (`ServiceSpec.problems`, every problem at once; messages in
-[contracts/descriptor.md](contracts/descriptor.md)):
+**`ProjectTopics`**, new, the rules the CLI and the control plane both apply to a declaration:
 
 - a name is lower-case letters, digits, `-` and `.`, starts and ends with a letter or digit, 1 to
   100 characters;
-- partitions are 1 to 1000;
-- a name is declared once;
-- `topics` is refused for web hosting;
-- `topics` is refused beside any variable starting `ANKKA_KAFKA_`.
+- partitions are 1 to 1000.
 
-**`ServiceSpec.suppliesBroker: Boolean`**, derived: any `env` name starts `ANKKA_KAFKA_`. By name,
-never value, as the database's escape hatch is.
+Fewer partitions than the project declares is the entity's rule (below), since only it knows.
 
-## Status as members read it (`controlplane-api`)
+**`ProjectTopic(name: String, partitions: Int, phase: Option[String], detail: Option[String])`**,
+what `GET /projects/{id}/topics` answers per topic. `phase` is a phrase as a database's is —
+`waiting for broker`, `provisioned`, `recovered`, `failed` — absent before the operator has
+reported.
 
-**`ServiceStatus.broker: Option[String] = None`**: a phrase, as `database` is — `supplied`,
-`waiting for broker`, `provisioned`, `recovered existing topics`, `broker provisioning failed`.
-Absent when the resource reports none.
+**`TopicDeclarationRequest(partitions: Int)`**, the body of `PUT /projects/{id}/topics/{name}`.
 
-**`ServiceStatus.topics: Vector[String] = Vector.empty`**: the qualified names of the topics the
-service declares, as the broker holds them.
+**`ServiceSpec.suppliesBroker: Boolean`**, derived and unchanged: any `env` name starts
+`ANKKA_KAFKA_`.
+
+**`ServiceStatus.broker: Option[String] = None`**: the service's credential, a phrase — `supplied`,
+`waiting for broker`, `provisioned`, `recovered`, `broker provisioning failed`. Absent when the
+resource reports none.
+
+**`ServiceStatus.undeclaredTopics: Option[Vector[String]] = None`**: topics the service's
+components use that its project does not declare, by the names the components gave them. Absent when
+the service's topology could not be read, or on a listing row; `Some(Vector.empty)` when it was read
+and every topic is declared.
 
 ## Control plane (`controlplane`)
 
-**`Service.broker: Option[String]`** and **`Service.topics: Vector[String]`**, folded from
-`ServiceObserved`, which gains `broker: Option[String] = None` and `topics: Vector[String] =
-Vector.empty` with defaults so journals written before this feature replay
-(`EventCompatibilitySuite`). The listing row carries the declared topics with their partitions, for
-the endpoint's check across services.
+**`Project.topics: Map[String, DeclaredTopic]`**, with `DeclaredTopic(partitions: Int, declaredAt:
+Instant)`, folded from two new events, each with `actor` and `at` defaults as every event has:
 
-## Resource (`crd`)
+- `ProjectTopicDeclared(name, partitions, actor, at)`: the declaration made or raised. Declaring the
+  same count again records nothing.
+- `ProjectTopicRemoved(name, actor, at)`.
 
-**`AnkkaServiceSpec`** gains:
+Commands `declare-topic` and `remove-topic` on the `Project` entity; `declare-topic` refuses fewer
+partitions than the project declares, and both refuse a project that does not exist.
 
-| Field | Type | Default | Meaning |
-|---|---|---|---|
-| `topics` | `List[TopicEntry]` | `Nil` | the declared topics |
-| `provisionBroker` | `Boolean` | `true` | false when the descriptor supplies its own broker |
+**`Service.broker: Option[String]`**, folded from `ServiceObserved.broker`, as before; the observed
+topic list is gone from both.
 
-**`TopicEntry(name: String, partitions: Int)`**.
+**`ProjectProjection`**, new beside `ServiceProjection`: the project's declarations as an
+`AnkkaProjectSpec`, written when they change and by the sweep.
 
-**`AnkkaServiceStatus.broker: Option[BrokerStatus] = None`**.
+## Resources (`crd`)
 
-**`BrokerStatus`**: `phase` (`Supplied`, `Waiting`, `Provisioned`, `Recovered`, `Failed`),
-`topics: List[String]`, `recovered: Boolean`, `detail: Option[String]`.
+**`AnkkaProject`**, new, namespaced, short name `aproj`, one per project namespace, named for the
+project:
 
-Each is declared in `kustomization/components/crd/ankkaservice.yaml`; `CrdSchemaSuite` holds the
-schema and the case classes to each other in both directions.
+| Field | Type | Meaning |
+|---|---|---|
+| `spec.projectId` | `String` | the project |
+| `spec.topics` | `List[ProjectTopicEntry]` | the declared topics |
+| `status.topics` | `List[ProjectTopicStatus]` | each topic's phase |
+
+**`ProjectTopicEntry(name: String, partitions: Int, declaredAt: String)`** (RFC 3339).
+
+**`ProjectTopicStatus(name: String, phase: String, partitions: Option[Int], detail: Option[String])`**,
+`phase` one of `Waiting`, `Provisioned`, `Recovered`, `Failed`.
+
+**`AnkkaServiceSpec`**: `provisionBroker: Boolean = true` stays; `topics` is removed.
+
+**`BrokerStatus`** on `AnkkaServiceStatus`: `phase` (`Supplied`, `Waiting`, `Provisioned`,
+`Recovered`, `Failed`), `recovered: Boolean`, `detail: Option[String]`; `topics` is removed.
+
+`kustomization/components/crd/` declares both schemas; `CrdSchemaSuite` holds each to its case
+classes in both directions.
 
 ## Operator (`operator`)
 
-**`Settings.broker: Option[BrokerSettings]`**, with `BrokerSettings(bootstrap, namespace,
-cluster)`, from `ANKKA_BROKER_BOOTSTRAP`, `ANKKA_BROKER_NAMESPACE`, `ANKKA_BROKER_CLUSTER`.
+**`Settings.broker: Option[BrokerSettings]`**, unchanged.
 
-**`BrokerObservation`**: `user: StrimziObjectState`, `topics: Map[String, TopicState]`,
-`resourceCreatedAt: Option[Instant]`.
+**`BrokerObservation`** for a service: `user: StrimziObjectState`, `resourceCreatedAt`. Topics
+leave it.
 
-- `StrimziObjectState(exists, ready, reason: Option[String], message: Option[String], createdAt:
-  Option[Instant])`
-- `TopicState(state: StrimziObjectState, partitions: Option[Int])`
+**`TopicObservation`** for a project: per declared topic, `TopicState(state, partitions)`.
 
-**`BrokerPlan`**: `NotNeeded`, `Supplied`, `Waiting(detail)`, `Ready(recovered)`,
-`Failed(problems)`, with `reportedPhase` as `ProvisioningPlan` has. The rules are research R8.
+**`BrokerPlan`** (a service's credential): `NotNeeded`, `Supplied`, `Waiting(detail)`,
+`Ready(recovered)`, `Failed(problems)`.
 
-**`BrokerNames`**: `user(project, service) = "<project>.<service>"`, `topic(project, name) =
-"<project>.<name>"`, `topicPrefix(project) = "<project>."`, `groupPrefix(project, service) =
-"ankka.<project>.<service>."`. One place, read by the rendering and by the tests that assert it.
+**`TopicPlan`** (one declared topic): `Waiting(detail)`, `Ready(recovered)`, `Failed(problems)`;
+research R22.
 
-**Typed Strimzi resources** (`operator/strimzi/`): `KafkaTopicResource` (spec `partitions`; status
-`conditions`, `topicName`) and `KafkaUserResource` (spec `authentication`, `authorization.acls`;
-status `conditions`, `username`), group `kafka.strimzi.io`, version `v1`.
+**`ProjectTopics.topicsToRender(spec, broker, observed)`**: the declared topics, less any whose
+`KafkaTopic` already asks for more partitions.
 
-**Actions**: `EnsureKafkaTopic(KafkaTopicResource)`, `EnsureKafkaUser(KafkaUserResource)`, both
-server-side apply. There is no action that removes either.
+**`ProjectReconciler`**, new beside `ServiceReconciler`: watches `AnkkaProject`, observes the
+project's `KafkaTopic`s, renders `EnsureKafkaTopic` actions, writes the status.
+
+**`BrokerNames`**, `StrimziObjectState.found`, the typed Strimzi resources and the actions are
+unchanged.
 
 ## Runtime (`runtime`)
 
-**`KafkaConnection(bootstrapServers: String, tlsDirectory: Option[Path], topicPrefix: String)`**,
-read by `ProjectionRuntime.fromEnv` from the three variables of research R9; `topicPrefix` is `""`
-and `tlsDirectory` is `None` for a supplied broker, which is today's behaviour.
+Unchanged by the revision: `KafkaConnection`, `KafkaTls`, the prefix, the bounded wait.
 
 ## States
 
-A service's broker phase:
+A declared topic:
 
 ```text
-(none) ── declares a topic or the installation has a broker ──▶ Waiting ──▶ Provisioned
-                                                                   │              │
-                                                                   ▼              ▼
-                                                                 Failed      (service deleted;
-                                                                              user and topics kept)
-                                                                                  │
-                                              applied again under the same name   ▼
-                                                                              Recovered
-Supplied: the descriptor gave an ANKKA_KAFKA_* variable; no other state is entered.
+declared ──▶ Waiting ──▶ Provisioned ──▶ (declaration removed; topic kept on the broker)
+                │              │                         │
+                ▼              ▼            declared again ▼
+              Failed   (raised: Waiting               Recovered
+                        until grown)
 ```
 
-`Failed` clears itself when what caused it does: a descriptor applied again with partitions the
-topic can have, or a broker installed.
+`Failed` clears itself when what caused it does: a broker installed, or the topic's resource
+corrected by whoever administers the installation.
+
+A service's credential:
+
+```text
+(none) ── the installation has a broker ──▶ Waiting ──▶ Provisioned
+                                                │             │ (service deleted; user kept)
+                                                ▼             ▼ applied again
+                                              Failed       Recovered
+Supplied: the descriptor gave an ANKKA_KAFKA_* variable; no other state is entered.
+```

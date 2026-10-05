@@ -2,6 +2,9 @@
 
 Held by the operator's rendering suites (offline) and by the broker's k3s suite.
 
+*Revised 2026-10-05: a service no longer declares topics; a project does, through its `AnkkaProject`
+resource (research R20–R22).*
+
 ## The operator's settings
 
 | Variable | Meaning |
@@ -34,14 +37,6 @@ spec:
         operations: [Read, Write, Describe]
       - resource: { type: group, name: "ankka.money.wallet.", patternType: prefix }
         operations: [Read]
----
-apiVersion: kafka.strimzi.io/v1
-kind: KafkaTopic                          # one per declared topic
-metadata:
-  name: money.transactions                # <project>.<name>
-  labels: { strimzi.io/cluster: ankka }
-spec:
-  partitions: 12                          # never fewer than the topic has
 ```
 
 **In the project's namespace**:
@@ -57,26 +52,68 @@ spec:
 
 No volume, mount, Secret or `Certificate` is added.
 
+## Per project, when the installation has a broker
+
+The control plane writes one `AnkkaProject` into the project's namespace:
+
+```yaml
+apiVersion: ankka.thinkmorestupidless.com/v1
+kind: AnkkaProject
+metadata:
+  name: money
+  namespace: ankka-money
+spec:
+  projectId: money
+  topics:
+    - { name: transactions, partitions: 12, declaredAt: "2026-10-05T10:00:00Z" }
+```
+
+For each declared topic the operator renders, in the broker's namespace, with no owner reference,
+labelled managed-by ankka, never removed:
+
+```yaml
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: money.transactions                # <project>.<name>
+  labels: { strimzi.io/cluster: ankka }
+spec:
+  partitions: 12                          # never fewer than the topic has
+```
+
+and writes each topic's phase onto the resource:
+
+```yaml
+status:
+  topics:
+    - { name: transactions, phase: Provisioned, partitions: 12 }
+```
+
+A topic no longer in the spec is no longer rendered or reported; its `KafkaTopic` stays. With no
+broker in the installation, every declared topic is reported `Failed`, "the installation has no
+broker", and nothing is rendered.
+
 ## What is rendered for whom
 
-| Service | User | Topics | Variables | Common name | Status `broker` |
-|---|---|---|---|---|---|
-| web-hosted | no | — (refused) | no | no | absent |
-| names its own broker | no | — (refused) | its own, to both programs | no | `Supplied` |
-| no broker in the installation, no topic | no | no | no | no | absent |
-| no broker in the installation, a topic | no | no | no | no | `Failed`, "the installation has no broker" |
-| a broker, no topic declared | yes | no | yes | yes | `Waiting`, then `Provisioned` |
-| a broker, topics declared | yes | yes | yes | yes | `Waiting`, then `Provisioned` or `Recovered` |
+| Service | User | Variables | Common name | Status `broker` |
+|---|---|---|---|---|
+| web-hosted | no | no | no | absent |
+| names its own broker | no | its own, to both programs | no | `Supplied` |
+| no broker in the installation | no | no | no | absent |
+| a broker | yes | yes | yes | `Waiting`, then `Provisioned` or `Recovered` |
 
-A service of an installation with no broker, declaring no topic, renders byte for byte what it did
-before this feature; `RenderingGoldenSuite` and `RenderingUnchangedSuite` hold that with no
-fixture rewritten.
+A service of an installation with no broker renders byte for byte what it did before this feature;
+`RenderingGoldenSuite` and `RenderingUnchangedSuite` hold that with no fixture rewritten.
 
 ## The operator's grant
 
 A `Role` and `RoleBinding` in the broker's namespace, part of the broker component: `kafka.strimzi.io`
 `kafkatopics` and `kafkausers`, verbs `get`, `list`, `watch`, `create`, `patch`. No `delete`. The
 k3s suite mints a token for the operator's ServiceAccount and shows the API server refuses a delete.
+
+The operator's ClusterRole gains `ankkaprojects` (`get`, `list`, `watch`) and `ankkaprojects/status`
+(`patch`, `update`), as it has for `ankkaservices`. The control plane's gains `ankkaprojects` (`get`,
+`create`, `patch`) and `ankkaprojects/status` (`get`), as it has for `ankkaservices`.
 
 ## What the runtime does with the variables
 

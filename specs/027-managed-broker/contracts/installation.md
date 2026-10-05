@@ -46,4 +46,10 @@ service that names its own broker is unaffected.
 
 Nothing the platform does removes a topic, a user or what was published. Whoever runs the
 installation removes a topic by deleting its `KafkaTopic` in `ankka-broker`, which Strimzi turns
-into the topic's deletion.
+into the topic's deletion — after a member has removed the project's declaration of it, or the
+operator makes the topic again, empty, on its next pass.
+
+## The resource types
+
+The `crd` component gains `AnkkaProject` beside `AnkkaService`, whatever the installation's broker:
+an installation with no broker still has project resources, whose topics are reported failed.

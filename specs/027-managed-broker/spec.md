@@ -168,7 +168,7 @@ A member declares the topic `transactions` on the project `money` with 12 partit
 creates it as `money.transactions` on the installation's broker. Every service of `money` with
 components has a credential and the broker's address already; the wallet's transaction notifier
 publishes to `transactions`, a second service's view over `transactions` reads it, and neither
-descriptor says anything about a broker or a topic. `ankka projects topics list money` reports the
+descriptor says anything about a broker or a topic. `ankka projects topics list -p money` reports the
 topic provisioned, and a service whose components use a topic `money` has not declared says so in
 `ankka services get`.
 

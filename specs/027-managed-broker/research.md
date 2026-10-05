@@ -117,6 +117,8 @@ are `ankka-view-<component>` and the broker refuses them, so this feature's read
 
 ## R5. A declared topic is one resource, owned by nothing
 
+*Superseded in part by R20–R23 (2026-10-05): topics are declared on the project, not in a descriptor.*
+
 **Decision**: per declared topic, one `KafkaTopic` named `<project>.<name>` in the broker's
 namespace with `spec.partitions` and no `spec.replicas`, so the installation's
 `default.replication.factor` decides replication and the operator never states it.
@@ -150,6 +152,8 @@ missing. None means the installation has no broker, and every service renders as
 feature.
 
 ## R8. The decision is a pure function, in the database's shape
+
+*Superseded in part by R20–R23 (2026-10-05): topics are declared on the project, not in a descriptor.*
 
 **Decision**: `BrokerProvisioning.decide(spec, settings.broker, observed): BrokerPlan`, beside
 `Provisioning.decide`:
@@ -246,6 +250,8 @@ told where the broker is, an eager producer would be one idle connection per ins
 
 ## R14. Three checks, in three places
 
+*Superseded in part by R20–R23 (2026-10-05): topics are declared on the project, not in a descriptor.*
+
 - **In the descriptor** (`ServiceSpec.problems`, so the CLI and control plane agree): a topic's name
   and partitions; a name twice; `topics` with web hosting; `topics` beside any `ANKKA_KAFKA_*`.
 - **In the control plane's endpoint**, since an entity cannot see another: a topic another service
@@ -256,6 +262,8 @@ told where the broker is, an eager producer would be one idle connection per ins
   reports the service `Failed` with the count (R8).
 
 ## R15. The status, end to end
+
+*Superseded in part by R20–R23 (2026-10-05): topics are declared on the project, not in a descriptor.*
 
 **Decision**: the resource's status gains `broker`, absent when there is none to report:
 `phase`, `topics` (the qualified names), `recovered`, `detail`. The control plane keeps the phase
@@ -307,3 +315,83 @@ granted, so the prefix stands as written.
 memory requests and limits for it and for the entity operator's two containers; the cloud overlay
 leaves replicas, storage size and those bounds as placeholders marked `SET`. Storage is a
 persistent claim in both, so a restarted broker keeps its topics; the suites alone use ephemeral.
+
+## R20. A topic is declared on the project, once
+
+**Found, 2026-10-05**: the broker's k3s suite raised a topic's partitions for one of two services
+that declared it, and the control plane refused it: "topic 'transactions' is declared by 'wallet'
+with 12 partitions; a topic has one count". That was R14's rule working as written, and it means a
+topic two services declare can never grow: each service's raise is refused because the other still
+says the old count.
+
+**Decision**: a topic is declared on the project, by a member, with its partitions, and a descriptor
+declares none. The project holds one declaration per name, so there is one count and nothing for two
+services to disagree about. Declaring a topic the project has with the same count changes nothing;
+with more, grows it; with fewer, is refused. A member may remove a declaration: the project stops
+declaring the topic, and the topic and what was published to it stay on the broker (R5's rule).
+
+Every rule is now the `Project` entity's own invariant, so the cross-entity check in the services
+endpoint, which read a listing that lags (R14), goes. Two rules stay in `controlplane-api` so the CLI
+and the control plane agree: a name the broker can hold (R5's shape) and partitions from 1 to 1000.
+
+**Alternatives**:
+
+- *Keep the descriptor, allow a raise*: a service may declare more partitions than the others, never
+  fewer than the topic has. It grows a topic with one change, but the other services' descriptors
+  then say a count the topic no longer has and are refused on their next apply, and the count lives
+  in as many places as there are declarers.
+- *Keep the descriptor, document one declarer*: correct, and a rule nothing enforces; the failure it
+  prevents is found only when a topic must grow.
+
+## R21. The project's topics reach the operator as a resource of their own
+
+**Decision**: the control plane writes one `AnkkaProject` resource into each project's namespace,
+named for the project, whose spec is the project's declared topics, each with its partitions and the
+time it was declared. The operator watches `AnkkaProject` resources as it watches `AnkkaService`
+ones, renders a `KafkaTopic` per declared topic (no owner reference, never removed, never fewer
+partitions than it has), and writes each topic's phase onto the resource's status. The control plane
+reads that status when a member lists the project's topics.
+
+The resource is written whenever the project's declarations change and by the same sweep that
+re-projects services, so a cluster that missed a write catches up. A project with no declarations
+has a resource with no topics, which renders nothing. Deleting a project deletes its namespace and
+the resource with it; the topics stay on the broker.
+
+**Why a resource**: the operator learns nothing except through resources, and the control plane
+holds no grant to make anything in the broker's namespace (R6). The grant this adds to the control
+plane is the one it holds for `AnkkaService`: write the spec, read the status.
+
+**Alternatives**: the project's topics copied onto every `AnkkaService` of the project, so each
+service's reconcile renders them — no new type, but every declaration rewrites every service's
+resource, a project with no service can have no topic, and two reconciles render one topic; the
+control plane writing `KafkaTopic`s itself — a grant in the broker's namespace, which R6 keeps the
+operator's alone.
+
+## R22. A topic's phase, and recovering one
+
+**Decision**: per declared topic, the operator decides as R8 decided for a service's topics:
+`Waiting` while the topic is absent, unreported, reported for an earlier generation, or not ready
+for a transient reason; `Failed` for a permanent reason (`NotSupported`, `InvalidRequest`), for a
+topic that has more partitions than declared, and for every topic when the installation has no
+broker; otherwise `Provisioned`, or `Recovered` when the `KafkaTopic` was made before the
+declaration was, which is a topic declared again after its declaration was removed. No topic can be
+found by a later project of the same id, since a project id is never reused.
+
+A service's broker phase is now its credential's alone: `Supplied`, `Waiting` until its `KafkaUser`
+is ready, then `Provisioned`, or `Recovered` when the user was made before the service's resource.
+
+## R23. A service's status names the topics it uses that its project has not declared
+
+**Decision**: `GET /services/{project}/{name}` reads the service's topology, as the topology route
+does (feature 019's observe port), takes its topic nodes — every topic a component reads or
+publishes to, by the name the component gave it — and reports those the project does not declare as
+`undeclaredTopics`. It is best effort: when no instance answers, the field is absent rather than
+empty, so "none" is never claimed without having looked. Listings do not read topologies.
+
+**Why from the topology**: a component names its topics in code, and the topology already reports
+them for every hosting; a list in the descriptor would be a second copy that can disagree with the
+code. The control plane already reads topologies with its own certificate.
+
+**Cost**: one read of each instance's observe port per `services get`, concurrent and with a
+deadline, which the topology route already pays. The console's service page reads the status every
+two seconds; if that proves too much, the read can be cached for the poll interval.

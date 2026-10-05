@@ -135,7 +135,12 @@ opens with a `changes` job that maps changed paths onto the jobs (`build`, `feat
 `sdk-typescript`, `sdk-rust`, `console`, `template-scala`); an untouched job is skipped, which GitHub counts as a pass for a required check.
 A matrix job is the exception: skipped before it expands, it never reports its expanded names, so
 branch protection requires the `template-scala` summary job (always run; passes when both launcher
-lines passed or were skipped), never the matrix's own `template-scala (sbt …)` names.
+lines passed or were skipped), never the matrix's own `template-scala (sbt …)` names. `build` is a
+matrix too, for speed: the suites are serialized within one sbt, so the Scala tests run on three
+runners — `build (testkit)`, `build (sidecar)` and `build (rest)` — and the required `build` is
+their summary job. `rest` is defined by subtraction (`set testkit / Test / test := {}` and the
+same for `sidecar`), so a new module's suites run there without being listed; a module given a
+runner of its own must be subtracted from `rest` too.
 The map errs towards running and is the whole argument, so a job that starts reading a new part of
 the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/`, `kustomization/`,
 `action/` and the root `docker-compose.yml`, and both SDK jobs build the sidecar image from the Scala

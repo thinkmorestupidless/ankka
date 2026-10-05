@@ -486,8 +486,28 @@ spec:
       .asScala
       .toVector
 
+  /** Every pod in the namespace, whatever service it is, with why each container is not running. */
   private def podSummary(): String =
-    pods.map(p => s"${p.getMetadata.getName}=${p.getStatus.getPhase}/${readyOf(p)}").mkString(", ")
+    k8s
+      .pods()
+      .inNamespace(Namespace)
+      .list()
+      .getItems
+      .asScala
+      .toVector
+      .map { p =>
+        val waiting = Option(p.getStatus.getContainerStatuses).toVector
+          .flatMap(_.asScala)
+          .flatMap(c =>
+            Option(c.getState.getWaiting)
+              .map(w => s"${c.getName}:${w.getReason}")
+              .orElse(
+                Option(c.getState.getTerminated).map(t => s"${c.getName}:exited ${t.getExitCode}")
+              )
+          )
+        s"${p.getMetadata.getName}=${p.getStatus.getPhase}/${readyOf(p)}${waiting.mkString("[", ",", "]")}"
+      }
+      .mkString(", ")
 
   private def readyOf(p: io.fabric8.kubernetes.api.model.Pod): Boolean =
     Option(p.getStatus)

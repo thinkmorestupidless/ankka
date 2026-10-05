@@ -42,12 +42,13 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
   override def munitIgnore: Boolean   = sys.props.get("ankka.cluster.tests").contains("off")
   override val munitTimeout: Duration = 30.minutes
 
-  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
-  private val SampleImage = "sample-shopping-cart:latest"
-  private val Prefix      = "ankka"
-  private val BaseDomain  = "test.local"
-  private val Checkout    = s"$Prefix-checkout"
-  private val Billing     = s"$Prefix-billing"
+  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val SampleImage =
+    s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
+  private val Prefix     = "ankka"
+  private val BaseDomain = "test.local"
+  private val Checkout   = s"$Prefix-checkout"
+  private val Billing    = s"$Prefix-billing"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null

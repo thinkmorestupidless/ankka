@@ -71,8 +71,9 @@ class GrpcClusterSuite extends munit.FunSuite with LogCapturing:
     try new ProcessBuilder("curl", "--version").start().waitFor() == 0
     catch case _: Exception => false
 
-  private val K3sImage      = "rancher/k3s:v1.35.1-k3s1"
-  private val SampleImage   = "sample-shopping-cart:latest"
+  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val SampleImage =
+    s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   private lazy val identity = TestIdentity()
   private lazy val Token =
     identity.token("tester", Some("tester@example.test"), expiresIn = 2.hours)

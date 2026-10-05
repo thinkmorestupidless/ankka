@@ -51,8 +51,9 @@ class MultiNodeClusterSuite extends munit.FunSuite with LogCapturing:
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
-  private val SampleImage = "sample-shopping-cart:latest"
+  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val SampleImage =
+    s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   // A real issuer is not needed to prove anything here: an in-process one mints tokens the
   // verifier accepts, and KeycloakRealmSuite is where real ones are read.
   private lazy val identity = TestIdentity()

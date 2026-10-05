@@ -52,7 +52,7 @@ describe("HandleSocket", () => {
     const chat = spec.endpoints.find((e) => e.id === "Rooms")!.routes.find((r) => r.id === "chat")!
     assert.equal(chat.socket, true)
     assert.equal(chat.method, "GET")
-    assert.equal(spec.protocolVersion, "1.9")
+    assert.equal(spec.protocolVersion, "1.11")
     await assert.rejects(started.discovery.discover({ protocolVersion: "1.8" }), (e: unknown) =>
       e instanceof ConnectError && e.code === Code.FailedPrecondition && e.message.includes("1.9"),
     )

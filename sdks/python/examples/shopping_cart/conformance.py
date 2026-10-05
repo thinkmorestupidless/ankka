@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
+from ankka import Answered, AwaitingApproval, McpServer, ResultGuardrail
 from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
@@ -313,12 +314,85 @@ ANSWER: TaskType[Answer] = TaskType(
 )
 
 
+async def _sensitive_lookup(agent: AutonomousAgent, arguments: LookupArguments) -> str:
+    assert agent.client is not None
+    entity = agent.client.for_event_sourced_entity("conformance", arguments.id)
+    await entity.call("record").invoke("sensitive", reply=str)
+    return f"sensitive count for {arguments.id} is {await entity.call('count').invoke(reply=int)}"
+
+
 class ConformanceAnswerer(AutonomousAgent):
     component_id = "answerer"
     description = "Answers questions"
-    tools = {"lookup": Tool("Looks up how many things were recorded under an id.", _lookup, LookupArguments)}
+    tools = {
+        "lookup": Tool("Looks up how many things were recorded under an id.", _lookup, LookupArguments),
+        # Waits for a person before it runs; what it records is counted as a run.
+        "sensitive_lookup": Tool(
+            "Looks up what was recorded under an id. A person approves every one.", _sensitive_lookup, LookupArguments, approval=True
+        ),
+    }
     guardrails = {"no-secrets": Guardrail(lambda stage, text: f"{stage} rejected by no-secrets" if "sk-" in text else None)}
     accepts = [TaskAcceptance(ANSWER, max_iterations=4)]
+
+
+# ── approver: an agent whose tools wait for a person, with two MCP servers ──
+
+
+@dataclass(frozen=True)
+class RefundArguments:
+    id: str
+
+
+@dataclass(frozen=True)
+class PathArguments:
+    path: str
+
+
+# docs:start approver
+async def _refund(agent: Agent, arguments: RefundArguments) -> str:
+    assert agent.client is not None
+    await agent.client.for_event_sourced_entity("conformance", arguments.id).call("record").invoke("refunded", reply=str)
+    return f"refunded {arguments.id}"
+
+
+async def _ask_scripted(agent: Agent, arguments: PathArguments) -> str:
+    # A tool calls another service as this service: the called service's ACL can admit it by name.
+    return await agent.services("scripted").get_text(arguments.path)
+
+
+def _no_instructions(tool: str, text: str) -> str | None:
+    return "the result tries to instruct whoever reads it" if "ignore what you were told" in text.lower() else None
+
+
+class Approver(Agent):
+    component_id = "approver"
+    tools = {
+        "refund": Tool("Refunds what was recorded under an id. A person approves every refund.", _refund, RefundArguments, approval=True),
+        "ask_scripted": Tool("Asks the scripted service for what is at a path.", _ask_scripted, PathArguments),
+    }
+    # Both found at ANKKA_MCP_<NAME>_URL; every tool of `guarded` waits for a person.
+    mcp_servers = {"tickets": McpServer(), "guarded": McpServer(approval=True)}
+    result_guardrails = {"no-instructions": ResultGuardrail(_no_instructions)}
+
+    @command("ask")
+    def ask(self, question: str) -> AgentEffect[str]:
+        return self.effects.system_message("You approve refunds.").user_message(question).tools("refund", "ask_scripted").then_reply()
+
+
+# docs:end approver
+
+
+def _render_outcome(outcome: Answered[str] | AwaitingApproval) -> str:
+    """As every reference renders it: ``{"answered": text}`` or ``{"awaiting": [{"id", "tool", "arguments"}]}``."""
+    if isinstance(outcome, Answered):
+        return json.dumps({"answered": outcome.value})
+    return json.dumps({"awaiting": [{"id": r.id, "tool": r.tool, "arguments": r.arguments} for r in outcome.requests]})
+
+
+def _decision(body: str) -> dict[str, Any]:
+    """``{"approved": bool, "by": name, "note": text}``, as the suite sends it."""
+    request = json.loads(body)
+    return {"approved": bool(request.get("approved", False)), "by": request.get("by", ""), "note": request.get("note") or None}
 
 
 # ── Endpoints ──
@@ -508,6 +582,19 @@ class ConformanceEndpoint(Endpoint):
     async def ask(self, session: str, question: str) -> str:
         return await self._scoped().for_agent("assistant", session).call("ask").invoke(question, reply=str)
 
+    # docs:start approver-routes
+    @post("/approver/{session}")
+    async def ask_approver(self, session: str, question: str) -> str:
+        """A turn that may wait: the model's answer, or the approval requests it waits on."""
+        return _render_outcome(await self._scoped().for_agent("approver", session).call("ask").ask(question))
+
+    @post("/approver/{session}/decide/{id}")
+    async def decide_approval(self, session: str, id: str, body: str) -> str:
+        """A person's decision, answered as the turn's caller would have been once it goes on."""
+        return _render_outcome(await self._scoped().for_agent("approver", session).call("ask").decide(id, **_decision(body)))
+
+    # docs:end approver-routes
+
     @sse("/stream-ask/{session}")
     async def stream_ask(self, session: str) -> AsyncIterator[str]:
         question = next((v for k, v in self.request.query if k == "q"), "")
@@ -617,6 +704,11 @@ class AutonomousEndpoint(Endpoint):
             raise HttpProblem(404, f"no operation '{op}'")
         return DONE
 
+    @post("/instances/{instance}/decide/{id}")
+    async def decide(self, instance: str, id: str, body: str) -> Done:
+        await self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).decide(id, **_decision(body))
+        return DONE
+
     @sse("/instances/{instance}/notifications")
     async def notifications(self, instance: str) -> AsyncIterator[str]:
         async for n in self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).notifications():
@@ -625,7 +717,8 @@ class AutonomousEndpoint(Endpoint):
     @get("/instances/{instance}/state")
     async def state(self, instance: str) -> str:
         s = await self._scoped().for_autonomous_agent(ConformanceAnswerer, instance).state()
-        return json.dumps({"phase": s.phase, "queued": s.queued, "currentTask": s.current_task})
+        awaiting = [{"id": r.id, "tool": r.tool} for r in s.awaiting]
+        return json.dumps({"phase": s.phase, "queued": s.queued, "currentTask": s.current_task, "awaiting": awaiting})
 
 
 class PrivateEndpoint(Endpoint):
@@ -672,6 +765,7 @@ def reference_service() -> ServiceBuilder:
         .register(Reminder)
         .register(ConformanceAssistant)
         .register(ConformanceAnswerer)
+        .register(Approver)
         .register(ShoppingCartEndpoint)
         .register(ConformanceEndpoint)
         .register(PrivateEndpoint)

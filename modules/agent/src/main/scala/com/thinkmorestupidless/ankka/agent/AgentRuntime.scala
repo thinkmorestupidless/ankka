@@ -698,8 +698,21 @@ private[agent] object AgentHost:
           )
         case Some((effect, encode)) => reply(loop.resume(effect, turn), encode)
 
+    // A decision is the work of the handler whose turn it decides: a tool it runs is that
+    // handler's call, as it would have been had the turn not waited. The name is taken from the
+    // request only when the agent declares it, so nothing a caller sends grows the names table.
+    val handlerName =
+      scala.util
+        .Try(readFromArray[Approvals.DecideRequest](invoke.payload).handler)
+        .toOption
+        .filter(h =>
+          h.nonEmpty && (descriptor.handler(MethodName(h)).isDefined ||
+            descriptor.streamHandler(MethodName(h)).isDefined)
+        )
+        .getOrElse(invoke.method)
+
     val execution = Future {
-      observability.invocation[EntityProtocol.Reply](component, invoke.method, incoming)(
+      observability.invocation[EntityProtocol.Reply](component, handlerName, incoming)(
         Observability.outcomeOf
       ) {
         try run()

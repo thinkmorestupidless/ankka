@@ -621,8 +621,9 @@ skills' `pages:` lists.
   loop counts it as a failed iteration whose calls are settled again. Shown failing once with the
   check removed. Not built: a whole-service case for a request agent's judged result guardrail
   that cannot decide — the path is the one every guardrail fault already takes there.
-- **R18 as built (T059–T063)**: `main` reached 1.7 with feature 024 while this was being built, so
-  the branch merged `main` and this feature is **protocol 1.11**. Discovery carries a tool's
+- **R18 as built (T059–T063)**: `main` reached 1.7 with feature 024 while this was being built, then
+  1.8, 1.9 and 1.10 with features 025, 028 and 030 before it merged, so this feature is **protocol
+  1.11**. Discovery carries a tool's
   `approval`, an agent's `mcp_servers` and `result_guardrails`; `GuardrailRequest` has the `RESULT`
   stage and an optional `tool`; `InvokeReply` and `StreamToken` have an `approval` case; `Client`
   has `Decide`. `GuardrailStage.Result(tool)` carries the tool so `checkGuardrail`'s signature is
@@ -634,3 +635,24 @@ skills' `pages:` lists.
   endpoint cannot yet forward an approval request as a named SSE event. No 1.11 scenario needs it
   (the stream scenario is the Scala agent's, held by `HttpSseSuite`); it goes on the limitations
   page.
+- **Conformance as built (T065, T068, T071–T074)**: each reference has the agent `approver` (`refund`
+  with approval, `ask_scripted` calling the service `scripted`, the servers `tickets` and `guarded` by
+  name, the result guardrail `no-instructions`), a tool with approval on `answerer`, and the routes
+  `/conformance/approver/{session}`, `…/decide/{id}` and `/autonomous/instances/{instance}/decide/{id}`;
+  an outcome renders as `{"answered": text}` or `{"awaiting": [{"id", "tool", "arguments"}]}` in
+  every language. The suite starts two `TestMcpServer`s before the target and gives the agent
+  runtime their addresses through `withVariables`, for every target. A module declares no `approver`
+  and skips the cases; `discovery.lists-every-component` expects the shorter set from a module. Run
+  in process, against the Python and TypeScript processes and the Rust module in both shapes.
+- **A decision is the work of the handler whose turn it decides**, found by the conformance suite's
+  `topology.call-attributed` once an approved tool recorded a call: the decide path recorded its
+  span under `ankka:decide`, which is not a declared name, so what an approved tool called was
+  counted from nobody. The decide path now records under the handler the request names — taken only
+  when the agent declares it, so a caller cannot grow the names table — and falls back to the
+  reserved name otherwise.
+- **The SDKs' shapes as built**: Python as `sdk-apis.md` says, with `ask`, `decide` and
+  `stream_parts` on an agent's `Invocation` (`client.for_agent(id, session).call("ask")`), since that
+  is how the SDK names a handler. TypeScript names a server and a result guardrail as it names a
+  tool, wire name first (`mcpServer("tickets", {…})`, `resultGuardrail("no-instructions", …)`), and
+  its unit kit keeps `ask` answering text — rejecting with `ApprovalAwaited` when the turn waits — with
+  `outcome` for the outcome and `decide` to go on, so tests written before this feature are unchanged.

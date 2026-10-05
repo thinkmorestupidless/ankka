@@ -2,6 +2,7 @@
 
 __version__ = "0.0.0"
 
+from ankka.approvals import Answered, Approval, ApprovalAwaited, ApprovalRequest, AwaitingApproval  # noqa: E402
 from ankka.codec import Codec, Done, DONE, json_codec  # noqa: E402
 from ankka.context import (  # noqa: E402
     Caller,
@@ -35,8 +36,10 @@ from ankka.service import Ankka, ServiceBuilder  # noqa: E402
 from ankka.start_from import StartFrom  # noqa: E402
 from ankka import graph  # noqa: E402
 from ankka.graph import GraphConsumer  # noqa: E402
+from ankka.mcp import McpServer, ResultGuardrail  # noqa: E402
 
 __all__ = [
+    "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail",
     "Acl", "Ankka", "Caller", "CallerMatcher", "Callers", "Codec", "CommandContext", "Gateway", "LocalCaller",
     "ServiceCaller", "DeleteNow", "Done", "DONE", "Endpoint", "Error",
     "ErrorCode", "EventSourcedEffect", "EventSourcedEntity", "ExpireAfter", "GraphConsumer", "HttpProblem", "Metadata",

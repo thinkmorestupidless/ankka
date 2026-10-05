@@ -45,6 +45,9 @@ import {
   stream,
   tool,
   View,
+  mcpServer,
+  resultGuardrail,
+  type AgentOutcome,
   type Infer,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
@@ -275,6 +278,58 @@ export class ConformanceAssistant extends Agent {
   }
 }
 
+// ── approver: an agent whose tools wait for a person, with two MCP servers ──
+
+const RefundArguments = s.record("RefundArguments", { id: s.string })
+const PathArguments = s.record("PathArguments", { path: s.string })
+
+// docs:start approver
+export class Approver extends Agent {
+  static readonly componentId = "approver"
+  static readonly tools = {
+    refund: tool(
+      "refund",
+      "Refunds what was recorded under an id. A person approves every refund.",
+      RefundArguments,
+      async (a: Approver, input) => {
+        await a.client.of(Conformance, input.id).call(Conformance.handlers.record).invoke("refunded")
+        return `refunded ${input.id}`
+      },
+      { approval: true },
+    ),
+    // A tool calls another service as this service: the called service's ACL can admit it by name.
+    askScripted: tool("ask_scripted", "Asks the scripted service for what is at a path.", PathArguments, (a: Approver, input) =>
+      a.services.service("scripted").getText(input.path),
+    ),
+  }
+  // Both found at ANKKA_MCP_<NAME>_URL; every tool of `guarded` waits for a person.
+  static readonly mcpServers = { tickets: mcpServer("tickets"), guarded: mcpServer("guarded", { approval: true }) }
+  static readonly resultGuardrails = {
+    noInstructions: resultGuardrail("no-instructions", (_tool, text) =>
+      /ignore what you were told/i.test(text) ? "the result tries to instruct whoever reads it" : null,
+    ),
+  }
+  static readonly handlers = {
+    ask: command("ask", s.string, s.string, (a: Approver, question) =>
+      a.effects.systemMessage("You approve refunds.").userMessage(question).tools("refund", "ask_scripted").thenReply(),
+    ),
+  }
+}
+// docs:end approver
+
+/** As every reference renders it: `{"answered": text}` or `{"awaiting": [{"id", "tool", "arguments"}]}`. */
+function renderOutcome(outcome: AgentOutcome<string>): string {
+  return outcome.kind === "answered"
+    ? JSON.stringify({ answered: outcome.value })
+    : JSON.stringify({ awaiting: outcome.requests.map((r) => ({ id: r.id, tool: r.tool, arguments: r.arguments })) })
+}
+
+/** `{"approved": bool, "by": name, "note": text}`, as the suite sends it. */
+function decisionOf(body: string): { approved: boolean; by: string; note?: string } {
+  const d = JSON.parse(body) as { approved?: boolean; by?: string; note?: string }
+  return { approved: d.approved === true, by: d.by ?? "", ...(d.note ? { note: d.note } : {}) }
+}
+
 // ── Endpoints ──
 
 const Echo = s.record("Echo", { a: s.list(s.string), b: s.option(s.string), headers: s.stringMap(s.string) })
@@ -400,6 +455,16 @@ export class ConformanceEndpoint extends Endpoint {
       return done
     }),
     ask: post("/ask/{session}", s.string, s.string, (ep: ConformanceEndpoint, req, question) => ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.ask).invoke(question)),
+    // docs:start approver-routes
+    // A turn that may wait: the model's answer, or the approval requests it waits on.
+    askApprover: post("/approver/{session}", s.string, s.string, async (ep: ConformanceEndpoint, req, question) =>
+      renderOutcome(await ep.client.of(Approver, req.params.session).call(Approver.handlers.ask).ask(question)),
+    ),
+    // A person's decision, answered as the turn's caller would have been once it goes on.
+    decideApproval: post("/approver/{session}/decide/{id}", s.string, s.string, async (ep: ConformanceEndpoint, req, body) =>
+      renderOutcome(await ep.client.of(Approver, req.params.session).call(Approver.handlers.ask).decide(req.params.id, decisionOf(body))),
+    ),
+    // docs:end approver-routes
     streamAsk: sse("/stream-ask/{session}", (ep: ConformanceEndpoint, req) =>
       ep.client.of(ConformanceAssistant, req.params.session).call(ConformanceAssistant.handlers.stream).stream(req.query.get("q") ?? ""),
     ),
@@ -484,6 +549,18 @@ export class ConformanceAnswerer extends AutonomousAgent {
       await entity.call(Conformance.handlers.record).invoke("looked-up")
       return `count for ${input.id} is ${await entity.call(Conformance.handlers.count).invoke()}`
     }),
+    // Waits for a person before it runs; what it records is counted as a run.
+    sensitiveLookup: tool(
+      "sensitive_lookup",
+      "Looks up what was recorded under an id. A person approves every one.",
+      LookupArguments,
+      async (a: ConformanceAnswerer, input) => {
+        const entity = a.client.of(Conformance, input.id)
+        await entity.call(Conformance.handlers.record).invoke("sensitive")
+        return `sensitive count for ${input.id} is ${await entity.call(Conformance.handlers.count).invoke()}`
+      },
+      { approval: true },
+    ),
   }
   static readonly guardrails = { noSecrets: guardrail("no-secrets", (stage, text) => (text.includes("sk-") ? `${stage} rejected by no-secrets` : null)) }
   static readonly accepts = [taskAcceptance(ANSWER, { maxIterations: 4 })]
@@ -523,12 +600,16 @@ export class AutonomousEndpoint extends Endpoint {
       else throw new HttpProblem(404, `no operation '${req.params.op}'`)
       return done
     }),
+    decide: post("/instances/{instance}/decide/{id}", s.string, Done, async (ep: AutonomousEndpoint, req, body) => {
+      await ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance).decide(req.params.id, decisionOf(body))
+      return done
+    }),
     notifications: sse("/instances/{instance}/notifications", async function* (ep: AutonomousEndpoint, req) {
       for await (const n of ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance).notifications()) yield JSON.stringify(n)
     }),
     state: get("/instances/{instance}/state", s.string, async (ep: AutonomousEndpoint, req) => {
       const st = await ep.client.forAutonomousAgent(ConformanceAnswerer, req.params.instance).state()
-      return JSON.stringify({ phase: st.phase, queued: st.queued, currentTask: st.currentTask })
+      return JSON.stringify({ phase: st.phase, queued: st.queued, currentTask: st.currentTask, awaiting: st.awaiting.map((r) => ({ id: r.id, tool: r.tool })) })
     }),
   }
 }
@@ -550,6 +631,7 @@ export function referenceService() {
     .register(Reminder)
     .register(ConformanceAssistant)
     .register(ConformanceAnswerer)
+    .register(Approver)
     .register(ShoppingCartEndpoint)
     .register(ConformanceEndpoint)
     .register(PrivateEndpoint)

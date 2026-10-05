@@ -10,18 +10,22 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 import typing
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
 from ankka.agent import Agent
+from ankka.approvals import ApprovalRequest, approval_of
 from ankka.autonomous import AutonomousAgent, Malformed, TaskType
 from ankka.client import ComponentClient
 from ankka.context import Caller, CommandContext, LocalCaller, Metadata, Principal, RequestContext
 from ankka.effects.agent import AgentEffect
-from ankka.effects.common import Error, Fail, NoReply, Reply, Retention
+from ankka.effects.common import Error, ErrorCode, Fail, NoReply, Reply, Retention
 from ankka.endpoint import Endpoint, HttpProblem, RouteSpec, Socket, SocketClosed
 from ankka.event_sourced_entity import EventSourcedEntity, HandlerSpec
+from ankka.mcp import TOOL_PREFIX
 
 S = TypeVar("S")
 E = TypeVar("E")
@@ -568,13 +572,15 @@ class ToolCall:
 @dataclass(frozen=True)
 class AgentReply:
     """One interaction as the sidecar's loop would run it: the plan the handler produced, the
-    tool calls the scripted model asked for (run in-process), and the reply or the refusal."""
+    tool calls the scripted model asked for (run in-process), and the reply or the refusal — or,
+    when the model called a tool that requires approval, the requests the turn ``awaiting``."""
 
     plan: AgentEffect[Any]
     tool_calls: list[ToolCall]
     tool_results: list[str]
     reply: Any
     error: Error | None
+    awaiting: list[ApprovalRequest] = field(default_factory=list)
 
 
 class ScriptedModel:
@@ -603,70 +609,169 @@ class ScriptedModel:
         return self._script.pop(0)
 
 
+McpTools = Mapping[str, Mapping[str, Callable[[dict[str, Any]], str]]]
+
+
+@dataclass
+class _Turn:
+    """A turn in progress: what the loop has done so far, and the request it waits on, if any."""
+
+    spec: HandlerSpec
+    plan: AgentEffect[Any]
+    agent: Agent
+    user: str
+    calls: list[ToolCall]
+    results: list[str]
+    steps: int = 0
+    pending: tuple[ApprovalRequest, ToolCall] | None = None
+
+
 class AgentTestKit:
     """Runs an agent's handler and then the loop the sidecar would run, against a scripted
-    model: tools are invoked in-process with the scripted arguments, guardrails are checked."""
+    model: tools are invoked in-process with the scripted arguments, guardrails are checked.
 
-    def __init__(self, agent_cls: type[Agent], session_id: str, model: ScriptedModel | None = None) -> None:
+    ``mcp`` scripts the agent's MCP servers, ``{server: {tool: fn(arguments) -> text}}``: the
+    model calls them as ``mcp__<server>__<tool>`` and the agent's result guardrails check what they
+    answer. A call to a tool that requires approval — the agent's own, or any of a server listed
+    with ``approval`` — is not run: the reply is ``awaiting`` its request, and ``decide`` goes on."""
+
+    def __init__(
+        self, agent_cls: type[Agent], session_id: str, model: ScriptedModel | None = None, mcp: McpTools | None = None
+    ) -> None:
         self.agent_cls = agent_cls
         self.session_id = session_id
         self.model = model or ScriptedModel()
+        self.mcp: McpTools = mcp or {}
         self.history: list[tuple[str, str]] = []
+        self._turn: _Turn | None = None
+        self._decided: set[str] = set()
+        self._next_id = 0
 
     @classmethod
-    def of(cls, agent_cls: type[Agent], session_id: str = "test", model: ScriptedModel | None = None) -> AgentTestKit:
-        return cls(agent_cls, session_id, model)
+    def of(
+        cls, agent_cls: type[Agent], session_id: str = "test", model: ScriptedModel | None = None, mcp: McpTools | None = None
+    ) -> AgentTestKit:
+        return cls(agent_cls, session_id, model, mcp)
 
     def call(self, name: str, input: Any = None) -> AgentReply:
         spec = self.agent_cls.handlers().get(name)
         if spec is None:
             raise AssertionError(f"{self.agent_cls.__name__} has no handler {name!r}")
+        if self._turn is not None and self._turn.pending is not None:
+            return AgentReply(
+                self._turn.plan, [], [], None,
+                Error(f"session '{self.session_id}' has a turn awaiting a decision", ErrorCode.CONFLICT),
+            )
         input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
         agent = self.agent_cls(_NoClient())
         plan: AgentEffect[Any] = _run(agent._plan(spec, input_bytes, self.session_id, Metadata()))
         self.model.requests.append(plan)
         if plan.failure is not None:
             return AgentReply(plan, [], [], None, plan.failure)
-        from ankka.effects.common import Error as _Error, ErrorCode as _Code
-
         user = plan.user or ""
         for g in plan.guardrail_names:
             reason = _run(agent._check_guardrail(g, "input", user, self.session_id))
             if reason is not None:
-                return AgentReply(plan, [], [], None, _Error(f"guardrail '{g}': {reason}", _Code.FORBIDDEN))
-        calls: list[ToolCall] = []
-        results: list[str] = []
-        steps = 0
+                return AgentReply(plan, [], [], None, Error(f"guardrail '{g}': {reason}", ErrorCode.FORBIDDEN))
+        self._turn = _Turn(spec, plan, agent, user, [], [])
+        return self._go_on(self._turn)
+
+    def decide(self, approval_id: str, approved: bool, by: str, note: str | None = None) -> AgentReply:
+        """Decides the request the last reply awaited, and goes on with the turn as the sidecar
+        would: approved, the tool runs and the model is told its result; refused, the model is told
+        who refused it and why."""
+        turn = self._turn
+        plan = turn.plan if turn is not None else AgentEffect()
+        if not by.strip():
+            return AgentReply(plan, [], [], None, Error("a decision must name who made it", ErrorCode.BAD_REQUEST))
+        if approval_id in self._decided:
+            return AgentReply(plan, [], [], None, Error(f"approval request '{approval_id}' is decided", ErrorCode.CONFLICT))
+        if turn is None or turn.pending is None or turn.pending[0].id != approval_id:
+            return AgentReply(
+                plan, [], [], None,
+                Error(f"no approval request '{approval_id}' in session '{self.session_id}'", ErrorCode.NOT_FOUND),
+            )
+        _, call = turn.pending
+        turn.pending = None
+        self._decided.add(approval_id)
+        if approved:
+            turn.results.append(self._run_tool(turn, call))
+        else:
+            refusal = f"A person ({by}) refused this tool call; the tool did not run."
+            turn.results.append(refusal + (f" Their note: {note}" if note else ""))
+        return self._go_on(turn)
+
+    def _requires_approval(self, name: str) -> bool:
+        if name.startswith(TOOL_PREFIX):
+            server = name[len(TOOL_PREFIX):].split("__", 1)[0]
+            declared = self.agent_cls.mcp_servers.get(server)
+            return declared is not None and approval_of(declared.approval) is not None
+        tool = self.agent_cls.tools.get(name)
+        return tool is not None and approval_of(tool.approval) is not None
+
+    def _offered(self, turn: _Turn, name: str) -> bool:
+        if name.startswith(TOOL_PREFIX):
+            server, _, tool = name[len(TOOL_PREFIX):].partition("__")
+            return server in self.agent_cls.mcp_servers and tool in self.mcp.get(server, {})
+        return name in turn.plan.tool_names
+
+    def _run_tool(self, turn: _Turn, call: ToolCall) -> str:
+        import json as _json
+
+        if call.name.startswith(TOOL_PREFIX):
+            server, _, tool = call.name[len(TOOL_PREFIX):].partition("__")
+            try:
+                text = self.mcp[server][tool](call.arguments)
+            except Exception as e:
+                return f"error: {e}"
+            for g in sorted(self.agent_cls.result_guardrails):
+                reason = _run(turn.agent._check_tool_result(g, call.name, text, self.session_id))
+                if reason is not None:
+                    return f"A result guardrail refused what this tool answered, so it is not shown: guardrail '{g}': {reason}"
+            return text
+        try:
+            return typing.cast(str, _run(turn.agent._invoke_tool(call.name, _json.dumps(call.arguments), self.session_id)))
+        except Exception as e:
+            return f"error: {e}"
+
+    def _go_on(self, turn: _Turn) -> AgentReply:
         while True:
             kind, value = self.model._next()
             if kind == "refusal":
-                return AgentReply(plan, calls, results, None, _Error(value, _Code.FORBIDDEN))
+                self._turn = None
+                return AgentReply(turn.plan, turn.calls, turn.results, None, Error(value, ErrorCode.FORBIDDEN))
             if kind == "tool":
-                steps += 1
-                if steps > self.agent_cls.max_tool_call_steps:
-                    return AgentReply(plan, calls, results, None, _Error(f"exceeded {self.agent_cls.max_tool_call_steps} tool-call steps", _Code.INTERNAL))
+                turn.steps += 1
+                if turn.steps > self.agent_cls.max_tool_call_steps:
+                    self._turn = None
+                    return AgentReply(
+                        turn.plan, turn.calls, turn.results, None,
+                        Error(f"exceeded {self.agent_cls.max_tool_call_steps} tool-call steps", ErrorCode.INTERNAL),
+                    )
                 call = typing.cast(ToolCall, value)
-                if call.name not in plan.tool_names:
-                    results.append(f"no tool named '{call.name}' is available")
-                    calls.append(call)
+                turn.calls.append(call)
+                if not self._offered(turn, call.name):
+                    turn.results.append(f"no tool named '{call.name}' is available")
                     continue
-                import json as _json
-
-                calls.append(call)
-                try:
-                    results.append(_run(agent._invoke_tool(call.name, _json.dumps(call.arguments), self.session_id)))
-                except Exception as e:
-                    results.append(f"error: {e}")
+                if self._requires_approval(call.name):
+                    self._next_id += 1
+                    request = ApprovalRequest(
+                        id=f"approval-{self._next_id}", tool=call.name, arguments=call.arguments, requested_at=int(time.time() * 1000)
+                    )
+                    turn.pending = (request, call)
+                    return AgentReply(turn.plan, turn.calls, turn.results, None, None, [request])
+                turn.results.append(self._run_tool(turn, call))
                 continue
             text = typing.cast(str, value)
-            for g in plan.guardrail_names:
-                reason = _run(agent._check_guardrail(g, "output", text, self.session_id))
+            self._turn = None
+            for g in turn.plan.guardrail_names:
+                reason = _run(turn.agent._check_guardrail(g, "output", text, self.session_id))
                 if reason is not None:
-                    return AgentReply(plan, calls, results, None, _Error(f"guardrail '{g}': {reason}", _Code.FORBIDDEN))
-            if plan.session_memory:
-                self.history.append((user, text))
-            reply: Any = spec.reply_codec.decode(text.encode("utf-8")) if plan.json_reply else text
-            return AgentReply(plan, calls, results, reply, None)
+                    return AgentReply(turn.plan, turn.calls, turn.results, None, Error(f"guardrail '{g}': {reason}", ErrorCode.FORBIDDEN))
+            if turn.plan.session_memory:
+                self.history.append((turn.user, text))
+            reply: Any = turn.spec.reply_codec.decode(text.encode("utf-8")) if turn.plan.json_reply else text
+            return AgentReply(turn.plan, turn.calls, turn.results, reply, None)
 
 
 class TimedActionTestKit:

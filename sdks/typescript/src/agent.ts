@@ -11,6 +11,7 @@ import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { GuardrailRef, HandlerTable, ToolRef } from "./handlers.ts"
 import { AgentEffects } from "./effects/agent.ts"
 import { servicesFor, type Services } from "./services.ts"
+import type { McpServerRef, ResultGuardrailRef } from "./mcp.ts"
 
 export abstract class Agent {
   readonly effects: AgentEffects = new AgentEffects()
@@ -79,5 +80,9 @@ export interface AgentClass<C extends Agent = Agent> {
   readonly maxToolCallSteps?: number
   readonly tools?: Readonly<Record<string, ToolRef<C, any>>>
   readonly guardrails?: Readonly<Record<string, GuardrailRef>>
+  /** MCP servers whose tools are offered beside the agent's own, as `mcp__<server>__<tool>`. */
+  readonly mcpServers?: Readonly<Record<string, McpServerRef>>
+  /** Checks on what an MCP server's tool answered, before the model is told it. */
+  readonly resultGuardrails?: Readonly<Record<string, ResultGuardrailRef>>
   readonly handlers: HandlerTable<C>
 }

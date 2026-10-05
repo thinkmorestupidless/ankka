@@ -22,11 +22,17 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Generic, TypeVar
 
+import grpc
+import grpc.aio
+
 from ankka._proto.ankka.protocol.v1 import client_pb2, discovery_pb2, payload_pb2
 from ankka.agent import Guardrail, Tool, _schema_for
+from ankka.approvals import ApprovalRequest
 from ankka.codec import default_codec_for
 from ankka.effects.common import Error, ErrorCode
 from ankka.event_sourced_entity import RegistrationError
+from ankka.mcp import McpServer, ResultGuardrail
+from ankka.mcp import problems as mcp_problems
 from ankka.secrets import HasSecrets
 from ankka.services import HasServices
 
@@ -148,6 +154,8 @@ class AutonomousAgent(HasSecrets, HasServices):
     guardrails: ClassVar[dict[str, Guardrail]] = {}
     accepts: ClassVar[list[TaskAcceptance]] = []
     settings: ClassVar[AutonomousSettings | None] = None
+    mcp_servers: ClassVar[dict[str, McpServer]] = {}
+    result_guardrails: ClassVar[dict[str, ResultGuardrail]] = {}
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -169,6 +177,7 @@ class AutonomousAgent(HasSecrets, HasServices):
                 problems.append(f"tool name '{name}' is reserved")
             if not tool.description:
                 problems.append(f"tool '{name}' needs a description; the model decides by it")
+        problems.extend(mcp_problems(cls.tools, cls.mcp_servers, cls.result_guardrails))
         if problems:
             raise RegistrationError(f"invalid autonomous agent {cls.__name__}: " + "; ".join(problems))
 
@@ -190,10 +199,11 @@ class AutonomousAgent(HasSecrets, HasServices):
         detail = discovery_pb2.AutonomousAgentDetail(
             description=cls.description,
             tools=[
-                discovery_pb2.Tool(name=n, description=t.description, input_schema_json=t.input_schema())
-                for n, t in sorted(cls.tools.items())
+                t.to_pb(n) for n, t in sorted(cls.tools.items())
             ],
             guardrails=sorted(cls.guardrails),
+            mcp_servers=[s.to_pb(n) for n, s in sorted(cls.mcp_servers.items())],
+            result_guardrails=sorted(cls.result_guardrails),
             task_types=[
                 discovery_pb2.AutonomousAgentDetail.TaskType(
                     name=t.name,
@@ -232,6 +242,14 @@ class AutonomousAgent(HasSecrets, HasServices):
     async def _check_guardrail(self, name: str, stage: str, text: str, session_id: str) -> str | None:
         self._session_id = session_id
         result = type(self).guardrails[name].check(stage, text)
+        if isinstance(result, Awaitable):
+            result = await result
+        return result
+
+    async def _check_tool_result(self, name: str, tool: str, text: str, session_id: str) -> str | None:
+        """A result guardrail's verdict on what an MCP server's ``tool`` answered."""
+        self._session_id = session_id
+        result = type(self).result_guardrails[name].check(tool, text)
         if isinstance(result, Awaitable):
             result = await result
         return result
@@ -300,6 +318,9 @@ class AgentState:
     current_task: str | None
     iteration: int
     queued: list[str]
+    awaiting: list[ApprovalRequest] = field(default_factory=list)
+    """The approval requests the current task's tool calls await; while any does, the instance
+    calls no model and starts no iteration."""
 
 
 @dataclass(frozen=True)
@@ -525,7 +546,29 @@ class AutonomousAgentCalls:
             current_task=current["taskId"] if current else None,
             iteration=current["iteration"] if current else 0,
             queued=list(record.get("queue", [])),
+            awaiting=[
+                ApprovalRequest.from_json(r) for r in (current or {}).get("approvals", []) if r.get("decision") is None
+            ],
         )
+
+    async def decide(self, approval_id: str, approved: bool, by: str, note: str | None = None) -> None:
+        """Decides one of the instance's approval requests. ``by`` names who decided and is
+        required. Approved, the tool runs and the task goes on; refused, the model is told so. A
+        request already decided is a conflict; one the instance does not hold is not found."""
+        from ankka.client import CommandError, decide_request, decide_unimplemented
+
+        request = decide_request(
+            discovery_pb2.AUTONOMOUS_AGENT, self.component_id, self._instance(), "", approval_id, approved, by, note,
+            self._client._metadata,
+        )
+        try:
+            answer = await self._client._stub.Decide(request)
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise decide_unimplemented(failure) from failure
+            raise
+        if answer.HasField("error"):
+            raise CommandError(Error(answer.error.message, ErrorCode.from_pb(answer.error.code)))
 
     async def notifications(self) -> AsyncIterator[Notification]:
         """What the instance does from now on, as it happens. Nothing is replayed."""
@@ -551,6 +594,7 @@ class AutonomousAgentCalls:
 __all__ = [
     "Accepted",
     "AgentState",
+    "ApprovalRequest",
     "Attachment",
     "AutonomousAgent",
     "AutonomousAgentCalls",

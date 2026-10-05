@@ -11,8 +11,21 @@ import type { Acl, CallerMatcher } from "./routes.ts"
 import { toJsonSchema } from "./schema.ts"
 import { isCodec } from "./codec.ts"
 import { VERSION } from "./version.ts"
+import { approvalToProto } from "./approvals.ts"
+import { serverToProto } from "./mcp.ts"
+import type { ToolRef } from "./handlers.ts"
 
-export const PROTOCOL_VERSION = "1.9"
+function toolInit(t: ToolRef<any, any>) {
+  const approval = approvalToProto(t.approval)
+  return {
+    name: t.name,
+    description: t.description,
+    inputSchemaJson: JSON.stringify(isCodec(t.input) ? { type: "object" } : toJsonSchema(t.input)),
+    ...(approval !== undefined ? { approval } : {}),
+  }
+}
+
+export const PROTOCOL_VERSION = "1.11"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -134,10 +147,10 @@ function componentInit(c: RegisteredComponent): ComponentInit {
           value: {
             role: c.role,
             maxToolCallSteps: c.maxToolCallSteps,
-            tools: [...c.tools.values()]
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((t) => ({ name: t.name, description: t.description, inputSchemaJson: JSON.stringify(isCodec(t.input) ? { type: "object" } : toJsonSchema(t.input)) })),
+            tools: [...c.tools.values()].sort((a, b) => a.name.localeCompare(b.name)).map(toolInit),
             guardrails: [...c.guardrails.keys()].sort(),
+            mcpServers: [...c.mcpServers.values()].sort((a, b) => a.name.localeCompare(b.name)).map(serverToProto),
+            resultGuardrails: [...c.resultGuardrails.keys()].sort(),
           },
         },
       }
@@ -165,10 +178,10 @@ function autonomousInit(c: RegisteredAutonomousAgent): ComponentInit {
         description: cls.description,
         ...(cls.instructions !== undefined ? { instructions: cls.instructions } : {}),
         ...(cls.model !== undefined ? { model: cls.model } : {}),
-        tools: [...c.tools.values()]
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((t) => ({ name: t.name, description: t.description, inputSchemaJson: JSON.stringify(isCodec(t.input) ? { type: "object" } : toJsonSchema(t.input)) })),
+        tools: [...c.tools.values()].sort((a, b) => a.name.localeCompare(b.name)).map(toolInit),
         guardrails: [...c.guardrails.keys()].sort(),
+        mcpServers: [...c.mcpServers.values()].sort((a, b) => a.name.localeCompare(b.name)).map(serverToProto),
+        resultGuardrails: [...c.resultGuardrails.keys()].sort(),
         taskTypes: [...c.taskTypes.values()].map((t) => {
           const schema = resultSchemaJson(t)
           return { name: t.name, description: t.description, rules: t.rules.map((r) => r.name), ...(schema !== undefined ? { resultSchemaJson: schema } : {}) }

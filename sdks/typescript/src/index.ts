@@ -37,6 +37,8 @@ export {
 export { TimedAction, type TimedActionClass } from "./timedAction.ts"
 export { AgentEffects, type AgentEffect } from "./effects/agent.ts"
 export { Agent, type AgentClass } from "./agent.ts"
+export { ApprovalAwaited, APPROVALS_SINCE, type AgentOutcome, type Approval, type ApprovalRequest, type DecisionInput } from "./approvals.ts"
+export { mcpServer, resultGuardrail, toolName, type McpServerOptions, type McpServerRef, type ResultGuardrailRef } from "./mcp.ts"
 export {
   AutonomousAgent,
   AutonomousAgentCalls,

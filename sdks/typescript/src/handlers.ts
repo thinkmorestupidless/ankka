@@ -3,6 +3,7 @@
 // that runs it. The wire name is declared here and nowhere else; renaming the method it calls changes
 // nothing on the wire. These are plain values, so the registry can read them without reflection.
 
+import { approvalProblem, type Approval } from "./approvals.ts"
 import type { Shape } from "./codec.ts"
 import type { EffectLike, ReadOnlyLike } from "./effects/common.ts"
 
@@ -112,20 +113,33 @@ export function action(name: string, ...rest: unknown[]): HandlerRef<any, any, a
   return ref("action", name, undefined, undefined, run, { readOnly: false, streaming: false })
 }
 
-/** An agent tool: the model sees `description` and the JSON Schema of `input`; the process runs `run`. */
+/**
+ * An agent tool: the model sees `description` and the JSON Schema of `input`; the process runs `run`.
+ * With `approval`, the tool waits for a person's decision before it runs: the caller is answered with an
+ * approval request, and the turn goes on when someone decides it.
+ */
 export interface ToolRef<C = unknown, I = unknown> {
   readonly name: string
   readonly description: string
   readonly input: Shape<I>
   readonly run: (self: C, input: I) => MaybePromise<unknown>
+  readonly approval?: Approval
 }
 
-export function tool<C, I>(name: string, description: string, input: Shape<I>, run: (self: C, input: I) => MaybePromise<unknown>): ToolRef<C, I> {
+export function tool<C, I>(
+  name: string,
+  description: string,
+  input: Shape<I>,
+  run: (self: C, input: I) => MaybePromise<unknown>,
+  options: { readonly approval?: Approval } = {},
+): ToolRef<C, I> {
   if (typeof name !== "string" || name.trim() === "") throw new TypeError("a tool needs a name")
   if (typeof description !== "string" || description.trim() === "") {
     throw new TypeError(`tool ${name}: a tool needs a description, or the model cannot choose it`)
   }
-  return Object.freeze({ name, description, input, run })
+  const problem = approvalProblem(options.approval)
+  if (problem) throw new TypeError(`tool ${name}: ${problem}`)
+  return Object.freeze({ name, description, input, run, ...(options.approval !== undefined ? { approval: options.approval } : {}) })
 }
 
 export type GuardrailStage = "input" | "output"

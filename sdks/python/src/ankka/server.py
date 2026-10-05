@@ -620,11 +620,18 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
         # whatever the guardrail calls. A sidecar before 1.3 sends none.
         told = Metadata.from_pb(request.metadata) if request.HasField("metadata") else None
         agent = self._agent(request.component_id, request.session_id, told)
-        if agent is None or request.guardrail not in type(agent).guardrails:
+        # RESULT (1.11): what an MCP server's tool answered, checked by one of the agent's result
+        # guardrails, which are declared apart from its other guardrails.
+        result = request.stage == agent_pb2.GuardrailRequest.RESULT
+        declared = (type(agent).result_guardrails if result else type(agent).guardrails) if agent is not None else {}
+        if agent is None or request.guardrail not in declared:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown guardrail {request.component_id}/{request.guardrail}")
         assert agent is not None
-        stage = "input" if request.stage == agent_pb2.GuardrailRequest.INPUT else "output"
-        reason = await agent._check_guardrail(request.guardrail, stage, request.text, request.session_id)
+        if result:
+            reason = await agent._check_tool_result(request.guardrail, request.tool, request.text, request.session_id)
+        else:
+            stage = "input" if request.stage == agent_pb2.GuardrailRequest.INPUT else "output"
+            reason = await agent._check_guardrail(request.guardrail, stage, request.text, request.session_id)
         if reason is None:
             passed = agent_pb2.GuardrailResult()
             getattr(passed, "pass").SetInParent()  # `pass` is a keyword, so the field is reached by name

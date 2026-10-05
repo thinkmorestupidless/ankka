@@ -18,6 +18,8 @@ import { encodePayload, decodePayload, EMPTY_PAYLOAD } from "./server/payloads.t
 import type { Schema } from "./schema.ts"
 import type { Duration } from "./time.ts"
 import { AutonomousAgentCalls, TaskCalls, Tasks } from "./autonomous.ts"
+import { APPROVALS_SINCE, ApprovalAwaited, awaitingOf, type AgentOutcome, type DecisionInput } from "./approvals.ts"
+import type { InvokeReply } from "./_proto/ankka/protocol/v1/client_pb.ts"
 
 /** A component class as the typed client sees it: an id and, on its prototype, its kind. */
 export interface ComponentRef {
@@ -58,6 +60,53 @@ function decodeReply<R>(shape: Shape<R> | undefined, payload: Payload | undefine
   return (codec ?? binaryCodecs.done).decode(payload?.data ?? new Uint8Array()) as R
 }
 
+function outcomeOf<R>(reply: Shape<R> | undefined, answer: InvokeReply): AgentOutcome<R> {
+  switch (answer.result.case) {
+    case "reply":
+      return { kind: "answered", value: decodeReply(reply, answer.result.value.payload) }
+    case "approval":
+      return awaitingOf(answer.result.value)
+    case "error":
+      throw new CommandError(errorOf(answer.result.value))
+    default:
+      throw new CommandError({ message: "the sidecar answered nothing", code: "INTERNAL" })
+  }
+}
+
+/** Sends a decision; a runtime before approvals is reported as too old. */
+async function decideOn(
+  connection: Connection,
+  metadata: Metadata,
+  kind: ComponentKind,
+  componentId: string,
+  entityId: string,
+  name: string,
+  approvalId: string,
+  decision: DecisionInput,
+): Promise<InvokeReply> {
+  try {
+    return await stubOf(connection).decide({
+      kind: kindToProto(kind),
+      componentId,
+      entityId,
+      name,
+      approvalId,
+      approved: decision.approved,
+      by: decision.by,
+      ...(decision.note ? { note: decision.note } : {}),
+      metadata: metadataToProto(metadata),
+    })
+  } catch (failure) {
+    if (failure instanceof ConnectError && failure.code === Code.Unimplemented) {
+      throw new CommandError({
+        message: `the runtime beside this process cannot record a decision on an approval request, which needs protocol ${APPROVALS_SINCE}: ${failure.rawMessage}`,
+        code: "INTERNAL",
+      })
+    }
+    throw failure
+  }
+}
+
 /** One call, ready to invoke or stream. */
 export class Invocation<I, R> {
   readonly #connection: Connection
@@ -91,21 +140,40 @@ export class Invocation<I, R> {
     }
   }
 
-  /** Invokes and decodes the reply; a refusal rejects with `CommandError`. */
+  /**
+   * Invokes and decodes the reply; a refusal rejects with `CommandError`. An agent's turn that waits for a
+   * person rejects with `ApprovalAwaited`; `ask` answers it instead.
+   */
   async invoke(input?: I): Promise<R> {
-    const answer = await stubOf(this.#connection).invoke(this.#request(input))
-    switch (answer.result.case) {
-      case "reply":
-        return decodeReply(this.#reply, answer.result.value.payload)
-      case "error":
-        throw new CommandError(errorOf(answer.result.value))
-      default:
-        throw new CommandError({ message: "the sidecar answered nothing", code: "INTERNAL" })
+    const outcome = await this.ask(input)
+    if (outcome.kind === "awaiting-approval") throw new ApprovalAwaited(outcome.requests)
+    return outcome.value
+  }
+
+  /** Calls an agent's handler for its outcome: the model's answer, or the approval requests the turn waits on. */
+  async ask(input?: I): Promise<AgentOutcome<R>> {
+    return outcomeOf(this.#reply, await stubOf(this.#connection).invoke(this.#request(input)))
+  }
+
+  /**
+   * Decides one of the session's approval requests; this invocation names the handler whose turn waits.
+   * `by` names who decided and is required. When it was the turn's last awaited decision the turn goes on,
+   * and this answers as `ask` would have. A request already decided is a conflict.
+   */
+  async decide(approvalId: string, decision: DecisionInput): Promise<AgentOutcome<R>> {
+    return outcomeOf(this.#reply, await decideOn(this.#connection, this.#metadata, this.#kind, this.#componentId, this.#entityId, this.#name, approvalId, decision))
+  }
+
+  /** Invokes a streaming handler; yields tokens in order; a failure rejects with `CommandError`, a turn that waits with `ApprovalAwaited`. */
+  async *stream(input?: I): AsyncIterable<string> {
+    for await (const part of this.streamParts(input)) {
+      if (typeof part !== "string") throw new ApprovalAwaited(part.requests)
+      yield part
     }
   }
 
-  /** Invokes a streaming handler; yields tokens in order; a failure rejects with `CommandError`. */
-  async *stream(input?: I): AsyncIterable<string> {
+  /** As `stream`, ending with one awaiting part when the turn waits for a person. */
+  async *streamParts(input?: I): AsyncIterable<string | Extract<AgentOutcome<never>, { kind: "awaiting-approval" }>> {
     for await (const token of stubOf(this.#connection).invokeStream(this.#request(input))) {
       switch (token.token.case) {
         case "text":
@@ -115,6 +183,9 @@ export class Invocation<I, R> {
           return
         case "failed":
           throw new CommandError(errorOf(token.token.value))
+        case "approval":
+          yield awaitingOf(token.token.value) as Extract<AgentOutcome<never>, { kind: "awaiting-approval" }>
+          return
       }
     }
   }
@@ -445,6 +516,11 @@ export class ComponentClient {
       default:
         throw new CommandError({ message: "the sidecar answered nothing", code: "INTERNAL" })
     }
+  }
+
+  /** @internal A decision on an approval request; a refusal rejects with `CommandError`. */
+  async _decide(kind: ComponentKind, componentId: string, entityId: string, name: string, approvalId: string, decision: DecisionInput): Promise<void> {
+    outcomeOf(undefined, await decideOn(this.#connection, this.#metadata, kind, componentId, entityId, name, approvalId, decision))
   }
 
   /** @internal A streaming call whose tokens are text. */

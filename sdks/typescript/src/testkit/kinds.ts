@@ -22,6 +22,8 @@ import type { HandlerRef } from "../handlers.ts"
 import { materialiseKeyValue, materialiseStep, materialiseWorkflowCommand, type MaterialisedKeyValue, type MaterialisedStep, type MaterialisedWorkflowCommand } from "../materialise.ts"
 import { Ankka, type RegisteredAgent, type RegisteredConsumer, type RegisteredKeyValue, type RegisteredTimedAction, type RegisteredView, type RegisteredWorkflow } from "../service.ts"
 import { checkPlan, runTool } from "../server/agent.ts"
+import { ApprovalAwaited, type AgentOutcome, type ApprovalRequest, type DecisionInput } from "../approvals.ts"
+import { TOOL_PREFIX, toolName } from "../mcp.ts"
 
 function roundTrip<T>(codec: Codec<T>, value: T): T {
   return codec.decode(codec.encode(value))
@@ -438,29 +440,56 @@ export class ScriptedModel {
   }
 }
 
+/** Scripted MCP servers: `{ server: { tool: (args) => text } }`, called by the model as `mcp__<server>__<tool>`. */
+export type ScriptedMcp = Readonly<Record<string, Readonly<Record<string, (args: Record<string, unknown>) => string | Promise<string>>>>>
+
+type Message = { role: "user" | "assistant" | "tool"; text: string }
+
+interface Turn {
+  readonly plan: AgentEffect<unknown>
+  readonly messages: Message[]
+  steps: number
+  pending?: { readonly request: ApprovalRequest; readonly tool: string; readonly argumentsJson: string }
+}
+
 /**
  * Runs an agent's turn the way the sidecar does, in process: the plan, input guardrails, the model
  * (scripted), tool calls back into the agent, output guardrails, and the session's history.
+ *
+ * `mcp` scripts the agent's MCP servers, and its result guardrails check what they answer. A call to a
+ * tool that requires approval — the agent's own, or any of a server listed with `approval` — is not run:
+ * `outcome` answers with its request, `ask` rejects with `ApprovalAwaited`, and `decide` goes on.
  */
 export class AgentTestKit<C extends Agent> {
   readonly #registered: RegisteredAgent
   readonly #cls: AgentClass<C>
   readonly #client: ComponentClient
   readonly #model: ScriptedModel
+  readonly #mcp: ScriptedMcp
   readonly sessionId: string
   /** The session's memory: what the user said and the agent answered, turn after turn. */
   readonly history: { role: "user" | "assistant"; text: string }[] = []
+  #turn: Turn | undefined
+  readonly #decided = new Set<string>()
+  #nextId = 0
 
-  private constructor(cls: AgentClass<C>, sessionId: string, model: ScriptedModel, client: ComponentClient) {
+  private constructor(cls: AgentClass<C>, sessionId: string, model: ScriptedModel, client: ComponentClient, mcp: ScriptedMcp) {
     this.#registered = registryFor(cls, client).component(cls.componentId) as RegisteredAgent
     this.#cls = cls
     this.#client = client
     this.#model = model
+    this.#mcp = mcp
     this.sessionId = sessionId
   }
 
-  static of<C extends Agent>(cls: AgentClass<C>, sessionId: string, model: ScriptedModel, client: ComponentClient = noClient()): AgentTestKit<C> {
-    return new AgentTestKit(cls, sessionId, model, client)
+  static of<C extends Agent>(
+    cls: AgentClass<C>,
+    sessionId: string,
+    model: ScriptedModel,
+    client: ComponentClient = noClient(),
+    options: { readonly mcp?: ScriptedMcp } = {},
+  ): AgentTestKit<C> {
+    return new AgentTestKit(cls, sessionId, model, client, options.mcp ?? {})
   }
 
   #agent(): C {
@@ -469,8 +498,16 @@ export class AgentTestKit<C extends Agent> {
     return a
   }
 
-  /** One turn: returns the reply text (JSON text for a `thenReplyJson` plan). A refusal or a blocked guardrail rejects with `CommandError`. */
+  /** One turn: returns the reply text (JSON text for a `thenReplyJson` plan). A refusal or a blocked guardrail rejects with `CommandError`; a turn that waits, with `ApprovalAwaited`. */
   async ask<I>(handler: HandlerRef<C, I, any, any> | string, input?: I): Promise<string> {
+    const outcome = await this.outcome(handler, input)
+    if (outcome.kind === "awaiting-approval") throw new ApprovalAwaited(outcome.requests)
+    return outcome.value
+  }
+
+  /** One turn, answered with its outcome: the reply text, or the approval requests the turn waits on. */
+  async outcome<I>(handler: HandlerRef<C, I, any, any> | string, input?: I): Promise<AgentOutcome<string>> {
+    if (this.#turn?.pending) throw new CommandError({ message: `session '${this.sessionId}' has a turn awaiting a decision`, code: ErrorCode.Conflict })
     const ref = findHandler(this.#registered.handlers, handler, this.#registered.cls.name)
     const wireInput = ref.input ? roundTrip(codecFor(ref.input as Shape<I>), input as I) : undefined
     const agent = this.#agent()
@@ -480,41 +517,109 @@ export class AgentTestKit<C extends Agent> {
     if (problem) throw new Error(problem)
     if (plan.failure) throw new CommandError(plan.failure)
 
-    const guard = async (stage: "input" | "output", text: string) => {
-      for (const name of plan.guardrailNames) {
-        const reason = await this.#registered.guardrails.get(name)!.check(stage, text)
-        if (reason) throw new CommandError({ message: `${name}: ${reason}`, code: ErrorCode.Forbidden })
-      }
-    }
-
     const user = [...plan.context, plan.user ?? ""].filter((t) => t !== "").join("\n\n")
-    await guard("input", user)
-    const messages: { role: "user" | "assistant" | "tool"; text: string }[] = plan.sessionMemory ? this.history.map((h) => ({ ...h })) : []
+    await this.#guard(plan, "input", user)
+    const messages: Message[] = plan.sessionMemory ? this.history.map((h) => ({ ...h })) : []
     messages.push({ role: "user", text: user })
+    this.#turn = { plan, messages, steps: 0 }
+    return this.#goOn(this.#turn)
+  }
 
-    for (let step = 0; step <= this.#registered.maxToolCallSteps; step++) {
-      const answer = this.#model._next({ system: plan.system, messages: [...messages], tools: [...plan.toolNames] })
+  /**
+   * Decides the request the turn waits on, and goes on as the sidecar would: approved, the tool runs and the
+   * model is told its result; refused, the model is told who refused it and why.
+   */
+  async decide(approvalId: string, decision: DecisionInput): Promise<AgentOutcome<string>> {
+    if (decision.by.trim() === "") throw new CommandError({ message: "a decision must name who made it", code: ErrorCode.BadRequest })
+    if (this.#decided.has(approvalId)) throw new CommandError({ message: `approval request '${approvalId}' is decided`, code: ErrorCode.Conflict })
+    const turn = this.#turn
+    if (!turn?.pending || turn.pending.request.id !== approvalId) {
+      throw new CommandError({ message: `no approval request '${approvalId}' in session '${this.sessionId}'`, code: ErrorCode.NotFound })
+    }
+    const { tool, argumentsJson } = turn.pending
+    turn.pending = undefined
+    this.#decided.add(approvalId)
+    const result = decision.approved
+      ? await this.#run(tool, argumentsJson)
+      : `A person (${decision.by}) refused this tool call; the tool did not run.${decision.note ? ` Their note: ${decision.note}` : ""}`
+    turn.messages.push({ role: "tool", text: result })
+    return this.#goOn(turn)
+  }
+
+  async #guard(plan: AgentEffect<unknown>, stage: "input" | "output", text: string): Promise<void> {
+    for (const name of plan.guardrailNames) {
+      const reason = await this.#registered.guardrails.get(name)!.check(stage, text)
+      if (reason) throw new CommandError({ message: `${name}: ${reason}`, code: ErrorCode.Forbidden })
+    }
+  }
+
+  #mcpTool(name: string): { server: string; tool: string } | undefined {
+    if (!name.startsWith(TOOL_PREFIX)) return undefined
+    const rest = name.slice(TOOL_PREFIX.length)
+    const at = rest.indexOf("__")
+    return at < 0 ? undefined : { server: rest.slice(0, at), tool: rest.slice(at + 2) }
+  }
+
+  #offered(plan: AgentEffect<unknown>): string[] {
+    const mcp = [...this.#registered.mcpServers.keys()].flatMap((server) => Object.keys(this.#mcp[server] ?? {}).map((tool) => toolName(server, tool)))
+    return [...plan.toolNames, ...mcp]
+  }
+
+  #requiresApproval(name: string): boolean {
+    const mcp = this.#mcpTool(name)
+    if (mcp) return this.#registered.mcpServers.get(mcp.server)?.approval !== undefined
+    return this.#registered.tools.get(name)?.approval !== undefined
+  }
+
+  async #run(name: string, argumentsJson: string): Promise<string> {
+    const mcp = this.#mcpTool(name)
+    try {
+      if (!mcp) return await runTool(this.#registered, this.#agent(), name, argumentsJson)
+      const text = await this.#mcp[mcp.server]![mcp.tool]!(JSON.parse(argumentsJson || "{}") as Record<string, unknown>)
+      for (const g of [...this.#registered.resultGuardrails.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+        const reason = await g.check(name, text)
+        if (reason) return `A result guardrail refused what this tool answered, so it is not shown: ${g.name}: ${reason}`
+      }
+      return text
+    } catch (e) {
+      return `error: ${e instanceof Error ? e.message : String(e)}`
+    }
+  }
+
+  async #goOn(turn: Turn): Promise<AgentOutcome<string>> {
+    const offered = this.#offered(turn.plan)
+    while (turn.steps <= this.#registered.maxToolCallSteps) {
+      const answer = this.#model._next({ system: turn.plan.system, messages: [...turn.messages], tools: offered })
       switch (answer.kind) {
         case "refusal":
+          this.#turn = undefined
           throw new CommandError({ message: answer.message, code: ErrorCode.BadRequest })
         case "tool-call": {
-          if (!plan.toolNames.includes(answer.tool)) throw new Error(`the model called ${JSON.stringify(answer.tool)}, which the plan did not offer`)
-          let result: string
-          try {
-            result = await runTool(this.#registered, this.#agent(), answer.tool, answer.argumentsJson)
-          } catch (e) {
-            result = `error: ${e instanceof Error ? e.message : String(e)}`
+          turn.steps++
+          if (!offered.includes(answer.tool)) throw new Error(`the model called ${JSON.stringify(answer.tool)}, which the plan did not offer`)
+          turn.messages.push({ role: "assistant", text: `[tool call ${answer.tool} ${answer.argumentsJson}]` })
+          if (this.#requiresApproval(answer.tool)) {
+            const request: ApprovalRequest = Object.freeze({
+              id: `approval-${++this.#nextId}`,
+              tool: answer.tool,
+              arguments: JSON.parse(answer.argumentsJson || "{}"),
+              requestedAt: Date.now(),
+            })
+            turn.pending = { request, tool: answer.tool, argumentsJson: answer.argumentsJson }
+            return { kind: "awaiting-approval", requests: [request] }
           }
-          messages.push({ role: "assistant", text: `[tool call ${answer.tool} ${answer.argumentsJson}]` }, { role: "tool", text: result })
+          turn.messages.push({ role: "tool", text: await this.#run(answer.tool, answer.argumentsJson) })
           break
         }
         case "text": {
-          await guard("output", answer.text)
-          if (plan.sessionMemory) this.history.push({ role: "user", text: plan.user ?? "" }, { role: "assistant", text: answer.text })
-          return answer.text
+          this.#turn = undefined
+          await this.#guard(turn.plan, "output", answer.text)
+          if (turn.plan.sessionMemory) this.history.push({ role: "user", text: turn.plan.user ?? "" }, { role: "assistant", text: answer.text })
+          return { kind: "answered", value: answer.text }
         }
       }
     }
+    this.#turn = undefined
     throw new CommandError({ message: `the agent made more than ${this.#registered.maxToolCallSteps} tool calls`, code: ErrorCode.Internal })
   }
 

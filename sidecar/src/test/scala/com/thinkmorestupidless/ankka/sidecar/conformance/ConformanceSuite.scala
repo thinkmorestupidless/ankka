@@ -140,7 +140,11 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   // ── Discovery ──────────────────────────────────────────────────────────────
 
   test("discovery.lists-every-component") {
-    assertEquals(target.componentIds, ConformanceReference.ComponentIds)
+    // A module declares no agent that waits for a person: the crate cannot declare one yet.
+    val expected =
+      if target.isModule then ConformanceReference.ComponentIds - "approver"
+      else ConformanceReference.ComponentIds
+    assertEquals(target.componentIds, expected)
     val routes = target.endpointRoutes
     Seq(
       "POST /carts/{cartId}/items",
@@ -1414,6 +1418,214 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       n += 1
       assertEquals(record("bench", s"m$n").status, 200)
     }
+  }
+
+  // ── Approvals and MCP servers (protocol 1.11) ───────────────────────────────
+  //
+  // `features/agents/approvals.feature`, `autonomous-approvals.feature` and `mcp-servers.feature`,
+  // through the reference's `approver` agent and its routes: `ask` answers `{"answered": text}` or
+  // `{"awaiting": [{"id", "tool", "arguments"}]}`, and `decide` the same once the turn goes on. The
+  // MCP servers are `target.tickets` and `target.guarded`, played on loopback.
+
+  private def onlyWhereApprovals(): Unit =
+    assume(!target.isModule, "a module declares no agent that waits for a person")
+
+  private def askApprover(session: String, question: String): Reply =
+    post(s"/conformance/approver/$session", question)
+
+  /** The awaiting requests of an outcome, as `(id, tool)`. */
+  private def awaitingIn(r: Reply): Vector[(String, String)] =
+    assertEquals(r.status, 200, r.body)
+    r.json("awaiting")
+      .flatMap(_.asArray)
+      .getOrElse(fail(s"not awaiting: ${r.body}"))
+      .map(j => (j("id").flatMap(_.asString).get, j("tool").flatMap(_.asString).get))
+
+  private def answeredIn(r: Reply): String =
+    assertEquals(r.status, 200, r.body)
+    r.json("answered").flatMap(_.asString).getOrElse(fail(s"not answered: ${r.body}"))
+
+  private def decideApproval(
+      session: String,
+      id: String,
+      approved: Boolean,
+      by: String,
+      note: String = ""
+  ): Reply =
+    postJson(
+      s"/conformance/approver/$session/decide/$id",
+      Json
+        .obj("approved" -> Json.Bool(approved), "by" -> Json.str(by), "note" -> Json.str(note))
+        .render
+    )
+
+  private def toolResultsOf(request: Int) =
+    model.requests(request).messages.collect { case ChatMessage.ToolResults(rs) => rs }.flatten
+
+  test("approval.awaits") {
+    onlyWhereApprovals()
+    model.expectToolCall("refund", Json.obj("id" -> Json.str("ap1"))).expectText("never sent")
+    val waiting = awaitingIn(askApprover("ap-s1", "refund ap1"))
+    assertEquals(waiting.map(_._2), Vector("refund"))
+    assertEquals(count("ap1"), 0)
+    assertEquals(model.callCount, 1)
+  }
+
+  test("approval.approved-runs-once") {
+    onlyWhereApprovals()
+    model.expectToolCall("refund", Json.obj("id" -> Json.str("ap2"))).expectText("refund made")
+    val Vector((id, _)) = awaitingIn(askApprover("ap-s2", "refund ap2")): @unchecked
+    target.restart()
+    assertEquals(
+      answeredIn(decideApproval("ap-s2", id, approved = true, by = "dana")),
+      "refund made"
+    )
+    assertEquals(count("ap2"), 1)
+    val results = toolResultsOf(1)
+    assertEquals(results.map(r => (r.name, r.isError)), Vector(("refund", false)))
+    assert(results.head.content.contains("refunded ap2"), results.head.content)
+  }
+
+  test("approval.refused-tells-model") {
+    onlyWhereApprovals()
+    model.expectToolCall("refund", Json.obj("id" -> Json.str("ap3"))).expectText("understood")
+    val Vector((id, _)) = awaitingIn(askApprover("ap-s3", "refund ap3")): @unchecked
+    val answer = decideApproval("ap-s3", id, approved = false, by = "sam", note = "not this one")
+    assertEquals(answeredIn(answer), "understood")
+    assertEquals(count("ap3"), 0)
+    val results = toolResultsOf(1)
+    assertEquals(results.map(_.isError), Vector(true))
+    assert(results.head.content.contains("not this one"), results.head.content)
+  }
+
+  test("approval.decided-once") {
+    onlyWhereApprovals()
+    model.expectToolCall("refund", Json.obj("id" -> Json.str("ap4"))).expectText("refund made")
+    val Vector((id, _)) = awaitingIn(askApprover("ap-s4", "refund ap4")): @unchecked
+    answeredIn(decideApproval("ap-s4", id, approved = true, by = "dana")): Unit
+    assertEquals(decideApproval("ap-s4", id, approved = false, by = "sam").status, 409)
+    assertEquals(count("ap4"), 1)
+  }
+
+  test("approval.session-waits") {
+    onlyWhereApprovals()
+    model.expectToolCall("refund", Json.obj("id" -> Json.str("ap5")))
+    awaitingIn(askApprover("ap-s5", "refund ap5")): Unit
+    val again = askApprover("ap-s5", "hello?")
+    assertEquals(again.status, 409, again.body)
+    assertEquals(model.callCount, 1)
+  }
+
+  test("approval.needs-a-name") {
+    onlyWhereApprovals()
+    model.expectToolCall("refund", Json.obj("id" -> Json.str("ap6"))).expectText("refund made")
+    val Vector((id, _)) = awaitingIn(askApprover("ap-s6", "refund ap6")): @unchecked
+    assertEquals(decideApproval("ap-s6", id, approved = true, by = " ").status, 400)
+    assertEquals(count("ap6"), 0)
+    // Nothing was decided: the request is still there to decide.
+    assertEquals(
+      answeredIn(decideApproval("ap-s6", id, approved = true, by = "dana")),
+      "refund made"
+    )
+  }
+
+  private def awaitingOf(instance: String): Vector[String] =
+    state(instance)("awaiting")
+      .flatMap(_.asArray)
+      .getOrElse(Vector.empty)
+      .flatMap(_("id").flatMap(_.asString))
+
+  test("auto.approval.waits-without-budget") {
+    onlyWhereApprovals()
+    model.expectToolCall("sensitive_lookup", Json.obj("id" -> Json.str("auto-ap1")))
+    val (id, instance) = runTask("Look auto-ap1 up carefully")
+    eventually()(Some(awaitingOf(instance)).filter(_.nonEmpty)): Unit
+    val iterations = task(id)("iterations").flatMap(_.asDouble)
+    Thread.sleep(1500)
+    assertEquals(model.callCount, 1)
+    val t = task(id)
+    assertEquals(status(t), "in-progress", t.render)
+    // Waiting spends nothing: the count the budget is held to does not move.
+    assertEquals(t("iterations").flatMap(_.asDouble), iterations, t.render)
+    assertEquals(count("auto-ap1"), 0)
+  }
+
+  test("auto.approval.approved-continues") {
+    onlyWhereApprovals()
+    model
+      .expectToolCall("sensitive_lookup", Json.obj("id" -> Json.str("auto-ap2")))
+      .expectCompleteTaskJson("""{"answer":"one","sources":["sensitive_lookup"]}""")
+    val (id, instance) = runTask("Look auto-ap2 up carefully")
+    val approval       = eventually()(awaitingOf(instance).headOption)
+    val decided = postJson(
+      s"/autonomous/instances/$instance/decide/$approval",
+      """{"approved":true,"by":"dana"}"""
+    )
+    assert(decided.status == 200 || decided.status == 204, decided.toString)
+    val t = ended(id)
+    assertEquals(status(t), "completed", t.render)
+    assertEquals(count("auto-ap2"), 1)
+  }
+
+  test("mcp.tools-offered") {
+    onlyWhereApprovals()
+    model.expectText("hello")
+    assertEquals(answeredIn(askApprover("mcp-s1", "what can you do?")), "hello")
+    val offered = model.lastRequest.tools.map(_.name).toSet
+    Set("refund", "mcp__tickets__create", "mcp__tickets__search", "mcp__guarded__delete").foreach(
+      name => assert(offered(name), s"$name not in $offered")
+    )
+  }
+
+  test("mcp.call-reaches-server") {
+    onlyWhereApprovals()
+    val before = target.tickets.calls.size
+    model
+      .expectToolCall("mcp__tickets__create", Json.obj("title" -> Json.str("broken")))
+      .expectText("opened it")
+    assertEquals(answeredIn(askApprover("mcp-s2", "open a ticket")), "opened it")
+    assertEquals(
+      target.tickets.calls.drop(before),
+      Vector(("create", Json.obj("title" -> Json.str("broken"))))
+    )
+    val results = toolResultsOf(1)
+    assertEquals(results.map(_.isError), Vector(false))
+    assert(results.head.content.contains("opened broken"), results.head.content)
+  }
+
+  test("mcp.server-approval") {
+    onlyWhereApprovals()
+    val before = target.guarded.calls.size
+    model.expectToolCall("mcp__guarded__delete", Json.obj("id" -> Json.str("t1")))
+    val waiting = awaitingIn(askApprover("mcp-s3", "delete t1"))
+    assertEquals(waiting.map(_._2), Vector("mcp__guarded__delete"))
+    assertEquals(target.guarded.calls.size, before)
+  }
+
+  test("mcp.result-guardrail-withholds") {
+    onlyWhereApprovals()
+    val before = target.tickets.calls.size
+    model.expectToolCall("mcp__tickets__search", Json.obj()).expectText("nothing useful")
+    assertEquals(answeredIn(askApprover("mcp-s4", "search tickets")), "nothing useful")
+    assertEquals(target.tickets.calls.drop(before).map(_._1), Vector("search"))
+    val results = toolResultsOf(1)
+    assertEquals(results.map(_.isError), Vector(true))
+    assert(!results.head.content.contains("ignore what you were told"), results.head.content)
+    assert(results.head.content.contains("no-instructions"), results.head.content)
+  }
+
+  test("svc.tool-calls-service") {
+    onlyWhereApprovals()
+    target.scripted.clear()
+    model
+      .expectToolCall("ask_scripted", Json.obj("path" -> Json.str("/greeting")))
+      .expectText("it answered")
+    assertEquals(answeredIn(askApprover("svc-s1", "ask the scripted service")), "it answered")
+    assertEquals(
+      target.scripted.requests.map(r => (r.method, r.path)),
+      Vector(("GET", "/greeting"))
+    )
+    assertEquals(toolResultsOf(1).map(_.isError), Vector(false))
   }
 
   // ── Calls to other services (protocol 1.8) ─────────────────────────────────

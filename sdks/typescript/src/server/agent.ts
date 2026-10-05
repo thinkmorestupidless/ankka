@@ -26,6 +26,8 @@ import { metadataFromProto } from "../context.ts"
 import { ErrorCode, type ErrorDetail } from "../effects/common.ts"
 import type { AgentEffect } from "../effects/agent.ts"
 import type { Agent } from "../agent.ts"
+import type { GuardrailRef } from "../handlers.ts"
+import type { ResultGuardrailRef } from "../mcp.ts"
 import { decodeJsonValue, reviver } from "../json.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import type { Schema } from "../schema.ts"
@@ -116,10 +118,15 @@ export async function handleTool(req: ToolRequest, ctx: ServerContext): Promise<
 
 export async function handleGuardrail(req: GuardrailRequest, ctx: ServerContext): Promise<GuardrailResult> {
   const registered = ctx.registry.of("agent", req.componentId) ?? ctx.registry.of("autonomous-agent", req.componentId)
-  const guardrail = registered?.guardrails.get(req.guardrail)
+  // RESULT (1.11): what an MCP server's tool answered, checked by one of the agent's result guardrails,
+  // which are declared apart from its other guardrails.
+  const result = req.stage === GuardrailRequest_Stage.RESULT
+  const guardrail = result ? registered?.resultGuardrails.get(req.guardrail) : registered?.guardrails.get(req.guardrail)
   if (!registered || !guardrail) return create(GuardrailResultSchema, { result: { case: "block", value: `no guardrail ${JSON.stringify(req.guardrail)} on ${req.componentId}` } })
   try {
-    const reason = await guardrail.check(req.stage === GuardrailRequest_Stage.OUTPUT ? "output" : "input", req.text)
+    const reason = result
+      ? await (guardrail as ResultGuardrailRef).check(req.tool ?? "", req.text)
+      : await (guardrail as GuardrailRef).check(req.stage === GuardrailRequest_Stage.OUTPUT ? "output" : "input", req.text)
     return reason === null || reason === undefined
       ? create(GuardrailResultSchema, { result: { case: "pass", value: {} } })
       : create(GuardrailResultSchema, { result: { case: "block", value: reason } })

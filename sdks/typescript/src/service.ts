@@ -14,6 +14,7 @@ import { Consumer, type ConsumerClass } from "./consumer.ts"
 import { GraphConsumer, graphDeltaCodec, type GraphConsumerClass } from "./graph.ts"
 import { TimedAction, type TimedActionClass } from "./timedAction.ts"
 import { Agent, type AgentClass } from "./agent.ts"
+import { serverProblems, TOOL_PREFIX, type McpServerRef, type ResultGuardrailRef } from "./mcp.ts"
 import { AutonomousAgent, COMPLETE_TASK, FAIL_TASK, type AutonomousAgentClass, type TaskType } from "./autonomous.ts"
 import { Endpoint, type EndpointClass } from "./endpoint.ts"
 import type { GuardrailRef, HandlerRef, ToolRef } from "./handlers.ts"
@@ -97,6 +98,8 @@ export interface RegisteredAgent {
   readonly handlers: ReadonlyMap<string, HandlerRef<any, any, any, any>>
   readonly tools: ReadonlyMap<string, ToolRef<any, any>>
   readonly guardrails: ReadonlyMap<string, GuardrailRef>
+  readonly mcpServers: ReadonlyMap<string, McpServerRef>
+  readonly resultGuardrails: ReadonlyMap<string, ResultGuardrailRef>
   readonly role: string
   readonly maxToolCallSteps: number
 }
@@ -107,6 +110,8 @@ export interface RegisteredAutonomousAgent {
   readonly cls: AutonomousAgentClass<any>
   readonly tools: ReadonlyMap<string, ToolRef<any, any>>
   readonly guardrails: ReadonlyMap<string, GuardrailRef>
+  readonly mcpServers: ReadonlyMap<string, McpServerRef>
+  readonly resultGuardrails: ReadonlyMap<string, ResultGuardrailRef>
   readonly taskTypes: ReadonlyMap<string, TaskType<any>>
 }
 
@@ -497,8 +502,9 @@ function registerAgent(cls: AgentClass<any>, problems: string[]): RegisteredAgen
   }
   const maxToolCallSteps = cls.maxToolCallSteps ?? 100
   if (!Number.isInteger(maxToolCallSteps) || maxToolCallSteps <= 0) fail("maxToolCallSteps must be a positive integer")
+  const { mcpServers, resultGuardrails } = collectMcp(cls, tools, fail)
   if (!ok()) return undefined
-  return Object.freeze({ kind: "agent", id: cls.componentId, cls, handlers, tools, guardrails, role: cls.role ?? "", maxToolCallSteps })
+  return Object.freeze({ kind: "agent", id: cls.componentId, cls, handlers, tools, guardrails, mcpServers, resultGuardrails, role: cls.role ?? "", maxToolCallSteps })
 }
 
 function registerAutonomousAgent(cls: AutonomousAgentClass<any>, problems: string[]): RegisteredAutonomousAgent | undefined {
@@ -528,8 +534,40 @@ function registerAutonomousAgent(cls: AutonomousAgentClass<any>, problems: strin
     if (!Number.isInteger(a.maxIterations) || a.maxIterations < 1) fail(`task type ${JSON.stringify(a.taskType.name)} needs a budget of at least one iteration`)
     taskTypes.set(a.taskType.name, a.taskType)
   }
+  const { mcpServers, resultGuardrails } = collectMcp(cls, tools, fail)
   if (!ok()) return undefined
-  return Object.freeze({ kind: "autonomous-agent", id: cls.componentId, cls, tools, guardrails, taskTypes })
+  return Object.freeze({ kind: "autonomous-agent", id: cls.componentId, cls, tools, guardrails, mcpServers, resultGuardrails, taskTypes })
+}
+
+/** An agent's MCP servers and result guardrails by name, with what is wrong with them in the sidecar's words. */
+function collectMcp(
+  cls: { readonly mcpServers?: Readonly<Record<string, McpServerRef>>; readonly resultGuardrails?: Readonly<Record<string, ResultGuardrailRef>> },
+  tools: ReadonlyMap<string, ToolRef<any, any>>,
+  fail: (problem: string) => void,
+): { mcpServers: Map<string, McpServerRef>; resultGuardrails: Map<string, ResultGuardrailRef> } {
+  const mcpServers = new Map<string, McpServerRef>()
+  for (const [property, server] of Object.entries(cls.mcpServers ?? {})) {
+    if (typeof server !== "object" || server === null || typeof server.name !== "string") {
+      fail(`mcpServers.${property} is not an MCP server: declare it with mcpServer(name, options)`)
+      continue
+    }
+    serverProblems(server).forEach(fail)
+    if (mcpServers.has(server.name)) fail(`MCP server '${server.name}' is listed twice`)
+    mcpServers.set(server.name, server)
+  }
+  for (const t of tools.values()) {
+    if (t.name.startsWith(TOOL_PREFIX)) fail(`tool '${t.name}' takes the prefix '${TOOL_PREFIX}', which names an MCP server's tools`)
+  }
+  const resultGuardrails = new Map<string, ResultGuardrailRef>()
+  for (const [property, g] of Object.entries(cls.resultGuardrails ?? {})) {
+    if (typeof g !== "object" || g === null || typeof g.name !== "string" || typeof g.check !== "function") {
+      fail(`resultGuardrails.${property} is not a result guardrail: declare it with resultGuardrail(name, check)`)
+      continue
+    }
+    if (resultGuardrails.has(g.name)) fail(`result guardrail '${g.name}' is declared twice`)
+    resultGuardrails.set(g.name, g)
+  }
+  return { mcpServers, resultGuardrails }
 }
 
 /** Collects a handler table by wire name, reporting a duplicate wire name or a kind the component cannot host. */

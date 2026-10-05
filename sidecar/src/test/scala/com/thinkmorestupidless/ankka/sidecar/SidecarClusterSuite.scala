@@ -1072,6 +1072,7 @@ spec:
     val (_, appEnv) =
       kubectl("exec", "-n", Namespace, pod, "-c", s"$OrdersService-app", "--", "env")
     assert(!appEnv.contains("/var/run/secrets/ankka"), appEnv)
+  }
 
   // ── a broker the descriptor names (features/broker/supplied.feature) ─────────────────────────
   //

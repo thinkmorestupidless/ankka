@@ -93,6 +93,13 @@ enum Action:
   /** Writes the status subresource, and nothing else. */
   case SetStatus(namespace: String, name: String, status: AnkkaServiceStatus)
 
+  /** A project's topics' phases, onto its `AnkkaProject`'s status subresource (feature 027). */
+  case SetProjectStatus(
+      namespace: String,
+      name: String,
+      status: com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus
+  )
+
   /**
    * Ensures a project's shared Postgres capacity. Idempotent; concurrent first-service applies in
    * one project converge on the same object rather than racing to create two.
@@ -204,6 +211,9 @@ enum Action:
     case EnsureRoleBinding(b) =>
       s"ensure rolebinding ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
     case SetStatus(ns, name, status) => s"set status $ns/$name to ${status.lifecycle}"
+    case SetProjectStatus(ns, name, status) =>
+      s"set project status $ns/$name: " +
+        status.topics.map(t => s"${t.name} ${t.phase}").mkString(", ")
     case EnsureCluster(c) =>
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>

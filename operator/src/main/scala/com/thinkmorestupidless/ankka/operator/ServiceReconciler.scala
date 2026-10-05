@@ -62,7 +62,7 @@ final class ServiceReconciler(
       resource,
       settings,
       databasePlan,
-      BrokerProvisioning.topicsToRender(spec, settings.broker, brokerSeen)
+      BrokerProvisioning.known(spec, settings.broker)
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -138,11 +138,7 @@ final class ServiceReconciler(
       case None => BrokerObservation.empty
       case Some(broker) =>
         executor
-          .observeBroker(
-            broker.namespace,
-            BrokerNames.user(spec.projectId, spec.serviceName),
-            spec.topics.toVector.map(t => BrokerNames.topic(spec.projectId, t.name))
-          )
+          .observeBroker(broker.namespace, BrokerNames.user(spec.projectId, spec.serviceName))
           .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
 
   /** Pods are read only when the Deployment is not fully ready — explaining costs an API call. */
@@ -180,9 +176,9 @@ final class ServiceReconciler(
         CnpgRendering.projectClusterName,
         spec.serviceName
       ),
-      broker = LifecycleRules.brokerStatus(brokerPlan, spec),
+      broker = LifecycleRules.brokerStatus(brokerPlan),
       // A broker that failed says why where a member looks first, without changing the
-      // service's lifecycle: a service whose topics cannot be had is still deployed.
+      // service's lifecycle: a service whose credential cannot be had is still deployed.
       detail = base.detail.orElse(brokerPlan match
         case BrokerPlan.Failed(problems) => Some(s"broker: ${problems.mkString("; ")}")
         case _                           => None),

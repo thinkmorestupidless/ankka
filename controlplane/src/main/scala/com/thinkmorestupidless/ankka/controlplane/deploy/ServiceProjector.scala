@@ -43,7 +43,8 @@ final class ServiceProjector private (
     clientFactory: DeployConfig => AnkkaServiceClient
 ) extends RuntimeExtension
     with RegistryWriter
-    with ProjectSecretWriter:
+    with ProjectSecretWriter
+    with ProjectTopicsReader:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.controlplane.projector")
 
@@ -100,6 +101,26 @@ final class ServiceProjector private (
       case Some(resources) =>
         resources.removeSecretEntry(config.namespaceFor(projectId), name, entry)
       case None => throw new IllegalStateException("the cluster client is not started")
+
+  /**
+   * Writes a project's declared topics to the cluster as its `AnkkaProject` (feature 027). Called
+   * by `ProjectTopicsTrigger` when the declarations change; it throws when the cluster cannot take
+   * the write, so the trigger is retried with its projection's backoff until it can.
+   */
+  def projectTopics(projectId: String): Unit =
+    (client, projection) match
+      case (Some(resources), Some(work)) =>
+        resources.putProject(
+          config.namespaceFor(projectId),
+          projectId,
+          ProjectProjection.spec(projectId, work.topicsOf(projectId))
+        )
+      case _ => throw new IllegalStateException("the cluster client is not started")
+
+  def topicStatus(projectId: String): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus] =
+    client match
+      case Some(resources) => resources.projectStatus(config.namespaceFor(projectId), projectId)
+      case None            => throw new IllegalStateException("the cluster client is not started")
 
   def start(service: RunningService): Unit =
     given system: ActorSystem[?] = service.system
@@ -175,6 +196,15 @@ private[deploy] final class Projection(
    * is a state the delete path handles, and failing the projection over it would be a worse answer
    * than leaving the reference off.
    */
+  /** A project's declared topics, from the project itself; none for a project that is gone. */
+  def topicsOf(
+      projectId: String
+  ): Map[String, com.thinkmorestupidless.ankka.controlplane.domain.DeclaredTopic] =
+    componentClient
+      .forEventSourcedEntity(EntityId(projectId))
+      .call(ProjectEntity.topics)
+      .invoke()
+
   private def registryOf(projectId: String): Option[RegistryRef] =
     try
       componentClient

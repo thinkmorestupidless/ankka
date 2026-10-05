@@ -1,11 +1,6 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{
-  AnkkaSerialization,
-  AnkkaService,
-  AnkkaServiceSpec,
-  TopicEntry
-}
+import com.thinkmorestupidless.ankka.crd.{AnkkaSerialization, AnkkaService, AnkkaServiceSpec}
 import io.fabric8.kubernetes.api.model.{HasMetadata, ObjectMetaBuilder}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -68,13 +63,14 @@ class RenderingGoldenSuite extends munit.FunSuite:
   )
 
   /**
-   * A service with a declared topic, in an installation with a broker (feature 027): its user, its
-   * topic, its certificate's common name and the variables that tell it where the broker is.
+   * A service in an installation with a broker (feature 027): its user, its certificate's common
+   * name and the variables that tell it where the broker is. Its project's topics are the project's
+   * resource's, rendered by `ProjectReconciler`.
    */
   private val brokerCases: Vector[(String, AnkkaServiceSpec, Settings, ProvisioningPlan)] = Vector(
     (
       "broker",
-      base.copy(topics = List(TopicEntry("orders", 3)), provisionDatabase = false),
+      base.copy(provisionDatabase = false),
       Settings.default.copy(broker = Some(BrokerStack.settings)),
       ProvisioningPlan.Supplied
     )
@@ -103,8 +99,12 @@ class RenderingGoldenSuite extends munit.FunSuite:
         .build()
     )
     resource.setSpec(spec)
-    val topics = BrokerProvisioning.topicsToRender(spec, settings.broker, BrokerObservation.empty)
-    Rendering.render(resource, settings, plan, topics) match
+    Rendering.render(
+      resource,
+      settings,
+      plan,
+      BrokerProvisioning.known(spec, settings.broker)
+    ) match
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
       case Right(actions) => actions.map(document).mkString("\n")
 

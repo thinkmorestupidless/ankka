@@ -198,29 +198,49 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     assert(!json.contains("database"), s"an absent Option should not appear at all: $json")
   }
 
-  test("a resource from before topics declares none and is known to the broker") {
+  test("a resource from before the broker is known to the broker") {
     val sparse = """{"projectId":"checkout","serviceName":"cart","generation":1,"image":"img:1"}"""
     val spec   = serialization.unmarshal(sparse, classOf[AnkkaServiceSpec])
-    assertEquals(spec.topics, Nil)
     assertEquals(spec.provisionBroker, true)
   }
 
-  test("declared topics and provisionBroker round-trip") {
-    val withTopics = fullSpec.copy(
-      topics = List(TopicEntry("transactions", 12), TopicEntry("wallet-events", 3)),
-      provisionBroker = false
+  test("provisionBroker round-trips") {
+    val supplied = fullSpec.copy(provisionBroker = false)
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(supplied), classOf[AnkkaServiceSpec]),
+      supplied
+    )
+  }
+
+  test("a project's declared topics and their status round-trip") {
+    val spec = AnkkaProjectSpec(
+      "money",
+      List(
+        ProjectTopicEntry("transactions", 12, "2026-10-05T10:00:00Z"),
+        ProjectTopicEntry("entries", 3, "2026-10-05T10:01:00Z")
+      )
     )
     assertEquals(
-      serialization.unmarshal(serialization.asJson(withTopics), classOf[AnkkaServiceSpec]),
-      withTopics
+      serialization.unmarshal(serialization.asJson(spec), classOf[AnkkaProjectSpec]),
+      spec
     )
+    val status = AnkkaProjectStatus(
+      List(
+        ProjectTopicStatus("transactions", "Provisioned", Some(12)),
+        ProjectTopicStatus("entries", "Failed", None, Some("the installation has no broker"))
+      )
+    )
+    val read = serialization.unmarshal(serialization.asJson(status), classOf[AnkkaProjectStatus])
+    assertEquals(read, status)
+    // Read as an Int, as the operator compares it: equality alone passes for a boxed Long too.
+    assertEquals(read.topics.head.partitions.map(_ + 1), Some(13))
   }
 
   test("a BrokerStatus round-trips, and a status with none decodes to None and writes none") {
     val status = AnkkaServiceStatus(
       lifecycle = "Ready",
       broker = Some(
-        BrokerStatus("Recovered", List("money.transactions"), recovered = true, detail = None)
+        BrokerStatus("Recovered", recovered = true, detail = None)
       )
     )
     assertEquals(

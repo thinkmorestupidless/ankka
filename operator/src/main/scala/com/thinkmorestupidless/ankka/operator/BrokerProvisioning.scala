@@ -1,31 +1,30 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, TopicEntry}
+import com.thinkmorestupidless.ankka.crd.AnkkaServiceSpec
 import com.thinkmorestupidless.ankka.operator.strimzi.StrimziStatus
 
 import java.time.Instant
 
 /**
- * What the platform does about one service on the installation's broker, decided as the database's
- * is: a pure function from what the operator observed to a plan, whose reported phase is a property
- * of the case (feature 027, research R8).
+ * What the platform does about one service's credential on the installation's broker, decided as
+ * the database's is: a pure function from what the operator observed to a plan, whose reported
+ * phase is a property of the case (feature 027, research R8, R22). A project's topics are decided
+ * by `TopicProvisioning`.
  *
  * The plan is the status. What is rendered does not wait on it: a service known to the broker is
- * given its user, its topics and the broker's address on every pass, so a phase that turns `Failed`
- * — a descriptor that asked for fewer partitions — never takes the broker away from a running
- * service. `topicsToRender` is the one thing the observation changes about the rendering.
+ * given its user and the broker's address on every pass, whatever the phase.
  */
 enum BrokerPlan:
-  /** Nothing to do and nothing to report: web-hosted, or no broker and no topic declared. */
+  /** Nothing to do and nothing to report: web-hosted, or no broker in the installation. */
   case NotNeeded
 
   /** The descriptor names a broker of its own. */
   case Supplied
 
-  /** The broker's operators have not yet made everything; `detail` says what is outstanding. */
+  /** The broker's operators have not yet made the user; `detail` says so. */
   case Waiting(detail: Option[String])
 
-  /** The user and every declared topic are ready; `recovered` when they were there before. */
+  /** The user is ready; `recovered` when it was there before the service's resource was. */
   case Ready(recovered: Boolean)
 
   /** A problem waiting will not clear. */
@@ -84,13 +83,9 @@ object StrimziObjectState:
 /** A topic as found: its state, and the partitions its resource asks for. */
 final case class TopicState(state: StrimziObjectState, partitions: Option[Int] = None)
 
-/**
- * What the operator found on the broker for one service: its user, and each topic it declares by
- * the name the broker holds it under.
- */
+/** What the operator found on the broker for one service: its user. */
 final case class BrokerObservation(
     user: StrimziObjectState = StrimziObjectState.absent,
-    topics: Map[String, TopicState] = Map.empty,
     resourceCreatedAt: Option[Instant] = None
 )
 
@@ -106,20 +101,6 @@ object BrokerProvisioning:
   def known(spec: AnkkaServiceSpec, broker: Option[BrokerSettings]): Boolean =
     broker.isDefined && spec.hosting != Rendering.WebHosting && spec.provisionBroker
 
-  /**
-   * The declared topics to render, or `None` when nothing of the broker is rendered. A topic whose
-   * resource already asks for more partitions than declared is left out: a topic is never made
-   * smaller, and the decision reports it.
-   */
-  def topicsToRender(
-      spec: AnkkaServiceSpec,
-      broker: Option[BrokerSettings],
-      observed: BrokerObservation
-  ): Option[Vector[TopicEntry]] =
-    Option.when(known(spec, broker))(
-      spec.topics.toVector.filterNot(t => shrinks(spec, t, observed))
-    )
-
   def decide(
       spec: AnkkaServiceSpec,
       broker: Option[BrokerSettings],
@@ -127,50 +108,18 @@ object BrokerProvisioning:
   ): BrokerPlan =
     if spec.hosting == Rendering.WebHosting then BrokerPlan.NotNeeded
     else if !spec.provisionBroker then BrokerPlan.Supplied
-    else if broker.isEmpty then
-      if spec.topics.isEmpty then BrokerPlan.NotNeeded
-      else BrokerPlan.Failed(Vector("the installation has no broker"))
+    else if broker.isEmpty then BrokerPlan.NotNeeded
     else
-      val declared = spec.topics.toVector.map(t => (t, BrokerNames.topic(spec.projectId, t.name)))
-      val states   = declared.map((t, name) => (t, name, observed.topics.get(name)))
-      val rejected =
-        (("user" -> observed.user) +: states.collect { case (_, name, Some(s)) =>
-          s"topic '$name'" -> s.state
-        }).collect {
-          case (what, s) if s.ready.contains(false) && s.reason.exists(PermanentReasons) =>
-            s"$what: ${s.message.orElse(s.reason).getOrElse("refused")}"
-        }
-      val smaller = states.collect {
-        case (t, name, Some(s)) if s.partitions.exists(_ > t.partitions) =>
-          s"topic '$name' has ${s.partitions.get} partitions and cannot have fewer; " +
-            s"${t.partitions} was asked"
-      }
-      if rejected.nonEmpty || smaller.nonEmpty then BrokerPlan.Failed(smaller ++ rejected)
-      else
-        val outstanding =
-          Option.when(!observed.user.ready.contains(true))("the user").toVector ++
-            states.collect {
-              case (_, name, s) if !s.exists(_.state.ready.contains(true)) => s"topic '$name'"
-            }
-        if outstanding.nonEmpty then
-          BrokerPlan.Waiting(Some(s"waiting for the broker to make ${outstanding.mkString(", ")}"))
-        else BrokerPlan.Ready(recovered(spec, observed))
+      val user = observed.user
+      if user.ready.contains(false) && user.reason.exists(PermanentReasons) then
+        BrokerPlan.Failed(Vector(s"user: ${user.message.orElse(user.reason).getOrElse("refused")}"))
+      else if !user.ready.contains(true) then
+        BrokerPlan.Waiting(Some("waiting for the broker to make the user"))
+      else BrokerPlan.Ready(recovered(observed))
 
-  private def shrinks(spec: AnkkaServiceSpec, t: TopicEntry, observed: BrokerObservation): Boolean =
-    observed.topics
-      .get(BrokerNames.topic(spec.projectId, t.name))
-      .flatMap(_.partitions)
-      .exists(_ > t.partitions)
-
-  /**
-   * True when the service declares a topic, and its user and every topic it declares were made
-   * before its resource was: the same name, applied again, finding what it had.
-   */
-  private def recovered(spec: AnkkaServiceSpec, observed: BrokerObservation): Boolean =
-    observed.resourceCreatedAt.exists { created =>
-      def before(s: StrimziObjectState) = s.createdAt.exists(_.isBefore(created))
-      spec.topics.nonEmpty && before(observed.user) &&
-      spec.topics.forall(t =>
-        observed.topics.get(BrokerNames.topic(spec.projectId, t.name)).exists(s => before(s.state))
-      )
-    }
+  /** The user was made before the service's resource was: the same name, applied again. */
+  private def recovered(observed: BrokerObservation): Boolean =
+    (for
+      created <- observed.resourceCreatedAt
+      made    <- observed.user.createdAt
+    yield made.isBefore(created)).getOrElse(false)

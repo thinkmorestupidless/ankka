@@ -1,6 +1,13 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, AnkkaServiceStatus}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaProjectSpec,
+  AnkkaProjectStatus,
+  AnkkaServiceSpec,
+  AnkkaServiceStatus,
+  ProjectTopicEntry,
+  ProjectTopicStatus
+}
 import io.fabric8.kubernetes.api.model.apiextensions.v1.CustomResourceDefinition
 import io.fabric8.kubernetes.client.utils.Serialization
 
@@ -20,23 +27,35 @@ import scala.jdk.CollectionConverters.*
  */
 class CrdSchemaSuite extends munit.FunSuite:
 
-  private val crd: CustomResourceDefinition =
-    val stream = getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")
-    assert(stream != null, "the CRD was not found on the classpath — check the crd symlink")
+  private def load(file: String): CustomResourceDefinition =
+    val stream = getClass.getResourceAsStream(s"/ankka/crd/$file")
+    assert(stream != null, s"$file was not found on the classpath — check the crd symlink")
     try Serialization.unmarshal(stream, classOf[CustomResourceDefinition])
     finally stream.close()
 
-  /** The property names one object in the schema declares. */
-  private def declared(path: String*): Set[String] =
+  private val crd: CustomResourceDefinition        = load("ankkaservice.yaml")
+  private val projectCrd: CustomResourceDefinition = load("ankkaproject.yaml")
+
+  /** The property names one object in the service's schema declares. */
+  private def declared(path: String*): Set[String] = declaredIn(crd, path*)
+
+  /**
+   * The property names one object in a schema declares; `items` steps into an array's elements.
+   */
+  private def declaredIn(crd: CustomResourceDefinition, path: String*): Set[String] =
     val version = crd.getSpec.getVersions.asScala.headOption
       .getOrElse(fail("the CRD declares no version"))
     var schema = Option(version.getSchema)
       .flatMap(s => Option(s.getOpenAPIV3Schema))
       .getOrElse(fail("the CRD's version has no schema"))
     path.foreach { name =>
-      schema = Option(schema.getProperties)
-        .flatMap(p => Option(p.get(name)))
-        .getOrElse(fail(s"the schema declares no '$name'"))
+      schema =
+        if name == "items" then
+          Option(schema.getItems).flatMap(i => Option(i.getSchema)).getOrElse(fail("no items"))
+        else
+          Option(schema.getProperties)
+            .flatMap(p => Option(p.get(name)))
+            .getOrElse(fail(s"the schema declares no '$name'"))
     }
     Option(schema.getProperties).map(_.asScala.keySet.toSet).getOrElse(Set.empty)
 
@@ -76,6 +95,19 @@ class CrdSchemaSuite extends munit.FunSuite:
       spurious,
       Set.empty[String],
       s"the schema declares fields AnkkaServiceSpec does not have: ${spurious.mkString(", ")}"
+    )
+  }
+
+  test("a project's resource and its schema declare the same fields, at every level") {
+    assertEquals(declaredIn(projectCrd, "spec"), fieldsOf(classOf[AnkkaProjectSpec]))
+    assertEquals(declaredIn(projectCrd, "status"), fieldsOf(classOf[AnkkaProjectStatus]))
+    assertEquals(
+      declaredIn(projectCrd, "spec", "topics", "items"),
+      fieldsOf(classOf[ProjectTopicEntry])
+    )
+    assertEquals(
+      declaredIn(projectCrd, "status", "topics", "items"),
+      fieldsOf(classOf[ProjectTopicStatus])
     )
   }
 

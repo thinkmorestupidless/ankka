@@ -193,23 +193,6 @@ spec:
                   description: >-
                     The port a web-hosted service's program listens on, told to it as PORT. Absent
                     for every other hosting.
-                topics:
-                  type: array
-                  description: >-
-                    The topics the descriptor declares, made on the installation's broker as
-                    <project>.<name>. A topic is the project's; a service that only reads one
-                    declares nothing.
-                  items:
-                    type: object
-                    required:
-                      - name
-                      - partitions
-                    properties:
-                      name:
-                        type: string
-                      partitions:
-                        type: integer
-                        minimum: 1
                 provisionBroker:
                   type: boolean
                   description: >-
@@ -293,9 +276,9 @@ spec:
                       type: string
                 broker:
                   type: object
-                  description: What the platform did about this service on the installation's
-                    broker. Absent for a web-hosted service, and for one that declares no topic in
-                    an installation with no broker.
+                  description: What the platform did about this service's credential on the
+                    installation's broker. Absent for a web-hosted service, and in an installation
+                    with no broker.
                   properties:
                     phase:
                       type: string
@@ -305,10 +288,6 @@ spec:
                         - Provisioned
                         - Recovered
                         - Failed
-                    topics:
-                      type: array
-                      items:
-                        type: string
                     recovered:
                       type: boolean
                     detail:

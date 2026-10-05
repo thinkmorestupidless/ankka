@@ -359,26 +359,6 @@
   }
 }
 
-# ensure kafka topic ankka-broker/checkout.orders
-{
-  "apiVersion" : "kafka.strimzi.io/v1",
-  "kind" : "KafkaTopic",
-  "metadata" : {
-    "labels" : {
-      "app.kubernetes.io/managed-by" : "ankka",
-      "ankka.thinkmorestupidless.com/project" : "checkout",
-      "ankka.thinkmorestupidless.com/service" : "cart",
-      "strimzi.io/cluster" : "ankka",
-      "app.kubernetes.io/name" : "cart"
-    },
-    "name" : "checkout.orders",
-    "namespace" : "ankka-broker"
-  },
-  "spec" : {
-    "partitions" : 3
-  }
-}
-
 # apply deployment ankka-checkout/cart
 {
   "apiVersion" : "apps/v1",

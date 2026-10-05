@@ -1,0 +1,114 @@
+package com.thinkmorestupidless.ankka.operator
+
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaProjectSpec,
+  AnkkaProjectStatus,
+  ProjectTopicEntry,
+  ProjectTopicStatus
+}
+import com.thinkmorestupidless.ankka.operator.strimzi.{KafkaTopicSpec, StrimziDefinitions}
+
+/**
+ * What one pass over a project's resource does, as values (`ProjectReconciler.actions`): the
+ * project's topics on the installation's broker, and their status. The objects themselves are
+ * asserted, never a string found somewhere.
+ */
+class ProjectRenderingSuite extends munit.FunSuite:
+
+  private val broker = Some(BrokerStack.settings)
+  private val ref    = ServiceRef("ankka-money", "money")
+  private val money = AnkkaProjectSpec(
+    "money",
+    List(
+      ProjectTopicEntry("transactions", 12, "2026-10-05T10:00:00Z"),
+      ProjectTopicEntry("wallet-events", 3, "2026-10-05T10:00:00Z")
+    )
+  )
+  private val made =
+    StrimziObjectState(exists = true, ready = Some(true), createdAt = None)
+
+  private def actions(
+      spec: AnkkaProjectSpec = money,
+      settings: Option[BrokerSettings] = broker,
+      observed: Map[String, TopicState] = Map.empty,
+      current: Option[AnkkaProjectStatus] = None
+  ) = ProjectReconciler.actions(ref, spec, settings, observed, current)
+
+  private def topics(as: Vector[Action]) = as.collect { case Action.EnsureKafkaTopic(t) => t }
+
+  // features/broker/declaring.feature
+  test("a declared topic is made on the installation's broker for its project") {
+    val rendered = topics(actions())
+    assertEquals(
+      rendered.map(_.getMetadata.getName),
+      Vector("money.transactions", "money.wallet-events")
+    )
+    assertEquals(rendered.map(_.getSpec), Vector(KafkaTopicSpec(12), KafkaTopicSpec(3)))
+    assert(rendered.forall(_.getMetadata.getNamespace == "ankka-broker"))
+    for t <- rendered do
+      val labels = t.getMetadata.getLabels
+      assertEquals(labels.get(StrimziDefinitions.ClusterLabel), "ankka")
+      assertEquals(labels.get(Labels.ManagedByKey), Labels.ManagedByAnkka)
+      assertEquals(labels.get(Labels.ProjectKey), "money")
+  }
+
+  test("a project's topics are owned by nothing, and nothing removes one") {
+    val as = actions()
+    for t <- topics(as) do
+      assert(Option(t.getMetadata.getOwnerReferences).forall(_.isEmpty), t.getMetadata.getName)
+    assert(!as.exists(_.describe.matches("(?i).*(remove|delete).*")), as.map(_.describe).toString)
+  }
+
+  // features/broker/kept.feature
+  test("a topic no longer declared is neither made nor reported, and nothing removes it") {
+    val fewer = money.copy(topics = money.topics.take(1))
+    val as    = actions(fewer)
+    assertEquals(topics(as).map(_.getMetadata.getName), Vector("money.transactions"))
+    assertEquals(
+      as.collect { case Action.SetProjectStatus(_, _, s) => s.topics.map(_.name) },
+      Vector(List("transactions"))
+    )
+  }
+
+  test("a topic is never rendered with fewer partitions than it has") {
+    val grown = Map("money.transactions" -> TopicState(made, Some(13)))
+    assertEquals(
+      topics(actions(observed = grown)).map(_.getMetadata.getName),
+      Vector("money.wallet-events")
+    )
+  }
+
+  // features/broker/installation.feature
+  test("a topic declared on an installation with no broker says why it is not made") {
+    val as = actions(settings = None)
+    assertEquals(topics(as), Vector.empty)
+    assertEquals(
+      as.collect { case Action.SetProjectStatus(ns, name, s) => (ns, name, s.topics.map(_.phase)) },
+      Vector(("ankka-money", "money", List("Failed", "Failed")))
+    )
+  }
+
+  test("a status that says what the resource already says is not written again") {
+    val seen = Map(
+      "money.transactions"  -> TopicState(made, Some(12)),
+      "money.wallet-events" -> TopicState(made, Some(3))
+    )
+    val same = AnkkaProjectStatus(
+      List(
+        ProjectTopicStatus("transactions", "Provisioned", Some(12)),
+        ProjectTopicStatus("wallet-events", "Provisioned", Some(3))
+      )
+    )
+    assertEquals(
+      actions(observed = seen, current = Some(same)).collect { case s: Action.SetProjectStatus =>
+        s
+      },
+      Vector.empty
+    )
+    assertEquals(
+      actions(observed = seen, current = None).collect { case s: Action.SetProjectStatus =>
+        s
+      }.size,
+      1
+    )
+  }

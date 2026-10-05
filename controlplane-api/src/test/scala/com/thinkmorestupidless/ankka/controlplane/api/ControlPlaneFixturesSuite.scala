@@ -117,7 +117,7 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         callers = Vector("orders", "billing/invoices", "*"),
         processPort = Some(3000),
         broker = Some("provisioned"),
-        topics = Vector("shop.cart-graph")
+        undeclaredTopics = Some(Vector("cart-checkouts"))
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),
@@ -189,6 +189,16 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
       "SetRegistry",
       SetRegistry("ghcr.io", "robot", "password"),
       SetRegistry("ghcr.io", "robot", "password")
+    ),
+    fixture(
+      "TopicDeclarationRequest",
+      TopicDeclarationRequest(12),
+      TopicDeclarationRequest(1)
+    ),
+    fixture(
+      "ProjectTopic",
+      ProjectTopic("transactions", 12, Some("failed"), Some("the installation has no broker")),
+      ProjectTopic("transactions", 12)
     ),
     fixture(
       "SetProjectSecret",

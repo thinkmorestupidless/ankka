@@ -213,6 +213,21 @@ enum ProjectEvent:
       at: Option[Instant] = None
   )
 
+  /** A topic declared on the project, or its partitions raised (feature 027). */
+  case ProjectTopicDeclared(
+      name: String,
+      partitions: Int,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
+  /** The project no longer declares a topic. The topic stays on the broker. */
+  case ProjectTopicRemoved(
+      name: String,
+      actor: Option[Actor] = None,
+      at: Option[Instant] = None
+  )
+
 enum ServiceEvent:
   /**
    * A descriptor was applied.
@@ -268,9 +283,7 @@ enum ServiceEvent:
        * `com.thinkmorestupidless.ankka.crd.BrokerStatus.phase`. `None` when there is nothing to
        * report and for events from before this field existed.
        */
-      broker: Option[String] = None,
-      /** The topics the service declares, as the broker holds them. */
-      topics: Vector[String] = Vector.empty
+      broker: Option[String] = None
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -295,8 +308,7 @@ final case class ServiceObservation(
     detail: Option[String] = None,
     confirmed: Boolean = true,
     database: Option[String] = None,
-    broker: Option[String] = None,
-    topics: Vector[String] = Vector.empty
+    broker: Option[String] = None
 )
 
 /**
@@ -345,6 +357,12 @@ final case class SetSecretEntries(name: String, entries: Vector[String])
 
 /** `ProjectEntity.removeSecretEntry`: an entry the cluster no longer holds. */
 final case class RemoveSecretEntry(name: String, entry: String)
+
+/** `declare-topic`: a topic on the project, with its partitions (feature 027). */
+final case class DeclareTopic(name: String, partitions: Int)
+
+/** `remove-topic`: stop declaring a topic. */
+final case class RemoveTopic(name: String)
 
 /** `DeployTokenEntity.get` — everything the entity knows except the digest. */
 final case class DeployTokenDetail(

@@ -49,7 +49,8 @@ object ControlPlane:
   /** The full inventory, including the consumer that projects on a desired-state change. */
   def componentsWith(projector: ServiceProjector): Seq[ComponentDescriptor] =
     components :+ ProjectionTrigger.companion(projector).descriptor :+
-      SuspensionTrigger.companion(projector).descriptor
+      SuspensionTrigger.companion(projector).descriptor :+
+      ProjectTopicsTrigger.companion(projector).descriptor
 
   /**
    * The endpoints, all but one sharing the ACL. The service endpoint also needs the deployment
@@ -93,7 +94,9 @@ object ControlPlane:
        */
       logs: Option[com.thinkmorestupidless.ankka.controlplane.deploy.PodLogReader] = None,
       /** Where a project secret's entries go; the projector too, for the same reasons. */
-      secrets: Option[ProjectSecretWriter] = None
+      secrets: Option[ProjectSecretWriter] = None,
+      /** Where a project's topics' phases are read from; the projector, as for the others. */
+      topics: Option[com.thinkmorestupidless.ankka.controlplane.deploy.ProjectTopicsReader] = None
   ): Seq[
     com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
   ] =
@@ -101,7 +104,7 @@ object ControlPlane:
       com.thinkmorestupidless.ankka.http.EndpointClients => com.thinkmorestupidless.ankka.http.HttpEndpoint
     ](
       clients => OrganizationEndpoint(clients, acl, policy, clock, tokens),
-      clients => ProjectEndpoint(clients, acl, clock, registry, secrets),
+      clients => ProjectEndpoint(clients, acl, clock, registry, secrets, topics),
       // The real readers keep their own defaults rather than being built from `deploy`: that is
       // the behaviour this call has always had, and changing it here would be an unrelated fix
       // smuggled in.
@@ -163,7 +166,8 @@ object ControlPlane:
             policy,
             tokens = tokens,
             registry = Some(projector),
-            secrets = Some(projector)
+            secrets = Some(projector),
+            topics = Some(projector)
           )*
         )
       case _ =>
@@ -175,7 +179,8 @@ object ControlPlane:
             policy,
             tokens = tokens,
             registry = Some(projector),
-            secrets = Some(projector)
+            secrets = Some(projector),
+            topics = Some(projector)
           )*
         )
     val base = Ankka.service

@@ -93,18 +93,18 @@ test("a web-hosted service shows where it runs, whom it admits, its mounts and n
   await audit(page);
 });
 
-test("a service known to the installation's broker shows its broker and the topics it declares", async ({ page, target, signIn, unique, audit }) => {
+test("a service known to the installation's broker shows its broker and the topics it uses undeclared", async ({ page, target, signIn, unique, audit }) => {
   test.skip(target.kind !== "fake", "a broker's report is seeded on the fake");
   const org = unique("broker-org");
   const project = unique("broker-proj");
   seedTenancy(target, { org, project });
   target.controlPlane!.seed({
-    services: [{ projectId: project, name: "wallet", broker: "provisioned", topics: [`${project}.transactions`] }],
+    services: [{ projectId: project, name: "wallet", broker: "provisioned", undeclaredTopics: ["entries"] }],
   });
   await signIn(page, "owner", `/projects/${project}/services/wallet`);
   const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
   await expect(fact("Broker")).toHaveText("provisioned");
-  await expect(page.locator(`li[data-topic="${project}.transactions"]`)).toHaveText(`${project}.transactions`);
+  await expect(page.locator('li[data-topic="entries"]')).toHaveText("entries");
   await audit(page);
 });
 

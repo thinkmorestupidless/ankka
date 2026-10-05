@@ -24,6 +24,8 @@ export const operations = [
   "registry.clear",
   "project-secret.set",
   "project-secret.unset",
+  "project-topic.set",
+  "project-topic.unset",
   "service.apply",
   "service.pause",
   "service.resume",

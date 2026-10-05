@@ -204,14 +204,7 @@ final case class ServiceSpec(
      * Absent means the platform's default, `DefaultProcessPort`. An `Option` defaulting to `None`,
      * the one shape the codec's reading of `null` as absent cannot turn into something else.
      */
-    processPort: Option[Int] = None,
-    /**
-     * The topics this service publishes to, which the platform makes on the installation's broker
-     * as `<project>.<name>` (feature 027). A topic is the project's: a service that only reads one
-     * declares nothing. Refused beside a broker variable, which names a broker of the service's
-     * own.
-     */
-    topics: Vector[TopicDeclaration] = Vector.empty
+    processPort: Option[Int] = None
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -367,47 +360,7 @@ final case class ServiceSpec(
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
       serviceNameEnvProblems ++ secretProblems ++ hostingProblems ++ moduleProblems ++ webProblems ++
       protocolProblems ++
-      grpcProblems ++ topicProblems ++ resources.problems
-
-  /**
-   * What a descriptor's topics may be (feature 027): names the broker can hold under a project's
-   * prefix, partitions it can make, each once; none for a web-hosted service, which has no runtime
-   * to publish with; and none beside a broker of the service's own, so a descriptor says one thing.
-   */
-  private def topicProblems: Vector[String] =
-    val each = topics.flatMap { t =>
-      Option
-        .when(!TopicDeclaration.validName(t.name))(
-          s"topic '${t.name}': ${TopicDeclaration.NameRule}"
-        )
-        .toVector ++
-        Option
-          .when(t.partitions < 1 || t.partitions > TopicDeclaration.MaxPartitions)(
-            s"topic '${t.name}': partitions ${t.partitions} is outside the range " +
-              s"1-${TopicDeclaration.MaxPartitions}"
-          )
-          .toVector
-    }
-    val twice = topics
-      .groupBy(_.name)
-      .collect { case (name, all) if all.size > 1 => name }
-      .toVector
-      .sorted
-      .map(name => s"topic '$name' is declared more than once")
-    val web = Option
-      .when(topics.nonEmpty && isWebHosted)(
-        "topics is meaningful only for a service with components; a web-hosted service declares none"
-      )
-      .toVector
-    val supplied = env
-      .filter(_ => topics.nonEmpty)
-      .find(_.name.startsWith(ServiceSpec.BrokerVariablePrefix))
-      .map(e =>
-        s"topics are declared for the installation's broker, and env var '${e.name}' names " +
-          "another; remove one"
-      )
-      .toVector
-    each ++ twice ++ web ++ supplied
+      grpcProblems ++ resources.problems
 
   /**
    * What only a web-hosted service may say, and what it may not (feature 021). Empty for a service
@@ -546,29 +499,6 @@ final case class SecretKeyRef(name: String, key: String)
  * with `path` removed from its front.
  */
 final case class Mount(path: String, service: String)
-
-/**
- * A topic a descriptor declares (feature 027): its name as the service's components use it, and how
- * many partitions the broker gives it.
- */
-final case class TopicDeclaration(name: String, partitions: Int)
-
-object TopicDeclaration:
-
-  /** The most partitions a declared topic may ask for. */
-  val MaxPartitions: Int = 1000
-
-  /**
-   * A name the broker can hold under a project's prefix, and one the topic's resource can be named
-   * for: a Kubernetes name, which is what keeps `<project>.<name>` within Kafka's limit too.
-   */
-  val NameRule: String =
-    "a name is lower-case letters, digits, \"-\" and \".\", starting and ending with a letter " +
-      "or digit, at most 100 characters"
-
-  private val Name = "[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?".r
-
-  def validName(name: String): Boolean = Name.matches(name)
 
 object Mount:
 
@@ -806,14 +736,18 @@ final case class ServiceStatus(
     /** The port a web-hosted service's process listens on, stated or defaulted. */
     processPort: Option[Int] = None,
     /**
-     * A short phrase for what the platform did about this service on the installation's broker
-     * (feature 027) — `"provisioned"`, `"supplied"`, `"waiting for broker"` — or `None` when there
-     * is nothing to report: a web-hosted service, or one that declares no topic where there is no
+     * A short phrase for what the platform did about this service's credential on the
+     * installation's broker (feature 027) — `"provisioned"`, `"supplied"`, `"waiting for broker"` —
+     * or `None` when there is nothing to report: a web-hosted service, or an installation with no
      * broker. A phrase, as `database` is.
      */
     broker: Option[String] = None,
-    /** The topics the service declares, as the broker holds them: `<project>.<name>`. */
-    topics: Vector[String] = Vector.empty
+    /**
+     * The topics this service's components read or publish to that its project does not declare, by
+     * the names the components gave them. Read from the service's running instances: `None` when
+     * none answered, and on a listing row; empty when they answered and every topic is declared.
+     */
+    undeclaredTopics: Option[Vector[String]] = None
 )
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
@@ -1270,6 +1204,54 @@ object Registries:
       if password.isEmpty then Vector("registry password must not be empty") else Vector.empty
     serverProblems ++ usernameProblems ++ passwordProblems
 
+// ── Project topics (feature 027) ─────────────────────────────────────────────
+
+/** `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has. */
+final case class TopicDeclarationRequest(partitions: Int)
+
+/**
+ * A topic a project declares, and how far the platform has got with it: `phase` is a phrase, as a
+ * database's is — `"waiting for broker"`, `"provisioned"`, `"recovered"`, `"failed"` — absent
+ * before the operator has reported on it.
+ */
+final case class ProjectTopic(
+    name: String,
+    partitions: Int,
+    phase: Option[String] = None,
+    detail: Option[String] = None
+)
+
+/** What is wrong with a topic's declaration, checked identically by the CLI and the server. */
+object ProjectTopics:
+
+  /** The most partitions a declared topic may ask for. */
+  val MaxPartitions: Int = 1000
+
+  /**
+   * A name the broker can hold under a project's prefix, and one the topic's resource can be named
+   * for: a Kubernetes name, which is what keeps `<project>.<name>` within Kafka's limit too.
+   */
+  val NameRule: String =
+    "a name is lower-case letters, digits, \"-\" and \".\", starting and ending with a letter " +
+      "or digit, at most 100 characters"
+
+  private val Name = "[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?".r
+
+  def validName(name: String): Boolean = Name.matches(name)
+
+  /** Everything wrong with declaring `name` with `partitions`, all at once. */
+  def problems(name: String, partitions: Int): Vector[String] =
+    Option.when(!validName(name))(s"topic '$name': $NameRule").toVector ++
+      Option
+        .when(partitions < 1 || partitions > MaxPartitions)(
+          s"topic '$name': partitions $partitions is outside the range 1-$MaxPartitions"
+        )
+        .toVector
+
+  /** The refusal of fewer partitions than the project declares: the entity's rule, worded here. */
+  def fewer(name: String, has: Int, asked: Int): String =
+    s"topic '$name' has $has partitions and cannot have fewer; $asked was asked"
+
 // ── Project secrets (feature 023) ────────────────────────────────────────────
 
 /**
@@ -1409,7 +1391,11 @@ object Wire:
   given tokenSummaryCodec: JsonValueCodec[DeployTokenSummary] = Codecs.make[DeployTokenSummary]
   given tokensCodec: JsonValueCodec[Vector[DeployTokenSummary]] =
     Codecs.make[Vector[DeployTokenSummary]]
-  given setRegistryCodec: JsonValueCodec[SetRegistry]            = Codecs.make[SetRegistry]
+  given setRegistryCodec: JsonValueCodec[SetRegistry] = Codecs.make[SetRegistry]
+  given topicDeclarationCodec: JsonValueCodec[TopicDeclarationRequest] =
+    Codecs.make[TopicDeclarationRequest]
+  given projectTopicCodec: JsonValueCodec[ProjectTopic]          = Codecs.make[ProjectTopic]
+  given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =

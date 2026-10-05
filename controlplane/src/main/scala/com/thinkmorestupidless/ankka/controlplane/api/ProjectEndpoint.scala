@@ -7,10 +7,16 @@ import com.thinkmorestupidless.ankka.controlplane.application.{
   ServiceRows
 }
 import com.thinkmorestupidless.ankka.controlplane.auth.Authorization
-import com.thinkmorestupidless.ankka.controlplane.deploy.{ProjectSecretWriter, RegistryWriter}
+import com.thinkmorestupidless.ankka.controlplane.deploy.{
+  ProjectSecretWriter,
+  ProjectTopicsReader,
+  RegistryWriter
+}
 import com.thinkmorestupidless.ankka.controlplane.domain.{
   ConfigureRegistry,
+  DeclareTopic,
   RemoveSecretEntry,
+  RemoveTopic,
   SetSecretEntries
 }
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
@@ -35,7 +41,13 @@ final class ProjectEndpoint(
      */
     registryWriter: Option[RegistryWriter] = None,
     /** Where a project secret's entries go; `None` as for the registry, with the same answer. */
-    secretWriter: Option[ProjectSecretWriter] = None
+    secretWriter: Option[ProjectSecretWriter] = None,
+    /**
+     * Where each declared topic's phase is read from (feature 027). `None`, or a cluster that
+     * cannot be read, lists the topics with no phase: the declarations are the project's record,
+     * and are answered whatever the cluster says.
+     */
+    topicsReader: Option[ProjectTopicsReader] = None
 ) extends HttpEndpoint("/projects")
     with Attributing:
 
@@ -216,6 +228,57 @@ final class ProjectEndpoint(
   }
 
   /**
+   * Declares a topic on the project, or raises its partitions (feature 027). The record first, here
+   * the reverse of a secret's order: a declaration is desired state, which `ProjectTopicsTrigger`
+   * writes to the cluster after it, retrying until the cluster has it.
+   */
+  putBody("/{projectId}/topics/{name}") {
+    (projectId: String, name: String, request: TopicDeclarationRequest) =>
+      val access   = authz.project(principal, projectId, write = true)
+      val problems = ProjectTopics.problems(name, request.partitions)
+      if problems.nonEmpty then throw CommandError(problems.mkString("; "), ErrorCode.BadRequest)
+      entity(projectId)
+        .call(ProjectEntity.declareTopic)
+        .withMetadata(authz.metadata(access))
+        .invoke(DeclareTopic(name, request.partitions)): Done
+  }
+
+  /** Stops declaring a topic. The topic and what was published to it stay on the broker. */
+  delete("/{projectId}/topics/{name}") { (projectId: String, name: String) =>
+    val access = authz.project(principal, projectId, write = true)
+    entity(projectId)
+      .call(ProjectEntity.removeTopic)
+      .withMetadata(authz.metadata(access))
+      .invoke(RemoveTopic(name)): Done
+  }
+
+  /**
+   * The project's declared topics, from its own record, each with the phase the operator last
+   * reported — absent when it has not, or the cluster cannot be read.
+   */
+  get("/{projectId}/topics") { (projectId: String) =>
+    authz.project(principal, projectId, write = false): Unit
+    val declared = entity(projectId).call(ProjectEntity.topics).invoke()
+    val reported =
+      topicsReader
+        .flatMap(reader =>
+          try reader.topicStatus(projectId)
+          catch case NonFatal(_) => None
+        )
+        .map(_.topics.map(t => t.name -> t).toMap)
+        .getOrElse(Map.empty)
+    declared.toVector.sortBy(_._1).map { (name, topic) =>
+      val status = reported.get(name)
+      ProjectTopic(
+        name,
+        topic.partitions,
+        status.map(s => ProjectEndpoint.topicPhrase(s.phase)),
+        status.flatMap(_.detail)
+      )
+    }
+  }
+
+  /**
    * The project's secrets, by name, from the project's own record: names and entries, never a
    * value.
    */
@@ -229,3 +292,13 @@ final class ProjectEndpoint(
 
   private def entity(projectId: String) =
     clients.componentClient.forEventSourcedEntity(EntityId(projectId))
+
+object ProjectEndpoint:
+
+  /** The operator's reported phase of a topic, as the phrase `ProjectTopic.phase` documents. */
+  def topicPhrase(phase: String): String = phase match
+    case "Waiting"     => "waiting for broker"
+    case "Provisioned" => "provisioned"
+    case "Recovered"   => "recovered"
+    case "Failed"      => "failed"
+    case other         => other

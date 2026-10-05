@@ -41,6 +41,8 @@ final class ProjectRowsView extends View[ProjectEvent, ProjectDetail]:
     // A project's secrets are listed from the entity, which holds them exactly; the row has nothing
     // to say about them.
     case _: ProjectSecretEntriesSet | _: ProjectSecretEntryRemoved => effects.ignore()
+    // A project's topics are read from the project itself, whose record is exact, not a listing.
+    case _: ProjectTopicDeclared | _: ProjectTopicRemoved => effects.ignore()
 
 object ProjectRows
     extends View.Companion[ProjectRowsView, ProjectEvent, ProjectDetail](

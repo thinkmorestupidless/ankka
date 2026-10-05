@@ -142,19 +142,12 @@ object LifecycleRules:
 
   /**
    * `BrokerPlan` becomes the status an operator reads (feature 027), in the database's shape: the
-   * phase is the plan's own, and the topics are the ones the service declares, as the broker holds
-   * them. Nothing is reported for a plan with no phase.
+   * phase is the plan's own. Nothing is reported for a plan with no phase.
    */
-  def brokerStatus(
-      plan: BrokerPlan,
-      spec: com.thinkmorestupidless.ankka.crd.AnkkaServiceSpec
-  ): Option[com.thinkmorestupidless.ankka.crd.BrokerStatus] =
+  def brokerStatus(plan: BrokerPlan): Option[com.thinkmorestupidless.ankka.crd.BrokerStatus] =
     plan.reportedPhase.map { phase =>
       com.thinkmorestupidless.ankka.crd.BrokerStatus(
         phase = phase,
-        topics =
-          if plan == BrokerPlan.Supplied then Nil
-          else spec.topics.map(t => BrokerNames.topic(spec.projectId, t.name)),
         recovered = plan == BrokerPlan.Ready(recovered = true),
         detail = plan match
           case BrokerPlan.Waiting(detail)  => detail

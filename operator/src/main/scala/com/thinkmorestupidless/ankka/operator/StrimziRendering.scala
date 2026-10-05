@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, EnvEntry, TopicEntry}
+import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, EnvEntry, ProjectTopicEntry}
 import com.thinkmorestupidless.ankka.operator.strimzi.{
   AclResource,
   AclRule,
@@ -15,8 +15,8 @@ import com.thinkmorestupidless.ankka.operator.strimzi.{
 
 /**
  * What a service is on the installation's broker (feature 027): a user whose permissions end at its
- * project's topics and its own consumer groups, a topic for each it declares, and the variables
- * that tell its runtime where the broker is and how to reach it.
+ * project's topics and its own consumer groups, and the variables that tell its runtime where the
+ * broker is and how to reach it; and a topic for each its project declares.
  *
  * Every object lives in the broker's namespace, where Strimzi's operators watch, and none carries
  * an owner reference: one cannot cross namespaces, and nothing the platform makes on the broker is
@@ -64,11 +64,20 @@ object StrimziRendering:
       )
     )
 
-  def topic(spec: AnkkaServiceSpec, entry: TopicEntry, broker: BrokerSettings): KafkaTopicResource =
+  /** A topic the project declares: the project's, so labelled for the project alone. */
+  def topic(
+      projectId: String,
+      entry: ProjectTopicEntry,
+      broker: BrokerSettings
+  ): KafkaTopicResource =
     KafkaTopicResource(
       broker.namespace,
-      BrokerNames.topic(spec.projectId, entry.name),
-      labels(spec, broker),
+      BrokerNames.topic(projectId, entry.name),
+      Map(
+        Labels.ManagedByKey             -> Labels.ManagedByAnkka,
+        Labels.ProjectKey               -> projectId,
+        StrimziDefinitions.ClusterLabel -> broker.cluster
+      ),
       KafkaTopicSpec(partitions = entry.partitions)
     )
 

@@ -296,6 +296,13 @@ final case class ProjectSecretRef(
     setAt: Option[Instant] = None
 )
 
+/**
+ * A topic a project declares (feature 027): its partitions, and when it was first declared — kept
+ * when the partitions are raised, so a topic the broker held from before this declaration can be
+ * told apart from one it made for it.
+ */
+final case class DeclaredTopic(partitions: Int, declaredAt: Option[Instant] = None)
+
 /** A project. Services live in one. */
 final case class Project(
     id: String,
@@ -304,7 +311,9 @@ final case class Project(
     deleted: Boolean = false,
     registry: Option[RegistryRef] = None,
     /** By the secret's name. A secret with no entry left is not here. */
-    secrets: Map[String, ProjectSecretRef] = Map.empty
+    secrets: Map[String, ProjectSecretRef] = Map.empty,
+    /** By the topic's name, as the project's components use it (feature 027). */
+    topics: Map[String, DeclaredTopic] = Map.empty
 ):
   def exists: Boolean = name.nonEmpty && !deleted
 
@@ -336,6 +345,12 @@ final case class Project(
   ): Project =
     val had = secrets.get(name).map(_.entries).getOrElse(Set.empty)
     copy(secrets = secrets.updated(name, ProjectSecretRef(had ++ entries, actor, at)))
+
+  def onTopicDeclared(name: String, partitions: Int, at: Option[Instant]): Project =
+    val declaredAt = topics.get(name).fold(at)(_.declaredAt)
+    copy(topics = topics.updated(name, DeclaredTopic(partitions, declaredAt)))
+
+  def onTopicRemoved(name: String): Project = copy(topics = topics - name)
 
   def onSecretEntryRemoved(name: String, entry: String): Project =
     secrets.get(name) match
@@ -391,8 +406,6 @@ final case class Service(
     database: Option[String] = None,
     /** The operator's last-reported broker phase, verbatim (feature 027). */
     broker: Option[String] = None,
-    /** The topics the service declares, as the broker holds them, as the operator last reported. */
-    topics: Vector[String] = Vector.empty,
     /**
      * How many restarts have been asked for. Projected to the resource; see
      * `AnkkaServiceSpec.restarts`.
@@ -513,8 +526,7 @@ final case class Service(
         detail = event.detail,
         confirmed = event.confirmed,
         database = event.database,
-        broker = event.broker,
-        topics = event.topics
+        broker = event.broker
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -578,8 +590,7 @@ final case class Service(
         descriptor.toVector.flatMap(_.service.mounts).map(m => MountStatus(m.path, m.service)),
       callers = descriptor.toVector.flatMap(_.service.callers),
       processPort = descriptor.flatMap(_.service.resolvedProcessPort),
-      broker = broker.map(Service.brokerPhrase),
-      topics = topics
+      broker = broker.map(Service.brokerPhrase)
     )
 
 object Service:
@@ -633,7 +644,7 @@ object Service:
   def brokerPhrase(phase: String): String = phase match
     case "Waiting"     => "waiting for broker"
     case "Provisioned" => "provisioned"
-    case "Recovered"   => "recovered existing topics"
+    case "Recovered"   => "recovered"
     case "Supplied"    => "supplied"
     case "Failed"      => "broker provisioning failed"
     case other         => other

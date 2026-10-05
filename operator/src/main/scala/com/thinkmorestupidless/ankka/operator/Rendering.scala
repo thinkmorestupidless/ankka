@@ -63,13 +63,7 @@ import io.fabric8.kubernetes.api.model.{
   VolumeBuilder,
   VolumeMountBuilder
 }
-import com.thinkmorestupidless.ankka.crd.{
-  EnvEntry,
-  Hostnames,
-  AnkkaService,
-  AnkkaServiceSpec,
-  TopicEntry
-}
+import com.thinkmorestupidless.ankka.crd.{EnvEntry, Hostnames, AnkkaService, AnkkaServiceSpec}
 
 import scala.jdk.CollectionConverters.*
 
@@ -205,18 +199,15 @@ object Rendering:
       resource: AnkkaService,
       settings: Settings,
       databasePlan: ProvisioningPlan,
-      brokerTopics: Option[Vector[TopicEntry]] = None
+      knownToBroker: Boolean = false
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
-    // The installation's broker, when this service is known to it (`BrokerProvisioning.topicsToRender`
-    // decided): its user and topics are rendered, its certificate names it, and its runtime is told
-    // where the broker is. `None` renders exactly what was rendered before the broker existed.
-    val broker = for
-      topics   <- brokerTopics
-      settings <- settings.broker
-    yield (topics, settings)
-    val deployed = broker.fold(spec) { (_, b) =>
+    // The installation's broker, when this service is known to it (`BrokerProvisioning.known`): its
+    // user is rendered, its certificate names it, and its runtime is told where the broker is.
+    // `false` renders exactly what was rendered before the broker existed.
+    val broker = settings.broker.filter(_ => knownToBroker)
+    val deployed = broker.fold(spec) { b =>
       spec.copy(env = spec.env ++ StrimziRendering.environment(spec, b))
     }
     val commonName = broker.map(_ => BrokerNames.user(spec.projectId, spec.serviceName))
@@ -344,17 +335,15 @@ object Rendering:
    * for them. A pod scheduled first waits on its volume and starts once cert-manager has issued.
    */
   /**
-   * The service's user and the topics it declares, on the installation's broker (feature 027):
-   * before the Deployment, so the user is being made by the time the runtime first connects.
+   * The service's user on the installation's broker (feature 027): before the Deployment, so the
+   * user is being made by the time the runtime first connects. Its project's topics are rendered
+   * from the project's resource, not here.
    */
   private def brokerActions(
       spec: AnkkaServiceSpec,
-      broker: Option[(Vector[TopicEntry], BrokerSettings)]
+      broker: Option[BrokerSettings]
   ): Vector[Action] =
-    broker.toVector.flatMap { (topics, settings) =>
-      Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)) +:
-        topics.map(t => Action.EnsureKafkaTopic(StrimziRendering.topic(spec, t, settings)))
-    }
+    broker.toVector.map(settings => Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)))
 
   private def zeroTrustActions(
       resource: AnkkaService,

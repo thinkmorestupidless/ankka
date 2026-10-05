@@ -105,6 +105,43 @@ final class FakeAnkkaServiceClient extends AnkkaServiceClient:
   def refuseSecrets(): Unit = refusingSecrets = true
   def allowSecrets(): Unit  = refusingSecrets = false
 
+  private val projects =
+    TrieMap.empty[(String, String), com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec]
+  private val projectStatuses =
+    TrieMap.empty[(String, String), com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus]
+
+  def putProject(
+      namespace: String,
+      name: String,
+      spec: com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec
+  ): Unit =
+    guard()
+    namespaces.put(namespace, true): Unit
+    if !projects.get((namespace, name)).contains(spec) then
+      writes.incrementAndGet(): Unit
+      projects.put((namespace, name), spec): Unit
+
+  def projectStatus(
+      namespace: String,
+      name: String
+  ): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus] =
+    guard()
+    projectStatuses.get((namespace, name))
+
+  /** What the control plane last wrote of a project's declarations. */
+  def project(
+      namespace: String,
+      name: String
+  ): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec] =
+    projects.get((namespace, name))
+
+  /** What a test says the operator reported of a project's topics. */
+  def reportProject(
+      namespace: String,
+      name: String,
+      status: com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus
+  ): Unit = projectStatuses.put((namespace, name), status): Unit
+
   def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit =
     guard()
     val key      = (namespace, name)

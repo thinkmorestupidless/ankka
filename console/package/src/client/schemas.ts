@@ -146,7 +146,8 @@ export const serviceStatusSchema = z.object({
   callers: z.array(z.string()).default([]),
   processPort: optional(z.number().int()),
   broker: optional(z.string()),
-  topics: z.array(z.string()).default([]),
+  /** Topics the service's components use that its project does not declare; absent when not read. */
+  undeclaredTopics: optional(z.array(z.string())),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
@@ -355,6 +356,21 @@ export const setProjectSecretSchema = z.object({
 });
 export type SetProjectSecret = z.input<typeof setProjectSecretSchema>;
 
+/** `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has. */
+export const topicDeclarationRequestSchema = z.object({
+  partitions: z.number().int(),
+});
+export type TopicDeclarationRequest = z.input<typeof topicDeclarationRequestSchema>;
+
+/** A topic a project declares, and how far the platform has got with it. */
+export const projectTopicSchema = z.object({
+  name: z.string(),
+  partitions: z.number().int(),
+  phase: optional(z.string()),
+  detail: optional(z.string()),
+});
+export type ProjectTopic = z.infer<typeof projectTopicSchema>;
+
 /** A project secret as the control plane lists it: entries' names, never a value. */
 export const projectSecretSummarySchema = z.object({
   name: z.string(),
@@ -402,4 +418,6 @@ export const schemasByType: Record<string, z.ZodType> = {
   SetRegistry: setRegistrySchema,
   SetProjectSecret: setProjectSecretSchema,
   ProjectSecretSummary: projectSecretSummarySchema,
+  TopicDeclarationRequest: topicDeclarationRequestSchema,
+  ProjectTopic: projectTopicSchema,
 };

@@ -1,6 +1,11 @@
 package com.thinkmorestupidless.ankka.controlplane.deploy
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaServiceSpec, AnkkaServiceStatus}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaProjectSpec,
+  AnkkaProjectStatus,
+  AnkkaServiceSpec,
+  AnkkaServiceStatus
+}
 
 /** One `AnkkaService` as the control plane sees it. */
 final case class AnkkaServiceResource(
@@ -72,6 +77,16 @@ trait AnkkaServiceClient extends AutoCloseable:
   /** Writes desired state. Idempotent: an unchanged spec performs no write at all. */
   def put(namespace: String, name: String, spec: AnkkaServiceSpec): Unit
 
+  /**
+   * Writes a project's declarations — its topics (feature 027) — as its `AnkkaProject`, creating
+   * the project's namespace first, as a project may declare a topic before it has a service.
+   * Idempotent: unchanged declarations perform no write.
+   */
+  def putProject(namespace: String, name: String, spec: AnkkaProjectSpec): Unit
+
+  /** What the operator last reported of a project's topics, or nothing yet. */
+  def projectStatus(namespace: String, name: String): Option[AnkkaProjectStatus]
+
   /** Removes the resource; its children cascade. Succeeds if already absent. */
   def delete(namespace: String, name: String): Unit
 
@@ -110,6 +125,15 @@ trait RegistryWriter:
    * refused or is unreachable, which the caller reports as unavailable — nothing is recorded.
    */
   def writePullSecret(projectId: String, server: String, username: String, password: String): Unit
+
+/**
+ * What an endpoint may know of a project's topics in the cluster: how far the operator has got with
+ * each. Read-only, and one method, for the reasons `RegistryWriter` is one.
+ */
+trait ProjectTopicsReader:
+
+  /** The operator's last report, or nothing yet; throws if the cluster cannot be read. */
+  def topicStatus(projectId: String): Option[AnkkaProjectStatus]
 
 /**
  * The other thing an endpoint may do to the cluster: a project secret's entries. Two methods, for

@@ -156,12 +156,6 @@ final case class AnkkaServiceSpec(
     @JsonDeserialize(contentAs = classOf[java.lang.Integer])
     processPort: Option[Int] = None,
     /**
-     * The topics this service's descriptor declares, for the platform to make on the installation's
-     * broker under the project's name (feature 027). A topic is the project's: a service that only
-     * reads one declares nothing.
-     */
-    topics: List[TopicEntry] = Nil,
-    /**
      * Whether the platform should know this service on the installation's broker (feature 027).
      *
      * `false` when the descriptor names a broker of its own with an `ANKKA_KAFKA_*` variable, and
@@ -171,10 +165,6 @@ final case class AnkkaServiceSpec(
      */
     provisionBroker: Boolean = true
 )
-
-/** One declared topic: its name as the service's components use it, and its partitions. */
-@JsonInclude(JsonInclude.Include.NON_ABSENT)
-final case class TopicEntry(name: String = "", partitions: Int = 1)
 
 /** One mount of a web-hosted service: a path, and the service of its project that answers it. */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
@@ -233,18 +223,15 @@ final case class DatabaseStatus(
 )
 
 /**
- * What the platform did about one service on the installation's broker (feature 027): reported or
- * absent as a unit, as `DatabaseStatus` is.
+ * What the platform did about one service's credential on the installation's broker (feature 027):
+ * reported or absent as a unit, as `DatabaseStatus` is. A project's topics are reported on its
+ * `AnkkaProject`.
  */
 @JsonInclude(JsonInclude.Include.NON_ABSENT)
 final case class BrokerStatus(
     /** "Waiting", "Provisioned", "Recovered", "Supplied" or "Failed", as the database's phase. */
     phase: String = "",
-    /** The topics the service declares, as the broker holds them: `<project>.<name>`. */
-    topics: List[String] = Nil,
-    /**
-     * True when the service's user and every topic it declares were there before it was applied.
-     */
+    /** True when the service's user was there before it was applied. */
     recovered: Boolean = false,
     detail: Option[String] = None
 )
@@ -282,8 +269,8 @@ final case class AnkkaServiceStatus(
      */
     route: Option[String] = None,
     /**
-     * What the platform did about this service on the installation's broker. Absent for a
-     * web-hosted service, and for one that declares no topic in an installation with no broker.
+     * What the platform did about this service's credential on the installation's broker. Absent
+     * for a web-hosted service, and in an installation with no broker.
      */
     broker: Option[BrokerStatus] = None
 ):

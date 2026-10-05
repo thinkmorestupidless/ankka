@@ -740,6 +740,7 @@ Usage:
     ankka projects delete
     ankka projects registry
     ankka projects secrets
+    ankka projects topics
 
 Manage projects.
 
@@ -762,6 +763,8 @@ Subcommands:
         Credentials the cluster pulls this project's private images with.
     secrets
         Project secrets: values a descriptor's variables take by secretKeyRef, which the control plane writes to the cluster and can never read back.
+    topics
+        A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
 ```
 
 ### `ankka projects list`
@@ -1009,6 +1012,91 @@ Options and flags:
 Usage: ankka projects secrets list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
 
 List a project's secrets: names and entries, never values.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects topics`
+
+```text
+Usage:
+    ankka projects topics set
+    ankka projects topics unset
+    ankka projects topics list
+
+A project's topics on the installation's broker: declared once, on the project, with their partitions; every service of the project uses them by name.
+
+Options and flags:
+    --help
+        Display this help text.
+
+Subcommands:
+    set
+        Declare a topic on the project, or give it more partitions. A topic is never given fewer.
+    unset
+        Stop declaring a topic. The topic and what was published to it stay on the broker.
+    list
+        List a project's topics, with how far the platform has got with each.
+```
+
+### `ankka projects topics set`
+
+```text
+Usage: ankka projects topics set --partitions <integer> [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Declare a topic on the project, or give it more partitions. A topic is never given fewer.
+
+Options and flags:
+    --help
+        Display this help text.
+    --partitions <integer>
+        How many partitions the topic has.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects topics unset`
+
+```text
+Usage: ankka projects topics unset [--url <string>] [--token <string>] [--project <string>] [--output <string>] <name>
+
+Stop declaring a topic. The topic and what was published to it stay on the broker.
+
+Options and flags:
+    --help
+        Display this help text.
+    --url <string>
+        Control plane base URL. Defaults to the configured value.
+    --token <string>
+        Bearer token. Prefer ANKKA_TOKEN or the config file.
+    --project <string>, -p <string>
+        Project id. Defaults to the configured project.
+    --output <string>, -o <string>
+        Output format: table or json.
+```
+
+### `ankka projects topics list`
+
+```text
+Usage: ankka projects topics list [--url <string>] [--token <string>] [--project <string>] [--output <string>]
+
+List a project's topics, with how far the platform has got with each.
 
 Options and flags:
     --help

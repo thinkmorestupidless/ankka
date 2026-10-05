@@ -1,10 +1,9 @@
 package com.thinkmorestupidless.ankka.operator
 
-import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceSpec, EnvEntry, TopicEntry}
+import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceSpec, EnvEntry}
 import com.thinkmorestupidless.ankka.operator.strimzi.{
   AclResource,
   AclRule,
-  KafkaTopicSpec,
   KafkaUserAuthentication,
   KafkaUserAuthorization,
   KafkaUserSpec,
@@ -35,8 +34,9 @@ class BrokerRenderingSuite extends munit.FunSuite:
     provisionDatabase = false,
     env = List(EnvEntry("ANKKA_DB_HOST", Some("db"), None, None))
   )
-  private val declaring =
-    wallet.copy(topics = List(TopicEntry("transactions", 12), TopicEntry("wallet-events", 3)))
+
+  /** A service as every case renders it; topics are the project's, rendered elsewhere. */
+  private val declaring = wallet
 
   private def resource(spec: AnkkaServiceSpec): AnkkaService =
     val r = new AnkkaService
@@ -50,17 +50,13 @@ class BrokerRenderingSuite extends munit.FunSuite:
     r.setSpec(spec)
     r
 
-  private def actions(
-      spec: AnkkaServiceSpec,
-      settings: Settings = withBroker,
-      observed: BrokerObservation = BrokerObservation.empty
-  ): Vector[Action] =
+  private def actions(spec: AnkkaServiceSpec, settings: Settings = withBroker): Vector[Action] =
     Rendering
       .render(
         resource(spec),
         settings,
         ProvisioningPlan.Supplied,
-        BrokerProvisioning.topicsToRender(spec, settings.broker, observed)
+        BrokerProvisioning.known(spec, settings.broker)
       )
       .fold(problems => fail(problems.mkString("; ")), identity)
 
@@ -120,17 +116,7 @@ class BrokerRenderingSuite extends munit.FunSuite:
     assert(!user.getSpec.authorization.acls.exists(_.resource.`type` == "cluster"))
   }
 
-  test("a declared topic is made on the installation's broker for its project") {
-    val made = topics(actions(declaring))
-    assertEquals(
-      made.map(_.getMetadata.getName),
-      Vector("money.transactions", "money.wallet-events")
-    )
-    assertEquals(made.map(_.getSpec), Vector(KafkaTopicSpec(12), KafkaTopicSpec(3)))
-    assert(made.forall(_.getMetadata.getNamespace == "ankka-broker"))
-  }
-
-  test("nothing made on the broker is owned by the service, and nothing is ever removed") {
+  test("a service's user is owned by nothing, and nothing removes it") {
     val as = actions(declaring)
     for r <- users(as) ++ topics(as) do
       assert(Option(r.getMetadata.getOwnerReferences).forall(_.isEmpty), r.getMetadata.getName)
@@ -141,16 +127,7 @@ class BrokerRenderingSuite extends munit.FunSuite:
     )
   }
 
-  test("a service with a declared topic is told where the installation's broker is") {
-    val as = actions(declaring)
-    assertEquals(containers(as).size, 1)
-    assertEquals(
-      env(containers(as).head).filter((k, _) => k.startsWith("ANKKA_KAFKA_")),
-      brokerVariables
-    )
-  }
-
-  test("a service that declares no topic is told where the installation's broker is") {
+  test("a service is told where the installation's broker is") {
     val as = actions(wallet)
     assertEquals(
       env(containers(as).head).filter((k, _) => k.startsWith("ANKKA_KAFKA_")),
@@ -195,7 +172,7 @@ class BrokerRenderingSuite extends munit.FunSuite:
   }
 
   test("a web-hosted service is given nothing of the installation's broker") {
-    val web = wallet.copy(hosting = "web", provisionDatabase = false, env = Nil, topics = Nil)
+    val web = wallet.copy(hosting = "web", provisionDatabase = false, env = Nil)
     val as  = actions(web)
     assertEquals(users(as) ++ topics(as), Vector.empty)
     assert(containers(as).forall(c => !env(c).keys.exists(_.startsWith("ANKKA_KAFKA_"))))
@@ -225,25 +202,4 @@ class BrokerRenderingSuite extends munit.FunSuite:
     assertEquals(now.map(_.describe), before.map(_.describe))
     assertEquals(containers(now).map(env), containers(before).map(env))
     assertEquals(commonName(now), None)
-    // A declared topic changes nothing either: with no broker there is nowhere to make it, and the
-    // status says so (BrokerProvisioningSuite).
-    val declared = actions(declaring, withoutBroker)
-    assertEquals(declared.map(_.describe), before.map(_.describe))
-    assertEquals(containers(declared).map(env), containers(before).map(env))
-  }
-
-  test("a topic is never rendered with fewer partitions than it has") {
-    val fewer =
-      declaring.copy(topics = List(TopicEntry("transactions", 6), TopicEntry("wallet-events", 3)))
-    val observed = BrokerObservation(
-      topics = Map(
-        "money.transactions" -> TopicState(StrimziObjectState(exists = true), Some(12))
-      )
-    )
-    assertEquals(
-      topics(actions(fewer, observed = observed)).map(_.getMetadata.getName),
-      Vector("money.wallet-events")
-    )
-    // The broker stays where it was for the running service.
-    assertEquals(users(actions(fewer, observed = observed)).size, 1)
   }

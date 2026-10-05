@@ -79,6 +79,23 @@ object Output:
           )
         )
 
+  /** A project's declared topics, each with how far the platform has got with it (feature 027). */
+  def projectTopics(rows: Vector[ProjectTopic], format: Format): String =
+    format match
+      case Format.Json => writeToString(rows)
+      case Format.Table =>
+        table(
+          Vector("TOPIC", "PARTITIONS", "PHASE", "DETAIL"),
+          rows.map(row =>
+            Vector(
+              row.name,
+              row.partitions.toString,
+              row.phase.getOrElse("-"),
+              row.detail.getOrElse("-")
+            )
+          )
+        )
+
   def projectSecrets(rows: Vector[ProjectSecretSummary], format: Format): String =
     format match
       case Format.Json => writeToString(rows)
@@ -171,7 +188,9 @@ object Output:
           "hostname"   -> hostname(row)
         ) ++ row.protocol.map("protocol" -> _) ++ row.database.map("database" -> _) ++
           row.broker.map("broker" -> _) ++
-          Option.when(row.topics.nonEmpty)("topics" -> row.topics.mkString("\n")) ++
+          row.undeclaredTopics
+            .filter(_.nonEmpty)
+            .map("undeclared topics" -> _.mkString("\n")) ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.

@@ -419,15 +419,16 @@ jobs:
     # The CLI as a Homebrew formula: `brew install thinkmorestupidless/tap/ankka`. The formula —
     # canonical in homebrew/ here, with version 0.0.0 and a checksum of zeros per platform — installs
     # the native build for the machine it runs on, so it waits for every leg of `cli-native` and
-    # takes each checksum from the .sha256 that leg published beside its tarball. It is then pushed
-    # to thinkmorestupidless/homebrew-tap, the way the template and the marketplace are.
+    # takes each checksum from the .sha256 that leg published beside its tarball. It is then committed
+    # to thinkmorestupidless/homebrew-tap the way the marketplace is: the tap is cloned, the one file
+    # written, and an ordinary commit pushed — never a force push, which would erase the other
+    # formulae the tap holds (ankka-flow ships through the same tap).
     needs: cli-native
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # the subtree split below
           # See the template job: with credentials persisted, the push to the tap below authenticates
           # as github-actions[bot] and is refused.
           persist-credentials: false
@@ -457,12 +458,20 @@ jobs:
             echo "::error::a checksum placeholder survived"; exit 1
           fi
           grep -n "version \"$version\"" homebrew/Formula/ankka.rb
-          git add homebrew/Formula/ankka.rb
+          remote="https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git"
+          git clone --depth 1 "$remote" "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "ankka release"
+          git config user.email "release@ankka.invalid"
+          mkdir -p Formula
+          cp "$GITHUB_WORKSPACE/homebrew/Formula/ankka.rb" Formula/ankka.rb
+          # The tap's README is ankka's to publish; every other file in the tap is another project's
+          # and is kept as found.
+          cp "$GITHUB_WORKSPACE/homebrew/README.md" README.md
+          git add Formula/ankka.rb README.md
           git commit -m "ankka $version"
-          git subtree split --prefix homebrew -b homebrew-tap
-          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git" homebrew-tap:main
-          git tag -f "${GITHUB_REF_NAME}" homebrew-tap
-          git push --force "https://x-access-token:${{ secrets.TEMPLATE_REPO_TOKEN }}@github.com/thinkmorestupidless/homebrew-tap.git" "${GITHUB_REF_NAME}"
+          # Another project's release may have pushed between the clone and here: one rebase and retry.
+          git push origin HEAD:main || { git fetch --depth 1 origin main && git rebase origin/main && git push origin HEAD:main; }
 
   action:
     # The GitHub Action as its own repository, so a workflow can say

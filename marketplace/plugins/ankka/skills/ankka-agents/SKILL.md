@@ -17,7 +17,7 @@ probabilities behind each answer — for a decision whose answer is one of a kno
 
 1. **Decide whether an agent is right before writing one.** A decision that needs a model is an agent; a
    fixed sequence is a workflow whose steps call agents; a rule about one thing is an entity the agent's
-   tool calls. An agent handler cannot pause, wait for a person, or run for hours. Work through
+   tool calls. A tool can wait for a person's approval, but an agent handler cannot run for hours. Work through
    `references/concepts/designing-agents.md` for a new agent.
 2. **`withContext` for anything retrieved, `userMessage` for what the user said.** Memory records the
    user's turn only, so retrieved documents and entity state do not fill the next turn's history. An
@@ -163,5 +163,6 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/build/streaming.md` — Stream an agent's reply token by token to a caller and over HTTP as server-sent events, and know what streaming changes about guardrails and sessions.
 - `references/build/multi-agent-orchestration.md` — Coordinate several agents from a workflow — sequentially, in parallel, or chosen dynamically by another agent — sharing one session, and test the coordination with a scripted model.
 - `references/build/autonomous-agents.md` — Write an autonomous agent in Scala or Python — a task type with a typed result and rules, an agent that accepts it, running and reading tasks, watching an instance over server-sent events, and testing with a scripted model.
+- `references/build/mcp-servers.md` — Offer an agent the tools of MCP servers beside its own — where each server is, the credential it is sent, approval for a whole server, result guardrails that check what a server answers — and test it against a scripted server.
 - `references/build/component-client.md` — Call entities, workflows and agents through the component client — blocking or asynchronous, with typed refusals and timeouts — and query views through the view client.
 - `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.

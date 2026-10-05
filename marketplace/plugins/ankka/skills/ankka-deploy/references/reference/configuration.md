@@ -228,6 +228,18 @@ port at 7627, and every one of them but readiness is mutual TLS with certificate
 Every variable beginning `ANTHROPIC_` or `ANKKA_MODEL_` in a process-hosted service's descriptor goes to the
 sidecar, never to the process.
 
+- `ANKKA_MCP_CONNECT_TIMEOUT` (`ankka.agent.mcp.connect-timeout`) is how long the runtime waits for each MCP
+  server an agent lists to answer when the service starts, `10s` unless set; a server that does not answer in
+  time fails the start, naming it.
+- `ANKKA_MCP_CALL_TIMEOUT` (`ankka.agent.mcp.call-timeout`) is how long a call to an MCP server's tool waits
+  for its answer, `60s` unless set; a call that takes longer reaches the model as the tool's error.
+- `ANKKA_MCP_<SERVER>_URL` is where the MCP server of that name is, required when its declaration gives no
+  address and replacing one when it does; `<SERVER>` is the name in upper case with `-` as `_`. Any other
+  variable beginning `ANKKA_MCP_` holds the value of a header a declaration names, such as a server's token.
+  Like the model's variables, every `ANKKA_MCP_` variable goes only to the platform's program — beside a
+  Python or TypeScript process, the sidecar, which connects to the servers — and a WebAssembly module's
+  `config` answers it absent. See [MCP servers](../build/mcp-servers.md).
+
 - `TYPESAFE_API_KEY` is the key for TypeSafe AI's API, which answers [judgments](../build/judgments.md). A
   Scala service reads it when it constructs `JevProvider.fromEnv()`, which fails at startup when it is not
   set.

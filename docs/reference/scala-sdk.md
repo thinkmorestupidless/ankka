@@ -203,15 +203,17 @@ Scheduling twice under one name replaces the earlier timer. See [Timers](../buil
 | Base class | `Agent` |
 | Companion | `Agent.Companion[A](componentId)` |
 | Must define | `create(ctx: AgentContext)` |
-| May override | `role` (default: the component id), `maxToolCallSteps` (default 100) |
+| May override | `role` (default: the component id), `maxToolCallSteps` (default 100), on the companion `mcpServers` and `resultGuardrails` |
 | Handlers | `command(name)(_.method)`, `stream(name)(_.method)` |
-| In a handler | `sessionId`, `componentClient`, `sessionContext` |
+| In a handler | `sessionId`, `componentClient`, `sessionContext`, `services`, `secrets` |
 | Effects | `effects.systemMessage(t)`, `.userMessage(t)`, `.withContext(t)`, `.model(p)`, `.memory(m)`, `.tools(t*)`, `.guardrails(g*)`, then `.thenReply()`, `.thenReplyAs[T]`, `.thenStream()`; `effects.error(msg, code)` |
-| Tools | `FunctionTool.named(n).describedAs(d).param[T](name, description)….handle { … }` |
+| Tools | `FunctionTool.named(n).describedAs(d).param[T](name, description)….handle { … }`, then `.requiresApproval` or `.requiresApproval(within)` |
+| MCP servers | `McpServer.named(n)`, `McpServer.at(n, url)`, `McpServer.service(n, service, path)`, `McpServer.service(n, project, service, path)`, then `.header(name, "ANKKA_MCP_…")`, `.requiresApproval`, `.requiresApproval(within)` |
 | Guardrails | `Guardrail.maxInputLength(n)`, `Guardrail.forbidding(name, regex)`, or implement `checkInput` / `checkOutput` |
 | Memory | `MemoryProvider.none`, `MemoryProvider.limitedWindow`, `.readLast(n)`, `.readOnly`, `.writeOnly`, `.filtered(MemoryFilter…)` |
 | Runtime | `AgentRuntime.withDefaultModel(provider)`, `.withCompaction(CompactionSettings(…))`, `.descriptors` |
-| Calling | `componentClient.forAgent(SessionId(id)).call(Companion.handler).invoke(input)`, `.stream(Companion.handler)(input)` |
+| Calling | `componentClient.forAgent(SessionId(id)).call(Companion.handler).invoke(input)`, `.stream(Companion.handler)(input)`; `.ask(Companion.handler).invoke(input)` → `AgentOutcome.Answered(value)` or `AgentOutcome.AwaitingApproval(requests)`; `.decide(Companion.handler)(Decision.approved(id, by) \| Decision.refused(id, by, note))`; `.streamParts(Companion.handler)(input)`; `call` and `stream` throw `ApprovalAwaited` |
+| Testing MCP | `TestMcpServer().tool(name, description)(args => text)`, `.url`, `.calls`, `.requireHeader(…)`, `.failNext(…)`; `AgentRuntime.withVariables(map.get)` |
 | Models | `AnthropicProvider.fromEnv(model)`, `TestModelProvider()` |
 
 See [Agents](../build/agents.md), [Streaming responses](../build/streaming.md) and
@@ -241,11 +243,11 @@ See [Judgments](../build/judgments.md).
 | Result schema | `given JsonSchema[R] = JsonSchema.derived` for a case class |
 | Base class | `AutonomousAgent(context)`; override `tools: Seq[FunctionTool]` |
 | Companion | `AutonomousAgent.Companion[A](componentId)`; define `create(context)` and `definition` |
-| Definition | `define.describedAs(d).instructions(t).guardrails(g*).model(p).capability(TaskAcceptance.of(task).maxIterationsPerTask(n)).settings(AutonomousAgentSettings(…))` |
+| Definition | `define.describedAs(d).instructions(t).guardrails(g*).model(p).mcpServers(s*).resultGuardrails(g*).capability(TaskAcceptance.of(task).maxIterationsPerTask(n)).settings(AutonomousAgentSettings(…))` |
 | In a tool | `context.componentClient`, `context.instanceId`, `AutonomousAgent.currentTask` |
 | Tasks | `componentClient.tasks.create(task, instructions).withId(id).attach(…).attachReference(…).dependsOn(ids*).create()` |
 | A task | `componentClient.forTask(id).get()`, `.get(task)`, `.await(task, timeout)`, `.cancel(reason)` |
-| An instance | `componentClient.forAutonomousAgent(Companion)(instanceId).assign(ids*)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()` |
+| An instance | `componentClient.forAutonomousAgent(Companion)(instanceId).assign(ids*)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()` (with `awaiting`), `.notifications()`, `.decide(decision)` |
 | One task | `componentClient.forAutonomousAgent(Companion).runSingleTask(task, instructions)` |
 | Runtime | the `AgentRuntime` hosts them; register `AgentRuntime.descriptors` and a `ProjectionRuntime()` |
 | Testing | `TestModelProvider().expectCompleteTask(result)`, `.expectCompleteTaskJson(json)`, `.expectCompleteTaskText(t)`, `.expectFailTask(reason)`, `.whenToolResult(s)(r)`, `.whenUserAsks(s)(r)`; `AnkkaTestKit.awaitTask(id, task)` |

@@ -69,6 +69,7 @@ The table is generated from the `.proto` files.
 | `Client` | `PutSecret` | `PutSecretRequest` | `PutSecretReply` | `client.proto` |
 | `Client` | `DeleteSecret` | `DeleteSecretRequest` | `DeleteSecretReply` | `client.proto` |
 | `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
+| `Client` | `Decide` | `DecideRequest` | `InvokeReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |

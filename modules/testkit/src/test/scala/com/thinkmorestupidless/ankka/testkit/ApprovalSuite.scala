@@ -77,6 +77,26 @@ class ApprovalSuite extends munit.FunSuite with LogCapturing:
     assertEquals(ApprovalAgent.runsOf("issue_refund"), Vector.empty, "the tool has not run")
   }
 
+  test("a caller asks, and a person's decision lets the turn go on") {
+    scriptRefund()
+    model.expectText("Your refund of 40 is on its way.")
+    val componentClient = testKit.componentClient
+    // docs:start ask-and-decide
+    val session = componentClient.forAgent(SessionId("s-42"))
+    val answer = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
+      case AgentOutcome.Answered(text)             => text
+      case AgentOutcome.AwaitingApproval(requests) =>
+        // In a real service the requests are shown to a person, and the decision arrives later,
+        // from whatever route they make it through; that route's ACL is who may decide.
+        val decision = Decision.approved(requests.head.id, by = "dana")
+        session.decide(ApprovalAgent.ask)(decision) match
+          case AgentOutcome.Answered(text)         => text
+          case AgentOutcome.AwaitingApproval(more) => s"still waiting on ${more.size}"
+    // docs:end ask-and-decide
+    assertEquals(answer, "Your refund of 40 is on its way.")
+    assertEquals(ApprovalAgent.runsOf("issue_refund"), Vector("issue_refund(o-7,40)"))
+  }
+
   test("an approved tool call runs once and the model is told its result") {
     scriptRefund()
     val request = awaiting(ask("s-approved")).head

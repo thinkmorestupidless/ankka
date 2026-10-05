@@ -106,6 +106,7 @@ class McpAgentSuite extends munit.FunSuite with LogCapturing:
   )
 
   override def beforeAll(): Unit =
+    // docs:start test-mcp-server
     tickets = TestMcpServer()
       .tool("create", "Opens a ticket", schema = titleSchema)(args =>
         s"opened '${args("title").flatMap(_.asString).getOrElse("?")}'"
@@ -128,6 +129,7 @@ class McpAgentSuite extends munit.FunSuite with LogCapturing:
         ProjectionRuntime()
       )
     )
+    // docs:end test-mcp-server
 
   override def afterAll(): Unit =
     if kit != null then kit.stop()

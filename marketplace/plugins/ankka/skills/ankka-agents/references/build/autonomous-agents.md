@@ -190,6 +190,73 @@ iteration instead: it is tried again after a pause, and the task fails only afte
 `maxConsecutiveFailures` in a row. The tokens its judgments spend are recorded on the task's session, not in
 the task's own usage. A judged guardrail with no rules is refused when the agent is registered.
 
+## Tools that wait for a person
+
+A tool can require approval, as a request agent's can. When the model calls it, the instance records an
+approval request — an id, the tool and the model's arguments — on its own record, and the task waits:
+the instance makes no model call and starts no iteration until every request of the iteration is
+decided. Waiting spends none of the task's budget, and an instance with nothing else to do leaves memory
+while it waits; a decision brings it back.
+
+```scala
+override def tools: Seq[FunctionTool] = Seq(
+  FunctionTool
+    .named("restart_service")
+    .describedAs("Restarts a service. An operator approves every restart.")
+    .param[String]("service", "the service to restart")
+    .handle { (service: String) =>
+      Operator.runs.add(s"restart_service($service)"): Unit
+      s"restarted $service"
+    }
+    .requiresApproval,
+  FunctionTool
+    .named("drain_node")
+    .describedAs("Drains a node of its work.")
+    .param[String]("node", "the node to drain")
+    .handle { (node: String) =>
+      Operator.runs.add(s"drain_node($node)"): Unit
+      s"drained $node"
+    }
+    .requiresApproval(2.seconds),
+  FunctionTool
+    .named("read_metrics")
+    .describedAs("Reads a service's metrics.")
+    .param[String]("service", "the service to read")
+    .handle { (service: String) =>
+      Operator.runs.add(s"read_metrics($service)"): Unit
+      s"$service is healthy"
+    }
+)
+```
+
+The instance's state lists what it awaits (`awaiting`), and its subscribers are told
+`ApprovalRequested` and `ApprovalDecided` as they happen. A decision goes to the instance:
+
+```scala
+componentClient
+  .forAutonomousAgent(Operator)("ops-1")
+  .decide(Decision.approved(approvalId, by = "dana"))
+```
+
+```python
+await client.for_autonomous_agent(Operator, "ops-1").decide(approval_id, True, "dana")
+```
+
+```ts
+await client.forAutonomousAgent(Operator, "ops-1").decide(approvalId, { approved: true, by: "dana" })
+```
+
+Approved, the tool runs and the model is told its result in the next iteration; refused, the model is
+told who refused it and their note. The rules are a request agent's: who decided is required, a request
+is decided once, and a time limit (`requiresApproval(2.seconds)` in Scala) has the platform refuse the
+request when it passes, which needs a `TimerRuntime`. Unlike a request agent's, an approved tool may run
+again if the instance stops after the decision and before the tool's result is recorded, as any of its
+tools may.
+
+An autonomous agent lists [MCP servers](mcp-servers.md) and result guardrails as a request agent does,
+on its definition (`.mcpServers(...)`, `.resultGuardrails(...)`), or as class attributes in Python and
+TypeScript.
+
 ## Running a task and reading its result
 
 `runSingleTask` creates a task, starts an instance on it and answers the task's id at once, before any

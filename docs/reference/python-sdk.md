@@ -180,14 +180,21 @@ Scheduling twice under one id replaces the earlier timer. See [Timers](../build/
 | Part | API |
 |---|---|
 | Base class | `ankka.agent.Agent` |
-| Class attributes | `component_id`, `tools` (`{name: Tool(description, function, InputDataclass)}`), `guardrails` (`{name: Guardrail(check)}`), optionally `role`, `max_tool_call_steps` |
+| Class attributes | `component_id`, `tools` (`{name: Tool(description, function, InputDataclass, approval=…)}`), `guardrails` (`{name: Guardrail(check)}`), optionally `role`, `max_tool_call_steps`, `mcp_servers` (`{name: McpServer(url=…, service=…, project=…, path=…, headers={header: "ANKKA_MCP_…"}, approval=…)}`), `result_guardrails` (`{name: ResultGuardrail(check)}`) |
+| Approval | `approval=True`, or `Approval(within=timedelta(…))` for a time limit |
+| Calling | `client.for_agent(id, session).call(name)`: `await .ask(input, reply=T)` → `Answered(value)` or `AwaitingApproval(requests)`; `await .decide(approval_id, approved=…, by=…, note=…)`, answered as `ask`; `.stream_parts(input)`; `.invoke` and `.stream` raise `ApprovalAwaited` |
 | Decorators | `@command("name")`, `@stream("name")` from `ankka.agent` |
 | In a handler | `self.session_id`, `self.metadata`, `self.client`, `self.effects` |
 | Effects | `system_message(t)`, `user_message(t)`, `model(name)`, then `.with_model(name)`, `.with_context(t)`, `.memory(bool)`, `.tools(*names)`, `.guardrails(*names)`, `.then_reply()`, `.then_reply_json()`; `error(msg, code)` |
 
 A handler returns a plan; the sidecar runs the model loop, calls tools back in the process with the model's
 arguments, and checks guardrails. A guardrail's check takes the stage (`"input"` or `"output"`) and the text,
-and returns `None` to pass or a reason to block. See [Agents](../build/agents.md).
+and returns `None` to pass or a reason to block; a result guardrail's takes the MCP tool's name and what it
+answered. The sidecar connects to the MCP servers and enforces approval, so the process never runs a server's
+tool nor a tool that awaits a decision. A runtime before protocol 1.11 answers `decide` with a `CommandError`
+saying it is too old. The unit kit takes scripted servers, `AgentTestKit.of(Agent, mcp={server: {tool: fn}})`,
+and its reply's `awaiting` lists what a turn waits on; `kit.decide(approval_id, approved, by, note)` goes on.
+See [Agents](../build/agents.md) and [MCP servers](../build/mcp-servers.md).
 
 ## Autonomous agent
 
@@ -195,11 +202,11 @@ and returns `None` to pass or a reason to block. See [Agents](../build/agents.md
 |---|---|
 | Task type | `TaskType(name, description, result=Dataclass, rules=(TaskRule(name, check),))`; a check returns `Accepted()` or `Rejected(reason)` |
 | Base class | `ankka.autonomous.AutonomousAgent` |
-| Class attributes | `component_id`, `description`, `accepts = [TaskAcceptance(task_type, max_iterations=n)]`, optionally `instructions`, `tools`, `guardrails`, `model`, `settings` |
+| Class attributes | `component_id`, `description`, `accepts = [TaskAcceptance(task_type, max_iterations=n)]`, optionally `instructions`, `tools`, `guardrails`, `model`, `settings`, `mcp_servers`, `result_guardrails` |
 | In a tool | `self.client`, `self.task_id` |
 | Tasks | `await client.tasks.create(task_type, instructions, id=…, attachments=[…], depends_on=[…])` |
 | A task | `client.for_task(id)`: `await .get(task_type)`, `.wait(task_type, timeout)`, `.cancel(reason)` |
-| An instance | `client.for_autonomous_agent(Agent, instance_id)`: `.assign(*ids)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()` |
+| An instance | `client.for_autonomous_agent(Agent, instance_id)`: `.assign(*ids)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()` (with `awaiting`), `.notifications()`, `.decide(approval_id, approved, by, note=None)` |
 | One task | `await client.for_autonomous_agent(Agent).run_single_task(task_type, instructions)` |
 | Testing | `AutonomousAgentTestKit.of(Agent)`: `run_tool`, `check_result`, `check_guardrail`; the integration kit's `await_task` and `notifications`, with `ANKKA_MODEL_SCRIPT` turns that may carry `when` or `when_tool_result` |
 

@@ -303,7 +303,7 @@ val service = Ankka.service
 | `ConsumerTestKit.of(Companion, client)` | One consumer, no runtime. `onMessage(message, subject, sequenceNumber)` and `onDelete(subject, sequenceNumber)` return the effect and the `messages` it publishes: `payload`, the record `key` a broker is given, `metadata`, `text`. |
 | `ConsumerTestKit.graph(Companion, client)` | One graph consumer, no runtime. The same two calls return the `GraphDelta`s published, read back from their bytes; `records` gives the same consumer as messages. |
 | `TestTransport` | A `ComponentClient` whose calls are stubbed, for testing a component that calls others. |
-| `AnkkaTestKit.start(descriptors…)` | The whole service against a throwaway Postgres. `restartService()` drops every entity from memory. |
+| `AnkkaTestKit.start(descriptors…)` | The whole service against a throwaway database of its own, in one Postgres container that every kit in the test JVM shares. `restartService()` drops every entity from memory. |
 | `TestModelProvider` | A scripted model that fails when its script runs out. |
 
 See [Testing](../build/testing.md).

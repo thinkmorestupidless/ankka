@@ -23,7 +23,7 @@ Everything under `docs/` is public; internal design treatments live in the priva
 
 ## Commands
 
-Docker is required — integration suites start their own Postgres, and one starts Kafka,
+Docker is required — integration suites share a Postgres per test JVM, and one starts Kafka,
 via testcontainers. No API key is needed.
 
 ```bash
@@ -2032,8 +2032,11 @@ cluster or database — effects are inert values, so this is milliseconds. Input
 replies still round-trip through the component's own serializers, so a missing codec
 fails there rather than on first deployment.
 
-`AnkkaTestKit` boots the whole service against a throwaway Postgres. `restartService()`
-drops every entity from memory, so a test can prove durability rather than caching.
+`AnkkaTestKit` boots the whole service against a throwaway database. `restartService()`
+drops every entity from memory, so a test can prove durability rather than caching. The database is
+the kit's own, copied from a template that holds the schema, in one Postgres container every kit in
+the test JVM shares (`SharedPostgres`): a container per suite cost seconds each, a copy costs tens of
+milliseconds. The container lingers 30s after its last kit stops, so the next suite finds it running.
 
 `TestModelProvider` answers from a script and **fails loudly** when the script runs out —
 a test whose model quietly returned a default is no longer testing what it says.

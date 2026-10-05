@@ -60,25 +60,15 @@ variation on data this story establishes.
 whole diagnosis without a terminal: find the service, invoke `POST /carts/{id}/items`, read the
 response, open the trace, and see the entity's persisted state change.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** no ankka service is running, **When** the developer starts the console, **Then** it
-   opens and reports that no services were found, rather than failing.
-2. **Given** the console is open and a service is running, **When** a second service starts,
-   **Then** it appears in the console without the console being restarted.
-3. **Given** a service with an HTTP endpoint, **When** the developer invokes a route from the
-   console, **Then** the request reaches the service exactly as an external caller's would, and
-   the response — status, headers and body — is shown.
-4. **Given** a request that spans an endpoint, an entity and a view, **When** the developer opens
-   its trace, **Then** every component involved is listed in call order with its own duration, and
-   the time unaccounted for by the platform is visible rather than hidden.
-5. **Given** an agent that has held a conversation, **When** the developer opens that session,
-   **Then** the stored messages are shown, together with the tokens consumed and the cost.
-6. **Given** a handler that returned an error, **When** the developer opens its trace, **Then**
-   the failure and the component that produced it are identified.
-7. **Given** an endpoint whose ACL denies the caller, **When** it is invoked from the console,
-   **Then** it is refused exactly as it would be for any other caller — the console is not a way
-   around an ACL.
+- added `features/local-console/services.feature`: the local console with no service running says it found none
+- added `features/local-console/services.feature`: a service started while the local console is open is listed without restarting the local console
+- added `features/local-console/requests.feature`: a request sent from the local console reaches the service as any client's would and its whole answer is shown
+- added `features/local-console/traces.feature`: the trace of a request shows every component in the order they ran, with the time no component accounts for
+- added `features/local-console/sessions.feature`: the local console shows an agent's session and its model usage, with cost unknown
+- added `features/local-console/traces.feature`: the trace of a request whose handler did not succeed shows how it ended and which component it was
+- added `features/local-console/requests.feature`: an endpoint's ACL refuses a request from the local console as it refuses any other
 
 ---
 
@@ -101,22 +91,16 @@ second rather than first because it needs a cluster to demonstrate, while P1 nee
 retrieve that line through the CLI alone — with no kubeconfig on the path — then restart the
 service and read the previous instance's output.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a running service, **When** the developer asks for its logs, **Then** recent output
-   is printed and the command exits.
-2. **Given** a running service, **When** the developer asks to follow its logs, **Then** new lines
-   appear as they are produced until interrupted.
-3. **Given** a service with several instances, **When** logs are requested, **Then** each line
-   identifies its instance, and a single instance can be selected.
-4. **Given** a service whose container has restarted, **When** the previous container's logs are
-   requested, **Then** the output from before the restart is returned.
-5. **Given** a paused service with no running instance, **When** logs are requested, **Then** the
-   CLI says so plainly rather than hanging or returning an empty success.
-6. **Given** a service in another project, **When** logs are requested without rights to that
-   project, **Then** the request is refused by the same rules that govern every other command.
-7. **Given** the console is not running and has never been started, **When** logs are requested,
-   **Then** they are returned — the two surfaces are independent.
+- added `features/observability/logs.feature`: a member reads the recent logs of a deployed service
+*Superseded:* new lines of a deployed service's logs appear as they are produced until the reader stops, by reading the logs again, or a short recent stretch of them; nothing follows logs
+- added `features/observability/logs.feature`: each line of the logs of a service with several instances names the instance that printed it
+- added `features/observability/logs.feature`: a member reads the logs of one instance
+- added `features/observability/logs.feature`: a member reads what an instance printed before it restarted
+- added `features/observability/logs.feature`: the logs of a paused service say that it has no running instance
+- added `features/observability/logs.feature`: a person who is not a member is told there is no project when reading logs
+- added `features/observability/logs.feature`: a member reads the logs of a deployed service with no local console ever started
 
 ---
 
@@ -137,14 +121,11 @@ nothing from it until one exists.
 durations, failures and agent token totals are retrievable from the running instance in a
 standard scrapeable form, with values that match what was driven.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a deployed service handling requests, **When** its metrics are read, **Then**
-   request counts and durations are present, broken down by component and handler.
-2. **Given** a deployed service with an agent, **When** its metrics are read, **Then** token
-   counts and cost are present, attributable to a model.
-3. **Given** a service that has just started and served nothing, **When** its metrics are read,
-   **Then** it responds with zeroed series rather than an error.
+- added `features/observability/metrics.feature`: a deployed service's metrics count each handler's runs and their duration
+*Superseded:* a deployed service's metrics carry token counts and cost by model, by nothing: the metrics count handlers' runs and durations only, and model usage is shown per session in the local console
+- added `features/observability/metrics.feature`: a service that has served nothing publishes metrics of zero
 
 ---
 

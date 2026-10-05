@@ -96,27 +96,16 @@ completion, run a task, wait for the terminal state, assert the result decodes t
 type and the tools were called with the model's arguments. In an integration test against a real
 service: post a question to an endpoint, poll the task, and read the answer.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an agent that accepts the "answer" task type, **When** a caller runs a task with
-   instructions, **Then** the call returns a task id before any model call has been made, and the
-   task is recorded as assigned to a new instance.
-2. **Given** a running task, **When** the model calls the built-in completion tool with a result
-   that conforms to the task type's result shape, **Then** the task is completed, the result is
-   readable by the task id, and the instance's iteration count and token usage are recorded.
-3. **Given** a running task, **When** the model calls the built-in failure tool with a reason,
-   **Then** the task is failed with that reason and no further model call is made for it.
-4. **Given** a running task, **When** the model calls the completion tool with a result that does
-   not conform to the result shape, **Then** the task is not completed, the decoding error goes back
-   to the model as the tool's result, and the next iteration proceeds.
-5. **Given** a completed task, **When** a caller reads it, **Then** it sees the status, the typed
-   result, when it was created, started and completed, and which instance completed it.
-6. **Given** a task that is not yet terminal, **When** a caller blocks for its result, **Then** the
-   call returns when the task completes, fails or is cancelled, or fails with a timeout the caller
-   chose.
-7. **Given** a task in a Python service, **When** the same scenario runs, **Then** the task record,
-   the iteration loop and the result live in the sidecar, and the Python process is asked only to
-   plan, to run a tool and to check a guardrail or rule.
+- added `features/autonomous-agents/running-tasks.feature`: running a task gives back its id before the model is called
+- added `features/autonomous-agents/running-tasks.feature`: a task the model completes with a result of the task type's shape is completed
+- added `features/autonomous-agents/running-tasks.feature`: a task the model gives up on is failed with the model's reason
+- added `features/autonomous-agents/running-tasks.feature`: a result not of the task type's shape goes back to the model
+- added `features/autonomous-agents/running-tasks.feature`: a completed task tells its reader everything about how it ended
+- added `features/autonomous-agents/running-tasks.feature`: a caller waiting for a task is answered when the task ends
+- added `features/autonomous-agents/running-tasks.feature`: a caller waiting for a task is told when its own time limit passes
+- added `features/autonomous-agents/languages.feature`: the platform runs the task of a process's autonomous agent and asks the process only for its own code
 
 ---
 
@@ -135,20 +124,12 @@ the second iteration is recorded, and assert the task completes with the scripte
 called exactly once per recorded iteration plus the remainder. In a real cluster: kill the process
 mid-task and watch the task finish.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an instance with a task in progress, **When** its process dies and the service
-   restarts, **Then** the instance resumes the task from its last recorded iteration and completes
-   it without the caller doing anything.
-2. **Given** an instance with a task in progress and two tasks queued, **When** the process dies
-   and restarts, **Then** the queued tasks are still queued, in order, and are run after the current
-   one.
-3. **Given** the model has asked for tools and the process dies after a tool has run but before the
-   iteration is recorded, **When** the instance resumes, **Then** it runs those tools again from the
-   recorded model response rather than calling the model again, and the documentation says a tool
-   may therefore run more than once.
-4. **Given** a rolling deployment of the service, **When** an instance moves between nodes, **Then**
-   its task continues on the new node and no iteration is lost or duplicated.
+- added `features/autonomous-agents/restarts.feature`: an agent instance whose process stops finishes its task after the restart
+- added `features/autonomous-agents/restarts.feature`: an agent instance's queued tasks survive a restart in their order
+- added `features/autonomous-agents/restarts.feature`: tools whose results were not recorded run again from the recorded reply
+- added `features/autonomous-agents/restarts.feature`: a task carries on when its agent instance moves in a rolling update
 
 ---
 
@@ -166,17 +147,12 @@ what makes running an agent unattended safe enough to do.
 assert the task fails after the third iteration with a reason naming the budget, the model's last
 request said how many iterations remained, and the next queued task starts.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a task type with a budget of N iterations, **When** the model has neither completed
-   nor failed the task after N iterations, **Then** the task is failed with a reason naming the
-   budget and the instance starts its next queued task.
-2. **Given** a task nearing its budget, **When** the model is called, **Then** the request tells it
-   how many iterations remain.
-3. **Given** a task that fails for any reason, **When** the instance has other tasks queued,
-   **Then** they run unaffected, in order.
-4. **Given** a task failed by the budget, **When** a caller reads it, **Then** the status is failed,
-   the reason names the budget, and no result is present.
+- added `features/autonomous-agents/budget.feature`: a task still unfinished when its budget is spent is failed and the next task starts
+- added `features/autonomous-agents/budget.feature`: the model is told how many iterations remain as the budget nears its end
+- added `features/autonomous-agents/budget.feature`: a task that fails leaves the queued tasks to run in their order
+- added `features/autonomous-agents/budget.feature`: a task failed by its budget has no result
 
 ---
 
@@ -194,18 +170,12 @@ is what turns "the model said it was done" into "the work meets the bar".
 sources and then one with; assert the task passed through result-rejected, the second model
 request carried the rejection reason, and the task completed with the second result.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a task type with a rule, **When** the model completes the task with a result the rule
-   rejects, **Then** the task's status is result-rejected with the rule's reason, and the reason is
-   in the next model request.
-2. **Given** a task type with several rules, **When** a result is checked, **Then** the rules run in
-   declaration order and the first rejection is the one reported.
-3. **Given** a result-rejected task, **When** the model completes it with a result every rule
-   accepts, **Then** the task is completed with that result.
-4. **Given** a task in a Python service whose rule is written in Python, **When** the model
-   completes the task, **Then** the sidecar asks the Python process to check the rule and acts on
-   its answer, as it does for a guardrail.
+- added `features/autonomous-agents/result-rules.feature`: a result a rule refuses leaves the task result-rejected and tells the model why
+- added `features/autonomous-agents/result-rules.feature`: the rules are checked in their declared order and the first refusal is the one reported
+- added `features/autonomous-agents/result-rules.feature`: a result-rejected task is completed by a result every rule accepts
+- added `features/autonomous-agents/languages.feature`: the process checks a result against the rules it wrote
 
 ---
 
@@ -225,27 +195,17 @@ query lists the current and the queued ones; suspend it mid-task and assert no m
 until resume; terminate it and assert the tasks it had are no longer assigned, its id refuses new
 tasks, and the task records still exist.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an instance with a caller-chosen id, **When** several tasks are assigned to it,
-   **Then** they are worked one at a time in the order assigned, each waiting for its dependencies.
-2. **Given** an instance working a task, **When** it is suspended, **Then** the current iteration
-   finishes, no further model call is made, the task stays in progress, and queued tasks stay
-   queued; **When** it is resumed, **Then** work continues from the next iteration.
-3. **Given** an instance, **When** it is terminated, **Then** it stops at the next iteration
-   boundary, its current and queued tasks return to pending with no assignee and a note that their
-   assignee was terminated, the task records remain readable, and the instance id refuses any
-   further assignment permanently.
-4. **Given** any instance, **When** its state is queried, **Then** the answer gives its phase (idle,
-   working, suspended, terminated), the current task id if any, the queued task ids in order, the
-   iterations spent on the current task, and its token usage in total.
-5. **Given** an instance working a task with two more queued, **When** a caller cancels the task
-   in progress, **Then** the instance stops it at the end of the current iteration, the task is
-   cancelled with the caller's reason, and the next queued task starts; **When** a caller cancels a
-   queued task, **Then** it leaves the queue at once and the others keep their order.
-6. **Given** an instance that has finished every task it was given, **When** it is left alone,
-   **Then** it consumes no resources beyond its journal until it is next addressed, and addressing
-   it again brings it back with its state intact.
+- added `features/autonomous-agents/agent-instances.feature`: tasks assigned to an agent instance are worked one at a time in the order assigned
+- added `features/autonomous-agents/agent-instances.feature`: a task assigned to an agent instance waits for the tasks it depends on
+- added `features/autonomous-agents/agent-instances.feature`: a suspended agent instance calls no model and keeps its tasks
+- added `features/autonomous-agents/agent-instances.feature`: a resumed agent instance carries on from its next iteration
+- added `features/autonomous-agents/agent-instances.feature`: a terminated agent instance gives its tasks back unassigned and refuses any more
+- added `features/autonomous-agents/agent-instances.feature`: an agent instance tells a caller what it is doing
+- added `features/autonomous-agents/agent-instances.feature`: a task cancelled while in progress stops at the end of the iteration and the next task starts
+- added `features/autonomous-agents/agent-instances.feature`: a queued task that is cancelled leaves the queue at once
+- added `features/autonomous-agents/agent-instances.feature`: an agent instance with nothing to do holds nothing but its record until it is next addressed
 
 ---
 
@@ -266,23 +226,14 @@ iteration started, iteration completed, result rejected, iteration started, iter
 task completed, deactivated — and that a subscriber joining after the second iteration sees none
 of the first.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a subscriber to an instance's notifications, **When** the instance works a task,
-   **Then** the subscriber receives, in order, every lifecycle, task and struggle event the
-   instance emits, each carrying the instance id, the task id where one applies, and when it
-   happened.
-2. **Given** a subscriber that joins mid-task, **When** it subscribes, **Then** it receives only
-   events from that moment on, and no replay.
-3. **Given** a task at 80% of its iteration budget, **When** the next iteration starts, **Then** an
-   approaching-budget event is emitted once, and not again for that task unless the task is
-   result-rejected and resumes.
-4. **Given** an endpoint that forwards notifications over server-sent events, **When** a browser
-   connects, **Then** each event is one server-sent event whose `data` field is a JSON string
-   containing the notification's JSON — the platform's rule for every server-sent event, so a
-   reader parses the field and then the notification.
-5. **Given** a task in a Python service, **When** an endpoint in that service subscribes, **Then**
-   it receives the same notifications from the sidecar.
+- added `features/autonomous-agents/notifications.feature`: a watcher is given every notification in order, each saying what it is about and when
+- added `features/autonomous-agents/notifications.feature`: a watcher who starts watching part way through a task is given nothing from before
+- added `features/autonomous-agents/notifications.feature`: a task nearing its budget is warned of once
+- added `features/autonomous-agents/notifications.feature`: a task warned of its budget is warned again after it is result-rejected
+- added `features/autonomous-agents/notifications.feature`: notifications forwarded to a browser read back exactly as they were sent
+- added `features/autonomous-agents/languages.feature`: an endpoint of a process watches an agent instance's notifications
 
 ---
 
@@ -301,19 +252,14 @@ and every developer's first autonomous agent needs one.
 rejection and completion, a scripted failure, a budget exhaustion, a restart — each a test of a few
 lines.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a scripted model, **When** a test scripts "complete the task with this result",
-   **Then** the agent's task completes with that result decoded to the declared type.
-2. **Given** a scripted model, **When** the script is conditioned on the request's content or on a
-   tool's result, **Then** the matching response is used and the others are not consumed.
-3. **Given** a test that waits for a task, **When** the task reaches a terminal state, **Then** the
-   wait returns its record; **When** it does not within the test's timeout, **Then** the wait fails
-   naming the task's last status.
-4. **Given** a script that has run out, **When** the agent makes another model call, **Then** the
-   task fails with an error naming the exhausted script, and the failure is visible to the test.
-5. **Given** the Python testkit, **When** a Python developer writes the same test, **Then** the same
-   four scenarios are available against the sidecar.
+- added `features/autonomous-agents/testing.feature`: a script that completes a task completes it with a result of the task type
+- added `features/autonomous-agents/testing.feature`: a script conditioned on what happened answers only when it matches
+- added `features/autonomous-agents/testing.feature`: a test waiting for a task is given the task as it ended
+- added `features/autonomous-agents/testing.feature`: a test waiting for a task that does not end fails naming the task's last task status
+- added `features/autonomous-agents/testing.feature`: a script that runs out fails the task and the test sees why
+- added `features/autonomous-agents/languages.feature`: a test of a process's autonomous agent scripts its model as a test of an embedded one does
 
 ---
 
@@ -333,19 +279,12 @@ an undocumented crash semantic is a bug report waiting to happen.
 every quoted sample is included from tested code; the limitations page names what phase 1 leaves
 out; the protocol reference table is regenerated and its prose mentions every new fact.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the concepts section, **When** a reader looks for autonomous agents, **Then** a page
-   explains the component, the task, the loop, the budget, the crash semantics and when to use it,
-   standing alone.
-2. **Given** the build section, **When** a developer follows the guide, **Then** they can write the
-   question-answering agent in Scala and in Python from included, tested samples.
-3. **Given** the limitations page, **When** a reader looks for what autonomous agents cannot do,
-   **Then** delegation, handoff, teams, moderation, MCP tools and per-instance overrides are listed
-   as not implemented, and the TypeScript SDK's testkit and notification stream as not yet
-   available.
-4. **Given** the divergences page, **When** a reader compares with Akka, **Then** every deliberate
-   difference in this feature is listed with its reason.
+- added `features/autonomous-agents/documentation.feature`: the documentation explains autonomous agents on a page that stands alone
+- added `features/autonomous-agents/documentation.feature`: the documentation shows how to build an autonomous agent in each language from tested code
+- added `features/autonomous-agents/documentation.feature`: the documentation says what autonomous agents do not do
+- added `features/autonomous-agents/documentation.feature`: the documentation lists every difference from Akka's autonomous agents with its reason
 
 ---
 
@@ -484,7 +423,7 @@ out; the protocol reference table is regenerated and its prose mentions every ne
   response, including any tool requests, MUST be recorded before any of those tools run, and the
   tools' results MUST be recorded before the next model call.
 - **FR-022**: An instance whose process stops mid-task MUST resume from its last recorded point on
-  restart or on any node that next hosts it, re-running the tools of a recorded response whose
+  restart or on any node that next hosts it, re-running the tools of a recorded reply whose
   results were not recorded rather than calling the model again; the documentation MUST state that
   a tool may therefore run more than once for one request and that tools with side effects should
   be written to tolerate that.
@@ -631,11 +570,16 @@ out; the protocol reference table is regenerated and its prose mentions every ne
   dependency or a termination? → A: Yes — pending, assigned, in-progress or result-rejected; an
   in-progress task stops at its instance's next iteration boundary.
 
+### Session 2026-10-05 (glossary)
+
+- Q: Which word is a task's state, now that "status" is how a gRPC call ended? → A: **task status**; a task with no agent instance is **unassigned** ("pending" is an invitation's word).
+- Q: Does "suspended" mean one thing for an agent instance and for a service of a disabled organization? → A: Yes, one sense: stopped, keeping everything it has, until something other than its members brings it back; unlike paused.
+
 ## Assumptions
 
 - **Crash semantics: tools are at-least-once.** The model's response is recorded before its tools
   run, and their results are recorded before the next model call; a crash between the two re-runs
-  the tools from the recorded response and never re-calls the model for a recorded iteration. This
+  the tools from the recorded reply and never re-calls the model for a recorded iteration. This
   is the cheaper and more honest of the two choices the description offered: a model call is the
   expensive, non-deterministic step, a tool call is the developer's own code, and documenting "a
   tool may run twice, write it to tolerate that" is a rule developers already live by for consumers

@@ -43,19 +43,12 @@ US2 has nothing to prove without an address to send a request to.
 and confirm a Service exists that routes to the workload, and that the service is not reported `Ready`
 before the port accepts connections.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a descriptor that declares no port, **When** it is applied, **Then** the service is
-   deployed with the platform's default port, reachable at a stable in-cluster address.
-2. **Given** a descriptor declaring a specific port, **When** it is applied, **Then** the workload is
-   configured to listen on that port and the address routes to that same port — the two cannot differ.
-3. **Given** a workload whose port is not yet accepting connections, **When** its status is reported,
-   **Then** it is not `Ready`, and it becomes `Ready` once the port opens.
-4. **Given** a descriptor that both declares a port and sets the runtime's own port environment
-   variable by hand, **When** it is applied, **Then** it is refused with a message naming the conflict,
-   rather than deploying something whose address is wrong.
-5. **Given** a service that serves no HTTP, **When** its descriptor says so explicitly, **Then** no
-   address is created for it, no port is exposed, and it still reaches `Ready` when it is running.
+- added `features/deploying/addresses.feature`: the address of a service reaches the port its instances listen on
+- added `features/deploying/addresses.feature`: an instance that is not yet listening is not ready
+- `features/secrets/platform-settings.feature`: a descriptor may not give a variable the platform alone sets, however it gives it
+- added `features/deploying/addresses.feature`: a service that serves no HTTP has no address and is ready once it runs
 
 ---
 
@@ -73,17 +66,12 @@ is only demonstrably correct once something real depends on it.
 **Independent Test**: Deploy the sample through the real CLI against a platform-provisioned database,
 POST an item to a cart, GET the cart back and see the item, delete the pod, and GET the cart again.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the sample packaged as an image available to the cluster, **When** its descriptor is
-   applied through the CLI with nothing about databases in it, **Then** the platform provisions a
-   database, applies the schema, starts the service and reports it `Ready`.
-2. **Given** a `Ready` sample service, **When** an item is added to a cart over HTTP, **Then** the
-   request succeeds and reading that cart back returns the item.
-3. **Given** a cart with items, **When** the workload's pod is deleted and replaced, **Then** reading
-   the cart back returns the same items — the data was in the database, not in memory.
-4. **Given** a `Ready` sample service, **When** its database is inspected directly, **Then** it
-   contains the events the cart operations produced, in the service's own database and nowhere else.
+- added `features/deploying/sample.feature`: a service whose descriptor says nothing of a database is given one
+- added `features/deploying/sample.feature`: an item added to a cart is read back
+- added `features/deploying/sample.feature`: a cart outlives the instance that held it
+- added `features/deploying/sample.feature`: the events of a service are in its own database and no other
 
 ---
 
@@ -98,15 +86,9 @@ chain silently rots. Lower than P1 only because the capability must exist before
 **Independent Test**: Break the rendering deliberately — remove the port, or point the address at the
 wrong one — and confirm the automated suite fails.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the automated suite, **When** it runs, **Then** it deploys the real sample against a real
-   cluster and a real database and exercises its endpoints over HTTP.
-2. **Given** rendering that produces an address pointing at a port nothing listens on, **When** the
-   suite runs, **Then** it fails.
-3. **Given** a developer with no local cluster, **When** they run the test suite with cluster tests
-   disabled, **Then** the suite is skipped along with the existing cluster suites and everything else
-   still runs.
+*Not written as a feature:* the automated suite deploys the real sample against a real cluster and database, fails when an address reaches a port nothing listens on, and is skipped with the other cluster suites when cluster tests are switched off; these are properties of the platform's own build, not of the platform
 
 ---
 

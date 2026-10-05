@@ -14,7 +14,9 @@ specs: specs
 # The first spec to check, by its directory's name or its leading number. A project that had specs
 # before it had features names the first spec written since, and the checker does not read the ones
 # before it: they stay as they were written. Leave it out to check every spec.
-specs-from: "019"
+#
+# Left out: every spec's acceptance scenarios have been moved into the living features, the earliest
+# (001-019) written as the platform behaves now rather than as each spec first described it.
 
 # How to run the checker. The default runs the version released with this extension; a local
 # checkout is `uv run --project /path/to/speckit-bdd/checker speckit-bdd`.

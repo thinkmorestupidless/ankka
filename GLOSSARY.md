@@ -314,7 +314,7 @@ Avoid: rpc, operation
 
 ### status
 How a gRPC call ended, as whoever called is told: "ok", or the name of one kind of
-refusal or failure. Every gRPC call ends with exactly one.
+refusal or failure. Every gRPC call ends with exactly one. It is not a service's lifecycle nor a task status.
 
 Avoid: status code, error code
 
@@ -717,6 +717,526 @@ platform at a later one.
 ### limitations
 *Proposed.* The part of the documentation that lists what ankka does not do.
 
+## Reconciliation and service clusters
+
+### operator
+The part of the platform inside the cluster that makes each deployed service what the
+control plane recorded for it, and reports what it sees of the service's instances. It is not a
+person: a person who operates a service is a member.
+
+Avoid: controller, reconciler
+
+### generation
+How many times a deployed service's descriptor has been applied and the service
+restarted, counted by the control plane. A report names the generation it describes.
+
+### report
+What the platform reports of a deployed service, as the operator last saw it: its lifecycle, how
+many of its instances are ready of how many it asks for, the generation it describes, and why.
+
+Avoid: observation
+
+### unconfirmed
+Of a deployed service's lifecycle: the last one recorded, which the control plane cannot confirm
+because it cannot reach the cluster.
+
+Avoid: stale
+
+### service cluster
+The instances of one service joined together, so that each entity is active on exactly
+one of them and a request that arrives at any of them reaches it. It is not the cluster the
+instances run on.
+
+Avoid: node cluster
+
+### build
+What a developer makes from a service's code: the same build runs on a developer's
+machine and deployed.
+
+## Databases, exposure and zero trust
+
+### provisioned
+Of a database: made by the platform for one service, the first time the service is
+deployed with a descriptor that says nothing of a database, and kept for it from then on. It is not
+a database the descriptor declares of its own.
+
+### authority
+What issues certificates, and what a certificate is checked against. An installation
+has one for the connections within a service cluster, one for the connections between services,
+and one for each project's databases.
+
+Avoid: CA, certificate authority
+
+### mutually authenticated
+Of a connection: encrypted, with each end having shown the other a certificate the installation's
+authority issued, naming who it is.
+
+Avoid: mutual TLS, mTLS, proven
+
+### in the clear
+Of a connection or a request: readable by anything on the network between its two ends.
+
+Avoid: plain, plaintext
+
+### base domain
+The installation's own domain, under which every hostname is made. It is set once for
+the installation, and never for a project or a service.
+
+### unexpose
+Make an exposed service private again. Only its hostname stops answering; the service
+and its instances are left as they were.
+
+### renew
+Of a certificate: replace it with a new one before it expires. The platform renews every
+certificate it issued, every few hours, and nothing restarts for it.
+
+Avoid: rotate
+
+### command line
+The platform's program for the command line, through which a person or a machine operates
+the control plane and a developer starts services from a template.
+
+## Applications, deploying from GitHub and logs
+
+### library
+A published part of the platform that a service is built with, such as the test kit. The parts of the platform that run services, such as the control plane, are programs and are not libraries.
+
+### owner
+A member of an organization who may also manage it: invite people into it, remove its
+members and change their roles, rename it, manage its deploy tokens and delete it. An organization
+always has at least one owner, and a deploy token is never one.
+
+### revoke
+Of a deploy token: end it, so that no request with it is admitted again.
+
+### job
+One run of a repository's automation on GitHub, on one machine, whose commands run one after another. It is not a workflow, which is a component.
+
+### GitHub action
+What a job uses to install the command line at a version it names, point it at a control plane and authenticate it with a deploy token for every later command in the job.
+
+### repository
+Where a service's code is kept on GitHub, with the deploy settings its jobs read.
+
+### deploy settings
+What a repository holds for the job that deploys its service: the control plane's address, a deploy token and a project, and where needed an authority.
+
+### registry
+Where images are kept for a cluster to pull. The platform runs none.
+
+### registry credential
+What a cluster pulls a project's images from a private registry with: the registry, a username and a password, registered once for the project. The password is given to the cluster and never shown back.
+
+### pull
+Of a cluster: fetch a service's image from its registry before an instance can start.
+
+### unattributed
+Of time in a trace: spent inside a part of the trace that none of the parts nested under it account for, such as waiting on a model or on the database.
+
+### history
+Who did what to a service, and when, as the control plane recorded it.
+
+## Organizations
+
+### invitation
+An email address an owner has asked to make a member of an organization, with the role
+it will have. It is pending until a person whose verified email is that address claims it, and an
+owner may revoke it.
+
+Avoid: invite (as a noun)
+
+### pending
+Of an invitation: neither claimed nor revoked.
+
+### claimed
+Of an invitation: made into a membership by a request from a person whose verified email
+is its address.
+
+### platform administrator
+A person, or a machine, whom the installation's issuer names as able to act on every
+organization of the installation, whether or not they are one of its members.
+
+Avoid: superuser
+
+### disabled
+Of an organization: stopped by a platform administrator. Its running services are
+suspended and its members may read it but change nothing in it, until it is enabled.
+
+### enabled
+Of an organization: not disabled. Enabling a disabled organization brings back the
+services it suspended.
+
+### suspended
+Stopped, keeping everything it has, until something other than its members brings it
+back: a service whose organization is disabled, or an agent instance told to suspend, which calls no
+model until it is resumed. It is not paused: a paused service runs again only when its members resume it.
+
+### actor
+Who did a thing the control plane recorded: a member, a machine, or a platform
+administrator acting as one. A thing recorded before actors were recorded has none.
+
+### usage
+How many projects, services and instances an organization has, counted against its quotas: the
+instances are every service's minimum instances added up. Pausing, suspending or disabling changes
+none of it. It is not model usage nor judgment usage.
+
+### model usage
+What a model reports it used for a turn or an iteration, in the units it charges by. It is never
+added to judgment usage.
+
+### judgment usage
+What a judgment provider reports it used for a judgment, in the units it charges by. It is never
+added to model usage.
+
+### minimum instances
+How many instances a descriptor asks the platform to run of a service, and what a quota
+counts.
+
+## Signing in
+
+### signs in
+Of a member: proves who they are to the installation's issuer, once, so that their
+machine can obtain tokens for them. It is done in a browser, which need not be on the same machine.
+
+### sign-in
+What is kept after a member signs in, on their machine or by the console for their browser, from
+which a new token is obtained when one has expired, until the issuer ends it.
+
+### code
+What a member is shown when they sign in, and confirms in a browser, to tie the browser
+to the machine that asked.
+
+### protocol library
+The library each release publishes of the control plane's requests, answers and rules
+for a descriptor, for programs that drive the control plane from outside the platform.
+
+## Languages
+
+### SDK
+The library a developer writes a service with, one for each language the platform hosts.
+A service built with one says which SDK and which version of it.
+
+Avoid: guest library, PDK
+
+### protocol
+The platform's way of talking to a process or a module: the messages that pass between
+the platform's own program and the developer's code. A service's code speaks one protocol version.
+
+### ABI version
+Which version of the platform's way of loading and calling a module a module was made
+for. The platform loads only a module made for an ABI version it speaks.
+
+### conformance suite
+What defines a compatible SDK: it drives a reference service through every conversation
+of the protocol and names each behaviour it checks as passing or failing.
+
+### reference service
+A service each SDK has that declares the same components, handlers and routes in its
+language, for the conformance suite to run against.
+
+### encoding
+The one way the platform writes every value a service records or sends, the same in
+every language, so that what one language recorded another reads.
+
+### fixture
+A value published with the protocol together with exactly what the encoding writes for
+it, which every SDK must read and write again byte for byte.
+
+### snapshot
+An entity's state as the developer's code wrote it at one event, kept so that recovering
+the entity needs only the events after it.
+
+### recovered
+Of an entity: given back its state, from its snapshot and the events after it, before its
+next command runs.
+
+### query
+A handler that reads an entity's state and may not change it.
+
+### component test kit
+What a developer's test runs one component with, with no platform, no database and no
+network, showing each effect as values. It is not the test kit, which starts a whole service.
+
+### stateless
+Of a component in a module: handed its state with every call, and handing back the new
+one.
+
+### stateful
+Of a component in a module: handed its state once, when its entity is loaded, and keeping
+it between calls until the entity is passivated.
+
+### loaded
+Of an entity: held by one instance, ready to handle commands.
+
+### passivated
+Of an entity: put out of memory after a time unused, to be loaded again by its next
+command. Nothing of it is lost.
+
+### package registry
+The public place a language's libraries are published to and installed from, where each
+SDK is published at the platform's version.
+
+### skill
+A set of the documentation's pages packaged for a coding agent to load: the rules for
+building a kind of thing on the platform, and how each language differs.
+
+### coding agent
+A program that writes code for a developer, reading the platform's skills to do so. It is
+not an agent.
+
+### Akka
+The platform whose component model ankka reimplements, and whose behaviour ankka's documentation says where it differs from.
+
+## Agents
+
+### request agent
+An agent that answers one message at a time, in a session, while its caller waits. It is not an autonomous agent.
+
+### model
+What an agent talks to: it is sent instructions, a conversation and tools, and answers
+with text or asks for tools to be run. It is not a judgment provider.
+
+### session
+One conversation of an agent, with every turn of it, which the platform keeps under
+an id as it was held, never the developer's code. An autonomous agent's work on one task is a
+session of its own.
+
+### turn
+One message sent to an agent's session and the reply to it.
+
+### conversation
+What an agent and its model have said to each other in one session, which the platform keeps as the session's memory. A judgment neither reads nor writes one.
+
+### reply
+What an agent's model answers to a request, as the agent gives it back to its caller.
+
+### input
+Of an agent: what goes into its model, a request's message or a task's instructions. A guardrail on the input checks it before the model is called.
+
+### output
+Of an agent: what comes out of its model, a reply or a task's result. A guardrail on the output checks it before it is remembered.
+
+### guardrail
+A check on what goes into an agent's model or comes out of it, declared by the
+developer, which refuses an interaction it does not allow. A refusal by a guardrail is a refusal.
+
+### scripted model
+A model a test gives its agent, which answers from a script in order. A script that runs out fails the test.
+
+### script
+The answers a scripted model or a scripted judgment provider gives, in order.
+
+## Autonomous agents
+
+### autonomous agent
+An agent that is given tasks rather than messages, and iterates on each until its model completes the task with a result or gives up on it, or the task's budget is spent. It is not a request agent.
+
+### task
+A durable record of work to be done by an autonomous agent: its task type, its instructions, the tasks it depends on, its status, and, once it is completed, its result. It outlives the agent instance that works it.
+
+### task type
+What sort of task a task is: a name, a description, the shape of its result, the rules a result must satisfy and the budget an agent instance may spend on one.
+
+### instructions
+What a task asks to be done, in words, as its creator wrote them.
+
+### result
+What a completed task produced, of its task type's shape.
+
+### agent instance
+One autonomous agent, named by an id its caller chooses, that works its tasks one at a time and queues the rest. It is not an instance of a service.
+
+### iteration
+One round of an agent instance's work on a task: a call to the model, and the tools the model asked for. Every iteration is recorded as it happens.
+
+### budget
+How many iterations an agent instance may spend on one task of a task type.
+
+### completes
+Of the model: says a task is done, giving its result.
+
+### gives up
+Of the model: says a task cannot be done, giving its reason.
+
+### assigned
+Of a task: given to an agent instance, which has not started it. As a verb, assign: give a task to an agent instance.
+
+### in progress
+Of a task: being worked by its agent instance.
+
+### completed
+Of a task: ended with a result.
+
+### cancelled
+Of a task: ended because a caller cancelled it, or because a task it depends on failed or was cancelled. As a verb, cancel.
+
+### result-rejected
+Of a task: completed by the model with a result that a rule or a guardrail refused, and back with the model to try again within the same budget.
+
+### queued
+Of a task: assigned to an agent instance that is working another.
+
+### resumed
+Of a suspended agent instance: working again from its next iteration.
+
+### terminated
+Of an agent instance: stopped for good, its tasks given back unassigned, its id refusing any task from then on. As a verb, terminate.
+
+### idle
+Of an agent instance: with no task to work.
+
+### working
+Of an agent instance: with a task in progress.
+
+### phase
+Which of idle, working, suspended or terminated an agent instance is.
+
+### notification
+What an agent instance tells whoever is watching it about something that has just happened: its lifecycle, a task, an iteration, or a warning that a task is struggling. Notifications are not kept.
+
+### watch
+Be given an agent instance's notifications as they happen. Whoever does is a watcher.
+
+### watcher
+Whoever is watching an agent instance.
+
+### depends
+Of a task: may not start until the tasks it depends on are completed.
+
+### unassigned
+Of a task: given to no agent instance, so that it may be assigned.
+
+### task status
+Where a task stands: "pending" (unassigned), "assigned", "in progress", "result-rejected", or ended
+"completed", "failed" or "cancelled". It is not a status, which is how a gRPC call ended.
+
+## Judgments
+
+### judgment
+The answers a judgment provider gave to typed questions about a judged content, all asked at once, each with the probabilities behind it.
+
+### judgment provider
+What a service asks for judgments: a model that writes nothing and answers typed questions. It is not the model an agent talks to.
+
+Avoid: judgment model
+
+### judged content
+The text or value a judgment's questions are asked about.
+
+### question
+What a judgment asks of a judged content, declared with an id of its own: a choice question, a score question or a yes or no question.
+
+### choice question
+A question whose answer is one of a set of described options, with a probability for each option and a confidence.
+
+### score question
+A question whose answer is a place among ordered, described levels, with a probability for each level and a confidence. The answer may lie between two levels.
+
+### yes or no question
+A question whose answer is the probability that the answer is yes. It has no confidence.
+
+### option
+One of the answers a choice question offers.
+
+### level
+One of the ordered, described steps a score question places its answer among.
+
+### probability
+A number between 0 and 1 saying how likely a judgment provider holds an answer to be.
+
+### confidence
+A number between 0 and 1 saying how concentrated a choice's or a score's probabilities are, as the judgment provider reports it.
+
+### judged guardrail
+A guardrail that asks questions of the text going into or coming out of a model, and refuses when an answer crosses a threshold. A judged guardrail that could not ask has refused nothing.
+
+### threshold
+The probability, option or level at which a judged guardrail refuses.
+
+### model version
+Which version of a judgment provider's model answers a judgment. A service names a fixed one unless its developer names an alias.
+
+### alias
+A name for whichever model version a judgment provider currently means by it.
+
+### scripted judgment provider
+A judgment provider a test gives its service, which answers from queued answers and standing answers. One with no answer fails the judgment and is never asked again.
+
+### standing answer
+An answer a scripted judgment provider gives every judgment that asks its question, without using up its queue.
+
+### definition
+What an autonomous agent is declared by: what it is for, how it behaves, its tools and guardrails, its model, and the task types it accepts.
+
+## The console
+
+### sign-up address
+Where an installation that creates organizations only through a platform administrator
+sends a person who wants one.
+
+### lifecycle
+Of a deployed service: the one word the platform reports for where it stands, such as "Ready",
+"UpdateInProgress", "Failed", "Paused" or "Suspended". It is not a status, which is how a gRPC call
+ended.
+
+### follow
+Of a service's logs: be shown each line its instances print as it is read, without
+asking again.
+
+### host
+A web application that serves the console inside its own look and with its own
+sign-in, and may add things of its own beside the console's. The console's own image is one host.
+
+## Graph deltas
+
+### change
+One event, state or deletion of one entity, or one message from a topic, as a consumer is handed it.
+
+### key
+What a message is published under. Messages under one key are delivered in order, and a compacted topic keeps the last of them. A message's key is its entity's id unless the message names another; the key does not change which entity the message is about.
+
+### sequence number
+Where a change stands in its entity's history: an event's number for an event sourced entity, the state's revision for a key value entity. It only rises, also across a deletion and the entity being created again. A message from a topic has none.
+
+### store
+The database outside the service that a sink keeps nodes and relationships in, one element for each element key. It is not a service's database.
+
+### element
+A node or a relationship, as deltas describe it and a store holds it. Nodes and relationships are named apart, so a node and a relationship may have the same element id.
+
+### element id
+The name an element is known by in a store, unique among the nodes or among the relationships.
+
+### node
+An element that has labels and properties, such as a cart.
+
+### relationship
+An element that runs from one node to another, with a type and properties. Its element key begins "edge:".
+
+### label
+A word a node carries to say what sort of thing it is, such as "Cart".
+
+### property
+One named value an element carries: text, a number, true or false, or a list of one of those.
+
+### delta
+One element's whole state at a version, or a tombstone for it, published as one message under its element key. A delta is not a change.
+
+### tombstone
+A delta that marks an element deleted at a version. It marks the element; it does not remove it from the store or from the topic.
+
+### element key
+The key a delta is published under: "node:" or "edge:" followed by its element id. Every delta of one element is under one key.
+
+### compacted
+Of a topic: kept by the broker as the last message under each key, so that it holds every element's latest delta and not every change.
+
+### pipeline
+What reads a topic outside the service and writes what it reads somewhere else, such as into a store. It declares the topics it owns.
+
+### sink
+The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one.
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
@@ -748,4 +1268,36 @@ removed, gave, list, become, becomes, values, nowhere, afterwards, fail, larger,
 slash, holding, newly, exists, try, tries, there, such, present, record, recorded, delete, deleted,
 back, distinct, between, naming, starting, longest, permitted, accepts, declaring, already,
 delivered, missing, honoured, earlier, higher, lower, positive, whole, number, during, beside, far,
-looks, default, bounded, upgrading, empty, nobody, created, creation, because, reserved
+looks, default, bounded, upgrading, empty, nobody, created, creation, because, reserved,
+sees, lost, cart, item, moment, find, form, place, warning, active, replacement, join, joins,
+joined, cut, side, went, held, unchanged, need, someone, anything, copy, everything, always, hour,
+grow, connection, connections, connect, credential's, refuses, exchanged, password, timers, due,
+rows, wrote, socks, redirected, predicted, seconds, checks, checking, checked, check, verify,
+verifies, unchecked, risks, moved, installs, installed, installing, enforce, network, talk, talks,
+showing, cluster's, gateway's, issuer's, control, plane's, member's, developer's, machine's, ports,
+needs, adds, create, act, issued, issue, trust, trusts, against, security, protect, way, builds,
+depend, depending, prepared, prepares, prepare, program, programs, edited, order, writes, carry,
+creates, labelled, today, today's, attributes, invites, renames, deletes, lifetime, stating,
+stated, ninety, expires, expire, expiring, succeeds, released, pushes, pushed, push, tags, tagged,
+commit, hand, declines, username, public, private, plainly, wraps, sign, line, lines, recent,
+paused, cost, unknown, prices, duration, oldest, outcome, body, client, monitoring, collects,
+draws, provided, follows, refers, copied, belongs, days, accounts, ever, took, among, forms, knows,
+confirms, acting, anyone, get, revoked, across, fourth, replied, deletion, nested, stays, speaks,
+speak, drives, kit, JVM, Docker, Rust, toolchain, Scala, Python, TypeScript, items, carts, profile,
+workflow's, refuse, recovery, recovers, recover, failing, passing, behaviour, mid-command,
+exercised, byte, bytes, compatible, install, imported, package, lacks, function, broken, fixed,
+error, handed, steps, moving, moves, see, seen, retried, memory, samples, tested, contents,
+differs, rules, languages, whichever, loads, load, replace, schema, spent, work, approve, begins,
+warned, happens, happened, cites, cite, nearing, words, text, team, teams, ticket, decision, shape,
+included, include, chosen, characters, Akka's, above, whatever, total, therefore, talking, stood,
+stay, replies, remains, remain, rejected, rate, overrides, override, overloaded, note, navigation,
+moderate, lie, lead, invented, highest, guides, guide, forwards, figure, explains, differences,
+difference, deliberate, delegate, defeat, deactivated, activated, copies, configure, condition,
+computed, author, agree, renewing, renewed, browser's, administrator, timed, elsewhere, following,
+drawn, look, addition, hides, rename, renamed, invited, enables, disables, confirmed, detail,
+milliseconds, assistant, absence, setting, absent, something, anyway, identity, proves, known,
+belong, someone's, themselves, membership, wherever, loading, begin, begun, returning, receives,
+example, cloud, everywhere, people, development, return, turned, JavaScript, alters, choice,
+several, hands, reference, shopping, three, perhaps, single, current, plain, describe, describing,
+checkout, checkouts, applied, caught, uninterrupted, computes, outranks, rise, greater, neither,
+replaces, documented, documentation's, needed, writer

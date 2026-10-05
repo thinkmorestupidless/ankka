@@ -41,18 +41,13 @@ An operator asks for three instances of a service. Three pods start, find each o
 write to an entity through one pod and read it through another, and confirm that entity's history
 has one unbroken sequence.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a descriptor asking for three instances, **When** it is applied, **Then** three pods run
-   and report themselves members of the same single cluster.
-2. **Given** that cluster, **When** an item is added to a cart through one pod and read back through
-   another, **Then** the item is there — one entity, wherever the request landed.
-3. **Given** many services deployed for the first time, each with several instances, **When** their
-   pods start at the same moment, **Then** every one of them forms exactly one cluster — never two.
-4. **Given** a descriptor that says nothing about instances, **When** it is applied, **Then** it runs
-   as one instance exactly as it does today.
-5. **Given** two services in one project, **When** both run several instances, **Then** each forms
-   its own cluster and neither's nodes ever join the other's.
+- added `features/clusters/forming.feature`: the instances of a service form one service cluster
+- added `features/clusters/forming.feature`: a request reaches an entity whichever instance it arrives at
+- added `features/clusters/forming.feature`: services whose instances all start at the same moment each form exactly one service cluster
+- added `features/clusters/forming.feature`: a descriptor that says nothing of instances runs one, however busy the service is
+- added `features/clusters/forming.feature`: the instances of two services in one project never join each other's service cluster
 
 ---
 
@@ -69,18 +64,13 @@ It is also what makes the rest testable: nearly every existing suite runs a serv
 **Independent Test**: With nothing but the bundled database running, start a sample; it serves
 requests. Start a second copy pointed at the first; the two form one cluster.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a developer's machine with no cluster configuration of any kind, **When** a service is
-   started, **Then** it forms a cluster of one and serves requests, as it does today.
-2. **Given** a running local node, **When** a second is started and told where the first is, **Then**
-   the two form one cluster — so multi-node behaviour can be seen without Kubernetes.
-3. **Given** a service's source code, **When** it is run locally and when it is deployed, **Then** it
-   is the same code and the same build: how nodes find each other is supplied by where it runs.
-4. **Given** a service with its own configuration, **When** it is deployed, **Then** its own settings
-   still apply — the platform's choice of clustering mechanism does not replace them.
-5. **Given** the existing test suites, **When** they run, **Then** they pass unchanged in their
-   single-node form.
+- added `features/clusters/local.feature`: a service on a developer's machine forms a service cluster of one and answers requests
+- added `features/clusters/local.feature`: a second instance told the address of the first joins its service cluster
+- added `features/clusters/local.feature`: the same build of a service forms a service cluster wherever it runs
+- added `features/clusters/local.feature`: a service's own setting about its service cluster applies when it is deployed
+*Not written as a feature:* the existing test suites pass unchanged in their single-node form; a property of the platform's own build, not of the platform
 
 ---
 
@@ -95,18 +85,14 @@ buys. Second only because it cannot exist before US1.
 **Independent Test**: Against a three-instance service under steady request load, roll a new image.
 Confirm requests keep succeeding throughout, and that at no moment are there two clusters.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a three-instance service under load, **When** its image is changed, **Then** instances
-   are replaced progressively and requests continue to be answered throughout.
-2. **Given** an instance being replaced, **When** it shuts down, **Then** it leaves the cluster
-   deliberately and its entities resume elsewhere, rather than being discovered missing.
-3. **Given** a running service, **When** its instance count is raised, **Then** the new instances
-   join the existing cluster; **when** it is lowered, **Then** the surplus leave it cleanly.
-4. **Given** an instance that has started but not yet joined the cluster, **When** its readiness is
-   reported, **Then** it is not ready and receives no requests.
-5. **Given** a service with some instances ready and some not, **When** its status is reported,
-   **Then** it says so — partially ready, with the counts — rather than rounding to either extreme.
+- added `features/clusters/replacing.feature`: a service whose image changes refuses no request
+- added `features/clusters/replacing.feature`: an instance being replaced leaves its service cluster and its entities go on elsewhere
+- added `features/clusters/replacing.feature`: instances added to a service join its service cluster and replace none
+- added `features/clusters/replacing.feature`: instances taken from a service leave its service cluster before they stop
+- added `features/clusters/replacing.feature`: an instance that has not joined the service cluster is not ready
+- added `features/clusters/replacing.feature`: a service with some of its instances ready is partially ready, with the counts
 
 ---
 
@@ -123,16 +109,12 @@ before ungraceful operation can be reasoned about.
 that an entity which lived on the dead pod answers again with its state, and that a replacement pod
 rejoins to restore three.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a three-instance cluster, **When** one pod is killed without warning, **Then** the
-   remaining members remove it and keep serving.
-2. **Given** an entity that lived on the lost pod, **When** it is next requested, **Then** it answers
-   from a surviving node with nothing lost.
-3. **Given** the lost pod's replacement, **When** it starts, **Then** it joins the existing cluster
-   rather than forming a new one.
-4. **Given** a network partition between members, **When** it resolves, **Then** exactly one side has
-   survived — never two halves that both believe they are the cluster.
+- added `features/clusters/losing-an-instance.feature`: an instance that stops without warning is removed and the others go on serving
+- added `features/clusters/losing-an-instance.feature`: an entity on a lost instance answers from another with nothing lost
+- added `features/clusters/losing-an-instance.feature`: the replacement of a lost instance joins the service cluster that is there
+- added `features/clusters/losing-an-instance.feature`: instances cut off from one another go on as exactly one service cluster
 
 ---
 
@@ -149,16 +131,12 @@ a regression.
 **Independent Test**: Run the control plane at three instances. Apply services while restarting one
 of them. Confirm nothing is projected twice and nothing is recorded twice.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a multi-instance control plane, **When** a service is applied, **Then** it is projected
-   to the cluster once, by one node, not once per node.
-2. **Given** a status report from the operator, **When** several control plane nodes observe it,
-   **Then** it is recorded once — observing the same fact several times does not grow the history.
-3. **Given** a control plane node being replaced, **When** commands arrive during it, **Then** they
-   are accepted and none is lost.
-4. **Given** the node that was doing the projecting, **When** it goes away, **Then** another takes
-   over without being told to.
+- added `features/clusters/control-plane.feature`: an applied descriptor is passed to the operator once, by one instance
+- added `features/clusters/control-plane.feature`: a report seen by every instance of the control plane is recorded once
+- added `features/clusters/control-plane.feature`: members' requests sent while an instance of the control plane is replaced are all accepted
+- added `features/clusters/control-plane.feature`: when the instance passing descriptors to the operator stops, another takes over
 
 ---
 

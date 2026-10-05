@@ -46,17 +46,12 @@ prerequisite that is easy to get wrong in exactly the way that corrupts data.
 cluster with the platform installed; assert the service reaches `Ready`, and that it is reading and
 writing its own journal.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a project with no services, **When** an operator applies a `cart` descriptor carrying
-   no database configuration, **Then** a database is provisioned for `cart`, credentials are
-   delivered to it, and the service reports `Ready`.
-2. **Given** `cart` is `Ready`, **When** it persists an event and is then restarted, **Then** it
-   recovers that event — the database outlived the pod.
-3. **Given** `cart` is `Ready`, **When** a second service `payments` is applied in the same
-   project, **Then** it gets its **own** database, and neither service can see the other's tables.
-4. **Given** a descriptor is applied twice, **Then** the second apply provisions nothing new and
-   the service keeps the database and the data it already had.
+- added `features/databases/provisioning.feature`: a service whose descriptor says nothing of a database is given a provisioned database of its own
+- added `features/databases/provisioning.feature`: what a service recorded outlives its instances
+- added `features/databases/provisioning.feature`: each service of a project is given a database of its own
+- added `features/databases/provisioning.feature`: applying a descriptor again provisions nothing and keeps what the service recorded
 
 ---
 
@@ -74,14 +69,11 @@ Provisioning and isolation are one feature, not two.
 tables using service A's credentials and assert it is refused; then assert each service's timers
 survive the other running its sweeper.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** `cart` and `payments` are both `Ready` in one project, **When** `cart`'s credentials
-   are used to query `payments`' database, **Then** access is refused.
-2. **Given** both services have pending timers, **When** both timer sweepers run, **Then** each
-   service's timers still exist and fire — neither deleted the other's.
-3. **Given** both services declare a view with the same component id, **Then** each service's view
-   rows are stored separately and neither overwrites the other.
+- added `features/databases/isolation.feature`: a service cannot connect to another service's database with its own credential
+- added `features/databases/isolation.feature`: the timers of two services of one project fire whatever the other does
+- added `features/databases/isolation.feature`: views of the same id in two services of one project hold their own rows
 
 ---
 
@@ -99,14 +91,11 @@ least well protected. Second only because it does not block service provisioning
 managed by the same mechanism as service databases, on persistent storage, and that the control
 plane recovers its recorded state across a database pod restart.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a freshly installed platform, **Then** the control plane's database is provisioned by
-   the platform and the control plane reaches `Ready` against it.
-2. **Given** services have been applied, **When** the control plane's database pod is restarted,
-   **Then** the recorded desired state survives and every service is still listed.
-3. **Given** the control plane's database is unreachable, **When** an operator runs a read command,
-   **Then** they get a clear error rather than a silent empty result.
+- added `features/databases/control-plane.feature`: the control plane's database is provisioned with the installation
+- added `features/databases/control-plane.feature`: what the control plane recorded survives a restart of its database
+- added `features/databases/control-plane.feature`: a member is told that the control plane cannot reach its database, and is not shown nothing
 
 ---
 
@@ -122,14 +111,11 @@ worse habit in place.
 **Independent Test**: Deploy a service, then grep every descriptor, manifest and repository file
 for its database password; assert it appears in none of them, and that the service still connects.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a service is provisioned, **Then** its password appears in no descriptor and no file
-   under version control.
-2. **Given** a service is provisioned, **Then** its credentials are readable only by that service,
-   not by other services in the same project.
-3. **Given** a descriptor carries no database configuration, **Then** the connection details it
-   receives are entirely platform-supplied.
+- added `features/databases/connection.feature`: a provisioned database is reached with no password
+- added `features/databases/isolation.feature`: a service's database credential is given to that service alone
+- added `features/databases/provisioning.feature`: a service whose descriptor says nothing of a database is given a provisioned database of its own
 
 ---
 

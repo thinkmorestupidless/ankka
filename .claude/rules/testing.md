@@ -68,3 +68,9 @@ appenders.
 - **sbt buffers a suite's report until the suite ends.** A long k3s Gherkin suite says nothing for many
   minutes, failures included; `sbt 'set controlPlane / Test / logBuffered := false' …` reports each
   scenario as it ends. A munit glob filter matches `.` literally: quote the scenario's words.
+- **`http`'s tests cannot see `testkit`, and `testkit`'s cannot see `auth-oidc`'s test issuer.** The
+  server's own socket suites are in `testkit`'s tests, the ones that need `TlsServing` in `http`'s, and
+  `features/sockets/access.feature`, which needs the real verifier, runs from `sidecar`'s tests.
+- **A socket suite's unread bound is a limit the suite can trip.** With the bound at 4 a case that sends
+  ten frames at once passed alone and, under a loaded machine, was closed "unread" after three — correct
+  behaviour, wrong test. The socket suites hold 16, and only the unread cases send more.

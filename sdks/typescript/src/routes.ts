@@ -9,6 +9,7 @@
 //
 // `req.params` is typed from the template: "/{cartId}/items" gives { cartId: string }.
 
+import type { Socket } from "./socket.ts"
 import type { Shape } from "./codec.ts"
 import type { RequestContext } from "./context.ts"
 import { isCodec } from "./codec.ts"
@@ -101,6 +102,8 @@ export interface RouteRef<Ep = unknown, P = unknown, B = unknown, R = unknown> {
   readonly body: Shape<B> | undefined
   readonly reply: Shape<R> | undefined
   readonly streaming: boolean
+  /** Answered by opening a socket (protocol 1.9); `run`'s third argument is then the `Socket`. */
+  readonly socket: boolean
   readonly acl: Acl | undefined
   readonly run: (self: Ep, request: RequestContext<P>, body: B) => MaybePromise<R> | AsyncIterable<string>
 }
@@ -124,6 +127,7 @@ function route<Ep, P, B, R>(
   run: RouteRef<Ep, P, B, R>["run"],
   options: RouteOptions<Readonly<Record<string, Schema>>> | undefined,
   streaming: boolean,
+  socket = false,
 ): RouteRef<Ep, P, B, R> {
   const paramNames = parseTemplate(template)
   if (typeof run !== "function") throw new TypeError(`route ${method} ${template}: the handler is not a function`)
@@ -132,7 +136,7 @@ function route<Ep, P, B, R>(
   for (const name of Object.keys(paramShapes)) {
     if (!paramNames.includes(name)) throw new TypeError(`route ${method} ${template}: params names ${name}, which is not in the template`)
   }
-  return Object.freeze({ method, template, paramNames, paramShapes, body, reply, streaming, acl: options?.acl, run })
+  return Object.freeze({ method, template, paramNames, paramShapes, body, reply, streaming, socket, acl: options?.acl, run })
 }
 
 function isShape(x: unknown): x is Shape<unknown> {
@@ -192,6 +196,19 @@ export function sse<Ep, T extends string, PS extends Readonly<Record<string, Sch
   options?: RouteOptions<PS>,
 ): RouteRef<Ep, Params<T, PS>, undefined, never> {
   return route("GET", template, undefined, undefined, run as RouteRef<Ep, Params<T, PS>, undefined, never>["run"], options, true)
+}
+
+/**
+ * A socket route: `socket("/{room}", async (ep: Rooms, req, socket) => { for await (const t of socket) await socket.send(t) })`.
+ * The handler runs for as long as the socket is open, with the opening request as `req` throughout.
+ * Needs protocol 1.9 of the runtime.
+ */
+export function socket<Ep, T extends string, PS extends Readonly<Record<string, Schema>> = {}>(
+  template: T,
+  run: (self: Ep, request: RequestContext<Params<T, PS>>, socket: Socket) => Promise<void>,
+  options?: RouteOptions<PS>,
+): RouteRef<Ep, Params<T, PS>, Socket, void> {
+  return route("GET", template, undefined, undefined, run as RouteRef<Ep, Params<T, PS>, Socket, void>["run"], options, false, true)
 }
 
 /** The routes table type an endpoint declares. */

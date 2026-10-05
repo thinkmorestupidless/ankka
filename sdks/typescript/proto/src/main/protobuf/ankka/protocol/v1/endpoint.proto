@@ -11,6 +11,9 @@ import "ankka/protocol/v1/payload.proto";
 service Http {
   rpc Handle       (HttpRequest) returns (HttpReply);
   rpc HandleStream (HttpRequest) returns (stream StreamFrame);
+  // A socket route's open socket, for as long as it is open (protocol 1.9). The sidecar holds the
+  // socket, decides its ACL when it is opened and relays frames both ways.
+  rpc HandleSocket (stream SocketIn) returns (stream SocketOut);
 }
 
 message HttpRequest {
@@ -63,3 +66,32 @@ message HttpResponse {
 }
 
 message StreamFrame { oneof frame { string text = 1; Empty completed = 2; Error failed = 3; } }
+
+// What the sidecar sends on a socket's stream: `open` once and first, then a `frame` for each
+// frame the client sent, in order, then `closed` last, after which it half-closes. A message with
+// no case set is a protocol violation, never skipped: it closes the socket as failed.
+message SocketIn {
+  oneof message {
+    HttpRequest  open   = 1;  // the request that opened the socket; no body
+    SocketFrame  frame  = 2;  // a frame the client sent
+    SocketClosed closed = 3;  // the socket is closed; frames sent after this are discarded
+  }
+}
+
+// What the process sends: a `frame` for each frame for the client, in order, and then `completed`
+// when its handler returned or `failed` when it threw. Ending the stream without either is
+// `completed`; ending it in an error is `failed`.
+message SocketOut {
+  oneof message {
+    SocketFrame frame     = 1;
+    Empty       completed = 2;  // closes the socket "finished" (1000)
+    Error       failed    = 3;  // closes the socket "failed" (1011)
+  }
+}
+
+// One frame. Text only: a later kind is a case added here, under a minor version of its own.
+message SocketFrame { oneof kind { string text = 1; } }
+
+// Why the socket was closed: a close reason's word ("going away", "too large", "unread", "not
+// text", "failed", "finished"), or "client" for the client's own close.
+message SocketClosed { string reason = 1; }

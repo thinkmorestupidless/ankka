@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.sidecar.conformance
 
+import com.thinkmorestupidless.ankka.testkit.TestSocket
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
 import com.thinkmorestupidless.ankka.sdk.ServiceResponse
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
@@ -811,6 +812,107 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
       frames.map(f => Json.parse(f).toOption.flatMap(_.asString)),
       Vector(Some(" leading space"), Some("two\nlines"), Some("plain"))
     )
+  }
+
+  // ── Sockets (protocol 1.9) ────────────────────────────────────────────────
+
+  private def socket(
+      path: String,
+      headers: Map[String, String] = Map.empty,
+      protocols: Seq[String] = Nil
+  ): Either[TestSocket.Refused, TestSocket] =
+    TestSocket.open("ws" + target.baseUrl.stripPrefix("http") + path, headers, protocols)
+
+  private def opened(path: String, headers: Map[String, String] = Map.empty): TestSocket =
+    socket(path, headers).fold(r => fail(s"not opened: $r"), identity)
+
+  private def socketLog: Vector[String] =
+    get("/conformance/socket-log").json.asArray.toVector.flatten.flatMap(_.asString)
+
+  test("socket.frames-in-order") {
+    onlyWhereStreaming()
+    val s = opened("/conformance/socket/r1")
+    (1 to 10).foreach(i => s.send(s"frame $i"))
+    assertEquals(
+      (1 to 10).map(_ => s.receive()).toVector,
+      (1 to 10).map(i => Some(s"frame $i")).toVector
+    )
+    s.close()
+  }
+
+  test("socket.request-context") {
+    onlyWhereStreaming()
+    val s = opened("/conformance/socket/lobby?tag=a")
+    s.send("x")
+    s.send("y")
+    s.send("context")
+    assertEquals(
+      Vector(s.receive(), s.receive(), s.receive()),
+      Vector(Some("x"), Some("y"), Some("lobby a"))
+    )
+    s.close()
+  }
+
+  private def principalAndCaller(s: TestSocket): Json =
+    Json.parse(s.receive().getOrElse(fail("nothing sent"))).fold(p => fail(p), identity)
+
+  test("socket.principal-and-caller") {
+    onlyWhereStreaming()
+    val token         = ConformanceTarget.issuer.token("ada", roles = Set("buyer"))
+    val (name, value) = as(Caller.Gateway)
+    val s    = opened("/private/socket", Map("Authorization" -> s"Bearer $token", name -> value))
+    val told = principalAndCaller(s)
+    assertEquals(told("subject").flatMap(_.asString), Some("ada"))
+    assertEquals(told("roles").flatMap(_.asArray).map(_.flatMap(_.asString)), Some(Vector("buyer")))
+    assertEquals(told("caller").flatMap(_.asString), Some("gateway"))
+    s.close()
+  }
+
+  test("socket.token-as-subprotocol") {
+    onlyWhereStreaming()
+    val token = ConformanceTarget.issuer.token("grace")
+    val s = socket("/private/socket", protocols = Seq("ankka.socket", s"ankka.bearer.$token"))
+      .fold(r => fail(s"not opened: $r"), identity)
+    assertEquals(s.subprotocol, Some("ankka.socket"))
+    assertEquals(principalAndCaller(s)("subject").flatMap(_.asString), Some("grace"))
+    s.close()
+  }
+
+  test("socket.challenged-without-token") {
+    onlyWhereStreaming()
+    val before  = socketLog.count(_.startsWith("private:"))
+    val refused = socket("/private/socket").left.getOrElse(fail("opened without a token"))
+    assertEquals(refused.status, 401)
+    val challenge = refused.headers.collectFirst {
+      case (k, v) if k.equalsIgnoreCase("www-authenticate") => v
+    }
+    assert(challenge.exists(_.startsWith("Bearer")), refused.toString)
+    assertEquals(socketLog.count(_.startsWith("private:")), before, "a handler ran")
+  }
+
+  test("socket.closed-when-handler-returns") {
+    onlyWhereStreaming()
+    val s = opened("/conformance/socket-once")
+    s.send("go")
+    assertEquals(s.closed().code, 1000)
+  }
+
+  test("socket.failed-when-handler-throws") {
+    onlyWhereStreaming()
+    val s = opened("/conformance/socket-fail")
+    s.send("go")
+    assertEquals(s.closed().code, 1011)
+  }
+
+  test("socket.handler-told-of-client-close") {
+    onlyWhereStreaming()
+    val room = s"closing-${System.nanoTime()}"
+    val s    = opened(s"/conformance/socket/$room")
+    s.send("hello")
+    assertEquals(s.receive(), Some("hello"))
+    s.close()
+    assertEquals(s.closed().code, 1000)
+    eventually()(Option.when(socketLog.contains(s"closed:$room"))(()))
   }
 
   test("http.request-span-parents-entity-span") {

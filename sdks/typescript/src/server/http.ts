@@ -7,7 +7,17 @@
 
 import type { ConnectRouter } from "@connectrpc/connect"
 import { create } from "@bufbuild/protobuf"
-import { Http, HttpReplySchema, StreamFrameSchema, type HttpRequest, type HttpReply, type StreamFrame } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
+import {
+  Http,
+  HttpReplySchema,
+  SocketOutSchema,
+  StreamFrameSchema,
+  type HttpRequest,
+  type HttpReply,
+  type SocketIn,
+  type SocketOut,
+  type StreamFrame,
+} from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
 import { codecFor, type Codec } from "../codec.ts"
 import { Headers, Query, metadataFromProto, withRequest, type Caller, type Principal, type RequestContext } from "../context.ts"
 import { CommandError, ErrorCode, httpStatusOf } from "../effects/common.ts"
@@ -16,6 +26,7 @@ import { DecodingError } from "../json.ts"
 import { errorCodeToProto } from "../kinds.ts"
 import { HttpProblem, type RouteRef } from "../routes.ts"
 import { done, resolve, type Schema } from "../schema.ts"
+import { SocketClosed, socketOf } from "../socket.ts"
 import type { RegisteredEndpoint } from "../service.ts"
 import { AsyncQueue } from "./queue.ts"
 import type { ServerContext } from "./server.ts"
@@ -98,7 +109,10 @@ function encodeResult(route: RouteRef<any, any, any, any>, result: unknown): Htt
 export interface HttpDispatcher {
   handle(req: HttpRequest): Promise<HttpReply>
   handleStream(req: HttpRequest): AsyncIterable<StreamFrame>
+  handleSocket(requests: AsyncIterable<SocketIn>): AsyncIterable<SocketOut>
 }
+
+const NEEDS_SOCKETS = "a socket route needs protocol 1.9; this runtime asked for a request"
 
 /** The behaviour behind `Http.Handle` and `Http.HandleStream`, over the registry's endpoints. */
 export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
@@ -148,6 +162,7 @@ export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
     async handle(req: HttpRequest): Promise<HttpReply> {
       const prep = prepare(req)
       if (!prep.ok) return prep.reply
+      if (prep.prepared.route.socket) return failureReply(NEEDS_SOCKETS)
       const { route, instance, request, body } = prep.prepared
       try {
         const result = await withRequest(request, () => route.run(instance, request, body))
@@ -165,6 +180,10 @@ export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
         return
       }
       const { route, instance, request } = prep.prepared
+      if (route.socket) {
+        yield create(StreamFrameSchema, { frame: { case: "failed", value: { message: NEEDS_SOCKETS, code: errorCodeToProto(ErrorCode.Internal) } } })
+        return
+      }
       // Produce inside the request's async context, consume here: the handler's `this.request` stays visible.
       const queue = new AsyncQueue<StreamFrame>()
       void withRequest(request, async () => {
@@ -182,6 +201,55 @@ export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
       })
       yield* queue
     },
+
+    // An open socket: `open` first, then frames until `closed`. The requests are read only when the
+    // handler asks for a frame, so a handler that does not read is not read for, and the sidecar's flow
+    // control holds the client back.
+    async *handleSocket(requests: AsyncIterable<SocketIn>): AsyncIterable<SocketOut> {
+      const incoming = requests[Symbol.asyncIterator]()
+      const failed = (message: string, code: ErrorCode = ErrorCode.Internal): SocketOut =>
+        create(SocketOutSchema, { message: { case: "failed", value: { message, code: errorCodeToProto(code) } } })
+      const first = await incoming.next()
+      if (first.done || first.value.message.case !== "open") {
+        yield failed("a socket opens with open")
+        return
+      }
+      const prep = prepare(first.value.message.value)
+      if (!prep.ok || !prep.prepared.route.socket) {
+        yield failed("unknown socket route", ErrorCode.NotFound)
+        return
+      }
+      const { route, instance, request } = prep.prepared
+      const outgoing = new AsyncQueue<SocketOut>()
+      let closed = false
+      const receive = async (): Promise<string | undefined> => {
+        if (closed) return undefined
+        const next = await incoming.next()
+        const message = next.done ? undefined : next.value.message
+        if (message?.case === "frame" && message.value.kind.case === "text") return message.value.kind.value
+        closed = true // closed, the stream's end, or a kind this SDK does not know
+        return undefined
+      }
+      const send = async (text: string): Promise<void> => {
+        if (closed) throw new SocketClosed()
+        outgoing.push(create(SocketOutSchema, { message: { case: "frame", value: { kind: { case: "text", value: text } } } }))
+      }
+      void withRequest(request, async () => {
+        try {
+          await route.run(instance, request, socketOf(receive, send))
+          outgoing.push(create(SocketOutSchema, { message: { case: "completed", value: {} } }))
+        } catch (e) {
+          if (e instanceof SocketClosed) outgoing.push(create(SocketOutSchema, { message: { case: "completed", value: {} } }))
+          else {
+            ctx.log(`ankka: SOCKET ${route.template} threw: ${messageOf(e)}`)
+            outgoing.push(failed(messageOf(e)))
+          }
+        } finally {
+          outgoing.close()
+        }
+      })
+      yield* outgoing
+    },
   }
 }
 
@@ -190,5 +258,6 @@ export function httpRoutes(router: ConnectRouter, ctx: ServerContext): void {
   router.service(Http, {
     handle: (req) => dispatcher.handle(req),
     handleStream: (req) => dispatcher.handleStream(req),
+    handleSocket: (requests) => dispatcher.handleSocket(requests),
   })
 }

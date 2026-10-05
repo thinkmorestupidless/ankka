@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse
+from ankka import DONE, StartFrom, Acl, Callers, Done, Gateway, GraphConsumer, Metadata, ServiceCaller, Endpoint, ErrorCode, EventSourcedEffect, EventSourcedEntity, HttpProblem, ReadOnlyEffect, command, delete, get, json_codec, post, query, sse, Socket, socket
 from ankka.agent import Agent, Guardrail, Tool, stream
 from ankka.autonomous import Accepted, AutonomousAgent, Rejected, TaskAcceptance, TaskRule, TaskSnapshot, TaskType
 from ankka.client import CommandError, ComponentClient
@@ -341,6 +341,14 @@ class ServiceCallRecord:
     body: str
     answer: str
     message: str
+SOCKET_LOG: list[str] = []
+"""What the socket handlers noticed, for a case to read once a socket has closed."""
+
+
+def _caller_word(c: Any) -> str:
+    if isinstance(c, ServiceCaller):
+        return f"service:{c.project}/{c.name}"
+    return "gateway" if isinstance(c, Gateway) else "local"
 
 
 class ConformanceEndpoint(Endpoint):
@@ -444,6 +452,30 @@ class ConformanceEndpoint(Endpoint):
     async def stream_frames(self, session: str) -> AsyncIterator[str]:
         for frame in (" leading space", "two\nlines", "plain"):
             yield frame
+
+    # Sockets (protocol 1.9). Echoes each frame; "context" is answered with the room and the
+    # opening request's `tag`, read after any number of frames.
+    @socket("/socket/{room}")
+    async def socket_room(self, room: str, socket: Socket) -> None:
+        async for text in socket:
+            if text == "context":
+                await socket.send(f"{room} {self.request.query_param('tag') or ''}")
+            else:
+                await socket.send(text)
+        SOCKET_LOG.append(f"closed:{room}")
+
+    @socket("/socket-once")
+    async def socket_once(self, socket: Socket) -> None:
+        await socket.receive()
+
+    @socket("/socket-fail")
+    async def socket_fail(self, socket: Socket) -> None:
+        await socket.receive()
+        raise RuntimeError("the socket handler broke")
+
+    @get("/socket-log")
+    def socket_log(self) -> list[str]:
+        return list(SOCKET_LOG)
 
     @post("/profile/{id}")
     async def set_profile(self, id: str, name: str) -> str:
@@ -611,6 +643,15 @@ class PrivateEndpoint(Endpoint):
         return json.dumps(
             {"subject": p.subject, "roles": sorted(p.roles), "tier": p.claims.get("tier"), "issuer": p.issuer}
         )
+
+    @socket("/socket")
+    async def socket_me(self, socket: Socket) -> None:
+        p = self.request.principal
+        assert p is not None, "an authenticated route is handed its principal"
+        SOCKET_LOG.append(f"private:{p.subject}")
+        await socket.send(json.dumps({"subject": p.subject, "roles": sorted(p.roles), "caller": _caller_word(self.request.caller)}))
+        async for _ in socket:
+            pass
 
 
 def reference_service() -> ServiceBuilder:

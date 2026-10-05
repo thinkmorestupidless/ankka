@@ -172,6 +172,26 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
     assert(found.exists(p => p.contains("'watch'") && p.contains("streams")), found.toString)
   }
 
+  test("a socket route is refused, naming the route: a module cannot hold a socket") {
+    // Built by hand: the crate cannot declare one, so only a module built without it could.
+    val endpoint = ankka.protocol.v1.discovery.Endpoint(
+      id = "notices",
+      prefix = "/notices",
+      routes = Seq(ankka.protocol.v1.discovery.Route("stream", "GET", "/stream", socket = true))
+    )
+    val found = problems(
+      WasmSpec(Some(cartSpec().withProtocolVersion("1.9").addEndpoints(endpoint)), Seq.empty, "1")
+    )
+    assert(
+      found.contains(
+        "endpoint 'notices': route 'stream' is a socket route, and a module answers a request " +
+          "whole; a module cannot hold a socket"
+      ),
+      found.toString
+    )
+    assert(!found.exists(_.contains("streams")), "refused once, as a socket route: " + found)
+  }
+
   test("an autonomous agent needs the export that checks its task results") {
     val agent = Component(kind = Kind.AUTONOMOUS_AGENT, id = "answerer")
     val found = problems(
@@ -290,6 +310,7 @@ class WasmHostSuite extends munit.FunSuite with LogCapturing:
       "ANKKA_AUTH_ISSUER",
       "ANKKA_AUTH_ISSUERS",
       "ANKKA_AUTH_CUSTOMERS_JWKS_URL",
+      "ANKKA_SOCKET_KEEP_ALIVE",
       "POD_IP",
       "ANKKA_HTTP_PORT",
       "ANKKA_BASE_DOMAIN",

@@ -5,7 +5,7 @@
 // not do.
 
 import { create } from "@bufbuild/protobuf"
-import { HttpRequestSchema } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
+import { HttpRequestSchema, SocketInSchema, type SocketIn } from "../_proto/ankka/protocol/v1/endpoint_pb.ts"
 import { ComponentClient, noClient } from "../client.ts"
 import { binaryCodecs, codecFor, type Codec, type Shape } from "../codec.ts"
 import { commandContext, type Principal } from "../context.ts"
@@ -124,6 +124,13 @@ export interface RequestOptions {
 
 const PLACEHOLDER = /\{[A-Za-z_][A-Za-z0-9_]*\}/g
 
+/** What a socket route's handler did with a scripted socket. */
+export interface SocketRun {
+  readonly sent: readonly string[]
+  readonly ended: "finished" | "failed"
+  readonly error?: string
+}
+
 /** Calls an endpoint's routes by path, matching them as the sidecar's router does: literal segments outrank parameters. */
 export class EndpointTestKit<C extends Endpoint> {
   readonly #cls: EndpointClass<C>
@@ -147,7 +154,8 @@ export class EndpointTestKit<C extends Endpoint> {
     const rest = withoutQuery.startsWith(prefix) ? withoutQuery.slice(prefix.length) || "/" : withoutQuery
     const candidates: { literals: number; id: string; route: RouteRef<any, any, any, any>; args: string[] }[] = []
     for (const [id, route] of Object.entries(this.#cls.routes)) {
-      if (route.method !== method.toUpperCase()) continue
+      // A socket route is opened through `socket`, never answered as a GET.
+      if ((route.socket ? "SOCKET" : route.method) !== method.toUpperCase()) continue
       const pattern = new RegExp("^" + route.template.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(PLACEHOLDER, "([^/]+)") + "$")
       const m = pattern.exec(rest)
       if (!m) continue
@@ -217,6 +225,31 @@ export class EndpointTestKit<C extends Endpoint> {
       return new Response(r.status, r.contentType, r.body)
     }
     return new Response(500, "text/plain", new TextEncoder().encode(reply.message.case === "failure" ? reply.message.value.error?.message ?? "failure" : "no reply"))
+  }
+
+  /**
+   * Opens a socket route with no runtime: the handler is given `frames` one at a time and then told the
+   * socket is closed, as when the client closes it after sending them. Answers what the handler sent, in
+   * order, and how it ended: `finished` when it returned, `failed` (with `error`) when it threw.
+   */
+  async socket(path: string, frames: readonly string[] = [], options: RequestOptions = {}): Promise<SocketRun> {
+    const prepared = this.#request("SOCKET", path, undefined, options)
+    if (!prepared) throw new Error(`no socket route at ${path}`)
+    const requests: SocketIn[] = [
+      create(SocketInSchema, { message: { case: "open", value: prepared.req } }),
+      ...frames.map((text) => create(SocketInSchema, { message: { case: "frame", value: { kind: { case: "text", value: text } } } })),
+      create(SocketInSchema, { message: { case: "closed", value: { reason: "client" } } }),
+    ]
+    async function* script(): AsyncGenerator<SocketIn> {
+      yield* requests
+    }
+    const sent: string[] = []
+    for await (const out of this.#dispatcher.handleSocket(script())) {
+      if (out.message.case === "frame" && out.message.value.kind.case === "text") sent.push(out.message.value.kind.value)
+      if (out.message.case === "completed") return { sent, ended: "finished" }
+      if (out.message.case === "failed") return { sent, ended: "failed", error: out.message.value.message }
+    }
+    return { sent, ended: "finished" }
   }
 
   /** The frames of an SSE route, each string one frame. */

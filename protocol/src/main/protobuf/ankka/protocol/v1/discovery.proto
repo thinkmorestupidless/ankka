@@ -175,6 +175,9 @@ message Route {
   optional Endpoint.Acl acl = 6;
   // The route's own callers, read only when its `acl` is CALLERS.
   repeated CallerMatcher allow_callers = 7;
+  // Answered by opening a socket, via Http.HandleSocket (protocol 1.9). Always GET, never with a
+  // body, never streaming; refused under an earlier minor and by a module.
+  bool   socket = 8;
 }
 
 message Problem { string message = 1; }

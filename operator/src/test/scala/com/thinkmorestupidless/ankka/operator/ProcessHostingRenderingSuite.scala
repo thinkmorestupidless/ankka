@@ -35,6 +35,7 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
       EnvEntry("ANKKA_MODEL_DEFAULT", Some("claude"), None, None),
       EnvEntry("ANKKA_DB_HOST", Some("postgres"), None, None),
       EnvEntry("ANKKA_AUTH_ISSUERS", Some("customers"), None, None),
+      EnvEntry("ANKKA_SOCKET_KEEP_ALIVE", Some("15s"), None, None),
       EnvEntry("ANKKA_KAFKA_BOOTSTRAP_SERVERS", Some("kafka.kafka.svc:9092"), None, None)
     )
   )
@@ -110,6 +111,9 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     // The sidecar verifies tokens; the process is handed the principal and never the issuers.
     assert(node.contains("ANKKA_AUTH_ISSUERS"), "the issuers are the sidecar's")
     assert(!app.contains("ANKKA_AUTH_ISSUERS"), "the process never sees the issuers")
+    // The sidecar holds a process's sockets, so their limits are its own.
+    assert(node.contains("ANKKA_SOCKET_KEEP_ALIVE"), "a socket's limits are the sidecar's")
+    assert(!app.contains("ANKKA_SOCKET_KEEP_ALIVE"), "the process never holds a socket")
     // The broker is named to both: the sidecar is what connects to it — without it a consumer
     // that publishes is refused at startup — and the process may register what needs one only
     // where there is one.

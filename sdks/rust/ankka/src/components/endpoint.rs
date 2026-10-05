@@ -522,6 +522,8 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
                 template: r.template.clone(),
                 has_body: r.has_body,
                 streaming: false,
+                // A module cannot hold a socket: the runtime refuses a socket route from one.
+                socket: false,
                 // Left unset when the route says nothing, so the runtime reads "the endpoint's"
                 // rather than ALLOW_ALL.
                 acl: r.acl.as_ref().map(|a| a.kind() as i32),

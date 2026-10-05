@@ -54,6 +54,9 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_DB_SSL_KEY` | `pekko.persistence.r2dbc.connection-factory.ssl.key` | `""` | every service |
 | `ANKKA_HTTP_INTERFACE` | `ankka.http.interface` | `"0.0.0.0"` | every service |
 | `ANKKA_HTTP_PORT` | `ankka.http.port` | `9000` | every service |
+| `ANKKA_SOCKET_MAX_FRAME_SIZE` | `ankka.http.socket.max-frame-size` | `64KiB` | every service |
+| `ANKKA_SOCKET_UNREAD_FRAMES` | `ankka.http.socket.unread-frames` | `64` | every service |
+| `ANKKA_SOCKET_KEEP_ALIVE` | `ankka.http.socket.keep-alive` | `20s` | every service |
 | `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |
@@ -117,6 +120,17 @@ Settings with no environment variable, overridable in the service's own `applica
 - `ANKKA_HTTP_PORT` is the port the HTTP server binds, `9000` by default. On the platform it is set from
   the descriptor's `port`, and a descriptor may not set it directly. Set it locally to run a second
   service beside the first.
+- `ANKKA_SOCKET_MAX_FRAME_SIZE` is the largest frame a socket's client may send, as the UTF-8 bytes of the
+  whole message, `64KiB` by default. A larger one closes the socket `1009`, too large, without being read.
+  Behind a sidecar it may be at most `3MiB`, since each frame crosses to the process as one gRPC message.
+- `ANKKA_SOCKET_UNREAD_FRAMES` is how many frames may wait for a socket's handler that has not received
+  them, `64` by default. One more closes the socket `1008`, unread: a handler that only sends must still
+  read.
+- `ANKKA_SOCKET_KEEP_ALIVE` is how long a socket may be quiet before the platform pings it, `20s` by
+  default. It must be shorter than the server's idle timeout, `pekko.http.server.idle-timeout` (`60s`),
+  which would otherwise cut a quiet socket off; a service whose keep-alive is not shorter does not start.
+  A process-hosted service's sidecar holds its sockets, so all three are given to the sidecar and never
+  to the process.
 
 ### gRPC
 

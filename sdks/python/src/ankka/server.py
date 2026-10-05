@@ -53,7 +53,7 @@ from ankka.effects import timed_action as timed_effects
 from ankka.effects import view as view_effects
 from ankka.effects.common import Fail, NoReply, Reply, retention_to_pb
 from ankka.effects.workflow import End, Pause, StepFail, StepRef, TransitionTo
-from ankka.endpoint import HttpProblem
+from ankka.endpoint import HttpProblem, Socket, SocketClosed
 from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import PROTOCOL_VERSION, Registry
@@ -75,7 +75,7 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
 
     async def Discover(self, request: discovery_pb2.SidecarInfo, context: Any) -> discovery_pb2.Spec:
         log.info("sidecar %s (protocol %s) discovering", request.runtime_version, request.protocol_version)
-        refusal = self.refusal(request.protocol_version)
+        refusal = self.refusal(request.protocol_version) or socket_refusal(self.registry, request.protocol_version)
         if refusal is not None:
             log.error(refusal)
             PROBLEMS.append(refusal)
@@ -467,6 +467,27 @@ class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
         return consumer_effect_pb(effect, cls.out_codec)
 
 
+SOCKETS_SINCE = (1, 9)
+"""The protocol version whose runtimes serve socket routes."""
+
+
+def socket_refusal(registry: Registry, runtime_protocol: str) -> str | None:
+    """Why this service cannot be declared to a runtime speaking ``runtime_protocol``, or None. A
+    runtime before 1.9 does not know a socket route, and would serve it as a plain GET."""
+    routes = [
+        f"{cls.endpoint_id()}.{spec.id}" for cls in registry.endpoints.values() for spec in cls.routes().values() if spec.socket
+    ]
+    if not routes:
+        return None
+    try:
+        major, minor = (int(part) for part in runtime_protocol.split(".")[:2])
+    except ValueError:
+        major, minor = 0, 0
+    if (major, minor) >= SOCKETS_SINCE:
+        return None
+    return f"this runtime speaks protocol {runtime_protocol or 'unknown'}; a socket route needs 1.9 ({', '.join(routes)})"
+
+
 SEVERAL_SINCE = (1, 3)
 """The protocol version whose runtimes accept several messages for one change, and a record key."""
 
@@ -693,6 +714,8 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
         spec = cls.routes().get(request.route_id) if cls else None
         if cls is None or spec is None:
             return endpoint_pb2.HttpReply(failure=_failure(0, f"unknown route {request.endpoint_id}/{request.route_id}", payload_pb2.NOT_FOUND))
+        if spec.socket:
+            return endpoint_pb2.HttpReply(failure=_failure(0, "a socket route needs protocol 1.9; this runtime asked for a request"))
         instance = self._instance(request.endpoint_id)
         ctx = self._context(request)
         try:
@@ -729,6 +752,67 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
             yield endpoint_pb2.StreamFrame(completed=payload_pb2.Empty())
         except Exception as e:
             yield endpoint_pb2.StreamFrame(failed=payload_pb2.Error(message=str(e) or type(e).__name__, code=payload_pb2.INTERNAL))
+
+
+    async def HandleSocket(
+        self, request_iterator: AsyncIterator[endpoint_pb2.SocketIn], context: Any
+    ) -> AsyncIterator[endpoint_pb2.SocketOut]:
+        """An open socket: ``open`` first, then frames until ``closed``. The request stream is read only
+        when the handler asks for a frame, so a handler that does not read is not read for, and the
+        sidecar's flow control holds the client back."""
+        incoming = request_iterator.__aiter__()
+        first = await anext(incoming, None)
+        if first is None or first.WhichOneof("message") != "open":
+            yield endpoint_pb2.SocketOut(failed=payload_pb2.Error(message="a socket opens with open", code=payload_pb2.INTERNAL))
+            return
+        request = first.open
+        cls = self.registry.endpoints.get(request.endpoint_id)
+        spec = cls.routes().get(request.route_id) if cls else None
+        if cls is None or spec is None or not spec.socket:
+            yield endpoint_pb2.SocketOut(failed=payload_pb2.Error(message="unknown socket route", code=payload_pb2.NOT_FOUND))
+            return
+        instance = self._instance(request.endpoint_id)
+        ctx = self._context(request)
+        outgoing: asyncio.Queue[endpoint_pb2.SocketOut | None] = asyncio.Queue()
+        closed = False
+
+        async def receive() -> str | None:
+            nonlocal closed
+            if closed:
+                return None
+            message = await anext(incoming, None)
+            kind = message.WhichOneof("message") if message is not None else None
+            if kind == "frame" and message is not None and message.frame.WhichOneof("kind") == "text":
+                return message.frame.text
+            closed = True  # closed, the stream's end, or a kind this SDK does not know
+            return None
+
+        async def send(text: str) -> None:
+            if closed or context.done():
+                raise SocketClosed("the socket is closed")
+            await outgoing.put(endpoint_pb2.SocketOut(frame=endpoint_pb2.SocketFrame(text=text)))
+
+        async def run() -> None:
+            try:
+                await instance._handle_socket(spec, list(request.path_args), Socket(receive, send), ctx)
+                await outgoing.put(endpoint_pb2.SocketOut(completed=payload_pb2.Empty()))
+            except SocketClosed:
+                await outgoing.put(endpoint_pb2.SocketOut(completed=payload_pb2.Empty()))
+            except Exception as e:
+                log.warning("%s/%s raised: %s", request.endpoint_id, request.route_id, e)
+                await outgoing.put(
+                    endpoint_pb2.SocketOut(failed=payload_pb2.Error(message=str(e) or type(e).__name__, code=payload_pb2.INTERNAL))
+                )
+            finally:
+                await outgoing.put(None)
+
+        task = asyncio.create_task(run())
+        try:
+            while (message := await outgoing.get()) is not None:
+                yield message
+        finally:
+            if not task.done():
+                task.cancel()
 
 
 def _takes_client(cls: type) -> bool:

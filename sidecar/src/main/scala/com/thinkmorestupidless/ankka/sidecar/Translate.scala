@@ -139,6 +139,17 @@ private[sidecar] object Translate:
       Some(toMetadata(r.metadata)),
       Some(toCaller(r.caller))
     )
+
+  /**
+   * The request that opened a socket, as the process is sent it first. Its metadata states the
+   * protocol, as a consumer's request does, so a later SDK knows what this runtime accepts on the
+   * socket before it sends anything newer.
+   */
+  def toSocketOpen(r: HttpForward): PbHttpRequest =
+    toHttpRequest(
+      r.copy(metadata = r.metadata.set(WireProtocol.MetadataKey, WireProtocol.Version))
+    )
+
   private def toCaller(c: RemoteCaller): ankka.protocol.v1.endpoint.Caller =
     import ankka.protocol.v1.endpoint.{Caller as PbCaller, ServiceCaller}
     import ankka.protocol.v1.payload.Empty

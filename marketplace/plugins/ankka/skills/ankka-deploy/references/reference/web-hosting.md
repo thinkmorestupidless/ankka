@@ -62,7 +62,9 @@ headers as given; the proxy holds none of it back, so a stream of events reaches
 event.
 
 The proxy does not upgrade a connection. A request asking for one is passed on without the `Upgrade`
-and `Connection` headers, and what the process answers is returned.
+and `Connection` headers, and what the process answers is returned. A socket route of a mounted service
+is therefore not reached under a mount; a browser opens the socket at the mounted service's own
+hostname.
 
 ## Requests the process never sees
 

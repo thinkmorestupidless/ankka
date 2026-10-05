@@ -122,6 +122,14 @@ object Discovery:
           backoff = (backoff * 2).min(settings.discoveryBackoffMax)
     result.get
 
+  /** The minor that introduced socket routes. */
+  private val SocketsSince = 9
+
+  private def minorOf(version: String): Option[Int] =
+    version.split('.').toList match
+      case _ :: minor :: Nil => minor.toIntOption
+      case _                 => None
+
   /**
    * Pure: what is wrong with a spec, all of it. The rules every spec is held to, whether a process
    * or a module declared it; a module's own rules are added by `wasm.WasmDiscovery`.
@@ -294,6 +302,20 @@ object Discovery:
           problems += s"endpoint '${e.id}': route '${r.id}' has a CALLERS acl naming no caller"
         if r.template.count(_ == '{') != r.template.count(_ == '}') then
           problems += s"endpoint '${e.id}': route '${r.id}' template '${r.template}' has unbalanced braces"
+        if r.socket then
+          if r.method.toUpperCase != "GET" then
+            problems += s"endpoint '${e.id}': route '${r.id}' is a socket route, which is opened " +
+              s"with GET, not ${r.method}"
+          if r.hasBody then
+            problems += s"endpoint '${e.id}': route '${r.id}' is a socket route, which takes no body"
+          if r.streaming then
+            problems += s"endpoint '${e.id}': route '${r.id}' is a socket route and streaming; " +
+              "declare one or the other"
+          // The first minor the sidecar gates on: an older SDK cannot have meant a socket, and a
+          // runtime that predates the field would have served the route as a plain GET.
+          if minorOf(spec.protocolVersion).exists(_ < SocketsSince) then
+            problems += s"endpoint '${e.id}': route '${r.id}' is a socket route, which needs " +
+              s"protocol 1.$SocketsSince; the SDK speaks ${spec.protocolVersion}"
       }
     }
 

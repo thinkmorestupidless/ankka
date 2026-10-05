@@ -525,6 +525,18 @@ object ConformanceReference:
   )
   given JsonValueCodec[ServiceCallRecord] = Codecs.make[ServiceCallRecord]
 
+  /**
+   * What the socket routes' handlers noticed, for a case to read once a socket has closed: in every
+   * language, `closed:<room>` when a `/socket/{room}` handler was told its socket closed, and
+   * `private:<subject>` when the authenticated one ran.
+   */
+  val socketLog = java.util.concurrent.ConcurrentLinkedQueue[String]()
+
+  private def callerWord(caller: Caller): String = caller match
+    case Caller.Service(project, name) => s"service:$project/$name"
+    case Caller.Gateway                => "gateway"
+    case Caller.Local                  => "local"
+
   /** `problems`: what a sidecar reported through `ReportError`; empty in-process. */
   final class ConformanceEndpoint(
       clients: EndpointClients,
@@ -621,6 +633,22 @@ object ConformanceReference:
       val _ = session
       Source(List(" leading space", "two\nlines", "plain"))
     }
+
+    // Sockets (protocol 1.9). Echoes each frame; "context" is answered with the room and the
+    // opening request's `tag`, read after any number of frames.
+    socket("/socket/{room}") { (room: String, socket: Socket) =>
+      Iterator.continually(socket.receive()).takeWhile(_.isDefined).flatten.foreach {
+        case "context" => socket.send(s"$room ${query.raw("tag").getOrElse("")}")
+        case text      => socket.send(text)
+      }
+      socketLog.add(s"closed:$room"): Unit
+    }
+    socket("/socket-once")(socket => socket.receive(): Unit)
+    socket("/socket-fail") { socket =>
+      socket.receive(): Unit
+      throw RuntimeException("the socket handler broke")
+    }
+    get("/socket-log")(() => socketLog.toArray.toVector.map(_.toString))
     postBody("/profile/{id}") { (id: String, name: String) =>
       profile(id).call(Profile.set).invoke(name)
     }
@@ -758,6 +786,20 @@ object ConformanceReference:
         )
         .render
     )
+    // The principal and the caller, sent once when the socket opens.
+    socket("/socket") { socket =>
+      socketLog.add(s"private:${principal.subject}"): Unit
+      socket.send(
+        Json
+          .obj(
+            "subject" -> Json.Str(principal.subject),
+            "roles"   -> Json.Arr(principal.roles.toVector.sorted.map(Json.Str(_))),
+            "caller"  -> Json.Str(callerWord(caller))
+          )
+          .render
+      )
+      while socket.receive().isDefined do ()
+    }
 
   val ComponentIds: Set[String] = Set(
     "shopping-cart",

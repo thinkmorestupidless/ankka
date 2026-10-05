@@ -177,6 +177,10 @@ object Main:
     val endpoints =
       discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings, authenticated))
     val served: Vector[ServedRoute] = endpoints.flatMap(_.served)
+    if endpoints.exists(_.socketRoutes.nonEmpty) then
+      RemoteEndpoint.socketProblems(system.settings.config) match
+        case Vector() => ()
+        case found    => throw IllegalArgumentException(found.mkString("; "))
 
     val http =
       sys.env.get("ANKKA_HTTP_PORT").map(_.toInt) match

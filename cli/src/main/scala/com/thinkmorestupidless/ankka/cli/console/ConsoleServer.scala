@@ -130,6 +130,7 @@ object ConsoleServer:
         body = str(body, "body").filter(_.nonEmpty)
       )
       if request.method == GrpcMethod then refuseGrpc(exchange)
+      else if request.method == SocketMethod then refuseSocket(exchange)
       else
         source.invoke(name, request) match
           case None => notFound(exchange)
@@ -196,6 +197,9 @@ object ConsoleServer:
 
       if request.method == GrpcMethod then
         refuseGrpc(exchange)
+        return
+      if request.method == SocketMethod then
+        refuseSocket(exchange)
         return
       exchange.getResponseHeaders.add("Content-Type", "text/plain; charset=utf-8")
       exchange.sendResponseHeaders(200, 0)
@@ -280,6 +284,20 @@ object ConsoleServer:
       exchange,
       400,
       """{"error":"the console does not call gRPC methods; call them with a client generated from the service definition"}"""
+    )
+
+  /** How a running service lists a socket route among its routes. */
+  private val SocketMethod = "SOCKET"
+
+  /**
+   * The console lists a service's socket routes and opens none: a socket is held, not invoked, and
+   * a form that sent one request to it would answer 426 and teach nothing.
+   */
+  private def refuseSocket(exchange: HttpExchange): Unit =
+    json(
+      exchange,
+      400,
+      """{"error":"the console does not open sockets; open one with a WebSocket client"}"""
     )
 
   private def notFound(exchange: HttpExchange): Unit =

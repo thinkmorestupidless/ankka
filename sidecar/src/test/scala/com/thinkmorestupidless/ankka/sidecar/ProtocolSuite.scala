@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.core.{
   Metadata,
   MethodName
 }
+import com.thinkmorestupidless.ankka.runtime.Trace
 import com.thinkmorestupidless.ankka.runtime.remote.*
 import com.thinkmorestupidless.ankka.sdk.StartFrom
 import com.typesafe.config.ConfigFactory
@@ -126,10 +127,10 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("discovery: an SDK on an earlier minor is admitted, since a minor only adds") {
-    // The double declares 1.0; the sidecar speaks 1.8 (1.1 added the caller, 1.2 the autonomous
+    // The double declares 1.0; the sidecar speaks 1.9 (1.1 added the caller, 1.2 the autonomous
     // agent, 1.3 a consumer's several messages, 1.4 metadata on the requests a handler's work is
     // sent in, 1.5 a principal's claims, 1.6 the secret store, 1.7 where a topic source starts,
-    // 1.8 a call to another service).
+    // 1.8 a call to another service, 1.9 socket routes).
     // Earlier minors are admitted.
     assertEquals(spec.protocolVersion, "1.0")
     withDouble(spec)((double, _, _) =>
@@ -147,7 +148,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.8")
+    assertEquals(Discovery.ProtocolVersion, "1.9")
   }
 
   test(
@@ -667,4 +668,170 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     finally
       channel.shutdownNow()
       double.stop()
+  }
+
+  // ── Sockets (protocol 1.9) ────────────────────────────────────────────────
+
+  private def socketSpec(script: ProcessDouble.SocketScript, version: String = "1.9") =
+    spec.copy(
+      protocolVersion = version,
+      endpoints = Vector(
+        ProcessDouble.Endpoint(
+          "notices",
+          "/notices",
+          Vector(
+            ProcessDouble.Route("stream", "GET", "/{room}", socket = true, onSocket = script)
+          )
+        )
+      )
+    )
+
+  private val opening = HttpForward(
+    "notices",
+    "stream",
+    Vector("lobby"),
+    Vector("tag"    -> "a"),
+    Vector("X-Test" -> "1"),
+    "",
+    Array.emptyByteArray,
+    Some(RemotePrincipal("ada", None, None, emailVerified = false, Set("buyer"))),
+    Trace.into(Metadata.empty, 41L, 42L),
+    RemoteCaller.Gateway
+  )
+
+  private def frames(link: SocketLink, n: Int): Vector[SocketOutput] =
+    (1 to n).map(_ => link.next(5.seconds).getOrElse(fail("nothing from the process"))).toVector
+
+  test(
+    "a socket's open is first, carrying the request, the principal, the caller and the protocol"
+  ) {
+    withDouble(socketSpec(ProcessDouble.SocketScript.Echo)) { (double, conversation, _) =>
+      val link = conversation.openSocket(opening)
+      link.send("hello")
+      assertEquals(frames(link, 1), Vector(SocketOutput.Frame("hello")))
+      link.close("client")
+      val in   = double.messagesOf { case m: ankka.protocol.v1.endpoint.SocketIn => m }
+      val open = in.head.message.open.getOrElse(fail(s"the first message was ${in.head}"))
+      assertEquals(open.pathArgs.toVector, Vector("lobby"))
+      assertEquals(open.query.map(p => p.name -> p.value).toVector, Vector("tag" -> "a"))
+      assertEquals(open.principal.map(_.subject), Some("ada"))
+      assert(open.caller.exists(_.kind.isGateway), open.caller.toString)
+      val metadata = open.metadata.toVector.flatMap(_.entries.map(e => e.key -> e.value))
+      assert(metadata.contains(WireProtocol.MetadataKey -> WireProtocol.Version), metadata.toString)
+    }
+  }
+
+  test("frames cross a socket in order both ways") {
+    withDouble(socketSpec(ProcessDouble.SocketScript.Echo)) { (_, conversation, _) =>
+      val link = conversation.openSocket(opening)
+      (1 to 10).foreach(i => assert(link.send(s"frame $i")))
+      assertEquals(frames(link, 10), (1 to 10).map(i => SocketOutput.Frame(s"frame $i")).toVector)
+      link.close("client")
+      assertEquals(link.next(5.seconds), Some(SocketOutput.Completed))
+    }
+  }
+
+  test("the client's close reaches the process as closed with its reason, then the half-close") {
+    withDouble(socketSpec(ProcessDouble.SocketScript.Echo)) { (double, conversation, _) =>
+      val link = conversation.openSocket(opening)
+      link.close("going away")
+      assertEquals(link.next(5.seconds), Some(SocketOutput.Completed))
+      val closed = double
+        .messagesOf { case m: ankka.protocol.v1.endpoint.SocketIn => m }
+        .flatMap(_.message.closed)
+      assertEquals(closed.map(_.reason), Vector("going away"))
+    }
+  }
+
+  test("a process that completes, and one that fails, end the link with what it said") {
+    withDouble(socketSpec(ProcessDouble.SocketScript.SendThenComplete(2))) { (_, conversation, _) =>
+      val link = conversation.openSocket(opening)
+      assertEquals(
+        frames(link, 3),
+        Vector(SocketOutput.Frame("frame 1"), SocketOutput.Frame("frame 2"), SocketOutput.Completed)
+      )
+      assertEquals(link.next(1.second), Some(SocketOutput.Completed), "and goes on saying so")
+      assert(!link.send("late"), "a link that has ended sends nothing")
+    }
+    withDouble(socketSpec(ProcessDouble.SocketScript.FailOnFrame("the handler broke"))) {
+      (_, conversation, _) =>
+        val link = conversation.openSocket(opening)
+        link.send("go")
+        assertEquals(link.next(5.seconds), Some(SocketOutput.Failed("the handler broke")))
+    }
+  }
+
+  test("a message with no case set ends the socket as failed, never skipped") {
+    withDouble(socketSpec(ProcessDouble.SocketScript.SendEmpty)) { (_, conversation, _) =>
+      val link = conversation.openSocket(opening)
+      link.next(5.seconds) match
+        case Some(SocketOutput.Failed(message)) => assert(message.contains("no case set"), message)
+        case other                              => fail(s"expected a failure, got $other")
+    }
+  }
+
+  test("a process that stops while a socket is open ends the link as failed") {
+    withDouble(socketSpec(ProcessDouble.SocketScript.Echo)) { (double, conversation, _) =>
+      val link = conversation.openSocket(opening)
+      link.send("hello")
+      assertEquals(frames(link, 1), Vector(SocketOutput.Frame("hello")))
+      double.stop()
+      link.next(5.seconds) match
+        case Some(SocketOutput.Failed(_)) => ()
+        case other                        => fail(s"expected a failure, got $other")
+    }
+  }
+
+  test("discovery: a socket route is declared under 1.9, and refused under an earlier minor") {
+    withDouble(socketSpec(ProcessDouble.SocketScript.Echo)) { (double, _, _) =>
+      assert(
+        Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
+      )
+    }
+    withDouble(socketSpec(ProcessDouble.SocketScript.Echo, version = "1.8")) { (double, _, _) =>
+      val refused =
+        Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
+      assertEquals(
+        refused.left.toOption.getOrElse(Vector.empty),
+        Vector(
+          "endpoint 'notices': route 'stream' is a socket route, which needs protocol 1.9; " +
+            "the SDK speaks 1.8"
+        )
+      )
+    }
+  }
+
+  test("discovery: a socket route is a GET with no body that does not also stream") {
+    val bad = socketSpec(ProcessDouble.SocketScript.Echo).copy(endpoints =
+      Vector(
+        ProcessDouble.Endpoint(
+          "notices",
+          "/notices",
+          Vector(
+            ProcessDouble.Route("post", "POST", "/a", socket = true),
+            ProcessDouble.Route("body", "GET", "/b", hasBody = true, socket = true),
+            ProcessDouble.Route("both", "GET", "/c", streaming = true, socket = true)
+          )
+        )
+      )
+    )
+    withDouble(bad) { (double, _, _) =>
+      val problems = Discovery
+        .validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true)
+        .left
+        .toOption
+        .getOrElse(Vector.empty)
+      assert(
+        problems.exists(_.contains("route 'post' is a socket route, which is opened with GET")),
+        problems.toString
+      )
+      assert(
+        problems.exists(_.contains("route 'body' is a socket route, which takes no body")),
+        problems.toString
+      )
+      assert(
+        problems.exists(_.contains("route 'both' is a socket route and streaming")),
+        problems.toString
+      )
+    }
   }

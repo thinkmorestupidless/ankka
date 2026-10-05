@@ -94,7 +94,9 @@ A refusal — a guardrail, an error effect, a failed model call — ends the str
 
 ## Serving a stream over HTTP
 
-An endpoint serves a stream with `sse`, which answers `GET` as `text/event-stream`:
+An endpoint serves a stream with `sse`, which answers `GET` as `text/event-stream`. A stream goes one
+way, from the service; for a connection the client also writes to, declare a socket route instead (see
+[HTTP endpoints](http-endpoints.md#sockets)).
 
 **Scala**
 

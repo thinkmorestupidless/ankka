@@ -82,6 +82,27 @@ group("the installation console's topology rules", () => {
     assert.equal(topology.edgeMark([pair({}, { undelivered: 1 })]), "warning");
   });
 
+  test("a socket route is shown among its endpoint's handlers, as the topology names it", () => {
+    const d: Document = {
+      nodes: [
+        {
+          id: "endpoint:/notices",
+          kind: "Endpoint",
+          layer: 0,
+          platform: false,
+          handlers: [
+            { name: "GET /notices", type: "route", streaming: false },
+            { name: "SOCKET /notices/stream", type: "route", streaming: true },
+          ],
+        },
+      ],
+      declared: [],
+      calls: [],
+    };
+    const shown = topology.view(d);
+    assert.deepEqual(shown.nodes[0]!.handlers.map((h) => h.name), ["GET /notices", "SOCKET /notices/stream"]);
+  });
+
   test("focus keeps exactly the node and its neighbours", () => {
     const d: Document = {
       nodes: ["a", "b", "c", "d"].map((id, i) => ({ id, kind: "View", layer: i, platform: false, handlers: [] })),

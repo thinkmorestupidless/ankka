@@ -22,7 +22,8 @@ final class ConsoleGrpcSuite extends FunSuite:
       Option.when(name == "cart")(
         """{"name":"cart","instances":[],"components":[],"routes":[""" +
           """{"method":"GET","path":"/carts/{cartId}","streaming":false},""" +
-          """{"method":"GRPC","path":"shoppingcart.v1.CartService/GetCart","streaming":false}]}"""
+          """{"method":"GRPC","path":"shoppingcart.v1.CartService/GetCart","streaming":false},""" +
+          """{"method":"SOCKET","path":"/carts/{cartId}/watch","streaming":true}]}"""
       )
     def traces(name: String): Option[String]              = None
     def topology(name: String): Option[QueryResponse]     = None
@@ -68,5 +69,22 @@ final class ConsoleGrpcSuite extends FunSuite:
       }
       assertEquals(invoked.get, 0)
       assertEquals(post(server, "/api/invoke/cart", "GET").statusCode, 200)
+    }
+  }
+
+  test("the local console lists a service's socket routes beside its routes and opens none") {
+    withConsole { server =>
+      val inventory = client.send(
+        HttpRequest.newBuilder(URI.create(s"${server.address}/api/service/cart")).build(),
+        HttpResponse.BodyHandlers.ofString()
+      )
+      assert(inventory.body.contains("\"SOCKET\""), inventory.body)
+      val before = invoked.get
+      Seq("/api/invoke/cart", "/api/invoke-stream/cart").foreach { path =>
+        val refused = post(server, path, "SOCKET")
+        assertEquals(refused.statusCode, 400, path)
+        assert(refused.body.contains("does not open sockets"), refused.body)
+      }
+      assertEquals(invoked.get, before)
     }
   }

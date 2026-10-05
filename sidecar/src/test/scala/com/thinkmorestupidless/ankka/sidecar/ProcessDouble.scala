@@ -14,7 +14,16 @@ import ankka.protocol.v1.agent.{
 }
 import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc, ConsumerRequest}
 import ankka.protocol.v1.discovery.*
-import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, HttpRequest, HttpResponse, StreamFrame}
+import ankka.protocol.v1.endpoint.{
+  HttpGrpc,
+  HttpReply,
+  HttpRequest,
+  HttpResponse,
+  SocketFrame,
+  SocketIn,
+  SocketOut,
+  StreamFrame
+}
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
 import ankka.protocol.v1.key_value.{KeyValueGrpc, KeyValueIn, KeyValueOut}
 import ankka.protocol.v1.payload as pb
@@ -81,8 +90,27 @@ object ProcessDouble:
       streaming: Boolean = false,
       handler: HttpRequest => Either[Throwable, HttpResponse] = _ =>
         Right(HttpResponse(200, "text/plain", ByteString.copyFromUtf8("ok"))),
-      frames: HttpRequest => Vector[String] = _ => Vector.empty
+      frames: HttpRequest => Vector[String] = _ => Vector.empty,
+      socket: Boolean = false,
+      onSocket: SocketScript = SocketScript.Echo
   )
+
+  /** What a socket route's handler in the double does with its socket. */
+  enum SocketScript:
+    /** Answers each frame with itself; completes when told the socket is closed. */
+    case Echo
+
+    /** Sends `frames` frames as soon as it opens, then completes. */
+    case SendThenComplete(frames: Int)
+
+    /** Fails on the first frame it reads. */
+    case FailOnFrame(message: String)
+
+    /** Reads nothing after `open`: flow control holds every frame back. */
+    case NeverRead
+
+    /** Sends a message with no case set as soon as it opens. */
+    case SendEmpty
 
   final case class Endpoint(
       id: String,
@@ -514,7 +542,8 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           e.prefix,
           e.acl,
           e.routes.map(r =>
-            ankka.protocol.v1.discovery.Route(r.id, r.method, r.template, r.hasBody, r.streaming)
+            ankka.protocol.v1.discovery
+              .Route(r.id, r.method, r.template, r.hasBody, r.streaming, socket = r.socket)
           ),
           e.allowCallers
         )
@@ -1064,6 +1093,8 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
   // ── HTTP ───────────────────────────────────────────────────────────────────
 
   private val http = new HttpGrpc.Http:
+    def handleSocket(out: StreamObserver[SocketOut]): StreamObserver[SocketIn] = openSocket(out)
+
     def handle(request: HttpRequest): Future[HttpReply] =
       received.add(Received(0, request))
       route(request) match
@@ -1109,6 +1140,56 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           r.frames(request).foreach(f => out.onNext(StreamFrame(StreamFrame.Frame.Text(f))))
           out.onNext(StreamFrame(StreamFrame.Frame.Completed(pb.Empty())))
           out.onCompleted()
+
+  // ── HandleSocket, scripted per route ─────────────────────────────────────
+
+  private def openSocket(out: StreamObserver[SocketOut]): StreamObserver[SocketIn] =
+    val streamId = streamIds.incrementAndGet()
+    val server   = out.asInstanceOf[io.grpc.stub.ServerCallStreamObserver[SocketOut]]
+    server.disableAutoRequest()
+    server.request(1) // the open
+    @volatile var script: SocketScript   = SocketScript.Echo
+    @volatile var done                   = false
+    def send(m: SocketOut.Message): Unit = out.synchronized(out.onNext(SocketOut(m)))
+    def finish(): Unit = out.synchronized {
+      if !done then
+        done = true
+        out.onNext(SocketOut(SocketOut.Message.Completed(pb.Empty())))
+        out.onCompleted()
+    }
+    def text(t: String) = SocketOut.Message.Frame(SocketFrame(SocketFrame.Kind.Text(t)))
+    new StreamObserver[SocketIn]:
+      def onNext(in: SocketIn): Unit =
+        received.add(Received(streamId, in))
+        in.message match
+          case SocketIn.Message.Open(request) =>
+            script = route(request).map(_.onSocket).getOrElse(SocketScript.Echo)
+            script match
+              case SocketScript.SendThenComplete(n) =>
+                (1 to n).foreach(i => send(text(s"frame $i")))
+                finish()
+              case SocketScript.SendEmpty => out.synchronized(out.onNext(SocketOut()))
+              case SocketScript.NeverRead => ()
+              case _                      => server.request(1)
+          case SocketIn.Message.Frame(frame) =>
+            script match
+              case SocketScript.FailOnFrame(message) =>
+                out.synchronized {
+                  if !done then
+                    done = true
+                    out.onNext(
+                      SocketOut(SocketOut.Message.Failed(pb.Error(message, pb.ErrorCode.INTERNAL)))
+                    )
+                    out.onCompleted()
+                }
+              case _ =>
+                frame.kind.text.foreach(t => send(text(t)))
+                server.request(1)
+          case SocketIn.Message.Closed(_) =>
+            finish()
+          case SocketIn.Message.Empty => server.request(1)
+      def onError(t: Throwable): Unit = ()
+      def onCompleted(): Unit         = finish()
 
   private def route(request: HttpRequest): Option[Route] =
     spec.endpoints.find(_.id == request.endpointId).flatMap(_.routes.find(_.id == request.routeId))

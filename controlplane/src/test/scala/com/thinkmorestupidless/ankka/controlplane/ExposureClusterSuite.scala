@@ -289,6 +289,22 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
     assert(!body.contains("cartId"), body)
   }
 
+  // ---- Sockets through the gateway (features/sockets/deployed.feature) ---------------------------
+
+  private def probe(project: String, path: String, protocols: Seq[String] = Nil) =
+    SocketProbe.start(
+      host(project, Service),
+      s"wss://${host(project, Service)}:$httpsPort$path",
+      ca,
+      protocols
+    )
+
+  test("a socket route of a service that is not exposed opens no socket from the internet") {
+    val socket = probe(Project, "/callers/socket")
+    try assertEquals(socket.next(), "refused 404")
+    finally socket.stop()
+  }
+
   test("3. expose: the CLI prints the URL, and within 60s a cart written by hostname reads back") {
     val (code, out) = ankka("services", "expose", Service, "-p", Project)
     assertEquals(code, 0, out)
@@ -304,6 +320,32 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
     val (_, got) = ankka("services", "get", Service, "-p", Project)
     assert(got.contains(s"https://${host(Project, Service)}"), got)
     assert(!got.contains("detail"), got)
+  }
+
+  test(
+    "a socket to an exposed service is opened at its hostname, and its calling workload is the gateway"
+  ) {
+    // Offered as a browser offers them; the 101 selecting `ankka.socket` is the gateway having
+    // carried the offer both ways. A frame every five seconds for twenty seconds outlasts any route
+    // timeout the gateway might apply to an upgraded connection.
+    val socket = probe(Project, "/callers/socket", Seq("ankka.socket", "ankka.bearer.x"))
+    try
+      assertEquals(socket.next(), "opened ankka.socket")
+      (1 to 4).foreach { i =>
+        socket.send(s"who $i")
+        assertEquals(socket.next(), "frame the internet, through the gateway")
+        if i < 4 then assertEquals(socket.quietFor(5.seconds), None)
+      }
+      val watch = probe(Project, "/carts/c1/watch")
+      try
+        assertEquals(watch.next(), "opened none")
+        watch.send("refresh")
+        val cart = watch.next()
+        assert(cart.startsWith("frame ") && cart.contains("Widget-c1"), cart)
+      finally watch.stop()
+      socket.close()
+      assert(socket.next().startsWith("closed 1000"), "an orderly close")
+    finally socket.stop()
   }
 
   test("4. plain HTTP is redirected to HTTPS, never served") {
@@ -343,6 +385,39 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
     assert(!crossed.contains("Widget-c1"), crossed)
     val (_, checkout) = curl(host(Project, Service), "/carts/r1")
     assert(!checkout.contains("Widget-r1"), checkout)
+  }
+
+  // Opened when the other project's cart is exposed, asserted once ten minutes have passed: the
+  // restarts in between are the first project's, so nothing but the clock touches this socket.
+  @volatile private var quiet: Option[(SocketProbe.Running, Long)] = None
+
+  test("a socket that no frame crosses for ten minutes is still open (opened)") {
+    val socket = probe(Other, "/callers/socket")
+    assertEquals(socket.next(), "opened none")
+    quiet = Some(socket -> System.nanoTime())
+  }
+
+  test("a socket on an instance that is replaced is closed, not cut off") {
+    val socket = probe(Project, "/callers/socket")
+    try
+      assertEquals(socket.next(), "opened none")
+      socket.send("who")
+      assertEquals(socket.next(), "frame the internet, through the gateway")
+      assertEquals(ankka("services", "restart", Service, "-p", Project)._1, 0)
+      assertEquals(socket.next(120.seconds), "closed 1001 going away")
+    finally socket.stop()
+    // A socket opened at once is served by an instance that is ready.
+    waitFor(60.seconds) {
+      val again = probe(Project, "/callers/socket")
+      try
+        again.next() == "opened none" && {
+          again.send("who")
+          again.next() == "frame the internet, through the gateway"
+        }
+      catch case _: AssertionError => false
+      finally again.stop()
+    }
+    waitReady(Project, Service, 3)
   }
 
   test("6. restart, re-apply and pause/resume leave the hostname — and the route — in place") {
@@ -403,6 +478,19 @@ class ExposureClusterSuite extends munit.FunSuite with LogCapturing:
   }
 
   // ---- US1: unexpose ------------------------------------------------------------------------------
+
+  test("a socket that no frame crosses for ten minutes is still open") {
+    val (socket, openedAt) = quiet.getOrElse(fail("the quiet socket was not opened"))
+    try
+      val elapsed =
+        FiniteDuration(System.nanoTime() - openedAt, java.util.concurrent.TimeUnit.NANOSECONDS)
+      val remaining = 10.minutes + 15.seconds - elapsed
+      if remaining.toMillis > 0 then
+        assertEquals(socket.quietFor(remaining), None, "the socket ended while it was quiet")
+      socket.send("still here")
+      assertEquals(socket.next(), "frame the internet, through the gateway")
+    finally socket.stop()
+  }
 
   test("8. unexpose removes only the route: 404 at the hostname, the service untouched") {
     val podUids     = pods(Project, Service).map(_.getMetadata.getUid).toSet

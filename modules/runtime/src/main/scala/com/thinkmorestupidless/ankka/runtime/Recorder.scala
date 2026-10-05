@@ -214,6 +214,41 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       if sequences(slot) == seq && read.durationNanos >= 0L then read else null
 
   /**
+   * A span id for a span that will be recorded later, whole, by `record`. Claims no slot.
+   *
+   * For an invocation that may outlive the ring: a socket is open for as long as its client wants,
+   * and a slot claimed by `begin` at the open would be reused by newer spans long before the close,
+   * so the span would never be published. Its children name this id as their parent meanwhile.
+   */
+  def reserve(): Long = spanId.incrementAndGet()
+
+  /**
+   * Claims a slot and publishes a span at once: one that started at `startedNanos`
+   * (`System.nanoTime` then) and ends now. The id is one `reserve` returned.
+   */
+  def record(
+      traceId: Long,
+      spanId: Long,
+      parentSpanId: Long,
+      componentRef: Int,
+      handlerRef: Int,
+      startedNanos: Long,
+      outcome: SpanOutcome
+  ): Unit =
+    val seq  = next.incrementAndGet()
+    val slot = ((seq - 1) & mask).toInt
+    sequences(slot) = 0L // mark in-flight: a reader must not trust this slot yet
+    traceIds(slot) = traceId
+    spanIds(slot) = spanId
+    parentIds(slot) = parentSpanId
+    this.componentRef(slot) = componentRef
+    this.handlerRef(slot) = handlerRef
+    this.startedNanos(slot) = startedNanos
+    durations(slot) = System.nanoTime() - startedNanos
+    outcomes(slot) = outcome.ordinal.toByte
+    sequences(slot) = seq // publish last: now a reader may trust it
+
+  /**
    * Every complete span currently held, newest first.
    *
    * Spans still in flight and spans torn by a concurrent overwrite are skipped rather than reported

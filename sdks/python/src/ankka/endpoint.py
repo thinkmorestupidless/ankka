@@ -1,7 +1,7 @@
 """HTTP endpoints, declared here and served by the sidecar.
 
 A subclass declares ``prefix`` and ``acl`` and decorates methods with ``@get("/{cart_id}")``,
-``@post(...)``, ``@put``, ``@delete``, ``@patch`` or ``@sse``. Path parameters bind by name from
+``@post(...)``, ``@put``, ``@delete``, ``@patch``, ``@sse`` or ``@socket``. Path parameters bind by name from
 the template; one further typed parameter is the body; the return value is encoded with its
 type's default codec. The process never binds an HTTP port: the sidecar's router matches the
 route, applies the ACL and forwards the request.
@@ -107,16 +107,53 @@ class HttpProblem(Exception):
         self.message = message
 
 
+class SocketClosed(Exception):
+    """Raised by ``Socket.send`` once the socket is closed. A handler that lets it escape has
+    ended as a handler ends when its client goes: it is not a failure."""
+
+
+class Socket:
+    """A socket route handler's hold on its open socket.
+
+    ``async for text in socket`` reads frames until the socket is closed; ``await socket.send(text)``
+    writes one. The sidecar holds the socket itself — its ACL, its limits, its close codes — and
+    relays each frame.
+    """
+
+    def __init__(self, receive: Callable[[], Awaitable[str | None]], send: Callable[[str], Awaitable[None]]) -> None:
+        self._receive = receive
+        self._send = send
+
+    def __aiter__(self) -> Socket:
+        return self
+
+    async def __anext__(self) -> str:
+        text = await self.receive()
+        if text is None:
+            raise StopAsyncIteration
+        return text
+
+    async def receive(self) -> str | None:
+        """The next frame, or ``None`` once the socket is closed."""
+        return await self._receive()
+
+    async def send(self, text: str) -> None:
+        """Sends a frame; raises ``SocketClosed`` once the socket is closed."""
+        await self._send(text)
+
+
 _MARK = "_ankka_route"
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-def _route(method: str, streaming: bool = False) -> Callable[..., Callable[[Callable[..., Any]], Callable[..., Any]]]:
+def _route(
+    method: str, streaming: bool = False, is_socket: bool = False
+) -> Callable[..., Callable[[Callable[..., Any]], Callable[..., Any]]]:
     def with_template(template: str, *, acl: Acl | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """``acl`` replaces the endpoint's for this route alone; omitted, the endpoint's applies."""
 
         def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
-            setattr(fn, _MARK, (method, template, streaming, acl))
+            setattr(fn, _MARK, (method, template, streaming, acl, is_socket))
             return fn
 
         return decorate
@@ -130,6 +167,9 @@ put = _route("PUT")
 delete = _route("DELETE")
 patch = _route("PATCH")
 sse = _route("GET", streaming=True)
+socket = _route("GET", is_socket=True)
+"""A socket route: the handler takes the path parameters and a parameter annotated ``Socket``, and
+runs for as long as the socket is open. Needs protocol 1.9 of the runtime."""
 
 
 def _parse_path(value: str, tp: Any) -> Any:
@@ -154,8 +194,10 @@ class RouteSpec:
     path_params: tuple[tuple[str, Any], ...]  # (name, type) in template order
     body_param: str | None
     body_codec: Codec[Any] | None
-    reply_codec: Codec[Any] | None  # None for streaming routes
+    reply_codec: Codec[Any] | None  # None for streaming and socket routes
     acl: Acl | None = None  # None: the endpoint's
+    socket: bool = False
+    socket_param: str | None = None  # the parameter annotated Socket
 
     @property
     def has_body(self) -> bool:
@@ -163,7 +205,12 @@ class RouteSpec:
 
     def to_pb(self) -> discovery_pb2.Route:
         route = discovery_pb2.Route(
-            id=self.id, method=self.method, template=self.template, has_body=self.has_body, streaming=self.streaming
+            id=self.id,
+            method=self.method,
+            template=self.template,
+            has_body=self.has_body,
+            streaming=self.streaming,
+            socket=self.socket,
         )
         # Left unset when the route declares nothing, so the sidecar reads "the endpoint's"
         # rather than ALLOW_ALL — the field is `optional` in the protocol for exactly this.
@@ -179,7 +226,7 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
         mark = getattr(member, _MARK, None)
         if mark is None:
             continue
-        method, template, streaming, route_acl = mark
+        method, template, streaming, route_acl, is_socket = mark
         if not template.startswith("/"):
             raise RegistrationError(f"{cls.__name__}.{attr}: template '{template}' must start with '/'")
         names = _PLACEHOLDER.findall(template)
@@ -190,6 +237,18 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
             if n not in by_name:
                 raise RegistrationError(f"{cls.__name__}.{attr}: template names '{{{n}}}' but the handler has no parameter '{n}'")
         extra = [p.name for p in params if p.name not in names]
+        socket_param: str | None = None
+        if is_socket:
+            sockets = [n for n in extra if hints.get(n) is Socket]
+            if len(sockets) != 1:
+                raise RegistrationError(
+                    f"{cls.__name__}.{attr}: a socket route's handler takes one parameter annotated Socket"
+                )
+            socket_param = sockets[0]
+            others = [n for n in extra if n != socket_param]
+            if others:
+                raise RegistrationError(f"{cls.__name__}.{attr}: a socket route takes no body, found {others}")
+            extra = []
         if len(extra) > 1:
             raise RegistrationError(f"{cls.__name__}.{attr}: at most one parameter may be the body, found {extra}")
         body_param = extra[0] if extra else None
@@ -205,8 +264,10 @@ def collect_routes(cls: type) -> dict[str, RouteSpec]:
             path_params=tuple((n, hints.get(n, str)) for n in names),
             body_param=body_param,
             body_codec=default_codec_for(hints[body_param]) if body_param else None,
-            reply_codec=None if streaming else default_codec_for(ret if ret is not None else Done),
+            reply_codec=None if (streaming or is_socket) else default_codec_for(ret if ret is not None else Done),
             acl=route_acl,
+            socket=is_socket,
+            socket_param=socket_param,
         )
     return found
 
@@ -288,6 +349,18 @@ class Endpoint(HasSecrets, HasServices):
                 result = await result
             async for frame in typing.cast(AsyncIterator[str], result):
                 yield frame
+        finally:
+            _current.reset(token)
+
+    async def _handle_socket(self, spec: RouteSpec, path_args: list[str], socket: Socket, ctx: RequestContext) -> None:
+        """Runs a socket route's handler for as long as it lasts, with the opening request as its
+        ``request`` throughout."""
+        token = _current.set(ctx)
+        try:
+            kwargs = self._bind(spec, path_args, b"")
+            assert spec.socket_param is not None
+            kwargs[spec.socket_param] = socket
+            await getattr(self, spec.method_name)(**kwargs)
         finally:
             _current.reset(token)
 

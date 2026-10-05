@@ -216,7 +216,7 @@ async function loadRoutes(name) {
   // gRPC methods are listed and never offered: the console has no client generated from a service
   // definition, and a form sending HTTP to one would teach the wrong thing.
   const all = service.routes || [];
-  const routes = all.filter((r) => r.method !== 'GRPC');
+  const routes = all.filter((r) => r.method !== 'GRPC' && r.method !== 'SOCKET');
   for (const method of all.filter((r) => r.method === 'GRPC')) {
     const row = document.createElement('div');
     row.className = 'route grpc';
@@ -224,6 +224,17 @@ async function loadRoutes(name) {
     row.innerHTML = `<span class="m"></span><span class="p"></span>`;
     row.querySelector('.m').textContent = 'gRPC';
     row.querySelector('.p').textContent = method.path + (method.streaming ? '  ⋯' : '');
+    container.appendChild(row);
+  }
+  // Socket routes likewise: a socket is held open, not invoked, so it is listed beside the routes and
+  // never offered a form.
+  for (const socketRoute of all.filter((r) => r.method === 'SOCKET')) {
+    const row = document.createElement('div');
+    row.className = 'route socket';
+    row.title = 'A socket route: open it with a WebSocket client; the console does not open sockets.';
+    row.innerHTML = `<span class="m"></span><span class="p"></span>`;
+    row.querySelector('.m').textContent = 'socket';
+    row.querySelector('.p').textContent = socketRoute.path;
     container.appendChild(row);
   }
   // A service with "http": false has nothing to invoke. Say so rather than show a dead form.

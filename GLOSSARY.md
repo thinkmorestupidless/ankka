@@ -1462,6 +1462,46 @@ not a platform setting: both programs of a service hosted as a process are given
 
 Avoid: Kafka variable
 
+## Sockets
+
+### socket
+A connection that a request to a socket route opens and that stays open afterwards,
+over which whoever opened it and the route's handler send each other frames until one of them
+closes it. The platform carries a socket and does nothing else with it: it keeps no frame and no
+record of who holds one open.
+
+Avoid: WebSocket, channel
+
+### socket route
+What an HTTP endpoint declares, by a path, to be answered by opening a socket rather
+than with one answer. Its ACL is decided once, when the socket is opened.
+
+Avoid: WebSocket route
+
+### frame
+One piece of text sent over a socket, by either side.
+
+### closed
+Of a socket: ended by one side telling the other that it is ending it, with a close
+reason. Either side may close a socket; the platform closes one whose handler has finished or
+failed.
+
+### close reason
+What the other side is told of why a socket was closed: "finished", "failed", "too
+large", "unread", "not text" or, when the instance that holds the socket is stopping, "going away".
+
+Avoid: close code
+
+### cut off
+Of a socket: ended without the other side being told, so that it cannot tell a socket
+that was ended on purpose from a fault. The opposite of closed.
+
+Avoid: dropped
+
+### thread
+One of the limited number of things a machine runs a service's work on at once. A
+handler that is waiting holds none.
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
@@ -1530,4 +1570,4 @@ foot, hidden, scroll, scrolls, sideways, pauses, saying, overview, open, reloade
 visible, keyboard, brightest, point, least, brighter, shipped, colour, accord, blur, opaque,
 readable, border, outline, forces, edge, clipped, below, facts, controls, prefers, preference,
 dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright, enough,
-front, width, would, choose, whoever, clear, declaration
+front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older, quiet

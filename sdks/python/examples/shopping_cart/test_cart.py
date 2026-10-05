@@ -599,3 +599,14 @@ async def test_a_call_to_another_service_goes_through_the_sidecar_to_where_it_wa
             assert received == ["/callers/whoami"]
     finally:
         stand_in.shutdown()
+
+
+def test_the_watch_socket_answers_what_it_does_not_understand_and_ends_with_its_socket() -> None:
+    from ankka.testkit import EndpointTestKit
+    from ankka.testkit.unit import _NoClient
+
+    from examples.shopping_cart.endpoint import ShoppingCartEndpoint
+
+    run = EndpointTestKit.of(ShoppingCartEndpoint, _NoClient()).socket("/carts/c1/watch", ["nonsense"])
+    assert run.ended == "finished"
+    assert run.sent == ["{\"error\":\"unknown request 'nonsense'; send refresh\"}"]

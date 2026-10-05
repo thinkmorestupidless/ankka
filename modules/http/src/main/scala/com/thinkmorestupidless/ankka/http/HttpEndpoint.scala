@@ -149,6 +149,22 @@ private[ankka] final case class StreamRoute(
   def describe: String = s"$method ${template.render} (SSE)"
 
 /**
+ * A route answered by opening a socket rather than with one response.
+ *
+ * Always `GET`, never with a body: the opening request is an upgrade. `run` takes the path
+ * arguments and answers the handler, so a path argument that does not parse is a 400 to the opening
+ * request — before any socket exists — and not a socket that closes at once.
+ */
+private[ankka] final case class SocketRoute(
+    template: PathTemplate,
+    run: Vector[String] => Socket => Unit,
+    /** Declared by `withAcl`; `None` means the endpoint's. */
+    acl: Option[Acl] = None
+):
+  def method: String   = "GET"
+  def describe: String = s"SOCKET ${template.render}"
+
+/**
  * An HTTP endpoint: the outermost layer, translating requests into component calls.
  *
  * Routes are declared in the constructor body and collected as they are declared, so the endpoint's
@@ -238,6 +254,7 @@ abstract class HttpEndpoint(val prefix: String):
 
   private val collected        = mutable.ListBuffer.empty[Route]
   private val collectedStreams = mutable.ListBuffer.empty[StreamRoute]
+  private val collectedSockets = mutable.ListBuffer.empty[SocketRoute]
 
   // Routes are declared in the constructor body, which is single-threaded, so a var scoped
   // around the declarations is all `withAcl` needs.
@@ -245,6 +262,7 @@ abstract class HttpEndpoint(val prefix: String):
 
   private[ankka] def routes: Vector[Route]             = collected.toVector
   private[ankka] def streamRoutes: Vector[StreamRoute] = collectedStreams.toVector
+  private[ankka] def socketRoutes: Vector[SocketRoute] = collectedSockets.toVector
 
   private val prefixSegments: Vector[String] =
     prefix.split('/').iterator.filter(_.nonEmpty).toVector
@@ -326,6 +344,45 @@ abstract class HttpEndpoint(val prefix: String):
     addStream("POST", template, 1, needsBody = true)((args, body) =>
       handler(pathArg[A](args, 0, template), bodyArg[Body](body))
     )
+
+  /**
+   * Records a socket route, checking the handler's arity against the template's placeholders, as
+   * `add` does.
+   */
+  private def addSocket(rawTemplate: String, arity: Int)(
+      run: Vector[String] => Socket => Unit
+  ): Unit =
+    val template = PathTemplate.parse(rawTemplate)
+    if template.arity != arity then
+      throw IllegalArgumentException(
+        s"SOCKET $prefix$rawTemplate declares ${template.arity} path parameter(s) " +
+          s"(${template.parameterNames.mkString(", ")}) but its handler takes $arity"
+      )
+    collectedSockets += SocketRoute(template, run, scopedAcl)
+
+  /**
+   * `GET $prefix$template`, answered by opening a socket. The handler runs on a virtual thread for
+   * as long as the socket is open; see `Socket`.
+   */
+  protected def socket(template: String)(handler: Socket => Unit): Unit =
+    addSocket(template, 0)(_ => handler)
+
+  /** A socket route with one path parameter. */
+  protected def socket[A: FromPath](template: String)(handler: (A, Socket) => Unit): Unit =
+    addSocket(template, 1) { args =>
+      val a = pathArg[A](args, 0, template)
+      socket => handler(a, socket)
+    }
+
+  /** A socket route with two path parameters. */
+  protected def socket[A: FromPath, B: FromPath](template: String)(
+      handler: (A, B, Socket) => Unit
+  ): Unit =
+    addSocket(template, 2) { args =>
+      val a = pathArg[A](args, 0, template)
+      val b = pathArg[B](args, 1, template)
+      socket => handler(a, b, socket)
+    }
 
   private def pathArg[A](args: Vector[String], index: Int, template: String)(using
       from: FromPath[A]

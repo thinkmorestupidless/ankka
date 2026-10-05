@@ -42,8 +42,10 @@ feature also says what that feature does not do.
 ## Web-hosted services
 
 - **No upgraded connections.** The proxy speaks HTTP/1.1 and passes a request asking to upgrade its
-  connection on without the `Upgrade` and `Connection` headers, so WebSockets do not work. A stream of
-  server-sent events does.
+  connection on without the `Upgrade` and `Connection` headers, so a web-hosted program cannot hold a
+  socket, and a socket route of a service mounted under one is not reached through the mount. A browser
+  opens the socket at the mounted service's own hostname instead, with its token as a subprotocol (see
+  [HTTP endpoints](../build/http-endpoints.md#sockets)). A stream of server-sent events does pass.
 - **Web hosting keeps no image but the one its descriptor names.** A rollout replaces instances one at a
   time, and no previous build's files are kept anywhere. An interface names its built files by their
   content and serves its index page uncached; see [Deploy a user
@@ -183,13 +185,22 @@ feature also says what that feature does not do.
 - **A topic source has no sequence number.** A change from a topic reads as sequence zero, and a graph
   consumer over a topic must state the version of each element it publishes.
 - **Only agents stream.** Entities and workflows refuse a streaming request.
+- **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
+- **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket
+  open: presence, fan-out and catching a reconnecting client up are a service's own entities and
+  consumers.
+- **A client that vanishes is noticed late.** The platform pings a quiet socket and does not wait for the
+  answer, so a client whose network went away without closing is noticed only when its connection fails,
+  which can take minutes; its handler is then told the socket is closed.
+- **A socket is checked once.** Its ACL is decided when it is opened, and a token that expires while it is
+  open leaves it open.
 - **A module cannot be interrupted.** A call into a WebAssembly module that runs past the runtime's command
   timeout is abandoned rather than stopped: the caller is answered with a fault and the instance is
   discarded, but the thread running it is not reclaimed until the module returns.
 - **A module cannot forward an autonomous agent's notifications.** They are a live stream, and a module's
   routes cannot stream; read a task's record, or await it, instead.
 - **A module cannot stream.** A WebAssembly module answers every call whole, so its handlers and HTTP routes
-  cannot stream; a module declaring one is refused at start.
+  cannot stream, and it cannot declare a socket route; a module declaring either is refused at start.
 - **A deployed module cannot be debugged in place.** There is no debugger attached to a module the runtime
   has loaded; its `log` calls go to the runtime's log, and its unit tests run natively.
 - **The module image must copy.** A wasm service's image is run once to copy `service.wasm` into

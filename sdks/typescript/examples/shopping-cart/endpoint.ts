@@ -1,4 +1,4 @@
-import { Acl, Done, Endpoint, HttpProblem, del, get, post, s, sse } from "ankka"
+import { Acl, Done, Endpoint, HttpProblem, defaultCodecFor, del, get, post, s, socket, sse } from "ankka"
 import { LineItem, ShoppingCart } from "./domain.ts"
 import { ShoppingCartEntity } from "./entity.ts"
 import { CartRow, CartRows } from "./cartRows.ts"
@@ -22,6 +22,21 @@ export class ShoppingCartEndpoint extends Endpoint {
     checkout: post("/{cartId}/checkout", ShoppingCart, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.checkout).invoke()),
     discard: del("/{cartId}", Done, (ep: ShoppingCartEndpoint, req) => ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.discard).invoke()),
     // docs:end endpoint
+
+    // docs:start socket
+    // A socket: the client sends "refresh" and is sent the cart, for as long as it keeps the socket open.
+    // `for await` ends when the socket is closed, and so does the handler.
+    watch: socket("/{cartId}/watch", async (ep: ShoppingCartEndpoint, req, socket) => {
+      for await (const text of socket) {
+        if (text === "refresh") {
+          const cart = await ep.cart(req.params.cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
+          await socket.send(new TextDecoder().decode(defaultCodecFor(ShoppingCart).encode(cart)))
+        } else {
+          await socket.send(JSON.stringify({ error: `unknown request '${text}'; send refresh` }))
+        }
+      }
+    }),
+    // docs:end socket
 
     // A literal beside a parameter: the router must prefer it over /{cartId}.
     awkward: get("/awkward", s.string, () => "literal"),

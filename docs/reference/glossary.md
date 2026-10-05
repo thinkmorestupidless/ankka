@@ -400,6 +400,18 @@ at a time and moves when instances come and go.
 The ankka runtime running beside a process-hosted service in the same pod. It owns sharding, the journal,
 projections, timers, HTTP, the agent loop and cluster formation, and asks the process only for decisions.
 
+### Socket
+
+A connection a request to a socket route opens and that stays open, over which the client and the
+route's handler send each other frames — pieces of text — until one of them closes it. A socket is closed
+with a close reason its client is told by a close code, never cut off without being told. The platform
+carries a socket and keeps nothing of it.
+
+### Socket route
+
+A route of an HTTP endpoint answered by opening a socket rather than with one response. Its ACL is
+decided once, when the socket is opened.
+
 ### Source
 
 Where a view or consumer reads changes from: an event sourced entity's events, a key value entity's state, or a

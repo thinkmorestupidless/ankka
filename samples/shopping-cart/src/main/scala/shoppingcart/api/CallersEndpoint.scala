@@ -16,13 +16,14 @@ final class CallersEndpoint(services: ServiceClients) extends HttpEndpoint("/cal
   val acl: Acl = Acl.AllowAll
 
   // docs:start who-is-calling
-  get("/whoami") { () =>
-    caller match
-      case Caller.Gateway                => "the internet, through the gateway"
-      case Caller.Service(project, name) => s"the $name service in project $project"
-      case Caller.Local                  => "this machine"
-  }
+  get("/whoami")(() => whoIsCalling)
   // docs:end who-is-calling
+
+  // Who opened the socket, in the same words, once for every frame: the caller is decided when the
+  // socket is opened and holds for as long as it is open.
+  socket("/socket") { socket =>
+    while socket.receive().isDefined do socket.send(whoIsCalling)
+  }
 
   // docs:start allow-callers
   // Only the internet and the orders service in this project; any other caller is refused 403.
@@ -51,6 +52,11 @@ final class CallersEndpoint(services: ServiceClients) extends HttpEndpoint("/cal
     catch case e: ServiceUnresolvable => throw HttpProblem(503, e.getMessage)
   }
   // docs:end call-another-service
+
+  private def whoIsCalling: String = caller match
+    case Caller.Gateway                => "the internet, through the gateway"
+    case Caller.Service(project, name) => s"the $name service in project $project"
+    case Caller.Local                  => "this machine"
 
   private def describe(c: Caller): String = c match
     case Caller.Service(project, name) => s"$project/$name"

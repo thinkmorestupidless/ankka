@@ -140,3 +140,21 @@ class ShoppingCartHttpSuite extends munit.FunSuite with LogCapturing:
     assertEquals(status, 400, body)
     assert(body.contains("malformed JSON"), body)
   }
+
+  test("a socket is sent the cart each time it asks, until it closes") {
+    assertEquals(send("POST", "/carts/watched/items", Some(item("p1", "Pen", 2)))._1, 204)
+    val socket = testKit.socket("/carts/watched/watch").fold(r => fail(s"refused: $r"), identity)
+    socket.send("refresh")
+    val first = socket.receive().getOrElse(fail("no cart"))
+    assert(first.contains(""""productId":"p1""""), first)
+    assertEquals(send("POST", "/carts/watched/items", Some(item("p2", "Ink", 1)))._1, 204)
+    socket.send("refresh")
+    assert(
+      socket.receive().exists(_.contains(""""productId":"p2"""")),
+      "the second refresh is fresh"
+    )
+    socket.send("nonsense")
+    assert(socket.receive().exists(_.contains("unknown request")))
+    socket.close()
+    assertEquals(socket.closed().code, 1000)
+  }

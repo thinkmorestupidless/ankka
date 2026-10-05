@@ -90,7 +90,7 @@ class QuotaSuite extends munit.FunSuite with LogCapturing:
       if last.isEmpty then Thread.sleep(200)
     last.getOrElse(fail(s"$description did not happen within $within"))
 
-  private def descriptor(name: String, instances: Int = 1) =
+  private def descriptor(name: String, instances: Int) =
     s"""{"name":"$name","service":{"image":"cart:1.0",""" +
       s""""resources":{"autoscaling":{"minInstances":$instances,"maxInstances":10}}}}"""
 

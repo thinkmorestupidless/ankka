@@ -38,6 +38,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
         assertEquals((actor, at), (None, None))
       case OrganizationEvent.OrganizationDeleted(actor, at) =>
         assertEquals((actor, at), (None, None))
+      case other => fail(s"not an event the fixture holds: $other")
     }
   }
 
@@ -71,6 +72,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
         assertEquals(organizationId, "acme"); assertEquals((actor, at), (None, None))
       case ProjectEvent.ProjectRenamed(_, actor, at) => assertEquals((actor, at), (None, None))
       case ProjectEvent.ProjectDeleted(actor, at)    => assertEquals((actor, at), (None, None))
+      case other => fail(s"not an event the fixture holds: $other")
     }
   }
 
@@ -92,6 +94,7 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       case ServiceEvent.ServiceDeleted(actor, at)   => assertEquals((actor, at), (None, None))
       case observed: ServiceEvent.ServiceObserved =>
         assertEquals(observed.readyInstances, 1); assert(observed.confirmed)
+      case other => fail(s"not an event the fixture holds: $other")
     }
   }
 

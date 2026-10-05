@@ -195,7 +195,7 @@ service reports.
 - added `features/wasm/deploying.feature`: a descriptor for a module is refused for what does not apply to it
 *Superseded:* a descriptor opening a port for the module is refused, by the module having no port at all: the platform's own program serves its routes, and a descriptor saying it serves no HTTP is refused
 - `features/secrets/platform-settings.feature`: a module that asks for a platform setting is told that it is not set
-- added `features/wasm/deploying.feature`: an image that does not hand over its module is reported in the status
+- added `features/wasm/deploying.feature`: an image that does not hand over its module is named in the report of its service
 - added `features/wasm/deploying.feature`: a module that fails as it declares its components is reported failed until a fixed image is applied
 
 ---

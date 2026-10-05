@@ -13,4 +13,4 @@ Feature: Reports of a deployed service
     Given a deployed service "cart" whose descriptor was applied at generation 4 and again at generation 5
     When a report of "cart" describing generation 4 arrives
     Then the report is not recorded
-    And the status of "cart" describes generation 5
+    And the report of "cart" describes generation 5

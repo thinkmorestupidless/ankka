@@ -7,12 +7,12 @@ Feature: Applying a descriptor
     Given a project "shop" with no service "cart"
     When a member applies a descriptor for the service "cart" in "shop"
     Then "cart" is ready with 1 instance
-    And the status of "cart" is "Ready"
+    And the lifecycle of "cart" is "Ready"
 
   Scenario: a descriptor applied with a new image replaces the instances with ones running it
     Given a deployed service "cart" that is ready with the image "cart:1" at generation 3
     When a member applies the descriptor of "cart" with the image "cart:2"
-    Then the status of "cart" is "UpdateInProgress" at generation 4
+    Then the lifecycle of "cart" is "UpdateInProgress" at generation 4
     And "cart" becomes ready with the image "cart:2"
 
   Scenario Outline: a value taken from a project secret is shown nowhere the platform shows a service
@@ -23,7 +23,7 @@ Feature: Applying a descriptor
 
     Examples:
       | what                                    |
-      | the status of "cart"                    |
+      | the report of "cart"                    |
       | the services of the project "shop"      |
       | the logs of "cart"                      |
       | what the control plane recorded of "cart" |

@@ -257,7 +257,7 @@ lines.
 - added `features/autonomous-agents/testing.feature`: a script that completes a task completes it with a result of the task type
 - added `features/autonomous-agents/testing.feature`: a script conditioned on what happened answers only when it matches
 - added `features/autonomous-agents/testing.feature`: a test waiting for a task is given the task as it ended
-- added `features/autonomous-agents/testing.feature`: a test waiting for a task that does not end fails naming the task's last status
+- added `features/autonomous-agents/testing.feature`: a test waiting for a task that does not end fails naming the task's last task status
 - added `features/autonomous-agents/testing.feature`: a script that runs out fails the task and the test sees why
 - added `features/autonomous-agents/languages.feature`: a test of a process's autonomous agent scripts its model as a test of an embedded one does
 
@@ -569,6 +569,11 @@ out; the protocol reference table is regenerated and its prose mentions every ne
 - Q: May a caller cancel a task from outside, or is cancellation only the consequence of a failed
   dependency or a termination? → A: Yes — pending, assigned, in-progress or result-rejected; an
   in-progress task stops at its instance's next iteration boundary.
+
+### Session 2026-10-05 (glossary)
+
+- Q: Which word is a task's state, now that "status" is how a gRPC call ended? → A: **task status**; a task with no agent instance is **unassigned** ("pending" is an invitation's word).
+- Q: Does "suspended" mean one thing for an agent instance and for a service of a disabled organization? → A: Yes, one sense: stopped, keeping everything it has, until something other than its members brings it back; unlike paused.
 
 ## Assumptions
 

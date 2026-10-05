@@ -1,13 +1,13 @@
 Feature: How a service connects to its database
-  A service connects to its provisioned database over a proven connection. The service checks the
+  A service connects to its provisioned database over a mutually authenticated connection. The service checks the
   database's certificate against the authority the platform told it to trust, and the database
   knows the service by the certificate the platform issued it. There is no password to write down,
   keep or leak, and a service that declares a database of its own decides how it is checked.
 
-  Scenario: a service's connection to its provisioned database is proven at both ends
+  Scenario: a service's connection to its provisioned database is mutually authenticated
     Given a deployed service "cart" with a provisioned database
     When "cart" connects to its database
-    Then the database reports the connection as proven by the certificate of "cart"
+    Then the database reports the connection as mutually authenticated with the certificate of "cart"
     And "cart" checked the certificate of the database before showing its own
 
   Scenario: a provisioned database is reached with no password

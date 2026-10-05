@@ -30,6 +30,12 @@ notification (watches), and desired-vs-observed staleness (`metadata.generation`
 plane would reimplement all three. It also means the control plane never holds cluster credentials
 and never needs network reach into the cluster — the operator connects outward.
 
+## Clarifications
+
+### Session 2026-10-05 (glossary)
+
+- Q: "status" named how a gRPC call ended, a deployed service's one word, and a task's state; which words do the three senses get? → A: a deployed service's one word is its **lifecycle**, what the platform reports of it (lifecycle, ready instances, generation, why) is its **report**, a task's is its **task status**, and "status" alone stays how a gRPC call ended.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - An applied descriptor actually runs (Priority: P1)

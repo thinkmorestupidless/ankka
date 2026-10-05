@@ -7,7 +7,7 @@ Feature: One service sending requests to another as itself
     Given a deployed service "cart" in the project "shop"
     And a deployed service "checkout" in the project "shop"
     When "checkout" sends a request to "cart" by name
-    Then the request reaches "cart" over a proven connection
+    Then the request reaches "cart" over a mutually authenticated connection
     And the handler reads the calling workload as the service "checkout" of the project "shop"
 
   Scenario: a service sends a request to a service of another project by project and name, as itself

@@ -88,6 +88,12 @@ What this feature is *not*: a way to ask for a judgment from a workflow step, an
 consumer; a check on the tool calls a model asks for; a model router; or anything for Python,
 TypeScript or Rust services. Each is a feature of its own that the seam here is built to carry.
 
+## Clarifications
+
+### Session 2026-10-05 (glossary)
+
+- Q: "usage" covered both an organization's counts against its quotas and what a model or judgment provider reports; split it? → A: Yes. What a judgment provider reports is **judgment usage**, a model's is **model usage**, never added together; **usage** is an organization's counts against its quotas.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A handler asks typed questions and reads typed answers (Priority: P1)
@@ -232,9 +238,9 @@ the scripted provider reported, and the text model's tokens are unchanged by the
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
 - added `features/judgments/usage.feature`: an answered judgment says which model version answered it and what it cost
-- added `features/judgments/usage.feature`: a session reports its judgments' usage apart from its model's
-- added `features/judgments/usage.feature`: the usage of a judged guardrail that refused is still counted
-- added `features/judgments/usage.feature`: the usage of an autonomous agent's judged guardrail is counted on its task's session
+- added `features/judgments/usage.feature`: a session reports its judgment usage apart from its model usage
+- added `features/judgments/usage.feature`: the judgment usage of a judged guardrail that refused is still counted
+- added `features/judgments/usage.feature`: the judgment usage of an autonomous agent's judged guardrail is counted on its task's session
 - added `features/judgments/usage.feature`: a session recorded before judgments reads as it did
 
 ---

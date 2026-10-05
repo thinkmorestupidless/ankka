@@ -1,6 +1,6 @@
 Feature: The documentation of what the platform protects
   Someone deciding how to protect a service learns from the documentation which connections are
-  proven, what a calling workload is and how an ACL names one, what the network refuses, and what an
+  mutually authenticated, what a calling workload is and how an ACL names one, what the network refuses, and what an
   installation must provide for any of it to hold. What the platform still does not protect is said
   plainly, and nothing it now protects is listed as missing.
 

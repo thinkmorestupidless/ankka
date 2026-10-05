@@ -8,7 +8,7 @@ Feature: A database provisioned for every deployed service
     When a member applies a descriptor for the service "cart" in the project "shop" that says nothing of a database
     Then a database is provisioned for "cart"
     And every instance of "cart" is ready, connected to the database of "cart"
-    And the status of "cart" says that its database was provisioned
+    And the report of "cart" says that its database was provisioned
 
   Scenario: what a service recorded outlives its instances
     Given a deployed service "cart" with a provisioned database

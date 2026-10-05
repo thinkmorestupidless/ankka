@@ -27,6 +27,12 @@ plan would name: projects in the organization, services across the organization,
 across the organization — every service's minimum instance count, added up, since that is what an
 installation has to run for it.
 
+## Clarifications
+
+### Session 2026-10-05 (glossary)
+
+- Q: "usage" covered both an organization's counts against its quotas and what a model or judgment provider reports; split it? → A: Yes. **usage** is only the organization's counts against its quotas; a model's is **model usage** and a judgment provider's **judgment usage**.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - The administrator caps an organization (Priority: P1)

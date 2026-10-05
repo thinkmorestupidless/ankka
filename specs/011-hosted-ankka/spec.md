@@ -36,6 +36,12 @@ It has four parts:
 Everything else in the treatment — the website, Stripe, quotas, pull credentials, and anything in
 `ankka-cloud` or `ankka-deployments` — is out of scope here.
 
+## Clarifications
+
+### Session 2026-10-05 (glossary)
+
+- Q: Does "suspended" mean one thing for a service of a disabled organization and for an agent instance? → A: Yes, one sense: stopped, keeping everything it has, until something other than its members brings it back; unlike paused.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Only the administrator creates organizations here (Priority: P1)

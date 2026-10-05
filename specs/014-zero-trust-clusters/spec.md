@@ -88,6 +88,10 @@ process that owns the socket.
   provisioned service authenticates to Postgres with a certificate from the project's database
   authority; no password is generated for it, and the credential rotates with the certificate.
 
+### Session 2026-10-05 (glossary)
+
+- Q: Which word for a connection where both ends showed a certificate the installation's authority issued? → A: **mutually authenticated** (refusing "mutual TLS", "mTLS" and "proven").
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Cluster traffic is private to the service (Priority: P1)
@@ -112,13 +116,13 @@ renewal point and observe membership unchanged and every request answered.
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-- added `features/zero-trust/service-cluster.feature`: the instances of a service join one service cluster over proven connections
+- added `features/zero-trust/service-cluster.feature`: the instances of a service join one service cluster over mutually authenticated connections
 - added `features/zero-trust/service-cluster.feature`: a workload outside a service's project cannot connect to where its instances talk to each other
 - added `features/zero-trust/service-cluster.feature`: a workload that cannot show the service's certificate cannot join its service cluster
 - added `features/zero-trust/service-cluster.feature`: renewing a service's certificate restarts nothing and refuses nothing
 - added `features/zero-trust/service-cluster.feature`: an instance of a new version joins the service cluster by showing the service's certificate
 - `features/clusters/replacing.feature`: a service whose image changes refuses no request
-- added `features/zero-trust/service-cluster.feature`: instances that cannot show a certificate are stopped before the new ones start, and the status says so
+- added `features/zero-trust/service-cluster.feature`: instances that cannot show a certificate are stopped before the new ones start, and the report says so
 
 ---
 
@@ -206,7 +210,7 @@ this feature and observe it moved to certificate authentication on its next depl
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-- added `features/databases/connection.feature`: a service's connection to its provisioned database is proven at both ends
+- added `features/databases/connection.feature`: a service's connection to its provisioned database is mutually authenticated
 - added `features/databases/connection.feature`: a provisioned database is reached with no password
 - added `features/databases/connection.feature`: a service does not connect to a database whose certificate it was not told to trust
 - added `features/databases/isolation.feature`: a service cannot connect to another service's database with its own credential
@@ -236,7 +240,7 @@ key fetch from the identity provider is over TLS.
 
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-- added `features/zero-trust/control-plane.feature`: the control plane's instances join their service cluster over proven connections nothing else can open
+- added `features/zero-trust/control-plane.feature`: the control plane's instances join their service cluster over mutually authenticated connections nothing else can open
 - added `features/zero-trust/control-plane.feature`: a member reaches the control plane through the gateway, which it reads as the calling workload
 - added `features/zero-trust/control-plane.feature`: the control plane checks the issuer's certificate when it fetches the issuer's keys
 

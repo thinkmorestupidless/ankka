@@ -76,9 +76,9 @@ Feature: Deploying a service written in another language
       | Python     | not exposed     | exposes "shop"  | "shop" answers a request sent to its hostname                |
       | TypeScript | not exposed     | exposes "shop"  | "shop" answers a request sent to its hostname                |
       | Rust       | not exposed     | exposes "shop"  | "shop" answers a request sent to its hostname                |
-      | Python     | with 1 instance | pauses "shop"   | the status of "shop" is "Paused" and "shop" has no instances |
-      | TypeScript | with 1 instance | pauses "shop"   | the status of "shop" is "Paused" and "shop" has no instances |
-      | Rust       | with 1 instance | pauses "shop"   | the status of "shop" is "Paused" and "shop" has no instances |
+      | Python     | with 1 instance | pauses "shop"   | the lifecycle of "shop" is "Paused" and "shop" has no instances |
+      | TypeScript | with 1 instance | pauses "shop"   | the lifecycle of "shop" is "Paused" and "shop" has no instances |
+      | Rust       | with 1 instance | pauses "shop"   | the lifecycle of "shop" is "Paused" and "shop" has no instances |
       | Python     | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |
       | TypeScript | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |
       | Rust       | paused          | resumes "shop"  | "shop" is ready with 1 instance                              |

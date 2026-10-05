@@ -27,10 +27,10 @@ Feature: Testing an autonomous agent with a scripted model
     When the test waits for the task to end
     Then the test is given the task's record as it ended
 
-  Scenario: a test waiting for a task that does not end fails naming the task's last status
+  Scenario: a test waiting for a task that does not end fails naming the task's last task status
     Given a script that never completes or gives up on the task
     When the test waits for the task to end, for at most "2 seconds"
-    Then the test fails, naming the task's last status
+    Then the test fails, naming the task's last task status
 
   Scenario: a script that runs out fails the task and the test sees why
     Given a script with one answer

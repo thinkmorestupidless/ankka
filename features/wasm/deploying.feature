@@ -1,7 +1,7 @@
 Feature: Deploying a module
   A member deploys a service written in Rust from an image whose only job is to hand over its module.
   The service runs as one program, the platform's own, with the module handed over once when each
-  instance starts. What goes wrong handing it over or loading it is said in the service's status.
+  instance starts. What goes wrong handing it over or loading it is said in the service's report.
 
   Scenario: a module is deployed as one program, the platform's own
     Given an image "shop" whose only job is to hand over the module of the service "shop"
@@ -20,10 +20,10 @@ Feature: Deploying a module
       | says the service serves no HTTP | what it said      |
       | declares no protocol version | the protocol version |
 
-  Scenario Outline: an image that does not hand over its module is reported in the status
+  Scenario Outline: an image that does not hand over its module is named in the report of its service
     Given an image "broken" that <fails>
     When a member applies a descriptor for the service "shop" with the image "broken" as a module
-    Then the status of "shop" says that its module was not handed over, and why
+    Then the report of "shop" says that its module was not handed over, and why
 
     Examples:
       | fails                          |
@@ -33,5 +33,5 @@ Feature: Deploying a module
   Scenario: a module that fails as it declares its components is reported failed until a fixed image is applied
     Given a service "shop" whose module fails as it declares its components
     When a member applies its descriptor
-    Then the status of "shop" is "Failed", with the reason the platform's own program gave
+    Then the lifecycle of "shop" is "Failed", with the reason the platform's own program gave
     And "shop" is ready once a member applies its descriptor with a fixed image

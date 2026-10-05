@@ -41,7 +41,7 @@ Feature: Driving an agent instance from outside
     Given "desk-1" <situation>
     When a caller asks "desk-1" what it is doing
     Then the caller is shown that "desk-1" is <phase>
-    And the caller is shown the task it is working, the tasks queued in their order, the iterations spent on the task it is working, and its usage in total
+    And the caller is shown the task it is working, the tasks queued in their order, the iterations spent on the task it is working, and its model usage in total
 
     Examples:
       | situation                                         | phase      |

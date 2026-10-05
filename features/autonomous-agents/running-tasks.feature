@@ -17,7 +17,7 @@ Feature: Running a task to a typed result
     When the model completes the task with a result of the task type's shape
     Then the task is completed with that result
     And the result can be read by the task's id
-    And the iterations and the usage the agent instance spent on the task are recorded
+    And the iterations and the model usage the agent instance spent on the task are recorded
 
   Scenario: a task the model gives up on is failed with the model's reason
     Given a task of the type "answer" in progress on an agent instance of "answerer"

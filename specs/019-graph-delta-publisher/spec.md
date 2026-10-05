@@ -83,6 +83,10 @@ honour it, and a fixture shared between the two repositories proves they agree.
   an SDK fail a change rather than send several messages to a runtime that has not said so.
 - **The contract reserves no labels**, only the property names `id`, `_version` and `_deleted`.
 
+### Session 2026-10-05 (glossary)
+
+- Q: The topology terms refuse "graph" and "edge"; do graph deltas reclaim them? → A: No. The features say **relationship** and **store**; the "edge:" prefix of an element key stays quoted data.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A consumer publishes several messages for one change (Priority: P1)

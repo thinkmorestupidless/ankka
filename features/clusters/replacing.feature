@@ -42,6 +42,6 @@ Feature: Replacing and scaling the instances of a service cluster
 
   Scenario: a service with some of its instances ready is partially ready, with the counts
     Given a deployed service "cart" that asks for 3 instances, 2 of them ready
-    When a member reads the status of "cart"
-    Then the status of "cart" is "PartiallyReady"
-    And the status shows 2 of 3 instances ready
+    When a member reads the report of "cart"
+    Then the lifecycle of "cart" is "PartiallyReady"
+    And the report shows 2 of 3 instances ready

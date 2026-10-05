@@ -14,7 +14,7 @@ Feature: Returning to what was applied
     Given the control plane cannot reach the cluster
     When a member applies a descriptor for the service "cart"
     Then the descriptor is accepted
-    And the status of "cart" is unconfirmed
+    And the lifecycle of "cart" is unconfirmed
     And "cart" is ready once the control plane reaches the cluster again
 
   Scenario: an operator restarted while a service's instances are replaced finishes without making anything twice
@@ -33,4 +33,4 @@ Feature: Returning to what was applied
     Given a deployed service "broken" that always fails
     When a member applies a descriptor for the service "cart"
     Then "cart" is ready
-    And the status of "broken" is "Failed"
+    And the lifecycle of "broken" is "Failed"

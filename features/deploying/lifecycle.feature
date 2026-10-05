@@ -6,7 +6,7 @@ Feature: Pausing, resuming, restarting and deleting a deployed service
   Scenario: a paused service has no instances and keeps its descriptor
     Given a deployed service "cart" that is ready
     When a member pauses "cart"
-    Then the status of "cart" is "Paused" and "cart" has no instances
+    Then the lifecycle of "cart" is "Paused" and "cart" has no instances
     And the descriptor of "cart" is kept
 
   Scenario: a resumed service is ready again
@@ -29,5 +29,5 @@ Feature: Pausing, resuming, restarting and deleting a deployed service
   Scenario: a descriptor applied to a paused service takes effect when it is resumed
     Given a paused service "cart" with the image "cart:1"
     When a member applies the descriptor of "cart" with the image "cart:2"
-    Then the status of "cart" is "Paused" and "cart" has no instances
+    Then the lifecycle of "cart" is "Paused" and "cart" has no instances
     And "cart" runs the image "cart:2" once it is resumed

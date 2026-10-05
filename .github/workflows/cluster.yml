@@ -57,7 +57,7 @@ jobs:
       # The nightly run is the full one: twenty cold starts, as the success criterion asks.
       - run: >-
           sbt -Dankka.template.tests=off
-          -Dankka.coldstarts=${{ github.event_name == 'schedule' && '20' || inputs.coldstarts }}
+          -Dankka.coldstarts=${{ github.event_name == 'schedule' && '20' || inputs.coldstarts || '5' }}
           'set ${{ matrix.project }} / Test / logBuffered := false'
           '${{ matrix.project }}/testOnly ${{ matrix.class }}'
       - uses: actions/upload-artifact@v7

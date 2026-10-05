@@ -172,7 +172,54 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
         try check
         catch case _: Throwable => false
       if !passed then Thread.sleep(500)
-    if !passed then fail(s"condition did not hold within $timeout; pods: ${podSummary()}")
+    if !passed then
+      fail(s"condition did not hold within $timeout; pods: ${podSummary()}\n${podDiagnosis()}")
+
+  /**
+   * Why each pod is where it is: every container's state (a waiting reason, a last termination),
+   * the conditions that are not met, and the last lines of every container's log. "Running/false"
+   * alone left a CI failure with nothing to go on.
+   */
+  private def podDiagnosis(): String =
+    try
+      pods
+        .map { p =>
+          val name = p.getMetadata.getName
+          val statuses =
+            Option(p.getStatus.getContainerStatuses).map(_.asScala.toSeq).getOrElse(Nil) ++
+              Option(p.getStatus.getInitContainerStatuses).map(_.asScala.toSeq).getOrElse(Nil)
+          val containers = statuses.map { c =>
+            val state = Option(c.getState.getWaiting)
+              .map(w => s"waiting ${w.getReason}: ${Option(w.getMessage).getOrElse("")}")
+              .orElse(
+                Option(c.getState.getTerminated)
+                  .map(t => s"terminated ${t.getReason} (${t.getExitCode})")
+              )
+              .getOrElse("running")
+            val last = Option(c.getLastState)
+              .flatMap(s => Option(s.getTerminated))
+              .map(t => s", last terminated ${t.getReason} (${t.getExitCode})")
+              .getOrElse("")
+            val log = scala.util
+              .Try(
+                k8s
+                  .pods()
+                  .inNamespace(Namespace)
+                  .withName(name)
+                  .inContainer(c.getName)
+                  .tailingLines(30)
+                  .getLog
+              )
+              .getOrElse("(no log)")
+            s"  [${c.getName}] ready=${c.getReady} restarts=${c.getRestartCount} $state$last\n$log"
+          }
+          val unmet = p.getStatus.getConditions.asScala
+            .filter(_.getStatus != "True")
+            .map(c => s"${c.getType}: ${c.getReason} ${Option(c.getMessage).getOrElse("")}".trim)
+          s"--- $name ${unmet.mkString("; ")}\n${containers.mkString("\n")}"
+        }
+        .mkString("\n")
+    catch case e: Exception => s"(could not diagnose the pods: $e)"
 
   private def nodeExec(command: String*): (Int, String) =
     val result = k3s.execInContainer(command*)

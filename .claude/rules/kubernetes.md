@@ -57,7 +57,9 @@ its own, renders a `KafkaTopic` per declaration (`TopicProvisioning.topicsToRend
 than one has) and writes each topic's phase onto the resource's status, which the topics route reads. A
 service's status names the topics its components use that the project has not declared
 (`undeclaredTopics`, read from its topology when an instance is ready). `docs/platform/broker.md` is the
-contract.
+contract. A cluster without the `AnkkaProject` type still runs the operator, which only logs that no
+project's topics are made, so a k3s suite that declares topics must apply `ankkaproject.yaml` beside
+`ankkaservice.yaml`, or every declaration simply never becomes a `KafkaTopic`.
 
 ## Deploying locally
 

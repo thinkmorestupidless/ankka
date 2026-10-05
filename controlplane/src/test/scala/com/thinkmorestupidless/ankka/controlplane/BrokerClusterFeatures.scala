@@ -137,7 +137,10 @@ abstract class BrokerClusterFeatures(feature: String)
         .withConfig(Config.fromKubeconfig(k3s.getKubeConfigYaml))
         .withKubernetesSerialization(AnkkaSerialization())
         .build()
-      k8s.load(getClass.getResourceAsStream("/ankka/crd/ankkaservice.yaml")).serverSideApply(): Unit
+      // Both of the platform's resources: without `AnkkaProject` no declaration reaches the operator,
+      // whose informer for it is skipped quietly on a cluster that lacks the type.
+      for crd <- Seq("ankkaservice.yaml", "ankkaproject.yaml") do
+        k8s.load(getClass.getResourceAsStream(s"/ankka/crd/$crd")).serverSideApply(): Unit
       PkiStack.install(k3s, k8s)
       k8s
         .load(
@@ -182,7 +185,8 @@ abstract class BrokerClusterFeatures(feature: String)
           identity.acl(),
           deployConfig,
           auth = Some(identity.config()),
-          logs = Some(new PodLogs(k8s, Prefix))
+          logs = Some(new PodLogs(k8s, Prefix)),
+          topics = Some(projector)
         )*
       )
       testKit = AnkkaTestKit.start(

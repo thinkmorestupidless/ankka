@@ -1240,8 +1240,6 @@ Avoid: pending call
 ### awaiting
 Of an approval request: not yet decided and not discarded.
 
-Avoid: pending
-
 ### decision
 A person's answer to an approval request: approved or refused, with the name of who
 decided and an optional note. An approval request is decided once. When its time limit passes

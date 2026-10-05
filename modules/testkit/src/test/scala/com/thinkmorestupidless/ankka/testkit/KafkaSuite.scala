@@ -556,6 +556,21 @@ object KafkaSuite:
     admin(bootstrap)(
       _.createTopics(java.util.List.of(NewTopic(name, partitions, 1.toShort))).all().get()
     ): Unit
+    // Created is not led: a producer whose first send meets a partition with no leader yet retries,
+    // and an idempotent one can then meet OUT_OF_ORDER_SEQUENCE_NUMBER on every retry thereafter.
+    val deadline = System.nanoTime() + 30_000_000_000L
+    def led = admin(bootstrap)(
+      _.describeTopics(java.util.List.of(name))
+        .allTopicNames()
+        .get()
+        .get(name)
+        .partitions()
+        .asScala
+        .forall(_.leader() != null)
+    )
+    while !led do
+      if System.nanoTime() > deadline then sys.error(s"topic $name has a partition with no leader")
+      Thread.sleep(100)
     name
 
   /** Every consumer group the broker knows. */

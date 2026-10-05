@@ -191,10 +191,32 @@ jobs:
               - '.claude/**'                      # spec-kit's commands for developing ankka
               - '.specify/**'
 
+  # The Scala build, split across runners because the suites are serialized within one sbt (each
+  # starts its own containers, and overlapping suites contend: see CLAUDE.md). On one runner this
+  # was twenty minutes of tests end to end; separate runners are parallelism without contention.
+  # The two longest modules have a runner each, and `rest` is everything else, defined by subtraction
+  # — their `Test / test` set to nothing — so a new module's suites land in `rest` without anyone
+  # remembering to add them. A module named here must be subtracted in `rest`, or it runs twice.
+  # `rest` also carries the format check and the whole build's `compile`, which the other two need
+  # only for their own dependencies.
   build:
     needs: changes
     if: needs.changes.outputs.scala == 'true'
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: testkit
+            command: testkit/test
+          - group: sidecar
+            command: sidecar/test
+          - group: rest
+            command: >-
+              scalafmtCheckAll scalafmtSbtCheck
+              'set Seq(testkit / Test / test := {}, sidecar / Test / test := {})'
+              compile test
+    name: build (${{ matrix.group }})
     steps:
       - uses: actions/checkout@v7
         with:
@@ -210,7 +232,24 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off scalafmtCheckAll scalafmtSbtCheck compile test
+      - run: sbt -Dankka.cluster.tests=off -Dankka.template.tests=off ${{ matrix.command }}
+
+  # The check branch protection requires for the Scala build, in place of the matrix's own names,
+  # for the reason `template-scala` has one: a matrix skipped by the path filter never reports its
+  # expanded names. Passes when every group passed or the Scala tree was untouched.
+  build-result:
+    name: build
+    needs: [changes, build]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "changes: ${{ needs.changes.result }}, build: ${{ needs.build.result }}"
+          [ "${{ needs.changes.result }}" = success ] || exit 1
+          case "${{ needs.build.result }}" in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac
 
   # The Scala template, the one `ankka init` expands with `sbt new`: this commit's six libraries
   # published locally, the template expanded by the real command into a directory outside this build,

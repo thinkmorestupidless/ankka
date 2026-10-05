@@ -2,80 +2,98 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## How this guidance is organised
+
+This file holds what every session needs. Everything specific to one part of the tree lives in
+`.claude/rules/<topic>.md`, each with a `paths:` frontmatter list, so Claude Code loads it only once
+a file in that part of the tree is read. **Before planning a change to an area, read its rule file
+yourself** — a plan made before any matching file is opened has not seen it yet.
+
+| Rule file | Covers |
+|---|---|
+| `runtime.md` | Pekko and r2dbc traps, workflows, entity hosts, endpoints and `ToResponse`, shutdown order |
+| `cluster-and-tls.md` | cluster formation overlays, zero trust / `RotatingTls`, bootstrap, database TLS |
+| `observability.md` | call attribution and topology, tracing, the recorder, the local console |
+| `messaging.md` | topic sources, consumer groups, view versions, Kafka, `publishAll`, graph deltas |
+| `agents.md` | agents, judgments, autonomous agents, scripted model providers |
+| `secrets.md` | service secrets, the secret key, project secrets |
+| `control-plane.md` | control plane invariants, Keycloak identity, deploy tokens, registry credentials, `auth-oidc`, CLI |
+| `kubernetes.md` | operator and `AnkkaService`, CNPG, cert-manager, Gateway API/Envoy, k3s suites, local and remote deploys, schema/DDL |
+| `sidecar.md` | the polyglot sidecar, remote hosts, conformance, the Python SDK, Docker quirks |
+| `wasm.md` | the WebAssembly module mode and the Rust crate |
+| `sdk-typescript.md` | the TypeScript SDK under Node type stripping, Connect, packing |
+| `grpc.md` | gRPC endpoints, balancing, status mapping, streaming tests |
+| `web-hosting.md` | `"hosting": "web"`, the proxy, `proxy-core` |
+| `console.md` | the `ankka-console` package and host, Playwright, the fake control plane |
+| `build-and-release.md` | sbt build traps, templates (`ankka.g8`, `ankka init`), every publishing channel, compatibility |
+| `docs.md` | the `docs/` tree, `tools/docs`, generated reference, skills, marketplace |
+| `testing.md` | living features (speckit-bdd), `LogCapturing`, long suites |
+
+When you learn a trap worth keeping, add it to the rule file for its area, not here. Only a rule that
+bites anywhere in the tree belongs in this file.
+
 ## What this is
 
 `ankka` reimplements [Akka's](https://doc.akka.io/) component model — a serverless
 platform for agentic AI — in Scala 3 on Apache Pekko. Pekko is the Apache 2.0 fork of
 Akka 2.6, chosen so the programming model carries no BSL constraint.
 
-It was called `nakka` until September 2026, before anything was released. Every reference was
-renamed — packages `nakka.*` became `com.thinkmorestupidless.ankka.*`, and every artifact, image,
-namespace, label domain, config key, environment variable, CRD (`AnkkaService`, short name `asvc`)
-and file path followed — so git history before that commit reads `nakka` throughout, and a
-`~/.nakka/` or a kind cluster named `nakka` on a machine is a leftover, not something the code reads.
+It was called `nakka` until September 2026; git history before the rename reads `nakka`, and a
+`~/.nakka/` or a kind cluster named `nakka` on a machine is a leftover the code never reads.
 
 `docs/` is the user-facing documentation — public, for developers building, deploying and operating
 services on ankka — and `README.md` is a landing page into it. Start with
 `docs/concepts/architecture.md`, `docs/concepts/designing-services.md` and
 `docs/reference/limitations.md` (the honest "not implemented" list) before making design decisions.
 Everything under `docs/` is public; internal design treatments live in the private
-`ankka-deployments` repository (`design/`), not here. See *Documentation* below for how the tree is built and the rules a page follows.
+`ankka-deployments` repository (`design/`), not here.
 
 ## Commands
 
-Docker is required — integration suites start their own Postgres, and one starts Kafka,
+Docker is required — integration suites share a Postgres per test JVM, and one starts Kafka,
 via testcontainers. No API key is needed.
 
 ```bash
-sbt test                          # everything, including three suites that start a k3s cluster
-                                   # and install CloudNativePG into it — CNPG's own controller
-                                   # takes ~25s to become ready, and a project's first database
-                                   # another 20-60s on top, so they run minutes, not seconds.
-                                   # One of them deploys the real shopping cart, so this also
-                                   # builds its image and imports ~650MB into the k3s node
-sbt -Dankka.cluster.tests=off test  # skip the three k3s suites AND the sample image build they
-                                   # need; everything else still runs, in about a minute
+sbt test                          # everything, including three k3s suites (CNPG inside; minutes, not
+                                   # seconds) and the shopping cart image they deploy
+sbt -Dankka.cluster.tests=off test  # skip the k3s suites AND the sample image build; about a minute
 sbt agent/test                    # one module: core sdk runtime http grpc agent testkit
 sbt grpc/test                     # gRPC endpoints: offline suites, and features/grpc/ through GherkinSuite
 sbt -Dankka.spikes=on 'grpc/testOnly *GrpcTlsSpike'                  # mutual TLS from RotatingTls's managers
 caffeinate -i sbt -Dankka.spikes=on 'controlPlane/testOnly *GatewayGrpcSpike'   # gRPC through the gateway (k3s)
 sbt operator/test                 # the Kubernetes operator (one k3s suite)
 sbt controlPlane/test             # control plane: controlPlaneApi crd controlPlane cli operator
-sbt docker:publishLocal           # build all three images — aggregates to operator,
-                                   # controlPlane and the shoppingCart sample; every other
-                                   # project is silently skipped, same as compile and test
-sbt buildAll                      # everything: format check, compile, test, every image —
-                                   # one command, stops at the first failing stage
+sbt docker:publishLocal           # build the images (operator, controlPlane, shoppingCart); others skip
+sbt buildAll                      # format check, compile, test, every image; stops at the first failure
 GRAALVM_HOME=... sbt cli/GraalVMNativeImage/packageBin   # the CLI as one executable, no JVM:
                                    # cli/target/graalvm-native-image/ankka; cli/native-smoke.sh checks it
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
-sbt proxyCore/test proxy/test     # a web-hosted service's proxy: its rules and engine (JDK only), then
-                                   # TLS, and requests/calling-services/mounts .feature on loopback
-sbt -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'   # `ankka init --language web`, run behind
-                                   # `ankka local web` beside a stand-in backend; needs node and npm
-sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts on a real journal
-                                   # against a scriptable process double, and one k3s suite
+sbt proxyCore/test proxy/test     # a web-hosted service's proxy: rules and engine (JDK only), then TLS
+sbt -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'   # `ankka init --language web`; needs node, npm
+sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts, one k3s suite
 sbt 'sidecar/testOnly *ConformanceSuite'                                       # the Scala reference, in-process
 sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:9010   # a process speaking the protocol
 cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
 cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end
 cd sdks/rust && cargo test --workspace && cargo test -p shopping-cart --features slow && ./conformance.sh   # the Rust crate, end to end
-sbt 'sidecar/testOnly *WasmHostSuite'   # the module mode's host; its end-to-end case builds the Rust cart, so needs cargo on PATH
-sbt 'testkit/testOnly com.thinkmorestupidless.ankka.testkit.WorkflowSuite'
+sbt 'sidecar/testOnly *WasmHostSuite'   # the module mode's host; its end-to-end case needs cargo on PATH
 sbt 'cli/testOnly *ActionSuite'   # the GitHub Action's install and configure steps, run as bash
-sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka init --language python`, run
-                                   # against sdks/python (and typescript and rust likewise); needs uv, node and npm, or cargo
+sbt -Dankka.template.tests=python 'cli/testOnly *PythonTemplateSuite'   # `ankka init --language python`
+                                   # (typescript, rust likewise); needs uv, node and npm, or cargo
 sbt 'agent/testOnly com.thinkmorestupidless.ankka.agent.CompactionSuite -- *transcript*'   # one case (munit glob)
-sbt compile                       # should be warning-free; -Wunused is on
+sbt compile                       # warning-free by construction: -Werror (compile only, not doc), -Wunused is on
 just features                     # speckit-bdd check: the living features, the glossary and the specs that name them
-just docs                         # uv run --project tools/docs docs build: check every page, build the site
+just docs                         # check every page, build the site
 just docs-sync                    # refresh included samples, generated tables and the rendered skill
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
-just build-console                # the installation's console: the ankka-console package, then the host
+just build-console                # the ankka-console package, then the host
 just test-console                 # its type check, unit tests and Playwright suite against in-process fakes
 just test-console-compose         # the Playwright suite against compose's Keycloak and a running control plane
 cd console && npm run dev         # the console on :3000 against compose's Keycloak and `sbt controlPlane/run`
 ```
+
+munit's `--` filter matches the full test name, suite included: a glob needs a leading wildcard
+(`'*es.*'`), or it matches nothing and the suite reports green with zero tests.
 
 Running the samples needs the bundled Postgres:
 
@@ -88,31 +106,23 @@ ankka login                                                                   # 
 sbt 'cli/run services list --url http://localhost:9000 -p checkout'   # after `ankka login`
 ```
 
-A two-node cluster on one machine, to see sharding and handoff without Kubernetes — fix the
-first node's port so the second can name it (the default is a random port, so several services
-and test suites can share a laptop):
+A two-node cluster on one machine (the default cluster port is random, so fix the first one's):
 
 ```bash
 ANKKA_CLUSTER_PORT=17355 sbt shoppingCart/run
 ANKKA_CLUSTER_SEED_NODES=pekko://ankka@127.0.0.1:17355 ANKKA_HTTP_PORT=9001 sbt shoppingCart/run
 ```
 
-`AnthropicProviderSuite` exercises the live API and **skips** unless `ANTHROPIC_API_KEY`
-is set, and `JevProviderSuite`'s live twin `JevProviderLiveSuite` skips unless `TYPESAFE_API_KEY` is
-(`TYPESAFE_API_KEY=… sbt 'agent/testOnly *JevProviderLiveSuite'`). Everything else is deterministic and
-offline.
+`AnthropicProviderSuite` skips unless `ANTHROPIC_API_KEY` is set, and `JevProviderLiveSuite` unless
+`TYPESAFE_API_KEY` is. Everything else is deterministic and offline.
 
-**A full `sbt test` is an hour of wall-clock on a laptop, and a laptop sleeps.** A sleeping Mac
-pauses Docker and every container in it while the test JVM's deadlines keep counting; an
-overnight run came back after 9h50m with two k3s cases failed on timeouts across a 5-hour gap in
-the log's timestamps, and every other suite green. Run long suites under `caffeinate -i sbt test`,
-and read a failure whose duration is absurd (`MultiNodeClusterSuite … 20549s`) as the machine's,
-not the platform's — then rerun it awake.
+**A full `sbt test` is an hour of wall-clock, and a laptop sleeps.** A sleeping Mac pauses Docker
+while the test JVM's deadlines keep counting. Run long suites under `caffeinate -i sbt test`, and read
+a failure with an absurd duration (`MultiNodeClusterSuite … 20549s`) as the machine's — rerun it awake.
 
 **Tests are serialized deliberately** (`Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)`
-and `Test / parallelExecution := false` in `build.sbt`). Overlapping suites each start
-their own container and contend: one suite measured 147s in parallel versus 6s alone.
-Do not "optimise" this back.
+and `Test / parallelExecution := false` in `build.sbt`). Overlapping suites each start their own
+container and contend: one suite measured 147s in parallel versus 6s alone. Do not "optimise" this back.
 
 ```bash
 sbt scalafmtAll scalafmtSbt        # format; scalafmtCheckAll verifies
@@ -120,37 +130,26 @@ git config core.hooksPath .githooks   # once per clone (`just hooks`): refuse an
 cs install scalafmt                   # the hook uses the scalafmt CLI when it is on PATH (~1s); without it, sbt (~15s)
 ```
 
-The hook exists because a release commit reached `main` unformatted and the `ci` workflow went red
-behind a green tag. It checks only the staged `.scala` and `.sbt` files with the same
-`.scalafmt.conf` sbt reads, so it cannot pass what CI refuses.
+The hook checks only staged `.scala` and `.sbt` files with the same `.scalafmt.conf` sbt reads.
+`SortModifiers` is deliberately absent from `.scalafmt.conf` (it rewrites `private[ankka] final` to
+`final private[ankka]` and churned 99 declarations).
 
-A `Justfile` wraps the multi-step ones — `just up` (create the kind cluster and deploy
-everything), `just down`, `just deploy`, `just test`, `just console`. It is deliberately thin:
-every recipe is one command or a call to `deploy-local.sh`, which owns the logic and the guards.
-Keep it that way — a recipe that reimplements a step becomes a second copy to keep in step with
-this file, and everything here still works without `just` installed.
+The `Justfile` is deliberately thin: every recipe is one command or a call to `deploy-local.sh`, which
+owns the logic and the guards. A recipe that reimplements a step becomes a second copy to keep in step.
 
-**CI builds pull requests, and only the parts a pull request touched.** `.github/workflows/ci.yml`
-opens with a `changes` job that maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
-`sdk-typescript`, `sdk-rust`, `console`, `template-scala`); an untouched job is skipped, which GitHub counts as a pass for a required check.
-A matrix job is the exception: skipped before it expands, it never reports its expanded names, so
-branch protection requires the `template-scala` summary job (always run; passes when both launcher
-lines passed or were skipped), never the matrix's own `template-scala (sbt …)` names.
-The map errs towards running and is the whole argument, so a job that starts reading a new part of
-the tree needs its filter extended — the Scala job reads `docs/`, `homebrew/`, `kustomization/`,
-`action/` and the root `docker-compose.yml`, and both SDK jobs build the sidecar image from the Scala
-tree. `.github/ci-coverage.py` runs first in `changes` and holds the map to the tree both ways: every
-tracked file is claimed by some filter, and every pattern matches some file. A file no job needs goes
-under the `unchecked` filter with its reason, so a new top-level directory fails CI until someone
-decides which job reads it, and a pattern left naming a moved file fails rather than never firing.
-`main` is branch-protected: a pull
-request merges only when every job has passed on a head up to date with `main`, so pushes to `main`
-are not built at all, and the README badge reads the latest pull request run. A full run on demand
-is `workflow_dispatch` (`gh workflow run ci`).
-
-`SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites
-`private[ankka] final` to `final private[ankka]`, which is scalafmt's canonical order but
-reads worse, and it churned 99 declarations for no benefit.
+**CI builds pull requests, and only the parts a pull request touched.** The `changes` job in
+`.github/workflows/ci.yml` maps changed paths onto the jobs (`build`, `features`, `docs`, `sdk-python`,
+`sdk-typescript`, `sdk-rust`, `console`, `template-scala`); a skipped job counts as a pass. Branch
+protection requires the `template-scala` *summary* job, never the matrix's expanded names. `build` is
+a matrix too, for speed — `build (testkit)`, `build (sidecar)`, `build (rest)` behind a required `build`
+summary — and `rest` is defined by subtraction (`set testkit / Test / test := {}`, likewise `sidecar`),
+so a new module's suites run there unlisted; a module given its own runner must be subtracted from it.
+`.github/ci-coverage.py` holds the map to the tree both ways: every tracked file is claimed by some
+filter (a file no job needs goes under `unchecked` with its reason) and every pattern matches some
+file. So a job that starts reading a new part of the tree needs its filter extended, and a new
+top-level directory fails CI until someone decides which job reads it. `main` merges only when every
+job passed on a head up to date with `main`; pushes to `main` are not built. A full run on demand is
+`gh workflow run ci`.
 
 ## Architecture
 
@@ -166,18 +165,18 @@ effects.systemMessage("...").tools(getWeather).thenReply()
 ```
 
 This is why unit tests need no runtime, and why the runtime is free to decide *how*.
-`modules/core` owns the algebra with no Pekko dependency at all.
-
-Where both the runtime and the testkit need to reduce an effect, they share one function
-(`EventSourcedEffect.materialise`, `KeyValueEffect.materialise`) so they cannot disagree
-about semantics. A bug where they *did* disagree — the runtime folding a deletion marker
-before computing the reply — is the reason that shape exists.
+`modules/core` owns the algebra with no Pekko dependency at all. Where both the runtime and the
+testkit reduce an effect they share one function (`EventSourcedEffect.materialise`,
+`KeyValueEffect.materialise`) so they cannot disagree about semantics. The operator follows the same
+idea: `Action` values are inert descriptions of cluster mutations and `Fabric8Executor` is the only
+thing that performs them.
 
 ### Module dependency direction
 
 ```
 core → sdk → runtime → {http, agent} → testkit → samples
 http → grpc → samples                                    (grpc-fixtures and testkit are Test-only deps)
+http → auth-oidc → {controlplane, sidecar}               (the one token verifier; nimbus lives here only)
 core → controlplane-api → cli
 crd → operator                                           (no ankka dependencies at all)
 controlplane-api + crd + sdk + runtime + http → controlplane
@@ -189,60 +188,31 @@ proxy-core + runtime + http → proxy                      (test-pki and testkit
 controlplane-api + proxy-core → cli
 ```
 
-`grpc` sits above `http` because it uses `Acl`, `Caller`, `Principal` and `EndpointClients` unchanged —
-one authenticator serves both kinds of endpoint — and `runtime` never names it: the runtime knows only
-`RuntimeExtension.grpcAddress` and the `grpc-server` extension name its startup check reads. Generated
-ScalaPB code lives in projects of its own (`grpc-fixtures`, `samples/shopping-cart-api`) for the reason
-`protocol` is one.
-
-`runtime/remote` holds the remote hosts and the `Conversation` trait they speak through, in plain
-Scala values, so `runtime` never sees the generated protocol; `sidecar` translates over grpc-java.
-That is the same inversion as `ComponentClient` living in `sdk` over a `CallTransport`.
-
-`controlplane-api` depends on `core` only — not on Pekko — so the CLI carries no actor
-system, no database driver and no Kubernetes client. It holds the wire types *and* the
-descriptor validation rules, so both ends apply the same checks; it depends on `core`
-rather than redefining a codec because jsoniter needs its config inlined at the call
-site, and `Codecs.make` already does that.
-
-`controlplane` takes `cli % Test` so one suite can drive the real `Main.run` against a
-real control plane. That is the only test that can catch the two ends disagreeing about
-the wire format. It takes `operator % Test` for exactly the same reason applied to the
-second wire format: `EndToEndClusterSuite` runs both halves against one k3s cluster, and
-nothing else can catch them disagreeing about the custom resource.
-
-`controlplane`'s *tests* also build the shopping cart's Docker image first
-(`sampleImageForClusterTests` in `build.sbt`), because `SampleDeploymentClusterSuite` deploys the
-real sample into k3s. That is a build-level **task** dependency, not a classpath one: `controlplane`
-gains no dependency on `shoppingCart` in any compilation scope, and the graph above is unchanged.
-It is gated on `-Dankka.cluster.tests`, so switching the suites off skips the build as well.
-
-`crd` depends on **nothing** — not even `core`. It holds the `AnkkaService` resource, and
-both the control plane and the operator have to hold it without inheriting the other's
-world. It also holds `Hostnames`, the one derivation of an exposed service's hostname, for the
-same reason: the control plane shows and refuses it, the operator renders it, and the resource
-itself deliberately carries only `exposed: Boolean` — so no writer of the resource can point a
-route at a name the service does not own. `operator` depends only on `crd` and a Kubernetes client, which makes "the operator
-cannot reach into the control plane" a build-level fact rather than a convention.
-
-**Which variables are the platform's is said once, in `core`'s `PlatformVariables`** (feature 023):
-which a descriptor may not set, which go to the platform's program and never a process's, which both
-programs get, and which a module's `config` withholds. `controlplane-api` and `sidecar` read it through
-`core`; the operator **compiles the same source file** (`Compile / unmanagedSources` in `build.sbt`),
-so its only ankka dependency stays `crd`. The file imports nothing outside the standard library, on
-purpose — an import of anything else in `core` breaks the operator's build. `PlatformDeclarationSuite`
-fails on a second copy of the file and on a list of `ANKKA_` literals declared in the operator, the
-sidecar or the API, and the behavioural suites iterate the declaration, so a variable added to it is
-tested with no test edited. There were three hand-kept lists before, and they had drifted.
-
-`runtime` depends on `sdk`, not the reverse: the runtime interprets the SDK's
-descriptors, so it must see them. This was inverted in the original plan and had to be
-corrected.
-
-`ComponentClient` therefore lives in `sdk` over a `CallTransport` interface, with
-`runtime` supplying the sharding-backed implementation. Components receive it through
-their context, because ankka has no container — a component is constructed by its own
-companion and anything it needs arrives that way.
+- `runtime` depends on `sdk`, not the reverse: the runtime interprets the SDK's descriptors.
+  `ComponentClient` therefore lives in `sdk` over a `CallTransport`, with `runtime` supplying the
+  sharding-backed implementation. Components receive it through their context — ankka has no
+  container; a component is constructed by its own companion.
+- `runtime/remote` holds the remote hosts and the `Conversation` trait in plain Scala values, so
+  `runtime` never sees the generated protocol; `sidecar` translates over grpc-java.
+- `grpc` sits above `http` because it uses `Acl`, `Caller`, `Principal` and `EndpointClients`
+  unchanged; `runtime` never names it (it knows only `RuntimeExtension.grpcAddress`). Generated
+  ScalaPB code lives in projects of its own (`grpc-fixtures`, `samples/shopping-cart-api`).
+- `controlplane-api` depends on `core` only — no Pekko — so the CLI carries no actor system, database
+  driver or Kubernetes client. It holds the wire types *and* the descriptor validation rules, so both
+  ends apply the same checks.
+- `controlplane` takes `cli % Test` and `operator % Test` so one suite can drive the real CLI against a
+  real control plane, and `EndToEndClusterSuite` both halves against one k3s cluster — the only tests
+  that catch either wire format disagreeing. Its tests also build the shopping cart image first
+  (`sampleImageForClusterTests`): a build-level *task* dependency, not a classpath one, gated on
+  `-Dankka.cluster.tests`.
+- `crd` depends on **nothing**, not even `core`: both the control plane and the operator hold the
+  `AnkkaService` resource without inheriting each other's world. It also holds `Hostnames`, the one
+  derivation of an exposed service's hostname. `operator` depends only on `crd` and a Kubernetes
+  client, so "the operator cannot reach into the control plane" is a build-level fact.
+- **Which variables are the platform's is said once, in `core`'s `PlatformVariables`.** The operator
+  **compiles the same source file** (`Compile / unmanagedSources` in `build.sbt`) so its only ankka
+  dependency stays `crd`; the file therefore imports nothing outside the standard library.
+  `PlatformDeclarationSuite` fails on a second copy or on a hand-kept list of `ANKKA_` literals.
 
 ### Component hosting
 
@@ -259,1830 +229,106 @@ companion and anything it needs arrives that way.
 | HTTP Endpoint | pekko-http route tree |
 | gRPC Endpoint | grpc-java on its own port, every kind of method through one binding (`grpc/Binding`) |
 
-Entity and workflow hosts pre-serialize domain values into `JournalRecord` /
-`StateRecord` via Pekko event and snapshot adapters, so the journal holds ankka's JSON
-under ankka's manifest rather than a reflected form of the domain type.
+Entity and workflow hosts pre-serialize domain values into `JournalRecord` / `StateRecord` via Pekko
+event and snapshot adapters, so the journal holds ankka's JSON under ankka's manifest.
+
+A service can also be hosted outside the JVM: a process behind the **sidecar** (`sidecar.md`), a
+**WebAssembly module** the sidecar image loads (`wasm.md`), or any HTTP program beside the platform's
+**proxy** (`web-hosting.md`).
 
 ### Registration and handler identity
 
 There is no classpath scanning. Components reach the runtime only by being handed over
 explicitly, so an unregistered one fails at startup rather than at its first request.
-
-Handlers are declared on typed companions, which replaces Akka's `Entity::method`
-lambda-bytecode inspection:
+Handlers are declared on typed companions:
 
 ```scala
 val addItem = command("add-item")(_.addItem)   // "add-item" is the wire name
 val getCart = query("get-cart")(_.getCart)     // query accepts only a ReadOnlyEffect
 ```
 
-`query` taking only a `ReadOnlyEffect` is what makes "cannot persist" a compiler
-guarantee rather than a convention.
-
-**The wire name is declared separately from the Scala method name on purpose.** It is a
-versioning boundary: renaming a method must not change the protocol, or in-flight
-requests break during a rolling deploy and persisted timers break permanently. A macro
-deriving the wire name from the method name has been considered and declined for this
-reason — see the discussion in the git history.
+`query` taking only a `ReadOnlyEffect` makes "cannot persist" a compiler guarantee.
+**The wire name is declared separately from the Scala method name on purpose.** It is a versioning
+boundary: renaming a method must not change the protocol, or in-flight requests break during a
+rolling deploy and persisted timers break permanently. A macro deriving it has been declined for this
+reason. The same rule applies to any new wire name (`create-for-owner` is separate from `create` so an
+in-flight create survives a rolling update).
 
 ### The RuntimeExtension seam
 
-`ankka-runtime` must not depend on `ankka-http` or `ankka-agent`, so anything that needs
-the service to exist before starting plugs in as a `RuntimeExtension`:
-`HttpServer`, `ProjectionRuntime`, `TimerRuntime`, `AgentRuntime`. Extensions take
-factories rather than instances where a dependency needs the `ActorSystem`.
+`ankka-runtime` must not depend on `ankka-http` or `ankka-agent`, so anything that needs the service
+to exist before starting plugs in as a `RuntimeExtension`: `HttpServer`, `ProjectionRuntime`,
+`TimerRuntime`, `AgentRuntime`. Extensions take factories rather than instances where a dependency
+needs the `ActorSystem`.
 
-`EntityProtocol.Command` is shared by every sharded host so the transport needs one
-sharding key type. **`EntityProtocol.ModuleCommand` opens that hierarchy**, so the
-compiler no longer reports non-exhaustive matches over `Command` — every host must handle
-unexpected commands explicitly, and for `InvokeStream` that means *replying*, since a
-caller waiting on a token stream would otherwise hang forever. An earlier comment
-claiming exhaustivity was preserved was wrong; that mistake let exactly that hang in.
-
-### Cluster formation is an overlay, chosen by where the process runs
-
-`reference.conf` says nothing about how a node finds its peers — no hostname, no port, no seed
-nodes, no join-self. That lives in one overlay per means of execution,
-`modules/runtime/src/main/resources/ankka-cluster-<mode>.conf`, selected by `ANKKA_CLUSTER_MODE`:
-
-| mode | set by | formation |
-|---|---|---|
-| `local` (default) | nobody | join `ANKKA_CLUSTER_SEED_NODES` if given, else join self; loopback, random port |
-| `kubernetes` | the operator, never a descriptor | Cluster Bootstrap over the Kubernetes API, `${POD_IP}`, fixed ports 17355/7626 |
-
-`ClusterConfig.load` stacks them — system properties > the service's `application.conf` > the
-overlay > `reference.conf` — so a service's own file can override any choice the platform made,
-and a *new* means of execution is a new overlay file plus one entry in `ClusterConfig.Modes`.
-`ClusterFormation.form` then reads `ankka.cluster.formation` and either joins programmatically
-or starts Pekko Management and Cluster Bootstrap; the startup code is identical in every mode.
-
-The Kubernetes overlay's substitutions are `${X}`, not `${?X}`: a missing `POD_IP` must be a
-startup failure naming it, not a node that binds loopback and quietly joins nothing. The operator
-supplies all five (`ANKKA_CLUSTER_MODE`, `POD_IP`, `ANKKA_CLUSTER_SERVICE`,
-`ANKKA_CLUSTER_POD_SELECTOR`, `ANKKA_CLUSTER_CONTACT_POINTS`), and `ServiceSpec.problems`
-refuses a descriptor that sets any of them — the same rule as `ANKKA_HTTP_PORT`.
-
-Readiness in that mode is `/ready` on the management port: cluster membership (Bootstrap's
-own check) AND every `RuntimeExtension` with an opinion — `HttpServer` says no until it has
-bound. An image whose runtime predates this feature has no management endpoint at all, so it
-is held un-ready rather than joining itself beside its peers; that is the safety net for old
-images, not an accident.
-
-The dependencies this adds to `runtime` are `pekko-management`, `pekko-management-cluster-bootstrap`,
-`pekko-management-cluster-http` and `pekko-discovery-kubernetes-api` (`project/Dependencies.scala`,
-`pekkoMgmt`); they are what forced the `pekkoHttpFamily` override described under traps.
-
-The reference for the shape is the substrate project's three-file layout; its
-`-Dconfig.resource` selector was rejected because it *replaces* `application.conf`, which
-belongs to the service, not the platform.
-
-### Zero trust is an overlay property
-
-In the Kubernetes overlay every port a workload has is mutual TLS with a certificate cert-manager
-issues for it, and a network policy decides who may connect at all (feature 014); locally there is
-no TLS and every caller is `Caller.Local`. One `RotatingTls` (runtime) reads cert-manager's
-`tls.key`/`tls.crt`/`ca.crt`, re-reads on mtime change and serves the HTTP server, management,
-bootstrap's client and `ServiceClients`; remoting uses Pekko's own rotating-keys engine over the
-same files. Two installation authorities (`ankka-cluster`, `ankka-service`, component `pki`) plus a
-per-project database authority the operator renders. The caller is read from the client
-certificate's `ankka://<project>/<service>` URI (`ankka://gateway` for the gateway); nothing the
-request says is trusted. That makes a project id part of an identity, so `platform`, the project the
-control plane's and the console's own certificates name, is reserved: `ProjectId.Reserved` refuses to
-create or project it, `Names.ReservedProjectIds` refuses to render it (the operator trusts no writer of
-the resource), and `ReservedProjectIdsSuite` holds the two lists to each other and to every
-`ankka://<project>/<service>` the manifests under `kustomization/` ask for, so a platform workload
-given an identity in an unreserved project fails the build. Readiness has its own plain port, 7627 `probe`. The observe port, 7628, admits exactly the control
-plane's identity (`RotatingTls.Peers.Exactly`) and is not part of readiness. The one non-rolling
-deployment — a template without `ankka.thinkmorestupidless.com/transport=tls` — is `Transition`:
-delete, wait for no pods, apply.
-
-### A service can be a WebAssembly module the runtime loads
-
-The sidecar image has a second mode (feature 016). Given `ANKKA_WASM_MODULE`, it loads that module
-into its own JVM through Chicory's compiler, discovers what the module declares from its
-`ankka1_discover` export, and hosts it with the same remote hosts a process gets: `sidecar/wasm` is
-a second `Conversation` (`WasmConversation`), and nothing in `runtime` changes. The ABI is
-`protocol/WASM-ABI.md` — `ankka1_`-prefixed exports, one `ankka1` import module, the protocol's own
-messages across linear memory, and the envelopes in `wasm.proto`. The runtime holds each instance's
-encoded state (`HeldState`) in both guest shapes, so a trapped guest instance is discarded and
-replaced and loses nothing; commands run on a pool of reused instances (`CommandPool`, a stateful
-component pinned to one by its key) and anything that may wait on a fresh instance per call
-(`BlockingPool`), so a step blocked in an import never holds an instance a command needs. The
-`config` import answers the descriptor's variables and withholds the platform's own — the read-time
-version of the split the operator makes for a process. On the platform a wasm service is one
-container, the runtime's image, with the module copied into an `emptyDir` by the service's own image
-run as an init container. `sdks/rust` is the first guest library, the crate `ankka`. An autonomous
-agent in a module is the runtime's loop as for a process; the module answers only its tools,
-guardrails and `ankka1_check_task_result`, on fresh instances — which is why a Rust rule takes a
-`&Context`: a fresh instance remembers nothing between checks. Notifications are a stream, so a
-module cannot forward them.
-
-### A service can be any HTTP program beside the platform's proxy
-
-`"hosting": "web"` (feature 021) runs any image that serves HTTP — a user interface, typically — beside
-the platform's **proxy**, two containers in one pod. The proxy is new code and not a mode of the sidecar,
-because the sidecar cannot start without forming a cluster and opening a database. Its engine is
-`proxy-core`, which depends on nothing of ankka's or Pekko's (the JDK's `HttpServer` and `HttpClient`), so
-the CLI's native image carries the same engine for `ankka local web` and a mount means one thing on a
-laptop and in a cluster. `proxy` adds mutual TLS from `RotatingTls` and the caller from
-`Caller.fromCertificate`, and is the image `ankka-proxy`.
-
-The proxy admits the internet, the service itself and the services the descriptor's `callers` names;
-tells the process who sent a request (`X-Ankka-Caller`) and where it was sent (`X-Forwarded-*`, derived
-from the hostname, never read from the request); passes a request under a **mount** to a service of the
-project under a second certificate, `ankka://<project>/<service>/mount`, which a runtime reads as
-`Gateway` only within its own project and a runtime from before the feature refuses outright; and serves
-the **calling address**, `127.0.0.1:7630`, at which the process calls `/<service>/…` or
-`/<service>.<project>/…` as the web-hosted service. A web-hosted pod has no database (`ProvisioningPlan.NotNeeded`),
-no cluster certificate, no peers role, a token it does not mount, and a probe policy of its own. The
-operator renders the proxy's settings as `ANKKA_PROXY_*` (`Rendering.ProxyEnv`), and
-`ProxyEnvironmentSuite` holds them to `ProxySettings`' parser. `docs/reference/web-hosting.md` is the
-contract with the process.
-
-### A topic source reads under a group of its own, from where it says, at a version
-
-Feature 024. Every topic subscription's consumer group comes from one function, `ConsumerGroups.name`:
-`ankka.<project>.<service>.<kind>[-vN].<id>` for a deployed service, `local` in the project's place for a
-local run that states `ankka.service.name`, and the old `ankka-<kind>-<id>` only for one that states
-nothing. A deployed service's project and name come from its own certificate (`ServiceIdentity`), never
-from configuration, which the service could write itself; `local` is a reserved project id for the same
-reason `platform` is. The version sits beside the kind because a component id may contain `.`, and
-`ConsumerGroupsSuite` holds distinct inputs to distinct names.
-
-`MessageSubscriber.subscribe` takes a `TopicSubscription` (topic, group, `StartFrom`) and returns a
-`Subscribed`. Kafka resolves the start position in a `PartitionAssignmentHandler` and **commits it at
-assignment**, so it applies once per partition: without the commit a `latest` group that had read nothing
-restarted at the new end. A consumer over a topic must declare a start (`TopicSourceRules`), except one
-discovered from an SDK below protocol 1.7, which could not, and starts at `earliest` with a warning.
-
-A view's version is recorded in `ankka_view_versions`, created by the runtime beside the view tables.
-A higher declared version empties the table and records itself under the view's exclusive advisory lock;
-every topic-view write runs under the same lock, shared, and writes only if the recorded version is its
-own (`ViewGuard`). That pair is the whole of "no row an older handler writes survives a rebuild", and
-`ViewVersionSuite`'s race case fails without the shared lock. A view is not emptied until
-`earliestRetained` has answered. What a topic source is shows in the log (`topic source subscribed:`,
-`view rebuild:`, `view behind its recorded version:`), in two metric series and in the local console's
-`topicSources`; not yet in `services get`, which a later change can carry over the observe port.
+`EntityProtocol.Command` is shared by every sharded host so the transport needs one sharding key
+type. **`EntityProtocol.ModuleCommand` opens that hierarchy**, so the compiler no longer reports
+non-exhaustive matches over `Command` — every host must handle unexpected commands explicitly, and
+for `InvokeStream` that means *replying*, or a caller waiting on a token stream hangs forever.
 
 ### Virtual threads
 
-Endpoints, workflow steps, consumers, timers and agent loops all run on
-`AnkkaExecutors.virtual`. That is what makes the blocking `ComponentClient.invoke` free —
-an await parks the virtual thread and releases its carrier — so tool loops and workflow
-steps can be written as ordinary sequential code.
-
-It is also what makes the HTTP `RequestContext` (query parameters, headers) sound as a
-`ThreadLocal`: one request per thread, cleared on the way out. The consequence is that
-work handed to *another* thread cannot see it.
-
-### Calls are attributed by the runtime and counted from two ends
-
-A service's topology (feature 019) has declared connections, read from the registry, and observed calls,
-counted over a window (`CallCounts`, `ankka.observability.call-window`). The caller is a `CallOrigin`
-(component and handler) held on the thread beside the trace (`Trace.within`, `Trace.currentOrigin`) and
-written into a call's metadata as `ankka-caller` by `Trace.outbound`, which *strips* any caller already
-there when nothing is current — a handler forwarding its own metadata must not put its call on whoever
-called it. A name in metadata is believed only when `DeclaredNames` holds it, so nothing a call carries can
-grow the names table. *Handled* (ok, refused, failed) is counted by the callee's host, *unanswered* (timed
-out, undelivered) by the caller's transport, and the two are never added together; a view query and a
-call to another service are counted where they are made, since nothing hosts the callee. Every host counts
-through one function on `Observability`. A remote host stamps its own caller on what it sends the process,
-and protocol 1.3 carries metadata on a step, a tool call, a guardrail check, a result check and a view query
-so a call made from any of them is attributed. A deployed service's topology is read by the control plane
-over port 7628 `observe` (`ObserveServer`, `InstanceTopologies`) and merged by `TopologyMerge`, which sums
-pairs and recomputes percentiles from the instances' histograms.
-
-### A service verifies its users' tokens with one module
-
-`ankka-auth-oidc` (feature 022) is the one token verifier in the repository: `Oidc.authenticate()`
-is an `Acl.Authenticate` over the issuers a service lists as a named set of `ANKKA_AUTH_` variables
-(`ANKKA_AUTH_ISSUERS=customers,staff`, then `ANKKA_AUTH_CUSTOMERS_ISSUER`, `_JWKS_URL`, `_AUDIENCE`,
-optional `_CA`, `_TYP`, `_CLOCK_SKEW`). The token's `iss` picks the issuer before anything is
-verified, so an unlisted issuer is refused with nothing fetched; keys are fetched on first use, never
-at start, and held through an outage. nimbus is this module's dependency and no other published
-module's. The sidecar reads the same set once, before it dials the process, and verifies every
-`AUTHENTICATED` route with the same rule; a sidecar with such a route and no issuer is refused in
-discovery's report. The operator routes `ANKKA_AUTH_` to the sidecar container only. The control
-plane is a user of the module: `AuthConfig.toOidc` names the installation's issuer `ankka`, with
-Keycloak's `typ: Bearer` check on, and its singular `ANKKA_AUTH_ISSUER`/`_JWKS_URL`/`_JWKS_CA` are
-not part of the set, which ignores them. Tests mint tokens with the module's `TestIssuer`; the control
-plane's `TestIdentity` extends it.
-
-### Agents
-
-The agent loop, tool dispatch, session memory, guardrails and token accounting all sit
-above `ModelProvider`, which has two methods. Adding a provider means writing one
-adapter, not re-implementing agent behaviour. `AnthropicProvider` uses the official Java
-SDK as transport only.
-
-Session memory is an event-sourced entity, which is what makes multi-agent collaboration,
-compaction hooks and durability fall out rather than being features.
-
-A **judgment** (feature 018, `agent/judgment`) is the second thing a service can ask a model for: typed
-questions about a state — a choice, a score, a yes/no — answered with probabilities by a System One model
-that writes no text (TypeSafe AI's Jev, `JevProvider`). It has its own seam, `JudgmentProvider`, beside
-`ModelProvider`, because it is neither a component, nor a text model, nor an agent. Questions are values
-with declared wire ids and option keys, checked where they are built; a `Judgment` stores answers by those
-names and types them at the read. `Judgments.ask` is the one place the platform calls a provider, and it
-verifies every answer against the request whoever the provider is. The effect is an ordinary
-`AgentEffect` carrying a `JudgmentPlan`, so a judgment handler is registered and called like any other
-and the sidecar never sees one. `Guardrails.check` is the one function both loops run guardrails through,
-which is where a `JudgedGuardrail` gets the service's provider, counts what it spent and says it could not
-decide. Judgment tokens are `SessionHistory.judgmentUsage`, recorded by `JudgmentUsageAdded` — with a
-turn's messages, or alone and best effort when there are none. Scala only; `TestJudgmentProvider` is the
-script.
-
-An **autonomous agent** (feature 015, `agent/autonomous`) is the second kind: handed a task, it iterates
-until the model calls the built-in `complete_task` or `fail_task`, or the budget runs out. Three
-platform components carry it, all in `AgentRuntime.descriptors`: `ankka-task` (the task's record),
-`ankka-agent-instance` (the instance's record, written only by its host, through one `record(event)`
-command) and `ankka-task-cascade` (a consumer that cancels a failed task's dependents — so it needs a
-`ProjectionRuntime`). The host is an actor shell (subscribers, operations one at a time, passivation) plus
-one worker virtual thread running `IterationLoop`, which re-reads both records at every boundary. What an
-instance did on a task is session memory, session `task:<id>`. Each iteration records its start, the
-model's response, its completion, then the tool results; `IterationLoop.resumePoint` reads the instance
-record and only the session's last message to pick up exactly — a recorded model call is never repeated,
-a tool is run at least once. The entity type uses `remember-entities` with the event-sourced store, so a
-working instance comes back after a crash with nothing sent to it (proven by `RememberEntitiesSpike`). In
-the sidecar the definition arrives whole in discovery; the process runs tools, guardrails and
-`CheckTaskResult` (decode as the type, then every rule, in one call).
-
-### Reconciliation is split across two processes
-
-The control plane projects a service's desired state into an `AnkkaService` custom resource
-and folds the status back; an in-cluster **operator** watches those resources and owns
-everything below — namespace, Deployment, reported status. The resource is the only thing
-either side knows about the other.
-
-The split is what buys cascade deletion (owner references, so there is no orphan sweep
-anywhere in this design), sub-second change notification (watches, not polling), and a
-control plane that holds no credential able to create a workload. Doing it in one process
-was the original plan and was rejected on review — it reimplemented all three.
-
-The operator is deliberately **not** an ankka application. It has no entities, no journal
-and no sharding, so hosting it on ankka would give it a cluster to form and a database not
-to use — and a process whose entire job is to keep working while other things are broken
-should depend on as little as possible.
-
-`Action` values are inert descriptions of cluster mutations and `Fabric8Executor` is the
-only thing that performs them, which is the same organising idea as the component effects.
-
-### Secrets: a store a service keeps, a key it is given, and project secrets
-
-Feature 023. A **service secret** is a named text value a service keeps and reads while it runs, through
-a `SecretStore` (`sdk`, implemented by `runtime`'s `DatabaseSecretStore`): one table, `ankka_secrets`,
-in the service's own database, each value AES-256-GCM under the service's **secret key**, with the name
-as associated data and a version byte in front (`SecretCipher`). It is not an entity, a view or anything
-a projection reads, so no journal, snapshot or view row ever holds a value. It is offered to endpoints
-(`EndpointClients.secrets`), workflow steps, consumers, timed actions and agents — on their contexts —
-and **not** to `EntityContext` or `ViewComponentContext`, so `context.secrets` in an entity does not
-compile. A workflow's commands and steps share one context, so `StepScope` (a thread-local the engine
-sets around a step's body) is what refuses a command handler. A process or a module reaches the store
-through `GetSecret`/`PutSecret`/`DeleteSecret` on the protocol's `Client` service (1.6) and the module
-imports of the same names, all behind `ClientLogic`; the sidecar cannot tell which component called, so
-"not in an entity" is each SDK's rule, enforced by its own types and contexts.
-
-The key is `ANKKA_SECRET_KEY` (`ankka.secrets.key`), base64 of 32 bytes. Unset: the service runs and
-`put`/`get` fail naming it (`delete` needs none). Malformed: the service does not start. On the platform
-the operator renders `Action.EnsureSecretKey`, which **carries no key** (actions are printed), and
-`Fabric8Executor` makes the bytes when it **creates** `<service>-secret-key` — a 409 is success, the
-Secret is never read, and it has no owner reference, so a service deleted and re-applied reads what it
-kept. A descriptor that sets the variable gets no rendered key, as `ANKKA_DB_*` gets no database. The
-variable reaches only the platform's container; a module's `config` answers it absent.
-
-A **project secret** is a Kubernetes Secret a member sets through the control plane (`PUT
-/projects/{id}/secrets/{name}`, `ankka projects secrets set|unset|list`), entry by entry, which a
-descriptor takes by the `secretKeyRef` that always worked. Written by a **merge patch**, created when the
-patch finds nothing, never read; the `Project` entity records names only (`ProjectSecretEntriesSet`,
-`ProjectSecretEntryRemoved`), and the listing is an entity query, exact and immediate. Names of the forms
-the platform uses for its own Secrets in a namespace are refused (`ProjectSecrets.problems`), held to the
-operator's naming by `ReservedSecretNamesSuite`.
-
-### A credential a machine can hold, and one the cluster holds
-
-A **deploy token** (`organizations tokens create`) is `ankka_<id>_<secret>`, shown once and stored
-only as a digest. Its subject is an *ordinary organization member* (`token:<id>`, role `member`), so
-every membership check, attribution rule and 404-not-403 answer applies to it unchanged and there is
-no second authorization path for machines. It cannot manage members or tokens — including itself — so
-a leaked one cannot mint a replacement or revoke what would stop it.
-
-`Acl.Authenticate` runs **synchronously on the server's dispatcher**, so verifying a token may not do
-I/O, and a `Consumer` runs on one node (`ShardedDaemonProcess`) while the ACL runs on whichever node
-took the request. `DeployTokenIndex` is therefore a per-node `RuntimeExtension` that replays the token
-journal itself: cold replay, then live follow. Creation and revocation write through to the local
-index (`admit`, `evict`) so "create a token then use it" and "revoke then the next call fails" hold on
-the node the CLI is talking to; other nodes learn through the journal, which is why
-`controlplane/reference.conf` sets `pekko.persistence.r2dbc.refresh-interval = 500ms`.
-
-A **project's registry credential** is the other direction: the control plane writes a
-dockerconfigjson Secret into the project's namespace and records only that it did. The grant is
-`secrets: create, patch` — no `get`, no `list`, no `delete` — so it can put a credential where the
-kubelet reads it, can never read one back including its own, and cannot remove one; clearing a
-registry stops *naming* the Secret rather than deleting it, the same rule that protects database
-credentials. No password reaches the journal, and `EventCompatibilitySuite` asserts the event's wire
-form has no `password` field at all. `ProjectEndpoint` takes a one-method `RegistryWriter` (the
-projector) rather than the whole `AnkkaServiceClient`, so an endpoint cannot write desired state
-behind the projector's back.
-
-### Identity: Keycloak authenticates, the control plane authorizes
-
-Every control plane route but `GET /auth` and the health probe is behind `Acl.Authenticate`
-(`ControlPlaneAcl.oidc`): a token is verified offline against the realm's cached JWKS
-(`controlplane/auth/TokenVerifier`, nimbus — the one library added, in `controlplane` only), and
-the caller becomes a `Principal` on the request. Only the token's `sub` is ever a key; email and
-name are display. Keycloak decides who is a user; the `Organization` entity decides what they may
-touch; the control plane holds no Keycloak admin credential and the design (invitations claimed on
-first verified login, research R9) exists so it never needs one. Every command carries an
-`Attribution` as *metadata* (`Attribution.from(commandContext.metadata)`), and every
-command-produced event has `actor: Option[Actor]` and `at: Option[Instant]` with `None` defaults so
-pre-feature journals replay (`EventCompatibilitySuite` pins the old JSON).
-
-The issuer inside a cluster is **derived** from `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT`
-(`AuthConfig.derivedIssuer`: `https://auth.<base>[:port]/realms/ankka`) and keys are read over
-the plain in-cluster service address (`ANKKA_AUTH_JWKS_URL`); locally, `ANKKA_AUTH_ISSUER` names
-the compose Keycloak. The realm is one file, `kustomization/components/keycloak/realm-import.json`
-— the `KeycloakRealmImport` itself, in JSON so compose can take the realm out of it with `jq` and
-the test helpers with Jackson, while kustomize applies it as a resource; it carries no users — the
-deploy script and compose's init create `dev`, so a remote installation cannot inherit one.
-
-Who may *create* an organization is an installation setting, `OrganizationPolicy`
-(`ANKKA_ORGANIZATION_CREATION` = `open` | `platform-admin`, `ANKKA_SIGNUP_URL`), read at startup and
-enforced in `OrganizationEndpoint` only — feature 011, so a hosted installation's product can sell
-access without the platform learning what a subscription is. A platform administrator may name the
-first owner (`create-for-owner`, a separate wire name from `create` so an in-flight create survives a
-rolling update); `OrganizationCreated.owner` defaults to `None` and both folds fall back to the actor.
-
-### The control plane is an ankka application
-
-`ControlPlane.components` and `ControlPlane.endpoints` are the whole inventory: three
-event sourced entities (organization, project, service), three views for listing, and the
-endpoints — organizations, projects, services, `whoami`, and the one open discovery route.
-`componentsWith(projector)` adds the two consumers that react to desired-state changes
-(`ProjectionTrigger`, `SuspensionTrigger`). `ControlPlane.builder` also registers
-`ProjectionRuntime()` — without it every listing stays permanently empty while every write
-succeeds.
-
-Two invariants carry most of the weight:
-
-- **`generation`** increments on every apply and restart; an observation states the
-  generation it describes, and one describing a superseded generation is dropped. The
-  guard is in `Service.onObserved` — the *fold* — so replay reproduces it exactly. An
-  observation identical to the recorded state is also refused, or the timer-driven
-  reconciler would grow the journal forever.
-- **`exists` vs `known`.** Deleting an organization or project is a tombstone: `exists`
-  goes false but `known` stays true, so the id cannot be recreated. A service is
-  deliberately the opposite — a name is a deployment target, not a tenancy boundary.
-
-- **Quotas are reserve-first.** An organization keeps an exact record of its projects and
-  services (`UsageRecord`, one fold shared by the entity and the listing row), and the project
-  and service endpoints ask it to *reserve* before creating or applying, then give the slot back
-  if the second step fails — only if this request was the one that took it, which is what the
-  reservation's reply says. `quota set` merges a snapshot from the views into the record, never
-  replaces it: a listing lags, and a replace forgot a project created a moment earlier on the
-  suite's first run. The shared codec omits a field at its default, so `usage` is absent from
-  the wire when every count is zero; `Usage`'s own fields have no defaults so a written one is
-  whole.
-
-Cross-entity checks live in the endpoint, never a handler. An entity cannot see another
-entity's state, and calling out to fetch it would be a check that does not hold anyway.
-
-### Endpoints receive `EndpointClients`, not a `ComponentClient`
-
-`HttpServer.of` / `.at` take `EndpointClients => HttpEndpoint`, bundling `componentClient`
-and `viewClient` — an endpoint that lists things needs the read side too. Registration is
-an explicit lambda:
-
-```scala
-HttpServer.of(clients => ShoppingCartEndpoint(clients.componentClient))
-```
-
-The lambda cannot be shortened to `ShoppingCartEndpoint(_.componentClient)`: the
-placeholder binds to the *inner* application, so that parses as passing a function where
-a `ComponentClient` is expected. A bundle was chosen over an overload because two
-factory shapes would break lambda parameter inference at every call site.
-
-A handler's return value decides the response through `ToResponse`, which since feature 011
-also carries headers: `Respond(body, status, headers)` wraps any body with a status and
-headers of the handler's choosing, `Respond.redirect` is a 303 with a `Location`, `Html` is a
-page and `Bytes` names its own content type. That is the whole of what a website (`ankka-cloud`)
-needs from the module beyond a JSON API — `Set-Cookie` and `Location` — and it is deliberately
-not a template engine, a session store or a cookie API: those belong to the application.
-
-### The console is a package and a thin host
-
-`console/` is an npm workspace (feature 017): `package/` is `ankka-console` — the control plane client
-with zod mirrors of `controlplane-api`'s wire types, sign-in through the realm, sessions, and the pages
-as React Router 8 route modules — and `host/` is the image, 73 lines that mount the package at `/`.
-`ankka-cloud` is meant to be a second host, which is why everything a host would otherwise copy is in
-the package and `package/test/fixture-host/` proves a second host works with no package change.
-
-- **No token reaches the browser.** The session is a sealed (AES-GCM) cookie carrying only the refresh
-  token; each instance caches access tokens in memory and refreshes on a miss, so any instance serves
-  any session and there is no store. Sign-out ends the Keycloak session server to server (a confidential
-  client posting the refresh token to the logout endpoint), so no identity token is kept either.
-- **The control plane is the only authority.** The console calls its API as the person and shows its
-  refusals verbatim; it reads the issuer from `GET /auth` so the two cannot disagree. Pages call the
-  API; no route was added to the control plane for the console.
-- **Live updates are polling, streamed.** Service pages and listings open a server-sent event stream the
-  console feeds by reading the control plane every two seconds as the person; logs follow by
-  overlapping re-reads (the logs route has no cursor).
-- **`ankka-console` is browser-safe; `ankka-console/server` is not.** A host's layout imports the
-  former, its root and `routes.ts` the latter, and the browser bundle must resolve no Node module.
-- **The fake control plane is a second implementation of the API's observable rules**, so it drifts:
-  `ControlPlaneFixturesSuite` holds the client's schemas to the codecs, and the Playwright suite runs
-  against the compose stack too (`just test-console-compose`), which is what found the drift so far.
-
-## Traps that have already cost debugging time
-
-- **Server-side apply cannot merge a Secret's entries.** An apply replaces everything that field manager
-  applied before, so applying one entry of a project secret removes the others, and the control plane,
-  which holds no `get`, cannot read them back to send again. Project secrets are a JSON merge patch
-  (`stringData` to add, `data: {key: null}` to remove), with a `create` when the patch is a 404. Both are
-  the `patch` and `create` verbs, so the grant is unchanged. Note what `patch` answers: the whole object,
-  every entry's value included — the code discards it, and a grant of `patch` is in effect a read of what
-  it patches.
-- **A project secret's name can be a platform Secret's.** The control plane writes by a member's name
-  into the namespace that holds `<service>-db`, the TLS Secrets and `<service>-secret-key`, and cannot
-  look first; a project secret called `payments-secret-key` would replace that service's key and make
-  everything it kept unreadable. The forms are refused; a new platform Secret in a project namespace
-  needs its form added to `ProjectSecrets` and its naming function to `ReservedSecretNamesSuite`.
-- **A Rust import referenced from a shared `match` is imported by every module.** `abi::imports::call`
-  dispatches every import in one function, so all of them are in any module that makes one call — a new
-  import there would make every module built with the new crate need a runtime that provides it. The
-  secret imports go through `call_secret`, a function of their own, and a module that never keeps a
-  secret imports none of them (checked with `wasm-objdump -j Import`).
-- **The module loader keeps its own list of the imports it admits** (`ModuleLoader.Imports`), apart from
-  what `HostImports.values` provides. Adding an import to one only fails at a module's start, naming the
-  import "the runtime does not provide". `WasmHostSuite` now holds the two equal.
-- **A `CommandError` thrown from a workflow command handler left the caller unanswered** until it timed
-  out: the engine replied only to returned effects. It is now answered as the refusal it is. An entity
-  handler that throws still fails the command differently — prefer returning `effects.error`.
-- **`given` is a keyword in Scala 3**, as `export` is: a loop variable of that name is a syntax error
-  reported far from the cause.
-
-- **`Sink.last`, not `Sink.head`, on r2dbc connection publishers.** `head` cancels
-  upstream on the first element; cancelling mid-handover means the pool never gets the
-  connection back, and a few queries drain it.
-- **Do not tune `pekko.persistence.r2dbc.behind-current-time` down.** It guards against
-  reading events whose commit timestamp is still in flight. Setting it to zero made a
-  suite 15× *slower*, not faster.
-- **Guard global timeouts on `startedAtMillis > 0`.** A workflow that has not started has
-  no start time, and treating `0` as one makes `elapsed` the whole Unix epoch — firing
-  the timeout instantly and failing the workflow before its first step runs.
-- **Never touch `ActorContext` (including `ctx.log`, `ctx.system`) from a `Future`
-  callback.** It is not thread-safe. Doing so in the timer sweeper made every reschedule
-  throw, silently turning "retry with backoff" into "retry immediately, forever, with the
-  attempt counter stuck at zero". Capture what async work needs while inside the actor.
-- **SSE payloads must be JSON-encoded.** Raw text in a `data:` field loses a leading
-  space to the protocol's own rules, and a newline inside a token splits the frame — both
-  silent corruptions that only appear on text a model happened to generate.
-- **Literal route segments outrank parameters.** Without explicit specificity ordering,
-  `/chat/{session}` swallows `/chat/awkward` purely by declaration order.
-- **One `TestModelProvider` cannot serve both an agent and an async consumer.** The
-  compactor runs asynchronously, so whether the agent or the summariser reaches the queue
-  first is a race, and a response queued for one gets consumed by the other. Give each a
-  provider. (A compaction test passed for the wrong reason until this was separated.)
-- **A workflow left mid-flight keeps consuming a shared scripted model**, starving the
-  next test. Drain it before the test ends.
-- **A fieldless Scala 3 enum encodes as `{"type":"Ready"}` under ankka's shared codec
-  config.** The discriminator is right for events and wrong for a status word a CLI
-  prints. Give such an enum an explicit string `JsonValueCodec` **in its companion
-  object**, so it is in implicit scope everywhere the enum appears — putting it at each
-  derivation site invites missing one and shipping two wire formats.
-  (`ServiceLifecycle` does this.)
-- **Anything reading `~/.ankka/config.json` or `$HOME` must be overridable by a system
-  property.** Environment variables cannot be set in-process, so `ANKKA_CONFIG` alone
-  makes `config set` untestable without writing to the developer's own home directory.
-  `Settings.path` checks `-Dankka.config` first for exactly this reason. The mirror of that trap
-  bites from the *shell*: `HOME=$(mktemp -d) ankka …` does **not** isolate the CLI, because `~`
-  resolves through the JVM's `user.home`, which the launcher fixes at startup — the process goes
-  on reading the developer's real `~/.ankka/config.json` while the command looks isolated. Two
-  attempts at feature 007's "no cluster credentials" proof were spent on a TLS error that was
-  really a config never consulted. From a shell the override is `ANKKA_CONFIG`; in-process,
-  `-Dankka.config`.
-- **Read piped input through `Console.in`, not `System.in`.** Only the former is
-  redirectable by `Console.withIn`, which is what lets a test drive `apply -f -` without
-  spawning a subprocess.
-- **TLS client authentication belongs to a listener, not a route**, and the kubelet holds no
-  certificate — so once management requires the service's certificate, readiness needs a port of
-  its own (7627, named `probe`). Renaming it in `Rendering` or the control plane's manifest leaves a
-  probe that resolves to nothing, as with `management` before it.
-- **Pekko's `reference.conf` arrives already resolved.** Overriding
-  `rotating-keys-engine.secret-mount-point` alone leaves `key-file`/`cert-file`/`ca-cert-file` at
-  Pekko's default path; the overlay names all three. Found as a missing `ca.crt` under
-  `/var/run/secrets/pekko-tls`.
-- **Pekko's TLS stage turns endpoint identification back on for a client engine**, so a cluster peer
-  reached by pod IP failed "No subject alternative names matching IP address". Cluster contexts use
-  `RotatingTls.Peers.SameIdentity`: the chain is checked with the two-argument trust check (no
-  hostname) and the peer must carry this process's own `ankka://` URI.
-- **Bootstrap counts contact points per host.** Two nodes on one loopback address are one contact
-  point; `TlsClusterFormationSuite` tells them apart as `localhost` and `127.0.0.1`.
-- **pekko-persistence-r2dbc hands its options customizer the whole configuration**, not the
-  connection factory's block — reading `ssl.mode` at the root connected in the clear.
-- **libpq refuses a key file anyone else can read**, and a root-owned `0600` Secret is unreadable to
-  a non-root runtime. The database volume is `0440` with a pod `fsGroup`.
-- **A `cert` rule in `pg_hba` for `all` would lock out every role not yet redeployed.** The rule is
-  for members of `ankka_tls`, which a role joins when its service is next deployed; others fall
-  through to CNPG's password default until then.
-- **The operator's `secrets: get` reads any Secret by name**, including an issued certificate's,
-  whose name is derivable. Its code never does; narrowing the grant means the credential Secret
-  becoming a ConfigMap (it holds nothing secret since feature 014).
-- **Every k3s suite that runs the operator needs `PkiStack.install`**: the operator asks cert-manager
-  for every workload's certificates and a pod starts only once they exist. And a plain `wget` from
-  the node reaches no service any more — `InPod.curl` runs `curl` inside a service pod (the images
-  are `eclipse-temurin`, which has it) with that pod's certificates.
-- **A Python endpoint without its own `__init__` was handed a client and failed its first request**:
-  `object.__init__`'s `*args` counted as a parameter. The private endpoint never reached its handler,
-  so nothing noticed until the conformance suite's caller cases.
-
-- **A `val` that lists functions defined below it lists nulls.** `HostImports.values` was an eager
-  `val` naming the `log` import declared after it, so the `ImportValues` held `null` for `log` and
-  Chicory failed building any instance of a module that imported it — with a
-  `NullPointerException` in `mapHostImports` that names nothing of ankka's. The spike guest never
-  imported `log`, so every host test passed until the first real crate module arrived. It is a
-  `lazy val`.
-- **`export` is a keyword in Scala 3**, and the ABI is all exports. A parameter or a helper named
-  `export` is a syntax error that scalafmt reports before the compiler does; the host says
-  `function` and `fn`.
-- **cargo reads `.cargo/config.toml` from the directory it is run in, upward — not from the package
-  it builds.** The Rust example's config sets its target; run from `sdks/rust`, `cargo build -p
-  shopping-cart --release` ignores it and builds for the host. Every build of a module from the
-  workspace says `--target wasm32-unknown-unknown`, and the stack size a module needs lives in the
-  *workspace's* `.cargo/config.toml`, where both directories see it.
-- **A bind mount of a file that does not exist yet makes Docker create a directory in its place.**
-  Starting the `wasm` compose profile before `cargo module` had built the module left a directory
-  named `….wasm` where the module goes, and the next build failed `Operation not permitted`; OrbStack
-  then kept that path's directory view even after the file existed. Both compose files mount the
-  module with `bind.create_host_path: false`, so a missing module is refused (or, on OrbStack, the
-  runtime refuses `no module at /module/service.wasm`) and nothing is created on the host.
-- **A Deployment's `spec.selector` is immutable.** It must never contain ankka's
-  generation, or the second apply is rejected permanently and the service is bricked at
-  generation 2. The generation lives on the Deployment's own annotations.
-- **The generation must not be on the pod template either.** Feature 001 put it there so a
-  restart would roll the pods — but the generation increments on *every* apply, so every apply
-  rolled every pod, including one that only changed the instance count. Found by the test
-  that scales 3→4 and asserts the three existing pods survive. What rolls the pods is a
-  separate `restarts` counter on the pod template, incremented only by `services restart`;
-  an apply that changes nothing Kubernetes cares about changes nothing Kubernetes sees.
-- **`RollingUpdate` with `maxSurge: 1, maxUnavailable: 0` — feature 003's `Recreate` was
-  reversed, on purpose.** `Recreate` was correct while every pod joined itself: a rolling update
-  put two single-node clusters on one journal. Once nodes find each other (feature 004) the
-  overlap is the *point* — the new pod joins the existing cluster, takes its shards by handoff
-  and only then is an old one stopped — and `Recreate` would be the outage. This holds at one
-  instance too, measured: the surge pod bootstraps into the old pod's cluster, so a single-instance
-  service deploys with no downtime either. Do not put `Recreate` back for "safety"; the guard
-  against the split it once prevented is now `join-self-if-no-seed-nodes = off` in the Kubernetes
-  overlay, where joining self *is* the split.
-- **Changing a field Kubernetes defaulted can wedge every existing object.** Moving a live
-  Deployment from `RollingUpdate` to `Recreate` was rejected — `invalid: spec.strategy` — while
-  its defaulted `rollingUpdate` block was still there, and server-side apply cannot remove a
-  field no manager owns; every reconcile then failed forever, until a one-off JSON merge patch
-  (`"rollingUpdate": null`). The reverse migration needs no such thing (an apply that *sets*
-  `rollingUpdate` owns it), so that code is gone — but the class of bug stays: **tests that
-  start from an empty cluster cannot see it**. It took a real cluster with a real leftover
-  object, and the rolling-update migration test exists to keep it in view.
-- **Never render a HorizontalPodAutoscaler.** `minInstances` is honoured as a fixed count, and
-  that is the whole story until ankka has a reason to scale on load. An autoscaler that
-  scaled to zero would also be a cold start nobody asked for.
-- **`pekko.coordinated-shutdown.exit-jvm = on` belongs in the Kubernetes overlay only, never
-  `reference.conf`.** In a pod a process is a node and exiting after a split-brain down is the
-  point — without it the pod stays `Running`, never ready, never restarted. Anywhere else it
-  turns the first stopped `ActorSystem` into a dead process: put in the base, it killed the
-  forked test JVM (`Forked test harness failed: EOFException`) the moment a suite called
-  `AnkkaTestKit.stop()`.
-- **`pekko.cluster.seed-nodes = ${?ENV}` is a type error at load.** It is a list, and an
-  environment variable is a string. The local overlay's `ankka.cluster.seed-nodes` is a
-  comma-separated *string* under ankka's own key, and `ClusterFormation` splits it and joins
-  programmatically — the same call it makes to join itself.
-- **`ClusterConfig.layered` puts the overlay *above* a config a caller built for itself.**
-  The obvious precedence (overlay beneath the application) is what `load` does, and it is wrong
-  for a config that came from `ConfigFactory.load()` — the test kit's — because that config
-  already carries Pekko's reference defaults for every key the overlay sets, a fixed remoting
-  port among them. Two test systems on one machine then bind the same port. A config that
-  already has `ankka.cluster.formation` came from the loader and passes through untouched.
-- **pekko-management pulls `pekko-http` 1.1.0, and eviction lifts only part of the family.**
-  `pekko-http` goes to 1.4.0 but `pekko-http-spray-json` stays, and Pekko HTTP checks family
-  versions at startup — every HTTP suite died in `beforeAll`. `dependencyOverrides ++=
-  pekkoHttpFamily` in `commonSettings` pins all of them; add any new pekko-http artifact to that
-  list, not only to `libraryDependencies`.
-- **Scaling a Deployment directly is undone within one resync.** The operator's reconcile
-  loop restores the replica count from the resource, so `kubectl scale --replicas=0` is not how
-  a test takes a service down: it is back before the assertion runs. `ankka services pause` /
-  `resume` is — the count is rendered from the spec, and pause is the spec saying zero.
-- **`dependencyOverrides` never reaches a POM.** Feature 004 pinned the Pekko HTTP family with an
-  override in `commonSettings`; the first build *outside* this repository (feature 006) got
-  `pekko-http-spray-json 1.1.0` from pekko-management beside `pekko-http 1.4.0` and Pekko HTTP
-  refused to start. Anything a consumer must see is a direct `libraryDependencies` entry in the
-  published module — `ankka-runtime` now declares the family.
-- **A Docker tag may not contain `+`, and a dynver snapshot version does.** `docker:publishLocal`
-  failed on every image the moment `ThisBuild / version` went: `invalid tag
-  "ankka-operator:0.0.0+12-…"`. `dockerSettings` sets `Docker / version` with `+` → `-`; a
-  release version has no `+` and tags exactly as itself. The template's build does the same.
-- **`JavaAppPackaging` enables `DockerPlugin`**, so `sbt cli/stage` for the CLI also made root's
-  `docker:publishLocal` build a CLI image. The CLI's `Docker / publishLocal` and `Docker / publish`
-  are no-ops; the CLI is a local binary, never an image.
-- **A task dependency on `root / publishLocal` publishes nothing.** Aggregation is how the
-  *command line* fans a task out to the aggregated projects; in the task graph, `(root /
-  publishLocal).value` runs the root's own — skipped — publish and returns in 0s. `templateArtifacts`
-  names the six service modules. The same is true of `root / test` and `root / compile`.
-- **`testOnly` does not go through `test`.** A dependency hung on `Test / test` is bypassed by
-  `sbt module/testOnly X`, which is exactly how one suite is run; hook both.
-- **A test must never name an image by a literal tag.** `EndToEndClusterSuite` said
-  `sample-shopping-cart:0.1.0-SNAPSHOT` — the fixed version feature 006 deleted — and kept passing
-  for two features on a stale image of that name in the Docker daemon, until the rename made that
-  image one that reads environment variables the operator no longer sets: it started, was never
-  `Ready`, and only the cases where it was the *only* pod timed out. The second tag is
-  `BuildInfo.version` with `+` → `-` (what `Docker / version` produces), and `testOnly` builds the
-  images too, so the tag a suite asks for is the one this sbt session made.
-- **A top-level `require(...)` is not an sbt DSL entry** (`required: sbt.internal.DslEntry`); a
-  check in a `build.sbt` is a `val` whose body calls `sys.error`.
-- **Giter8 reads `default.properties` from `src/main/g8/`, not the template root** — at the root
-  it is silently ignored ("Ignoring unrecognized parameter: name"). An empty directory needs
-  `sbt --allow-empty`.
-- **`sbt new` must be `new` and its arguments as separate arguments, never one command string.**
-  sbt's launcher (1.x and 2.x) runs `new` outside any build only when it sees `new` as an argument of
-  its own. `ankka init` used to run `sbt --allow-empty -batch "new <template> --name=…"`; the sbt 2
-  launcher, not recognising that as `new`, sent it through its thin client (the default under sbt
-  2), which appends `sbtCompleteExec <id>`, `resumeFromFailure` and `shell` — and giter8 refused them
-  as `Unknown argument`, for every template. The Scala template suite did not run in CI then, so the
-  first sign was a laptop with the sbt 2 launcher; the `template-scala` job now runs it under both
-  launcher lines. `Init.command` builds the arguments; `InitSuite` refuses one that holds a space.
-- **A wildcard is one label deep — for X.509 certificates and for Gateway API listeners alike.**
-  `*.example.test` covers `cart-checkout.example.test` and not `cart.checkout.example.test`; two
-  implementations that got the listener rule wrong filed it as a bug. With TLS on the
-  installation's single Gateway, that is *why* an exposed service's hostname is
-  `<service>-<project>.<base>` (one label; `com.thinkmorestupidless.ankka.crd.Hostnames`) and not the two-level form
-  that reads better. Two costs, both refused at expose time: a label over 63 characters, and a
-  collision between hyphenated names (`a-b` in `c`, `a` in `b-c`).
-- **A cert-manager `ClusterIssuer` looks up its `ca.secretName` in cert-manager's own namespace,
-  not the Certificate's.** `secrets "ankka-root-ca" not found` with the secret sitting right there
-  in `ankka-gateway`. A namespaced `Issuer` beside the secret is the honest shape for a local CA.
-- **The ClusterIssuer trap runs both ways, and the remote overlay needs the other direction.**
-  A cluster-scoped issuer resolves its secrets in *cert-manager's* namespace rather than the
-  Certificate's, which is why a `ClusterIssuer` was wrong for the local CA (above) — its secret
-  sits beside the Certificate. `overlays/cloud` is the mirror: DNSimple is not one of
-  cert-manager's built-in DNS-01 solvers, so it needs the out-of-tree webhook, and that webhook
-  reads its API token with *its own* ServiceAccount in the namespace of the challenge. The chart
-  grants that with a Role in its release namespace, pinned by `resourceNames` to its own secret.
-  A namespaced `Issuer` in `ankka-gateway` therefore sends the webhook after a secret it cannot
-  read, and issuance fails `forbidden` on the *token* — which reads nothing like the wildcard
-  certificate being the problem. Same property, opposite answer, and `RemoteOverlaySuite` pins
-  both directions so neither gets "tidied" into the other.
-- **A Gateway API `RequestRedirect` without `port` keeps the *request's* port in the Location.**
-  `http://…:8080/x` → `https://…:8080/x`, which goes nowhere on kind, where HTTPS is on 8443. The
-  redirect route names its port (443 in the component, the kind host port in the overlay).
-- **Envoy Gateway runs a Gateway's proxy in its own namespace, `envoy-gateway-system`, not the
-  Gateway's.** A network policy admitting `ankka-gateway` admits no pod that routes anything: the
-  route and its `BackendTLSPolicy` were both `Accepted` and `ResolvedRefs`, and every request was a
-  503 `remote_connection_failure … Connection_refused` from Envoy — k3s's policy enforcement
-  *rejects*, so a dropped connection reads as a closed port. The HTTP policies (operator-rendered
-  and the control plane's) name the proxy pods by `gateway.envoyproxy.io/owning-gateway-{name,
-  namespace}` in `envoy-gateway-system`.
-- **A route can be `Accepted` and still not serve.** A backend in another namespace is
-  `ResolvedRefs: False / RefNotPermitted` and Envoy answers 500 for it; an unlabelled namespace is
-  `Accepted: False / NotAllowedByListeners` and gets a 404. The resource's `status.route` folds
-  both conditions, and `services get` shows it as `route rejected: <reason>`.
-- **Every reconcile reads an `HTTPRoute`, so a cluster without the Gateway API must read as "no
-  route", not fail.** The read-first removal and the status read both run for every service on
-  every pass; `Fabric8Executor` treats a 404 on the *type* as absent. Only an exposed service's
-  `EnsureHttpRoute` is allowed to fail on a missing CRD, loudly.
-- **Envoy Gateway's CRDs need Kubernetes ≥ 1.32.** Its experimental `xbackends` CRD carries a
-  CEL rule using `format.dns1123Label()`, which a 1.31 API server rejects
-  (`CustomResourceDefinition … is invalid: … x-kubernetes-validations[0].rule`) — with `kubectl`
-  as much as with fabric8, so it looked like a client bug first. The k3s test image moved from
-  v1.31.2 to v1.35.1 for this; and `kubectl apply` of a multi-document manifest applies everything
-  *else* and exits 1, so a `grep -c applied` after it hides exactly this — check the exit code.
-- **`curl -o /dev/null` without checking the status accepts a 404.** `deploy-local.sh` ended by
-  curling `$API_URL/health` and testing only curl's exit code — and there is no `/health` endpoint
-  on the control plane, which serves `/organizations`, `/projects` and `/services`. A 404 is a
-  *successful* HTTP exchange, so curl exited 0 and the smoke test passed on every deploy it ever
-  ran, including ones where every route was broken. It now asks for the organizations listing with
-  the token read from the cluster and requires a 200, which exercises DNS, TLS, the gateway route,
-  a control plane pod, the ACL and a database query. Note also that `curl -w '%{http_code}'`
-  prints `000` of its own accord when it never got a response, so `|| echo 000` yields `000000`
-  and the "could not connect" branch never matches — `|| true` is the guard `set -e` needs.
-- **An overlay that only works from `deploy-local.sh` is not an overlay.** The control plane's
-  schema ConfigMap was `kubectl create configmap --from-file` in the script, because the DDL lived
-  under `modules/runtime` where a kustomize generator cannot reach. Every kind deploy passed. The
-  first cluster reconciled by Flux applied the overlay as written, and the database's initdb pod
-  waited on a ConfigMap mount that nothing would ever create. The DDL is now canonical in the
-  postgres component with symlinks pointing in (the CRD's direction), and the script generates
-  nothing: `kubectl apply -k` must be the whole deploy, or a second deployer finds the difference.
-- **A `waitFor` that swallows exceptions turns a broken check into "it never happened".** Two
-  runs were spent on a certificate that was `Ready` in 20s by hand, because the fabric8
-  generic-resource status parsing in the check threw and the loop reported a timeout. For
-  objects from CRDs the suites do not model (cert-manager, Gateway API status), the checks now
-  ask `kubectl … -o jsonpath` on the node — the same tool `deploy-local.sh` waits with — and the
-  k3s suites apply those manifests with the node's `kubectl` too.
-- **`-Djdk.net.hosts.file` steers `java.net.http` — for the whole JVM.** Names not in the file
-  stop resolving, so it can never be set on the forked test JVM. `ControlPlaneClusterSuite` runs
-  the real CLI as a subprocess with it, on the same classpath; that is also the honest way to
-  exercise `Main.main` and its `sys.exit`.
-- **LibreSSL's `openssl req -newkey ec` writes explicit EC parameters, which the JDK refuses**
-  (`Only named ECParameters supported`). Test certificate fixtures are RSA.
-- **The k3s node's `kubectl exec` works; its `wget` is BusyBox** (no PUT, no `--cacert`). Drive
-  the gateway from the *host* with `curl --cacert --resolve` against the mapped NodePort — which is
-  also the only proof that matches what a developer's machine does.
-- **A pod that cannot answer a bootstrap probe must never be a contact point.** Upgrading the
-  kind cluster from a feature-003 image deadlocked: the old pods were `Ready` by their tcp probe,
-  so the rolling update kept them; the new pods discovered them by the identity labels, got no
-  answer on a management port that did not exist, and Pekko's join decider refused to form a
-  cluster while any contact point was silent — `Exceeded stable margins but missing seed node
-  information from some contact points`, forever. The discovery selector therefore includes
-  `ankka.thinkmorestupidless.com/formation=bootstrap`, a label only pod templates rendered since
-  feature 004 carry (`Labels.FormationKey`); it is *not* in the Deployment's immutable
-  `spec.selector` nor the Service's. Empty-cluster suites cannot see this class of bug — the
-  same lesson as the `Recreate` migration, from the other direction.
-- **A rolling replacement still refuses requests without a `preStop` sleep.** A pod leaves its
-  Service's endpoints the moment its deletion starts, but kube-proxy on each node learns that up
-  to a second later — and the runtime unbinds its HTTP port the instant SIGTERM arrives. In that
-  second a request routed to the old pod is refused: 2 of 33 control-plane commands during one
-  replacement, measured. `lifecycle.preStop.sleep: 5s` (Kubernetes' own sleep action, so a
-  workload image owes the platform no shell) runs *before* SIGTERM and the pod serves through it.
-  Rendered on every workload and in the control plane's manifest; do not remove it as "unused".
-- **A k3s test node running five sample JVMs answers in seconds, not milliseconds.** A suite that
-  deploys several real ankka services into one k3s container starves it: the control plane's GET
-  latency went to a median of 5.2s and a throughput assertion failed for the wrong reason. Deploy
-  the real image only for the service a case actually needs to be `Ready`; the rest can be
-  `pause` with `"http": false`.
-- **The container port's *name* `management` is load-bearing.** The readiness probe is
-  `httpGet` on the port by name, not number, so renaming the port in `Rendering` (or in the
-  control plane's own manifest) leaves a probe that resolves to nothing and a pod that is never
-  ready, with no error anywhere.
-- **"Marking node as UNREACHABLE" for a node that just exited is expected, not a bug.** A
-  graceful leave still has the failure detector fire on the survivors between the socket
-  closing and the `Removed` propagating; a test asserting *zero* unreachable events during a
-  clean leave is asserting something Pekko does not promise. Assert on membership converging.
-- **`kubectl delete pod --force` is a graceful leave, not a crash.** It still sends SIGTERM
-  and the node runs coordinated shutdown, so it proves nothing about failure detection or the
-  split-brain resolver. A crash test is `kill -9` of the JVM from the node (`crictl` inside the
-  k3s container), and a partition test is `iptables` — `MultiNodeClusterSuite` does both.
-- **Two things are called "generation".** ankka's lives in the resource's `spec` and is
-  what `Service.onObserved` compares; Kubernetes' is `metadata.generation` and is only
-  meaningful against `status.observedGeneration`. Conflating them reports the right answer
-  about the wrong generation.
-- **Two ankka services must never share a Postgres database.** `ankka_timers` has no
-  service column, and `TimerSweeper` *deletes* rows whose component id it does not
-  recognise — so they silently delete each other's timers. View row tables, named from the
-  component id alone, collide the same way.
-- **Server-side apply rejects an object carrying `metadata.managedFields`.** Always build
-  a fresh object to apply; never re-apply one read back from the server. This only shows
-  up against a real API server, which is what the k3s suites are for.
-- **A field on `AnkkaServiceSpec` is not a field on the resource until `ankkaservice.yaml` declares
-  it.** A structural schema is *closed*: server-side apply of an object carrying an undeclared field
-  is refused with `failed to create typed patch object … .spec.x: field not declared in schema` — a
-  500, on every projection of every service that sets it, forever. Every offline test passes, because
-  nothing but a real API server validates against the schema; `imagePullSecret` was added to the case
-  class, the projection, the rendering, the codec suite and three test suites before a k3s run found
-  it. `CrdSchemaSuite` now compares the case class's fields against the declared properties in both
-  directions, so the same mistake fails in milliseconds and names the field.
-- **A project's namespace is the control plane's to create, not the operator's.** Owner
-  references are namespace-scoped, so the resource must live beside the workload it owns —
-  which makes the namespace a precondition of writing the resource, and the operator only
-  learns a project exists by seeing that resource.
-- **Server-side apply on an object that does not exist yet is still a PATCH, not a POST.**
-  RBAC granting only `create` on a resource 403s the first time `ensureNamespace` runs,
-  which is every time a project's namespace is new — the one case that rule exists for. Any
-  resource written via `serverSideApply()` needs `patch` in its ClusterRole. Caught only by
-  deploying against a real cluster: the k3s test suites mostly use kind's/testcontainers'
-  admin credentials directly rather than exercising the shipped RBAC — the exceptions mint a
-  real token for the operator's own ServiceAccount, and for a deployed service's, to prove a
-  withheld verb is refused by the API server itself, not just unused (`OperatorClusterSuite`,
-  features 002 US5 and 004 US1).
-- **A `Database` or `DatabaseRole` referencing a `Cluster` in another namespace gets no
-  status and no events at all**, not an error — the CNPG reconciler simply never touches
-  it. This is why per-project Postgres capacity lives in the project's own namespace rather
-  than a shared one: a cross-namespace reference cannot be detected from the referencing
-  object's own status, only inferred from it never changing.
-- **CNPG does not generate passwords.** Given a `DatabaseRole` with no `passwordSecret`, it
-  creates a role nobody can log in as, silently. The platform must generate one itself —
-  and only when the credential secret is absent, since regenerating on every reconcile
-  rotates the password under a running service on a timer.
-- **A `Database` can lose the race against its own `DatabaseRole`.** Both are applied in one
-  pass and reconciled independently; a `Database` whose owner role does not exist yet fails
-  with `role "x" does not exist` and self-heals once the role lands. Report this as *in
-  progress*, never `Failed` — a transient ordering artifact that looks exactly like a
-  permanent one.
-- **A CNPG `forbidden` error on a role's password secret is transient, not an RBAC bug.**
-  CNPG maintains a per-`Cluster` secrets allowlist and adds a newly-referenced
-  `passwordSecret` to it only on its own next reconcile — 20-40 seconds after the role and
-  secret are created together, not immediately. A status check during that window looks
-  identical to a real permission failure; only the message's specific shape
-  (`secrets "x" is forbidden`, naming the *secret*, not the role or database) and the fact
-  that it clears on its own distinguish the two.
-- **`bootstrap.initdb.postInitApplicationSQLRefs` runs as the `postgres` superuser, not as
-  `bootstrap.initdb.owner`.** Every table the DDL creates ends up owned by `postgres`, so
-  the role the application actually connects as has no privileges on any of them —
-  discovered by deploying the control plane's own CNPG-managed database for real: it
-  started cleanly, then every write timed out with `permission denied for table
-  projection_management`. Fixed with a trailing `GRANT ALL ... TO <owner>` SQL fragment
-  applied after the DDL, in the same `configMapRefs` list. This is the one case in this
-  codebase that uses `bootstrap.initdb` at all — every per-service database goes through the
-  operator's `Database`/`DatabaseRole`, whose owner is the role connecting to it from the
-  start, so this trap cannot recur there.
-- **Kubernetes defaults `imagePullPolicy` to `Always` for a `:latest` tag.** An image loaded
-  straight onto a node (`kind load`, `ctr import`) is then ignored and the pod fails
-  `ErrImagePull` with the image sitting right there. The operator renders `IfNotPresent` on every
-  workload for this reason, as the platform's own manifests always have for themselves. It went
-  unnoticed for two features because every test deployed `registry.k8s.io/pause:3.9` — pullable,
-  *and* not `:latest`, which removes both halves of the trap at once.
-- **containerd namespaces are hard isolation, and kubelet reads only `k8s.io`.** An image imported
-  with plain `ctr images import` lands in the default namespace: the import succeeds, `ctr images
-  ls` shows it, and kubelet still cannot see it. In a k3s container it is
-  `ctr -a /run/k3s/containerd/containerd.sock -n k8s.io images import` — and `ctr`, not `k3s ctr`,
-  which that image answers with "No help topic".
-- **`ctr` does not expand a short image name; the kubelet does.** An image imported from a `docker
-  save` tar is stored as `docker.io/library/sample-shopping-cart:latest`, and a pod naming
-  `sample-shopping-cart:latest` finds it because the kubelet qualifies the name first. `ctr images
-  tag sample-shopping-cart:latest …` answers `image "…": not found` for an image sitting right
-  there. Ask containerd what it holds (`ctr images ls -q`) and match, rather than assuming the
-  prefix — and fail with the listing attached, since the bare exit code reads like a missing image.
-- **jsoniter reads a JSON `null` on an `Option` field as *absent*, and applies the default.** So an
-  `Option` whose default is not `None` cannot express "none": `port: Option[Int] = Some(9000)`
-  decoded `{"port": null}` as 9000, silently, on a descriptor that crosses the codec twice. Say
-  "none" positively (`http: false`), and keep the value a plain type — a `null` on an `Int` is a
-  loud decode error instead. `DescriptorSuite` pins this.
-- **A port-forward does not go through the Service.** It is API server → pod, so a test using one
-  passes with a broken selector or the wrong `targetPort` — the pod is `Ready`, the address is
-  dead, and nothing notices. To test that a Service routes, make the request from the k3s *node*
-  to its `clusterIP` (`k3s.execInContainer("wget", …)`). By IP: the node does not resolve cluster
-  DNS names, only pods do.
-- **Forked tests do not inherit sbt's `-D` properties.** `Test / fork := true`, so a switch passed
-  as `sbt -Dfoo=bar test` is set in a JVM that runs no tests. `-Dankka.cluster.tests=off` was a
-  documented no-op for two features — the "skipped" suites quietly took seven minutes — until
-  `Test / javaOptions` started forwarding it. Any new test switch needs the same forwarding.
-  It happened again: `ankka.conformance.shape` was never forwarded, so the second run of
-  `sdks/rust/conformance.sh` — the stateful guest shape — was a second stateless one for two
-  features, and its own first line of output said so (`… (stateless)`). Read what a run says it
-  ran, not what the script says it runs.
-- **A service's default descriptor now asserts something.** Saying nothing means "serves HTTP on
-  9000" and the pod is not `Ready` until that port opens. Right for an ankka service; an image that
-  listens on nothing (`pause`) needs `"http": false` or it is `Failed` when the rollout deadline
-  passes. Every `pause` descriptor in the test suites carries it.
-- **Kustomize's load restrictor is checked per component directory, not against the
-  top-level build root.** A component cannot reference a file outside its own directory —
-  not via a relative path, not via a symlink resolving there — even when a common ancestor
-  contains both. There is no override for `kubectl apply -k`. The CRD, the operator's
-  install manifest and the control plane's RBAC are therefore canonical *inside*
-  `kustomization/components/`, with `operator/src/main/resources/ankka/{crd,install}/` and
-  `controlplane/src/main/resources/ankka/install/` holding symlinks *into* them — the
-  reverse of the direction that seems obvious, and the only direction that works, since sbt
-  and the JVM follow symlinks transparently but kustomize does not. Never `ln -sf` onto a
-  path that might already hold the real content; copy it out first. This one cost real file
-  content, recovered only because the compiled classpath still had it.
-- **`actions/checkout` hijacks pushes to any other GitHub repository.** It persists the workflow's
-  token as `http.https://github.com/.extraheader`, which matches *every* github.com URL and beats
-  the `x-access-token:<token>@host` credentials written into a push URL. The release's template
-  job pushed to `ankka.g8` as `github-actions[bot]` and got "Permission to … denied", a 403 that
-  reads exactly like a repository that does not exist — it did exist, and the token was never
-  tried. `persist-credentials: false` on that checkout is the fix.
-
-- **Local mode runs no management server, so observability needs its own local exposure.**
-  `ClusterFormation` starts Pekko Management only in the `bootstrap` path, and says why: it binds a
-  fixed port, which two services on one laptop would fight over. `VersionRoute` is therefore the
-  obvious model for an observability endpoint and the wrong one — it does not exist where the local
-  console needs it. Observability is exposed twice, chosen by where the process runs, exactly as
-  formation is: a loopback endpoint on an ephemeral port locally (`ObservabilityEndpoint`, on the
-  JDK's own HTTP server so `runtime` gains no dependency), and a `ManagementRouteProvider`
-  (`ObservabilityRoute`) under Kubernetes. One recorder, two exposures.
-- **A trace set on the caller's thread is invisible to the thread doing the work.** `dispatch`
-  returns a `Future`; the handler runs later on its own virtual thread. Wrapping the *call to*
-  `dispatch` in `Trace.within` compiles, runs, and produces an endpoint span and an entity span in
-  two unrelated traces — a list, not a tree. The trace belongs where `RequestScope` already puts
-  the request context: inside the `Future`, on the handler's thread. The general rule is the one
-  `RequestContext` already states — work handed to another thread cannot see a thread-local — and
-  tracing inherits it exactly. Where it genuinely cannot follow, the time shows as *unattributed*
-  and an orphan span stays at the root marked unknown. **Never re-parent an orphan to the nearest
-  plausible candidate**: a tree that reads correctly and describes something that did not happen is
-  worse than a visible hole.
-- **A refusal is not a failure, and the recorder has to be told which it was.** `effects.error(...)`
-  returns a *value*, so a refused command reaches the caller looking exactly like a success — a
-  `try`/`finally` around the handler records `Ok` for a working ACL. `interpret` returns the span
-  outcome rather than leaving the caller to infer it from an exception that never comes. A console
-  that paints a refusal red, or a fault green, teaches its reader to ignore the column.
-- **Never intern anything unbounded into the recorder's name table.** Component and handler names
-  are interned once and become `Int`s, which is what keeps a span allocation-free. That table is
-  bounded *only* because registration is explicit and handler names are declared on companions.
-  Entity ids, session ids and request paths with parameters filled in are not bounded, and interning
-  one would grow the table for the life of the process.
-- **A benchmark needs a denominator that is the thing the criterion names.** SC-003 asked for
-  instrumentation within 5% of "a service's throughput". Measured against an empty loop recording
-  cost 58%; against a jsoniter round-trip, 28%; against a testkit entity call, 50% *while measuring
-  faster than the serializer alone*, which is the JIT folding a monomorphic loop. All three numbers
-  were arithmetically true and answered a question nobody asked. Against a real service — HTTP in,
-  entity, journal, reply — one invocation is 640µs and recording is 22ns, or 0.003%. A ratio that
-  moves with the shape of the harness is measuring the harness.
-- **A script that fails an assertion has still done nothing — check what it left behind.** An edit
-  meant to remove the first attempt at the HTTP entry span asserted on two call sites, found one,
-  and threw before writing; the follow-up added the replacement without removing the original. Both
-  shipped, every request recorded two spans, every metric double-counted, and no test could see it.
-  It took reading metrics off a real deployment and noticing one request wearing two component
-  names. Re-grep for what a failed edit was supposed to remove.
-
-- **An `eventually` must wait for the thing it asserts.** `ControlPlaneHttpSuite` waited for the
-  cart's row to appear and then asserted, outside the retry, that the row carried the image the
-  *previous* test had applied. The generation-1 row satisfies "a row exists", so on a machine where
-  the projection lags the test read a stale row and failed — green on a laptop, red on CI. Every
-  other `eventually` in that suite has the right shape: retry on the value that changes
-  (`"services":0`, the hostname, the row disappearing), assert the identity that does not.
-
-- **A judged guardrail's fault is an exception, never a `Left`.** A `Left` from a guardrail is a
-  refusal — `Forbidden`, and on an autonomous agent a failed task or a rejected result. A judged
-  guardrail whose provider failed has refused nothing, so `Guardrails.check` throws
-  `GuardrailCheckFailed`, which the request loop answers `Unavailable`/`Timeout` (`Internal` for no
-  provider at all) and the autonomous host treats as a failed iteration. Before this, a guardrail that
-  threw at a task's start escaped to the worker's catch-all and was retried every second forever; it is
-  now counted against `maxConsecutiveFailures` like any failed iteration.
-- **A scripted judgment that cannot answer is `JudgmentScriptFailed`, and must never take the retry
-  path.** It is deliberately not a `JudgmentFailed`: a test that added a question and forgot its answer
-  must fail now, naming it, not back off for fifteen seconds as an outage would. `failNext` is how a test
-  produces a real `JudgmentFailed`, on purpose, and each call queues exactly one.
-- **A module's fresh instance knows only what the request carries.** A Rust task rule calls the client from
-  a fresh instance with no context but the request, and a result check or guardrail check carried no
-  metadata, so every call a rule made was counted from the unknown caller. Only the Rust conformance run
-  saw it; the Python and TypeScript references passed because their rules call nothing. Anything the runtime
-  asks a process to do on a handler's behalf carries the handler's metadata.
-- **An extension looked up in a constructor breaks every suite that builds the class without a system.**
-  `ViewQueries` read `Observability(system)` eagerly, and `ControlPlaneRoutesReferenceSuite` builds the
-  endpoints with no actor system to list their routes, so it failed with a `NullPointerException` deep in
-  `OrganizationEndpoint`. A lookup that is only needed when a query runs is a `lazy val`.
-- **An SVG with `role="img"` may not contain anything focusable.** axe reports `nested-interactive` for a
-  topology picture whose nodes are buttons; the picture is a `group` with the same label.
-- **A `var` that is assigned and never read is a lifecycle that never runs.** The local console
-  endpoint was held in a `@volatile var` on the `Ankka` builder object; nothing read it, so
-  `stop()` — and with it `ServiceRegistration.withdraw` — was unreachable, and every locally-run
-  service left its entry in `~/.ankka/running` forever. Unit tests of `announce` and `withdraw`
-  passed throughout: both were correct, and the defect was that one was never called. The console
-  sweeps entries nothing answers for, so the only symptom was a directory quietly filling up. It
-  belongs to `AnkkaService`, which is the thing that gets terminated — a singleton builder would
-  keep only the most recently started endpoint anyway. `ServiceRegistrationSuite` drives the whole
-  lifecycle for this reason; nothing narrower can catch a call that is never made.
-
-- **A test that binds a fixed port cannot run beside the documented workflow.** `HttpServer.of`
-  takes the default 9000, so a suite registering one fails with `Address already in use` on any
-  machine already serving that port — including a developer running `sbt shoppingCart/run` next to
-  their tests, which is how this repository says to work. Every HTTP suite uses
-  `HttpServer.at("127.0.0.1", 0)`: loopback, ephemeral, the same reason the cluster's remoting port
-  defaults to random. CI passes either way, so this only ever fails on the machine of the person
-  doing the thing the README recommends.
-
-- **A strategic merge patch that names a container the target lacks adds a container.** Containers
-  merge by `name`, so the production overlay's sidecar patch, written for `operator` when the container is
-  `ankka-operator`, rendered a second container holding only `ANKKA_SIDECAR_IMAGE` and no image.
-  kustomize accepted it and `RemoteOverlaySuite` passed, because it asked whether the registry's
-  sidecar appeared *somewhere* in the document. The API server refused the Deployment
-  (`containers[0].image: Required value`) on the first production reconcile after v0.2.2, three minor
-  versions after the patch was written. Assert the shape a patch must produce (the variable set
-  once, the default gone), not the presence of a string.
-- **Changing a cert-manager issuer's `server` does not replace the certificate it issued.**
-  cert-manager reissues on a spec change or when the secret's issuer annotations disagree with
-  `issuerRef`; a new server under the same issuer name is neither, so the old CA's certificate
-  stays until renewal. Moving a production cluster from Let's Encrypt staging to production renamed the
-  ClusterIssuer (`letsencrypt-production`) for exactly this, and `RemoteOverlaySuite` checks that
-  the Certificate names an issuer that exists.
-
-- **Nothing wakes a passivated entity, and idle passivation stops a working one.** A workflow mid-step
-  survives a restart only because something polls it. Autonomous agents are the one entity type with
-  `remember-entities` (event-sourced store — the coordinator's list of shards is journaled too, so no LMDB
-  on a pod's disk); remembering turns automatic passivation off, so the host passivates itself when it is
-  idle and unwatched. A subscription keeps an instance alive.
-- **A host that stops under an operation loses the reply.** Sharding's default stop message stopped the
-  autonomous host while an `assign` it had started was in flight, and the caller timed out instead of
-  hearing `Conflict`. The entity has its own `Stop` (`withStopMessage`): the host finishes the operation
-  and everything stashed behind it first.
-- **Work done for a task outside its iterations needs the task too.** A remote guardrail names the task's
-  session, and the input guardrails run when a task *starts*, before any iteration. The current task is set
-  around all work on a task (`AutonomousAgent.CurrentTask.within`), not per iteration.
-- **Only the process can decode a remote result.** A per-rule check sent a malformed result to a Python
-  rule, which raised, which is a failed iteration, retried forever — and a remote type with no rules would
-  have accepted anything. `CheckTaskResult` decodes and runs every rule in one call, answering `malformed`
-  as the Scala agent's decode failure is answered: a tool error the model corrects.
-- **`protocol/fixtures/` belongs to `core`'s `EncodingFixturesSuite`**, which refuses any file it did not
-  generate. The autonomous agent's fixtures live in `protocol/fixtures/autonomous/`, written by
-  `AutonomousFixturesSuite` in `testkit`.
-- **`protocol/fixtures/graph-deltas/` is not generated here at all.** `keys.json` and `deltas.json` are
-  ankka-flow's, copied byte for byte — its merge sink's suite reads the same rows, which is what makes
-  them proof that a graph consumer writes what the sink reads — and `refused.json` is ankka's own.
-  `SOURCE.md` there names the ankka-flow commit. Change neither copied file here; copy them again.
-  All four SDKs test against all three.
-- **A kill switch downstream of `Committer.flow` cancels the commit it was about to flush.** The Kafka
-  subscriber's switch sat after the committer, so stopping a subscription cancelled the batch in hand,
-  and the same group, subscribed again, was handed everything since the last flush — the subscriber
-  contract's resume case read `a1..a5` again. The switch is shared and placed between the source and
-  the handler: shutting it completes what is downstream, so the message in hand finishes and the
-  committer flushes on completion.
-- **Pekko's `SendProducer` does not keep sends in order.** Its `send` is `producerFuture.flatMap(_.send(…))`
-  on a multi-threaded dispatcher, so sends issued in order are separate tasks that may reach Kafka in
-  either order — and a key only orders what reaches the producer in order. A consumer's several messages
-  under one key landed `3, 1` on CI, in a suite that had passed every local run. `KafkaPublisher` calls the
-  Kafka producer directly; `KafkaSuite`'s ordering case fails on every run against the old publisher.
-- **The in-memory broker's publication future is its groups' delivery.** It completes when every group on
-  the topic has caught up, and fails with a handler that failed; a failed message stays at the head of its
-  group until the next publication or `redeliver(topic)`. A test that republished to simulate redelivery
-  now delivers twice; ask for `redeliver` instead.
-- **A record's key and its subject are two things.** `ce-subject` says which entity a message is
-  about; the record key says which messages are ordered together and which one a compacted topic
-  keeps. They are the same unless a message names a key (`Outgoing.withKey`, and every graph delta
-  does). `MessagePublisher`'s keyed `publish` fails by default, on purpose: a publisher that keyed a
-  named-key message by its subject would hand a reader a different record and say nothing.
-- **`ProjectionSupport.publishAll` is the one place several messages are published**, for a
-  consumer in process, behind a sidecar or in a module, and the Scala `ConsumerTestKit` applies an
-  effect with `applyConsumer` too. A rule about keys, the subject default, the 4 MiB bound or
-  redelivery belongs there or nowhere.
-- **A consumer that must fail forever cannot be tested in a running service.** A change that
-  cannot be handled is redelivered for ever and stalls its slice of the projection for every test
-  after it in the suite. The size bound is held by the pure `PublishAllSuite`; a refused
-  publication is tested with `InMemoryBroker.failNext`, which refuses once.
-- **`runtime` and `sidecar` hold no graph code.** A delta is a value in `core`
-  (`core/graph`), the builder is in `sdk`, and what the runtime publishes is bytes under a key.
-  If a change needs the runtime to know what a delta is, the change is wrong.
-- **A key value deletion is a persisted state, never a row delete.** `Stored(empty, deleted = true)`
-  at the next revision. Removing the row (`PekkoEffect.delete`) is what it did before: the plugin
-  emits nothing for it, so no view's row was removed and no consumer's deletion handler ran, and
-  after a restart the revision began again from one — an entity created again looked older than
-  its own deletion. `KeyValueDeletionSuite` showed five of its eight cases failing on that code.
-  A deleted record is never decoded: a remote host writes one with no payload.
-- **A newer SDK on an older runtime would lose messages silently.** A runtime reads a reply case it
-  does not know as no case at all, and `Translate.fromConsumerEffect` reads that as `Ignore`. So the
-  runtime states its protocol on every consumer request (`ankka.protocol`, set in
-  `RemoteProjection.consumerMetadata`), and an SDK fails the change rather than answer
-  `produce_all` to a request that does not carry `1.3` or later. An SDK sends an empty list as
-  `done` and a single un-keyed message as `produce`, so the guard fires only where it must.
-- **`testkit` depends on `agent`,** so a suite that needs `EventSourcedTestKit`, `TestTransport` or
-  `AnkkaTestKit` for an agent-module type lives in `testkit/src/test`. `EntityRouter` there routes real
-  calls to real entity test kits by id, which is how client-side orderings are tested without a runtime.
-- **Two sharded kinds may not share a component id.** Sharding keys by the id alone, so an agent and an
-  autonomous agent both named `helper` would share one region; `ComponentRegistry` refuses it.
-- **React Router's route-config loader ignores the host's Vite `resolve.conditions`.** `routes.ts` is
-  evaluated by the framework's own loader, so `import "ankka-console/server"` there fails to resolve under a
-  source-only condition that works everywhere else in the app (`Failed to resolve entry for package`). The
-  console's host therefore consumes the package through its built `dist/`, exactly as an npm consumer does,
-  and the workspace's `build`, `dev` and `e2e` scripts build the package first.
-- **`react-router build` with no `app/entry.server.tsx` installs `isbot` into the nearest `package.json`.**
-  Run in `console/package/test/fixture-host/`, that was the package's own manifest, and the reinstall that
-  followed pruned `@react-router/dev` out of `node_modules`. The fixture host has its own server entry for
-  this reason; check `git status` after a build that printed anything about installing.
-- **A Playwright test that reloads straight after a click cancels the click's submission.** With scripts on,
-  a form posts through `fetch`; `page.reload()` or `page.goto()` right after the click aborts it, and the
-  write never happens — the test then fails on a state that is correct. Wait for the page the action lands
-  on, or for the `POST`'s response, before navigating. It cost four "failures" of correct behaviour.
-- **The control plane's listings are projections; the fake's are not unless asked.** Organizations,
-  projects, services and tokens are listed from views that trail a write by up to a second or two, and the
-  delete checks ("still has N projects") count from them too. A test that reads a listing after a write
-  must reload until it shows (`afterProjection` in the e2e fixtures); a page must go to what it created by
-  id rather than to a list. The token page hid a new token's secret until the listing caught up, a bug only
-  the compose run could see.
-- **The control plane answers `Done` as 204 with no body**, including for creating an organization or a
-  project, and an omitted deploy-token lifetime is the 90-day default, not "never" (`0` is never). The fake
-  had both wrong until the compose run found them; `ControlPlaneFixturesSuite` covers bodies, not statuses.
-- **Keycloak's issuer depends on who asks, so the console's backchannel pretends to be the gateway.**
-  Configured with a host name only, Keycloak takes its issuer's scheme and port from each request's
-  forwarded headers, else from how it was reached. The control plane only reads keys over the in-cluster
-  address, which carry no issuer; the console also runs discovery and the token grants there, and
-  unadorned they answered `https://auth.<base>:8443` — refused at discovery (a 500 at sign-in, found only
-  by the k3s suite) and wrong in every token. `Issuer` sends `X-Forwarded-Proto/Host/Port` for the public
-  issuer on every backchannel call; `fakeIssuer({ hostOnly })` reproduces Keycloak's behaviour for the test.
-- **A React effect depending on a function from a hook re-runs on every render.** The stream hook depended
-  on `useConsole().href`, a fresh closure each render, so every event it delivered re-rendered the page and
-  reopened the stream, which never left "connecting". Depend on the stable value (the mount path) instead.
-- **On SIGTERM every JVM shutdown hook runs at once, and Pekko's terminates the actor system.**
-  A service's own hook calling `terminate()` raced Pekko's coordinated shutdown: a gRPC stream
-  still inside the server's shutdown grace lost its materializer and ended `INTERNAL` instead of
-  `UNAVAILABLE`, on some k3s runs and not others. Coordinated shutdown now *starts* stopping the
-  extensions in its first phase and *waits* for them in its last (`AnkkaService.registerShutdown`;
-  the stop runs once, whoever asks first), that phase's timeout raised to 20s in `reference.conf`;
-  `ShutdownOrderSuite` (testkit) runs only coordinated shutdown and fails without it. **Do not make
-  the first phase wait**: holding the cluster leave and shard handoff until every extension had
-  stopped made `ExposureClusterSuite`'s rolling restart under load time out, every run.
-- **The operator re-applies a project namespace's `managed-by` label on every reconcile.** A test
-  that removes it to make the gateway refuse a route is racing a platform that heals it — the k3s
-  route-rejection case passed or failed on timing. Refuse the route from the gateway's side (its
-  listener's selector, which the operator does not own) and put it back in a `finally`.
-- **A CLI's `main` should be a one-line wrapper.** `Main.run(args, out, err): Int`
-  returns the exit code and `main` calls `sys.exit` on it; `sys.exit` inside the command
-  logic would kill the test JVM.
-
-- **`KeycloakRealmImport` is one-shot.** It creates a realm that does not exist and never updates
-  or deletes one; a re-apply is a no-op and deleting the resource leaves the realm. So a change to
-  the realm on an existing installation is a console job. The resource *is* the checked-in file:
-  the first shape had the deploy script render it from a bare `realm.json`, and the first cluster
-  applied by anything else came up with a Keycloak and no realm — the same defect as the schema
-  ConfigMap, found the same afternoon.
-- **Keycloak writes a lone `aud` as a string and several as an array.** A test (or a verifier)
-  that reads `aud` as an array sees nothing on a service-account token. nimbus handles both;
-  `KeycloakAdmin.audiences` does for tests.
-- **A token has no `sub` unless a scope maps it — and no name, email or roles either.** The realm
-  file declares `clientScopes`, and a realm imported with its own list gets none of Keycloak's
-  built-ins: `basic`, `profile`, `email` and `roles` do not exist in it, and a client that names them
-  as defaults is silently given only the scopes that do. The token verified but carried no subject,
-  and later no `name` (`ankka whoami` printed `(none)` for a user with both names set). Every claim
-  the control plane reads is therefore mapped by the `ankka-controlplane` scope itself — subject,
-  audience, email, verification, realm roles, full name and username — and `KeycloakRealmSuite`
-  asserts each on a real token. A new claim needs a mapper there, not a built-in scope.
-- **A Keycloak user with no first and last name cannot log in with a password grant** — "Account
-  is not fully set up", a pending profile action. The deploy script, compose and the test helper
-  all set both on the users they create.
-- **A kustomize Component's `namespace:` transformer runs over everything the overlay accumulated
-  before it.** Setting it on the Keycloak operator component renamed CNPG's namespace and the render
-  failed with an ID conflict. The operator's manifests sit in a nested plain Kustomization
-  (`components/keycloak-operator/manifests`) whose transformer sees only them — and the
-  ClusterRoleBinding's subject, which no namespace transformer reaches, is patched by hand there
-  and in `KeycloakStack`.
-- **The Keycloak operator needs all four of its CRDs, not the two ankka uses.** With only
-  `keycloaks` and `keycloakrealmimports` applied it crash-loops on
-  `keycloakoidcclients … Not Found` and never reconciles anything. The component's nested
-  kustomization and `KeycloakStack` install the OIDC and SAML client CRDs too.
-- **The control plane's issuer must equal what Keycloak writes into `iss`, port included — and
-  Keycloak learns the port only from `X-Forwarded-Port`.** With a bare `hostname` it takes scheme
-  and port from the proxy headers; Envoy forwards the proto and not the port, so through kind's
-  8443 every token and every discovery URL named `https://auth.<base>/…` — unreachable on kind and
-  a 401 on every request. The identity provider's `HTTPRoute` sets `X-Forwarded-Port` to the HTTPS
-  port (the overlay replaces it from `ankka-platform.httpsPort`, the deploy script's sed too, and
-  `KeycloakStack` templates the mapped port), the control plane derives the same string from
-  `ANKKA_BASE_DOMAIN` and `ANKKA_HTTPS_PORT`, and `EndToEndClusterSuite` asserts the advertised
-  issuer equals the derived one. `X-Forwarded-Host` with a port works as well; `Host` with a port
-  does not — measured against the image, not read from the docs.
-- **An operator *reports* `Paused`, so a listing row cannot infer "the members paused it" from
-  its own lifecycle word.** `ServiceRows` kept `Paused` on any observation while the row said
-  `Paused` — and a stale operator report of the pause, landing just after a resume, pinned the
-  listing at `Paused 1/1` while `services get` said `Ready` (the k3s end-to-end suite caught it;
-  the fast harness could not until it replayed that exact report). The row now carries the
-  members' `paused` flag and the organization's `suspended` flag and applies the same rule as the
-  entity's fold: desired state wins over a report. `SuspensionSuite` pins the sequence.
-- **A suite that fills a manifest placeholder with a plain `replace` also rewrites variable
-  *names* that contain it.** `ControlPlaneClusterSuite` turned `ANKKA_BASE_DOMAIN` into
-  `ANKKA_test.local`, so the deployed control plane had no base domain — harmless for two
-  features, and a crash-loop at startup once the issuer was derived from it. Replace the
-  placeholder with a lookbehind (`(?<!ANKKA_)BASE_DOMAIN`), and read a deployed pod's `env` before
-  blaming its image.
-- **A CLI test that deletes the credentials file after removing the config override deletes the
-  developer's own.** `Credentials.path` follows `Settings.path`; clean up *before* the property
-  goes, in a directory the test owns.
-
-- **A workflow's stream carries a command and a step at once, and a query mid-step must not close
-  the conversation.** The engine keeps answering commands while a step runs (that is the point of
-  steps being asynchronous), so the sidecar tracks one pending command *and* one pending step per
-  workflow session; with one slot a `status` query during `reserve` was a protocol violation that
-  dropped the session and failed the step over to compensation. The Python server runs steps as
-  tasks on a fresh instance for the same reason — a command and a step sharing one instance's
-  context slot had the query's `finally` clear the step's context mid-await.
-- **A process fault in a remote step is *thrown*, never a `Fail` outcome.** The engine applies the
-  declared recovery (retries, failover) only to a step that threw; a `StepOutcome.Fail` ends the
-  workflow. `RemoteWorkflowHost` throws on a `Failure`, a timeout and a wrong id, and reserves the
-  `Fail` outcome for what the process answered on purpose. Settings the engine enforces (timeouts,
-  recovery) are declared in discovery (`WorkflowDetail.Settings`), since the process cannot.
-- **The agent loop runs tools and guardrails after the handler has returned and its session context
-  is gone.** A `FunctionTool` invoker that reads `sessionId` when called throws "sessionContext is
-  only available inside a command handler"; `RemoteAgent` captures the session at plan time. And in
-  an anonymous `Guardrail`, `val name: String = name` is the val naming itself — null, and a
-  `GuardrailRequest` that cannot be serialized; grpc-java reports that as `CANCELLED: Failed to
-  stream message`, which reads like a network fault and is a NullPointerException in a field.
-- **The in-process event sourced host resurrected deleted state**, found by the conformance suite's
-  `es.delete-then-fresh`: the fold applied the first event after a deletion marker onto the kept
-  old value while the handler had been shown `emptyState`, so a deleted entity written to again
-  answered with both lives' events. The fold now starts from `emptyState` after a deletion or an
-  expiry. The remote host never had the bug: it drops the session and re-opens with no snapshot.
-- **A Pekko stash is dropped when the actor stops**, and a remote entity waiting on its process is
-  exactly the actor that stops mid-command in a hand-off: every stashed caller would time out with
-  no answer. The remote hosts keep an explicit queue in the actor's state and answer it
-  `Unavailable` from `PostStop`; the client service retries `Unavailable` briefly, so a rolling
-  replacement refuses nothing.
-- **`snapshotWhen` sees the state *before* the event it is asked about**, and Pekko may snapshot at
-  a sequence the host did not expect. `RemoteStateRecord` carries absolute positions and the
-  predicate accepts the process's snapshot at its own sequence or the next one — which is why a
-  process target's snapshot row sits at 3 *or* 4 where the in-process one sits at 3.
-- **A sidecar's `Main.run` must block on `whenTerminated`.** Returning after start exits the JVM,
-  and coordinated shutdown has the node leave the cluster it just joined while it is still answering
-  HTTP.
-- **PID 1 in a container ignores signals from its own namespace**, so `kill 1` inside the app
-  container proves nothing; the k3s suite signals the host pid found through `crictl inspect` on
-  the node. And a readiness probe at 3×5s cannot observe a container that restarts in two seconds,
-  so a test that kills the process asserts on a request retried until it answers, not on `Ready`
-  flapping.
-- **The encoding's primitives are `text/plain`, not JSON.** A `String`, an `Int`, a `Long` cross the
-  wire as their text under manifests `string`, `int`, `long`; only records and sum types are JSON.
-  An endpoint returning `str` answers `text/plain`, so a test that calls `.json()` on it fails with
-  "Expecting value", and a `str` body is posted raw, not as a JSON string.
-- **A directory from `mkdtemp` is mode 0700, and a container reads a bind mount as its own user.**
-  The Python testkit mounts the DDL it copied out of the sidecar image into Postgres's
-  `docker-entrypoint-initdb.d`, and the image's entrypoint runs `ls` on that directory as `postgres`
-  (uid 70) under `set -e` before initdb — so on Linux the container exited before it listened, the
-  readiness wait reported only "container is not running", and every CI run of the SDK failed while
-  every laptop run passed: Docker Desktop on macOS maps ownership through its file sharing and hides
-  the permission. The directory is `chmod 0o755` before it is mounted, and a container that fails to
-  start now raises with its own logs attached.
-- **`host.docker.internal` needs `--add-host=host.docker.internal:host-gateway` on Linux.** Docker
-  Desktop provides it; the Python integration testkit and compose set it unconditionally.
-- **On the machine this repository is developed on, every Docker registry client is refused by ghcr.io,
-  and the cause is unknown.** Docker Desktop's engine and CLI, OrbStack's engine and CLI, with and without
-  credentials, signed in to Docker or not: `denied` for every ghcr.io image, public ones included. `curl`
-  and `crane` from the same Mac, and `curl` from inside a container on the same engine, get the same
-  manifests anonymously with a 200, and replaying Docker's requests (its User-Agent, its token parameters,
-  IPv4 or IPv6 — ghcr.io has no AAAA) with `curl` succeeds too. It is not an organisation's registry
-  policy, which was the first guess and was written down here. CI and other machines pull from ghcr.io
-  normally. Locally, pull through the Artifact Registry cache
-  (`europe-west2-docker.pkg.dev/ankka-ops/ghcr/…`, via `ANKKA_SIDECAR_IMAGE`), or `crane pull` to a tarball
-  and `docker load` it. The Python sample's Dockerfile installs with pip from the official `python` image
-  rather than `ghcr.io/astral-sh/uv` for the same reason. A separate, stale ghcr.io login in the Docker
-  keychain breaks tools that read Docker's config (`crane`); `docker logout ghcr.io` removes it.
-- **Node's type stripping runs only erasable TypeScript, and codegen does not know that.** The TypeScript
-  SDK (`sdks/typescript`) runs its sources, tests and examples directly under `node`, which refuses `enum`,
-  parameter properties (`constructor(private x)`) and decorators. protoc-gen-es emits a TypeScript `enum`
-  for every proto enum unless `erasable_syntax=true` is set in `buf.gen.yaml`; the first typecheck of the
-  generated stubs failed on exactly that. `erasableSyntaxOnly` in `tsconfig.json` keeps hand-written code
-  honest, and it caught four parameter properties written from habit on the first day.
-- **Generated imports say `.ts`, and `tsc` rewrites them.** `import_extension=ts` in `buf.gen.yaml` with
-  `rewriteRelativeImportExtensions` in the tsconfig is what lets the same generated file run from source
-  under Node and resolve as `.js` in `dist/`. The two options are a pair; drop either and one of the two
-  paths breaks.
-- **`exports` conditions are matched in order, and TypeScript honours `types` first.** The package's
-  `exports` carry an `ankka-source` condition pointing at `src/` so the examples can `import "ankka"` in
-  the repository (`node --conditions=ankka-source`, `customConditions` in the tsconfig). Listed after
-  `types`, it was never reached once `dist/` existed and the typecheck quietly resolved against a stale
-  build. `ankka-source` comes first.
-- **`files` in `package.json` overrides `.gitignore` for packing.** `src/_proto/` is gitignored and
-  `dist/_proto/` ships, because `files: ["dist"]` is the whole rule. The Python wheel needed hatchling's
-  `artifacts` for the same thing; npm needs nothing.
-- **`npm pack --pack-destination` does not create the directory.** `enoent` with no path in the message.
-- **A Connect bidi client needs the request iterable to implement `throw`.** An `AsyncIterable` built by
-  hand as a queue failed every conversation test with `[internal] AsyncIterable does not implement throw`;
-  the queue's iterator has `return` and `throw` for this reason.
-- **`http2.Server.close()` waits for every session to end, and a client keeps an idle one open for
-  minutes.** `Server.stop()` closes the sessions it has seen (tracked from the `session` event) and destroys
-  the stragglers after a grace period, or the test process never exits and `after` hooks hang. It looked
-  like a hanging test; it was a hanging listener. Node 24 eventually times the idle session out; Node 22
-  never does, so a test that stopped a raw `http2.createServer` with a bare `close()` passed on 24 and hung
-  the `sdk-typescript (22)` CI job at `npm test` until it was cancelled. Every server a test starts, the
-  SDK's or a fake sidecar's, destroys its sessions before `close()` — and that difference is why the
-  matrix runs both lines.
-- **Connect speaks gRPC to grpc-java over plain HTTP/2 on loopback**, verified against the sidecar image on
-  2026-09-26: discovery, the entity stream with init, replay and snapshot requests, a graceful stop ending
-  the stream cleanly and a kill surfacing as `Premature close`. The gRPC protocol needs `http2.createServer`;
-  Connect's HTTP/1.1 path cannot carry bidirectional streams.
-- **npm's trusted publishing cannot create a package.** A trusted publisher is configured on a package
-  that already exists, and npm/cli#8544 (a PyPI-style pending publisher) is open. The first publish of the
-  TypeScript SDK is by hand, after the tag's `publish` job; see *Publishing*.
-- **munit's `--` filter matches the full test name, suite included.** `ANKKA_CONFORMANCE_ONLY='es.*'`
-  matched nothing and the whole `ConformanceSuite` reported as *ignored* with zero tests — a green exit for
-  a run that did nothing. The glob needs a leading wildcard: `'*es.*'`.
-- **`npm publish dist-pack/x.tgz` is a GitHub clone, not a file.** npm-package-arg treats a bare
-  `a/b` as the `owner/repo` shorthand whatever its suffix, so the release's publish step ran
-  `git ls-remote ssh://git@github.com/dist-pack/ankka-0.6.0.tgz.git` and failed with `Permission
-  denied (publickey)` — a failure that reads like a missing SSH key on the runner and is a spelling.
-  A spec is a file only when it starts with `./`, `../`, `/` or `~/`; the step and the manual
-  first-publish command both say `./dist-pack/…`.
-- **`await using` is Node 24; Node 22 refuses it with a syntax error.** The integration testkit offers
-  `Symbol.asyncDispose` and `stop()`, and the docs show `try`/`finally`, because the package's floor is 22.22.
-
-- **A `Consumer` runs on one node, so it can never back a per-request check.** `ShardedDaemonProcess`
-  places a consumer on one member of the cluster; an ACL runs on whichever node took the request.
-  Anything every node must know — a deploy token's digest, say — is a `RuntimeExtension` with its own
-  local projection of the journal, replayed on start and followed live, not a consumer writing a view.
-  And because `Acl.Authenticate` is synchronous on the server's dispatcher, that projection must
-  already be in memory when the request arrives: a verification that queries anything is a verification
-  that blocks the dispatcher.
-- **A write-through is what makes "create, then use" work on the node that created it.** An index fed
-  only by the journal is a refresh interval behind, so the obvious script — mint a token, use it —
-  answers 401 against the very node that minted it. `admit` on create and `evict` on revoke are not
-  optimisations; without them the feature is wrong on one node and right on the others, which is the
-  worst shape a bug can have.
-- **No secret value in the control plane's journal.** A credential goes to the cluster and the journal
-  records that it exists, where, and as whom. A journal, a snapshot, a backup of either and every view
-  built from them are all readable by anything that can read Postgres, and a password in an event is
-  permanent — there is no migration that unwrites it. Both places this applies (a deploy token's
-  secret, a project's registry password) keep only a digest or nothing at all, and
-  `EventCompatibilitySuite` asserts the absence rather than trusting it.
-- **Write the cluster first, then the journal.** `PUT /projects/{id}/registry` applies the Secret and
-  only then persists `RegistryConfigured`; a cluster that refused is a 503 and records nothing. The
-  reverse order leaves services naming a Secret that does not exist, with the journal insisting it
-  does — and nothing in the sweep can tell that from a Secret someone deleted by hand.
-- **`${{` in a Giter8 template is `\${{` or it is gone.** Giter8 reads `$` as its own syntax, so an
-  unescaped GitHub expression is *deleted*: the workflow still parses, the YAML is still valid, and the
-  secret simply arrives empty. There is no syntax check that can see this, which is why `TemplateSuite`
-  expands the template and asserts on the expanded files — no surviving `\$`, balanced `${{`/`}}`, and
-  the expressions that must be there by name.
-- **A pull secret cannot be proved by restarting.** Every workload renders
-  `imagePullPolicy: IfNotPresent`, so once an image is on a node a restart succeeds with no credential
-  at all — "clear the registry and restart" passes whether or not clearing did anything. The negative
-  half needs a tag the node has never held: `EndToEndClusterSuite` pushes two tags to an in-cluster
-  `registry:2`, removes both from the node, and deploys the second only after the credential is gone.
-  The registry is reached at `127.0.0.1:<nodePort>`, the one address containerd treats as insecure by
-  default, so no TLS and no per-node containerd configuration is needed.
-- **`PodSpecBuilder` materialises every list it was never given.** `getImagePullSecrets` on a spec
-  that never set one is an empty list, not `null`, so a test asserting "absent" on a fabric8-built
-  object is asserting something the builder does not do. That is also why adding the field changed
-  nothing for an existing service: the rendered Deployment already carried the empty list.
-
-- **Envoy Gateway cuts every route at fifteen seconds unless the route says otherwise.** Envoy's
-  default route timeout applies to an `HTTPRoute` rule that names none, and it ends a gRPC stream or an
-  SSE stream mid-flight. The gRPC rule says `timeouts.request: "0s"`, which also turns off the route's
-  stream idle timeout. The HTTP rule still names none, so an SSE stream through the gateway is very
-  likely cut at fifteen seconds today; changing that changes what every exposed service renders.
-- **A cluster IP balances connections, and a gRPC channel keeps one for minutes.** Every call from one
-  caller would reach one instance, and a new instance would see none. The platform's client resolves
-  the headless `<service>-grpc-peers` and balances per call (`round_robin`); the server's two-minute
-  connection age is what makes it re-resolve. That name can be another service's address, and Services
-  are applied with forced ownership, so it goes through `EnsureGrpcPeers`, which reads first and never
-  takes over an object it does not own.
-- **grpc-java answers a request marshaller that throws with `UNKNOWN: Application error processing
-  RPC`.** Every method is re-bound with a pass-through byte marshaller and ankka parses, so a request
-  that is not one is `INVALID_ARGUMENT` and no handler runs. `ServerServiceDefinition` insists on the
-  descriptor's own method instances, so the descriptor is rebuilt, schema descriptor kept for reflection.
-- **An `UNAVAILABLE` raised by the transport is not the called service's refusal.** A handshake that
-  failed ends a call `UNAVAILABLE` too; reading every such status as `CommandError(Unavailable)` handed
-  a handler a refusal nobody made. Only a status with no local cause — one the service sent — is a
-  refusal. And under BoringSSL a trust manager's "peer identity" reason sits beneath a handshake failure
-  whose own message is "General OpenSslEngine problem", so the whole cause chain is read.
-- **`concat(Source.failed(…))` fails the stream before the parts ahead of it exist.** `concat`
-  materializes its second source at once, and a failed source fails at once; in Pekko a failure also
-  travels ahead of parts still in flight. A fixture that means "these parts, then a refusal" refuses when
-  the next part is asked for — throwing in a `map` over one more element — as a stream over a component
-  that refuses mid-stream does. Two runs were spent blaming the platform's queue sink for this.
-- **The HTTP/2 window is counted in bytes and grows to megabytes.** A stream of tiny parts can rightly be
-  produced whole before anyone reads it, so a backpressure test that counts tiny parts fails a correct
-  server. The flow-control cases use 16 KiB parts.
-- **A deadline spent connecting never reaches a handler.** A 200 ms deadline on a channel's first call
-  can expire during the handshake, so a case about a handler outliving its caller opens the connection
-  with one call first.
-- **A bound address is read as an HTTP address by every reader** — the local console's invoke panel, the
-  HTTP service client's local lookup — so gRPC's is `RuntimeExtension.grpcAddress`, beside it.
-- **The JDK's HTTP client reads its restricted-header list once, when its classes load.** The proxy
-  sets `Host` on every request it passes on, which needs `-Djdk.httpclient.allowRestrictedHeaders=host`;
-  a `System.setProperty` after any client has been built is silently too late, and the header is dropped.
-  The proxy image and every forked test of `proxy-core`, `proxy` and `cli` pass it as a JVM option, and
-  the CLI's `main` sets it before anything else runs. `ProxyEngine.start` refuses to start without it.
-- **A descriptor's `secretKeyRef` could name a Secret the platform issues** — another service's
-  certificate, or the project database's authority — and hand its key to a process. The descriptor's
-  rules now refuse it for every hosting (`ServiceSpec.isPlatformSecret`), and `ProxyEnvironmentSuite`
-  holds the list to every Secret name `Rendering` asks cert-manager to write, so a new certificate cannot
-  be added without the rule.
-- **A JVM throttled to 100 millicores takes about ten seconds to start**, and on a busy node missed its
-  readiness deadline entirely; the proxy's allotment is 250m with `SerialGC`, C1 only and one visible
-  processor (research R19), which serves within two seconds. Whole-suite k3s failures that a single
-  scenario run does not reproduce were exactly this.
-- **sbt buffers a suite's report until the suite ends.** A long k3s Gherkin suite says nothing for many
-  minutes, failures included; `sbt 'set controlPlane / Test / logBuffered := false' …` reports each
-  scenario as it ends. A munit glob filter matches `.` literally: quote the scenario's words.
-- **The API server writes quantities back normalised**: `1000m` as `1`, `1024Mi` as `1Gi`. Compare
-  resources by amount, not by string.
-- **Several actor systems serving TLS in one test JVM collide on remoting** unless they are
-  `pekko.actor.provider = local`; `TlsServing` (http's test sources) says so for the callees it starts.
-- **`given` is a keyword in Scala 3**, as `export` is: a helper or field named `given` is a syntax error.
-
-## Documentation
-
-One tree, `docs/`, of plain Markdown with YAML frontmatter; every way of reading it is a rendering
-built by `tools/docs` (a `uv` project): the MkDocs Material site, `llms.txt`, `llms-full.txt`, a raw
-Markdown copy of each page, `docs-index.json`, the Agent Skills (one per kind of task, curated in
-`tools/docs/skill/<name>/SKILL.md` whose `pages:` list names the pages it carries; committed into
-`marketplace/plugins/ankka/skills/` and into the template at `ankka.g8/src/main/g8/.claude/skills/`), and the pages on the CLI's classpath
-that `ankka mcp` serves. `docs/contributing/documentation.md` is the full set of rules; the ones that
-bite:
-
-- **The tool is not ankka's alone.** Everything ankka-specific — the frontmatter vocabularies, the
-  skill targets, which generator owns which block, the files that link to the site — is `extra.docs`
-  in `mkdocs.yml`, and the tool finds the repository by the nearest `mkdocs.yml` above its working
-  directory. satisfactory (`../satisfactory`) and ankka-flow (`../ankka-flow`) depend on `ankka-docs`
-  from `tools/docs` and write their own blocks, so a rule changed here changes there. `uv run --project tools/docs pytest tools/docs` runs the tool
-  against a fixture repository that is not ankka; a new ankka-specific constant in the Python is wrong,
-  it goes in the block.
-
-- **A page stands alone.** Its most common reader is a model that retrieved it alone. No positional
-  references ("see above"), no internal history (feature numbers, specs, "a test found") — `docs check`
-  refuses both. Explain behaviour as a property of the system.
-- **Samples come from tested code.** Mark a region with `// docs:start name` / `// docs:end name` in a
-  sample or test, name it in `<!-- include: path#name -->` before the page's code block, and run
-  `just docs-sync`. The copy lives in the page on purpose — the raw Markdown must be complete — and
-  `docs check` fails when it drifts, so a renamed method breaks the docs build, not the reader.
-- **Reference facts are generated.** Between `<!-- generated:start name -->` comments: configuration
-  and the protocol by `docs sync`; the CLI's commands (`CliReferenceSuite`) and the control plane's
-  routes (`ControlPlaneRoutesReferenceSuite`) by Scala suites that fail on a stale page and rewrite it
-  under `-Dankka.docs.update=true`. A coverage check makes the prose beside each table mention every
-  fact, so a new variable or route is a failing build until someone says what it does.
-- **Every `service.json` block in `docs/` is a valid descriptor.** `DocumentationDescriptorsSuite` in
-  `controlplane-api` decodes and validates each with the platform's own rules.
-- **Giter8 reads `$` as template syntax**, so the skill's copy in the template is written with every
-  `$` escaped (`\$`); `TemplateSuite` expands the template and would catch a miss.
-- **A new page goes in `mkdocs.yml`'s `nav` and in at least one skill's `pages:` list**, or `docs check`
-  fails. `marketplace/` is ankka's part of the Claude Code marketplace, `thinkmorestupidless/ankka-marketplace`,
-  which holds one plugin per project (ankka's, satisfactory's, ankka-flow's). The release workflow's `marketplace` job
-  clones that repository, replaces `plugins/ankka/` and ankka's manifest entry only, and pushes an
-  ordinary commit — never a subtree split or a force push, which would erase the other projects' plugins;
-  the plugin's version is written by that job from the tag, so the checked-in `0.0.0` is deliberate. A new CLI command or control
-  plane route fails the JVM suites until `just docs-reference` has run and the route has a
-  hand-written section.
-
-## Publishing
-
-Nine modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Eight are libraries a
-*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `testkit`;
-`ankka-grpc` names grpc-java directly in its POM and no ScalaPB, which is the developer's build's, and a
-service adds `auth-oidc` only when it has users of its own whose tokens it verifies, which is why it is
-a module and not part of `http` (feature 022). The ninth, `controlplane-api`, is for a *client of the
-control plane*: the hosted product in `ankka-cloud` provisions organizations through it (feature 011),
-and a client that redefined the wire types by hand would drift from them. It still depends on `core`
-alone, and its POM's compile scope says so. `templateArtifacts` names seven, the template being a
-service: its own template carries no gRPC, and the suite's last case adds a gRPC endpoint to the
-expansion as the documentation says to (FR-040 of feature 020), so `ankka-grpc` must resolve locally
-too. The template has no users, so `auth-oidc` is a commented line in it and is not among the seven. Everything else (`crd`,
-`operator`, `controlplane`, `cli`, the samples, root) carries `publish / skip := true`: a
-platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
-fact rather than a note.
-
-```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly nine artifacts
-sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
-sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
-git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval
-```
-
-**Only a tag publishes anything.** The workflow no longer runs on pushes to `main`: the portal's
-snapshot repository answers 403 for this namespace (claimed through legacy OSSRH in 2023, and
-snapshot publishing there is a separate entitlement from releases), so every commit was a red
-build — which is how a real failure goes unnoticed. Snapshots are `sbt publishLocal` now, which is
-what the samples and `TemplateSuite` resolve anyway.
-
-**Nothing in the build may write to a tracked file during `publish`.** A `templateVersion` task
-used to rewrite `ankka.g8`'s `default.properties` from `version.value`, hung off `core`'s
-`publish` and `publishLocal`. It only writes for a non-SNAPSHOT version, so it never fired locally
-and always fired on a tag: it dirtied the tree, dynver appended a timestamp and `-SNAPSHOT`,
-`ci-release` (which reloads the build before publishing) re-derived the version from the dirtied
-tree, and the release went to the snapshot repository — 403, on a namespace with no snapshot
-entitlement. Three tagged attempts failed that way. The write was useless besides: the `template`
-job checks the repository out afresh, so the publish job's workspace never reached the template
-that is pushed. The version is now written by that job, immediately before `git subtree split`.
-
-**A tag publishes, and the workflow does not wait for Central.** `ci-release` stops at sbt's own
-`sonaBundle` (`CI_SONATYPE_RELEASE: sonaBundle`), which zips the signed staging directory, and the
-next step uploads that zip through the Central Portal's API with `publishingType=AUTOMATIC`: the
-portal validates and publishes on its own, and repo1 follows in minutes to an hour. `sonaRelease`
-did the same upload and then polled every 30s until PUBLISHED — v0.4.0 sat in `PUBLISHING` for
-fifty minutes and v0.5.0 was cancelled by hand — and that wait is a runner doing nothing on the
-account's minutes. Nothing on Central can ever be unpublished, only superseded. `sonaUpload` is the
-upload that stops short and waits for the Publish button. All three are sbt's own, not a plugin's:
-sbt-ci-release 1.12.1 depends on sbt-dynver and sbt-pgp only, so sbt-sonatype's
-`sonatypeCentral*` names do not exist here, whatever a stale copy of that plugin in the coursier
-cache suggests.
-
-**The jobs behind `publish` need the version on repo1**, and it may not be there when they start:
-a step before `ci-release` asks repo1 whether the version is already published and skips the
-upload when it is, so a re-run of the tag once Central has caught up finishes the release without
-a second upload the portal would refuse. That is the recovery for a cut-off or cancelled run too,
-because a deployment the portal has accepted completes on Sonatype's own schedule, visible at
-central.sonatype.com/publishing/deployments.
-
-**`0.1.0` is the first release**, and what it cost is in the git history: a tag published a
-snapshot three times before reaching the portal. The snapshot repository 403s for this namespace
-(claimed through legacy OSSRH in 2023; snapshot publishing there is a separate entitlement), which
-looked like a credentials problem for a long time and never was — the releases endpoint accepted
-the first bundle that actually reached it.
-
-**There is no `ThisBuild / version`, and there must never be one.** The version comes from the
-git tag through `sbt-dynver`; a version set in the build silently overrides the tag, which is the
-one thing a release must not do. A *dirty tree* does the same thing quietly: dynver appends a
-timestamp and `-SNAPSHOT`, and `ci-release` then takes the snapshot path, so a tag publishes a
-snapshot and no release. That is what the first `v0.1.0` did — and the tree was not really dirty,
-`git describe --dirty` was reporting stale index stat info after the runner's forced checkout.
-The workflow runs `git update-index --refresh` and refuses to build from a tree that is still
-dirty, rather than shipping a snapshot named like a release. `com.thinkmorestupidless.ankka.core.BuildInfo.version` carries the same value into code
-— the CLI prints it, the control plane compares an application's declared runtime against it.
-
-**The template** is `ankka.g8/` — a Giter8 template, tested by `cli`'s `TemplateSuite`, which
-publishes locally, expands it into a temp directory through the real `ankka init`, and runs the
-expansion's own `sbt test` and image build as subprocesses (`-Dankka.template.tests=off` skips
-it; it needs `sbt` on `PATH` and Docker). CI runs it in its own `template-scala` job, once under
-each sbt launcher line, because `sbt new` runs outside any build and the launcher is what expands
-it. A template suite whose language is *named* in `-Dankka.template.tests` fails when its tools are
-missing rather than skipping: a job that asked for it would otherwise report green having run
-nothing (`TemplateSwitch.skip`). For Scala `ankka init` shells out to `sbt new` and carries
-no template of its own; it passes its `BuildInfo.version` as `--ankka_version`. The directory is
-named `ankka.g8` because sbt's Giter8 resolver only accepts `owner/repo.g8` and
-`file://…/x.g8` — a template in a subdirectory of another repository cannot be reached by `sbt
-new` at all, which is why the release workflow subtree-pushes it to `thinkmorestupidless/ankka.g8`.
-
-**The Python, TypeScript and Rust templates are the CLI's own**, in `cli/src/main/templates/{python,
-typescript,rust,common}`, rendered by `ankka init --language` (`Scaffold`). The Rust template's
-`.cargo/config.toml` defines `cargo module` (the release build for `wasm32-unknown-unknown`) rather
-than setting a build target, so a plain `cargo test` in the project still runs natively. Neither language has a template
-tool its developers all have, so there is no second front door to drift from, and the template is
-always the CLI's version. The build copies each language's files, `common/` (the compose file) and the
-rendered skills from `marketplace/` onto the classpath with an `index.txt` — walked by hand, because
-`unmanagedResources` drops hidden files and a template is mostly `.github/`, `.claude/` and
-`.gitignore` — and the native image carries them by the `ankka/templates/**` glob, which
-`native-smoke.sh` checks by rendering both. Rendering replaces exact tokens (`{{name}}`, `{{module}}`,
-`{{ankka_version}}`, `{{protocol_version}}`) and nothing else, so `${{ … }}` in a workflow needs no
-escaping — the opposite of the Giter8 trap. Two things a template must get right that no compiler
-checks: **an event type starts as a union**, because the Python codec writes a lone dataclass with no
-`type` field and a union's members with one, so a one-event service that later gains a second would
-change the stored format of the events it already has; and **the schema comes out of the sidecar
-image** (the compose file's `schema` service copies `/opt/docker/ddl`, as the testkits do), so a
-project holds no DDL to fall out of step with its sidecar. `PythonTemplateSuite` and
-`TypeScriptTemplateSuite` render through `Main.run`, assert the pin names the CLI's version, point it at
-this repository's SDK, and run the project's own type check and tests — insisting nothing skipped. A
-released SDK's testkit, and a generated project's compose file, start
-`ghcr.io/thinkmorestupidless/ankka-sidecar:<version>`; an unreleased SDK (0.0.0) starts
-`ankka-sidecar:latest`, so the suites and the SDK jobs test against the sidecar of the same commit. `-Dankka.template.tests` takes `off`, or a list of
-languages (`python`, `typescript,scala`); only `scala` pays for the local publish, which is how each SDK
-job in CI runs its own template's suite against the SDK and sidecar it just built.
-
-**Every project `ankka init` makes carries a `.mcp.json`** naming `ankka mcp` by command (in `common/`
-and in `ankka.g8/`), and `ankka mcp install` (`cli/mcp/McpInstall`) writes the same entry — the template
-suites assert the two agree. Two choices there are deliberate. It never edits `~/.claude.json`: for
-Claude Code in every project it runs `claude mcp add --scope user`, because that file is Claude Code's
-to write, and its tests drive that branch through a scripted runner so they never touch the developer's
-own. And no template pre-approves the project's server (`enabledMcpjsonServers`): Claude Code asks each
-person once, and a repository that could start a program without asking could start any. Claude
-Desktop's file is `-Dankka.claude.desktop.config`-overridable for the same reason `-Dankka.config` is.
-
-**The CLI ships as a native executable per platform**, from the release workflow's `cli-native`
-matrix: GraalVM's `native-image` over the same jar, one runner per platform because it cannot
-cross-compile (`linux-x64`, `linux-arm64`, `macos-arm64`, `macos-x64`), each attached to the tag's
-release as `ankka-cli-<version>-<platform>.tar.gz` with a `.sha256`. It waits for `cli`, which creates
-the release and attaches the JVM build as a zip (`cli/Universal/packageBin`, a JDK 21 its only need) —
-the install route for any platform without a native build. The Linux legs build on Ubuntu 22.04
-because the binary links the build machine's glibc; none runs on musl. What the image must carry is
-declared in the jar, in `cli/src/main/resources/META-INF/native-image/`, and **a missing resource is
-not a build failure**: the first image built without the resource globs served `ankka mcp` with zero
-pages and no error. So the job runs `cli/native-smoke.sh` on each binary, which asks it for the docs
-and the console's files, and a new resource the CLI reads needs a glob there.
-
-**The GitHub Action ships as its own repository.** `action/` is a composite action, subtree-pushed to
-`thinkmorestupidless/ankka-action` by the release workflow's `action` job exactly as `ankka.g8/`,
-`marketplace/` and `homebrew/` are pushed, and the job then moves the `v<version>` and `v<major>` tags
-so `uses: thinkmorestupidless/ankka-action@v1` resolves. It installs the native build for the runner,
-chosen from `RUNNER_OS`/`RUNNER_ARCH` (a Windows runner is refused before any download), and
-**refuses to install without a published checksum** — an action that silently skipped verification when
-the `.sha256` was missing would verify nothing on exactly the release where something went wrong. It
-needs no Java. The job waits for `cli-native`, so no action is published pointing at assets that do
-not exist yet.
-
-**The CLI ships through Homebrew**, from `thinkmorestupidless/homebrew-tap` (`brew install
-thinkmorestupidless/tap/ankka`). The formula is canonical in `homebrew/Formula/ankka.rb` with version
-`0.0.0` and four checksums of zeros, one per platform in `on_macos`/`on_linux` × `on_arm`/`on_intel`
-blocks, each line ending in a comment naming its platform — deliberate, like the plugin's `0.0.0`. The
-release workflow's `homebrew` job waits for every leg of `cli-native`, reads each `.sha256` from the
-release, writes the version and each checksum onto the line naming its platform, refuses to push if a
-placeholder survives, and subtree-pushes `homebrew/` to the tap, exactly as the template and the
-marketplace go. `HomebrewFormulaSuite` pins the placeholders and the comments the job's `sed` matches.
-The formula needs no JDK. `brew audit --strict` passes, and the proof of the whole thing is a throwaway
-local tap (`brew tap-new`) pointed at a locally built tarball by `file://` URL — with the test formula
-renamed and `keg_only` if a real `ankka` is installed, and `HOMEBREW_NO_AUTOREMOVE=1` on the uninstall:
-removing a test formula once auto-removed the JDK an installed `ankka` from an untapped tap needed.
-
-**The images ship through GitHub Container Registry**, public: `ghcr.io/thinkmorestupidless/<image>`
-for the operator, the control plane, the sidecar and the shopping cart sample, from the release
-workflow's `images` job, pushed with the workflow's own token (each image's
-`org.opencontainers.image.source` label links its package to this repository). Public because a Python
-or TypeScript developer runs the sidecar on their own machine. **A package ghcr.io has not seen before
-is created private**, so the job asks ghcr.io for each image with no credential and fails, naming the
-package's settings page, until it is made public — once per package. **The clusters do not pull from
-ghcr.io**: they pull through `europe-west2-docker.pkg.dev/ankka-ops/ghcr`, an Artifact Registry remote
-repository caching it (ankka-deployments, `modules/artifact-registry`), whose paths mirror ghcr.io's.
-In-region, and a cached version is still served when ghcr.io is down — but a version is cached only
-once something pulls it, so the job ends by pulling every image through the cache as the release
-identity and comparing the digests. One registry is published to, so the two cannot drift. The
-standard `ankka-ops/ankka` repository holds releases up to 0.6.4 and is written to no longer.
-
-**The Python SDK ships through PyPI**, as the package `ankka`, from the release workflow's `sdk-python`
-job. Its version is `__version__` in `sdks/python/src/ankka/__init__.py` — `0.0.0` in the tree, like the
-formula and the plugin, and read by hatchling as the package version (`dynamic = ["version"]`) so there
-is one placeholder for the job's `sed` to rewrite and one value the SDK reports to the sidecar in
-discovery. The job generates the stubs from the tag's `protocol/`, builds with `uv build`, imports the
-wheel from an isolated interpreter (`uv run --isolated --no-project --with dist/*.whl`) and uploads with
-`pypa/gh-action-pypi-publish` under **trusted publishing** — no token, the same OIDC shape as the images
-job. The one action outside the repository is registering the publisher on PyPI (project `ankka`,
-workflow `release.yml`, environment `pypi`). The `ci` workflow builds and smoke-imports the wheel on every
-commit, because the stubs under `src/ankka/_proto/` are gitignored and hatchling honours a project's
-`.gitignore`: the wheel carries them only because `[tool.hatch.build] artifacts` names them. A version
-on PyPI can never be re-uploaded, only superseded, same as Central.
-
-**The TypeScript SDK ships through npm**, as the package `ankka`, from the release workflow's
-`sdk-typescript` job. Its version is `version` in `sdks/typescript/package.json` — `0.0.0` in the tree, like
-the other placeholders — and `npm run proto` writes `src/version.ts` from it, so the version the SDK reports
-to the sidecar in discovery is the one on npm. The job writes the tag's version with `npm version`, generates
-the stubs from the tag's `protocol/`, builds `dist/`, packs, installs the tarball into an empty directory and
-imports both entry points, and publishes under **trusted publishing**, the PyPI job's OIDC shape, on Node 24
-because trusted publishing needs npm 11.5.1 and Node 22 bundles 10. **npm cannot create a package this way**:
-a trusted publisher is attached to an existing package, and a pending-publisher shape (npm/cli#8544) does
-not exist. So the first release that carries the SDK publishes it **once by hand**, after that tag's `publish`
-job is green:
-
-```bash
-git checkout vX.Y.Z && cd sdks/typescript
-npm version X.Y.Z --no-git-tag-version && npm ci && npm run proto && npm run build
-mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-X.Y.Z.tgz --access public   # 2FA prompt
-git checkout -- package.json package-lock.json src/version.ts   # all three are 0.0.0 in the tree; CI packs ankka-0.0.0.tgz
-```
-
-Then on npmjs.com, package settings → Trusted Publisher → GitHub Actions: owner `thinkmorestupidless`,
-repository `ankka`, workflow `release.yml`, environment `npm`, with `npm publish` allowed (a new configuration
-defaults to stage-only since September 2026); and "Require two-factor authentication and disallow tokens".
-From the next tag the job publishes, and its `npm view` guard makes a re-run of a tag finish what a cancelled
-run left without a second upload. The `npm` environment on the repository is where a required reviewer would
-go, as `pypi` is for the Python SDK. The `ci` workflow's `sdk-typescript` job runs the fast tests on Node 22
-and 24 (the floor and the documented line) and the Docker-backed tests and the conformance suite on 24.
-
-**The Rust crate ships through crates.io**, as `ankka`, from the release workflow's `sdk-rust` job. Its
-version is `version` in `sdks/rust/ankka/Cargo.toml` — `0.0.0` in the tree, like the other placeholders —
-and the crate reports `env!("CARGO_PKG_VERSION")` in discovery, so the version a module declares is the
-one on crates.io. The job writes the tag's version with `sed`, diffs the crate's protocol copy against
-`protocol/`, tests, packages, builds the package alone for `wasm32-unknown-unknown`, and publishes under
-**trusted publishing** (`rust-lang/crates-io-auth-action` exchanges the OIDC token for a short-lived one),
-environment `crates-io`, beside `npm` and `pypi`. **crates.io, like npm, attaches a trusted publisher only
-to a crate that exists**, so the first release that carries the crate publishes it once by hand, after
-that tag's `publish` job is green:
-
-```bash
-git checkout vX.Y.Z && cd sdks/rust
-sed -i '' 's/^version = "0.0.0"/version = "X.Y.Z"/' ankka/Cargo.toml
-cargo publish -p ankka --allow-dirty          # a crates.io token with the publish-new scope
-git checkout -- ankka/Cargo.toml Cargo.lock
-```
-
-Then on crates.io, the crate's settings → Trusted Publishing → GitHub: owner `thinkmorestupidless`,
-repository `ankka`, workflow `release.yml`, environment `crates-io`. From the next tag the job publishes,
-and its guard, which asks crates.io's API (`cargo info` inside the workspace answers from the local package, so it reported every version as published and v0.9.0 uploaded nothing), makes a re-run of a tag finish what a cancelled run left.
-
-**The console ships twice**: as the `ankka-console` image, beside the other images from the `images` job, and
-as the `ankka-console` npm package from the `console-package` job, which a product builds its own host on. The
-package's version is `0.0.0` in `console/package/package.json`, written from the tag like the SDK's, and its
-first publish is by hand for the same reason, after that tag's `publish` job is green:
-
-```bash
-git checkout vX.Y.Z && cd console
-npm version X.Y.Z --no-git-tag-version -w package && npm ci && npm run build -w package
-cd package && mkdir -p dist-pack && npm pack --pack-destination dist-pack && npm publish ./dist-pack/ankka-console-X.Y.Z.tgz --access public
-git checkout -- package.json ../package-lock.json
-```
-
-Then attach the trusted publisher to `ankka-console` exactly as for `ankka`.
-
-**Compatibility** (`com.thinkmorestupidless.ankka.controlplane.api.Compatibility`): a descriptor's declared `runtime` is
-checked against `BuildInfo.version` when the control plane *projects* the service — same major,
-minor equal or one below — and an unsupported one takes the existing "cannot project" path as
-`ClusterView.Refused` → `Unavailable` with both versions in the detail, before any resource is
-written. Undeclared is unchecked. The rule lives in `controlplane-api` so the CLI can one day
-print it without the control plane. **A consequence for DDL changes**: within a supported range
-the schema is additive — a running application must never lose a table or column it needs.
-
-A release to Maven Central waits on one action outside this repository: claiming the
-`com.thinkmorestupidless` namespace on the Sonatype Central Portal and setting the four secrets
-the workflow names. Every other step is proven locally.
-
-## Deploying locally
-
-```bash
-kind create cluster --name ankka --config kustomization/kind.yaml
-./kustomization/deploy-local.sh
-```
-
-Installs [CloudNativePG](https://cloudnative-pg.io/), [cert-manager](https://cert-manager.io/)
-and [Envoy Gateway](https://gateway.envoyproxy.io/) (all server-side apply — CNPG's CRDs are too
-large for client-side apply's own annotation-size limit), builds all three images — the operator,
-the control plane and the shopping cart sample — loads them into the cluster with `kind load
-docker-image`, and applies the CRD, the operator, the platform's Gateway and local CA, the
-control plane's own CNPG-managed database and the control plane itself via `kubectl apply -k`. No
-registry — `DOCKER_REPOSITORY` in `build.sbt`'s `dockerSettings` is the one setting that changes
-once one exists. The script checks `kubectl config current-context` and refuses to run against
-anything other than the `kind-*` cluster it targets, and refuses a cluster whose node does not
-publish the gateway's NodePorts (30080/30443 → the host's 8080/8443, from `kind.yaml`) — kind
-decides that at creation and it cannot be added later.
-
-It ends by exporting the local CA's root to `~/.ankka/local-ca.crt` and printing the control
-plane's address, `https://api.127.0.0.1.sslip.io:8443`, with the `ankka config set url` /
-`config set ca` lines to use it. No port-forward anywhere. The base domain and the HTTPS host port
-are written once, in `kustomization/overlays/local/platform-configmap.yaml`, and kustomize
-`replacements` copy them into the wildcard `Certificate`, the `Gateway` listener, both
-Deployments' `ANKKA_BASE_DOMAIN` and the control plane's own `HTTPRoute`; `ANKKA_BASE_DOMAIN` on the
-script overrides the domain for a machine whose resolver blocks sslip.io.
-
-It ends by `rollout restart`ing the operator and control plane. Without that a *re*-run changes
-nothing that is running: the manifests are unchanged and the tag is still `:latest`, so `kubectl
-apply` sees no difference, nothing rolls, and the pods keep executing the image they started with
-while every line of output reports success.
-
-`kustomization/components/{crd,operator,controlplane}/` hold the canonical CRD, install manifest
-and RBAC — see the load-restrictor trap below for why the direction is `kustomization/` → `src/main
-/resources/` symlink, not the other way round. `kustomization/components/postgres/` is a CNPG
-`Cluster` for the control plane's own database, the one case in this codebase using
-`bootstrap.initdb` rather than the operator's per-service `Database`/`DatabaseRole` machinery; its
-schema ConfigMap comes from the component's own `configMapGenerator` over `postgres/ddl/`, the
-DDL's canonical copy, plus one `99-grants.sql` literal — see the trap above about CNPG running
-`postInitApplicationSQLRefs` as its own superuser, not as the role that owns the database.
-
-## Deploying anywhere else
-
-`kustomization/overlays/cloud/` is an **example** production overlay, with every
-installation-specific value a placeholder marked `SET`. It is the same components with only what
-must differ: a
-`LoadBalancer` instead of the kind node ports, an ACME issuer over **DNS-01** instead of a
-self-signed root (a wildcard certificate cannot be had from HTTP-01), a real base domain on 443,
-and Keycloak's development admin secret **deleted** rather than overridden — `admin`/`admin` is
-public in this repository, so the identity provider is made to refuse to start until a real Secret
-exists out of band, and an `images:` block naming ghcr.io at a release (every Deployment names an
-unqualified image with `imagePullPolicy: IfNotPresent`, which is right for `kind load` and useless
-for a cluster that must pull).
-
-**No real installation's overlay lives here.** The production clusters' overlays — their domains,
-addresses, account IDs and the release each runs — live in the private `ankka-deployments`
-repository beside the Terraform and Flux that create those clusters, and consume this repository's
-`kustomization/components/` at a pinned tag. Keeping them here coupled every cluster change to an
-ankka release: the tag Flux fetched had to name its own version inside it. A change a cluster
-needs is a component change here, released, then a tag bump there.
-
-`deploy-local.sh` will not apply it: that script refuses any context that is not the local kind
-cluster, on purpose, and that guard is worth more than the convenience. Apply it by hand, after
-the three CRD-bearing controllers. `RemoteOverlaySuite` renders both overlays and asserts they
-differ in exactly the intended ways — it skips when `kubectl` is not on the host's PATH, which is
-the only thing that can render kustomize.
-
-Every service's own database is provisioned separately, by the operator, per `AnkkaServiceSpec` —
-see `README.md`'s "Databases are provisioned automatically" for the model, and
-`kustomization/components/cnpg/` for the install component itself.
-
-## Schema
-
-DDL lives in `kustomization/components/postgres/ddl/` and is the single copy — four files since feature
-023 added `40-secrets-postgres.sql`. A new file is **named in seven lists**, each of which a missed one
-fails only somewhere else: `AnkkaTestKit.DdlResources`, `CnpgRendering.SchemaFiles` (the per-project
-`ankka-schema` ConfigMap), `SchemaResourceSuite`, `CnpgRenderingSuite`, `SidecarClusterSuite`, and the
-postgres component's `kustomization.yaml` and `cluster.yaml`. Everything that globs the directory
-(compose, the sidecar image, the template) picks it up unchanged. A local database created before a file
-existed does not have it — Postgres runs `initdb.d` once.
-
-`modules/runtime/src/main/resources/ankka/ddl` and `operator/src/main/resources/ankka/ddl` are
-directory symlinks into it, so the runtime jar carries it, `docker-compose.yml` mounts it through
-the runtime path, and `AnkkaTestKit` copies the same files into its container. A test can never
-pass against a schema local development does not have. It is canonical under `kustomization/`
-for the load-restrictor reason in the traps: that is the one place kustomize can read it from,
-and everything else follows a symlink.
-The journal and projection scripts are taken verbatim from the Pekko projects.
+Endpoints, workflow steps, consumers, timers and agent loops all run on `AnkkaExecutors.virtual`.
+That makes the blocking `ComponentClient.invoke` free — an await parks the virtual thread — so tool
+loops and workflow steps are ordinary sequential code. It is also what makes the HTTP
+`RequestContext` sound as a `ThreadLocal`: one request per thread, cleared on the way out. **Work
+handed to another thread cannot see a thread-local** — request context, trace and call origin alike.
+
+### Where the rest is
+
+- Cluster formation is an overlay per means of execution (`local`, `kubernetes`), selected by
+  `ANKKA_CLUSTER_MODE`; in Kubernetes every port is mutual TLS from cert-manager and the caller is read
+  from the client certificate's `ankka://<project>/<service>` URI. → `cluster-and-tls.md`
+- Reconciliation is split: the control plane projects desired state into an `AnkkaService` resource,
+  and an in-cluster operator (deliberately *not* an ankka application) owns everything below it. →
+  `kubernetes.md`
+- The control plane *is* an ankka application; Keycloak authenticates, the `Organization` entity
+  authorizes; cross-entity checks live in endpoints, never handlers. → `control-plane.md`
+- DDL has one canonical copy, `kustomization/components/postgres/ddl/`; a new file is named in seven
+  lists. → `kubernetes.md` (Schema). Within a supported version range the schema is additive.
 
 ## Testing
 
-Two levels, both real.
-
-`EventSourcedTestKit` / `KeyValueEntityTestKit` drive one component with no actor system,
-cluster or database — effects are inert values, so this is milliseconds. Inputs and
-replies still round-trip through the component's own serializers, so a missing codec
-fails there rather than on first deployment.
-
-`AnkkaTestKit` boots the whole service against a throwaway Postgres. `restartService()`
-drops every entity from memory, so a test can prove durability rather than caching.
-
-`TestModelProvider` answers from a script and **fails loudly** when the script runs out —
-a test whose model quietly returned a default is no longer testing what it says.
+Two levels, both real. `EventSourcedTestKit` / `KeyValueEntityTestKit` drive one component with no
+actor system, cluster or database — milliseconds — while still round-tripping inputs and replies
+through the component's own serializers. `AnkkaTestKit` boots the whole service against a throwaway
+database — its own, copied from a schema template in one Postgres container the test JVM's kits share
+(`SharedPostgres`, lingering 30s after its last kit); `restartService()` drops every entity from
+memory, so a test can prove durability rather than caching. `TestModelProvider` answers from a script and **fails loudly** when it runs out.
 
 **Ask of every check, before relying on it: could this pass while the thing it checks is false?**
-It applies to a test, a CI step, a smoke test and a readiness wait alike, and most of the traps
-above are a "yes" nobody asked: the deploy smoke test that accepted a 404, the conformance filter
-that matched nothing and reported green, the overlay suite that found a string *somewhere*, the
-`eventually` satisfied by a stale row. If a case exists, sharpen the check; the cheapest proof that
-it can fail is to break the behaviour once and watch it go red. When a spec-kit feature is
-implemented, each acceptance scenario in its `spec.md` should end up as a test that fails without
-the feature. `docs/build/testing.md` ("A test must be able to fail") is the same rule for people
-building services.
+It applies to a test, a CI step, a smoke test and a readiness wait alike, and most of the traps in
+the rule files are a "yes" nobody asked: the deploy smoke test that accepted a 404, the conformance
+filter that matched nothing and reported green, the overlay suite that found a string *somewhere*,
+the `eventually` satisfied by a stale row. The cheapest proof a check can fail is to break the
+behaviour once and watch it go red. When a spec-kit feature is implemented, each acceptance scenario
+should end up as a test that fails without the feature (living features: `testing.md`).
 
-**Every spec's acceptance scenarios live in living features**, not in the
-spec. The [speckit-bdd](https://github.com/thinkmorestupidless/speckit-bdd) extension and preset are
-installed under `.specify/`: `/speckit-specify` writes a spec whose acceptance scenarios *name*
-scenarios, the `after_specify` hook runs `/speckit-bdd-features` to write them as Gherkin under
-`features/` with every word they use in the root `GLOSSARY.md`, and the `before_clarify` hook runs
-`/speckit-bdd-check`, which turns undefined words, refused synonyms, contradictions and untraced
-requirements into clarification questions. `.specify/extensions/bdd/bdd-config.yml` sets no
-`specs-from`, so the checker reads every spec. Specs 001-019 were written before the hook existed and
-their scenarios were moved afterwards, written as the platform behaves *now*: where later work changed
-or removed what a spec described, the feature says what happens today and the spec carries a
-`*Superseded:*` note in place of the scenario (a plain line, not a list item, which the checker
-reads as prose). A spec naming a scenario another spec added uses a bare reference, with no
-`added`/`changed`/`removed` marker. Its
-report says how many specs it read and how many it did not, so a setting that skipped everything
-cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
-so `uv` must be on `PATH`. CI's `features` job runs the same check through
-`.github/features-check.sh` (`just features` locally), which reads that config and fails when it
-read no spec or no scenario. **In CI it reports without failing for now** (`continue-on-error`, with a
-warning): specs 025 onwards keep their scenarios in the spec. Two specs share the number 019 until a
-renumbering; remove `continue-on-error` once every spec's scenarios live in `features/`. `just features` still fails. A feature file that one suite can run whole is run by `GherkinSuite`,
-which takes a directory or one file; a scenario no suite can reach is a test named after it. The
-shopping cart sample has features and a glossary of its own, under
-`samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the
-root ones the platform.
+## Traps that bite anywhere
 
-**Every suite that can see `testkit` mixes in `LogCapturing`** (testkit's own tests, the control
-plane, the sidecar, the samples): its log is held in memory and printed only for a failing test, a
-test whose `beforeEach` failed, or a suite whose `beforeAll` failed. `ANKKA_TEST_LOGS=all` (or
-`-Dankka.test.logs=all`) turns it off. A new suite should mix it in too; `runtime`, `http` and
-`agent` sit below `testkit` and cannot, and rely on their own `logback-test.xml` instead. Capture
-is one per JVM, starts when munit constructs a suite (just before running it) and ends in a
-fixture's `afterAll`, which munit runs *before* the suite's own `afterAll` — so teardown logs are
-printed, deliberately: keeping capture on past the suite could swallow the next suite's log. A
-suite that overrides `munitFixtures` must include `super.munitFixtures`, or capture never ends.
-`LogCapturingSuite` itself does not mix it in, because its assertions need the root logger's real
-appenders.
-
-## Other agent configs
-
-A `~/.codex/config.toml` is present. Reply `/import` to scan and list what is importable
-(MCP servers, slash commands, subagents, skills, instructions), then
-`/import --yes=<digest>` with the digest that scan prints to apply the user-level items.
-If `/import` is unavailable here, run `claude import` from a terminal.
+- **Forked tests do not inherit sbt's `-D` properties.** `Test / fork := true`, so a switch passed as
+  `sbt -Dfoo=bar test` is set in a JVM that runs no tests. Any new test switch must be forwarded in
+  `Test / javaOptions` — `-Dankka.cluster.tests=off` and `ankka.conformance.shape` were both silent
+  no-ops for two features. Read what a run says it ran, not what the script says it runs.
+- **A test that binds a fixed port cannot run beside the documented workflow.** Every HTTP suite uses
+  `HttpServer.at("127.0.0.1", 0)`, never `HttpServer.of` (port 9000), so it runs beside a developer's
+  `sbt shoppingCart/run`.
+- **An `eventually` must wait for the thing it asserts.** Retry on the value that changes, assert the
+  identity that does not; an assertion outside the retry reads a stale projection row on a slow machine.
+- **A fieldless Scala 3 enum encodes as `{"type":"Ready"}` under ankka's shared codec config.** Give a
+  status-word enum an explicit string `JsonValueCodec` **in its companion object**
+  (`ServiceLifecycle` does), so every derivation site sees the same one.
+- **jsoniter reads a JSON `null` on an `Option` field as *absent*, and applies the default.** An
+  `Option` whose default is not `None` cannot express "none". Say "none" positively (`http: false`)
+  and keep the value a plain type. `DescriptorSuite` pins this.
+- **A `lazy val` where order or a system matters.** A `val` listing functions defined below it lists
+  nulls, and an extension looked up eagerly in a constructor breaks every suite that builds the class
+  without an actor system.
+- **`export` and `given` are keywords in Scala 3**: a parameter, helper, field or loop variable with
+  either name is a syntax error reported far from the cause.
+- **A script that fails an assertion has still done nothing — check what it left behind.** A
+  half-applied edit once shipped both the old and new HTTP entry span, double-counting every metric.
+  Re-grep for what a failed edit was supposed to remove.
+- **Anything reading `~/.ankka/config.json` or `$HOME` must be overridable by a system property**
+  (`-Dankka.config`; `ANKKA_CONFIG` from a shell — `HOME=$(mktemp -d)` does *not* isolate the JVM).
+  Details in `control-plane.md`.

@@ -13,11 +13,11 @@ import munit.FunSuite
  * `pods/exec` to make debugging easier, breaks the claim and should break a test with it.
  *
  * It reads the manifest rather than a cluster, so it runs in CI in milliseconds. That is
- * deliberately not the whole story: `CLAUDE.md` records that the suites mostly use admin
- * credentials, so a *missing* verb fails silently in CI and loudly on a real deploy. A manifest
- * test cannot catch that either. The complement is the `kubectl auth can-i` block in quickstart.md,
- * run against a real cluster with the control plane's own ServiceAccount, which is the only form
- * that proves the API server agrees.
+ * deliberately not the whole story: `.claude/rules/kubernetes.md` records that the suites mostly
+ * use admin credentials, so a *missing* verb fails silently in CI and loudly on a real deploy. A
+ * manifest test cannot catch that either. The complement is the `kubectl auth can-i` block in
+ * quickstart.md, run against a real cluster with the control plane's own ServiceAccount, which is
+ * the only form that proves the API server agrees.
  */
 final class LogsRbacSuite extends FunSuite with LogCapturing:
 

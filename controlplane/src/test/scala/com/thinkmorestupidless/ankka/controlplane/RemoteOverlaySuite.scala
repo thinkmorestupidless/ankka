@@ -323,7 +323,8 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     )
 
     // The local overlay is the mirror image, and for the mirror-image reason: its CA secret sits
-    // beside the Certificate, so a ClusterIssuer would look in the wrong namespace (CLAUDE.md).
+    // beside the Certificate, so a ClusterIssuer would look in the wrong namespace
+    // (.claude/rules/kubernetes.md).
     val localCert = documentsOfKind(local, "Certificate")
       .find(_.contains("name: ankka-wildcard"))
       .getOrElse(fail("the local wildcard certificate is missing"))

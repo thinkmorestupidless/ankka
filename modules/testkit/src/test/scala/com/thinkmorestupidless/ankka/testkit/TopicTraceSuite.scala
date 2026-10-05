@@ -10,7 +10,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   TraceContext,
   Traceparent
 }
-import com.thinkmorestupidless.ankka.sdk.{ChangeSource, Consumer, ConsumerContext}
+import com.thinkmorestupidless.ankka.sdk.{ChangeSource, Consumer, ConsumerContext, StartFrom}
 
 import scala.concurrent.Await
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -26,7 +26,11 @@ final class ForgingRelay extends Consumer[StockEvent, LowStockAlert]:
 object ForgingRelay
     extends Consumer.Companion[ForgingRelay, StockEvent, LowStockAlert](
       componentId = ComponentId("forging-relay"),
-      source = ChangeSource.fromTopic("relay-events", Codecs.serializer[StockEvent]("stock-event"))
+      source = ChangeSource.fromTopic(
+        "relay-events",
+        Codecs.serializer[StockEvent]("stock-event"),
+        StartFrom.Earliest
+      )
     ):
   val Forged                       = "00-11111111111111111111111111111111-2222222222222222-01"
   def create(ctx: ConsumerContext) = new ForgingRelay

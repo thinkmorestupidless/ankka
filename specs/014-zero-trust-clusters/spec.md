@@ -110,26 +110,15 @@ at the network; from a pod carrying the service's own labels but a certificate f
 service, observe the connection refused at the handshake; then advance the certificate past its
 renewal point and observe membership unchanged and every request answered.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a service deployed with three instances, **When** the instances start, **Then** they
-   form one cluster and every remoting connection between them is TLS with both sides presenting
-   the service's certificate.
-2. **Given** a pod in a different namespace, **When** it opens a TCP connection to an instance's
-   remoting or management port, **Then** the connection is refused before any handshake.
-3. **Given** a pod that the network allows through — one carrying the service's own selection
-   labels — but which presents no certificate, or a certificate issued for another service,
-   **When** it attempts to join the cluster, **Then** the handshake is refused and the service's
-   membership does not change.
-4. **Given** a running service, **When** its certificate is renewed by the platform, **Then** no
-   instance restarts, no instance leaves the cluster, and no request fails during or after the
-   renewal.
-5. **Given** a running service with three instances, **When** a new image is rolled out, **Then**
-   the new instance joins the existing cluster over TLS and takes its shards by handoff, exactly as
-   a rolling update behaves today, with no request lost.
-6. **Given** a service whose running image predates this feature, **When** it is next deployed with
-   an image that has it, **Then** the rollout completes rather than stalling, does not put two
-   clusters on one journal, and the service's status says the transition happened.
+- added `features/zero-trust/service-cluster.feature`: the instances of a service join one service cluster over proven connections
+- added `features/zero-trust/service-cluster.feature`: a workload outside a service's project cannot connect to where its instances talk to each other
+- added `features/zero-trust/service-cluster.feature`: a workload that cannot show the service's certificate cannot join its service cluster
+- added `features/zero-trust/service-cluster.feature`: renewing a service's certificate restarts nothing and refuses nothing
+- added `features/zero-trust/service-cluster.feature`: an instance of a new version joins the service cluster by showing the service's certificate
+- `features/clusters/replacing.feature`: a service whose image changes refuses no request
+- added `features/zero-trust/service-cluster.feature`: instances that cannot show a certificate are stopped before the new ones start, and the status says so
 
 ---
 
@@ -154,31 +143,16 @@ with its identity on the request, the third's refused as forbidden naming nobody
 request through the gateway served as the internet, and a plain-HTTP or certificate-less request
 refused at the connection.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an endpoint whose ACL allows a named service in the same project, **When** that
-   service calls it presenting its platform certificate, **Then** the request is served and the
-   handler can read the caller's project and service name.
-2. **Given** the same endpoint, **When** a service the ACL does not name calls it, **Then** the
-   answer is 403 — the caller was authenticated and is not allowed — and the refusal is recorded as
-   a refusal, not a fault.
-3. **Given** an endpoint whose ACL allows the internet, **When** a request arrives through the
-   installation's gateway, **Then** it is served and the caller reads as the gateway; **When** the
-   same endpoint is called by a service in the cluster, **Then** it is refused.
-4. **Given** any endpoint, **When** a client inside the cluster connects to the service's port with
-   plain HTTP, or with TLS and no client certificate, or with a certificate the installation's
-   authority did not issue, **Then** the connection is refused and no endpoint, ACL or handler
-   runs.
-5. **Given** an endpoint that authenticates a bearer token (`Acl.Authenticate`), **When** a request
-   arrives with a valid token from a permitted caller, **Then** the handler has both the token's
-   principal and the caller's identity — the fifth zero-trust layer composes with the second rather
-   than replacing it.
-6. **Given** a Python or TypeScript service with an endpoint that allows a named service, **When**
-   the sequence above is run against it, **Then** the outcomes are identical, and the process sees
-   the caller in its request context.
-7. **Given** a service running on a developer's machine, **When** any request reaches an endpoint
-   whose ACL names a platform caller, **Then** it is admitted as coming from the local machine, and
-   the service logs once at startup that caller identity is not enforced outside a cluster.
+- added `features/zero-trust/callers.feature`: an HTTP endpoint that admits a named service serves it and tells the handler who called
+- added `features/zero-trust/callers.feature`: an HTTP endpoint refuses a service its ACL does not name, as a refusal and not a failure
+- added `features/zero-trust/callers.feature`: an HTTP endpoint that admits the gateway serves a request from the internet
+- added `features/zero-trust/callers.feature`: an HTTP endpoint that admits only the gateway refuses a service of the installation
+- added `features/zero-trust/callers.feature`: a connection that does not prove its workload reaches no endpoint
+- added `features/zero-trust/callers.feature`: a handler behind an authenticator is told both the principal and the calling workload
+- added `features/zero-trust/callers.feature`: a service in any language is told the same calling workload
+- added `features/zero-trust/callers.feature`: on a developer's machine every request comes from the local caller, and the service says once that callers are not checked
 
 ---
 
@@ -199,19 +173,12 @@ before this exists, and because Python and TypeScript are deliberately left to a
 client under a k3s suite and observe the call served with the first's identity; run the same two
 services locally and observe the call served.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a service in a project, **When** it obtains a client for a service in the same project
-   by name and makes a request, **Then** the request arrives at the callee over mutual TLS carrying
-   the caller's identity.
-2. **Given** a service, **When** it obtains a client for a service in another project, **Then** the
-   request carries the caller's identity and the callee's ACL decides; nothing about the network
-   distinguishes the two cases from the caller's point of view.
-3. **Given** a callee whose certificate does not name the service the client asked for, **When**
-   the client connects, **Then** the request fails with an error naming the mismatch, and no request
-   body is sent.
-4. **Given** two services running locally through `ankka local`, **When** one obtains a client for
-   the other by name, **Then** the call reaches it over plain HTTP at its registered address.
+- added `features/zero-trust/calling-services.feature`: a service sends a request to another of its project by name, as itself
+- added `features/zero-trust/calling-services.feature`: a service sends a request to a service of another project by project and name, as itself
+- added `features/zero-trust/calling-services.feature`: a request is not sent to a workload that is not the service asked for
+- added `features/zero-trust/calling-services.feature`: on a developer's machine a service sends a request to another running there by name
 
 ---
 
@@ -237,29 +204,16 @@ mounted into the pod holds no password. From a pod in another project, attempt a
 database's port and observe it refused at the network. Then deploy a service provisioned *before*
 this feature and observe it moved to certificate authentication on its next deployment.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a service with a provisioned database, **When** it connects, **Then** every session the
-   database reports for the service's role is encrypted and was authenticated by certificate, and
-   the service verified the server's certificate and name before presenting its own.
-2. **Given** a service with a provisioned database, **When** its credential Secret is read, **Then**
-   it carries the connection's host, port, database and role and no password, and the role has no
-   password to log in with.
-3. **Given** a database whose certificate is not issued by the authority the platform told the
-   service to trust, **When** the service starts, **Then** it fails to connect and the failure names
-   the verification.
-4. **Given** a pod in the project that presents a certificate issued for a *different* service,
-   **When** it connects to the database as the first service's role, **Then** the database refuses
-   the login.
-5. **Given** a pod in another project's namespace, **When** it connects to the database's port,
-   **Then** the connection is refused at the network.
-6. **Given** a service provisioned before this feature, whose role has a generated password,
-   **When** it is next deployed, **Then** its role authenticates by certificate, the password no
-   longer logs in, and no data is lost or destroyed.
-7. **Given** a service that supplies its own database through `ANKKA_DB_*` variables, **When** it
-   also supplies a verification mode and a trust root, **Then** the runtime honours them; **When**
-   it supplies none, **Then** the connection behaves as it does today and the documentation says
-   what that costs.
+- added `features/databases/connection.feature`: a service's connection to its provisioned database is proven at both ends
+- added `features/databases/connection.feature`: a provisioned database is reached with no password
+- added `features/databases/connection.feature`: a service does not connect to a database whose certificate it was not told to trust
+- added `features/databases/isolation.feature`: a service cannot connect to another service's database with its own credential
+- added `features/databases/isolation.feature`: a workload outside a project cannot connect to the project's databases
+- added `features/databases/connection.feature`: a service whose database was provisioned with a password is moved to its certificate when it is next deployed
+- added `features/databases/connection.feature`: a service that declares a database of its own checks it as its descriptor says
+- added `features/databases/connection.feature`: a service that declares a database of its own and nothing to check it with connects unchecked
 
 ---
 
@@ -280,15 +234,11 @@ service-facing behaviour.
 from another namespace, its cluster forms, `ankka` commands succeed through the gateway, and its
 key fetch from the identity provider is over TLS.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a deployed control plane, **When** its instances start, **Then** they form a cluster
-   over mutual TLS and their remoting and management ports refuse connections from outside their
-   own pods.
-2. **Given** a deployed control plane, **When** the CLI calls it through the gateway, **Then** the
-   request is served, having reached the control plane over TLS with the gateway's identity.
-3. **Given** a deployed control plane, **When** it fetches the identity provider's signing keys,
-   **Then** the connection is TLS with the identity provider's certificate verified.
+- added `features/zero-trust/control-plane.feature`: the control plane's instances join their service cluster over proven connections nothing else can open
+- added `features/zero-trust/control-plane.feature`: a member reaches the control plane through the gateway, which it reads as the calling workload
+- added `features/zero-trust/control-plane.feature`: the control plane checks the issuer's certificate when it fetches the issuer's keys
 
 ---
 
@@ -308,15 +258,11 @@ in *Context*; the divergences page no longer lists caller principals as a diverg
 networking page describes the new shape; `DocumentationDescriptorsSuite` and the generated
 configuration tables cover every new variable.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the limitations page, **When** a reader looks under networking and security, **Then**
-   none of the four statements quoted in *Context* remain, and the two that still hold are stated.
-2. **Given** the cloud installation page, **When** an operator plans a cluster, **Then** they find
-   that the cluster's network must enforce network policy, how to check that it does, and what an
-   installation gets if it does not.
-3. **Given** the Scala, Python and TypeScript SDK references, **When** a reader looks for ACLs,
-   **Then** they find the caller-naming forms with the same semantics in each.
+- added `features/zero-trust/documentation.feature`: the limitations list what is still not protected and none of what now is
+- added `features/zero-trust/documentation.feature`: the documentation of installing in a cluster says the network must enforce what the platform asks of it
+- added `features/zero-trust/documentation.feature`: the ACLs that name a calling workload mean the same in every language
 
 ---
 

@@ -52,26 +52,17 @@ from the developer's machine — no `kubectl` involved — add an item to a cart
 hostname. Unexpose it and the same request fails to connect while `services get` still reports the
 service `Ready`.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a `Ready` service that has not been exposed, **When** a request is made to the hostname
-   it *would* have, **Then** nothing answers — a service is private by default.
-2. **Given** a `Ready` service, **When** the operator exposes it, **Then** within 60 seconds the
-   platform reports a hostname for it and an HTTPS request to that hostname from outside the
-   cluster — verifying the certificate against the platform's root, not skipping verification —
-   reaches the service and is answered by it. Plain HTTP to the same hostname redirects to HTTPS.
-3. **Given** an exposed service, **When** a client reads back state it wrote through the hostname,
-   **Then** it sees what it wrote — the route reaches the same service, not a copy.
-4. **Given** an exposed service with three instances, **When** one instance is not ready (starting,
-   or being replaced), **Then** no request through the hostname is routed to it — the hostname's
-   readiness guarantee is the same as the in-cluster address's (feature 004).
-5. **Given** an exposed service, **When** the operator unexposes it, **Then** within 30 seconds the
-   hostname no longer answers, the service is still `Ready`, its instances were not restarted, and
-   its in-cluster address still works.
-6. **Given** an exposed service, **When** it is deleted, **Then** its route is removed with it — no
-   hostname is left pointing at nothing.
-7. **Given** an exposed service, **When** it is paused, **Then** requests to the hostname fail
-   (there is nothing to reach) and resume brings them back without the operator exposing it again.
+- added `features/exposure/exposing.feature`: a service that is not exposed answers nothing at the hostname it would have
+- added `features/exposure/exposing.feature`: an exposed service answers at its hostname with a certificate the platform issued
+- added `features/exposure/exposing.feature`: a request sent to a hostname in the clear is redirected and served by no handler
+- added `features/exposure/exposing.feature`: what is written through a hostname is read back through it
+- added `features/exposure/exposing.feature`: no request through a hostname reaches an instance that is not ready
+- added `features/exposure/exposing.feature`: unexposing a service stops its hostname answering and changes nothing else
+- added `features/exposure/exposing.feature`: a deleted service leaves nothing answering at its hostname
+- added `features/exposure/exposing.feature`: a paused service answers nothing at its hostname
+- added `features/exposure/exposing.feature`: a resumed service answers at its hostname without being exposed again
 
 ---
 
@@ -88,20 +79,13 @@ is inseparable from US1 in value but separately testable.
 reachable at distinct hostnames; `services get` and `services list` show each one's hostname;
 restarting a service does not change it.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the platform's base domain is `example.test`, **When** service `cart` in project
-   `checkout` is exposed, **Then** its hostname is derived from exactly those three parts, and the
-   derivation is documented so a user can predict it.
-2. **Given** `cart` exposed in projects `checkout` and `returns`, **When** both are called, **Then**
-   each hostname reaches its own project's service.
-3. **Given** an exposed service, **When** it is restarted, re-applied with a new image, or scaled,
-   **Then** its hostname is unchanged.
-4. **Given** an exposed service, **When** a user runs `services get` or `services list`, **Then** the
-   hostname is shown; for an unexposed service the same output says plainly that it is not exposed.
-5. **Given** a service and project whose names are valid today, **When** the hostname is derived,
-   **Then** it is a valid hostname — no name the platform accepts can produce an address that does
-   not resolve.
+- added `features/exposure/hostnames.feature`: a hostname is made from the service's name, its project and the base domain
+- added `features/exposure/hostnames.feature`: services of one name in two projects each answer at their own hostname
+- added `features/exposure/hostnames.feature`: a hostname does not change when a member changes the service
+- added `features/exposure/hostnames.feature`: a member is shown a service's hostname, or that it is not exposed
+- added `features/exposure/hostnames.feature`: a service whose hostname could not be reached is refused when it is exposed
 
 ---
 
@@ -117,15 +101,11 @@ port-forward still works for the person installing it, so it is not blocking US1
 address and `config set ca` to the printed root certificate, then run `services list` from a shell
 with no port-forward open and `KUBECONFIG` unset.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the platform is installed, **When** installation finishes, **Then** it prints the
-   control plane's external address, where it wrote the root certificate, and the exact `ankka
-   config set` commands to use both.
-2. **Given** the CLI is configured with that address, **When** any CLI command runs, **Then** it
-   succeeds with no port-forward and no cluster credentials on the machine.
-3. **Given** the control plane's three instances (feature 004), **When** one is being replaced,
-   **Then** CLI commands through the external address keep succeeding.
+- added `features/exposure/control-plane.feature`: installing the platform says where the control plane answers and how to trust it
+- added `features/exposure/control-plane.feature`: a member operates the platform with no credential for the cluster
+- `features/clusters/control-plane.feature`: members' requests sent while an instance of the control plane is replaced are all accepted
 
 ---
 
@@ -141,15 +121,11 @@ because the mechanism (US1) is testable in the automated cluster suites without 
 **Independent Test**: from a clean machine, follow the README's local-deployment steps and reach
 both the control plane and an exposed shopping cart by hostname with `curl`.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a machine with the prerequisites, **When** the documented cluster-creation and
-   deployment steps run, **Then** the control plane's hostname answers from that machine.
-2. **Given** that cluster, **When** the shopping cart is deployed and exposed, **Then** `curl` to its
-   hostname adds an item and reads it back — no port-forward, no hosts-file edit.
-3. **Given** an existing `kind-ankka` cluster created with the old one-liner, **When** the new steps
-   are followed, **Then** the documentation says what to do (recreate the cluster) rather than
-   failing obscurely.
+- added `features/exposure/local-platform.feature`: the control plane of a local platform answers at its hostname from the developer's machine
+- added `features/exposure/local-platform.feature`: an exposed sample on a local platform answers at its hostname with nothing on the machine changed
+- added `features/exposure/local-platform.feature`: a cluster that cannot take requests at the machine's ports is refused, and the developer is told to create it again
 
 ---
 
@@ -165,15 +141,11 @@ it.
 gone; attempt to expose under a hostname belonging to another project and confirm refusal; confirm
 the identity a service runs as cannot read or write routes.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an exposed service, **When** its project is deleted, **Then** the route is gone with
-   everything else the project owned.
-2. **Given** the credentials a deployed service runs with (feature 004), **When** they are used to
-   read or change any route, **Then** the cluster refuses.
-3. **Given** the operator's identity, **When** it writes a route, **Then** it can only write the
-   kind of route object it renders — it holds no permission to create load balancers or change the
-   cluster's own routing configuration.
+*Superseded:* deleting a project removes the hostname of an exposed service in it, by the rule that a project which still has services cannot be deleted, so its services, and their hostnames with them, are deleted first
+- added `features/exposure/tenancy.feature`: a deployed service cannot read or change what any hostname reaches
+- added `features/exposure/tenancy.feature`: the operator cannot change how the gateway itself is reached
 
 ### Edge Cases
 

@@ -153,6 +153,17 @@ request merges only when every job has passed on a head up to date with `main`, 
 are not built at all, and the README badge reads the latest pull request run. A full run on demand
 is `workflow_dispatch` (`gh workflow run ci`).
 
+**The k3s suites run in `.github/workflows/cluster.yml`, nightly on `main` and on demand — never on a
+pull request.** One runner per suite, so the run takes as long as the slowest suite rather than the
+two hours they take one after another. The matrix is `.github/cluster-suites.py`'s: every concrete
+class in a test file that reads `ankka.cluster.tests` (the switch every k3s suite obeys), so a new
+suite runs there without being listed; `changes` runs the script on every pull request so a break
+shows before the night. Each runner is `sbt '<project>/testOnly <class>'`, which builds that module's
+images. The nightly run passes `-Dankka.coldstarts=20` (SC-002); five is the default, and a run on
+demand takes the count as an input. Check a platform change before merging with
+`gh workflow run cluster --ref <branch>`. Under `CI` the sidecar suite fails, rather than skips its
+module cases, when the Rust module does not build.
+
 `SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites
 `private[ankka] final` to `final private[ankka]`, which is scalafmt's canonical order but
 reads worse, and it churned 99 declarations for no benefit.

@@ -208,7 +208,12 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       catch case _: java.io.IOException => false
     if rustBuilt then
       docker(rust, "build", "-q", "-f", "examples/shopping-cart/Dockerfile", "-t", RustImage, ".")
-    else println("SidecarClusterSuite: `cargo` is not on PATH; the wasm service's cases skip")
+    // In CI the runner was given cargo to run these cases, so a module that did not build is a
+    // failure: skipped, every wasm case would report green having run nothing.
+    else if sys.env.contains("CI") then
+      fail("the Rust module did not build (is cargo, with wasm32-unknown-unknown, on PATH?)")
+    else
+      println("SidecarClusterSuite: the Rust module did not build; the wasm service's cases skip")
 
     val wrong = Files.createTempDirectory("wrong-abi")
     Files.write(

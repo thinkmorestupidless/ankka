@@ -136,6 +136,9 @@ lazy val commonSettings = Seq(
     "ankka.cluster.tests",
     "ankka.template.tests",
     "ankka.benchmarks",
+    // MultiNodeClusterSuite's cold-start rounds: five by default, twenty in the nightly run. It was
+    // read by the suite and never forwarded, so `-Dankka.coldstarts=3` ran twenty all the same.
+    "ankka.coldstarts",
     // Throwaway spikes that answer a design question against a real database (feature 013's
     // research "verify at implementation" list). Off by default: they measure, they do not assert.
     "ankka.spikes",

@@ -1,0 +1,68 @@
+# The k3s suites: each starts a Kubernetes node in a container, installs the platform's
+# controllers into it and deploys real services, so one takes minutes and all of them serially took
+# about two hours on a laptop. Here each has a runner of its own, so the run takes as long as the
+# slowest suite.
+#
+# Nightly on `main` and on demand, not on pull requests: `ci` stays fast, and a regression a k3s
+# suite catches is found the next morning rather than before merge. A run on demand can name a
+# branch, which is how a change that touches the platform is checked before it merges.
+#
+# The matrix is `.github/cluster-suites.py`'s, derived from the source, so a new k3s suite runs here
+# without being listed. Each runner runs one suite through `testOnly`, which builds the images that
+# suite's module deploys (the build hooks both `test` and `testOnly`); the sidecar suite builds its
+# Python and module images itself, and needs cargo or its module cases skip.
+name: cluster
+on:
+  push:
+    branches: [k3s-ci]   # TEMPORARY: proves the workflow before it reaches main; removed before merge
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      coldstarts:
+        description: "MultiNodeClusterSuite's cold-start rounds (SC-002 asks for twenty)"
+        default: "5"
+jobs:
+  suites:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        run: echo "matrix=$(python3 .github/cluster-suites.py)" >> "$GITHUB_OUTPUT"
+
+  suite:
+    needs: suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.suites.outputs.matrix) }}
+    name: ${{ matrix.suite }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # sbt-dynver derives the version, and so every image's tag, from tags
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.project == 'sidecar'
+        with:
+          targets: wasm32-unknown-unknown
+      # The nightly run is the full one: twenty cold starts, as the success criterion asks.
+      - run: >-
+          sbt -Dankka.template.tests=off
+          -Dankka.coldstarts=${{ github.event_name == 'schedule' && '20' || inputs.coldstarts }}
+          'set ${{ matrix.project }} / Test / logBuffered := false'
+          '${{ matrix.project }}/testOnly ${{ matrix.class }}'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: test-reports-${{ matrix.suite }}
+          path: '*/target/test-reports/*${{ matrix.suite }}.xml'
+          if-no-files-found: warn

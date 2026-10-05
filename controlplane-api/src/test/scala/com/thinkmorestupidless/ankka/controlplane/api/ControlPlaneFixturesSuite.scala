@@ -346,7 +346,7 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
   ).flatten
 
   test("every fixture matches what the wire codecs write") {
-    if update then Files.createDirectories(dir)
+    if update then Files.createDirectories(dir): Unit
     val stale = fixtures.flatMap { (file, content) =>
       val path = dir.resolve(file)
       if update then

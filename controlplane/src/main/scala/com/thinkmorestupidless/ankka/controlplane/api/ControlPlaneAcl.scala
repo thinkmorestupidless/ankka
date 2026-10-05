@@ -80,8 +80,8 @@ object ControlPlaneAcl:
                   subject = DeployToken.subjectOf(id),
                   name = Some(entry.label),
                   claims = Map(
-                    "kind"         → "deploy-token",
-                    "organization" → entry.organizationId
+                    "kind"         -> "deploy-token",
+                    "organization" -> entry.organizationId
                   )
                 )
               )

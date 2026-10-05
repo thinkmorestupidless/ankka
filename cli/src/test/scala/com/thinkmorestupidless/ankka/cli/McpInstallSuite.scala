@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.cli
 
 import com.thinkmorestupidless.ankka.cli.mcp.{Json, McpInstall}
-import com.thinkmorestupidless.ankka.cli.mcp.McpInstall.{Client, Outcome, Request, Scope}
+import com.thinkmorestupidless.ankka.cli.mcp.McpInstall.{Outcome, Request}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.nio.file.attribute.PosixFilePermissions

@@ -574,7 +574,7 @@ abstract class ProxySteps(feature: String) extends GherkinSuite(feature) with Lo
     assertEquals(last.body, s"$name saw gateway")
   }
 
-  Then("the browser is given the refusal of {string}") { (name: String) =>
+  Then("the browser is given the refusal of {string}") { (_: String) =>
     assertEquals(last.status, 403, last.body)
     assert(!answeredByProxy(last), "the refusal was the proxy's, not the service's")
   }

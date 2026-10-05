@@ -47,7 +47,7 @@ abstract class PolyglotTemplateSuite(language: Language, tools: String*) extends
       workspace = Files.createTempDirectory(s"ankka-${language.id}-template")
       val out  = ByteArrayOutputStream()
       val err  = ByteArrayOutputStream()
-      val args = Array("init", Name, "--language", language.id, "--dir", workspace.toString)
+      val args = Seq("init", Name, "--language", language.id, "--dir", workspace.toString)
       val code = Main.run(args, PrintStream(out), PrintStream(err))
       assertEquals(code, 0, s"ankka init failed:\n$out\n$err")
 

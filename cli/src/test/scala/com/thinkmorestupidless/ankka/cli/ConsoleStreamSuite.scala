@@ -1,11 +1,10 @@
 package com.thinkmorestupidless.ankka.cli
 
-import com.sun.net.httpserver.HttpServer
 import com.thinkmorestupidless.ankka.cli.console.*
 import munit.FunSuite
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.net.{InetAddress, InetSocketAddress, URI}
+import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{CountDownLatch, TimeUnit}

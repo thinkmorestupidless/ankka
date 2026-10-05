@@ -65,7 +65,7 @@ class DescriptorFeatures
       testKit.stop()
       identity.stop()
 
-  private def send(method: String, path: String, body: Option[String] = None): (Int, String) =
+  private def send(method: String, path: String, body: Option[String]): (Int, String) =
     val builder = JdkRequest
       .newBuilder(URI.create(url + path))
       .timeout(Duration.ofSeconds(30))

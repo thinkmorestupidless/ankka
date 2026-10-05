@@ -19,7 +19,7 @@ import java.time.{Clock, Instant, LocalDate}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.ExecutionContext
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 

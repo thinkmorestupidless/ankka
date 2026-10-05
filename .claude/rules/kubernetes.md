@@ -42,14 +42,22 @@ the component has no broker and renders exactly what it rendered before (`Render
 Services are known to the broker the way they are known to their database: by the certificate they hold.
 With a broker, the service certificate gains `commonName: <project>.<service>`, and the operator writes a
 `KafkaUser` of that name (`tls-external`, topics `<project>.` prefix Read/Write/Describe, groups
-`ankka.<project>.<service>.` prefix Read — feature 024's group ids) and a `KafkaTopic` `<project>.<name>` per
-declared topic, both in `ankka-broker`, with no owner reference and no action that removes either. It gives
-the service `ANKKA_KAFKA_BOOTSTRAP_SERVERS`, `ANKKA_KAFKA_TLS_DIRECTORY` and `ANKKA_KAFKA_TOPIC_PREFIX` (shared
-with a process). `BrokerProvisioning.decide` is the status, in the database's shape; what is rendered is
-`topicsToRender`, never conditioned on the phase, so a failing phase cannot take a running service's broker
-away. A descriptor with any `ANKKA_KAFKA_` variable supplies its own broker and gets nothing; topic rules are
-in `ServiceSpec` (`topicProblems`) and, needing the project's other services, in
-`ServiceEndpoint.topicConflict`. `docs/platform/broker.md` is the contract.
+`ankka.<project>.<service>.` prefix Read — feature 024's group ids) in `ankka-broker`, with no owner
+reference and no action that removes it. It gives the service `ANKKA_KAFKA_BOOTSTRAP_SERVERS`,
+`ANKKA_KAFKA_TLS_DIRECTORY` and `ANKKA_KAFKA_TOPIC_PREFIX` (shared with a process). `BrokerProvisioning.decide`
+is the credential's status, in the database's shape. A descriptor with any `ANKKA_KAFKA_` variable supplies
+its own broker and gets nothing.
+
+Topics are the **project's**, declared once on it (`PUT /projects/{id}/topics/{name}`, `ankka projects topics
+set`): the `Project` entity holds one declaration per name, so "never fewer partitions" is its own rule and
+there is no cross-service check. Descriptors declared topics until a k3s run showed two declaring services
+could never grow one. `ProjectTopicsTrigger` writes the declarations as an `AnkkaProject` in the project's
+namespace (crd `AnkkaProject`, schema `ankkaproject.yaml`); the operator's `ProjectReconciler`, on a queue of
+its own, renders a `KafkaTopic` per declaration (`TopicProvisioning.topicsToRender`: never fewer partitions
+than one has) and writes each topic's phase onto the resource's status, which the topics route reads. A
+service's status names the topics its components use that the project has not declared
+(`undeclaredTopics`, read from its topology when an instance is ready). `docs/platform/broker.md` is the
+contract.
 
 ## Deploying locally
 

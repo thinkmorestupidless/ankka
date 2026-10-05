@@ -114,9 +114,9 @@ ankka service. The CLI is its client.
 
 ### Declared topic
 
-A topic a descriptor says its project is to have, with its partitions, which the platform makes on the
-installation's broker. It belongs to the project, not to the service that declared it: every service of the
-project publishes to it and reads it by its name. See [Broker topics](../build/topics.md#declaring-a-topic).
+A topic a member declares on a project, once, with its partitions, which the platform makes on the
+installation's broker. Every service of the project publishes to it and reads it by its name; no service
+declares it. See [Broker topics](../build/topics.md#declaring-a-topic).
 
 ### Delta
 

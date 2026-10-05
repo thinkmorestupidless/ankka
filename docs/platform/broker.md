@@ -10,7 +10,7 @@ related: [build/topics.md, platform/databases.md, platform/networking.md, platfo
 An ankka installation has one Kafka broker, which it provides for every project, as it provides each
 project a database. A service is told where the broker is with nothing in its descriptor, connects with
 the certificate the platform already issued it, and reaches the topics of its own project and nothing
-else. A topic exists because a descriptor declares it; [Broker topics](../build/topics.md) describes
+else. A topic exists because its project declares it; [Broker topics](../build/topics.md) describes
 declaring one and using it from a service.
 
 The broker is run by [Strimzi](https://strimzi.io/), a Kubernetes operator for Kafka.
@@ -71,9 +71,12 @@ name. A web-hosted service has no components and is given nothing either.
 
 ## Topics
 
-For each topic a descriptor declares, the platform writes a `KafkaTopic` named `<project>.<name>` with
-the declared partitions. Replication is the broker's default, so it follows the installation's size.
-The name the broker holds is what the broker's own tools list; a service's code uses the declared name.
+A member declares a project's topics on the project, once each, with their partitions. The declarations
+reach the cluster as an `AnkkaProject` resource in the project's namespace, written by the control plane.
+For each, the operator writes a `KafkaTopic` named `<project>.<name>` with the declared partitions, never
+fewer than the topic already has, and reports how far the broker has got with it. Replication is the
+broker's default, so it follows the installation's size. The name the broker holds is what the broker's
+own tools list; a service's code uses the declared name.
 
 Installing the broker on an installation that already runs services gives every one of them the broker
 on the operator's next pass: each is told where the broker is, and its certificate is reissued with its
@@ -83,11 +86,14 @@ request.
 ## What is kept
 
 The platform never removes a topic, what was published to it, or a service's user. Neither has an owner
-in the service's namespace, so deleting a service or its project leaves them, as a service's database is
-left. A service applied again under its old name finds its user and topics and reports them recovered.
+in the project's namespace, so deleting a service, removing a topic's declaration or deleting the project
+leaves them, as a service's database is left. A service applied again under its old name finds its user
+and reports it recovered; a topic declared again finds what was published to it and reports itself
+recovered.
 
-Removing a topic is for whoever runs the installation. Delete its resource and Strimzi deletes the topic
-and everything on it:
+Removing a topic is for whoever runs the installation. First a member stops declaring it, or the
+platform makes it again, empty, on its next pass; then delete its resource, and Strimzi deletes the
+topic and everything on it:
 
 ```bash
 kubectl -n ankka-broker delete kafkatopic money.transactions
@@ -112,6 +118,6 @@ An installation may leave the component out, for instance to keep a Kafka it alr
 
 - a service is told of no broker, and one that needs a broker names it in its descriptor's `env` with
   `ANKKA_KAFKA_BOOTSTRAP_SERVERS`, as [Broker topics](../build/topics.md) describes;
-- a descriptor that declares a topic is applied, and its status reports the broker as failed, because
-  the installation has no broker to make the topic on;
+- a topic a project declares is reported failed, because the installation has no broker to make it
+  on;
 - everything else is deployed exactly as it would be with no broker feature at all.

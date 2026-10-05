@@ -165,7 +165,7 @@ feature also says what that feature does not do.
   kept it, and another service asks for what it needs over HTTP. There are no versions of a value and no
   audit of reads. A project secret reaches a pod as an environment variable only, not as a file.
 - **A topic is made only by declaring it, with partitions and nothing else.** On the installation's broker
-  a topic exists because a descriptor declares it; publishing to one nobody declared waits. A declaration
+  a topic exists because its project declares it; publishing to one nobody declared waits. A declaration
   says how many partitions a topic has and nothing more: no retention, compaction or other topic setting.
   A [graph consumer](../build/graph.md#the-topic)'s topic must be compacted, so it is the pipeline that
   reads it, not ankka, that creates it so and reports when it is not; on a broker a descriptor names, every

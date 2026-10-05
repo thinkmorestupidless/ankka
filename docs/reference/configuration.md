@@ -240,7 +240,7 @@ Neither is routed to a sidecar: judgments are available to Scala services only.
   `tls.key`, `tls.crt` and `ca.crt`. With it the service connects over TLS, presenting that certificate
   and picking up its renewal on the next connection; without it, in plain text.
 - `ANKKA_KAFKA_TOPIC_PREFIX` is what the broker's names for the project's topics start with. A component
-  names a topic as its descriptor declared it, and the prefix is added where the topic is handed to the
+  names a topic as its project declared it, and the prefix is added where the topic is handed to the
   broker.
 
 On an installation with a broker the platform sets all three on every service with components, naming

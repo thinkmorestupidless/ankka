@@ -2,7 +2,13 @@ package com.thinkmorestupidless.ankka.controlplane
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.thinkmorestupidless.ankka.cli.Main
-import com.thinkmorestupidless.ankka.controlplane.api.{ProjectId, ServiceLifecycle, ServiceStatus}
+import com.thinkmorestupidless.ankka.controlplane.api.{
+  ProjectEndpoint,
+  ProjectId,
+  ProjectTopic,
+  ServiceLifecycle,
+  ServiceStatus
+}
 import com.thinkmorestupidless.ankka.controlplane.api.Wire.given
 import com.thinkmorestupidless.ankka.controlplane.deploy.{
   DeployConfig,
@@ -62,10 +68,17 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
   override protected def ranElsewhere: Map[String, String] = Map(
-    "a descriptor's topics are refused when they cannot be made" -> "BrokerDescriptorFeature",
-    "two services of a project that declare one topic agree on its partitions" ->
-      "BrokerDescriptorFeature",
-    "a topic's partitions can be made more and never fewer" -> "BrokerDescriptorFeature",
+    "a topic is refused when it cannot be made"       -> "ProjectTopicsFeature",
+    "a topic declared again is still one declaration" -> "ProjectTopicsFeature",
+    "a declaration is made on a project of the member's organization only" ->
+      "ProjectTopicsFeature",
+    // The control plane reads a topology over the observe port, with its own certificate, which
+    // the control plane this suite runs in its JVM does not hold; the read is the HTTP suite's,
+    // over the runtime's topology, whose topic nodes the topology suites hold.
+    "the status of a service names a topic it uses that its project has not declared" ->
+      "ControlPlaneHttpSuite",
+    "a topic is no longer named as undeclared once its project declares it" ->
+      "ControlPlaneHttpSuite",
     "a service hosted as a process is ready with the broker its descriptor names" ->
       "SidecarClusterSuite",
     "a consumer of a service hosted as a process publishes to the broker its descriptor names" ->
@@ -74,7 +87,9 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       "ProcessHostingRenderingSuite",
     "an installation in a cluster has the broker a local platform has" -> "RemoteOverlaySuite",
     "a service of an installation with no broker is deployed as it was before" ->
-      "BrokerRenderingSuite and BrokerProvisioningSuite"
+      "BrokerRenderingSuite and BrokerProvisioningSuite",
+    "a topic declared on an installation with no broker says why it is not made" ->
+      "TopicProvisioningSuite and ProjectRenderingSuite"
   )
 
   private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
@@ -298,7 +313,7 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     "a web-hosted service is given nothing of the installation's broker" -> Map("web" -> "kiosk"),
     // A service applied again under its old name is recovered for as long as its resource lives,
     // and the kept scenarios do exactly that to "wallet"; the outline's rows need one that was not.
-    "the status says how far the platform has got with a service's topics" -> Map(
+    "the status says how far the platform has got with a service's credential" -> Map(
       "wallet" -> "teller"
     ),
     "a local platform has a broker from the start" -> Map("shopping-cart" -> "shopping-cart")
@@ -325,6 +340,7 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       made = Vector.empty
       descriptorOf = None
       lastProbe = None
+      lastDeclared = None
       published = Map.empty
       consumers = Map.empty
       views = Map.empty
@@ -346,7 +362,6 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
   private final case class Desc(
       service: String,
       project: String,
-      topics: Vector[String] = Vector.empty,
       env: Map[String, String] = Map.empty,
       hosting: Option[String] = None,
       image: String = SampleImage
@@ -357,11 +372,6 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
         hosting.map(h => s""""hosting":"$h""""),
         Option.when(hosting.contains("process"))(""""protocol":"1.0""""),
         Option.when(hosting.contains("web"))(""""processPort":8080"""),
-        Option.when(topics.nonEmpty)(
-          topics
-            .map(t => s"""{"name":"$t","partitions":${partitionsOf(project, t)}}""")
-            .mkString(""""topics":[""", ",", "]")
-        ),
         Option.when(env.nonEmpty)(
           env
             .map((k, v) => s"""{"name":"$k","value":"$v"}""")
@@ -384,7 +394,6 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       if run.code == 0 then
         appliedAs += (d.service, d.project) -> d
         made :+= (d.service, d.project)
-        d.topics.foreach(t => partitions += (d.project, t) -> partitionsOf(d.project, t))
       lastApply = run
       run
     finally Files.deleteIfExists(file): Unit
@@ -397,20 +406,40 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     }
 
   /**
-   * The cart sample as `service` of `p`: declaring `topics`, its checkout notices published to (and
-   * its view reading) `notices`, which defaults to the first topic it declares.
+   * The cart sample as `service` of `p`, its checkout notices published to (and read from)
+   * `notices`.
    */
-  private def deploy(
-      service: String,
-      p: String,
-      topics: Vector[String],
-      notices: Option[String] = None
-  ): Desc =
-    val topic = notices.orElse(topics.headOption).getOrElse("cart-checkouts")
-    val d     = Desc(service, p, topics, Map("CART_CHECKOUTS_TOPIC" -> topic))
+  private def deploy(service: String, p: String, notices: String = "cart-checkouts"): Desc =
+    val d = Desc(service, p, Map("CART_CHECKOUTS_TOPIC" -> notices))
     ok(apply(d))
     ready(service, p)
     d
+
+  /** The scenario's last declaration, and its project. */
+  private var lastDeclared: Option[(String, String)] = None
+  private var lastDeclare: Run                       = Run(0, "", "")
+
+  /** Declares a topic on a project through the CLI, as a member does. */
+  private def declare(t: String, p: String, n: Int = -1): Run =
+    ensureProject(p)
+    val count = if n < 0 then partitionsOf(p, t) else n
+    val run =
+      ankka("projects", "topics", "set", t, "--partitions", count.toString, "-p", p)
+    if run.code == 0 then partitions += (p, t) -> count
+    lastDeclared = Some((p, t))
+    lastDeclare = run
+    run
+
+  private def topicMade(p: String, t: String): Unit =
+    waitFor(180.seconds, s"$p.$t being made")(topicReady(s"$p.$t"))
+
+  /** A topic's phase as `ankka projects topics list` shows it. */
+  private def topicPhase(p: String, t: String): Option[String] =
+    val run = ankka("projects", "topics", "list", "-p", p, "-o", "json")
+    Option
+      .when(run.code == 0)(readFromString[Vector[ProjectTopic]](run.out))
+      .flatMap(_.find(_.name == t))
+      .flatMap(_.phase)
 
   /** The topic a deployed cart's notices go to, changed by applying it again if it differs. */
   private def noticesTo(service: String, p: String, topic: String): Unit =
@@ -600,47 +629,35 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
 
   Given("a project {string}")((p: String) => ensureProject(project(p)))
 
-  Given(
-    "a descriptor for a service {string} in {string} that declares the topic {string} with {int} partitions"
-  ) { (s: String, p: String, t: String, n: Int) =>
-    partitions += (project(p), t) -> n
-    descriptorOf = Some(Desc(a(s), project(p), Vector(t), Map("CART_CHECKOUTS_TOPIC" -> t)))
+  Given("the topic {string} is declared on {string} with {int} partitions") {
+    (t: String, p: String, n: Int) =>
+      ok(declare(t, project(p), n))
+      topicMade(project(p), t)
   }
 
-  Given("the descriptor gives no broker variable") { () =>
-    val d = descriptorOf.getOrElse(fail("no descriptor"))
-    assert(!d.env.keys.exists(_.startsWith("ANKKA_KAFKA_")), d.json)
+  Given("the topic {string} is declared on {string}") { (t: String, p: String) =>
+    ok(declare(t, project(p)))
+    topicMade(project(p), t)
   }
 
-  Given("a deployed service {string} in {string} that declares the topic {string}") {
-    (s: String, p: String, t: String) =>
-      deploy(a(s), project(p), Vector(t)): Unit
+  Given("a project with a declared topic") { () =>
+    ensureProject(project("money"))
+    ok(declare("orders", project("money")))
+    topicMade(project("money"), "orders")
   }
 
-  Given("a deployed service {string} in the project {string} that declares the topic {string}") {
-    (s: String, p: String, t: String) =>
-      deploy(a(s), project(p), Vector(t)): Unit
-  }
-
-  Given("a deployed service {string} in {string} that declares no topic") { (s: String, p: String) =>
-    deploy(a(s), project(p), Vector.empty): Unit
+  Given("a deployed service {string} in {string}") { (s: String, p: String) =>
+    deploy(a(s), project(p)): Unit
   }
 
   Given("a deployed service {string} in the project {string}") { (s: String, p: String) =>
-    deploy(a(s), project(p), Vector.empty): Unit
+    deploy(a(s), project(p)): Unit
   }
 
-  Given(
-    "a deployed service {string} in {string} hosted as a process that declares the topic {string}"
-  ) { (s: String, p: String, t: String) =>
+  Given("a deployed service {string} in {string} hosted as a process") { (s: String, p: String) =>
     // Only the Deployment is read: the process need not be a real one.
-    val d = Desc(
-      a(s),
-      project(p),
-      Vector(t),
-      hosting = Some("process"),
-      image = "registry.k8s.io/pause:3.9"
-    )
+    val d =
+      Desc(a(s), project(p), hosting = Some("process"), image = "registry.k8s.io/pause:3.9")
     ok(apply(d))
     waitFor(120.seconds, s"${a(s)}'s Deployment") {
       environment(a(s), project(p)).size == 2
@@ -648,16 +665,10 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
   }
 
   Given(
-    "a deployed service {string} in {string} that declares no topic, with a view {string} that reads the topic {string}"
+    "a deployed service {string} in {string}, with a view {string} that reads the topic {string}"
   ) { (s: String, p: String, v: String, t: String) =>
-    deploy(a(s), project(p), Vector.empty, notices = Some(t)): Unit
+    deploy(a(s), project(p), notices = t): Unit
     views += v -> (a(s), project(p))
-  }
-
-  Given(
-    "a descriptor for a service {string} in {string} that declares no topic and gives no broker variable"
-  ) { (s: String, p: String) =>
-    descriptorOf = Some(Desc(a(s), project(p)))
   }
 
   Given("a descriptor for the web-hosted service {string} in {string}") { (s: String, p: String) =>
@@ -666,17 +677,15 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     )
   }
 
-  Given(
-    "a descriptor for a service {string} that gives the variable {string} and declares no topic"
-  ) { (s: String, variable: String) =>
-    descriptorOf = Some(Desc(a(s), project("money"), env = Map(variable -> "elsewhere:9092")))
+  Given("a descriptor for a service {string} that gives the variable {string}") {
+    (s: String, variable: String) =>
+      descriptorOf = Some(Desc(a(s), project("money"), env = Map(variable -> "elsewhere:9092")))
   }
 
-  Given("a descriptor for the sample {string} that declares a topic and gives no broker variable") {
+  Given("a descriptor for the sample {string} in that project that gives no broker variable") {
     (s: String) =>
-      descriptorOf = Some(
-        Desc(a(s), project("money"), Vector("orders"), Map("CART_CHECKOUTS_TOPIC" -> "orders"))
-      )
+      descriptorOf =
+        Some(Desc(a(s), project("money"), env = Map("CART_CHECKOUTS_TOPIC" -> "orders")))
   }
 
   Given("a consumer {string} of {string} that publishes to the topic {string}") {
@@ -696,12 +705,6 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     waitFor(120.seconds, s"${a(s)}'s log naming $t") {
       logsOf(a(s), p).contains(s"could not publish to topic '$t'")
     }
-  }
-
-  Given("the topic {string} of the project {string} on the installation's broker") {
-    (t: String, p: String) =>
-      deploy("wallet", project(p), Vector(t)): Unit
-      waitFor(120.seconds, s"$p.$t being made")(topicReady(s"${project(p)}.$t"))
   }
 
   Given("a view {string} of {string} that reads the topic {string}") {
@@ -733,17 +736,26 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       waitFor(120.seconds, s"the view of ${a(s)} showing $cart")(seen(a(s), p, cart)._1 == 200)
   }
 
-  // the status outline's states ------------------------------------------------
+  Given("the declaration of the topic {string} has since been removed from {string}") {
+    (t: String, p: String) =>
+      ok(ankka("projects", "topics", "unset", t, "-p", project(p))): Unit
+  }
+
+  // the outlines' states -------------------------------------------------------
+
+  /** The declared topic the outline's rows are about: the scenario's last declaration. */
+  private def outlineTopic: (String, String) =
+    lastDeclared.getOrElse(fail("nothing was declared"))
 
   Given("the installation's broker has not yet made the topic") { () =>
-    val name = s"${project("money")}.transactions"
+    val (p, t) = outlineTopic
     stopStrimzi()
     // What the operator finds for a topic nobody has made yet: the resource, and no report on it.
     PkiStack.kubectl(
       k3s,
       "patch",
       "kafkatopic",
-      name,
+      s"$p.$t",
       "-n",
       Broker,
       "--subresource=status",
@@ -754,31 +766,21 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
   }
 
   Given("the installation's broker has made the topic with fewer partitions so far") { () =>
-    val p = project("money")
+    val (p, t) = outlineTopic
     stopStrimzi()
-    partitions += (p, "transactions") -> (partitionsOf(p, "transactions") + 1)
-    ok(apply(appliedAs((a("wallet"), p))))
+    ok(declare(t, p, partitionsOf(p, t) + 1))
   }
 
-  Given("the installation's broker has made the topic and the credential") { () =>
-    val p = project("money")
-    waitFor(120.seconds, "the topic and the user being made") {
-      topicReady(s"$p.transactions") &&
-      jsonPath(
-        "kafkauser",
-        "-n",
-        Broker,
-        s"$p.${a("wallet")}",
-        """{.status.conditions[?(@.type=="Ready")].status}"""
-      ) == "True"
-    }
+  Given("the installation's broker has made the topic") { () =>
+    val (p, t) = outlineTopic
+    topicMade(p, t)
   }
 
   Given("the installation's broker has a problem with the topic that will not clear") { () =>
-    val p    = project("money")
-    val name = s"$p.transactions"
-    val more = partitionsOf(p, "transactions") + 1
-    // Grown by hand beyond what the descriptor says: the platform never makes a topic smaller, so
+    val (p, t) = outlineTopic
+    val name   = s"$p.$t"
+    val more   = partitionsOf(p, t) + 1
+    // Grown by hand beyond what the project declares: the platform never makes a topic smaller, so
     // nothing it can do clears this. A reconcile already under way when the change lands applies
     // the declared count it read a moment before, so the change is made again until Strimzi has
     // acted on it; from then on the broker holds more partitions than are declared, and whether
@@ -801,9 +803,37 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
       jsonPath("kafkatopic", "-n", Broker, name, "{.status.observedGeneration}") ==
         jsonPath("kafkatopic", "-n", Broker, name, "{.metadata.generation}")
     }
-    afterTheScenario = () =>
-      partitions += (p, "transactions") -> more
-      ok(apply(appliedAs((a("wallet"), p)))): Unit
+    afterTheScenario = () => ok(declare(t, p, more)): Unit
+  }
+
+  Given("the installation's broker has not yet made the credential") { () =>
+    val (s, p) = made.lastOption.getOrElse(fail("no service"))
+    stopStrimzi()
+    PkiStack.kubectl(
+      k3s,
+      "patch",
+      "kafkauser",
+      s"$p.$s",
+      "-n",
+      Broker,
+      "--subresource=status",
+      "--type=merge",
+      "-p",
+      """{"status":{"conditions":[]}}"""
+    ): Unit
+  }
+
+  Given("the installation's broker has made the credential") { () =>
+    val (s, p) = made.lastOption.getOrElse(fail("no service"))
+    waitFor(120.seconds, "the user being made") {
+      jsonPath(
+        "kafkauser",
+        "-n",
+        Broker,
+        s"$p.$s",
+        """{.status.conditions[?(@.type=="Ready")].status}"""
+      ) == "True"
+    }
   }
 
   private var afterTheScenario: () => Unit = () => ()
@@ -813,6 +843,22 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
   When("a member applies the descriptor") { () =>
     apply(descriptorOf.getOrElse(fail("no descriptor"))): Unit
   }
+
+  When("a member declares the topic {string} on {string} with {int} partitions") {
+    (t: String, p: String, n: Int) =>
+      declare(t, project(p), n): Unit
+  }
+
+  When("a member declares the topic {string} on {string}") { (t: String, p: String) =>
+    ok(declare(t, project(p))): Unit
+  }
+
+  When("a member removes the declaration of the topic {string} from {string}") {
+    (t: String, p: String) =>
+      ok(ankka("projects", "topics", "unset", t, "-p", project(p))): Unit
+  }
+
+  When("a member reads the topics of {string}")((_: String) => ())
 
   When("the environment of {string} is read")((_: String) => ())
 
@@ -832,17 +878,11 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     checkout(a(s), p): Unit
   }
 
-  When("a member applies a descriptor for a service of {string} that declares the topic {string}") {
-    (p: String, t: String) =>
-      val waiting = consumers.values.find(_._2 == project(p)).getOrElse(fail("no consumer waits"))
-      val d       = appliedAs(waiting)
-      ok(apply(d.copy(topics = (d.topics :+ t).distinct)))
-  }
-
   When("a member reads the status of {string}")((_: String) => ())
 
   When("a service of {string} publishes to the topic {string}") { (p: String, t: String) =>
     val pp = project(p)
+    if !appliedAs.contains(("wallet", pp)) then deploy("wallet", pp, notices = t): Unit
     noticesTo("wallet", pp, t)
     checkout("wallet", pp): Unit
   }
@@ -878,6 +918,8 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
   }
 
   When("a member deletes the project {string}") { (p: String) =>
+    for (s, pp) <- appliedAs.keys if pp == project(p) && statusOf(s, pp).isDefined do
+      deleteService(s, pp)
     ok(ankka("projects", "delete", project(p))): Unit
   }
 
@@ -891,26 +933,33 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
 
   Then("the installation's broker has the topic {string} of {string} with {int} partitions") {
     (t: String, p: String, n: Int) =>
-      assertEquals(lastApply.code, 0, lastApply.all)
+      assertEquals(lastDeclare.code, 0, lastDeclare.all)
       val name = s"${project(p)}.$t"
       waitFor(180.seconds, s"$name being made with $n partitions") {
-        topicReady(name) && jsonPath(
-          "kafkatopic",
-          "-n",
-          Broker,
-          name,
-          "{.spec.partitions}"
-        ) == n.toString
+        topicReady(name) &&
+        jsonPath("kafkatopic", "-n", Broker, name, "{.spec.partitions}") == n.toString
       }
   }
 
   Then("the broker holds that topic under the name {string}") { (name: String) =>
-    val d = descriptorOf.getOrElse(fail("no descriptor"))
-    assertEquals(jsonPath("kafkatopic", "-n", Broker, name, "{.status.topicName}"), name)
-    // As the service sees it: listed by the broker to the service's own credential.
-    ready(d.service, d.project)
-    val listed = probe(d.service, d.project).topics()
-    assert(listed.messages.contains(name), listed.output)
+    val (p, t) = name.splitAt(name.indexOf('.'))
+    val held   = s"${project(p)}$t"
+    assertEquals(jsonPath("kafkatopic", "-n", Broker, held, "{.status.topicName}"), held)
+  }
+
+  Then("the member is refused, and the refusal names the partitions") { () =>
+    assertEquals(lastDeclare.code, 1, lastDeclare.all)
+    assert(lastDeclare.all.contains("cannot have fewer"), lastDeclare.all)
+  }
+
+  Then("the topic {string} is {string}") { (t: String, word: String) =>
+    val p      = lastDeclared.map(_._1).getOrElse(project("money"))
+    val phrase = ProjectEndpoint.topicPhrase(word)
+    waitFor(180.seconds, s"the topic $t of $p being '$phrase'") {
+      topicPhase(p, t).contains(phrase)
+    }
+    afterTheScenario()
+    afterTheScenario = () => ()
   }
 
   Then("it has the variable {string}, naming the installation's broker") { (variable: String) =>
@@ -979,25 +1028,12 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
     waitFor(120.seconds, s"$reader's view showing $cart")(seen(reader, p, cart)._1 == 200)
   }
 
-  Then("the environment of {string} has the variable {string}, naming the installation's broker") {
-    (s: String, variable: String) =>
-      val p = currentProject(a(s))
-      waitFor(120.seconds, s"${a(s)}'s Deployment") {
-        environment(a(s), p)
-          .get(a(s))
-          .flatMap(_.get(variable))
-          .contains(BrokerStack.settings.bootstrap)
-      }
-  }
-
   Then("the status says that the broker of {string} is {string}") { (s: String, word: String) =>
     val p      = currentProject(a(s))
     val phrase = Service.brokerPhrase(word)
     waitFor(180.seconds, s"the status of ${a(s)} saying '$phrase'") {
       statusOf(a(s), p).flatMap(_.broker).contains(phrase)
     }
-    afterTheScenario()
-    afterTheScenario = () => ()
   }
 
   Then("the status of {string} says that its broker is {string}") { (s: String, word: String) =>
@@ -1204,7 +1240,7 @@ class BrokerClusterFeatures extends GherkinSuite("../features/broker") with LogC
         pp == p && k8s.apps().deployments().inNamespace(ns(pp)).withName(s).get() != null
       )
       .getOrElse {
-        deploy("wallet", p, Vector("transactions")): Unit
+        deploy("wallet", p, notices = "transactions"): Unit
         ("wallet", p)
       }
 

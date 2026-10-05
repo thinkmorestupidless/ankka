@@ -22,6 +22,9 @@ on:
       coldstarts:
         description: "MultiNodeClusterSuite's cold-start rounds (SC-002 asks for twenty)"
         default: "5"
+      suite:
+        description: "Run only the suite of this name (e.g. SidecarClusterSuite); empty runs all"
+        default: ""
 jobs:
   suites:
     runs-on: ubuntu-24.04
@@ -30,7 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: list
-        run: echo "matrix=$(python3 .github/cluster-suites.py)" >> "$GITHUB_OUTPUT"
+        env:
+          # TEMPORARY: the push trigger's run, narrowed to the suite being fixed; removed before merge
+          SUITE: ${{ github.event_name == 'push' && 'SidecarClusterSuite' || inputs.suite }}
+        run: echo "matrix=$(python3 .github/cluster-suites.py "$SUITE")" >> "$GITHUB_OUTPUT"
 
   suite:
     needs: suites

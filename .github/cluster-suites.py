@@ -7,7 +7,8 @@ switch holds k3s suites, and every concrete top-level class in it is one. The sb
 a file is read from `build.sbt`'s `project.in(file(...))` declarations.
 
 Prints `{"include": [{"suite", "class", "project"}, ...]}`, and fails when it finds none: a matrix
-of nothing would be a green run that tested nothing.
+of nothing would be a green run that tested nothing. An argument narrows it to the suite of that
+name, for running one suite on demand; a name that matches no suite fails the same way.
 """
 
 import json
@@ -44,5 +45,11 @@ for path in sorted(root.glob("**/src/test/scala/**/*.scala")):
 
 if not suites:
     sys.exit("no k3s suites found: nothing reads ankka.cluster.tests")
+
+only = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+if only:
+    suites = [s for s in suites if s["suite"] == only]
+    if not suites:
+        sys.exit(f"no k3s suite is named {only}")
 
 print(json.dumps({"include": suites}))

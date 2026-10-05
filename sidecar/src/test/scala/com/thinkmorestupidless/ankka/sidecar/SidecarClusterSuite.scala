@@ -190,7 +190,15 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
    */
   private def podDiagnosis(): String =
     try
-      pods
+      // Every pod in the namespace, not only the cart's: a case waiting on another service (the
+      // wasm cases' `rust-cart`) printed nothing at all.
+      k8s
+        .pods()
+        .inNamespace(Namespace)
+        .list()
+        .getItems
+        .asScala
+        .toSeq
         .map { p =>
           val name = p.getMetadata.getName
           val statuses =

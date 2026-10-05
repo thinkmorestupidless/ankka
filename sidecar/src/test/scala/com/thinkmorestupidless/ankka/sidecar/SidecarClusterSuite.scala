@@ -95,6 +95,14 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
     if !munitIgnore then
       // The Python image is built here, not by sbt: it is a `docker build`, and the tag is this
       // build's so a stale image from another session is never the one deployed.
+      //
+      // It copies the SDK as it is on disk, and the generated stubs are gitignored: without them
+      // the image builds, and its process dies on `No module named 'ankka._proto'` in every case
+      // after, each waiting out its own timeout. Refused here instead, naming the step.
+      assert(
+        Files.isDirectory(repositoryRoot.resolve("sdks/python/src/ankka/_proto")),
+        "the Python SDK's generated stubs are missing: run `uv run python scripts/proto.py` in sdks/python"
+      )
       val build = new ProcessBuilder(
         "docker",
         "build",

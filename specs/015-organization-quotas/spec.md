@@ -46,26 +46,16 @@ organization; create two projects and see the third refused with the quota in th
 services up to the third and see the fourth refused; apply a service whose instances would exceed
 four and see it refused; clear the quota and see the refused requests succeed.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an organization with no quota, **When** a member creates projects and applies
-   services, **Then** nothing is refused for capacity, exactly as before this feature.
-2. **Given** a platform administrator, **When** they set a quota of `projects: 2`, **Then**
-   members reading the organization see `projects: 2` and the current usage.
-3. **Given** the organization has two projects and a quota of two, **When** a member creates a
-   third, **Then** it is refused, nothing is created, and the message says the organization has
-   reached its quota of 2 projects.
-4. **Given** a service quota of three and three services across the organization's projects,
-   **When** a member applies a fourth service, **Then** it is refused, naming the quota of 3
-   services.
-5. **Given** an instance quota of four and services whose minimum instances add up to three,
-   **When** a member applies a new service with two minimum instances, **Then** it is refused,
-   naming the quota of 4 instances and the 3 in use; **When** they apply it with one, **Then** it
-   succeeds.
-6. **Given** a caller who is not a platform administrator, **When** they try to set or clear a
-   quota, **Then** they are refused as forbidden and the quota is unchanged.
-7. **Given** a quota, **When** the administrator clears it, **Then** the organization is unlimited
-   again and members see no quota.
+- added `features/quotas/quotas.feature`: an organization with no quota is refused nothing for capacity
+- added `features/quotas/quotas.feature`: a platform administrator sets an organization's quota
+- added `features/quotas/quotas.feature`: a member reads the quota and usage of the organization
+- added `features/quotas/quotas.feature`: a project past the organization's project quota is refused, and nothing is created
+- added `features/quotas/quotas.feature`: a service past the organization's service quota is refused
+- added `features/quotas/quotas.feature`: a service whose instances would take the organization past its instance quota is refused
+- added `features/quotas/quotas.feature`: only a platform administrator may set or clear a quota
+- added `features/quotas/quotas.feature`: a cleared quota leaves the organization unlimited
 
 ---
 
@@ -83,21 +73,14 @@ admits dishonest ones. Exact counts are what make the refusal in US1 trustworthy
 delete a service and delete a project, reading the usage after each; every reading equals what
 exists.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a service with two minimum instances under an instance quota of four, **When** it
-   is re-applied with one, **Then** usage shows one instance and a second service with three is
-   accepted.
-2. **Given** the same service, **When** it is re-applied with four while another service holds
-   one, **Then** it is refused naming the quota, and its previous descriptor stays in force.
-3. **Given** a service counted in usage, **When** it is deleted, **Then** usage drops by one
-   service and its instances.
-4. **Given** a project counted in usage, **When** it is deleted, **Then** usage drops by one
-   project.
-5. **Given** a paused service, **When** usage is read, **Then** it still counts its instances;
-   **Given** a disabled organization, the same.
-6. **Given** a service applied and its organization's count changed, **When** the platform is
-   restarted and the organization rebuilt from its history, **Then** usage is unchanged.
+- added `features/quotas/usage.feature`: a service applied again with fewer instances frees what it no longer needs
+- added `features/quotas/usage.feature`: a service applied again with more instances than the quota allows is refused, and keeps its descriptor
+- added `features/quotas/usage.feature`: deleting a service frees its service and its instances
+- added `features/quotas/usage.feature`: deleting a project frees the project
+- added `features/quotas/usage.feature`: a stopped service is still counted
+- added `features/quotas/usage.feature`: an organization's usage is the same after the control plane restarts
 
 ---
 
@@ -115,16 +98,11 @@ up for.
 **Independent Test**: With three services running, set a service quota of one; all three keep
 running; a fourth is refused; deleting two lets a new one in.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** usage of three services, **When** the quota is set to one, **Then** the set is
-   accepted and every service keeps running unchanged.
-2. **Given** that state, **When** a member applies a new service, **Then** it is refused naming
-   the quota of 1 and the 3 in use.
-3. **Given** that state, **When** a member re-applies an existing service with fewer instances,
-   **Then** it is accepted.
-4. **Given** that state, **When** a member re-applies an existing service unchanged, **Then** it
-   is accepted — an unchanged service does not need new capacity.
+- added `features/quotas/lowering.feature`: a quota lowered below the usage is accepted and stops nothing
+- added `features/quotas/lowering.feature`: a new service is refused while the usage is over the quota
+- added `features/quotas/lowering.feature`: a service applied again with no more instances than it had is accepted while the usage is over the quota
 
 ---
 
@@ -140,12 +118,10 @@ platform's own CLI covers the first installation's administrator.
 **Independent Test**: With the published wire library alone, set a quota through the API and read
 the organization's quota and usage back as both the administrator and a member.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the wire library, **When** a client sends a quota for an organization as a platform
-   administrator, **Then** the organization carries it.
-2. **Given** an organization with a quota, **When** any member reads it, **Then** the answer
-   carries the quota and the usage (projects, services, instances) as numbers.
+- added `features/quotas/quotas.feature`: a platform administrator sets an organization's quota
+- added `features/quotas/quotas.feature`: a member reads the quota and usage of the organization
 
 ---
 

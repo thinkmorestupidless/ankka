@@ -65,23 +65,13 @@ about it.
 `Authenticate`, and drive it over HTTP: the public routes answer without a credential and the
 protected route answers 401 with a challenge.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an endpoint whose ACL is `AllowAll` and one of whose routes states `Authenticate`,
-   **When** a request with no credential reaches that route, **Then** the answer is 401 with a
-   `WWW-Authenticate: Bearer` challenge, and a request to any other route of the same endpoint is
-   served.
-2. **Given** an endpoint whose ACL is `DenyAll` and one of whose routes states `AllowAll`,
-   **When** a request reaches that route, **Then** it is served — a route's ACL replaces the
-   endpoint's rather than adding to it.
-3. **Given** an endpoint whose ACL is `DenyAll`, **When** a request reaches a path that matches no
-   route of that endpoint, **Then** the answer is 403, not 404: a closed endpoint discloses nothing
-   about which of its paths exist.
-4. **Given** a route under an `Authenticate` on an endpoint whose own ACL does not authenticate,
-   **When** the handler reads `principal`, **Then** it gets the principal that route's ACL
-   established.
-5. **Given** an endpoint that declares no route-level ACL anywhere, **When** any request reaches
-   it, **Then** its behaviour is byte-for-byte what it was before this feature.
+- added `features/endpoint-acls/route-acls.feature`: an authenticated route of an endpoint that allows all challenges a request with no token, and its other routes serve it
+- added `features/endpoint-acls/route-acls.feature`: a route's ACL replaces its endpoint's rather than adding to it
+- added `features/endpoint-acls/route-acls.feature`: a closed endpoint refuses a path it has no route for, and says nothing of which paths exist
+- added `features/endpoint-acls/route-acls.feature`: a handler is told the principal its route's ACL established
+- added `features/endpoint-acls/route-acls.feature`: a route that states no ACL answers to its endpoint's, in every language
 
 ---
 
@@ -98,12 +88,10 @@ US1 and is the smallest change in the feature.
 **Independent Test**: Register a Python endpoint class that declares no `acl` and observe that
 registration fails, naming the class, before the service serves anything.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a Python `Endpoint` subclass with no `acl` class attribute, **When** it is registered,
-   **Then** registration raises an error naming the class and saying that an ACL must be declared.
-2. **Given** a Python `Endpoint` subclass that declares `acl = Acl.ALLOW_ALL`, **When** it is
-   registered, **Then** it serves exactly as it does today.
+- added `features/endpoint-acls/stating-an-acl.feature`: an endpoint that states no ACL is refused at registration
+- added `features/endpoint-acls/stating-an-acl.feature`: an endpoint that states it allows all serves everyone
 
 ---
 
@@ -119,14 +107,10 @@ comparison can produce — assuming `Acl.AllowIf` can be handed a trustworthy ca
 **Independent Test**: Read `docs/reference/limitations.md` and `docs/reference/akka-divergences.md`
 and find the gap named, with the reasoning; `just docs` passes.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the limitations page, **When** a reader looks under networking and security, **Then**
-   they find that ankka establishes no caller identity of its own, that `Acl.AllowIf` is given only
-   what the request carries, and that a header naming a calling service is not evidence of
-   anything.
-2. **Given** the Akka divergences page, **When** a reader looks for ACLs, **Then** they find which
-   of Akka's principals ankka does not have and why.
+*Superseded:* the limitations page stating that the platform establishes no caller identity of its own, by every deployed port being mutual TLS, with the calling workload read from its certificate and an ACL that admits named services
+*Superseded:* the Akka divergences page listing the caller principals the platform lacks, by the same; the platform now has the internet (the gateway), named services and the local caller
 
 ---
 
@@ -145,12 +129,10 @@ endpoint.
 is `ALLOW_ALL` and one of whose routes is `DENY_ALL`, and confirm the route is refused while its
 siblings are served.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a discovery message whose route carries no ACL, **When** the sidecar serves it,
-   **Then** the endpoint's ACL applies, exactly as before this feature.
-2. **Given** a discovery message whose route carries an ACL, **When** the sidecar serves it,
-   **Then** that ACL applies to that route alone.
+- added `features/endpoint-acls/route-acls.feature`: a route that states no ACL answers to its endpoint's, in every language
+- added `features/endpoint-acls/route-acls.feature`: a route's own ACL applies to that route alone, in every language
 
 ---
 

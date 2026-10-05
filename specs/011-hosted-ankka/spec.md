@@ -56,23 +56,15 @@ default, a plain user creates an organization and becomes its owner as today. Wi
 value, the same request from the same user is refused, the refusal names why, an administrator's
 identical request succeeds, and every other route the user is entitled to answers as before.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an installation with the default setting, **When** a logged-in user creates an
-   organization, **Then** it exists with them as its first owner, exactly as before this feature.
-2. **Given** an installation restricted to the administrator, **When** a logged-in user who is not
-   an administrator creates an organization, **Then** the request is refused as forbidden, no
-   organization exists, and the refusal says organizations here are created by the administrator.
-3. **Given** the same restricted installation and a sign-up address supplied by the installation,
-   **When** the refusal is produced, **Then** the message includes that address, and the CLI
-   prints it.
-4. **Given** the same restricted installation, **When** a platform administrator creates an
-   organization, **Then** it succeeds.
-5. **Given** the same restricted installation, **When** a non-administrator lists, reads, renames
-   or deletes an organization they own, manages its members, or deploys a service into one of its
-   projects, **Then** every such request answers exactly as it would with the default setting.
-6. **Given** a setting with a value that is neither of the two, **When** the control plane starts,
-   **Then** it refuses to start and names the setting and its allowed values.
+- added `features/organizations/creating.feature`: a person who creates an organization is its first owner
+- added `features/organizations/creating.feature`: where only a platform administrator creates organizations, anyone else is refused and told so
+- added `features/organizations/creating.feature`: the refusal to create an organization names where to get one, when the installation gives an address
+- added `features/organizations/creating.feature`: where only a platform administrator creates organizations, a platform administrator creates one
+- added `features/organizations/creating.feature`: where only a platform administrator creates organizations, an owner does everything else as before
+- added `features/organizations/creating.feature`: an owner deletes their organization where only a platform administrator creates organizations
+- added `features/organizations/creating.feature`: a control plane told an unknown answer to who may create organizations does not start
 
 ---
 
@@ -96,24 +88,15 @@ display details as owner; read the organization's members and see exactly one ow
 subject, with the display details given; read the history and see the administrator as the actor.
 Repeat as a non-administrator naming an owner and see the request refused.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a platform administrator, **When** they create an organization naming an owner
-   (subject, email, display name), **Then** the organization exists, its members are exactly that
-   one owner with those details, and the administrator is not a member.
-2. **Given** the organization was created that way, **When** the named owner logs in and lists
-   organizations, **Then** it is listed and they may act on it as an owner.
-3. **Given** the organization was created that way, **When** its history is read, **Then** the
-   creation records the administrator as the actor and the named subject as the first owner.
-4. **Given** a platform administrator, **When** they create an organization naming no owner,
-   **Then** they become its first owner, as before this feature.
-5. **Given** a caller who is not a platform administrator in an installation with the default
-   setting, **When** they create an organization naming an owner, **Then** the request is refused
-   as forbidden and no organization exists.
-6. **Given** an owner named with a subject but no display details, **When** the organization is
-   created, **Then** it succeeds and the member is shown by subject until they log in.
-7. **Given** an organization created with a named owner, **When** the platform is restarted and
-   the organization's state rebuilt from its history, **Then** the members are unchanged.
+- added `features/organizations/creating.feature`: a platform administrator creates an organization for the owner it names
+- added `features/organizations/creating.feature`: the owner an organization was created for may act on it as its owner
+- added `features/organizations/history.feature`: an organization created for its owner records the platform administrator as the actor and the owner as its first owner
+- added `features/organizations/creating.feature`: a platform administrator creating an organization for nobody named is its first owner
+- added `features/organizations/creating.feature`: a person who is not a platform administrator may not create an organization for someone else
+- added `features/organizations/creating.feature`: an owner named by subject alone is shown by subject
+- added `features/organizations/creating.feature`: an organization created for a named owner keeps its members when the control plane restarts
 
 ---
 
@@ -134,15 +117,12 @@ until it drifted; the first two stories are what make provisioning possible at a
 only on published artifacts, decode a control plane response and validate a descriptor, with no
 checkout of this repository on the path.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a local publish, **When** the published artifacts are listed, **Then** the control
-   plane's wire library is among them and the count of published artifacts is seven.
-2. **Given** a project outside this repository depending on that artifact alone, **When** it
-   compiles a descriptor validation and a response decode, **Then** it builds and runs with no
-   other ankka library than the one the wire library itself depends on.
-3. **Given** the published wire library, **When** its dependencies are listed, **Then** it depends
-   on no actor system, database driver or Kubernetes client.
+- added `features/control-plane/client-library.feature`: each release publishes the control plane's protocol as a library
+- added `features/control-plane/client-library.feature`: a client built on the protocol library refuses a descriptor the platform would refuse, for the platform's reason
+- added `features/control-plane/client-library.feature`: a client built on the protocol library reads every answer the control plane gives
+- added `features/control-plane/client-library.feature`: the protocol library brings no cluster and no database with it
 
 ---
 
@@ -164,16 +144,12 @@ name a realm served from a different host than its own base domain; obtain a tok
 realm; make an authenticated request and see it accepted with the caller recorded; present a token
 from a realm on the control plane's own base domain and see it refused.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a control plane configured with an explicit issuer and key source on another host,
-   **When** it starts, **Then** it runs with no identity provider of its own deployed.
-2. **Given** that control plane, **When** the CLI asks where to log in, **Then** it is told the
-   remote issuer, and a login against it completes.
-3. **Given** a token from the remote realm, **When** it is presented, **Then** the request is
-   accepted and the caller is recorded as the actor.
-4. **Given** a token from a different realm, **When** it is presented to that control plane,
-   **Then** it is refused as unauthenticated.
+- added `features/control-plane/issuer-elsewhere.feature`: a control plane whose issuer is hosted elsewhere starts with no issuer of its own
+- added `features/control-plane/issuer-elsewhere.feature`: a member signing in to an installation is sent to the issuer it lists
+- added `features/control-plane/issuer-elsewhere.feature`: a token from an issuer hosted elsewhere is admitted and its holder recorded as the actor
+- added `features/control-plane/issuer-elsewhere.feature`: a token from an issuer the control plane does not list is challenged
 
 ---
 

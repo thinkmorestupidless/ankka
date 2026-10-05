@@ -186,7 +186,7 @@ against the pages they name.
 
 - [X] T039 `sbt scalafmtCheckAll compile` (warning-free), then `caffeinate -i sbt -Dankka.cluster.tests=off test`; `cd sdks/rust && cargo fmt --all --check && cargo clippy --workspace --all-targets --features ankka/testkit -- -D warnings && cargo test --workspace && cargo test -p shopping-cart --features slow && ./conformance.sh`; `cd sdks/python && uv run pytest -q` and `cd sdks/typescript && npm test`, for the refreshed copies; `python3 .github/ci-coverage.py`.
 - [X] T040 `caffeinate -i sbt 'sidecar/testOnly *SidecarClusterSuite'` with cluster tests on, awake throughout; read every case's duration before believing a failure.
-- [ ] T041 In `specs/030-wasm-request-and-clock/spec.md` set the status; in this file tick what is done; list in the pull request description each scenario of `features/wasm/` beside the case named for it and the suite it is in, the four "verify first" claims with what each turned out to be, and the checks that were broken once to watch them fail (T016, T025).
+- [X] T041 In `specs/030-wasm-request-and-clock/spec.md` set the status; in this file tick what is done; list in the pull request description each scenario of `features/wasm/` beside the case named for it and the suite it is in, the four "verify first" claims with what each turned out to be, and the checks that were broken once to watch them fail (T016, T025).
 
 ---
 

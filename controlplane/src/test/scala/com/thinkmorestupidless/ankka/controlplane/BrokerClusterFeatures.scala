@@ -1422,7 +1422,7 @@ abstract class BrokerClusterFeatures(feature: String)
         while calling.get() do
           val (status, body) = call("early", p, "/carts/steady")
           calls.incrementAndGet(): Unit
-          if status != 200 then failures.add(s"$status $body"): Unit
+          if status != 200 then failures.add(s"${java.time.Instant.now()} $status $body"): Unit
           Thread.sleep(250)
       }
 
@@ -1458,7 +1458,10 @@ abstract class BrokerClusterFeatures(feature: String)
         "early was not rolled exactly once"
       )
       assert(calls.get() > 20, s"only ${calls.get()} requests were made")
-      assertEquals(failures.asScala.toVector, Vector.empty)
+      // When a request is refused, what the namespace saw around it, to tell the roll from the node.
+      if !failures.isEmpty then
+        val events = node("kubectl", "get", "events", "-n", ns(p), "--sort-by=.lastTimestamp")
+        fail(s"refused during the roll:\n${failures.asScala.mkString("\n")}\n\n$events")
     }
 
   /** The ReplicaSets of a service's Deployment, one per rollout. */

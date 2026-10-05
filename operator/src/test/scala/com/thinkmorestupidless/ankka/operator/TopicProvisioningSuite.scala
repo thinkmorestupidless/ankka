@@ -125,6 +125,20 @@ class TopicProvisioningSuite extends munit.FunSuite:
     )
   }
 
+  test("a topic made in the second it was declared is not taken as made before it") {
+    // Kubernetes keeps a creation time to the second; a declaration keeps milliseconds. A topic
+    // made 200ms after its declaration reads as made at the start of that second.
+    val declaredLate = transactions.copy(declaredAt = declared.plusMillis(800).toString)
+    assertEquals(
+      decide(declaredLate, made(12, ready(declared))),
+      TopicPlan.Ready(recovered = false)
+    )
+    assertEquals(
+      decide(declaredLate, made(12, ready(declared.minusSeconds(1)))),
+      TopicPlan.Ready(recovered = true)
+    )
+  }
+
   test("a declaration with a time that cannot be read is never taken as recovered") {
     val unreadable = transactions.copy(declaredAt = "")
     assertEquals(decide(unreadable, made(12, ready(earlier))), TopicPlan.Ready(recovered = false))

@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.crd.{
 }
 
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import scala.util.Try
 
 /** How far the platform has got with one topic a project declares (feature 027, research R22). */
@@ -102,9 +103,13 @@ object TopicProvisioning:
       .flatMap(_.partitions)
       .exists(_ > t.partitions)
 
-  /** A topic made before the project declared it: declared again after its declaration went. */
+  /**
+   * A topic made before the project declared it: declared again after its declaration went.
+   * Compared to the second, as Kubernetes keeps a creation time: a topic made a moment after a
+   * declaration late in a second reads as made at that second's start, which is not before it.
+   */
   private def madeBefore(state: StrimziObjectState, entry: ProjectTopicEntry): Boolean =
     (for
       created  <- state.createdAt
       declared <- Try(Instant.parse(entry.declaredAt)).toOption
-    yield created.isBefore(declared)).getOrElse(false)
+    yield created.isBefore(declared.truncatedTo(ChronoUnit.SECONDS))).getOrElse(false)

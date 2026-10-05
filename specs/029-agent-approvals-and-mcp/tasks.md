@@ -260,7 +260,7 @@ call and SDK clients.
 - [X] T078 `just docs-sync && just docs` pass; the generated protocol rows and the rendered skills (`marketplace/plugins/ankka/skills/`, `ankka.g8/src/main/g8/.claude/skills/`) are regenerated and committed with every `$` escaped in the template's copy.
 - [X] T079 [P] In `CLAUDE.md`: under *Agents*, a paragraph on approvals (the suspended turn, resuming by running the handler again, the instance's approvals and `SettleCalls`, expiry as a timed action) and one on MCP servers and result guardrails; under *Traps*, what implementation found. Update the `specs-from` note if the features check's status changed.
 - [X] T080 Audit against R21: for each of the 61 scenario references in `spec.md`, name the test that holds it (a table at the end of `research.md`); `just features` finds nothing in `features/agents/` or spec 029.
-- [ ] T081 `sbt scalafmtAll scalafmtSbt`, then `caffeinate -i sbt buildAll`; then `cd sdks/python && uv run pytest -q && uv run mypy && uv run conformance`, `cd sdks/typescript && npm run typecheck && npm test && npm run test:slow && npm run conformance`, `cd sdks/rust && cargo test --workspace && ./conformance.sh`. Warning-free.
+- [X] T081 `sbt scalafmtAll scalafmtSbt`, then `caffeinate -i sbt buildAll`; then `cd sdks/python && uv run pytest -q && uv run mypy && uv run conformance`, `cd sdks/typescript && npm run typecheck && npm test && npm run test:slow && npm run conformance`, `cd sdks/rust && cargo test --workspace && ./conformance.sh`. Warning-free.
 - [ ] T082 `quickstart.md` step 9 by hand against `docker compose up -d`, and step 6 against the real MCP server; record both in `research.md` "Verified during implementation".
 
 ---

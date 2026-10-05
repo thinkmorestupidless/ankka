@@ -94,26 +94,19 @@ hold one.
 **Independent Test**: Create a token with the CLI, use it as `ANKKA_TOKEN` for `ankka services list`
 against a real control plane, then revoke it and watch the next call be refused.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an owner of an organization, **When** they create a deploy token, **Then** the secret is
-   printed once and never again, and a listing shows the token's label, who created it, when, and the
-   date it was last used — but not the secret.
-2. **Given** a deploy token's secret in `ANKKA_TOKEN`, **When** any management command runs, **Then** it
-   is authorized exactly as a member would be, and the change is attributed to the token rather than to
-   the person who created it.
-3. **Given** a deploy token, **When** it attempts anything reserved to owners — inviting a member,
-   renaming or deleting the organization, or managing deploy tokens — **Then** it is refused.
-4. **Given** a deploy token, **When** it is revoked, **Then** the very next request presenting it to
-   the node that revoked it is refused; every other node refuses it within a second, the platform's
-   configured read-refresh interval rather than a cache's lifetime; and it is never accepted again.
-5. **Given** a deploy token for one organization, **When** it is presented for another organization's
-   resources, **Then** the answer is `404`, as it is for any non-member.
-6. **Given** a request presenting a deploy token, **When** the control plane decides admission, **Then**
-   it performs no database read and no network call on the request's thread.
-7. **Given** a token created with no lifetime stated, **When** 90 days have passed, **Then** it is
-   refused without anyone having revoked it; **and given** a token created as non-expiring, **When**
-   the same time passes, **Then** it still works and the listing says it never expires.
+- added `features/github/deploy-tokens.feature`: a deploy token is shown once, when it is created
+- added `features/github/deploy-tokens.feature`: a list of deploy tokens shows who created each and when it was last used, and never a deploy token itself
+- `features/control-plane/signing-in.feature`: a machine with a deploy token is admitted by the control plane as a member
+- added `features/github/deploy-tokens.feature`: a change made with a deploy token is attributed to the deploy token
+- added `features/github/deploy-tokens.feature`: a deploy token may not do what only an owner may
+- added `features/github/deploy-tokens.feature`: a revoked deploy token is challenged on the next request to the instance that revoked it
+- added `features/github/deploy-tokens.feature`: a revoked deploy token is challenged by every instance of the control plane within a second
+- added `features/github/deploy-tokens.feature`: a deploy token is told there is no project of another organization
+- added `features/github/deploy-tokens.feature`: the control plane admits a deploy token from what it already holds
+- added `features/github/deploy-tokens.feature`: a deploy token created with no lifetime stated is challenged after 90 days
+- added `features/github/deploy-tokens.feature`: a deploy token created never to expire is still admitted after 90 days
 
 ---
 
@@ -129,20 +122,14 @@ proven on its own, against any repository, without the template changing at all.
 **Independent Test**: A workflow in a scratch repository uses the action and runs `ankka whoami` and
 `ankka services list` against a control plane, with only a URL and a token configured.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the action with a version and a token, **When** a job uses it, **Then** the CLI is on
-   `PATH` for every later step in that job and reports the requested version.
-2. **Given** the action, **When** a later step runs any `ankka` command, **Then** it is already
-   authenticated and pointed at the configured control plane, with no `ankka login`.
-3. **Given** an installation with a private certificate authority, **When** its root is supplied to the
-   action, **Then** commands against that control plane succeed.
-4. **Given** a token that is absent or invalid, **When** the action runs, **Then** it fails with a
-   message naming what is wrong, rather than leaving a later step to fail obscurely.
-5. **Given** the action pinned to a version, **When** that version's CLI cannot be fetched, **Then**
-   the failure says so plainly and names the version it looked for.
-6. **Given** a runner with no Java 21 on `PATH`, **When** the action runs, **Then** it fails before
-   downloading anything, and the message names `actions/setup-java`.
+- added `features/github/action.feature`: a job that uses the GitHub action has the command line at the version it named
+- added `features/github/action.feature`: a command in a job that used the GitHub action runs authenticated against the control plane it named
+- added `features/github/action.feature`: a job given an installation's authority reaches that installation's control plane
+- added `features/github/action.feature`: the GitHub action fails at once without a deploy token the control plane admits
+- added `features/github/action.feature`: the GitHub action fails plainly when the version it names cannot be fetched
+*Superseded:* the action fails before downloading anything when the runner has no Java 21, naming the step that installs Java, by the action installing the CLI's native executable, which needs no Java
 
 ---
 
@@ -158,20 +145,14 @@ three into something a person receives rather than assembles.
 **Independent Test**: Expand the template, push it to a repository with no secrets, and see a green
 build; then add the secrets, tag, and see the service reach `Ready` in a cluster.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a freshly generated project pushed to GitHub with no secrets configured, **When** the
-   workflows run, **Then** the build and test workflow passes and the deploy workflow does not fail —
-   a first push never shows a red cross for a step the author has not reached yet.
-2. **Given** the deploy secrets are configured, **When** a version tag is pushed, **Then** the image is
-   built and pushed, the descriptor's image reference is the one just pushed, and the service is applied
-   and reported.
-3. **Given** the deploy workflow, **When** it is triggered by hand, **Then** it does the same thing for
-   the commit it was run on.
-4. **Given** the generated project, **When** its descriptor and its build disagree about the image,
-   **Then** the workflow fails before deploying rather than deploying the wrong image.
-5. **Given** the template's workflow files, **When** the template is expanded, **Then** every `$` that
-   belongs to GitHub Actions rather than to Giter8 survives expansion intact.
+- added `features/github/template-jobs.feature`: a first push of a service started from the template tests it and fails nothing
+- added `features/github/template-jobs.feature`: a version tag deploys exactly the image the deploy job pushed
+- added `features/github/template-jobs.feature`: a deploy run by hand deploys the commit it was run on
+*Superseded:* the workflow fails before deploying when the descriptor and the build disagree about the image, by the deploy taking its image from the build and never from the descriptor
+- added `features/github/template-jobs.feature`: a deploy refuses a descriptor that names a different service
+- added `features/github/template-jobs.feature`: the jobs of a service started from the template read the repository's deploy settings
 
 ---
 
@@ -188,16 +169,12 @@ which the rest of this feature needs.
 **Independent Test**: Push an image to a private registry, register the credentials for a project,
 apply a service naming that image, and watch it reach `Ready`.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** registry credentials registered for a project, **When** a service in it is applied naming
-   an image in that registry, **Then** the pod pulls it and becomes `Ready`.
-2. **Given** no registry credentials, **When** a service names a public image, **Then** it behaves
-   exactly as it does today.
-3. **Given** a service that cannot pull its image, **When** its status is read, **Then** the reason
-   says so, rather than reporting a generic failure to become ready.
-4. **Given** registered credentials, **When** they are read back, **Then** the password is not
-   disclosed.
+- added `features/github/private-registry.feature`: a service whose image is in a private registry pulls it with its project's registry credential
+- added `features/github/private-registry.feature`: a service with a public image needs no registry credential
+- added `features/github/private-registry.feature`: a service that cannot pull its image says so
+- added `features/github/private-registry.feature`: a registry credential's password is never shown back
 
 ---
 

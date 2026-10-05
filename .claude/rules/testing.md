@@ -11,23 +11,26 @@ paths:
 
 ## Living features
 
-**Specs written since feature 019 keep their acceptance scenarios in living features**, not in the
+**Every spec's acceptance scenarios live in living features**, not in the
 spec. The [speckit-bdd](https://github.com/thinkmorestupidless/speckit-bdd) extension and preset are
 installed under `.specify/`: `/speckit-specify` writes a spec whose acceptance scenarios *name*
 scenarios, the `after_specify` hook runs `/speckit-bdd-features` to write them as Gherkin under
 `features/` with every word they use in the root `GLOSSARY.md`, and the `before_clarify` hook runs
 `/speckit-bdd-check`, which turns undefined words, refused synonyms, contradictions and untraced
-requirements into clarification questions. `specs-from: "019"` in
-`.specify/extensions/bdd/bdd-config.yml` is why the nineteen earlier specs are left alone: they
-record changes that were made, in the form they were made in, and the checker does not read them. Its
+requirements into clarification questions. `.specify/extensions/bdd/bdd-config.yml` sets no
+`specs-from`, so the checker reads every spec. Specs 001-019 were written before the hook existed and
+their scenarios were moved afterwards, written as the platform behaves *now*: where later work changed
+or removed what a spec described, the feature says what happens today and the spec carries a
+`*Superseded:*` note in place of the scenario (a plain line, not a list item, which the checker
+reads as prose). A spec naming a scenario another spec added uses a bare reference, with no
+`added`/`changed`/`removed` marker. Its
 report says how many specs it read and how many it did not, so a setting that skipped everything
 cannot read as a clean project. The checker runs through `uvx` from the release tag the config names,
 so `uv` must be on `PATH`. CI's `features` job runs the same check through
 `.github/features-check.sh` (`just features` locally), which reads that config and fails when it
 read no spec or no scenario. **In CI it reports without failing for now** (`continue-on-error`, with a
-warning): `019-graph-delta-publisher` and specs 023 onwards keep their scenarios in the spec, and the
-checker can only skip specs below a number. Two specs share the number 019 until a renumbering;
-remove `continue-on-error` once every spec's scenarios live in `features/`. `just features` still fails. A feature file that one suite can run whole is run by `GherkinSuite`,
+warning): specs 025 onwards keep their scenarios in the spec. Two specs share the number 019 until a
+renumbering; remove `continue-on-error` once every spec's scenarios live in `features/`. `just features` still fails. A feature file that one suite can run whole is run by `GherkinSuite`,
 which takes a directory or one file; a scenario no suite can reach is a test named after it. The
 shopping cart sample has features and a glossary of its own, under
 `samples/shopping-cart/`, which `GherkinSuite` runs as tests; those describe the sample, and the

@@ -51,21 +51,12 @@ piece.
 outside this repository that names them resolves, compiles a component against them and runs a
 unit test through the test kit.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the platform's libraries are published to the developer's local repository, **When**
-   a build outside this repository names the application-facing modules at that version, **Then**
-   they resolve and a component compiles against them.
-2. **Given** the same, **When** the project's tests use the test kit, **Then** the test kit's
-   throwaway database is created with the platform's schema — the schema shipped *inside* the
-   published runtime, with nothing copied into the project.
-3. **Given** a build that names a platform-side module (control plane, operator, CLI, resource
-   definitions), **When** it resolves, **Then** it fails: those are not libraries, and the
-   distinction is enforced by them not being published rather than by documentation asking nicely.
-4. **Given** a release is cut, **When** the release workflow runs, **Then** the same set of
-   modules is published to the public repository at that version, signed, with sources and
-   documentation — and the workflow exists and is proven against a local repository even before
-   the public namespace is claimed.
+- added `features/applications/libraries.feature`: a service builds against the platform's libraries published on the developer's machine
+- added `features/applications/libraries.feature`: the test kit starts a service on a database the libraries prepare
+- added `features/applications/libraries.feature`: a part of the platform that runs services cannot be depended on as a library
+- added `features/applications/libraries.feature`: a release publishes every library at the release's version
 
 ---
 
@@ -82,23 +73,13 @@ call it, then replace the stub domain with their own.
 tests pass, `sbt run` serves the stub endpoint against the local database with no configuration
 edited, and the image builds.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an empty directory and the template's name, **When** the developer runs the template
-   command with a project name, **Then** a project exists whose package, service name, image name
-   and descriptor all carry that name, and nothing in it mentions the stub name where the
-   developer's name belongs.
-2. **Given** the expanded project, **When** its tests run, **Then** an entity test (no runtime), an
-   endpoint test and an integration test against a throwaway database all pass, unmodified.
-3. **Given** the expanded project and a running local database started from the file the template
-   provides, **When** `sbt run` starts, **Then** the service is serving on its documented port and
-   a request to the stub endpoint writes and reads state — with no file edited between expanding
-   and running.
-4. **Given** the expanded project, **When** the image is built, **Then** it is tagged with the
-   project's name and is the image the descriptor names.
-5. **Given** the expanded project, **When** the developer reads its `README`, **Then** it says, in
-   order, how to run the tests, run locally, build the image, and deploy it to an ankka platform —
-   and each command in it is one that was executed in this feature's proof.
+- added `features/applications/template.feature`: a service started from the template carries the name it was started with
+- added `features/applications/template.feature`: the tests of a service started from the template pass unchanged
+- added `features/applications/template.feature`: a service started from the template runs on the developer's machine with nothing edited
+- added `features/applications/template.feature`: the image of a service started from the template is the one its descriptor names
+- added `features/applications/template.feature`: a service started from the template says how to test, run, build and deploy it
 
 ---
 
@@ -115,16 +96,11 @@ platform runs something it did not build.
 the descriptor, `Ready`, `ankka services expose`, `curl` the stub endpoint by hostname with the
 certificate verified.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the expanded project's image loaded into the local cluster, **When** its descriptor
-   is applied through the CLI, **Then** the service reaches `Ready` on a provisioned database
-   within the platform's normal time, with no change to the descriptor the template produced.
-2. **Given** it is `Ready`, **When** it is exposed and the stub endpoint is called by hostname,
-   **Then** state written is read back, and it survives a restart of the service.
-3. **Given** the platform's documentation, **When** a reader follows it from "I have nothing" to
-   "my service answers by hostname", **Then** every step is there and none refers to this
-   repository's sources.
+- added `features/applications/first-deployment.feature`: a service started from the template becomes ready with the descriptor the template gave
+- added `features/applications/first-deployment.feature`: a service started from the template keeps what it was asked at its hostname across a restart
+- added `features/applications/first-deployment.feature`: the documentation takes a reader from nothing to a service answering at its hostname
 
 ---
 
@@ -141,18 +117,14 @@ everything, so the contract matters before the second release, not before the fi
 **Independent Test**: the operator's reported compatibility and an image's runtime version are
 both visible; a deliberately mismatched pair is reported as such on `services get`.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a running platform, **When** an operator asks what runtime versions it supports,
-   **Then** the answer is one visible value with a stated rule for reading it.
-2. **Given** an application image whose runtime is within that range, **When** it is deployed,
-   **Then** nothing about versions is mentioned — the common case is silent.
-3. **Given** an application image whose runtime is outside it, **When** it is deployed, **Then**
-   `services get` says which version the application carries and which the platform supports, and
-   the service does not report `Ready` while that holds.
-4. **Given** the schema the operator applies, **When** it changes between platform versions,
-   **Then** the change is additive or the supported range is narrowed — a running application never
-   finds a table it needs gone.
+- added `features/applications/runtime-versions.feature`: the documentation states which runtime versions a platform runs and how to read it
+- added `features/applications/runtime-versions.feature`: a platform runs a service whose runtime version it supports and says nothing of versions
+- added `features/applications/runtime-versions.feature`: a descriptor that declares no runtime version is not checked
+- added `features/applications/runtime-versions.feature`: a platform refuses to run a service whose runtime version it does not support
+- added `features/applications/runtime-versions.feature`: a platform refuses a runtime version too old to hold a certificate, whatever its range
+- added `features/applications/runtime-versions.feature`: a platform upgraded within a service's runtime versions keeps everything the service's database needs
 
 ### Edge Cases
 

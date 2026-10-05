@@ -74,7 +74,8 @@ private[ankka] object CloudEvents:
 final class KafkaPublisher private (
     producer: Producer[String, Array[Byte]],
     manifestOf: String => String
-) extends MessagePublisher:
+) extends MessagePublisher
+    with AutoCloseable:
 
   def publish(topic: String, payload: Array[Byte], metadata: Metadata): Future[Done] =
     publish(topic, None, payload, metadata)

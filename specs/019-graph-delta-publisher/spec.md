@@ -83,6 +83,10 @@ honour it, and a fixture shared between the two repositories proves they agree.
   an SDK fail a change rather than send several messages to a runtime that has not said so.
 - **The contract reserves no labels**, only the property names `id`, `_version` and `_deleted`.
 
+### Session 2026-10-05 (glossary)
+
+- Q: The topology terms refuse "graph" and "edge"; do graph deltas reclaim them? → A: No. The features say **relationship** and **store**; the "edge:" prefix of an element key stays quoted data.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A consumer publishes several messages for one change (Priority: P1)
@@ -102,26 +106,14 @@ against the in-memory broker and against Kafka. Read the topic back: three recor
 order, under the keys given. Make the second publication fail: the change is redelivered, and
 afterwards the topic holds all three.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a consumer whose handler returns three messages for a change, **When** the change is
-   handled, **Then** the topic holds three records in the order returned, each framed as a published
-   message is today.
-2. **Given** one of those messages names a key, **When** it is published, **Then** its record key is
-   that key, and its subject is still the source entity's id.
-3. **Given** a message that names no key, **When** it is published, **Then** its record key is the
-   source entity's id: exactly what a single published message has today.
-4. **Given** the broker refuses the second of three messages, **When** the handler's result is
-   applied, **Then** the change is not recorded as handled and is delivered again; the first
-   message may be in the topic twice, and no message is ever missing.
-5. **Given** a handler that returns no messages at all, **When** the change is handled, **Then**
-   nothing is published and the change is recorded as handled, as with `done`.
-6. **Given** a consumer with no topic to publish to, **When** it is registered with a handler that
-   can return several messages, **Then** it is refused when the service starts, as a consumer that
-   produces one message without a topic is today.
-7. **Given** an existing consumer that produces one message per change, **When** it runs on this
-   version, **Then** what it publishes is byte for byte and header for header what it published
-   before.
+- added `features/graph-deltas/several-messages.feature`: a change's messages are published in the order the handler gave them
+- added `features/graph-deltas/several-messages.feature`: a message is published under the key it names, else under its entity's id
+- added `features/graph-deltas/several-messages.feature`: a change whose messages the broker does not all accept is delivered again
+- added `features/graph-deltas/several-messages.feature`: a change for which the handler publishes no message is handled
+- added `features/graph-deltas/several-messages.feature`: a consumer that may publish several messages and has no topic is refused
+- added `features/graph-deltas/several-messages.feature`: a consumer that publishes one message for each change publishes what it always has
 
 ---
 
@@ -142,26 +134,15 @@ checkout node and the edge between them. Read the topic back and compare every r
 value with the shared fixture, and read every record with the ankka-flow sink's own reader: all are
 accepted.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a handler that returns a node with an id, labels and properties, **When** the change
-   is handled, **Then** the topic holds one record whose key is `node:<id>` and whose value is a
-   node delta under `ankka.graph-delta.v1` with those labels and properties.
-2. **Given** a handler that returns an edge with an id, a type and its two endpoint ids, **When**
-   the change is handled, **Then** the record's key is `edge:<id>` and its value is an edge delta.
-3. **Given** a change with sequence number 7 on its entity, **When** its elements are published,
-   **Then** every delta's version is 7, without the author having written it.
-4. **Given** a node and an edge with the same id, **When** both are published, **Then** their keys
-   differ and neither replaces the other in a compacted topic.
-5. **Given** a handler that returns a tombstone for an element, **When** the change is handled,
-   **Then** the record is a tombstone delta under the key of the element it marks.
-6. **Given** an element the sink would refuse — an empty id, a label that is not an identifier, a
-   property name the contract reserves, a property value that is not plain — **When** the handler
-   builds it, **Then** building
-   fails there, naming what is wrong, and the change is redelivered rather than a delta published
-   that stalls its reader.
-7. **Given** an id with colons or characters outside ASCII, **When** it is published, **Then** its
-   key is the one the sink computes for the same delta.
+- added `features/graph-deltas/publishing-deltas.feature`: a node is published as one node delta under its element key
+- added `features/graph-deltas/publishing-deltas.feature`: a relationship is published as one relationship delta under its element key
+- added `features/graph-deltas/versions.feature`: a delta's version is the sequence number of the change it was published for
+- added `features/graph-deltas/publishing-deltas.feature`: a node and a relationship with the same element id are published under different keys
+- added `features/graph-deltas/publishing-deltas.feature`: a tombstone is published under the element key of the element it marks
+- added `features/graph-deltas/publishing-deltas.feature`: an element the sink would refuse cannot be described
+- added `features/graph-deltas/publishing-deltas.feature`: an element key is the one the sink computes for the same delta
 
 ---
 
@@ -182,25 +163,14 @@ against the same topic and a sink that has already applied it: the sink counts e
 as stale and writes nothing. Delete the entity and create it again: read the versions published and
 confirm they rise throughout.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a change that was handled and published, **When** it is delivered again, **Then** the
-   deltas published are equal to the first ones in key, version and value.
-2. **Given** an event sourced entity, **When** its consumer publishes for each event, **Then** each
-   delta's version is that event's sequence number.
-3. **Given** a key value entity, **When** its consumer publishes for a state change, **Then** each
-   delta's version is the state's revision: a number that rises with every update, never zero.
-4. **Given** an entity that is deleted, **When** the consumer's deletion handler publishes a
-   tombstone, **Then** the tombstone's version is greater than every version published for that
-   entity before it.
-5. **Given** an entity deleted and created again under the same id, **When** the consumer publishes
-   for the new instance, **Then** its versions are greater than the tombstone's, so the element
-   comes back in the graph.
-6. **Given** a consumer that reads a topic, where a message has no sequence number, **When** its
-   handler builds an element without stating a version, **Then** building fails, saying a version
-   is required for this source; with a version stated, it publishes.
-7. **Given** an author who states a version for an element, **When** it is published, **Then** the
-   stated version is used in place of the change's sequence number.
+- added `features/graph-deltas/versions.feature`: a change delivered again publishes the same deltas
+- added `features/graph-deltas/versions.feature`: a delta's version is the sequence number of the change it was published for
+- added `features/graph-deltas/versions.feature`: the tombstone published for a deleted entity outranks every earlier delta
+- added `features/graph-deltas/versions.feature`: an entity created again under the same entity id comes back in the store
+- added `features/graph-deltas/versions.feature`: an element published for a message from a topic must state its version
+- added `features/graph-deltas/versions.feature`: a version the handler states is used in place of the sequence number
 
 ---
 
@@ -218,24 +188,14 @@ proof that what ankka writes is what ankka-flow reads, on a real broker with a r
 pipeline, drive the service, query the graph. Then follow ankka-flow's guide to rebuilding a graph
 from its delta topic and compare.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the sample service and a pipeline of the built-in sink alone, **When** carts are
-   created, changed and checked out, **Then** the graph holds a node per cart and per checkout and
-   an edge between them, each at the version of the entity's last change to it.
-2. **Given** a cart that is deleted, **When** its tombstones are applied, **Then** its elements are
-   marked deleted in the graph.
-3. **Given** the pipeline's delta topic is declared as the pipeline's own, **When** the pipeline is
-   deployed before the service publishes, **Then** the topic is compacted, and every record in it is
-   under its element key.
-4. **Given** the service's consumer is restarted while carts are changing, **When** it catches up,
-   **Then** the sink has never stalled and the graph equals the one an uninterrupted run produces.
-5. **Given** the graph database is emptied and only the sink is reset, **When** the sink reads the
-   topic from the start, **Then** the graph is identical to the one before, with the service
-   untouched.
-6. **Given** the same graph consumer written with another SDK, behind a sidecar or hosted as a
-   WebAssembly module, **When** it is run in place of the Scala one, **Then** the graph is the
-   same.
+- added `features/graph-deltas/store.feature`: carts created, changed and checked out appear in the store
+- added `features/graph-deltas/store.feature`: a deleted cart's elements are marked deleted in the store
+- added `features/graph-deltas/store.feature`: a topic the pipeline declares as its own is compacted and holds only element keys
+- added `features/graph-deltas/store.feature`: a consumer restarted while carts change leaves the store as an uninterrupted run would
+- added `features/graph-deltas/store.feature`: a store is built again from the topic alone
+- added `features/graph-deltas/store.feature`: the same consumer written in another language fills the store the same way
 
 ---
 
@@ -252,16 +212,11 @@ wrong, and a test that needs Kafka and Neo4j will not be written.
 sequence number and asserts on the elements returned, with no broker and no runtime started; the
 same test in each of the four languages.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a consumer and a change at a stated sequence number, **When** the test hands it the
-   change, **Then** the test reads back each element produced: its kind, id, version, labels or
-   type, endpoints and properties.
-2. **Given** the in-memory broker, **When** a service that publishes deltas runs in the test kit,
-   **Then** the test reads the published records with their keys and reads each value back as a
-   delta.
-3. **Given** a consumer that returns several plain messages, **When** it is unit tested, **Then**
-   the test reads back every message and the key each one named.
+- added `features/graph-deltas/testing.feature`: a test reads back the elements a consumer published for a change
+- added `features/graph-deltas/testing.feature`: a test of a whole service reads each published delta with its key
+- added `features/graph-deltas/testing.feature`: a test reads back every message a consumer published and the key each named
 
 ---
 
@@ -278,19 +233,12 @@ not read them publishes a graph that looks right for a week.
 **Independent Test**: A reader follows the guide with the sample and reaches a graph. The
 documentation build passes with the new pages in the navigation and in the skills that carry them.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** the consumers guide, **When** a reader looks for publishing more than one message,
-   **Then** it shows returning several messages and naming a key, and says when the change counts
-   as handled.
-2. **Given** the new guide to publishing a graph, **When** a reader follows it, **Then** it shows a
-   consumer that publishes nodes, edges and tombstones; states the writer's rules in ankka's terms;
-   says the topic must be compacted and that the pipeline reading it creates it so; and links to
-   ankka-flow for the sink and for rebuilding.
-3. **Given** the rule that a delta carries an element's whole state, **When** a reader's events do
-   not carry everything an element shows, **Then** the guide says what to do about it.
-4. **Given** the reference pages for the SDK and the protocol, **When** a reader looks up the
-   consumer's effects, **Then** the several-message form and the delta builder are there.
+- added `features/graph-deltas/documentation.feature`: the documentation describes publishing several messages for one change
+- added `features/graph-deltas/documentation.feature`: the documentation describes publishing deltas and the rules of a delta
+- added `features/graph-deltas/documentation.feature`: the documentation says what to do when events do not carry an element's whole state
+- added `features/graph-deltas/documentation.feature`: the documentation's reference describes several messages and describing deltas
 
 ### Edge Cases
 

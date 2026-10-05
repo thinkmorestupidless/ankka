@@ -10,8 +10,8 @@ Feature: Deploying a web-hosted service
 
   Scenario: a web-hosted service is given no database
     Given a web-hosted service "web" deployed in the project "shop"
-    When a member reads the status of "web"
-    Then the status says that "web" has no database
+    When a member reads the report of "web"
+    Then the report says that "web" has no database
     And no database exists for "web"
 
   Scenario: a web-hosted service is private until it is exposed
@@ -35,7 +35,7 @@ Feature: Deploying a web-hosted service
       | state            | action                      | outcome                                                    |
       | with 1 instance  | scales "web" to 3 instances | "web" is ready with 3 instances                            |
       | with 1 instance  | restarts "web"              | "web" is ready with 1 instance that started after the restart |
-      | with 1 instance  | pauses "web"                | the status of "web" is "Paused" and "web" has no instances |
+      | with 1 instance  | pauses "web"                | the lifecycle of "web" is "Paused" and "web" has no instances |
       | paused           | resumes "web"               | "web" is ready with 1 instance                             |
 
   Scenario Outline: a web-hosted service whose image changes refuses no request
@@ -64,8 +64,8 @@ Feature: Deploying a web-hosted service
   Scenario: a process that never listens is reported with the reason
     Given an image "silent" whose process listens for nothing
     When a member applies a descriptor for the web-hosted service "web" with the image "silent"
-    Then the status of "web" is "Failed"
-    And the status says that the process did not listen for requests
+    Then the lifecycle of "web" is "Failed"
+    And the report says that the process did not listen for requests
 
   Scenario: a process that stops listening takes its instance out of the service
     Given a web-hosted service "web" deployed with 2 instances
@@ -93,10 +93,10 @@ Feature: Deploying a web-hosted service
 
   Scenario: a member is shown that a service is a web-hosted service
     Given a web-hosted service "web" deployed in the project "shop" with "cart" mounted at "/backend/cart"
-    When a member reads the status of "web"
-    Then the status says that the hosting of "web" is web hosting
-    And the status shows the mount of "cart" at "/backend/cart"
-    And the status shows which services "web" admits
+    When a member reads the report of "web"
+    Then the report says that the hosting of "web" is web hosting
+    And the report shows the mount of "cart" at "/backend/cart"
+    And the report shows which services "web" admits
 
   Scenario: the size a descriptor asks for is the size of the process
     Given a descriptor for the web-hosted service "web" that asks for the size "medium"
@@ -109,4 +109,4 @@ Feature: Deploying a web-hosted service
     And no service "ledger" in the project "shop"
     When a member applies the descriptor of "web" with "ledger" mounted at "/backend/ledger"
     Then "web" is ready
-    And the status of "web" marks the mount of "ledger" as having no service
+    And the report of "web" marks the mount of "ledger" as having no service

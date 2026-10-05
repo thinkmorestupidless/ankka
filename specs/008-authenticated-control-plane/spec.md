@@ -57,28 +57,16 @@ that every route refuses a request carrying no credential, an expired one, or on
 anything other than this installation's identity provider; then log in from the CLI with no
 prior setup beyond the installation's address and trust root, and list organizations.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a deployed control plane, **When** a request arrives with no credential, **Then** it
-   is refused with an answer that says authentication is required, on every route.
-2. **Given** a credential that has expired, been tampered with, or was issued by another
-   identity provider, **When** it is presented, **Then** the request is refused as
-   unauthenticated, never as a permission problem.
-3. **Given** a developer with an account and a CLI configured with only the installation's
-   address and trust root, **When** they run `ankka login`, **Then** they are shown a code and
-   an address, complete the sign-in in a browser on any device, and the CLI finishes without
-   further input.
-4. **Given** a logged-in CLI whose short-lived credential has lapsed, **When** the developer runs
-   a command, **Then** the CLI renews the credential silently and the command succeeds.
-5. **Given** a logged-in CLI whose renewal no longer works (the user was disabled, or the login
-   was revoked), **When** a command is run, **Then** the CLI says to run `ankka login` and exits
-   with a failure, without printing any credential.
-6. **Given** the identity provider is unavailable, **When** a request reaches the control plane,
-   **Then** the control plane is still running and answers that it cannot verify callers right
-   now, rather than either accepting the request or having failed to start.
-7. **Given** the shared secret that authenticated callers before this feature, **When** it is
-   presented, **Then** it is refused like any other invalid credential; there is no compatibility
-   mode.
+- `features/control-plane/signing-in.feature`: a request to the control plane with no token is challenged
+- `features/control-plane/signing-in.feature`: a request to the control plane with an expired token is challenged
+- added `features/control-plane/signing-in.feature`: a token the control plane cannot verify is challenged, never refused
+- added `features/control-plane/signing-in.feature`: a member signs in on a machine with no browser by confirming a code in a browser anywhere
+- added `features/control-plane/signing-in.feature`: a member whose token has expired is given a new one from their sign-in without being asked
+- added `features/control-plane/signing-in.feature`: a member whose sign-in the issuer has ended is told to sign in again
+- added `features/control-plane/signing-in.feature`: the control plane starts while the installation's issuer cannot be reached
+- `features/control-plane/signing-in.feature`: the control plane answers unavailable once its issuer's keys cannot be fetched and the tolerance has passed
 
 ---
 
@@ -99,26 +87,16 @@ can neither read nor write anything in it, cannot learn its identifiers exist, b
 after invitation and a fresh login, and loses that ability on the request immediately after
 removal.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a logged-in user, **When** they create an organization, **Then** it exists, they
-   are recorded as its owner, and it appears in their organization list.
-2. **Given** an organization Bob is not a member of, **When** Bob lists organizations, projects
-   or services, **Then** none of that organization's are shown.
-3. **Given** an organization Bob is not a member of, **When** Bob asks for it, or one of its
-   projects or services, by identifier, **Then** the answer is indistinguishable from one for an
-   identifier that was never used.
-4. **Given** an organization Bob is not a member of, **When** Bob tries to create a project in
-   it or apply a service into one of its projects, **Then** the request is refused.
-5. **Given** an owner invites an email address, **When** a user whose verified email matches next
-   makes a request, **Then** the invitation becomes a membership for that user and the members
-   list shows them as a member rather than as pending.
-6. **Given** an invitation that has not yet been claimed, **When** a user whose email is
-   unverified presents that same address, **Then** the invitation is not claimed.
-7. **Given** a member of an organization, **When** an owner removes them, **Then** the member's
-   next request against that organization is refused.
-8. **Given** a user who is a member of two organizations, **When** they list projects, **Then**
-   projects from both are shown and from no others.
+- added `features/organizations/creating.feature`: a person who creates an organization is its first owner
+- added `features/organizations/tenancy.feature`: a person who is not a member is shown nothing of an organization in a list
+- added `features/organizations/tenancy.feature`: a person who is not a member is answered as if what they asked for had never existed
+- added `features/organizations/tenancy.feature`: a person who is not a member changes nothing in an organization
+- added `features/organizations/invitations.feature`: an invitation is claimed by the next request from a person whose verified email matches
+- added `features/organizations/invitations.feature`: an invitation is not claimed by a person whose email is not verified
+- added `features/organizations/tenancy.feature`: a member removed from an organization is refused on their very next request
+- added `features/organizations/tenancy.feature`: a member of two organizations is shown the projects of both and of no other
 
 ---
 
@@ -142,36 +120,22 @@ act on an organization one is not a member of and see the action recorded as an 
 one; disable an organization with a running service and a paused one, see the running one stop
 and every write refused, re-enable it and see only the running one return.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an owner, **When** they list members, **Then** every member is shown with their
-   role, and every unclaimed invitation is shown as pending with its email.
-2. **Given** an owner, **When** they invite an email that is already a member, **Then** the
-   request is refused and says so.
-3. **Given** an owner and a pending invitation, **When** they revoke it, **Then** a later login
-   by that email does not claim membership.
-4. **Given** an organization with two owners, **When** one demotes the other to member, **Then**
-   the demoted user can no longer manage members but can still deploy.
-5. **Given** an organization with one owner, **When** that owner tries to leave, be removed, or
-   be demoted, **Then** the request is refused and names the reason.
-6. **Given** a member who is not an owner, **When** they try to invite, remove or change a role,
-   **Then** the request is refused as a permission problem.
-7. **Given** a platform administrator who is not a member of an organization, **When** they list
-   organizations, **Then** every organization is shown; **When** they add an owner to one,
-   **Then** it succeeds and the record of the change identifies the administrator.
-8. **Given** an owner, **When** they try to delete the organization while it still has projects,
-   **Then** it is refused exactly as today.
-9. **Given** a platform administrator and an organization with one running and one paused
-   service, **When** they disable it, **Then** the running service stops and reports itself as
-   suspended, the paused one stays paused, and the organization is shown as disabled.
-10. **Given** a disabled organization, **When** a member or owner tries any change in it,
-    **Then** it is refused with a reason naming the organization as disabled; **When** they read
-    a service, its logs or its history, **Then** it succeeds.
-11. **Given** a disabled organization, **When** the administrator re-enables it, **Then** the
-    service that was running before returns to running and the one its members had paused stays
-    paused.
-12. **Given** an owner, **When** they try to disable or re-enable their own organization,
-    **Then** it is refused as a permission problem.
+- added `features/organizations/members.feature`: an owner lists every member with their role and every pending invitation with its email
+- added `features/organizations/invitations.feature`: an owner may not invite an email address that is already a member's
+- added `features/organizations/invitations.feature`: a revoked invitation is never claimed
+- added `features/organizations/members.feature`: an owner made a member can no longer manage members and can still deploy
+- added `features/organizations/members.feature`: the last owner of an organization stays an owner
+- added `features/organizations/members.feature`: a member who is not an owner may not manage members
+- added `features/organizations/administrators.feature`: a platform administrator is shown every organization
+- added `features/organizations/administrators.feature`: a platform administrator adds an owner to an organization they are not a member of
+- added `features/organizations/members.feature`: an owner may not delete an organization that still has projects
+- added `features/organizations/disabling.feature`: disabling an organization stops and suspends its running services and leaves its paused ones paused
+- added `features/organizations/disabling.feature`: a member of a disabled organization may change nothing in it
+- added `features/organizations/disabling.feature`: a member of a disabled organization may still read it
+- added `features/organizations/disabling.feature`: enabling an organization brings back what was running and leaves paused what its members paused
+- added `features/organizations/disabling.feature`: an owner may not disable or enable their own organization
 
 ---
 
@@ -191,14 +155,11 @@ and P2 exist.
 organization, run `services apply` with it in a shell with no home directory and no browser, and
 confirm the service's recorded history names that client.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a non-interactive client credential supplied through the token flag, **When** the
-   CLI runs a command, **Then** no login is attempted and the command succeeds.
-2. **Given** such a client that has not been made a member of an organization, **When** it tries
-   to deploy into that organization, **Then** it is refused like any other non-member.
-3. **Given** a token flag and a saved interactive login both present, **When** a command runs,
-   **Then** the flag wins, matching how every other setting already resolves.
+- added `features/control-plane/signing-in.feature`: a machine with a token from the installation's issuer acts without signing in
+- added `features/organizations/tenancy.feature`: a person who is not a member changes nothing in an organization
+- added `features/control-plane/signing-in.feature`: a token given with one request is used rather than the member's sign-in
 
 ---
 
@@ -217,14 +178,11 @@ the other stories write.
 service's history and see each action attributed to the right user with a time; read the history
 of a service that predates the feature and see its actions marked as unattributed.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a service applied by Alice and paused by Bob, **When** its history is read, **Then**
-   the apply names Alice and the pause names Bob, each with when it happened.
-2. **Given** a service whose history predates this feature, **When** it is read, **Then** those
-   entries are shown with no actor and the service otherwise behaves normally.
-3. **Given** a service deployed by a non-interactive client, **When** its history is read,
-   **Then** the client is named as the actor.
+- added `features/organizations/history.feature`: a service's history names who applied it and who paused it, and when
+- added `features/organizations/history.feature`: what was recorded before actors were recorded is shown with no actor
+- added `features/organizations/history.feature`: a machine is named as the actor of what it did
 
 ---
 

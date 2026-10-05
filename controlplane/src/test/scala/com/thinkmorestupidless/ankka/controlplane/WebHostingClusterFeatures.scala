@@ -591,7 +591,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
     last = apply(project = "full-shop")
   }
 
-  When("a member reads the status of {string}") { (name: String) =>
+  When("a member reads the report of {string}") { (name: String) =>
     assertEquals(name, service)
     last = ok(ankka("services", "get", service, "-p", Project))
     lastStatus = statusOf(service)
@@ -693,7 +693,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
     readyWith(instances)
   }
 
-  Then("the status says that {string} has no database") { (name: String) =>
+  Then("the report says that {string} has no database") { (name: String) =>
     assertEquals(name, service)
     assertEquals(lastStatus.flatMap(_.database), Some("none"))
     assert(last.out.linesIterator.exists(_.matches("database\\s+none")), last.out)
@@ -745,7 +745,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
       }
   }
 
-  Then("the status of {string} is {string} and {string} has no instances") {
+  Then("the lifecycle of {string} is {string} and {string} has no instances") {
     (name: String, lifecycle: String, again: String) =>
       assertEquals(name, service)
       assertEquals(again, service)
@@ -754,14 +754,14 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
       }
   }
 
-  Then("the status of {string} is {string}") { (name: String, lifecycle: String) =>
+  Then("the lifecycle of {string} is {string}") { (name: String, lifecycle: String) =>
     assertEquals(name, service)
     waitFor(180.seconds, s"$service being $lifecycle") {
       statusOf(service).exists(_.lifecycle.toString == lifecycle)
     }
   }
 
-  Then("the status says that the process did not listen for requests") { () =>
+  Then("the report says that the process did not listen for requests") { () =>
     val detail = statusOf(service).flatMap(_.detail).getOrElse("")
     println(s"the detail k3s gave a process that never listened: $detail")
     assert(detail.startsWith("the process is not listening on port 8080"), detail + diagnosis())
@@ -854,13 +854,13 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
     assert(last.err.contains("has reached its quota of 0 service(s)"), last.err)
   }
 
-  Then("the status says that the hosting of {string} is web hosting") { (name: String) =>
+  Then("the report says that the hosting of {string} is web hosting") { (name: String) =>
     assertEquals(name, service)
     assert(last.out.linesIterator.exists(_.matches("hosting\\s+web")), last.out)
     assertEquals(lastStatus.map(_.hosting), Some("web"))
   }
 
-  Then("the status shows the mount of {string} at {string}") { (mounted: String, path: String) =>
+  Then("the report shows the mount of {string} at {string}") { (mounted: String, path: String) =>
     assert(
       last.out.linesIterator.exists(l => l.contains(path) && l.contains(s"→ $mounted")),
       last.out
@@ -868,7 +868,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
     assert(lastStatus.exists(_.mounts.exists(m => m.path == path && m.service == mounted)))
   }
 
-  Then("the status shows which services {string} admits") { (name: String) =>
+  Then("the report shows which services {string} admits") { (name: String) =>
     assertEquals(name, service)
     assert(last.out.linesIterator.exists(_.matches("callers\\s+the internet.*")), last.out)
   }
@@ -911,7 +911,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
     )
   }
 
-  Then("the status of {string} marks the mount of {string} as having no service") {
+  Then("the report of {string} marks the mount of {string} as having no service") {
     (name: String, mounted: String) =>
       assertEquals(name, service)
       assert(

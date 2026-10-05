@@ -66,9 +66,10 @@ Four decisions shape this feature.
   the sidecar, and the app container is deliberately given none. The process hands the sidecar a
   request and receives a reply; it never sees a key. That is the same division the whole polyglot
   design rests on: the process decides, the runtime does what needs credentials.
-- **The API is the Scala API's shape, in each language's idiom.** `client.services(name)` or
-  `client.services(project, name)` answers a client with `get`, `post`, `put`, `delete` and
-  `request`, and the same three errors. A developer who has read the Scala page knows the Python
+- **The API is the Scala API's shape, in each language's idiom.** A component that may call
+  another service has `services`, and naming a service, or a project and a service, answers a
+  client with `get`, `post`, `put`, `delete` and `request`, and the same errors: the three the Scala client has, and a fourth this feature adds
+  to every door for a call nothing answered. A developer who has read the Scala page knows the Python
   one.
 - **Nothing is added that the Scala client does not already do.** No retries, no redirects, no
   connection pooling policy, no streaming body. Those would be new behaviour for Scala too, and a
@@ -78,6 +79,31 @@ This feature is not a gateway between projects, which is the callee's ACL's busi
 to call something that is not an ankka service, which `request` to an arbitrary address would be
 and is refused; and not the wasm import, which has its own blocking-pool rules and is feature 030.
 
+## Clarifications
+
+### Session 2026-10-04
+
+- Q: Does a call to another service through `Request` work on a developer's machine? → A: Yes,
+  exactly as the Scala client does: `ankka.local-services.<name>` first, then the local console's
+  registry. No new mechanism; a sidecar in a container is told addresses through that setting.
+- Q: How long does a call to another service wait for its answer? → A: One setting on the service
+  (`ankka.service-client.timeout`, default the present 30 seconds), read by the runtime in a Scala
+  service and in the sidecar alike. No per-call parameter in any language.
+- Q: What happens to a call to another service that the platform cannot tie to a handler? → A: It
+  is allowed and counted from the unknown caller. Only a call the platform can tie to an entity's
+  handler is refused.
+- Q: Are the glossary terms the features needed right? → A: Yes: `model`, `SDK` (refusing
+  "library"), `conformance suite`, `scripted service` and `skill` stand as defined. "Header" is
+  not made a term; the features describe what a call says without it.
+- Q: (implementation, V1) The JDK's client sends a `GET` or `HEAD` once more when its connection
+  closes before any answer, and no setting turns that off. Accept it? → A: Yes. A request that may
+  change something is sent at most once; a `GET` or `HEAD` at most twice, and the documentation
+  says so.
+- Q: What is a handler told when the other service never answers (a refused connection, a
+  timeout)? → A: A fourth named error in all three languages, `ServiceUnanswered(service,
+  reason)`. `ServiceCallFailed` keeps meaning that the service answered with a status other than
+  2xx. The Scala client wraps the JDK's exceptions it lets through today.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A Python service calls a Scala service and is admitted by name (Priority: P1)
@@ -85,7 +111,7 @@ and is refused; and not the wasm import, which has its own blocking-pool rules a
 A developer writes a payment adapter in Python. When a provider's webhook arrives, the adapter must
 tell the merchant service, written in Scala, that a payment was captured. The merchant service's
 outcome route admits only the adapter, by name, through `allowCallers`. The adapter calls
-`client.services("merchant").post("/internal/v1/payments/p1/capture", body)` and the merchant
+`self.services("merchant").post("/internal/v1/payments/p1/capture", body)` and the merchant
 service sees `ankka://payments/psp-gateway` as the caller and admits it. Nothing else can call that
 route.
 
@@ -96,30 +122,25 @@ anything else.
 **Independent Test**: In the k3s suite, deploy a Python service and a Scala service in one project;
 the Scala endpoint admits only the Python service by name. Drive the Python service to make the
 call and assert the Scala service answered 200 and recorded the caller as the Python service. Call
-the same route from the gateway and assert 403.
+the same route as another service and assert 403. In the k3s suite that has a gateway, where the
+same Scala service runs, assert the route admits the Scala service it names and refuses a request
+through the gateway (research R15).
 
 **Acceptance Scenarios**:
 
-1. **Given** a process-hosted Python service and a Scala service whose route admits only the
-   Python service by project and name, **When** the Python service calls that route through its
-   service client, **Then** the call is admitted, the reply reaches the Python handler with its
-   status, headers and body, and the Scala service's caller for that request is the Python
-   service's identity.
-2. **Given** the same route, **When** a request arrives from the gateway, **Then** it is refused
-   with 403, which shows the admission in scenario 1 came from the certificate and not from the
-   route admitting everyone.
-3. **Given** a TypeScript service in place of the Python one, **When** it makes the same call,
-   **Then** scenarios 1 and 2 hold for it.
-4. **Given** a call to a service name that does not exist in the project, **When** it is made,
-   **Then** the handler receives the unresolvable error naming the service, within the client's
-   timeout, and no connection is attempted.
-5. **Given** a callee whose certificate names a different service than the one asked for,
-   **When** the call is made, **Then** it fails with the identity mismatch error before any
-   request body is sent.
-6. **Given** a callee that answers with a refusal from its own ACL, **When** the call is made,
-   **Then** the handler receives the status and body the callee sent, not an error from the client.
-7. **Given** the app container of a process-hosted service, **When** its filesystem and
-   environment are inspected, **Then** it holds no certificate and no key, as before this feature.
+- added `features/service-calls/calling.feature`: a service in every language is admitted by name by a route that admits only it
+- added `features/service-calls/calling.feature`: a route that admits only one service by name refuses the gateway
+- added `features/service-calls/calling.feature`: a refusal by the service called reaches the calling handler as that refusal
+- added `features/service-calls/calling.feature`: a call to a service that cannot be found fails, naming the service, and is not sent
+- added `features/service-calls/calling.feature`: a call is not sent to a workload that is not the service asked for
+- added `features/service-calls/calling.feature`: a request that may change something is sent at most once when no answer comes
+- added `features/service-calls/calling.feature`: on a developer's machine a service in every language calls another service running there
+- added `features/service-calls/calling.feature`: a call that is not answered within the time its service is set to wait is unanswered
+- added `features/service-calls/process.feature`: the process of a service that calls other services holds no certificate
+- added `features/service-calls/process.feature`: nothing the process says in a call makes it come from another service
+- added `features/service-calls/process.feature`: two calls a process makes at once are both answered without waiting for each other
+- added `features/service-calls/process.feature`: an entity's handler in a process may not call another service
+- added `features/service-calls/process.feature`: a call a process makes outside any handler is made and counted from the unknown caller
 
 ---
 
@@ -141,22 +162,14 @@ reply. Repeat from an agent tool, a consumer and a timed action.
 
 **Acceptance Scenarios**:
 
-1. **Given** a workflow whose step calls another service through the step's context, **When** the
-   workflow runs, **Then** the call is made with the service's identity and the step proceeds with
-   the reply.
-2. **Given** an agent tool that calls another service through the agent's context, **When** the
-   model invokes the tool, **Then** the call carries the agent's service identity and the tool's
-   result is the reply.
-3. **Given** a consumer that forwards each change to another service, **When** a change is
-   delivered, **Then** the call is made before the consumer's effect is recorded, so a failed call
-   redelivers the change.
-4. **Given** a timed action that calls another service, **When** its timer fires, **Then** the call
-   is made with the service's identity.
-5. **Given** a call made from a step, **When** the service's traces are read, **Then** the outbound
-   call appears as a span under the step's span.
-6. **Given** a service started with no service directory and no local registry, **When** a step
-   calls another service, **Then** the error says no services are configured, as the endpoint's
-   client already does.
+- added `features/service-calls/components.feature`: a workflow's step calls another service and goes on with the answer
+- added `features/service-calls/components.feature`: an agent's tool calls another service and answers the model with what it was given
+- added `features/service-calls/components.feature`: a consumer calls another service before the change it handles is done with
+- added `features/service-calls/components.feature`: a timed action calls another service when its timer fires
+- added `features/service-calls/components.feature`: a workflow calls another service in a step and not in a command
+- added `features/service-calls/components.feature`: a call made from a step is nested under the step in the trace
+- added `features/service-calls/components.feature`: a step of a service that knows of no other services is told so
+- added `features/service-calls/components.feature`: a service on a developer's machine calls a service that has stopped and the call is unanswered
 
 ---
 
@@ -176,17 +189,9 @@ previous protocol version.
 
 **Acceptance Scenarios**:
 
-1. **Given** the conformance suite, **When** it runs against the in-process Scala reference,
-   **Then** a case makes a call through the sidecar's `Request` RPC to a scripted target and asserts
-   the method, path, headers and body the target received and the status and body returned.
-2. **Given** the Python conformance target, **When** the suite runs, **Then** the same case passes.
-3. **Given** the TypeScript conformance target, **When** the suite runs, **Then** the same case
-   passes.
-4. **Given** an SDK declaring a protocol minor version below the one that introduced `Request`,
-   **When** its process calls `Request`, **Then** the sidecar answers that the RPC is not in the
-   declared version rather than serving it.
-5. **Given** the generated protocol stubs, **When** the TypeScript SDK's typecheck and the Python
-   SDK's `mypy` run, **Then** both pass with the new message types.
+- added `features/service-calls/sdks.feature`: the conformance suite's call to another service passes for every SDK
+- added `features/service-calls/process.feature`: a process made for a protocol version before calls to other services is not served one
+- added `features/service-calls/sdks.feature`: an SDK's type checks accept a call to another service
 
 ---
 
@@ -204,13 +209,9 @@ tested code; the limitations page has no sentence claiming the gap.
 
 **Acceptance Scenarios**:
 
-1. **Given** the documentation, **When** a reader looks for calling another service, **Then** one
-   page shows the call in each of Scala, Python and TypeScript, with the sample included from
-   tested code.
-2. **Given** the limitations page, **When** it is read, **Then** the sentence saying Python and
-   TypeScript services cannot call another service as themselves is gone.
-3. **Given** the documentation build, **When** it runs, **Then** every changed page is in the
-   navigation and in at least one skill.
+- added `features/documentation/service-calls.feature`: one page shows a call to another service in every language
+- added `features/documentation/service-calls.feature`: the documentation does not say that a service in some languages cannot call another as itself
+- added `features/documentation/service-calls.feature`: every page about calling another service is listed and carried by a skill
 
 ---
 
@@ -221,17 +222,30 @@ tested code; the limitations page has no sentence claiming the gap.
   other command to that id for the duration; the rule that an entity handler performs no I/O
   stands. A process-hosted entity handler can technically call `Request`; the sidecar refuses it
   with an error naming the component kind, so the rule is the runtime's and not the SDK's.
+- **A call made outside any handler.** A process, or a Scala service holding a client, may call
+  another service when no handler is running. The call is made with the service's identity and
+  counted from the unknown caller; the entity rule refuses only what the platform can tie to an
+  entity's handler, because it protects an entity's other commands and is not a security boundary.
 - **A request to a path that is not under the callee's HTTP port.** There is one port per service;
   `Request` names a service and a path, never a host or a port.
+- **A body larger than the protocol carries.** Through the sidecar a request's or an answer's
+  body over 4,000,000 bytes is refused, naming the limit; there is no stream in either direction.
+- **A call from a workflow's command handler.** Refused, naming "a step", for the reason an
+  entity's is: it would block the workflow's other commands.
 - **A body larger than the callee accepts.** The callee's refusal is returned as its status and
   body; the client does not retry or truncate.
-- **The callee is mid-replacement.** The connection is refused for up to a second during a rolling
-  update; the client answers `ServiceCallFailed` and does not retry, as the Scala client does
-  today. A caller that needs retry writes it, or relies on a consumer's redelivery.
+- **The callee is mid-replacement.** The connection is refused or closed for up to a second during
+  a rolling update; the client answers `ServiceUnanswered`. A request that may change something
+  (`POST`, `PUT`, `DELETE`, `PATCH`) is sent at most once. A `GET` or a `HEAD` whose connection
+  closes before any part of an answer arrives may be sent once more, by the JDK's client, which
+  HTTP allows for a safe method and which no setting turns off (research, V1). A caller that needs
+  more retries writes them, or relies on a consumer's redelivery.
 - **The local console's registry names a service that has since stopped.** The local resolver
-  answers an address nothing listens on; the error is `ServiceCallFailed`, not unresolvable.
+  answers an address nothing listens on; the error is `ServiceUnanswered`, not unresolvable.
 - **Two calls in flight from one process.** Each is its own RPC on the sidecar's client port and
   they do not serialise behind one another.
+- **The callee does not answer in time.** The call ends in `ServiceUnanswered` once the service's
+  `ankka.service-client.timeout` has passed, and is not retried.
 - **Headers the process sets that the platform owns.** A `Host` header or any header the sidecar
   uses to carry the caller's identity is replaced by the sidecar before sending, so a process
   cannot claim to be someone else to a callee that trusts a header.
@@ -246,21 +260,42 @@ tested code; the limitations page has no sentence claiming the gap.
   service name, an optional project, a method, a path, headers and an optional body, and
   answering with a status, headers and a body.
 - **FR-002**: `Request` MUST be served by the runtime's existing `HttpServiceClients`, so the
-  resolution, the TLS configuration and the identity check are the ones a Scala service uses.
+  resolution, the TLS configuration and the identity check are the ones a Scala service uses. That
+  includes a developer's machine: `Request` resolves a service from `ankka.local-services.<name>`,
+  then from the local console's registry, over plain HTTP, and no other local mechanism is added.
+- **FR-013**: How long a call waits for its answer MUST be one setting of the calling service,
+  `ankka.service-client.timeout`, defaulting to the present 30 seconds and read by the same
+  `HttpServiceClients` in a Scala service and in the sidecar. `Request` and the three languages'
+  APIs MUST NOT carry a per-call timeout. The time allowed to connect is unchanged.
 - **FR-003**: The protocol's minor version MUST be raised, and a process declaring a lower minor
   version MUST be refused `Request` with an error naming the version, not served it.
 - **FR-004**: A `Request` made from an entity command or event handler MUST be refused by the
-  sidecar with an error naming the component kind.
+  sidecar with an error naming the component kind. A `Request` the sidecar cannot tie to any
+  handler (made outside one, at process start or from background work) MUST be served, and its
+  call counted from the unknown caller.
 - **FR-005**: The sidecar MUST strip or replace any request header the platform uses to carry a
   caller's identity before sending, so a process cannot impersonate another caller.
 
+- **FR-015**: A request's body and an answer's body through `Request` MUST each be at most
+  4,000,000 bytes, the bound of the protocol's own messages. An SDK MUST refuse a larger request
+  before sending and the sidecar MUST answer a larger answer with an error naming the limit
+  (added in planning, research R8).
+
 **SDKs**
 
-- **FR-006**: The Python and TypeScript SDKs MUST expose a service client reachable from the
-  component client, addressed by service name or by project and name, with `get`, `post`, `put`,
-  `delete` and a raw request in the shape of the Scala API.
-- **FR-007**: The three Scala error cases (unresolvable, identity mismatch, call failed) MUST have
-  a distinguishable counterpart in each SDK.
+- **FR-006**: The Python and TypeScript SDKs MUST expose a service client to every component
+  that may call another service, addressed by service name or by project and name, with `get`,
+  `post`, `put`, `delete` and a raw request in the shape of the Scala API. It MUST NOT be a member
+  of the component client, which an entity holds too; an entity and a view are offered none
+  (amended in planning, research R11).
+- **FR-007**: A call MUST end in one of four distinguishable errors in each of Scala, Python and
+  TypeScript: unresolvable and identity mismatch, where nothing was sent; call failed
+  (`ServiceCallFailed`), where the service answered with a status other than 2xx, carrying that
+  status and body; and unanswered (`ServiceUnanswered`), where no answer arrived because the
+  connection was refused or the timeout passed. The raw request returns the answer whatever its
+  status; only the typed `get`, `post`, `put` and `delete` turn a non-2xx answer into call failed.
+- **FR-014**: The Scala client MUST raise `ServiceUnanswered` where it lets the JDK's own
+  exceptions through today, so the three languages name the same four errors.
 - **FR-008**: The conformance suite MUST gain a case that exercises `Request` end to end against a
   scripted target, and every SDK's conformance target MUST pass it.
 
@@ -268,7 +303,10 @@ tested code; the limitations page has no sentence claiming the gap.
 
 - **FR-009**: The agent, workflow, consumer and timed-action contexts MUST carry a `ServiceClients`
   built from the same runtime client the endpoint receives.
-- **FR-010**: The entity contexts MUST NOT carry a `ServiceClients`.
+- **FR-010**: The entity contexts MUST NOT carry a `ServiceClients`. A workflow's command
+  handlers share its steps' context, so a workflow's client MUST refuse a call made outside a
+  step, in every language and in the sidecar, as its secret store does (added in planning,
+  research R2 and R6).
 - **FR-011**: An outbound call made from a handler MUST be recorded as a span under the handler's
   span in the service's traces.
 
@@ -282,7 +320,7 @@ tested code; the limitations page has no sentence claiming the gap.
 
 - **Request**: a protocol message naming a target service (name, optional project), a method, a
   path, headers and an optional body.
-- **Reply**: a protocol message carrying a status, headers and a body, or one of the three error
+- **Reply**: a protocol message carrying a status, headers and a body, or one of the four error
   cases.
 - **ServiceClients**: the per-service factory of service clients, now present on every
   non-entity component context.
@@ -292,9 +330,10 @@ tested code; the limitations page has no sentence claiming the gap.
 ### Measurable Outcomes
 
 - **SC-001**: A process-hosted service in Python or TypeScript can be admitted by name by another
-  service's ACL, proven on a real cluster by one admitted call and one refused call from the
-  gateway to the same route.
-- **SC-002**: Every component kind except entities can make an outbound call with the service's
+  service's ACL, proven on a real cluster by one admitted call and one call from another service
+  refused by the same route; and that route is proven, on a real cluster with a gateway, to
+  refuse a request from the gateway.
+- **SC-002**: Every component kind except entities and views can make an outbound call with the service's
   identity in Scala, Python and TypeScript, each covered by a test.
 - **SC-003**: The conformance suite covers `Request`, and all three conformance targets pass it.
 - **SC-004**: No credential reaches a process-hosted app container as a result of this feature,
@@ -307,6 +346,9 @@ tested code; the limitations page has no sentence claiming the gap.
   are not changed by this feature.
 - A callee's ACL and the caller's certificate are the whole of authorization; this feature adds
   no token to outbound calls.
+- A sidecar run in a container on a developer's machine cannot see the host's local registry; it
+  is told another service's address through `ankka.local-services.<name>`. The generated compose
+  files and the SDK testkits are not changed to wire services together.
 - The sidecar's client port stays bound to loopback, so `Request` is reachable only from the
   process in the same pod.
 - The Rust and wasm side is feature 030 and shares the `Request` message shape defined here.
@@ -320,13 +362,3 @@ tested code; the limitations page has no sentence claiming the gap.
 - 026-telemetry-export depends on the outbound span of FR-011 to propagate trace context on the
   same call.
 - No dependency on any other spec in this set.
-
-## Open Questions
-
-- Whether `Request` should be offered in local mode, through the local console's registry as the
-  Scala client is, so two Python services on one laptop can reach each other without a cluster.
-  [NEEDS CLARIFICATION: the local registry is written by `AnkkaService` and read by
-  `HttpServiceClients`; the sidecar runs locally only through the SDK testkits, which may not
-  register.]
-- Whether the per-call timeout should be a parameter of `Request` or the sidecar's single
-  configured client timeout.

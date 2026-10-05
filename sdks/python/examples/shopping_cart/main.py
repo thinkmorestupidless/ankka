@@ -11,6 +11,7 @@ from ankka import Ankka
 
 from examples.shopping_cart.answerer import CartAnswerer
 from examples.shopping_cart.assistant import CartAssistant
+from examples.shopping_cart.calling import CallingEndpoint
 from examples.shopping_cart.cart_contents_graph import CartContentsGraph
 from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRows
@@ -35,6 +36,7 @@ def service() -> Any:
         .register(CartAnswerer)
         .register(ShoppingCartEndpoint)
         .register(QuestionsEndpoint)
+        .register(CallingEndpoint)
     )
     # The graph is published to a topic, and a sidecar with no broker refuses a service that
     # publishes to one. So the cart runs as it is with no broker, and with one it publishes its graph.

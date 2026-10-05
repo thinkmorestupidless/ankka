@@ -2,6 +2,7 @@
 name: ankka-port
 description: Port an existing system to ankka by matching what it demonstrably does — run the original locally, list its whole interface from source, drive every element against the running original and record its answers, write a specification whose every requirement says how it was established, design the ankka components, and hold the rebuild to the recorded answers with integration tests (parity tests) that outlive the original. Use when asked to port, migrate, rewrite, re-platform or rebuild an existing application, service or API on ankka, or to derive a specification from a system that already exists.
 pages:
+  - build/calling-services.md
   - concepts/designing-services.md
   - concepts/consistency.md
   - concepts/polyglot.md
@@ -177,3 +178,8 @@ the original is no longer needed to run them.
 
 Moving the original's existing data into the rebuild is a separate task from porting its behaviour, and
 is not part of this one: the rebuild's entities are rebuilt from events, which the original never wrote.
+
+## Calls to other services
+
+A call from one service to another ports to `services(name)` from any component but an entity or a view,
+in every language; see `references/build/calling-services.md`.

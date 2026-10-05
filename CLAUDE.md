@@ -72,6 +72,7 @@ sbt proxyCore/test proxy/test     # a web-hosted service's proxy: rules and engi
 sbt -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'   # `ankka init --language web`; needs node, npm
 sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts, one k3s suite
 sbt 'sidecar/testOnly *ConformanceSuite'                                       # the Scala reference, in-process
+sbt 'sidecar/testOnly *ClientRequestSuite'                                     # a process's call to another service, as the sidecar makes it
 sbt 'sidecar/testOnly *ConformanceSuite' -Dankka.conformance.target=127.0.0.1:9010   # a process speaking the protocol
 cd sdks/python && uv sync && uv run pytest -q && uv run mypy && uv run conformance   # the Python SDK, end to end
 cd sdks/typescript && npm ci && npm run proto && npm run typecheck && npm test && npm run test:slow && npm run conformance   # the TypeScript SDK, end to end

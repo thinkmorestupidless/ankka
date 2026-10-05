@@ -5,6 +5,7 @@ import type { Shape } from "./codec.ts"
 import type { Metadata } from "./effects/common.ts"
 import { secretsFor, type ComponentClient, type ComponentRef, type Secrets } from "./client.ts"
 import { ConsumerEffects, type ConsumerEffect } from "./effects/stateless.ts"
+import { servicesFor, type Services } from "./services.ts"
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -72,6 +73,18 @@ export abstract class Consumer<M, Out = never> {
   /** A unit test's store in place of the runtime's: `component.secrets = new InMemorySecrets()`. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #services: Services | undefined
+
+  /** Other services, called as this one, through the runtime: `this.services.service("orders")`. */
+  get services(): Services {
+    return this.#services ?? servicesFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's: `component.services = new ScriptedServices()`. */
+  set services(services: Services) {
+    this.#services = services
   }
 
   /** @internal */

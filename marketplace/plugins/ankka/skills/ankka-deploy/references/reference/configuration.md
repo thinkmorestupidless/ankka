@@ -42,6 +42,7 @@ The table is generated from the runtime's configuration files.
 |---|---|---|---|
 | `ANKKA_SERVICE_NAME` | `ankka.service.name` | `""` | every service |
 | `ANKKA_SECRET_KEY` | `ankka.secrets.key` | `""` | every service |
+| `ANKKA_SERVICE_CLIENT_TIMEOUT` | `ankka.service-client.timeout` | `30s` | every service |
 | `ANKKA_DB_HOST` | `pekko.persistence.r2dbc.connection-factory.host` | `"localhost"` | every service |
 | `ANKKA_DB_PORT` | `pekko.persistence.r2dbc.connection-factory.port` | `5432` | every service |
 | `ANKKA_DB_NAME` | `pekko.persistence.r2dbc.connection-factory.database` | `"ankka"` | every service |
@@ -135,6 +136,14 @@ descriptor that sets any `ANKKA_DB_*` variable brings its own database instead.
 
 Never point two services at one database. Timers, view tables and projection offsets are not separated by
 service, so two services sharing a database delete each other's timers and overwrite each other's views.
+
+### Calling other services
+
+- `ANKKA_SERVICE_CLIENT_TIMEOUT` (`ankka.service-client.timeout`) is how long a call to another service
+  waits for its answer, `30s` unless set; connecting has five seconds of its own and there is no per-call
+  timeout. A descriptor may give it, and it goes to the runtime that makes the call — beside a Python or
+  TypeScript process, the sidecar, never the process. See
+  [Calling other services](../build/calling-services.md).
 
 ### Secret store
 
@@ -326,6 +335,8 @@ These are overridden in the service's `application.conf` or with a system proper
 - `ankka.probe.enabled` and `ankka.probe.port`, `7627`, are the plain readiness listener, on only in
   `kubernetes` mode.
 - `ankka.local-services.<name>` is the address of another service on this machine for the service client,
+  for every component that calls one and for the runtime beside a Python or TypeScript process, which is
+  given it as a JVM option (`JAVA_OPTS=-Dankka.local-services.<name>=…`),
   such as `"http://127.0.0.1:9001"`. Without it the client asks the local console's registry.
 
 The runtime also sets Pekko's own settings. Two of them shape how a service behaves:

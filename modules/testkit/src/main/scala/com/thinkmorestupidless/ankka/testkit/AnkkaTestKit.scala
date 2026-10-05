@@ -185,7 +185,13 @@ object AnkkaTestKit:
        * default, so the secret store works with no setup; `None` starts a service with none.
        */
       secretKey: Option[String] = Some(generateSecretKey()),
-      serviceIdentity: ServiceIdentity = ServiceIdentity.unnamed
+      serviceIdentity: ServiceIdentity = ServiceIdentity.unnamed,
+      /**
+       * Where other services are, by name, as `ankka.local-services.<name>` gives them: what a call
+       * to another service from this one reaches. Kept across `restartService`. Set on this service
+       * alone, unlike a system property, which every service in the JVM would read.
+       */
+      localServices: Map[String, String] = Map.empty
   ): AnkkaTestKit =
     // On every start and restart, as the rest of `configure` is: the identity is part of what the
     // service is, not something a restart forgets. Before `configure`, so a suite can state an
@@ -202,7 +208,7 @@ object AnkkaTestKit:
     // temp directory they then read, and must keep the one they picked.
     claimRegistryDirectory()
 
-    val config = configFor(database)
+    val config = withLocalServices(configFor(database), localServices)
 
     val service =
       try
@@ -238,6 +244,11 @@ object AnkkaTestKit:
    */
   private[testkit] def withSecretKey(config: Config, key: Option[String]): Config =
     config.withValue("ankka.secrets.key", ConfigValueFactory.fromAnyRef(key.getOrElse("")))
+
+  private[testkit] def withLocalServices(config: Config, services: Map[String, String]): Config =
+    services.foldLeft(config) { case (c, (name, address)) =>
+      c.withValue(s"""ankka.local-services."$name"""", ConfigValueFactory.fromAnyRef(address))
+    }
 
   def start(first: ComponentDescriptor, rest: ComponentDescriptor*): AnkkaTestKit =
     start(first +: rest)

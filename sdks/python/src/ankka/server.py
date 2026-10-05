@@ -45,6 +45,7 @@ from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
 from ankka.client import CommandError, ComponentClient
 from ankka.secrets import Secrets
+from ankka.services import Services
 from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
 from ankka.codec import default_codec_for
 from ankka.effects import consumer as consumer_effects
@@ -639,6 +640,14 @@ class AgentServicer(agent_pb2_grpc.AgentServicer):
         return agent_pb2.TaskResultVerdict(reject=agent_pb2.TaskResultVerdict.Rejection(rule=rule, reason=reason))
 
 
+def _request_metadata() -> Metadata:
+    """The metadata of the request the current task is handling, or none outside one."""
+    from ankka.endpoint import _current
+
+    ctx = _current.get()
+    return ctx.metadata if ctx is not None else Metadata()
+
+
 class HttpServicer(endpoint_pb2_grpc.HttpServicer):
     def __init__(self, registry: Registry, client: ComponentClient) -> None:
         self.registry = registry
@@ -652,6 +661,9 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
             # Every endpoint has the store, whether or not it takes the client: it is reached
             # through the same sidecar.
             instance.secrets = Secrets(self.client)
+            # And the client for other services, carrying the request's own metadata: an endpoint is
+            # built once with the unscoped client, so each call reads the request it is part of.
+            instance.services = Services(self.client, _request_metadata)
             self.instances[endpoint_id] = instance
         return self.instances[endpoint_id]
 

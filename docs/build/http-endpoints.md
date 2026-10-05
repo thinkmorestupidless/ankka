@@ -470,39 +470,11 @@ that does not, rather than disclosing which is which.
 
 ## Call another service
 
-`clients.services` calls another service's endpoints as this service. It is addressed by name: a service
-in this project by its name, one in another project by project and name.
-
-<!-- include: samples/shopping-cart/src/main/scala/shoppingcart/api/CallersEndpoint.scala#call-another-service -->
-```scala
-// Calls `/callers/whoami` on another service in this project, as this service: the answer is
-// how that service saw this one.
-get("/call/{service}") { (service: String) =>
-  try services(service).getText("/callers/whoami")
-  catch case e: ServiceUnresolvable => throw HttpProblem(503, e.getMessage)
-}
-```
-
-In a cluster the call is mutual TLS: it presents this service's certificate, so the callee's
-`allowCallers` sees who is calling, and it accepts the callee only if its certificate names the service
-asked for — a workload holding another service's certificate fails the handshake before anything is sent.
-The address is the callee's Kubernetes Service and its port is read from DNS, so a descriptor that changes
-the port changes nothing here.
-
-Outside a cluster the same call reaches the named service on this machine over plain HTTP: the address
-set as `ankka.local-services.<name>` if there is one, otherwise the address the service announced to the
-local console.
-
-| Method | Answers |
-|---|---|
-| `get[R](path)`, `post[B, R](path, body)`, `put[B, R](path, body)` | the JSON body decoded as `R`; any status other than 2xx throws `ServiceCallFailed` |
-| `getText(path)` | the body as text, what a route returning a `String` sends |
-| `delete(path)` | nothing; any 2xx succeeds |
-| `request(method, path, body, contentType, headers)` | the `ServiceResponse`, whatever its status |
-
-`ServiceUnresolvable` means nothing was found under the name and nothing was sent; `ServiceIdentityMismatch`
-means the service reached is not the one asked for. There are no retries and no redirects: whether a call
-is safe to repeat is the caller's to know. Components reach the same clients as `service.services`.
+`clients.services` calls another service's endpoints as this service, by its name, so the service called
+reads this one as the caller and its access rule can admit it by name. The same client is given to a
+workflow's step, a consumer, a timed action and an agent, in Scala, Python and TypeScript.
+[Calling other services](calling-services.md) shows the call in each language, what it answers, the four
+errors it can end in, how long it waits, and how to test it.
 
 ## Registering endpoints
 
@@ -674,8 +646,8 @@ export class CallersEndpoint extends Endpoint {
 ///
 
 In Python `Callers.self_` carries a trailing underscore so it does not shadow `self`. A Python or TypeScript
-service can be called as described in [Name who may call](#name-who-may-call), but has no service client
-of its own yet: calling another service as itself is Scala-only.
+service calls another as itself through `services`, as
+[Calling other services](calling-services.md) describes.
 
 A `str` return value is answered as `text/plain`, and a `str` body is read as raw text, not as a JSON
 string — the same encoding the Scala SDK uses.

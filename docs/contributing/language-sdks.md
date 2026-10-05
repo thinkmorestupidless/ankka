@@ -87,7 +87,9 @@ An SDK passes the suite with a reference service of its own: the same components
 the Scala reference, `ConformanceReference`. They include a shopping cart entity, an entity whose handlers
 exercise every effect, a key value entity, a workflow with a pause, a failure and a compensation, a view, a
 consumer, a timed action, an agent with a tool and a guardrail, and three endpoints including one that
-requires authentication. The Scala reference, `ConformanceReference`, beside the suite is the full list of
+requires authentication. One route calls another service through the SDK's own client: the suite plays that
+other service on loopback, records what it was sent, and reads back what the reference's handler got, so a
+call to another service means the same thing in every language. The Scala reference, `ConformanceReference`, beside the suite is the full list of
 components, wire names and routes, and the suite itself names every behaviour. The behaviours are also
 written down, one per case, in the
 [conformance contract](https://github.com/thinkmorestupidless/ankka/tree/main/specs/009-polyglot-runtimes/contracts).

@@ -33,12 +33,15 @@ class OperatorClusterSuite extends munit.FunSuite:
 
   override def munitIgnore: Boolean = sys.props.get("ankka.cluster.tests").contains("off")
 
-  private val Image       = "rancher/k3s:v1.35.1-k3s1"
-  private val SampleImage = "sample-shopping-cart:latest"
-  private val Prefix      = "ankka"
-  private val Project     = "checkout"
-  private val Namespace   = s"$Prefix-$Project"
-  private val Service     = "cart"
+  private val Image = "rancher/k3s:v1.35.1-k3s1"
+  // This build's own sample, by the tag the build gives it: the operator's tests cannot see `core`'s
+  // BuildInfo, so the build passes the name. `:latest` is shared with every session on the machine.
+  private val SampleImage =
+    sys.props.getOrElse("ankka.sample.image", fail("the build sets ankka.sample.image"))
+  private val Prefix    = "ankka"
+  private val Project   = "checkout"
+  private val Namespace = s"$Prefix-$Project"
+  private val Service   = "cart"
 
   private var k3s: K3sContainer        = null
   private var client: KubernetesClient = null

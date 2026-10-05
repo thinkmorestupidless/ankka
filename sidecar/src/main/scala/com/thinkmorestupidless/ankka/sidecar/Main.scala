@@ -190,5 +190,14 @@ object Main:
       .withExtension(timers)
       .withExtension(agentRuntime)
       .withExtension(http)
-      .withExtension(SidecarExtension(settings, conversation, timers, served, imports))
+      .withExtension(
+        SidecarExtension(
+          settings,
+          conversation,
+          timers,
+          served,
+          imports,
+          Some(discovered.spec.protocolVersion)
+        )
+      )
       .startWith(system)

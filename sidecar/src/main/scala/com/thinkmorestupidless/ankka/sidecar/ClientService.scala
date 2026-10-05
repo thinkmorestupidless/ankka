@@ -26,12 +26,13 @@ import scala.concurrent.{ExecutionContext, Future}
 final class ClientService(
     service: AnkkaService,
     settings: Settings,
-    timers: () => Option[TimerScheduler]
+    timers: () => Option[TimerScheduler],
+    declaredProtocol: Option[String] = None
 )(using system: ActorSystem[?])
     extends ClientGrpc.Client:
 
   private given ExecutionContext = system.executionContext
-  private val logic              = ClientLogic(service, settings, timers)
+  private val logic              = ClientLogic(service, settings, timers, declaredProtocol)
 
   def invoke(request: InvokeRequest): Future[InvokeReply] = logic.invoke(request)
 
@@ -55,6 +56,7 @@ final class ClientService(
   def putSecret(request: PutSecretRequest): Future[PutSecretReply] = logic.putSecret(request)
   def deleteSecret(request: DeleteSecretRequest): Future[DeleteSecretReply] =
     logic.deleteSecret(request)
+  def request(request: ServiceRequest): Future[ServiceReply] = logic.request(request)
 
   private val status: PartialFunction[Throwable, Future[pb.Empty]] = { case e: CommandError =>
     val s = e.code match

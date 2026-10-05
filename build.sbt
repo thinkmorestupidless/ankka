@@ -418,6 +418,9 @@ lazy val operator = project
     // Named, not discovered: the control plane and the sidecar take this module's test classes, and
     // a logback-test.xml here would be a second one beside ankka-testkit's in both.
     Test / javaOptions += "-Dlogback.configurationFile=logback-operator-test.xml",
+    // The sample OperatorClusterSuite deploys, by the tag `sampleImageForClusterTests` builds: this
+    // project cannot see `core`'s BuildInfo, and `:latest` is whatever any session built last.
+    Test / javaOptions += s"-Dankka.sample.image=sample-shopping-cart:${version.value.replace('+', '-')}",
     // As for controlPlane below: OperatorClusterSuite deploys the real sample since feature 004,
     // because only a real ankka image can be Ready now that readiness is cluster membership.
     sampleImageForClusterTests := Def.taskDyn {
@@ -607,8 +610,19 @@ lazy val sidecar = project
       if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
       else Def.task { val _ = (Docker / publishLocal).value }
     }.value,
-    Test / test     := (Test / test).dependsOn(sidecarImageForClusterTests).value,
-    Test / testOnly := (Test / testOnly).dependsOn(sidecarImageForClusterTests).evaluated
+    // And the Scala sample's: SidecarClusterSuite deploys it beside a Python service, which calls one
+    // of its routes as itself (feature 025). A task dependency only — the sidecar's classpath gains
+    // nothing of the sample's.
+    sampleImageForClusterTests := Def.taskDyn {
+      if (sys.props.get("ankka.cluster.tests").contains("off")) Def.task(())
+      else Def.task { val _ = (shoppingCart / Docker / publishLocal).value }
+    }.value,
+    Test / test := (Test / test)
+      .dependsOn(sidecarImageForClusterTests, sampleImageForClusterTests)
+      .value,
+    Test / testOnly := (Test / testOnly)
+      .dependsOn(sidecarImageForClusterTests, sampleImageForClusterTests)
+      .evaluated
   )
 
 /**

@@ -258,6 +258,18 @@ test, assign `component.secrets = InMemorySecrets()`, which applies the runtime'
 test kit puts a generated `ANKKA_SECRET_KEY` on the runtime it starts; `env={"ANKKA_SECRET_KEY": ""}`
 starts one with none. Needs protocol 1.4: an earlier runtime is reported as too old for the store.
 
+## Other services
+
+An endpoint, a consumer, a graph consumer, a timed action, an agent and an autonomous agent call another
+service as this one through `self.services`, and a workflow in a step; an entity's `CommandContext` and a
+`View` have none. `self.services("orders")` or `self.services("invoices", project="billing")` answers a
+client with `await get(path, returns)`, `get_text(path)`, `post(path, body, returns)`,
+`put(path, body, returns)`, `delete(path)` and `request(method, path, body=, content_type=, headers=)`.
+No answer is `ServiceUnresolvable`, `ServiceIdentityMismatch` or `ServiceUnanswered`; an answer outside 2xx
+to a typed helper is `ServiceCallFailed`; all four are `ServiceError`. For a unit test, assign
+`component.services = ScriptedServices()`. Needs protocol 1.8: an earlier runtime is reported as too old
+to call another service. See [Calling other services](../build/calling-services.md).
+
 ## Running a service
 
 ```python

@@ -13,11 +13,14 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.7`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.8`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
-consumer that reads one.
+consumer that reads one. `1.8` added `Request` on `Client`: a call to another service, made by the
+runtime as the service. A process that declared an earlier minor is answered a refusal naming both
+versions if it sends one; an earlier runtime answers a 1.8 process's `Request` with `UNIMPLEMENTED`,
+which each SDK reports as the runtime being too old. No module import carries it yet.
 
 `MAJOR.MINOR`. Within a major:
 

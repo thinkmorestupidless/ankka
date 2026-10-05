@@ -2,6 +2,7 @@
 name: ankka-endpoints
 description: Write, change or test an ankka HTTP endpoint in Scala, Python, TypeScript or Rust, or a gRPC endpoint in Scala — routes and path templates, typed path parameters and bodies, response encoding, error codes and HttpProblem, query parameters and headers from the request, the ACL (DenyAll, AllowAll, AllowIf, Authenticate), server-sent events, .proto service definitions, gRPC streams and statuses, reflection, and calling entities, workflows, agents, views and other services from a handler. Use when the task names an endpoint, a route, a REST API, gRPC, a .proto file, an ACL, authentication of callers, a 4xx status or gRPC status, SSE, HttpServer, GrpcServer, GrpcClients, or EndpointClients.
 pages:
+  - build/calling-services.md
   - build/http-endpoints.md
   - build/grpc-endpoints.md
   - build/component-client.md
@@ -104,3 +105,10 @@ each acceptance scenario as one integration test through its route (`references/
 - A test binding port 9000.
 - A `POST` whose `String` body was expected as a JSON string, or a client calling `.json()` on a
   `text/plain` reply.
+
+## Calling another service
+
+A handler calls another service as this service through `services` (`clients.services` in Scala), by
+name, so that service's ACL can admit this one by name. It is the same client every component but an
+entity and a view has. What it answers, its four errors and how to test it are in
+`references/build/calling-services.md`.

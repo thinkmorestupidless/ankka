@@ -39,12 +39,16 @@ trait TimedActionContext extends ComponentContext:
   /** The service's secret store. */
   def secrets: SecretStore
 
+  /** Other services, called as this one. */
+  def services: ServiceClients
+
 private[ankka] final case class SimpleTimedActionContext(
     componentId: ComponentId,
     componentClient: ComponentClient,
     timerName: String,
     previousAttempts: Int,
-    secrets: SecretStore
+    secrets: SecretStore,
+    services: ServiceClients
 ) extends TimedActionContext
 
 /**

@@ -3,8 +3,11 @@ package com.thinkmorestupidless.ankka.sidecar
 import ankka.protocol.v1.client.*
 import ankka.protocol.v1.payload as pb
 import com.google.protobuf.ByteString
+import ankka.protocol.v1.endpoint.{HttpRequest as PbHttpRequest, HttpResponse as PbHttpResponse}
 import com.thinkmorestupidless.ankka.core.{
   CommandError,
+  ComponentKind,
+  HandlerKind,
   ComponentId,
   EntityId,
   ErrorCode,
@@ -23,7 +26,15 @@ import com.thinkmorestupidless.ankka.runtime.{
   Trace,
   ViewQueries
 }
-import com.thinkmorestupidless.ankka.sdk.{DeferredCall, TimerScheduler, ViewDescriptor}
+import com.thinkmorestupidless.ankka.sdk.{
+  DeferredCall,
+  ServiceIdentityMismatch,
+  ServiceResponse,
+  ServiceUnanswered,
+  ServiceUnresolvable,
+  TimerScheduler,
+  ViewDescriptor
+}
 import org.apache.pekko.actor.typed.{ActorRef, ActorSystem}
 import org.apache.pekko.actor.typed.scaladsl.Behaviors
 
@@ -31,9 +42,10 @@ import scala.concurrent.duration.*
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
- * What a service's own code calls *back* for — other components, view rows, timers — whichever way
- * it reaches the runtime: a process over the loopback gRPC server (`ClientService`), a module
- * through its host imports (`wasm.HostImports`). One implementation, so the two cannot differ.
+ * What a service's own code calls *back* for — other components, view rows, timers, its secret
+ * store, and other services — whichever way it reaches the runtime: a process over the loopback
+ * gRPC server (`ClientService`), a module through its host imports (`wasm.HostImports`). One
+ * implementation, so the two cannot differ.
  *
  * `Invoke` goes straight to the sharding transport with the bytes it was given, so a call from the
  * process is routed exactly as a call from a Scala endpoint would be, wherever the target instance
@@ -43,7 +55,12 @@ import scala.concurrent.{ExecutionContext, Future}
 final class ClientLogic(
     service: AnkkaService,
     settings: Settings,
-    timers: () => Option[TimerScheduler]
+    timers: () => Option[TimerScheduler],
+    /**
+     * The protocol version the process declared in discovery: what it may be served. Absent, it is
+     * taken to be this sidecar's own.
+     */
+    declaredProtocol: Option[String] = None
 )(using system: ActorSystem[?]):
 
   private given ec: ExecutionContext = system.executionContext
@@ -301,3 +318,139 @@ final class ClientLogic(
     onStore { service.secrets.delete(request.name); DeleteSecretReply() }(e =>
       DeleteSecretReply(Some(e))
     )
+
+  // ── Calls to other services (protocol 1.8) ──────────────────────────────────
+  //
+  // Made by the runtime's one client for other services, as this service: the resolution, the
+  // certificate and the identity check are the ones a Scala handler's call goes through. The
+  // process is never given a key. Who asked is read from the metadata the handler was given, and
+  // believed only when the service declared it; an entity's handler, and a workflow's command
+  // handler, are refused, because a call would hold every other command to them behind another
+  // service. A call nothing can tie to a handler is made, and counted from the unknown caller.
+
+  def request(request: ServiceRequest): Future[ServiceReply] =
+    Future {
+      refusal(request) match
+        case Some(refused) => ServiceReply(ServiceReply.Result.Error(refused))
+        case None          => call(request)
+    }(using AnkkaExecutors.virtual)
+
+  private def refusal(request: ServiceRequest): Option[pb.Error] =
+    def bad(message: String) = Some(pb.Error(message, pb.ErrorCode.BAD_REQUEST))
+    val metadata             = this.metadata(request.metadata)
+    if !ClientLogic.servesRequests(declaredProtocol) then
+      bad(
+        s"this process declared protocol ${declaredProtocol.getOrElse("")}, and a call to another " +
+          s"service needs protocol ${ClientLogic.RequestSince}; the sidecar speaks ${Discovery.ProtocolVersion}"
+      )
+    else if !ClientLogic.isName(request.service) then
+      bad(s"a call to another service names the service: '${request.service}' is not a name")
+    else if request.project.exists(p => !ClientLogic.isName(p)) then
+      bad(s"'${request.project.getOrElse("")}' is not a project's name")
+    else if request.method.isEmpty then bad("a call to another service names its method")
+    else if !request.path.startsWith("/") then
+      bad(s"a call's path starts with '/': '${request.path}' does not")
+    else if request.body.exists(_.size > ClientLogic.MaxBodyBytes) then
+      bad(s"a call's body is at most ${ClientLogic.MaxBodyBytes} bytes through the sidecar")
+    else
+      observability.declared.origin(metadata).flatMap { origin =>
+        service.registry.components
+          .find(_.componentId.toString == origin.component)
+          .flatMap { component =>
+            component.kind match
+              case ComponentKind.EventSourcedEntity | ComponentKind.KeyValueEntity =>
+                bad(
+                  s"the ${ClientLogic.kindName(component.kind)} '${origin.component}' may not " +
+                    "call another service: its other commands would wait behind the call"
+                )
+              case ComponentKind.Workflow
+                  if !component.declaredHandlers
+                    .exists(h => h.name == origin.handler && h.kind == HandlerKind.Step) =>
+                bad("a workflow calls another service in a step, not in a command handler")
+              case _ => None
+          }
+      }
+
+  private def call(request: ServiceRequest): ServiceReply =
+    val metadata = this.metadata(request.metadata)
+    val origin   = observability.declared.origin(metadata)
+    val trace    = Trace.traceIdOf(metadata).zip(Trace.parentSpanIdOf(metadata))
+    def made: ServiceResponse =
+      val clients = service.services
+      val client  = request.project.fold(clients(request.service))(clients(_, request.service))
+      client.request(
+        request.method,
+        request.path,
+        request.body.map(_.toByteArray),
+        request.contentType,
+        request.headers.map(h => h.name -> h.value)
+      )
+    try
+      val response = (trace, origin) match
+        case (Some((traceId, spanId)), Some(o)) => Trace.within(traceId, spanId, o)(made)
+        case (Some((traceId, spanId)), None)    => Trace.within(traceId, spanId)(made)
+        case (None, Some(o))                    => Trace.asOrigin(o)(made)
+        case (None, None)                       => made
+      if response.body.length > ClientLogic.MaxBodyBytes then
+        ServiceReply(
+          ServiceReply.Result.Error(
+            pb.Error(
+              s"the answer of ${request.service} is over ${ClientLogic.MaxBodyBytes} bytes, " +
+                "more than the sidecar carries",
+              pb.ErrorCode.INTERNAL
+            )
+          )
+        )
+      else
+        ServiceReply(
+          ServiceReply.Result.Response(
+            PbHttpResponse(
+              response.status,
+              response.contentType,
+              ByteString.copyFrom(response.body),
+              response.headers.map((name, value) => PbHttpRequest.Pair(name, value))
+            )
+          )
+        )
+    catch
+      case e: ServiceUnresolvable =>
+        failure(ServiceFailure.Reason.UNRESOLVABLE, e.getMessage)
+      case e: ServiceIdentityMismatch =>
+        failure(ServiceFailure.Reason.IDENTITY_MISMATCH, e.getMessage)
+      case e: ServiceUnanswered =>
+        failure(ServiceFailure.Reason.UNANSWERED, e.getMessage)
+      case e: CommandError => ServiceReply(ServiceReply.Result.Error(error(e)))
+      case e: Throwable =>
+        ServiceReply(
+          ServiceReply.Result.Error(
+            pb.Error(Option(e.getMessage).getOrElse(e.getClass.getName), pb.ErrorCode.INTERNAL)
+          )
+        )
+
+  private def failure(reason: ServiceFailure.Reason, detail: String): ServiceReply =
+    ServiceReply(ServiceReply.Result.Failure(ServiceFailure(reason, detail)))
+
+object ClientLogic:
+
+  /** The protocol that added `Request`. */
+  val RequestSince: String = "1.8"
+
+  /** The largest body, either way, a call through the sidecar carries: under gRPC's 4 MiB. */
+  val MaxBodyBytes: Int = 4_000_000
+
+  private val NamePattern = "[A-Za-z0-9._-]+".r
+
+  private[sidecar] def isName(value: String): Boolean = NamePattern.matches(value)
+
+  /** Whether a process that declared `declared` may be served `Request`. */
+  private[sidecar] def servesRequests(declared: Option[String]): Boolean =
+    declared.forall { version =>
+      version.split('.').toList match
+        case _ :: minor :: _ => minor.toIntOption.exists(_ >= 8)
+        case _               => false
+    }
+
+  private[sidecar] def kindName(kind: ComponentKind): String = kind match
+    case ComponentKind.EventSourcedEntity => "event sourced entity"
+    case ComponentKind.KeyValueEntity     => "key value entity"
+    case other                            => other.toString

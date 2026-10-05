@@ -42,7 +42,8 @@ class ControlPlaneClusterSuite extends munit.FunSuite with LogCapturing:
   private val K3sImage          = "rancher/k3s:v1.35.1-k3s1"
   private val BaseDomain        = "test.local"
   private val ControlPlaneImage = "ankka-controlplane:latest"
-  private val SampleImage       = "sample-shopping-cart:latest"
+  private val SampleImage =
+    s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
   // A real token from the deployed identity provider, through the gateway, for a client this
   // suite creates: the deployed control plane verifies against the in-cluster key set and expects
   // the issuer it derives from ANKKA_BASE_DOMAIN and ANKKA_HTTPS_PORT — so this is also the proof

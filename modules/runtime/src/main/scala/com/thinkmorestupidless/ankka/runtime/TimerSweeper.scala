@@ -41,6 +41,7 @@ private[ankka] object TimerSweeper:
       actions: Map[ComponentId, ComponentDescriptor],
       componentClient: ComponentClient,
       secrets: SecretStore,
+      services: ServiceClients,
       conversation: Option[Conversation],
       pollInterval: FiniteDuration
   ): Behavior[Nothing] =
@@ -56,6 +57,7 @@ private[ankka] object TimerSweeper:
           actions,
           componentClient,
           secrets,
+          services,
           conversation,
           ctx.system.executionContext,
           Observability(ctx.system)
@@ -99,6 +101,7 @@ private[ankka] final class Sweep(
     actions: Map[ComponentId, ComponentDescriptor],
     componentClient: ComponentClient,
     secrets: SecretStore,
+    services: ServiceClients,
     conversation: Option[Conversation],
     ec: ExecutionContext,
     observability: Observability
@@ -238,7 +241,8 @@ private[ankka] final class Sweep(
       componentClient,
       timer.name,
       timer.attempts,
-      secrets
+      secrets,
+      services
     )
 
     // Handlers may block on ComponentClient, so they run on a virtual thread.

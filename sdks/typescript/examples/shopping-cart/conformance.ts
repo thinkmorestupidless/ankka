@@ -6,6 +6,11 @@ import {
   Agent,
   AutonomousAgent,
   Callers,
+  CommandError,
+  ServiceCallFailed,
+  ServiceIdentityMismatch,
+  ServiceUnanswered,
+  ServiceUnresolvable,
   accepted,
   rejected,
   taskAcceptance,
@@ -272,6 +277,17 @@ export class ConformanceAssistant extends Agent {
 
 const Echo = s.record("Echo", { a: s.list(s.string), b: s.option(s.string), headers: s.stringMap(s.string) })
 
+/** What a call to another service came to, as the reference answers it in every language. */
+const ServiceCallRecord = s.record("service-call-record", {
+  outcome: s.string,
+  status: s.int,
+  contentType: s.string,
+  body: s.string,
+  answer: s.string,
+  message: s.string,
+})
+type ServiceCallRecordValue = Infer<typeof ServiceCallRecord>
+
 export class ConformanceEndpoint extends Endpoint {
   static readonly prefix = "/conformance"
   static readonly acl = Acl.allowAll
@@ -295,6 +311,39 @@ export class ConformanceEndpoint extends Endpoint {
       return done
     }),
     // docs:end secrets
+    // docs:start service-call
+    // A call to another service, as the case asks for it: the body and every `X-Conformance-*` header
+    // sent on, and two headers no handler may send added, to show they never arrive.
+    serviceCall: post("/service-call", s.string, ServiceCallRecord, async (ep: ConformanceEndpoint, req, body) => {
+      const query = (name: string) => req.query.get(name) ?? ""
+      const headers: (readonly [string, string])[] = [
+        ...req.headers.entries().filter(([name]) => name.toLowerCase().startsWith("x-conformance-")),
+        ["X-Ankka-Caller", "ankka://elsewhere/impostor"],
+        ["Host", "elsewhere"],
+      ]
+      const client = ep.services.service(query("service"))
+      const record = (outcome: string, fields: Partial<ServiceCallRecordValue> = {}): ServiceCallRecordValue => ({
+        outcome, status: 0, contentType: "", body: "", answer: "", message: "", ...fields,
+      })
+      try {
+        if (query("mode") === "typed") return record("response", { status: 200, body: await client.getText(query("path"), { headers }) })
+        const answer = await client.request(query("method"), query("path"), {
+          body: body ? new TextEncoder().encode(body) : undefined,
+          contentType: body ? (req.headers.get("content-type") ?? undefined) : undefined,
+          headers,
+        })
+        const header = answer.headers.find(([name]) => name.toLowerCase() === "x-answer")
+        return record("response", { status: answer.status, contentType: answer.contentType, body: answer.text, answer: header?.[1] ?? "" })
+      } catch (e) {
+        if (e instanceof ServiceCallFailed) return record("failed", { status: e.status, body: e.body })
+        if (e instanceof ServiceUnresolvable) return record("unresolvable", { message: e.message })
+        if (e instanceof ServiceIdentityMismatch) return record("mismatch", { message: e.message })
+        if (e instanceof ServiceUnanswered) return record("unanswered", { message: e.message })
+        if (e instanceof CommandError) return record("refused", { message: e.message })
+        throw e
+      }
+    }),
+    // docs:end service-call
     echo: get("/echo", Echo, (ep: ConformanceEndpoint) => ({
       a: ep.request.query.getAll("a"),
       b: ep.request.query.get("b"),

@@ -109,6 +109,11 @@ service and `references/reference/typescript-sdk.md` for the map of every class,
 - Expecting ankka to create the delta topic or make it compacted. Declare it in the ankka-flow pipeline
   that reads it, and deploy that pipeline first.
 
+## Calling another service
+
+`this.services.service("name")` calls another service as this one, through the sidecar, which holds the
+certificate; the entity classes and a view have none. See `references/build/calling-services.md`.
+
 ## Reference files
 
 Open the one a task needs; each is one topic and stands alone.
@@ -123,6 +128,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
+- `references/build/calling-services.md` — Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python or TypeScript — so that service's access rules can admit yours by name.
 - `references/build/graph.md` — Publish a service's entities as nodes and edges with a graph consumer, which writes versioned graph deltas to a topic for a graph database to follow, with no key, version or JSON written by hand.
 - `references/build/serialization.md` — How ankka encodes state, events, arguments and messages as JSON under a named manifest, what the JSON looks like in every language, and how to change a stored type without breaking a journal.
 - `references/build/testing.md` — Test ankka components at two levels in Scala, Python, TypeScript and Rust, with unit test kits that run one component and nothing else, integration test kits that run the whole service against a real database, and scripted models.

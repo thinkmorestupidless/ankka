@@ -85,13 +85,14 @@ private[ankka] final class ConsumerTopicHandler(
     publisher: Option[MessagePublisher],
     client: ComponentClient,
     observability: Observability,
-    secrets: SecretStore
+    secrets: SecretStore,
+    services: ServiceClients
 ):
 
   private val id = descriptor.componentId.toString
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets))
+    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   def process(message: IncomingMessage): Future[Done] =
     val subject = message.subject.getOrElse("")

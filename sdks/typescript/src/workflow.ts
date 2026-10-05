@@ -12,6 +12,7 @@ import type { HandlerTable } from "./handlers.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import { CommandError } from "./effects/common.ts"
 import { StepEffects, WorkflowEffects, type WorkflowSettings } from "./effects/workflow.ts"
+import { servicesFor, type Services } from "./services.ts"
 
 export abstract class Workflow<S> {
   /** Inside a command handler. */
@@ -62,6 +63,24 @@ export abstract class Workflow<S> {
   /** A unit test's store in place of the runtime's. */
   set secrets(store: Secrets) {
     this.#secrets = store
+  }
+
+  #services: Services | undefined
+
+  /**
+   * Other services, called as this one, in a step. A command handler is refused, as for the secret
+   * store: it would block the workflow's other commands behind another service.
+   */
+  get services(): Services {
+    if (!this.#inStep) {
+      throw new CommandError({ message: "a workflow calls another service in a step, not in a command handler", code: "BAD_REQUEST" })
+    }
+    return this.#services ?? servicesFor(this.client)
+  }
+
+  /** A unit test's in place of the runtime's. */
+  set services(services: Services) {
+    this.#services = services
   }
 
   /** @internal The server marks a step's binding, which is how a step is told from a command. */

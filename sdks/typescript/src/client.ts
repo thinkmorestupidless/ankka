@@ -342,6 +342,17 @@ export function noSecrets(): Secrets {
 }
 
 const connectionOf = new WeakMap<ComponentClient, Connection>()
+const metadataOf = new WeakMap<ComponentClient, Metadata>()
+
+/**
+ * @internal What a call to another service is sent through: `client`'s sidecar, and the metadata of
+ * the handler `client` was scoped to. Not a member of the client, which an entity holds too.
+ */
+export function channelOf(client: ComponentClient): { stub(): ConnectClient<typeof Client>; metadata: Metadata } | undefined {
+  const connection = connectionOf.get(client)
+  if (!connection) return undefined
+  return { stub: () => stubOf(connection), metadata: metadataOf.get(client) ?? {} }
+}
 
 /**
  * @internal The secret store reached through `client`'s sidecar. Not a member of the client, which
@@ -363,6 +374,7 @@ export class ComponentClient {
     this.views = new Views(this.#connection, metadata)
     this.timers = new Timers(this.#connection)
     connectionOf.set(this, this.#connection)
+    metadataOf.set(this, metadata)
   }
 
   /** Points every client sharing this connection at a new sidecar address (the integration testkit's mapped port). */

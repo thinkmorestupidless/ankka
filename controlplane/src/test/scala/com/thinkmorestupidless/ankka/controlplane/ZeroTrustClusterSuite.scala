@@ -42,12 +42,13 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
   override def munitIgnore: Boolean   = sys.props.get("ankka.cluster.tests").contains("off")
   override val munitTimeout: Duration = 30.minutes
 
-  private val K3sImage    = "rancher/k3s:v1.35.1-k3s1"
-  private val SampleImage = "sample-shopping-cart:latest"
-  private val Prefix      = "ankka"
-  private val BaseDomain  = "test.local"
-  private val Checkout    = s"$Prefix-checkout"
-  private val Billing     = s"$Prefix-billing"
+  private val K3sImage = "rancher/k3s:v1.35.1-k3s1"
+  private val SampleImage =
+    s"sample-shopping-cart:${com.thinkmorestupidless.ankka.core.BuildInfo.imageTag}"
+  private val Prefix     = "ankka"
+  private val BaseDomain = "test.local"
+  private val Checkout   = s"$Prefix-checkout"
+  private val Billing    = s"$Prefix-billing"
 
   private var k3s: K3sContainer     = null
   private var k8s: KubernetesClient = null
@@ -349,6 +350,9 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
     )
     assertEquals(callCarts(Billing, "/callers/only-orders")._1, 403)
     assertEquals(callCarts(Checkout, "/callers/only-self")._1, 403)
+    // A route that admits the service `orders` alone: a named service means this project's.
+    assertEquals(callCarts(Checkout, "/callers/orders-alone")._1, 200)
+    assertEquals(callCarts(Billing, "/callers/orders-alone")._1, 403)
   }
 
   test("5. a request through the gateway reads as the internet") {
@@ -400,6 +404,24 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
       s"https://orders.$Checkout.svc.cluster.local:9000/callers/call/carts"
     )
     assertEquals((code, body), (200, "the orders service in project checkout"))
+    // The Scala row of "a service in every language is admitted by name by a route that admits
+    // only it": the call is made by the service client, and admitted by the certificate's name.
+    val (admitted, answer) = InPod.curl(
+      k3s,
+      Checkout,
+      aPod(Checkout, "orders"),
+      s"https://orders.$Checkout.svc.cluster.local:9000/callers/call/carts?path=/callers/orders-alone"
+    )
+    assertEquals((admitted, answer), (200, "admitted: checkout/orders"))
+  }
+
+  test("a route that admits only one service by name refuses the gateway (on a cluster)") {
+    // Case 5 has shown the route serves; the refusal below is the route's, not a silent gateway.
+    assertEquals(
+      throughGateway(s"carts-checkout.$BaseDomain", "/callers/whoami"),
+      (200, "the internet, through the gateway")
+    )
+    assertEquals(throughGateway(s"carts-checkout.$BaseDomain", "/callers/orders-alone")._1, 403)
   }
 
   // ── 3. the database ──────────────────────────────────────────────────────────────────────

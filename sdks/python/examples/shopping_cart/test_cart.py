@@ -218,6 +218,23 @@ def test_assistant_plans_and_the_tool_reads_the_cart() -> None:
 # docs:end agent-test
 
 
+def test_the_calling_endpoint_answers_what_the_other_service_answered() -> None:
+    from ankka import ScriptedServices
+    from ankka.testkit import EndpointTestKit
+    from examples.shopping_cart.calling import CallingEndpoint
+
+    endpoint = CallingEndpoint()
+    scripted = ScriptedServices().answer("carts", lambda r: ScriptedServices.text(f"you asked {r.path}"))
+    endpoint.services = scripted
+    kit = EndpointTestKit(endpoint)
+    assert kit.request("GET", "/calling/call/carts").body == b"you asked /callers/whoami"
+    assert kit.request("GET", "/calling/call/carts", query=[("path", "/callers/orders-alone")]).body == (
+        b"you asked /callers/orders-alone"
+    )
+    endpoint.services = ScriptedServices().unresolvable("ledger")
+    assert kit.request("GET", "/calling/call/ledger").status == 503
+
+
 # ── Through a real sidecar and a real Postgres (Docker) ────────────────────────
 
 
@@ -544,3 +561,41 @@ def test_the_references_graph_consumers_publish_the_cart_and_the_profile() -> No
         "profile-graph": "conformance-profile-graph",
         "topic-relay": "conformance-topic-relayed",
     }
+
+
+@pytest.mark.slow
+async def test_a_call_to_another_service_goes_through_the_sidecar_to_where_it_was_told() -> None:
+    """The sidecar in its container is told where another service is as a Scala service would be
+    (``ankka.local-services.<name>``, through ``JAVA_OPTS``), and the call reaches a stand-in here."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from examples.shopping_cart.calling import CallingEndpoint
+
+    received: list[str] = []
+
+    class StandIn(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            received.append(self.path)
+            body = b"the stand-in answered"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_: Any) -> None:
+            pass
+
+    stand_in = ThreadingHTTPServer(("0.0.0.0", 0), StandIn)
+    threading.Thread(target=stand_in.serve_forever, daemon=True).start()
+    address = f"http://host.docker.internal:{stand_in.server_address[1]}"
+    try:
+        service = Ankka.service().register(CallingEndpoint)
+        env = {"JAVA_OPTS": f"-Dankka.local-services.carts={address}"}
+        async with await AnkkaTestKit.start(service, env=env) as kit:
+            answered = await kit.http.get("/calling/call/carts")
+            assert (answered.status_code, answered.text) == (200, "the stand-in answered")
+            assert received == ["/callers/whoami"]
+    finally:
+        stand_in.shutdown()

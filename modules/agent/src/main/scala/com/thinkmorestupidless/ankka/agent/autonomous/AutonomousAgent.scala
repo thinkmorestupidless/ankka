@@ -8,7 +8,7 @@ import com.thinkmorestupidless.ankka.core.{
   DeclaredHandler,
   HandlerKind
 }
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceClients}
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -63,12 +63,16 @@ trait AutonomousAgentContext:
   /** The service's secret store, for a tool that needs a credential. */
   def secrets: SecretStore
 
+  /** Other services, called as this one, for a tool that needs one. */
+  def services: ServiceClients
+
 private[ankka] final case class SimpleAutonomousAgentContext(
     componentId: ComponentId,
     instanceId: String,
     componentClient: ComponentClient,
     defaultModel: Option[ModelProvider],
-    secrets: SecretStore
+    secrets: SecretStore,
+    services: ServiceClients
 ) extends AutonomousAgentContext
 
 object AutonomousAgent:

@@ -22,7 +22,8 @@ class ResumePointSuite extends munit.FunSuite with LogCapturing:
         "i-1",
         router.client,
         None,
-        com.thinkmorestupidless.ankka.testkit.InMemorySecretStore()
+        com.thinkmorestupidless.ankka.testkit.InMemorySecretStore(),
+        com.thinkmorestupidless.ankka.testkit.ScriptedServices()
       )
     ),
     "i-1",

@@ -5,6 +5,7 @@ package ankka.protocol.v1;
 
 import "ankka/protocol/v1/payload.proto";
 import "ankka/protocol/v1/discovery.proto";
+import "ankka/protocol/v1/endpoint.proto";
 
 service Client {
   rpc Invoke       (InvokeRequest)   returns (InvokeReply);
@@ -19,6 +20,12 @@ service Client {
   rpc GetSecret    (GetSecretRequest)    returns (GetSecretReply);
   rpc PutSecret    (PutSecretRequest)    returns (PutSecretReply);
   rpc DeleteSecret (DeleteSecretRequest) returns (DeleteSecretReply);
+
+  // A call to another service, made by the runtime as this service (protocol 1.8). The runtime
+  // resolves the service, presents this service's certificate and checks the other's; the process
+  // never holds a key. A refusal or a fault is in the reply, never a gRPC status, so that a
+  // module's import can carry it the same way.
+  rpc Request (ServiceRequest) returns (ServiceReply);
 }
 
 message InvokeRequest {
@@ -66,3 +73,36 @@ message PutSecretReply   { Error error = 1; }   // unset: kept
 
 message DeleteSecretRequest { string name = 1; }
 message DeleteSecretReply   { Error error = 1; }   // unset: removed, or there was nothing to remove
+
+// A request to another service, by name: never an address, a host or a port.
+message ServiceRequest {
+  string service = 1;                         // the service's name
+  optional string project = 2;                // absent: this service's own project
+  string method = 3;                          // "GET", "POST", …
+  string path = 4;                            // starts with "/"; the query is part of it
+  repeated HttpRequest.Pair headers = 5;      // in order; the platform's own are removed
+  optional string content_type = 6;
+  optional bytes body = 7;                    // absent: no body
+  Metadata metadata = 8;                      // what the handler asking was given
+}
+
+// Exactly one case is set. A reply with none is a fault.
+message ServiceReply {
+  oneof result {
+    HttpResponse response = 1;                // the service answered, whatever its status
+    ServiceFailure failure = 2;               // no answer came from the service
+    Error error = 3;                          // the runtime refused to make the call
+  }
+}
+
+message ServiceFailure {
+  Reason reason = 1;
+  string detail = 2;                          // what was tried, for the developer
+  // UNANSWERED is zero on purpose: a reason a reader does not know reads as zero, and "no answer"
+  // is the reading of an unknown failure that never sends anything twice.
+  enum Reason {
+    UNANSWERED = 0;                           // refused connection, broken, or no answer in time
+    UNRESOLVABLE = 1;                         // no such service was found; nothing was sent
+    IDENTITY_MISMATCH = 2;                    // what answered is not the service; nothing was sent
+  }
+}

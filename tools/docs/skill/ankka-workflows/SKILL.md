@@ -2,6 +2,7 @@
 name: ankka-workflows
 description: Write, change or test an ankka workflow (a durable multi-step process with commands, steps, transitions, pauses, timeouts, retries and compensation) or a timer and timed action (a named, database-backed call made later) in Scala, Python, TypeScript or Rust. Use when the task names a workflow, a step, stepEffects, transitionTo, thenPause, RecoverStrategy, a saga or compensation, a timer, TimerScheduler, a timed action, or a deadline such as "cancel after thirty minutes".
 pages:
+  - build/calling-services.md
   - build/workflows.md
   - build/timers.md
   - build/secrets.md
@@ -112,3 +113,9 @@ fail"); a compensation test, for one, must make the step fail and then see what 
 - A 30-second default step timeout on a step that calls a model.
 - A timed action that errors when the order is already confirmed.
 - A test that reads the domain state to decide the workflow is finished; read the lifecycle.
+
+## Calling another service from a step
+
+A step, a consumer, a timed action and an agent's tool call another service as this service through
+their context's `services`; a workflow's command handler is refused, as for the secret store. See
+`references/build/calling-services.md`.

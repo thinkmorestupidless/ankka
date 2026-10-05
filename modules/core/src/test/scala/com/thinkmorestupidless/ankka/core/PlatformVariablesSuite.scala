@@ -44,8 +44,17 @@ class PlatformVariablesSuite extends munit.FunSuite:
       RuntimeOnlyPrefixes,
       Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
     )
-    assertEquals(RuntimeOnlyNames, Set(SecretKey))
+    assertEquals(RuntimeOnlyNames, Set(SecretKey, ServiceClientTimeout))
     assertEquals(SecretKey, "ANKKA_SECRET_KEY")
+  }
+
+  test("how long a call to another service waits is the platform's program's to know") {
+    // The platform's program makes the call, for a process as for itself, so a descriptor may give
+    // the setting and it goes there: never to the process, and a module is told it is not set.
+    assertEquals(ServiceClientTimeout, "ANKKA_SERVICE_CLIENT_TIMEOUT")
+    assert(runtimeOnly(ServiceClientTimeout))
+    assert(!platformOnly(ServiceClientTimeout))
+    assert(withheldFromModule(ServiceClientTimeout))
   }
 
   test("a web-hosted program is told where to listen and where to call") {

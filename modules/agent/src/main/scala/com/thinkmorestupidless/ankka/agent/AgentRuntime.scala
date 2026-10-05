@@ -13,7 +13,12 @@ import com.thinkmorestupidless.ankka.runtime.{
   Trace
 }
 import org.apache.pekko.NotUsed
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, HandlerBinding, SecretStore}
+import com.thinkmorestupidless.ankka.sdk.{
+  ComponentClient,
+  HandlerBinding,
+  SecretStore,
+  ServiceClients
+}
 import org.apache.pekko.actor.typed.scaladsl.{ActorContext, Behaviors}
 import org.apache.pekko.actor.typed.ActorSystem
 import org.apache.pekko.stream.OverflowStrategy
@@ -120,7 +125,8 @@ final class AgentRuntime private (
               defaultModel,
               modelTimeout,
               judgments,
-              service.secrets
+              service.secrets,
+              service.services
             )
           }
         )
@@ -183,7 +189,8 @@ final class AgentRuntime private (
             "(startup)",
             client,
             defaultModel,
-            service.secrets
+            service.secrets,
+            service.services
           )
         )
         val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools)
@@ -224,7 +231,8 @@ final class AgentRuntime private (
               defaultModel,
               modelTimeout,
               judgments,
-              service.secrets
+              service.secrets,
+              service.services
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -332,7 +340,8 @@ private[agent] object AgentHost:
       defaultModel: Option[ModelProvider],
       modelTimeout: FiniteDuration,
       judgments: Judgments,
-      secrets: SecretStore
+      secrets: SecretStore,
+      services: ServiceClients
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -341,7 +350,8 @@ private[agent] object AgentHost:
           descriptor.componentId,
           componentClient,
           defaultModel,
-          secrets
+          secrets,
+          services
         )
 
         val loop = new AgentLoop(

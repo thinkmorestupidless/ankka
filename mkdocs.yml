@@ -175,6 +175,7 @@ nav:
       - Multi-agent orchestration: build/multi-agent-orchestration.md
       - Autonomous agents: build/autonomous-agents.md
       - HTTP endpoints: build/http-endpoints.md
+      - Calling other services: build/calling-services.md
       - gRPC endpoints: build/grpc-endpoints.md
       - Calling components: build/component-client.md
       - Broker topics: build/topics.md

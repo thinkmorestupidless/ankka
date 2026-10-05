@@ -299,6 +299,19 @@ test, assign `component.secrets = new InMemorySecrets()`; `noSecrets()` is a sto
 throws. The integration test kit puts a generated `ANKKA_SECRET_KEY` on the runtime it starts. Needs
 protocol 1.4: an earlier runtime is reported as too old for the store.
 
+
+## Other services
+
+The consumer, graph consumer, timed action, agent, autonomous agent and endpoint classes call another
+service as this one through `this.services`, and a workflow in a step; the two entity classes and `View`
+have no such property. `this.services.service("orders")` or `this.services.service("billing",
+"invoices")` answers a client with `get(path, returns)`, `getText(path)`, `post(path, body, { body,
+returns })`, `put(…)`, `delete(path)` and `request(method, path, { body, contentType, headers })`. No
+answer is `ServiceUnresolvable`, `ServiceIdentityMismatch` or `ServiceUnanswered`; an answer outside 2xx to
+a typed helper is `ServiceCallFailed`; all four extend `ServiceError`. For a unit test, assign
+`component.services = new ScriptedServices()`; `noServices()` throws on every call. Needs protocol 1.8:
+an earlier runtime is reported as too old to call another service. See
+[Calling other services](../build/calling-services.md).
 ## Running a service
 
 ```ts

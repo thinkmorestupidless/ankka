@@ -162,7 +162,7 @@ enum ConsumerOutcome:
  * with anything an earlier runtime would not understand.
  */
 object WireProtocol:
-  val Version: String     = "1.7"
+  val Version: String     = "1.8"
   val MetadataKey: String = "ankka.protocol"
 
 /**

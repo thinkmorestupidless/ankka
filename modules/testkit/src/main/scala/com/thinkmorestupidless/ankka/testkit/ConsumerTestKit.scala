@@ -28,12 +28,14 @@ final class ConsumerTestKit[Src, Out] private (
     /**
      * The consumer's secret store, in memory; a test keeps a secret here first, or reads one back.
      */
-    val secrets: InMemorySecretStore
+    val secrets: InMemorySecretStore,
+    /** Other services, as the test scripted them; a test reads back what the consumer asked. */
+    val services: ScriptedServices
 ):
   import ConsumerTestKit.*
 
   private val consumer =
-    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets))
+    descriptor.create(SimpleConsumerContext(descriptor.componentId, client, secrets, services))
 
   /** Hands the consumer one change of `subject` at `sequenceNumber`. */
   def onMessage(message: Src, subject: String = "test", sequenceNumber: Long = 1): Result[Out] =
@@ -106,17 +108,19 @@ object ConsumerTestKit:
   def of[C <: Consumer[Src, Out], Src, Out](
       companion: Consumer.Companion[C, Src, Out],
       client: ComponentClient = TestTransport.unroutedClient,
-      secrets: InMemorySecretStore = InMemorySecretStore()
+      secrets: InMemorySecretStore = InMemorySecretStore(),
+      services: ScriptedServices = ScriptedServices()
   ): ConsumerTestKit[Src, Out] =
-    new ConsumerTestKit(companion.descriptor, client, secrets)
+    new ConsumerTestKit(companion.descriptor, client, secrets, services)
 
   /** A kit for a graph consumer: what it reads back are the deltas, not messages. */
   def graph[C <: GraphConsumer[Src], Src](
       companion: GraphConsumer.Companion[C, Src],
       client: ComponentClient = TestTransport.unroutedClient,
-      secrets: InMemorySecretStore = InMemorySecretStore()
+      secrets: InMemorySecretStore = InMemorySecretStore(),
+      services: ScriptedServices = ScriptedServices()
   ): GraphConsumerTestKit[Src] =
-    new GraphConsumerTestKit(new ConsumerTestKit(companion.descriptor, client, secrets))
+    new GraphConsumerTestKit(new ConsumerTestKit(companion.descriptor, client, secrets, services))
 
 /**
  * Drives a graph consumer in memory: hand it a change, read back the deltas it publishes.

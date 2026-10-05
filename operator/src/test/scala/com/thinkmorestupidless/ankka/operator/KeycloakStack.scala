@@ -436,7 +436,10 @@ object KeycloakStack:
           .mkString("\n  ")
         throw new AssertionError(s"${failure.getMessage}\n  $report")
 
-  /** Never swallows the check's exception into "it never happened" (CLAUDE.md's `waitFor` trap). */
+  /**
+   * Never swallows the check's exception into "it never happened" (the `waitFor` trap in
+   * `.claude/rules/kubernetes.md`).
+   */
   private def waitFor(timeout: FiniteDuration, what: String)(check: => Boolean): Unit =
     val deadline                = System.nanoTime() + timeout.toNanos
     var passed                  = false

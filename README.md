@@ -411,7 +411,7 @@ marketplace       the Claude Code plugin: the documentation as skills, and `ankk
 kustomization     the platform's manifests and the local deploy script
 ```
 
-Contributing starts at [`CLAUDE.md`](CLAUDE.md) — the architecture, the build, and the traps that have
+Contributing starts at [`CLAUDE.md`](CLAUDE.md) and the topic files in [`.claude/rules/`](.claude/rules) — the architecture, the build, and the traps that have
 already cost debugging time — and, for the documentation,
 [Writing documentation](docs/contributing/documentation.md).
 

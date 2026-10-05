@@ -164,6 +164,16 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
       operator.start()
 
+  // The authentication cases' services are used by no other case, and one of them never starts on
+  // purpose: left running, it restarted a JVM every few minutes through every case after it, on a
+  // node whose CPU the rollout and wasm cases need. Gone after each case, whichever it was.
+  override def afterEach(context: AfterEach): Unit =
+    if !munitIgnore && k8s != null then
+      Vector(AuthService, UnlistedService).foreach(name =>
+        scala.util.Try(resources.withName(name).delete()): Unit
+      )
+    super.afterEach(context)
+
   override def afterAll(): Unit =
     if k3s != null then authIssuer.stop()
     if operator != null then operator.close()
@@ -555,22 +565,29 @@ spec:
       EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
       EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None)
     )
-    val issuers = List(
-      EnvEntry("ANKKA_AUTH_ISSUERS", Some("staff"), None, None),
-      EnvEntry("ANKKA_AUTH_STAFF_ISSUER", Some(authIssuer.issuer), None, None),
-      EnvEntry(
-        "ANKKA_AUTH_STAFF_JWKS_URL",
-        Some(s"http://jwks.$Namespace.svc.cluster.local:8080/jwks"),
-        None,
-        None
-      ),
-      EnvEntry("ANKKA_AUTH_STAFF_AUDIENCE", Some("accounts"), None, None)
-    )
     spec().copy(
       serviceName = if listsIssuer then AuthService else UnlistedService,
       image = AuthImage,
-      env = database ++ (if listsIssuer then issuers else Nil)
+      env = database ++ (if listsIssuer then issuerEnv else Nil)
     )
+
+  /**
+   * The issuer a service with an authenticated route names, keyed by the suite's test issuer and
+   * served in the cluster by `deployKeys`. A runtime refuses to host an authenticated endpoint with
+   * no issuer, so every service whose code declares one needs these: the accounts service and the
+   * Rust module, whose conformance build has a `PrivateEndpoint`.
+   */
+  private lazy val issuerEnv = List(
+    EnvEntry("ANKKA_AUTH_ISSUERS", Some("staff"), None, None),
+    EnvEntry("ANKKA_AUTH_STAFF_ISSUER", Some(authIssuer.issuer), None, None),
+    EnvEntry(
+      "ANKKA_AUTH_STAFF_JWKS_URL",
+      Some(s"http://jwks.$Namespace.svc.cluster.local:8080/jwks"),
+      None,
+      None
+    ),
+    EnvEntry("ANKKA_AUTH_STAFF_AUDIENCE", Some("accounts"), None, None)
+  )
 
   private def authHttp(token: Option[String]): (Int, String) =
     com.thinkmorestupidless.ankka.operator.InPod.curl(
@@ -768,7 +785,7 @@ spec:
         EnvEntry("ANKKA_DB_USER", Some("ankka"), None, None),
         EnvEntry("ANKKA_DB_PASSWORD", Some("ankka"), None, None),
         EnvEntry("GREETING", Some("hello from the descriptor"), None, None)
-      ),
+      ) ++ issuerEnv,
       provisionDatabase = false,
       autoscaling = AutoscalingSpec(minInstances = instances, maxInstances = instances),
       restarts = restarts,

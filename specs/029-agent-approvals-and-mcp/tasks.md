@@ -232,7 +232,7 @@ translation and the client's calls. Depends on Phases 3 to 7.
 
 - [X] T069 [P] [US1] Tests first in `TS/test/`: the cases of T066 in the SDK's own shapes.
 - [X] T070 [US1] In `TS/src/`: create `approvals.ts` and `mcp.ts`; `handlers.ts` `tool(…, { approval })` and `resultGuardrail`; `agent.ts`, `autonomous.ts` and `spec.ts` for `mcpServers`, `resultGuardrails` and discovery; `server/agent.ts` for the `RESULT` stage; `client.ts` for `ask`, `decide`, `streamParts`, the autonomous `decide`, the state and notifications; `PROTOCOL_VERSION`; `testkit/kinds.ts`; exports in `index.ts`. Erasable syntax only. `npm run proto && npm run typecheck && npm test` pass on Node 22 and 24.
-- [ ] T071 [US1] In `TS/examples/shopping-cart/conformance.ts` add the reference of T065. `ANKKA_CONFORMANCE_ONLY='*approval.*' npm run conformance` and `'*mcp.*'` pass, naming the cases they ran.
+- [X] T071 [US1] In `TS/examples/shopping-cart/conformance.ts` add the reference of T065. `ANKKA_CONFORMANCE_ONLY='*approval.*' npm run conformance` and `'*mcp.*'` pass, naming the cases they ran.
 
 ### The Rust reference
 
@@ -259,7 +259,7 @@ call and SDK clients.
 - [X] T077 [P] `DOCS/reference/limitations.md`: replace "There are no MCP tools" with what is not covered (stdio and other transports, resources and prompts, OAuth, a credential given while the service runs, a streamed decision, a module's agent, and T073's rows if unbuilt). `DOCS/reference/configuration.md`: the two timeouts and the `ANKKA_MCP_` variables, with prose naming each (the coverage check requires it). `DOCS/reference/glossary.md`: the terms of `GLOSSARY.md`'s *Agents* section. `DOCS/reference/sidecar-protocol.md`: the version in both places and the history paragraph. `DOCS/reference/python-sdk.md`, `typescript-sdk.md`, `scala-sdk.md`: the new surface.
 - [X] T078 `just docs-sync && just docs` pass; the generated protocol rows and the rendered skills (`marketplace/plugins/ankka/skills/`, `ankka.g8/src/main/g8/.claude/skills/`) are regenerated and committed with every `$` escaped in the template's copy.
 - [X] T079 [P] In `CLAUDE.md`: under *Agents*, a paragraph on approvals (the suspended turn, resuming by running the handler again, the instance's approvals and `SettleCalls`, expiry as a timed action) and one on MCP servers and result guardrails; under *Traps*, what implementation found. Update the `specs-from` note if the features check's status changed.
-- [ ] T080 Audit against R21: for each of the 61 scenario references in `spec.md`, name the test that holds it (a table at the end of `research.md`); `just features` finds nothing in `features/agents/` or spec 029.
+- [X] T080 Audit against R21: for each of the 61 scenario references in `spec.md`, name the test that holds it (a table at the end of `research.md`); `just features` finds nothing in `features/agents/` or spec 029.
 - [ ] T081 `sbt scalafmtAll scalafmtSbt`, then `caffeinate -i sbt buildAll`; then `cd sdks/python && uv run pytest -q && uv run mypy && uv run conformance`, `cd sdks/typescript && npm run typecheck && npm test && npm run test:slow && npm run conformance`, `cd sdks/rust && cargo test --workspace && ./conformance.sh`. Warning-free.
 - [ ] T082 `quickstart.md` step 9 by hand against `docker compose up -d`, and step 6 against the real MCP server; record both in `research.md` "Verified during implementation".
 

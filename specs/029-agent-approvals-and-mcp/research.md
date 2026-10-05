@@ -656,3 +656,80 @@ skills' `pages:` lists.
   tool, wire name first (`mcpServer("tickets", {…})`, `resultGuardrail("no-instructions", …)`), and
   its unit kit keeps `ask` answering text — rejecting with `ApprovalAwaited` when the turn waits — with
   `outcome` for the outcome and `decide` to go on, so tests written before this feature are unchanged.
+
+- **Step 6 against a real server (T082)**: `@modelcontextprotocol/server-everything` in its
+  `streamableHttp` mode, run with `npx` on 2026-10-05: `McpServerSpike` initialized a session, listed the
+  tools and called `echo`, which answered the text it was sent; the server's log shows the session and the
+  requests. A server this repository did not write speaks to the client unchanged.
+- **Step 9 by hand (T082) not done**: it needs a real model's key and a person deciding through `curl`;
+  every response it lists is asserted by `ApprovalSuite`, `SuspendedTurnSuite` and the conformance
+  cases, with a restart between the request and the decision.
+
+## Audit: every scenario and the test that holds it (T080)
+
+Each scenario of the five feature files spec 029 names, and the test named after it — or, where none
+is, what holds it. Run in-process unless the row says otherwise.
+
+| Feature | Scenario | Held by |
+|---|---|---|
+| `approvals` | a tool call that requires approval gives the caller an approval request instead of an answer | ApprovalSuite.scala |
+| `approvals` | an approved tool call runs once and the model is told its result | ApprovalSuite.scala |
+| `approvals` | an approval request is still awaiting a decision after the service restarts | ApprovalSuite.scala |
+| `approvals` | a refused tool call never runs and the model is told the note | ApprovalSuite.scala |
+| `approvals` | an approval request is decided once | ApprovalSuite.scala |
+| `approvals` | a decision for an approval request the session does not hold is refused | ApprovalSuite.scala |
+| `approvals` | a decision sent to a session no agent has used is refused | ApprovalSuite.scala |
+| `approvals` | a session with an approval request awaiting a decision takes no new request | ApprovalSuite.scala |
+| `approvals` | a tool that requires no approval runs beside one that waits | ApprovalSuite.scala |
+| `approvals` | two tool calls made together are two approval requests, each decided alone | ApprovalSuite.scala |
+| `approvals` | a session shows an approval request that is awaiting a decision | ApprovalSuite.scala |
+| `approvals` | a session with no approval request is read as it was recorded | SessionMemoryCompatibilitySuite.scala |
+| `approvals` | a stream ends with the approval request as its last part | HttpSseSuite.scala |
+| `approvals` | a tool that requires no approval runs when the model calls it | ApprovalSuite.scala |
+| `approvals` | compaction keeps an approval request that is awaiting a decision | ApprovalSuite.scala |
+| `approvals` | an approval request with a time limit is refused when nobody decides it in time | ApprovalExpirySuite.scala |
+| `approvals` | an approval request with no time limit waits however long nobody decides it | ApprovalExpirySuite.scala |
+| `approvals` | a decision for an approval request that has expired is refused | ApprovalExpirySuite.scala |
+| `approvals` | a session shows who decided an approval request | ApprovalSuite.scala |
+| `approvals` | a decision that does not say who made it is refused | ApprovalSuite.scala |
+| `approvals` | an approval request's time limit holds after the service restarts | ApprovalExpirySuite.scala |
+| `autonomous-approvals` | every subscriber is told of an autonomous agent's approval request | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | waiting for a decision uses none of the task's budget | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | an autonomous agent's approved tool call runs once and the task goes on | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | an autonomous agent's refused tool call never runs and the task goes on | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | an autonomous agent's approval request is still awaiting a decision after the service restarts | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | cancelling a task discards its approval requests | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | suspending and resuming an autonomous agent leaves its approval request as it was | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | a tool approved before the service stopped runs again when its result was not recorded | ResumePointSuite.scala |
+| `autonomous-approvals` | an autonomous agent's approval request that expires is refused and the task goes on | AutonomousApprovalSuite.scala |
+| `autonomous-approvals` | an autonomous agent shows who decided an approval request | AutonomousApprovalSuite.scala |
+| `service-calls` | a tool's call is admitted by an ACL that names the agent's service | AgentServiceCallSuite.scala |
+| `service-calls` | a refusal by the called service reaches the model as the tool's error | AgentServiceCallSuite.scala |
+| `service-calls` | a tool's call to another service is in the trace inside the tool call | AgentServiceCallSuite.scala |
+| `mcp-servers` | an MCP server's tools are offered to the model under the server's name | McpAgentSuite.scala |
+| `mcp-servers` | a tool call to an MCP server's tool is made on the MCP server | McpAgentSuite.scala |
+| `mcp-servers` | an error from an MCP server reaches the model as the tool's error | McpAgentSuite.scala |
+| `mcp-servers` | every tool of an MCP server that requires approval waits for a decision | McpAgentSuite.scala |
+| `mcp-servers` | a service whose agent lists an MCP server that cannot be reached does not start | McpAgentSuite.scala, McpToolsSuite.scala |
+| `mcp-servers` | the platform connects to an MCP server that is a service as the agent's service | McpToolsSuite ("an MCP server that is a service is reached through the service client"); the certificate it presents: ServiceClientSuite, and the k3s case of T042 |
+| `mcp-servers` | an MCP server's tool with the name of one of the agent's own is offered beside it | McpAgentSuite.scala |
+| `mcp-servers` | a tool an MCP server gains after the service started is not offered until the service restarts | McpAgentSuite.scala |
+| `mcp-servers` | a tool an MCP server no longer has fails the tool call with the server's error | McpAgentSuite.scala |
+| `mcp-servers` | an agent that lists one MCP server twice is refused where it is built | McpServerSuite.scala |
+| `mcp-servers` | the platform sends an MCP server the credential its agent lists for it | McpAgentSuite.scala, McpToolsSuite.scala |
+| `mcp-servers` | a service whose agent takes a credential from a variable that is not set does not start | McpToolsSuite.scala |
+| `mcp-servers` | an MCP server's credential is shown in no trace | McpAgentSuite.scala |
+| `mcp-servers` | a result guardrail keeps an MCP server's result from the model | McpAgentSuite.scala |
+| `mcp-servers` | a result a result guardrail lets through reaches the model as the MCP server gave it | McpAgentSuite.scala |
+| `mcp-servers` | a result guardrail does not check the result of one of the agent's own tools | McpAgentSuite.scala |
+| `mcp-servers` | an agent with no result guardrail tells the model an MCP server's result as it was given | McpAgentSuite.scala |
+| `mcp-servers` | an MCP server's address is taken from a variable when one is set | McpToolsSuite.scala |
+| `mcp-servers` | a service whose agent lists an MCP server with no address does not start | McpToolsSuite.scala |
+| `mcp-servers` | an autonomous agent is offered an MCP server's tools | McpAgentSuite.scala |
+| `mcp-servers` | a result guardrail keeps an MCP server's result from an autonomous agent's model | McpAgentSuite.scala |
+| `languages` | a tool that requires approval waits for a decision in every language | ConformanceSuite `approval.awaits`, run in process, against Python and TypeScript |
+| `languages` | an approved tool call runs once after a restart in every language | ConformanceSuite `approval.approved-runs-once`, in process, Python, TypeScript |
+| `languages` | an autonomous agent's wait for a decision uses none of the task's budget in every language | ConformanceSuite `auto.approval.waits-without-budget`, in process, Python, TypeScript |
+| `languages` | a tool's call to another service is admitted in every language | ConformanceSuite `svc.tool-calls-service`, in process, Python, TypeScript |
+| `languages` | an MCP server's tools are offered to the model in every language | ConformanceSuite `mcp.tools-offered`, in process, Python, TypeScript |
+| `languages` | a result guardrail keeps an MCP server's result from the model in every language | ConformanceSuite `mcp.result-guardrail-withholds`, in process, Python, TypeScript; McpAgentSuite for Scala's |

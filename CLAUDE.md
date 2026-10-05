@@ -161,7 +161,7 @@ suite runs there without being listed; `changes` runs the script on every pull r
 shows before the night. Each runner is `sbt '<project>/testOnly <class>'`, which builds that module's
 images. The nightly run passes `-Dankka.coldstarts=20` (SC-002); five is the default, and a run on
 demand takes the count as an input. Check a platform change before merging with
-`gh workflow run cluster --ref <branch>`. Under `CI` the sidecar suite fails, rather than skips its
+`gh workflow run cluster --ref <branch>`, or one suite with `-f suite=SidecarClusterSuite`. Under `CI` the sidecar suite fails, rather than skips its
 module cases, when the Rust module does not build.
 
 `SortModifiers` is deliberately absent from `.scalafmt.conf`: it rewrites

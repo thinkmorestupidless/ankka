@@ -13,8 +13,6 @@
 # Python and module images itself, and needs cargo or its module cases skip.
 name: cluster
 on:
-  push:
-    branches: [k3s-ci]   # TEMPORARY: proves the workflow before it reaches main; removed before merge
   schedule:
     - cron: "0 3 * * *"
   workflow_dispatch:
@@ -34,8 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - id: list
         env:
-          # TEMPORARY: the push trigger's run, narrowed to the suite being fixed; removed before merge
-          SUITE: ${{ github.event_name == 'push' && 'SidecarClusterSuite' || inputs.suite }}
+          SUITE: ${{ inputs.suite }}
         run: echo "matrix=$(python3 .github/cluster-suites.py "$SUITE")" >> "$GITHUB_OUTPUT"
 
   suite:

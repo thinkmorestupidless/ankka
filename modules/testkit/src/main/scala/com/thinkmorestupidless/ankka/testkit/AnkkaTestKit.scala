@@ -13,8 +13,6 @@ import com.thinkmorestupidless.ankka.runtime.{
 }
 import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore}
-import org.testcontainers.containers.PostgreSQLContainer
-import org.testcontainers.utility.{DockerImageName, MountableFile}
 
 import java.nio.file.{Files, Path}
 
@@ -22,16 +20,9 @@ import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.jdk.CollectionConverters.*
 
 /**
- * Concrete subclass purely to pin testcontainers' `SELF` type parameter.
- * `PostgreSQLContainer[SELF <: PostgreSQLContainer[SELF]]` is a Java self-type idiom that Scala
- * infers as `Nothing`, which makes the fluent setters unusable.
- */
-private final class AnkkaPostgres(image: DockerImageName)
-    extends PostgreSQLContainer[AnkkaPostgres](image)
-
-/**
- * Runs a whole ankka service against a throwaway Postgres, for tests that need the real thing:
- * sharding, persistence, replay, snapshots and the ComponentClient.
+ * Runs a whole ankka service against a throwaway database, for tests that need the real thing:
+ * sharding, persistence, replay, snapshots and the ComponentClient. The database is the kit's own,
+ * in a Postgres every kit in the JVM shares (`SharedPostgres`), and is dropped when the kit stops.
  *
  * The schema comes from the same DDL that docker-compose applies, shipped on the runtime's
  * classpath — so a test can never pass against a schema that local development does not have.
@@ -41,7 +32,7 @@ final class AnkkaTestKit private (
     extensions: Seq[RuntimeExtension],
     configure: ServiceBuilder => ServiceBuilder,
     config: Config,
-    container: AnkkaPostgres,
+    database: TestDatabase,
     readyTimeout: FiniteDuration,
     private var current: AnkkaService,
     /** The secret key the running service was started with, or `None` for none. */
@@ -71,7 +62,7 @@ final class AnkkaTestKit private (
   def asCaller(caller: Caller): (String, String) = LocalCallers.header(caller)
 
   /** JDBC URL of the backing database, for tests that want to inspect it directly. */
-  def jdbcUrl: String = container.getJdbcUrl
+  def jdbcUrl: String = database.jdbcUrl
 
   /**
    * Polls `check` every 100ms until it answers, failing with `description` after `within`.
@@ -147,7 +138,10 @@ final class AnkkaTestKit private (
 
   def stop(): Unit =
     current.terminate()
-    container.stop()
+    // Dropped once the service has let go of it, not before, or its last writes fail loudly.
+    current.whenTerminated.andThen { case _ => SharedPostgres.release(database) }(using
+      scala.concurrent.ExecutionContext.parasitic
+    ): Unit
     AnkkaTestKit.releaseRegistryDirectory()
 
 object AnkkaTestKit:
@@ -170,17 +164,8 @@ object AnkkaTestKit:
       last = check
     last.getOrElse(throw AssertionError(s"not observed within $within: $description"))
 
-  private val PostgresImage = "postgres:17-alpine"
-
-  private val DdlResources = Seq(
-    "/ankka/ddl/10-journal-postgres.sql"    -> "/docker-entrypoint-initdb.d/10-journal.sql",
-    "/ankka/ddl/20-projection-postgres.sql" -> "/docker-entrypoint-initdb.d/20-projection.sql",
-    "/ankka/ddl/30-timers-postgres.sql"     -> "/docker-entrypoint-initdb.d/30-timers.sql",
-    "/ankka/ddl/40-secrets-postgres.sql"    -> "/docker-entrypoint-initdb.d/40-secrets.sql"
-  )
-
   /**
-   * Starts Postgres, applies the schema, and hosts `descriptors`.
+   * Takes a fresh database holding the schema, and hosts `descriptors` on it.
    *
    * Returns only once the node is a cluster member, so the first call in a test cannot race
    * startup.
@@ -207,19 +192,7 @@ object AnkkaTestKit:
     // identity that could not be read, which only ankka's own tests have reason to.
     val configured: ServiceBuilder => ServiceBuilder =
       builder => configure(builder.withIdentity(Right(serviceIdentity)))
-    val container = AnkkaPostgres(DockerImageName.parse(PostgresImage))
-      .withDatabaseName("ankka")
-      .withUsername("ankka")
-      .withPassword("ankka")
-
-    DdlResources.foreach { (resource, target) =>
-      val _ = container.withCopyFileToContainer(
-        MountableFile.forClasspathResource(resource),
-        target
-      )
-    }
-
-    container.start()
+    val database = SharedPostgres.acquire()
 
     // Keep the service registry out of the developer's home directory. A service announces itself
     // into `~/.ankka/running` for `ankka local console` to find; a *test* doing that leaves an
@@ -229,7 +202,7 @@ object AnkkaTestKit:
     // temp directory they then read, and must keep the one they picked.
     claimRegistryDirectory()
 
-    val config = configFor(container)
+    val config = configFor(database)
 
     val service =
       try
@@ -242,7 +215,7 @@ object AnkkaTestKit:
         )
       catch
         case failure: Throwable =>
-          container.stop()
+          SharedPostgres.release(database)
           throw failure
 
     new AnkkaTestKit(
@@ -250,7 +223,7 @@ object AnkkaTestKit:
       extensions,
       configured,
       config,
-      container,
+      database,
       readyTimeout,
       service,
       secretKey
@@ -294,14 +267,13 @@ object AnkkaTestKit:
     }
     claimedRegistry = None
 
-  private def configFor(container: AnkkaPostgres): Config =
+  private def configFor(database: TestDatabase): Config =
     ConfigFactory
       .parseMap(
         Map(
-          "pekko.persistence.r2dbc.connection-factory.host" -> container.getHost,
-          "pekko.persistence.r2dbc.connection-factory.port" ->
-            container.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT),
-          "pekko.persistence.r2dbc.connection-factory.database" -> "ankka",
+          "pekko.persistence.r2dbc.connection-factory.host"     -> database.host,
+          "pekko.persistence.r2dbc.connection-factory.port"     -> database.port,
+          "pekko.persistence.r2dbc.connection-factory.database" -> database.name,
           "pekko.persistence.r2dbc.connection-factory.user"     -> "ankka",
           "pekko.persistence.r2dbc.connection-factory.password" -> "ankka",
           // A short idle timeout keeps the passivation path exercised by ordinary tests.

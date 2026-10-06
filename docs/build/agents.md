@@ -378,7 +378,7 @@ turn's last awaited decision, the turn goes on and `decide` answers as `ask` wou
 ```scala
 val session = componentClient.forAgent(SessionId("s-42"))
 val answer = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
-  case AgentOutcome.Answered(text) => text
+  case AgentOutcome.Answered(text)             => text
   case AgentOutcome.AwaitingApproval(requests) =>
     // In a real service the requests are shown to a person, and the decision arrives later,
     // from whatever route they make it through; that route's ACL is who may decide.

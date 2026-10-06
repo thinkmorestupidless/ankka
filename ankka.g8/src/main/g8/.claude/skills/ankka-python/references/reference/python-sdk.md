@@ -185,7 +185,7 @@ A handler returns a plan; the sidecar runs the model loop, calls tools back in t
 arguments, and checks guardrails. A guardrail's check takes the stage (`"input"` or `"output"`) and the text,
 and returns `None` to pass or a reason to block; a result guardrail's takes the MCP tool's name and what it
 answered. The sidecar connects to the MCP servers and enforces approval, so the process never runs a server's
-tool nor a tool that awaits a decision. A runtime before protocol 1.9 answers `decide` with a `CommandError`
+tool nor a tool that awaits a decision. A runtime before protocol 1.11 answers `decide` with a `CommandError`
 saying it is too old. The unit kit takes scripted servers, `AgentTestKit.of(Agent, mcp={server: {tool: fn}})`,
 and its reply's `awaiting` lists what a turn waits on; `kit.decide(approval_id, approved, by, note)` goes on.
 See [Agents](../build/agents.md) and [MCP servers](../build/mcp-servers.md).

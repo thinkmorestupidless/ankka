@@ -61,6 +61,8 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
 | `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |
 | `ANKKA_OTLP_HEADERS` | `ankka.telemetry.headers` | `""` | a service that exports telemetry |
+| `ANKKA_MCP_CONNECT_TIMEOUT` | `ankka.agent.mcp.connect-timeout` | `10s` | a service with agents |
+| `ANKKA_MCP_CALL_TIMEOUT` | `ankka.agent.mcp.call-timeout` | `60s` | a service with agents |
 | `ANKKA_CLUSTER_SEED_NODES` | `ankka.cluster.seed-nodes` | `""` | local mode |
 | `ANKKA_CLUSTER_PORT` | `pekko.remote.artery.canonical.port` | `0` | local mode |
 | `POD_IP` | `pekko.remote.artery.canonical.hostname` | required, set by the platform | kubernetes mode |

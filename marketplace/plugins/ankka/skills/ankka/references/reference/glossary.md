@@ -125,6 +125,12 @@ A topic a member declares on a project, once, with its partitions, which the pla
 installation's broker. Every service of the project publishes to it and reads it by its name; no service
 declares it. See [Broker topics](../build/topics.md#declaring-a-topic).
 
+### Decision
+
+A person's answer to an approval request: approved or refused, with who decided and an optional note the
+model is told. A request is decided once. Who decided is recorded; who may decide is the ACL of the route
+the decision is sent through.
+
 ### Delta
 
 One element of a graph as it now is, whole, at a version, or a tombstone marking it deleted: what a

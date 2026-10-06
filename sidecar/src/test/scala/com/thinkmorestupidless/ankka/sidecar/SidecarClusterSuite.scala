@@ -752,20 +752,23 @@ spec:
   test("S2.3 a restart replaces pods one at a time with no refused request") {
     val before = pods.map(_.getMetadata.getName).toSet
     apply(spec(instances = 3, restarts = 1))
-    var refused  = 0
+    var refused  = Vector.empty[String]
     var requests = 0
     val deadline = System.nanoTime() + 300.seconds.toNanos
     while pods.exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
     do
-      val (code, _) = nodeHttp("/carts/c1")
+      val (code, body) = nodeHttp("/carts/c1")
       requests += 1
-      if code != 0 then refused += 1
+      if code != 0 then refused :+= body
     waitFor(120.seconds)(readyReplicas == 3 && pods.forall(readyOf))
     assert(
       requests > 5,
       s"the rollout finished before the loop measured anything ($requests requests)"
     )
-    assertEquals(refused, 0, s"$refused of $requests requests were refused during the rollout")
+    assert(
+      refused.isEmpty,
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused.mkString(" | ")}"
+    )
   }
 
   test("SC-008 the protocol ports are unreachable from another pod in the namespace") {
@@ -928,20 +931,24 @@ spec:
 
     val before = podsOf(RustService).map(_.getMetadata.getName).toSet
     applyAs(RustService, wasmSpec(RustService, RustImage, instances = 3, restarts = 1))
-    var refused  = 0
+    var refused  = Vector.empty[String]
     var requests = 0
     val deadline = System.nanoTime() + 300.seconds.toNanos
     while podsOf(RustService)
         .exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
     do
-      if rustHttp("/carts/r1")._1 != 200 then refused += 1
+      val (code, body) = rustHttp("/carts/r1")
+      if code != 200 then refused :+= s"$code $body"
       requests += 1
     waitFor(120.seconds)(readyReplicasOf(RustService) == 3 && podsOf(RustService).forall(readyOf))
     assert(
       requests > 5,
       s"the rollout finished before the loop measured anything ($requests requests)"
     )
-    assertEquals(refused, 0, s"$refused of $requests requests were refused during the rollout")
+    assert(
+      refused.isEmpty,
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused.mkString(" | ")}"
+    )
   }
 
   test("wasm: a module of another ABI version fails the service, naming the versions") {

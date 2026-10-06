@@ -109,8 +109,16 @@ final class ClientLogic(
    * stopping on a node that is leaving during a rollout. The next attempt goes through sharding to
    * the instance's new home. Retried here, in the sidecar, so every SDK gets the same behaviour and
    * a rollout refuses nothing (S2.3).
+   *
+   * Bounded by time, not by count: a hand-off, the rebalance after it and recovery on the new node
+   * together outlast a fixed three attempts (1.7s), and a rolling restart refused about one request
+   * in five hundred that way. Half the command timeout leaves the caller — an endpoint waiting
+   * `ankka.ask-timeout` for the process's answer — time to receive the reply.
    */
   private val RetryDelays: Vector[FiniteDuration] = Vector(200.millis, 500.millis, 1.second)
+  private def retryDelay(attempt: Int): FiniteDuration =
+    RetryDelays(attempt.min(RetryDelays.size - 1))
+  private def retryWindow: FiniteDuration = settings.commandTimeout / 2
 
   private def askWithRetry(
       componentId: ComponentId,
@@ -118,17 +126,20 @@ final class ClientLogic(
       method: MethodName,
       bytes: Array[Byte],
       metadata: Metadata,
-      attempt: Int = 0
+      attempt: Int = 0,
+      startedAt: Long = System.nanoTime()
   ): Future[Array[Byte]] =
     // Each attempt is a call, and is counted as one where it lands or where it goes unanswered.
     asCaller(metadata)(transport.ask(componentId, entityId, method, bytes, metadata)).recoverWith {
-      case e: CommandError if e.code == ErrorCode.Unavailable && attempt < RetryDelays.size =>
+      case e: CommandError
+          if e.code == ErrorCode.Unavailable &&
+            (System.nanoTime() - startedAt).nanos + retryDelay(attempt) < retryWindow =>
         val promise = scala.concurrent.Promise[Array[Byte]]()
         val _ = system.scheduler.scheduleOnce(
-          RetryDelays(attempt),
+          retryDelay(attempt),
           () =>
             promise.completeWith(
-              askWithRetry(componentId, entityId, method, bytes, metadata, attempt + 1)
+              askWithRetry(componentId, entityId, method, bytes, metadata, attempt + 1, startedAt)
             ): Unit
         )
         promise.future

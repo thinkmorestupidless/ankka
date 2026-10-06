@@ -9,7 +9,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
   PodLogs,
   TopologyReader
 }
-import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, ServiceKey}
+import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, RollbackService, ServiceKey}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
 import com.thinkmorestupidless.ankka.crd.Hostnames
@@ -130,6 +130,55 @@ final class ServiceEndpoint(
             usage.recordService(authorized.organizationId, key, previous, by)
           }
           throw failure
+  }
+
+  /**
+   * A rollback (feature 033): the descriptor of an earlier generation, applied again as a new
+   * generation. It is an apply in every check an apply makes, in the same order — the organization
+   * asked for the capacity first, the slot given back if the entity then refuses — with one read in
+   * front, because the endpoint needs the target's descriptor to check it and reserve for it.
+   *
+   * The default target is resolved here, once, and the entity is sent the generation it chose. So
+   * two people asking at once both resolve to one generation, and the second is refused as already
+   * having it, rather than rolling the first one back.
+   */
+  postBody("/{projectId}/{name}/rollback") {
+    (projectId: String, name: String, request: RollbackRequest) =>
+      val authorized = authz.project(principal, projectId, write = true)
+      val by         = authz.metadata(authorized)
+      val target     = entity(projectId, name).call(ServiceEntity.rollbackTarget).invoke(request)
+      val problems   = target.descriptor.problems
+      if problems.nonEmpty then
+        throw CommandError(
+          problems.mkString(s"invalid descriptor at generation ${target.generation}: ", "; ", ""),
+          ErrorCode.BadRequest
+        )
+      val key       = ServiceKey(projectId, name).id
+      val instances = target.descriptor.service.resources.autoscaling.minInstances
+      val previous  = usage.reserveService(authorized.organizationId, key, instances, by)
+      try
+        val status = entity(projectId, name)
+          .call(ServiceEntity.rollback)
+          .withMetadata(by)
+          .invoke(RollbackService(target.generation))
+        RolledBack(target.generation, withHostname(status))
+      catch
+        case NonFatal(failure) =>
+          usage.undo(s"restore service '$key' to ${previous.fold("nothing")(_.toString)}") {
+            usage.recordService(authorized.organizationId, key, previous, by)
+          }
+          throw failure
+  }
+
+  /**
+   * The descriptor recorded at a generation, exactly as `PUT` accepts one (feature 033). The
+   * generation is a query parameter because a route takes two path parameters. Authorized as the
+   * history is: a member reads it, and anyone else is told the project does not exist.
+   */
+  get("/{projectId}/{name}/descriptor") { (projectId: String, name: String) =>
+    authz.project(principal, projectId, write = false)
+    val generation = query.required[Long]("generation")
+    entity(projectId, name).call(ServiceEntity.descriptorAt).invoke(generation)
   }
 
   post("/{projectId}/{name}/pause") { (projectId: String, name: String) =>

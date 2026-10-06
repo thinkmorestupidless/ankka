@@ -79,7 +79,8 @@ reported one yet. A web-hosted service has no database; its shape shows instead 
 path on its hostname and the service behind it, marked when that service is missing, paused or serves no
 HTTP. The service's own part carries its logs, pause or resume, and restart, the same operations the
 inspector offers. Below the shape is everything the platform reports about the service. The history
-section lists every apply, restart, pause and exposure, with who did it and when.
+section lists every apply, rollback, restart, pause and exposure, with who did it and when, and for each
+apply the image it ran and a digest of its descriptor.
 
 The state is always what the control plane reported, never what the console expected, and a state the
 cluster has not confirmed is marked as the last known one. See
@@ -88,6 +89,13 @@ cluster has not confirmed is marked as the last known one. See
 **Apply a descriptor** by pasting a `service.json` or choosing the file. Applying creates the service, or
 updates it when a service of that name exists. When the control plane refuses a descriptor, every problem it
 names is listed beside the text, which is kept for you to correct.
+
+**Roll back** from the history: a row whose descriptor differs from the one the service has now offers
+**Roll back**, which says which generation and image it applies before you confirm. A rollback is a new
+generation, as from the CLI; see [Pause, resume, restart, roll back and
+delete](service-lifecycle.md#roll-back). A row recorded before the platform kept digests offers none,
+though the CLI can still roll back to it. A row's digest opens its descriptor on the apply page, to read,
+change and apply.
 
 **Pause, resume, restart, expose and unexpose** are in the service's inspector. An exposed service's
 address is a link. Deleting a service stops it and keeps its database, so applying the same name again brings

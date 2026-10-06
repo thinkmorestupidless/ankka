@@ -11,6 +11,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{DeployConfig, ServiceP
 import com.thinkmorestupidless.ankka.controlplane.domain.{
   ApplyService,
   ConfigureRegistry,
+  RollbackService,
   ServiceKey
 }
 import com.thinkmorestupidless.ankka.core.EntityId
@@ -261,6 +262,41 @@ class ProjectorSuite extends munit.FunSuite with LogCapturing:
     eventually() {
       fake.current(Namespace, Service).exists(_.spec.image == "cart:6.0")
     }
+  }
+
+  test(
+    "a roll back to a descriptor whose runtime version the platform no longer runs is recorded and not deployed"
+  ) {
+    // Follows case 12: the service ran cart:5.0 declaring 9.0.0, refused, then cart:6.0. Rolling
+    // back to the refused one records a generation, as an apply would, and the projector declines
+    // it exactly as it declined the apply.
+    val entity = client.forEventSourcedEntity(EntityId(Key.id))
+    val refused = entity
+      .call(ServiceEntity.history)
+      .invoke()
+      .find(_.image.contains("cart:5.0"))
+      .getOrElse(fail("no history entry for cart:5.0"))
+      .generation
+    val before = status().generation
+    val after  = entity.call(ServiceEntity.rollback).invoke(RollbackService(refused))
+    assertEquals(after.generation, before + 1)
+    eventually() {
+      val s = status()
+      s.generation == before + 1 && s.lifecycle == ServiceLifecycle.Unavailable &&
+      s.detail.exists(d => d.contains("9.0.0") && d.contains("runtimes 0.2.x–0.3.x"))
+    }
+    assertEquals(fake.current(Namespace, Service).map(_.spec.image), Some("cart:6.0"))
+
+    // Leave the service deployable for the cases after this one, as case 12 does.
+    val _ = entity
+      .call(ServiceEntity.applyDescriptor)
+      .invoke(
+        ApplyService(
+          Project,
+          ServiceDescriptor(Service, ServiceSpec("cart:7.0", runtime = Some("0.2.0")))
+        )
+      )
+    eventually()(fake.current(Namespace, Service).exists(_.spec.image == "cart:7.0"))
   }
 
   test("the resource names the project's pull secret, and stops when the registry is cleared") {

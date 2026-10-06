@@ -151,6 +151,12 @@ Applied with `ankka services apply -f service.json`.
 What a service should be: its latest descriptor, whether it is paused, whether it is exposed. Recorded by the
 control plane when you change it, and reconciled towards by the operator.
 
+### Digest
+
+A short value computed from a service's descriptor: two descriptors share one exactly when they state the
+same things. A service's history shows one for each apply and rollback, so two generations with one image
+and a different environment can be told apart.
+
 ### Due time
 
 When a timer is to fire. The runtime fires a timer at its due time or up to a poll interval after, never
@@ -199,8 +205,9 @@ expose`. A service is private until exposed.
 
 ### Generation
 
-A counter on each service that increments on every apply and every restart. An observation states the
-generation it describes, so a late report about an older generation is discarded.
+A counter on each service that increments on every apply, every restart and every rollback. An
+observation states the generation it describes, so a late report about an older generation is discarded.
+A rollback is a new generation, never a return to an old number.
 
 ### Graph consumer
 
@@ -221,6 +228,11 @@ text; output guardrails run on what the model produced.
 
 A method of a component that the runtime calls: a command, a query, a workflow step, a timed action's action,
 or an agent's handler. Each is declared with a wire name.
+
+### History
+
+What the control plane keeps of the changes members made to a service: what was done, at which generation,
+by whom and when, newest first, the last 50 of them. It is not what the service printed, which is its logs.
 
 ### Hostname
 
@@ -395,6 +407,11 @@ and nothing is retried. It differs from a failure, which is a handler that threw
 
 A guardrail an agent declares for what an MCP server's tool answers. It runs before the model is told the
 result; a result it refuses is never told to the model, which is told of an error instead.
+
+### Rollback
+
+Applying again the descriptor a service recorded at an earlier generation, as a new generation. Nothing is
+rewound: the generation keeps counting, the history shows both, and the service's data is untouched.
 
 ### Row
 

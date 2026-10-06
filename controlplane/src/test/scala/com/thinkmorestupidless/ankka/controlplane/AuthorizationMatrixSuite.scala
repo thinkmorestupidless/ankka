@@ -326,6 +326,11 @@ class AuthorizationMatrixSuite extends munit.FunSuite with LogCapturing:
     )
     assertEquals(send("PUT", "/services/checkout/cart", alice, Some(descriptor("cart")))._1, 409)
     assertEquals(send("POST", "/services/checkout/cart/resume", alice)._1, 409)
+    // Feature 033: a service of a disabled organization cannot be rolled back.
+    val (rolled, rolledWhy) =
+      send("POST", "/services/checkout/cart/rollback", alice, Some("""{"generation":1}"""))
+    assertEquals(rolled, 409, rolledWhy)
+    assert(rolledWhy.contains("organization 'acme' is disabled"), rolledWhy)
     assertEquals(send("GET", "/services/checkout/cart", alice)._1, 200, "reads still work")
     assertEquals(send("GET", "/organizations/acme/members", alice)._1, 200)
     assertEquals(

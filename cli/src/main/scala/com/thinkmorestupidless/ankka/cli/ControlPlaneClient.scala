@@ -258,6 +258,22 @@ final class ControlPlaneClient(settings: Settings):
   def serviceHistory(projectId: String, name: String): Vector[HistoryEntry] =
     get[Vector[HistoryEntry]](s"/services/${segment(projectId)}/${segment(name)}/history")
 
+  /** The descriptor recorded at a generation (feature 033). */
+  def serviceDescriptor(projectId: String, name: String, generation: Long): ServiceDescriptor =
+    get[ServiceDescriptor](
+      s"/services/${segment(projectId)}/${segment(name)}/descriptor?generation=$generation"
+    )
+
+  /** Rolls a service back; with no generation, the control plane chooses (feature 033). */
+  def rollbackService(projectId: String, name: String, generation: Option[Long]): RolledBack =
+    decode[RolledBack](
+      send(
+        "POST",
+        s"/services/${segment(projectId)}/${segment(name)}/rollback",
+        Some(writeToString(RollbackRequest(generation)))
+      )
+    )
+
   def unexposeService(projectId: String, name: String): ServiceStatus =
     decode[ServiceStatus](action(projectId, name, "unexpose"))
 

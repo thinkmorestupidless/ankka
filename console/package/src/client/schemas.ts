@@ -163,8 +163,19 @@ export const historyEntrySchema = z.object({
   generation: z.number().int(),
   actor: optional(historyActorSchema),
   at: optional(z.string()),
+  /** On an entry that recorded a descriptor: its image, and a digest two such entries share exactly when the descriptors are the same. */
+  image: optional(z.string()),
+  digest: optional(z.string()),
+  /** On a rollback: the generation whose descriptor was applied again. */
+  rolledBackTo: optional(z.number().int()),
 });
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;
+
+export const rollbackRequestSchema = z.object({ generation: optional(z.number().int()) });
+export type RollbackRequest = z.infer<typeof rollbackRequestSchema>;
+
+export const rolledBackSchema = z.object({ rolledBackTo: z.number().int(), status: serviceStatusSchema });
+export type RolledBack = z.infer<typeof rolledBackSchema>;
 
 export const instanceLogsSchema = z.object({
   instance: z.string(),
@@ -396,6 +407,8 @@ export const schemasByType: Record<string, z.ZodType> = {
   ServiceStatus: serviceStatusSchema,
   HistoryActor: historyActorSchema,
   HistoryEntry: historyEntrySchema,
+  RollbackRequest: rollbackRequestSchema,
+  RolledBack: rolledBackSchema,
   InstanceLogs: instanceLogsSchema,
   LogsResponse: logsResponseSchema,
   InstanceTopologyDocument: instanceTopologyDocumentSchema,

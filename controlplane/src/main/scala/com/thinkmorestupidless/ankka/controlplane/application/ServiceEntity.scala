@@ -74,6 +74,41 @@ final class ServiceEntity(context: EventSourcedEntityContext)
             )
             .thenReply(_.toStatus)
 
+  /**
+   * Applies the descriptor recorded at an earlier generation again, as a new generation (feature
+   * 033). Never a rewind: the generation keeps counting, and the event is an apply's with the
+   * generation it rolled back to, so everything that reacts to an apply reacts to this.
+   *
+   * The endpoint has already asked `rollbackTarget` and reserved what the descriptor needs; it is
+   * asked again here because this is the single writer, and the state may have moved since. The
+   * descriptor's validation runs again too: the platform's rules may have changed since it ran.
+   */
+  def rollback(request: RollbackService): Effect[ServiceStatus] =
+    if !currentState.exists then notFound
+    else
+      currentState.rollingBack(request.generation, actor, at) match
+        case Left(refusal) => effects.error(refusal)
+        case Right(event)  => effects.persist(event).thenReply(_.toStatus)
+
+  /** What a rollback would apply, asked before one is sent so the endpoint can reserve for it. */
+  def rollbackTarget(request: RollbackRequest): ReadOnlyEffect[KeptDescriptor] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else
+      currentState.rollbackTarget(request.generation) match
+        case Left(refusal) => effects.error(refusal.message(key.name), refusal.code)
+        case Right(target) => effects.reply(target)
+
+  /**
+   * The descriptor recorded at a generation. A deleted service still answers, as its history does.
+   */
+  def descriptorAt(generation: Long): ReadOnlyEffect[ServiceDescriptor] =
+    if currentState.history.isEmpty && !currentState.exists then
+      effects.error(notFoundMessage, ErrorCode.NotFound)
+    else
+      currentState.descriptorAt(generation) match
+        case Left(refusal) => effects.error(refusal.message(key.name), refusal.code)
+        case Right(found)  => effects.reply(found.descriptor)
+
   def restart: Effect[ServiceStatus] =
     if !currentState.exists then notFound
     else if currentState.isPaused then
@@ -168,7 +203,15 @@ final class ServiceEntity(context: EventSourcedEntityContext)
    * to show for it. `None` is the authoritative "this should not exist in the cluster".
    */
   def desiredState: ReadOnlyEffect[Option[Service]] =
-    effects.reply(Option.when(currentState.exists)(currentState))
+    // Without the kept descriptors or the history (feature 033), which no reader of this needs:
+    // the reply crosses nodes for every service on every sweep, inside remoting's 256 KiB frame,
+    // which fifty large descriptors overflow — and the projector would stop reconciling exactly the
+    // services with the largest descriptors.
+    effects.reply(
+      Option.when(currentState.exists)(
+        currentState.copy(kept = Vector.empty, history = Vector.empty)
+      )
+    )
 
   private def attribution: Option[Attribution] = Attribution.from(commandContext.metadata)
   private def actor: Option[Actor]             = attribution.map(_.actor)
@@ -185,7 +228,12 @@ object ServiceEntity
       eventSerializer = Codecs.serializer[ServiceEvent]("service-event")
     ):
 
-  given Serializer[ApplyService]  = Codecs.serializer[ApplyService]("apply-service")
+  given Serializer[ApplyService]    = Codecs.serializer[ApplyService]("apply-service")
+  given Serializer[RollbackService] = Codecs.serializer[RollbackService]("rollback-service")
+  given Serializer[RollbackRequest] = Codecs.serializer[RollbackRequest]("rollback-request")
+  given Serializer[KeptDescriptor]  = Codecs.serializer[KeptDescriptor]("kept-descriptor")
+  given Serializer[ServiceDescriptor] =
+    Codecs.serializer[ServiceDescriptor]("service-descriptor")
   given Serializer[ServiceStatus] = Codecs.serializer[ServiceStatus]("service-status")
   given Serializer[ServiceObservation] =
     Codecs.serializer[ServiceObservation]("service-observation")
@@ -200,6 +248,9 @@ object ServiceEntity
 
   val applyDescriptor = command("apply")(_.apply)
   val restart         = command("restart")(_.restart)
+  val rollback        = command("rollback")(_.rollback)
+  val rollbackTarget  = query("rollback-target")(_.rollbackTarget)
+  val descriptorAt    = query("descriptor-at")(_.descriptorAt)
   val pause           = command("pause")(_.pause)
   val resume          = command("resume")(_.resume)
   val expose          = command("expose")(_.expose)

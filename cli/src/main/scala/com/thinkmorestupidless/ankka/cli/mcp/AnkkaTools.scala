@@ -143,7 +143,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "service_history",
       "Service history",
-      "Who did what to a service and when, newest first: every apply, pause, resume, restart, expose and delete, with the actor.",
+      "Who did what to a service and when, newest first: every apply, rollback, pause, resume, restart, expose and delete, with the actor. An apply or a rollback also carries the image it ran and a digest of its descriptor; two entries share a digest exactly when their descriptors are the same, and a rollback names the generation it rolled back to.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true

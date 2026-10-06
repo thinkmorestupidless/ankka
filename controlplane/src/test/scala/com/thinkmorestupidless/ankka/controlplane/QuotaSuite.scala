@@ -328,3 +328,32 @@ class QuotaSuite extends munit.FunSuite with LogCapturing:
     assertEquals(apply("p5", "f", instances = 1)._1, 200)
     assertEquals(usage(), Usage(3, 4, 13))
   }
+
+  test("a roll back that would take the organization over its quota is refused") {
+    // Feature 033. A rollback reserves the target descriptor's instances as an apply does, before
+    // the service is asked, and keeps nothing when refused.
+    assertEquals(
+      send("POST", "/organizations/initech", alice, Some("""{"name":"Initech"}"""))._1,
+      204
+    )
+    assertEquals(createProject("p9", "initech")._1, 204)
+    assertEquals(apply("p9", "a", instances = 3)._1, 200)
+    assertEquals(apply("p9", "a", instances = 1)._1, 200)
+    // Setting a quota merges a snapshot from the listings, so wait for them to show generation 2.
+    val _ = eventually("the service's second generation reaches the listing") {
+      val (_, body) = send("GET", "/services/p9", alice)
+      Option.when(body.contains("\"generation\":2"))(body)
+    }
+    assertEquals(
+      send("PUT", "/organizations/initech/quota", carol, Some("""{"instances":2}"""))._1,
+      204
+    )
+    assertEquals(usage("initech"), Usage(1, 1, 1))
+
+    val (status, body) =
+      send("POST", "/services/p9/a/rollback", alice, Some("""{"generation":1}"""))
+    assertEquals(status, 409, body)
+    assert(body.contains("over its quota of 2"), body)
+    assertEquals(generation("p9", "a"), 2L)
+    assertEquals(usage("initech"), Usage(1, 1, 1), "the reservation was never kept")
+  }

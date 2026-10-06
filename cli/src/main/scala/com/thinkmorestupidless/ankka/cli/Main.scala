@@ -594,8 +594,37 @@ object Main:
     }
 
     val history = Opts.subcommand("history", "Who did what to a service, newest first.") {
-      (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
-        Output.history(ctx.client.serviceHistory(ctx.project, name), ctx.format)
+      (
+        Opts.argument[String]("name"),
+        Opts
+          .option[Long](
+            "generation",
+            "Print the descriptor applied at this generation instead, as JSON to apply."
+          )
+          .orNone,
+        contextOpt
+      ).mapN { (name, generation, ctx) => () =>
+        generation match
+          case Some(n) => Output.descriptor(ctx.client.serviceDescriptor(ctx.project, name, n))
+          case None    => Output.history(ctx.client.serviceHistory(ctx.project, name), ctx.format)
+      }
+    }
+
+    val rollback = Opts.subcommand(
+      "rollback",
+      "Apply the descriptor of an earlier generation again, as a new generation."
+    ) {
+      (
+        Opts.argument[String]("name"),
+        Opts
+          .option[Long](
+            "to-generation",
+            "The generation to roll back to; otherwise the most recent with a different descriptor."
+          )
+          .orNone,
+        contextOpt
+      ).mapN { (name, generation, ctx) => () =>
+        Output.rolledBack(ctx.client.rollbackService(ctx.project, name, generation), ctx.format)
       }
     }
 
@@ -636,6 +665,7 @@ object Main:
       .orElse(pause)
       .orElse(resume)
       .orElse(restart)
+      .orElse(rollback)
       .orElse(logs)
       .orElse(topology)
       .orElse(history)

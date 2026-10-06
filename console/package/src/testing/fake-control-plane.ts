@@ -12,7 +12,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 export interface FakeClaims {
   sub: string;
@@ -101,7 +101,18 @@ interface Service {
   paused: boolean;
   /** What the cluster reports of its database; `null` until it has reported one. */
   database: string | null;
-  history: { kind: string; generation: number; actor?: { subject: string; display?: string; administrative: boolean }; at: string }[];
+  history: {
+    kind: string;
+    generation: number;
+    actor?: { subject: string; display?: string; administrative: boolean };
+    at: string;
+    image?: string;
+    digest?: string;
+    rolledBackTo?: number;
+  }[];
+  /** The descriptor in force, and the applied ones a rollback can return to, newest first, at most fifty. */
+  descriptor?: unknown;
+  kept: { generation: number; descriptor: unknown }[];
   logs: Map<string, string[]>;
   previousLogs: Map<string, string[]>;
   /** The platform's container's output: the sidecar beside a process, the proxy beside a web-hosted one. */
@@ -267,6 +278,26 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
 
   const registrySummary = (r?: Registry) =>
     r ? { server: r.server, username: r.username, setAt: r.setAt, setBy: r.setBy ?? null } : null;
+
+  /** An apply, or a rollback when `rolledBackTo` is given: a new generation with this descriptor. */
+  const record = (s: Service, descriptor: unknown, by: ReturnType<typeof actor>, rolledBackTo?: number) => {
+    const d = descriptor as { service?: { image?: string; resources?: { autoscaling?: { minInstances?: number } } } };
+    s.generation += 1;
+    s.image = d.service?.image ?? "";
+    s.desiredInstances = d.service?.resources?.autoscaling?.minInstances ?? 1;
+    s.lifecycle = s.paused ? "Paused" : "UpdateInProgress";
+    s.descriptor = descriptor;
+    s.kept = [{ generation: s.generation, descriptor }, ...s.kept].slice(0, 50);
+    s.history.push({
+      kind: rolledBackTo === undefined ? "applied" : "rolled-back",
+      generation: s.generation,
+      actor: by,
+      at: now(),
+      image: s.image,
+      digest: digestOf(descriptor),
+      ...(rolledBackTo === undefined ? {} : { rolledBackTo }),
+    });
+  };
 
   const serviceStatus = (s: Service) => {
     const org = organizations.get(projects.get(s.projectId)?.organizationId ?? "");
@@ -760,17 +791,51 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       paused: false,
       database: "provisioned",
       history: [],
+      kept: [],
       logs: new Map(),
       previousLogs: new Map(),
       platformLogs: new Map(),
     };
-    s.image = d.service!.image!;
-    s.generation += 1;
-    s.desiredInstances = instances;
-    s.lifecycle = s.paused ? "Paused" : "UpdateInProgress";
-    s.history.push({ kind: "applied", generation: s.generation, actor: actor(c), at: now() });
+    record(s, d, actor(c));
     services.set(key, s);
     return serviceStatus(s);
+  });
+
+  // Rollbacks, by the control plane's rules: the same refusals, in the same words and statuses. The
+  // digest need only be equal for equal descriptors; it is not the control plane's.
+  const descriptorAt = (s: Service, n: number) => {
+    if (!Number.isInteger(n) || n < 1 || n > s.generation) throw new HttpError(404, `service '${s.name}' has no generation ${n}`);
+    const found = s.kept.find((k) => k.generation === n);
+    if (found) return found;
+    const oldest = s.kept.at(-1);
+    const ran = s.kept.find((k) => k.generation < n);
+    if (oldest && ran && n > oldest.generation) throw new HttpError(409, `generation ${n} was a restart and ran the descriptor of generation ${ran.generation}`);
+    throw new HttpError(409, `the descriptor of generation ${n} is no longer kept; the oldest kept is generation ${oldest?.generation ?? s.generation}`);
+  };
+
+  route("POST", "/services/{projectId}/{name}/rollback", (c, p, body) => {
+    const { service: s, org } = requireService(c, p.projectId, p.name);
+    requireWrite(org);
+    const named = (body as { generation?: number } | undefined)?.generation;
+    const current = digestOf(s.descriptor);
+    let target: { generation: number; descriptor: unknown };
+    if (named !== undefined) {
+      target = descriptorAt(s, named);
+      if (digestOf(target.descriptor) === current) throw new HttpError(409, `service '${s.name}' already has the descriptor of generation ${named}`);
+    } else {
+      const differs = s.kept.find((k) => digestOf(k.descriptor) !== current);
+      if (!differs) throw new HttpError(409, `service '${s.name}' has no earlier generation with a different descriptor`);
+      target = differs;
+    }
+    record(s, target.descriptor, actor(c), target.generation);
+    return { rolledBackTo: target.generation, status: serviceStatus(s) };
+  });
+
+  route("GET", "/services/{projectId}/{name}/descriptor", (c, p, _body, url) => {
+    const { service: s } = requireService(c, p.projectId, p.name);
+    const raw = url.searchParams.get("generation");
+    if (raw === null) throw new HttpError(400, "query parameter 'generation' is required");
+    return descriptorAt(s, Number(raw)).descriptor;
   });
 
   const operation = (op: "pause" | "resume" | "restart" | "expose" | "unexpose") => (c: Caller, p: Record<string, string>) => {
@@ -1011,6 +1076,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           logs.set(`${s.name}-${i}`, [`${s.name} started`]);
           if (twoContainers(s.hosting)) platformLogs.set(`${s.name}-${i}`, [`${s.hosting === "web" ? "proxy" : "sidecar"} of ${s.name} started`]);
         }
+        const seeded = { name: s.name, service: { image: s.image ?? `${s.name}:latest` } };
         services.set(serviceKey(s.projectId, s.name), {
           name: s.name,
           projectId: s.projectId,
@@ -1022,7 +1088,9 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           exposed: s.exposed ?? false,
           paused: lifecycle === "Paused",
           database: s.database === undefined ? "provisioned" : s.database,
-          history: [{ kind: "applied", generation: 1, at: now() }],
+          history: [{ kind: "applied", generation: 1, at: now(), image: s.image ?? `${s.name}:latest`, digest: digestOf(seeded) }],
+          descriptor: seeded,
+          kept: [{ generation: 1, descriptor: seeded }],
           logs,
           previousLogs: new Map(),
           platformLogs,
@@ -1048,4 +1116,15 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       }),
   };
   return fake;
+}
+
+/** Equal for equal descriptors, whatever order their keys were written in. */
+function digestOf(descriptor: unknown): string {
+  const canonical = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(canonical)
+      : v && typeof v === "object"
+        ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])]))
+        : v;
+  return createHash("sha256").update(JSON.stringify(canonical(descriptor ?? null))).digest("hex");
 }

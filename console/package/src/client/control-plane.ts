@@ -5,6 +5,7 @@ import {
   deployTokenCreatedSchema,
   deployTokenSummarySchema,
   historyEntrySchema,
+  rolledBackSchema,
   logsResponseSchema,
   serviceTopologySchema,
   membersResponseSchema,
@@ -29,6 +30,7 @@ import {
   type ProjectSummary,
   type Quota,
   type Role,
+  type RolledBack,
   type ServiceStatus,
   type SetRegistry,
   type ProjectSecretSummary,
@@ -59,6 +61,9 @@ export interface ControlPlaneClientOptions {
   bearer: BearerSource;
   transport?: Transport;
 }
+
+/** A descriptor is passed through as the control plane wrote it, as `applyService` takes one. */
+const anyJson = { parse: (value: unknown): unknown => value };
 
 const arrayOf = <T extends z.ZodType>(schema: T) => ({
   parse: (value: unknown): z.infer<T>[] => {
@@ -269,6 +274,21 @@ export class ControlPlaneClient {
 
   deleteService(projectId: string, name: string): Promise<void> {
     return this.#call("DELETE", `/services/${segment(projectId)}/${segment(name)}`);
+  }
+
+  /** Roll a service back to a generation: its descriptor applied again, as a new generation. */
+  rollback(projectId: string, name: string, generation: number): Promise<RolledBack> {
+    return this.#call("POST", `/services/${segment(projectId)}/${segment(name)}/rollback`, {
+      body: { generation },
+      schema: rolledBackSchema,
+    });
+  }
+
+  /** The descriptor applied at a generation, as the control plane accepts one. */
+  descriptor(projectId: string, name: string, generation: number): Promise<unknown> {
+    return this.#call("GET", `/services/${segment(projectId)}/${segment(name)}/descriptor?generation=${generation}`, {
+      schema: anyJson,
+    });
   }
 
   history(projectId: string, name: string): Promise<HistoryEntry[]> {

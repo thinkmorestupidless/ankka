@@ -1,6 +1,7 @@
 /**
- * Applies a descriptor: pasted, or read from a file. The console checks only that the text is JSON
- * and names a service; every rule about what a descriptor may say is the control plane's, and its
+ * Applies a descriptor: pasted, read from a file, or started from the one a service applied at an
+ * earlier generation (`?name=cart&generation=1`). The console checks only that the text is JSON and
+ * names a service; every rule about what a descriptor may say is the control plane's, and its
  * refusal is shown problem by problem beside the text.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
@@ -18,11 +19,15 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
   return guard(ctx, async () => {
     const [project, services, page] = await Promise.all([ctx.client.getProject(params.projectId!), ctx.client.listServices(params.projectId!), pageData(ctx)]);
     const organization = await ctx.client.getOrganization(project.organizationId);
-    const name = new URL(request.url).searchParams.get("name");
+    const query = new URL(request.url).searchParams;
+    const name = query.get("name");
+    const generation = query.get("generation");
+    const from =
+      name && generation ? JSON.stringify(await ctx.client.descriptor(project.id, name, Number(generation)), null, 2) : undefined;
     const tail = name
       ? [{ label: name, to: `projects/${encodeURIComponent(project.id)}/services/${encodeURIComponent(name)}` }, { label: "Apply a descriptor" }]
       : [{ label: "Apply a descriptor" }];
-    return { console: projectShell(page, organization, project, services, tail, undefined, name ?? undefined), project, organization, name };
+    return { console: projectShell(page, organization, project, services, tail, undefined, name ?? undefined), project, organization, name, generation, from };
   });
 }
 
@@ -60,7 +65,7 @@ const example = `{
 }`;
 
 export default function ApplyDescriptor() {
-  const { name } = useLoaderData<typeof loader>();
+  const { name, generation, from } = useLoaderData<typeof loader>();
   const refusal = useRefusal("apply");
   return (
     <Page>
@@ -68,6 +73,7 @@ export default function ApplyDescriptor() {
       <p className="ac-lede">
         A descriptor is a service's <code>service.json</code>. Applying it creates the service, or updates it if one with that name exists.
       </p>
+      {from ? <p className="ac-notice">This is the descriptor {name} applied at generation {generation}. Applying it, changed or not, is a new generation.</p> : null}
       <ConsoleForm intent="apply" encType="multipart/form-data" className="ac-card ac-form">
         <div className="ac-field">
           <label htmlFor="descriptor">Descriptor</label>
@@ -76,7 +82,7 @@ export default function ApplyDescriptor() {
             name="descriptor"
             spellCheck={false}
             placeholder={example}
-            defaultValue={refusal?.values.descriptor}
+            defaultValue={refusal?.values.descriptor ?? from}
             aria-describedby="descriptor-hint"
             aria-invalid={refusal ? true : undefined}
           />

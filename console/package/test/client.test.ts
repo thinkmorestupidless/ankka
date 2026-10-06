@@ -69,6 +69,30 @@ describe("ControlPlaneClient against the fake control plane", () => {
     });
   });
 
+  test("a rollback names its generation, and a past descriptor reads back as it was applied", async () => {
+    const owner = await as("owner");
+    const second = { name: "cart", service: { image: "cart:2" } };
+    await owner.applyService("checkout", "cart", JSON.stringify(second));
+    const rolled = await owner.rollback("checkout", "cart", 1);
+    assert.equal(rolled.rolledBackTo, 1);
+    assert.deepEqual([rolled.status.generation, rolled.status.image], [3, "cart:latest"]);
+    assert.deepEqual(await owner.descriptor("checkout", "cart", 2), second);
+    const history = await owner.history("checkout", "cart");
+    const last = history.at(-1)!;
+    assert.deepEqual([last.kind, last.rolledBackTo, last.image], ["rolled-back", 1, "cart:latest"]);
+    assert.equal(last.digest, history[0]!.digest);
+  });
+
+  test("a refused rollback carries the control plane's reason verbatim", async () => {
+    const owner = await as("owner");
+    await assert.rejects(owner.rollback("checkout", "cart", 1), (e: unknown) =>
+      e instanceof ControlPlaneError && e.status === 409 && e.reason === "service 'cart' already has the descriptor of generation 1",
+    );
+    await assert.rejects(owner.descriptor("checkout", "cart", 9), (e: unknown) =>
+      e instanceof ControlPlaneError && e.status === 404 && e.reason === "service 'cart' has no generation 9",
+    );
+  });
+
   test("a 401 is retried once with a refreshed bearer, then becomes SignInRequired", async () => {
     const { accessToken } = await issuer.mint("owner");
     const asked: boolean[] = [];

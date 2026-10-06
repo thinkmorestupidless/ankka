@@ -370,6 +370,10 @@ final class WasmConversation(
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
     Source.failed(ProtocolViolation("a module has no streaming routes"))
 
+  /** Refused at discovery: a module answers a request whole, so it cannot hold a socket. */
+  override def openSocket(request: HttpForward): SocketLink =
+    throw ProtocolViolation("a module cannot hold a socket")
+
   /** The module is in this process: if the runtime is answering, so is it. */
   def reachable(): Boolean = true
 

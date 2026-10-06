@@ -176,3 +176,55 @@ final class RecorderSuite extends FunSuite:
     val counted = r.totals.snapshot().map(_.invocations).sum
     assertEquals(counted, 1000L)
   }
+
+  // A socket is open for as long as its client wants, so its span cannot hold a slot from the open
+  // to the close: the ring reuses a slot once enough newer spans exist, and a reader skips one still
+  // in flight. Its id is reserved at the open and the span recorded whole at the close.
+
+  test("a reserved span has an id no begun span has, and claims no slot") {
+    val r        = Recorder(16)
+    val before   = record(r, traceId = 1L).id
+    val reserved = r.reserve(0L, 1L, componentRef = 1, handlerRef = 2)
+    val after    = record(r, traceId = 1L).id
+    assert(Set(before, after).forall(_ != reserved.id), s"$before, ${reserved.id}, $after")
+    assertEquals(r.snapshot().size, 2, "reserving claims no slot")
+  }
+
+  test("a span recorded whole is readable at once, with its start, kind, outcome and trace") {
+    val r    = Recorder(16)
+    val span = r.reserve(5L, 7L, componentRef = 3, handlerRef = 4)
+    Thread.sleep(50)
+    r.record(span, 0L, SpanKind.Server, SpanOutcome.Failed)
+    val read = r.snapshot().find(_.spanId == span.id).getOrElse(fail("not recorded"))
+    assertEquals(
+      (read.traceIdHigh, read.traceId, read.componentRef, read.handlerRef),
+      (5L, 7L, 3, 4)
+    )
+    assertEquals((read.kind, read.outcome), (SpanKind.Server, SpanOutcome.Failed))
+    assertEquals(read.startedNanos, span.startedNanos)
+    assert(read.durationNanos >= 50_000_000L, s"duration ${read.durationNanos}")
+  }
+
+  test(
+    "a child of a reserved span is recorded under it, and its parent appears only when recorded"
+  ) {
+    val r     = Recorder(16)
+    val root  = r.reserve(0L, 9L, 1, 2)
+    val child = record(r, traceId = 9L, parent = root.id)
+    assertEquals(r.spansOf(9L).map(_.spanId), Vector(child.id), "no root yet: the trace is partial")
+    r.record(root, 0L, SpanKind.Server, SpanOutcome.Ok)
+    val spans = r.spansOf(9L)
+    assertEquals(spans.map(_.spanId).toSet, Set(root.id, child.id))
+    assertEquals(spans.find(_.spanId == child.id).map(_.parentSpanId), Some(root.id))
+  }
+
+  test("a span recorded whole after the ring has wrapped many times is still published") {
+    val r    = Recorder(4)
+    val span = r.reserve(0L, 99L, 1, 2)
+    (1 to 50).foreach(i => record(r, traceId = i.toLong))
+    r.record(span, 0L, SpanKind.Server, SpanOutcome.Ok)
+    assert(
+      r.snapshot().exists(_.spanId == span.id),
+      "a long socket's span is never lost to the ring"
+    )
+  }

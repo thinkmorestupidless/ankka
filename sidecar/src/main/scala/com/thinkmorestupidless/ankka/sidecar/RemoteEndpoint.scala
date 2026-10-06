@@ -16,18 +16,23 @@ import com.thinkmorestupidless.ankka.http.{
   HttpProblem,
   PathTemplate,
   Route,
+  Socket,
+  SocketClosed,
+  SocketRoute,
   StreamRoute
 }
 import com.thinkmorestupidless.ankka.runtime.remote.{
   Conversation,
   HttpForward,
   RemoteCaller,
-  RemotePrincipal
+  RemotePrincipal,
+  SocketOutput
 }
 import com.thinkmorestupidless.ankka.runtime.{ServedRoute, Trace, TraceContext}
 
 import java.util.concurrent.TimeoutException
 import scala.concurrent.Await
+import scala.concurrent.duration.*
 import scala.util.control.NonFatal
 
 /**
@@ -48,7 +53,8 @@ final class RemoteEndpoint private (
 
   def acl: Acl = RemoteEndpoint.aclOf(spec.acl, spec.allowCallers, authenticated)
 
-  private val (plain, streaming) = spec.routes.toVector.partition(!_.streaming)
+  private val (sockets, requests) = spec.routes.toVector.partition(_.socket)
+  private val (plain, streaming)  = requests.partition(!_.streaming)
 
   private[ankka] override def routes: Vector[Route] =
     plain.map { r =>
@@ -72,6 +78,54 @@ final class RemoteEndpoint private (
       )
     }
 
+  private[ankka] override def socketRoutes: Vector[SocketRoute] =
+    sockets.map { r =>
+      SocketRoute(
+        PathTemplate.parse(r.template),
+        args => socket => relay(r, args, socket),
+        r.acl.map(RemoteEndpoint.aclOf(_, r.allowCallers, authenticated))
+      )
+    }
+
+  /**
+   * Relays one open socket to the process and back. The sidecar's own server already decided the
+   * ACL, holds the limits and will send the close code; this moves frames. The client's frames go
+   * on a virtual thread of their own, the process's on this one, and the handler ends when the
+   * process does: returning when its handler returned, throwing when it failed or went away — which
+   * the server closes as "failed".
+   */
+  private def relay(r: RouteSpec, args: Vector[String], socket: Socket): Unit =
+    val link = conversation.openSocket(forwardOf(r, args, Array.emptyByteArray))
+    val toProcess = Thread.ofVirtual().start { () =>
+      var open = true
+      while open do
+        socket.receive() match
+          case Some(text) => open = link.send(text)
+          case None       => open = false
+      link.close(socket.closedBecause.getOrElse("client"))
+    }
+    try
+      // A closed socket's process is given the request timeout to finish; one that never does is
+      // let go of, rather than holding a virtual thread for ever.
+      var closedAt: Option[Long] = None
+      var done                   = false
+      while !done do
+        link.next(200.millis) match
+          case Some(SocketOutput.Frame(text)) =>
+            try socket.send(text)
+            catch case _: SocketClosed => () // the client has gone; the process is being told
+          case Some(SocketOutput.Completed)     => done = true
+          case Some(SocketOutput.Failed(error)) => throw ProcessSocketFailed(error)
+          case None =>
+            if socket.closedBecause.isDefined then
+              val since = closedAt.getOrElse {
+                val now = System.nanoTime(); closedAt = Some(now); now
+              }
+              if (System.nanoTime() - since).nanos > settings.requestTimeout then done = true
+    finally
+      link.close(socket.closedBecause.getOrElse("finished"))
+      toProcess.join(1000): Unit
+
   /** What the local console lists for this endpoint. */
   def served: Vector[ServedRoute] =
     // Named by its prefix, as the HTTP server names every endpoint it serves: the server reports
@@ -82,7 +136,8 @@ final class RemoteEndpoint private (
     ) ++
       streaming.map(r =>
         ServedRoute(r.method.toUpperCase, spec.prefix + r.template, streaming = true, id)
-      )
+      ) ++
+      sockets.map(r => ServedRoute("SOCKET", spec.prefix + r.template, streaming = true, id))
 
   private def forwardOf(r: RouteSpec, args: Vector[String], body: Array[Byte]): HttpForward =
     val ctx   = request
@@ -120,7 +175,27 @@ final class RemoteEndpoint private (
       case Left(failure) =>
         throw HttpProblem(500, failure.error.message)
 
+/** The process's handler for a socket failed, or the process went away while it was open. */
+final class ProcessSocketFailed(message: String) extends RuntimeException(message):
+  override def fillInStackTrace(): Throwable = this
+
 object RemoteEndpoint:
+
+  /**
+   * The largest frame a socket behind a sidecar may be given. A frame crosses to the process as one
+   * gRPC message, whose bound is 4 MiB; what is left is for the message around it.
+   */
+  val MaxRelayedFrame: Long = 3L * 1024 * 1024
+
+  /** What is wrong with a sidecar's socket limits, for a service that declares a socket route. */
+  def socketProblems(config: com.typesafe.config.Config): Vector[String] =
+    val max = config.getBytes("ankka.http.socket.max-frame-size")
+    Vector(
+      Option.when(max > MaxRelayedFrame)(
+        s"ankka.http.socket.max-frame-size ($max bytes) is larger than a frame a sidecar can relay " +
+          s"to its process ($MaxRelayedFrame bytes, under gRPC's 4 MiB message bound)"
+      )
+    ).flatten
 
   /**
    * What an `AUTHENTICATED` route answers when the sidecar has no issuer: 503, exactly as a Scala

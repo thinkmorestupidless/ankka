@@ -20,7 +20,7 @@ from ankka.client import ComponentClient
 from ankka.context import Caller, CommandContext, LocalCaller, Metadata, Principal, RequestContext
 from ankka.effects.agent import AgentEffect
 from ankka.effects.common import Error, Fail, NoReply, Reply, Retention
-from ankka.endpoint import Endpoint, HttpProblem, RouteSpec
+from ankka.endpoint import Endpoint, HttpProblem, RouteSpec, Socket, SocketClosed
 from ankka.event_sourced_entity import EventSourcedEntity, HandlerSpec
 
 S = TypeVar("S")
@@ -135,6 +135,17 @@ _PLACEHOLDER = re.compile(r"\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
 @dataclass(frozen=True)
+class SocketRun:
+    """What a socket route's handler did with a scripted socket: the frames it sent, in order, and
+    how it ended — ``"finished"`` when it returned (or let ``SocketClosed`` escape), ``"failed"``
+    when it raised, with ``error``."""
+
+    sent: list[str]
+    ended: str
+    error: Exception | None = None
+
+
+@dataclass(frozen=True)
 class Response:
     status: int
     content_type: str
@@ -166,7 +177,8 @@ class EndpointTestKit:
         rest = path[len(prefix):] or "/"
         candidates: list[tuple[int, RouteSpec, list[str]]] = []
         for spec in type(self.endpoint).routes().values():
-            if spec.method != method.upper():
+            # A socket route is opened through `socket`, never answered as a GET.
+            if ("SOCKET" if spec.socket else spec.method) != method.upper():
                 continue
             pattern = "^" + _PLACEHOLDER.sub("([^/]+)", re.escape(spec.template).replace("\\{", "{").replace("\\}", "}")) + "$"
             m = re.match(pattern, rest)
@@ -213,6 +225,50 @@ class EndpointTestKit:
 
     async def _collect(self, spec: RouteSpec, args: list[str], body: bytes, ctx: RequestContext) -> list[str]:
         return [frame async for frame in self.endpoint._handle_stream(spec, args, body, ctx)]
+
+    def socket(
+        self,
+        path: str,
+        frames: list[str] | None = None,
+        *,
+        query: list[tuple[str, str]] | None = None,
+        headers: list[tuple[str, str]] | None = None,
+        principal: Principal | None = None,
+        caller: Caller | None = None,
+    ) -> SocketRun:
+        """Opens a socket route with no runtime: the handler is given ``frames`` one at a time and
+        then told the socket is closed, as when the client closes it after sending them."""
+        prefix = type(self.endpoint).prefix
+        matched = self._match("SOCKET", path)
+        if matched is None:
+            raise ValueError(f"no socket route at {path} under {prefix}")
+        spec, args = matched
+        ctx = RequestContext(
+            tuple(query or ()), tuple(headers or ()), principal, Metadata(), caller if caller is not None else LocalCaller()
+        )
+        pending = list(frames or [])
+        sent: list[str] = []
+        closed = False
+
+        async def receive() -> str | None:
+            nonlocal closed
+            if pending:
+                return pending.pop(0)
+            closed = True
+            return None
+
+        async def send(text: str) -> None:
+            if closed:
+                raise SocketClosed("the socket is closed")
+            sent.append(text)
+
+        try:
+            _run(self.endpoint._handle_socket(spec, args, Socket(receive, send), ctx))
+            return SocketRun(sent, "finished")
+        except SocketClosed:
+            return SocketRun(sent, "finished")
+        except Exception as e:
+            return SocketRun(sent, "failed", e)
 
     def get(self, path: str, **kwargs: Any) -> Response:
         return self.request("GET", path, **kwargs)

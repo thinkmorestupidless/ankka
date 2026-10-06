@@ -13,14 +13,17 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.8`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.9`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
 consumer that reads one. `1.8` added `Request` on `Client`: a call to another service, made by the
 runtime as the service. A process that declared an earlier minor is answered a refusal naming both
 versions if it sends one; an earlier runtime answers a 1.8 process's `Request` with `UNIMPLEMENTED`,
-which each SDK reports as the runtime being too old. No module import carries it yet.
+which each SDK reports as the runtime being too old. No module import carries it yet. `1.9` added
+socket routes: `Route.socket` in discovery and `Http.HandleSocket`, a stream in each direction for
+as long as a socket is open. The sidecar refuses a socket route from a process that declares an
+earlier minor, and a module cannot declare one.
 
 `MAJOR.MINOR`. Within a major:
 
@@ -38,7 +41,7 @@ which each SDK reports as the runtime being too old. No module import carries it
 | `discovery.proto` | `Discovery.Discover` / `ReportError`: the process describes its components and endpoints |
 | `event_sourced.proto`, `key_value.proto`, `workflow.proto` | one bidirectional stream per loaded instance |
 | `view.proto`, `consumer.proto`, `timed_action.proto` | stateless: one request, one effect |
-| `endpoint.proto` | `Http.Handle` / `HandleStream`: HTTP requests the sidecar forwards for declared routes |
+| `endpoint.proto` | `Http.Handle` / `HandleStream` / `HandleSocket`: HTTP requests, and open sockets, the sidecar forwards for declared routes |
 | `agent.proto` | `Agent.Plan` / `InvokeTool` / `CheckGuardrail`: the process plans and runs tools, the sidecar runs the loop |
 | `client.proto` | `Client`: the callback service the sidecar serves — component calls, view queries, timers |
 | `wasm.proto` | the module mode's envelopes: `WasmSpec`, and the requests and replies that carry held state (`WASM-ABI.md`) |

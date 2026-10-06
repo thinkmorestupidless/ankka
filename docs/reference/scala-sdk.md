@@ -258,7 +258,9 @@ See [Autonomous agents](../build/autonomous-agents.md).
 |---|---|
 | Base class | `HttpEndpoint(prefix)` |
 | Must define | `acl: Acl` |
-| Routes | `get`, `post`, `put`, `patch`, `delete` with path parameters only; `postBody`, `putBody`, `patchBody` with a body as the last argument; `sse` and `sseBody` for server-sent events |
+| Routes | `get`, `post`, `put`, `patch`, `delete` with path parameters only; `postBody`, `putBody`, `patchBody` with a body as the last argument; `sse` and `sseBody` for server-sent events; `socket` for a socket route, whose handler takes the path parameters and a `Socket` |
+| A socket | `socket.receive(): Option[String]`, `None` once closed; `socket.send(text)`, which throws `SocketClosed` once closed; `CloseReason` names the close codes |
+| Testing a socket | `testKit.socket(path, headers, subprotocols)` or `TestSocket.open(url, …)`: `send`, `receive`, `close`, `closed()` (the code and reason; fails for a socket cut off), `subprotocol` |
 | In a handler | `request` (`header`, `query`, `caller`), `query` (`required`, `optional`, `all`, `flag`), `principal`, `caller` (`Caller.Gateway`, `Caller.Service(project, name)`, `Caller.Local`) |
 | ACLs | `Acl.DenyAll`, `Acl.AllowAll`, `Acl.AllowIf(ctx => …)`, `Acl.Authenticate(ctx => AuthDecision…)`, `Acl.allowCallers(Callers.internet, Callers.service("orders"), Callers.service(project, name), Callers.anyInProject, Callers.self)` |
 | Other services | `clients.services(name)` or `clients.services(project, name)`: `get[R]`, `getText`, `post[B, R]`, `put[B, R]`, `delete`, `request`; the same `services` on a workflow's, a consumer's, a timed action's and an agent's context. Errors `ServiceUnresolvable`, `ServiceIdentityMismatch`, `ServiceUnanswered`, `ServiceCallFailed` ([Calling other services](../build/calling-services.md)) |

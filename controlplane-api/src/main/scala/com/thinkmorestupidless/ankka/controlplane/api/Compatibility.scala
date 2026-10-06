@@ -55,9 +55,10 @@ object Protocol:
    * secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the module imports
    * of the same names (feature 023). 1.7 added where a topic source starts and the version of a
    * view or consumer that reads one (feature 024). 1.8 added `Request` on `Client`: a call to
-   * another service, made by the runtime as the service (feature 025).
+   * another service, made by the runtime as the service (feature 025). 1.9 added socket routes:
+   * `Route.socket` and `Http.HandleSocket` (feature 028).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 8)
+  val version: ProtocolVersion = ProtocolVersion(1, 9)
 
 object Compatibility:
 

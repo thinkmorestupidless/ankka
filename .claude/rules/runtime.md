@@ -114,3 +114,16 @@ localServices = …)` sets `ankka.local-services` for one service rather than th
   a sequence the host did not expect. `RemoteStateRecord` carries absolute positions and the
   predicate accepts the process's snapshot at its own sequence or the next one — which is why a
   process target's snapshot row sits at 3 *or* 4 where the in-process one sits at 3.
+- **pekko-http's public WebSocket API can send two close codes.** A handler's stream completing closes
+  1000 and failing closes 1011 "internal error"; nothing chooses another. "Going away", "too large",
+  "unread" and "not text" go through `AnkkaSocketUpgrade`, the one file in `modules/http` that lives in
+  pekko's `impl.engine.ws` package to reach `private[http]` frame-level upgrade. It uses five internal
+  names and rewrites only the close frame ankka's side sends; `SocketSuite` (testkit) asserts every code
+  on the wire, so a pekko-http upgrade that breaks it is red. Keep the internals in that file.
+- **pekko-http ends a connection idle for sixty seconds, upgraded or not.** A socket nobody writes to is
+  cut off after a minute on a laptop, gateway or no gateway, unless it is pinged. The shim builds pekko's
+  message stack itself, so the keep-alive is the `WebSocketSettings` handed to it — setting it on the
+  server binding does nothing — and a keep-alive not shorter than the idle timeout fails startup.
+- **A span begun and held open is lost.** The recorder skips a slot still in flight and reuses it once
+  enough newer spans exist, so a socket's span is recorded whole when it closes (`Recorder.reserve` and
+  `record`), and while it is open its handler's calls sit in a trace whose root is not there yet.

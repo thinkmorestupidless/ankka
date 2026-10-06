@@ -303,3 +303,10 @@ describe("the cart through the real sidecar", { skip: slow }, () => {
     }
   })
 })
+
+test("the watch socket answers what it does not understand, and ends with its socket", async () => {
+  const { EndpointTestKit } = await import("ankka/testkit")
+  const { ShoppingCartEndpoint } = await import("./endpoint.ts")
+  const run = await EndpointTestKit.of(ShoppingCartEndpoint).socket("/carts/c1/watch", ["nonsense"])
+  assert.deepEqual(run, { sent: [JSON.stringify({ error: "unknown request 'nonsense'; send refresh" })], ended: "finished" })
+})

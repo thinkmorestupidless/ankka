@@ -1,6 +1,6 @@
 package shoppingcart.api
 
-import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import com.github.plokhotnyuk.jsoniter_scala.core.{JsonValueCodec, writeToString}
 import com.thinkmorestupidless.ankka.core.{Codecs, EntityId}
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
@@ -46,6 +46,19 @@ final class ShoppingCartEndpoint(client: ComponentClient) extends HttpEndpoint("
   delete("/{cartId}") { (cartId: String) =>
     cart(cartId).call(ShoppingCartEntity.discard).invoke()
   }
+
+  // docs:start socket
+  // A socket: the client sends "refresh" and is sent the cart, for as long as it keeps the socket
+  // open. The handler is ordinary blocking code on a virtual thread; `receive()` answers `None`
+  // once the socket is closed, which ends the loop and the handler.
+  socket("/{cartId}/watch") { (cartId: String, socket: Socket) =>
+    Iterator.continually(socket.receive()).takeWhile(_.isDefined).flatten.foreach {
+      case "refresh" =>
+        socket.send(writeToString(cart(cartId).call(ShoppingCartEntity.getCart).invoke()))
+      case other => socket.send(s"""{"error":"unknown request '$other'; send refresh"}""")
+    }
+  }
+  // docs:end socket
 
   private def cart(cartId: String) =
     client.forEventSourcedEntity(EntityId(cartId))

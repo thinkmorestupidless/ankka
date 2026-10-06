@@ -15,7 +15,8 @@ from ankka.context import (  # noqa: E402
 )
 from ankka.effects.common import DeleteNow, Error, ErrorCode, ExpireAfter  # noqa: E402
 from ankka.effects.event_sourced import EventSourcedEffect, ReadOnlyEffect  # noqa: E402
-from ankka.endpoint import Acl, CallerMatcher, Callers, Endpoint, HttpProblem, delete, get, patch, post, put, sse  # noqa: E402
+from ankka.endpoint import Acl, CallerMatcher, Callers, Endpoint, HttpProblem, Socket, SocketClosed  # noqa: E402
+from ankka.endpoint import delete, get, patch, post, put, socket, sse  # noqa: E402
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError, command, query  # noqa: E402
 from ankka.secrets import InMemorySecrets, Secrets  # noqa: E402
 from ankka.services import (  # noqa: E402
@@ -43,5 +44,6 @@ __all__ = [
     "StartFrom",
     "ScriptedRequest", "ScriptedServices", "ServiceCallFailed", "ServiceClient", "ServiceError",
     "ServiceIdentityMismatch", "ServiceResponse", "Services", "ServiceUnanswered", "ServiceUnresolvable",
-    "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "sse",
+    "Socket", "SocketClosed",
+    "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "socket", "sse",
 ]

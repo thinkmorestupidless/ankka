@@ -24,7 +24,7 @@ grow the names table. *Handled* (ok, refused, failed) is counted by the callee's
 out, undelivered) by the caller's transport, and the two are never added together; a view query and a
 call to another service are counted where they are made, since nothing hosts the callee. Every host counts
 through one function on `Observability`. A remote host stamps its own caller on what it sends the process,
-and protocol 1.3 carries metadata on a step, a tool call, a guardrail check, a result check and a view query
+and protocol 1.4 carries metadata on a step, a tool call, a guardrail check, a result check and a view query
 so a call made from any of them is attributed. A deployed service's topology is read by the control plane
 over port 7628 `observe` (`ObserveServer`, `InstanceTopologies`) and merged by `TopologyMerge`, which sums
 pairs and recomputes percentiles from the instances' histograms.

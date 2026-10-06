@@ -79,7 +79,11 @@ object WasmDiscovery:
       }
     }
     spec.endpoints.foreach { e =>
-      e.routes.filter(_.streaming).foreach { r =>
+      e.routes.filter(_.socket).foreach { r =>
+        problems += s"endpoint '${e.id}': route '${r.id}' is a socket route, and a module answers " +
+          "a request whole; a module cannot hold a socket"
+      }
+      e.routes.filter(r => r.streaming && !r.socket).foreach { r =>
         problems += s"endpoint '${e.id}': route '${r.id}' streams, and a module answers a " +
           "request whole; declare it without streaming"
       }

@@ -243,7 +243,7 @@ controlplane-api + proxy-core → cli
 | Timer | Postgres table + cluster-singleton sweeper |
 | Agent | Sharded per **session id**, serialized per conversation via a stash |
 | Autonomous agent | Sharded per **instance id**, `remember-entities`; its state an `ankka-agent-instance` entity, its tasks `ankka-task` entities |
-| HTTP Endpoint | pekko-http route tree |
+| HTTP Endpoint | pekko-http route tree: request routes, SSE routes, and socket routes (a WebSocket per socket, its handler on one virtual thread for its life) |
 | gRPC Endpoint | grpc-java on its own port, every kind of method through one binding (`grpc/Binding`) |
 
 Entity and workflow hosts pre-serialize domain values into `JournalRecord` / `StateRecord` via Pekko

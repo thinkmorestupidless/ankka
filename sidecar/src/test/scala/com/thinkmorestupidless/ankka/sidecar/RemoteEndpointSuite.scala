@@ -8,13 +8,14 @@ import com.thinkmorestupidless.ankka.http.{Caller, LocalCallers}
 import ankka.protocol.v1.endpoint.HttpResponse
 import com.google.protobuf.ByteString
 import com.thinkmorestupidless.ankka.http.HttpServer
-import com.thinkmorestupidless.ankka.testkit.AnkkaTestKit
+import com.thinkmorestupidless.ankka.testkit.{AnkkaTestKit, TestSocket}
 import io.grpc.{ManagedChannel, ManagedChannelBuilder}
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse as JdkResponse}
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.*
+import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
 /**
@@ -76,6 +77,34 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
       )
     )
   )
+  private val sockets = ProcessDouble.Endpoint(
+    "sockets",
+    "/sockets",
+    Vector(
+      ProcessDouble.Route("echo", "GET", "/echo", socket = true),
+      ProcessDouble.Route(
+        "fail",
+        "GET",
+        "/fail",
+        socket = true,
+        onSocket = ProcessDouble.SocketScript.FailOnFrame("the handler broke")
+      ),
+      ProcessDouble.Route(
+        "complete",
+        "GET",
+        "/complete",
+        socket = true,
+        onSocket = ProcessDouble.SocketScript.SendThenComplete(2)
+      ),
+      ProcessDouble.Route(
+        "never",
+        "GET",
+        "/never",
+        socket = true,
+        onSocket = ProcessDouble.SocketScript.NeverRead
+      )
+    )
+  )
   private val denied = ProcessDouble.Endpoint(
     "private",
     "/private",
@@ -119,12 +148,15 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
   private var kit: AnkkaTestKit       = scala.compiletime.uninitialized
   private var base: String            = scala.compiletime.uninitialized
   private val client                  = HttpClient.newHttpClient()
+  private var relayed: (GrpcConversation, Settings, Vector[EndpointSpec]) =
+    scala.compiletime.uninitialized
 
   override def beforeAll(): Unit =
     double = new ProcessDouble(
       ProcessDouble.DoubleSpec(
         entities = Vector(ProcessDouble.recorder()),
-        endpoints = Vector(carts, denied, authed, whoami)
+        endpoints = Vector(carts, denied, authed, whoami, sockets),
+        protocolVersion = "1.9"
       )
     )
     val port = double.start()
@@ -137,7 +169,8 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
       .toOption
       .get
     val endpoints = discovered.endpoints.map(e => RemoteEndpoint.from(e, conversation, settings))
-    val http      = HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
+    relayed = (conversation, settings, discovered.endpoints)
+    val http = HttpServer.at("127.0.0.1", 0)(endpoints.map(e => _ => e)*)
     kit = AnkkaTestKit.start(
       discovered.descriptors,
       Seq(http),
@@ -258,4 +291,112 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
       .toOption
       .getOrElse(fail("accepted"))
     assert(problems.exists(_.contains("must name at least one caller")), problems.toString)
+  }
+
+  // ── Sockets, relayed ──────────────────────────────────────────────────────
+
+  private def socketAt(path: String): TestSocket =
+    TestSocket
+      .open("ws" + base.stripPrefix("http") + path)
+      .fold(r => fail(s"not opened: $r"), identity)
+
+  test("a socket is relayed to the process and back, in order") {
+    val socket = socketAt("/sockets/echo")
+    (1 to 10).foreach(i => socket.send(s"frame $i"))
+    assertEquals(
+      (1 to 10).map(_ => socket.receive()).toVector,
+      (1 to 10).map(i => Some(s"frame $i")).toVector
+    )
+    socket.close()
+    assertEquals(socket.closed().code, 1000)
+  }
+
+  test("the process completing closes the socket 1000, and failing closes it 1011") {
+    val complete = socketAt("/sockets/complete")
+    assertEquals(
+      Vector(complete.receive(), complete.receive()),
+      Vector(Some("frame 1"), Some("frame 2"))
+    )
+    assertEquals(complete.closed(), TestSocket.Closed(1000, "finished"))
+    val fail = socketAt("/sockets/fail")
+    fail.send("go")
+    assertEquals(fail.closed(), TestSocket.Closed(1011, "failed"))
+  }
+
+  test(
+    "a process that never reads leaves the client's frames to the socket's bound: 1008, unread"
+  ) {
+    val socket = socketAt("/sockets/never")
+    val frame  = "x" * 16384 // the HTTP/2 window is counted in bytes
+    (1 to 200).foreach(_ => Try(socket.send(frame)))
+    assertEquals(socket.closed(10.seconds), TestSocket.Closed(1008, "unread"))
+  }
+
+  test(
+    "a process that stops while a socket is open closes it 1011; one opened after it is back is served"
+  ) {
+    val socket = socketAt("/sockets/echo")
+    socket.send("hello")
+    assertEquals(socket.receive(), Some("hello"))
+    val port = double.port
+    double.stop()
+    assertEquals(socket.closed(10.seconds), TestSocket.Closed(1011, "failed"))
+    val _        = double.start(port)
+    val deadline = System.currentTimeMillis() + 10000
+    var served   = false
+    while !served && System.currentTimeMillis() < deadline do
+      Try {
+        val again = socketAt("/sockets/echo")
+        again.send("back")
+        served = again.receive(2.seconds).contains("back")
+        again.close()
+      }
+      if !served then Thread.sleep(200)
+    assert(served, "a socket opened after the process came back was not served")
+  }
+
+  test("a sidecar refuses a frame bound larger than it can relay to its process") {
+    val config = com.typesafe.config.ConfigFactory
+      .parseString("ankka.http.socket.max-frame-size = 4MiB")
+      .withFallback(com.typesafe.config.ConfigFactory.load())
+    val problems = RemoteEndpoint.socketProblems(config)
+    assert(
+      problems.exists(_.contains("larger than a frame a sidecar can relay")),
+      problems.toString
+    )
+    assertEquals(
+      RemoteEndpoint.socketProblems(com.typesafe.config.ConfigFactory.load()),
+      Vector.empty
+    )
+  }
+
+  test("a stopping sidecar closes a relayed socket 1001, and tells the process it is going away") {
+    // A second server over the same service and process, so stopping it ends no other case's socket.
+    val (conversation, settings, specs) = relayed
+    val server =
+      HttpServer.at("127.0.0.1", 0)(
+        specs.map(e =>
+          (_: com.thinkmorestupidless.ankka.http.EndpointClients) =>
+            RemoteEndpoint.from(e, conversation, settings)
+        )*
+      )
+    server.start(kit.service)
+    val socket = TestSocket
+      .open(s"ws://127.0.0.1:${server.boundPort.get}/sockets/echo")
+      .fold(r => fail(s"not opened: $r"), identity)
+    socket.send("hello")
+    assertEquals(socket.receive(), Some("hello"))
+    val before = double.received.size
+    server.stop()
+    assertEquals(socket.closed(10.seconds), TestSocket.Closed(1001, "going away"))
+    val deadline = System.currentTimeMillis() + 5000
+    def told = double.received.asScala
+      .drop(before)
+      .map(_.message)
+      .collect { case in: ankka.protocol.v1.endpoint.SocketIn =>
+        in.message.closed.map(_.reason)
+      }
+      .flatten
+    while !told.contains("going away") && System.currentTimeMillis() < deadline do Thread.sleep(50)
+    assertEquals(told.toVector, Vector("going away"))
   }

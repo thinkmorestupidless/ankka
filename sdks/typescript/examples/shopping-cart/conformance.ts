@@ -2,6 +2,8 @@
 // and route here is named in `specs/009-polyglot-runtimes/contracts/conformance.md`; the Scala reference
 // (`sidecar/src/test/.../ConformanceReference.scala`) and the Python one have the same.
 import {
+  socket,
+  type Socket,
   Acl,
   Agent,
   AutonomousAgent,
@@ -287,6 +289,11 @@ const ServiceCallRecord = s.record("service-call-record", {
   message: s.string,
 })
 type ServiceCallRecordValue = Infer<typeof ServiceCallRecord>
+/** What the socket handlers noticed, for a case to read once a socket has closed. */
+const socketLog: string[] = []
+
+const callerWord = (c: { kind: string; project?: string; name?: string }): string =>
+  c.kind === "service" ? `service:${c.project}/${c.name}` : c.kind
 
 export class ConformanceEndpoint extends Endpoint {
   static readonly prefix = "/conformance"
@@ -366,6 +373,20 @@ export class ConformanceEndpoint extends Endpoint {
     stream: sse("/stream/{session}", async function* () {
       for (const frame of [" leading space", "two\nlines", "plain"]) yield frame
     }),
+    // Sockets (protocol 1.9). Echoes each frame; "context" is answered with the room and the opening
+    // request's `tag`, read after any number of frames.
+    socketRoom: socket("/socket/{room}", async (_ep: ConformanceEndpoint, req, socket: Socket) => {
+      for await (const text of socket) await socket.send(text === "context" ? `${req.params.room} ${req.query.get("tag") ?? ""}` : text)
+      socketLog.push(`closed:${req.params.room}`)
+    }),
+    socketOnce: socket("/socket-once", async (_ep: ConformanceEndpoint, _req, socket: Socket) => {
+      await socket.receive()
+    }),
+    socketFail: socket("/socket-fail", async (_ep: ConformanceEndpoint, _req, socket: Socket) => {
+      await socket.receive()
+      throw new Error("the socket handler broke")
+    }),
+    socketLog: get("/socket-log", s.list(s.string), () => [...socketLog]),
     setProfile: post("/profile/{id}", s.string, s.string, (ep: ConformanceEndpoint, req, name) => ep.client.of(Profile, req.params.id).call(Profile.handlers.set).invoke(name)),
     getProfile: get("/profile/{id}", s.string, (ep: ConformanceEndpoint, req) => ep.client.of(Profile, req.params.id).call(Profile.handlers.get).invoke()),
     deleteProfile: del("/profile/{id}", s.string, (ep: ConformanceEndpoint, req) => ep.client.of(Profile, req.params.id).call(Profile.handlers.delete).invoke()),
@@ -420,6 +441,15 @@ export class PrivateEndpoint extends Endpoint {
       const p = req.principal
       if (!p) throw new Error("an authenticated route is handed its principal")
       return JSON.stringify({ subject: p.subject, roles: [...p.roles].sort(), tier: p.claims.tier ?? null, issuer: p.issuer })
+    }),
+    socket: socket("/socket", async (_ep: PrivateEndpoint, req, socket: Socket) => {
+      const p = req.principal
+      if (!p) throw new Error("an authenticated route is handed its principal")
+      socketLog.push(`private:${p.subject}`)
+      await socket.send(JSON.stringify({ subject: p.subject, roles: [...p.roles].sort(), caller: callerWord(req.caller) }))
+      for await (const _ of socket) {
+        // nothing: the socket stays open until the client closes it
+      }
     }),
   }
 }

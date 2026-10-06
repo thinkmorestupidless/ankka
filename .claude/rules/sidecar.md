@@ -67,3 +67,7 @@ paths:
 - **munit's `--` filter matches the full test name, suite included.** `ANKKA_CONFORMANCE_ONLY='es.*'`
   matched nothing and the whole `ConformanceSuite` reported as *ignored* with zero tests — a green exit for
   a run that did nothing. The glob needs a leading wildcard: `'*es.*'`.
+- **A socket field the runtime does not know is a plain GET to it.** A runtime before protocol 1.9 reads
+  `Route.socket` as nothing and would serve the route as a request, so a socket route is refused from
+  both ends: the sidecar refuses a `Spec` declaring one under an earlier minor — the first minor it gates
+  on — and an SDK refuses discovery from a runtime stating an earlier version.

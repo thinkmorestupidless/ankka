@@ -240,6 +240,19 @@ class DescriptorSuite extends munit.FunSuite:
     assertEquals(ServiceSpec("i:1", env = Vector(neighbour)).problems, Vector.empty)
   }
 
+  test("a socket's limits are the descriptor's to give, in every hosting") {
+    val limits = Vector(
+      EnvVar("ANKKA_SOCKET_MAX_FRAME_SIZE", value = Some("128KiB")),
+      EnvVar("ANKKA_SOCKET_UNREAD_FRAMES", value = Some("16")),
+      EnvVar("ANKKA_SOCKET_KEEP_ALIVE", value = Some("15s"))
+    )
+    assertEquals(ServiceSpec("i:1", env = limits).problems, Vector.empty)
+    assertEquals(
+      ServiceSpec("i:1", hosting = "process", protocol = Some("1.6"), env = limits).problems,
+      Vector.empty
+    )
+  }
+
   test("port problems arrive with every other problem, in one response") {
     val problems = ServiceSpec(
       "",

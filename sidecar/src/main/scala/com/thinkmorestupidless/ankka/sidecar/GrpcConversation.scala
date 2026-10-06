@@ -10,7 +10,15 @@ import ankka.protocol.v1.agent.{
 }
 import ankka.protocol.v1.discovery.{DiscoveryGrpc, SidecarInfo}
 import ankka.protocol.v1.consumer.{ConsumerEffect, ConsumerGrpc}
-import ankka.protocol.v1.endpoint.{HttpGrpc, HttpReply, StreamFrame}
+import ankka.protocol.v1.endpoint.{
+  HttpGrpc,
+  HttpReply,
+  SocketClosed as PbSocketClosed,
+  SocketFrame,
+  SocketIn,
+  SocketOut,
+  StreamFrame
+}
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
 import ankka.protocol.v1.key_value.{KeyValueGrpc, KeyValueIn, KeyValueOut}
 import ankka.protocol.v1.payload as pb
@@ -501,6 +509,79 @@ final class GrpcConversation(
         )
         NotUsed
       }
+
+  /**
+   * A socket's call: `open` first, then the client's frames as the call can take them, then
+   * `closed`. Frames are sent only when grpc-java says the call is ready, so a process that does
+   * not read is not buffered for here; the client's frames wait in the socket's own bounded queue,
+   * where its limit closes it.
+   */
+  override def openSocket(request: HttpForward): SocketLink =
+    val outputs = java.util.concurrent.LinkedBlockingQueue[SocketOutput]()
+    val lock    = Object()
+    @volatile var ended: Option[SocketOutput]                               = None
+    @volatile var closed                                                    = false
+    @volatile var outbound: io.grpc.stub.ClientCallStreamObserver[SocketIn] = null
+
+    def end(output: SocketOutput): Unit =
+      val first = lock.synchronized {
+        val was = ended.isEmpty
+        if was then ended = Some(output)
+        lock.notifyAll()
+        was
+      }
+      if first then outputs.put(output)
+
+    val observer = new io.grpc.stub.ClientResponseObserver[SocketIn, SocketOut]:
+      def beforeStart(call: io.grpc.stub.ClientCallStreamObserver[SocketIn]): Unit =
+        outbound = call
+        call.setOnReadyHandler(() => lock.synchronized(lock.notifyAll()))
+      def onNext(message: SocketOut): Unit = message.message match
+        case SocketOut.Message.Frame(SocketFrame(SocketFrame.Kind.Text(text), _)) =>
+          outputs.put(SocketOutput.Frame(text))
+        case SocketOut.Message.Frame(_) =>
+          end(SocketOutput.Failed("the process sent a frame of a kind this sidecar does not know"))
+        case SocketOut.Message.Completed(_) => end(SocketOutput.Completed)
+        case SocketOut.Message.Failed(e)    => end(SocketOutput.Failed(fromError(e).message))
+        // A runtime reads a case it does not know as no case at all: a violation, never skipped.
+        case SocketOut.Message.Empty =>
+          end(SocketOutput.Failed("the process sent a message with no case set"))
+      def onError(t: Throwable): Unit =
+        end(SocketOutput.Failed(s"the process could not be reached: ${t.getMessage}"))
+      def onCompleted(): Unit = end(SocketOutput.Completed)
+
+    val requests = http.handleSocket(observer)
+    lock.synchronized(requests.onNext(SocketIn(SocketIn.Message.Open(toSocketOpen(request)))))
+
+    new SocketLink:
+      def send(text: String): Boolean =
+        lock.synchronized {
+          while ended.isEmpty && !closed && outbound != null && !outbound.isReady do lock.wait(100)
+          if ended.isDefined || closed then false
+          else
+            requests.onNext(
+              SocketIn(SocketIn.Message.Frame(SocketFrame(SocketFrame.Kind.Text(text))))
+            )
+            true
+        }
+
+      def close(reason: String): Unit =
+        lock.synchronized {
+          if !closed then
+            closed = true
+            try
+              if ended.isEmpty then
+                requests.onNext(SocketIn(SocketIn.Message.Closed(PbSocketClosed(reason))))
+              requests.onCompleted()
+            catch case NonFatal(_) => () // the call has already ended
+        }
+
+      def next(within: FiniteDuration): Option[SocketOutput] =
+        Option(outputs.poll(within.toMillis, java.util.concurrent.TimeUnit.MILLISECONDS)) match
+          case Some(output @ (SocketOutput.Completed | SocketOutput.Failed(_))) =>
+            outputs.put(output) // every later read answers the same
+            Some(output)
+          case other => other
 
   /**
    * A real round trip with a short deadline, not the channel's state: a process that is frozen or

@@ -214,6 +214,43 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       if sequences(slot) == seq && read.durationNanos >= 0L then read else null
 
   /**
+   * A span that will be recorded later, whole, by `record`: its trace, its id and its start, and no
+   * slot. For an invocation that may outlive the ring — a socket is open for as long as its client
+   * wants, and a slot claimed by `begin` at the open would be reused by newer spans long before the
+   * close, so the span would never be published. Calls made meanwhile name it as their parent
+   * (`Trace.within(span, …)`), and appear before it does.
+   */
+  def reserve(
+      traceIdHigh: Long,
+      traceId: Long,
+      componentRef: Int,
+      handlerRef: Int
+  ): Span =
+    Span(-1, 0L, nextSpanId(), traceIdHigh, traceId, componentRef, handlerRef, System.nanoTime())
+
+  /**
+   * Publishes a span `reserve` made, ending now: claims a slot as `begin` does, writes it whole,
+   * counts it as `complete` does, and publishes it at once.
+   */
+  def record(span: Span, parentSpanId: Long, kind: SpanKind, outcome: SpanOutcome): Unit =
+    val duration = System.nanoTime() - span.startedNanos
+    totals.add(span.componentRef, span.handlerRef, outcome, duration)
+    val seq  = next.incrementAndGet()
+    val slot = ((seq - 1) & mask).toInt
+    if hold(slot, seq) then
+      traceIdsHigh(slot) = span.traceIdHigh
+      traceIds(slot) = span.traceId
+      spanIds(slot) = span.id
+      parentIds(slot) = parentSpanId
+      this.componentRef(slot) = span.componentRef
+      this.handlerRef(slot) = span.handlerRef
+      kinds(slot) = kind.ordinal.toByte
+      startedNanos(slot) = span.startedNanos
+      durations(slot) = duration
+      outcomes(slot) = outcome.ordinal.toByte
+      Recorder.Sequences.setRelease(sequences, slot, seq) // publish: now it may be read
+
+  /**
    * Every complete span currently held, newest first.
    *
    * Spans still in flight and spans torn by a concurrent overwrite are skipped rather than reported

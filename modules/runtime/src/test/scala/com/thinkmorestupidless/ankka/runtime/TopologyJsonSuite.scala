@@ -141,6 +141,22 @@ final class TopologyJsonSuite extends FunSuite:
     assertEquals(nodes.last.handlers, Vector(Handler("GET /chat/{session}", "route", Some(true))))
   }
 
+  test("a socket route is one of its endpoint's handlers, beside the endpoint's other routes") {
+    val routes = Vector(
+      ServedRoute("GET", "/notices", streaming = false, "endpoint:/notices"),
+      ServedRoute("SOCKET", "/notices/stream", streaming = true, "endpoint:/notices")
+    )
+    val nodes = read(render(Nil, routes)).nodes
+    assertEquals(nodes.map(_.id), Vector("endpoint:/notices"))
+    assertEquals(
+      nodes.head.handlers,
+      Vector(
+        Handler("GET /notices", "route", Some(false)),
+        Handler("SOCKET /notices/stream", "route", Some(true))
+      )
+    )
+  }
+
   test("an endpoint that is also registered as a component is drawn once, from its routes") {
     // A remote endpoint is declared in discovery, so it is in the registry too.
     val registered = descriptor("orders-api", ComponentKind.Endpoint)

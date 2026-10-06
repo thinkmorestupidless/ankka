@@ -18,6 +18,7 @@ import org.apache.pekko.http.scaladsl.model.*
 import org.apache.pekko.http.scaladsl.model.sse.ServerSentEvent
 import org.apache.pekko.http.scaladsl.marshalling.sse.EventStreamMarshalling.*
 import org.apache.pekko.http.scaladsl.marshalling.Marshal
+import org.apache.pekko.http.impl.engine.ws.AnkkaSocketUpgrade
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -48,6 +49,7 @@ final class HttpServer private (
   @volatile private var binding: Option[Http.ServerBinding] = None
   @volatile private var served: Vector[ServedRoute]         = Vector.empty
   @volatile private var scheme: String                      = "http"
+  private val sockets                                       = OpenSockets()
 
   def name: String = "http-server"
 
@@ -91,6 +93,8 @@ final class HttpServer private (
         ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = false, id)
       ) ++ endpoint.streamRoutes.map(r =>
         ServedRoute(r.method, s"${endpoint.prefix}${r.template.render}", streaming = true, id)
+      ) ++ endpoint.socketRoutes.map(r =>
+        ServedRoute("SOCKET", s"${endpoint.prefix}${r.template.render}", streaming = true, id)
       )
     }
 
@@ -101,11 +105,15 @@ final class HttpServer private (
       endpoint.streamRoutes.foreach { route =>
         system.log.info("route {} {}{} (SSE)", route.method, endpoint.prefix, route.template.render)
       }
+      endpoint.socketRoutes.foreach { route =>
+        system.log.info("route SOCKET {}{}", endpoint.prefix, route.template.render)
+      }
       // Judged per route, not on the endpoint's own acl: a DenyAll endpoint that opens one route
       // with `withAcl` is a deliberate shape, and warning about it would teach the reader to
       // ignore the warning that matters — an endpoint nothing can reach.
       val effective = endpoint.routes.map(_.acl.getOrElse(endpoint.acl)) ++
-        endpoint.streamRoutes.map(_.acl.getOrElse(endpoint.acl))
+        endpoint.streamRoutes.map(_.acl.getOrElse(endpoint.acl)) ++
+        endpoint.socketRoutes.map(_.acl.getOrElse(endpoint.acl))
       if effective.forall(_ == Acl.DenyAll) && (effective.nonEmpty || endpoint.acl == Acl.DenyAll)
       then
         system.log.warn(
@@ -114,9 +122,11 @@ final class HttpServer private (
         )
     }
 
+    val upgrades = SocketUpgrades.from(system, sockets)
+
     val tls     = serviceTls(config)
     val callers = CallerSource(tls)
-    val handler = Router(endpoints, bodyTimeout, callers).handle
+    val handler = Router(endpoints, bodyTimeout, callers, Some(upgrades)).handle
 
     val server = Http()(using system).newServerAt(host, bindPort)
     val bound = Await.result(
@@ -148,7 +158,8 @@ final class HttpServer private (
       bound.localAddress.getPort
     )
     val namesCallers = endpoints.exists(e =>
-      (e.acl +: (e.routes.flatMap(_.acl) ++ e.streamRoutes.flatMap(_.acl))).exists {
+      (e.acl +: (e.routes.flatMap(_.acl) ++ e.streamRoutes.flatMap(_.acl) ++
+        e.socketRoutes.flatMap(_.acl))).exists {
         case Acl.AllowCallers(_) => true
         case _                   => false
       }
@@ -158,8 +169,17 @@ final class HttpServer private (
         "caller identity is not enforced outside a cluster: every request is Caller.Local"
       )
 
+  /**
+   * Stops accepting, closes every open socket "going away" so its client knows to open another,
+   * gives the close handshakes a moment, then ends what is left as before. Without the middle step
+   * `terminate`'s deadline would cut every socket off.
+   */
   override def stop(): Unit =
-    binding.foreach(b => Await.ready(b.terminate(5.seconds), 10.seconds))
+    binding.foreach { b =>
+      Await.ready(b.unbind(), 10.seconds)
+      sockets.closeAll(CloseReason.GoingAway, 2.seconds)
+      Await.ready(b.terminate(5.seconds), 10.seconds)
+    }
     binding = None
 
   /** Not ready until bound: a member that cannot yet answer a request must not receive one. */
@@ -217,9 +237,12 @@ final class HttpServer private (
     }
 
     endpoints.foreach { endpoint =>
+      // A socket route is a GET: one on the template of a GET or an SSE route would make which
+      // one answers depend on whether the request asked to upgrade.
       val declared =
         endpoint.routes.map(r => (r.method, r.template.render)) ++
-          endpoint.streamRoutes.map(r => (r.method, r.template.render))
+          endpoint.streamRoutes.map(r => (r.method, r.template.render)) ++
+          endpoint.socketRoutes.map(r => (r.method, r.template.render))
       declared.groupBy(identity).foreach { (key, duplicated) =>
         if duplicated.sizeIs > 1 then
           problems += s"'${endpoint.prefix}' declares ${key._1} ${key._2} ${duplicated.size} times"
@@ -253,17 +276,20 @@ object HttpServer:
 private enum Matched:
   case Plain(route: Route, args: Vector[String])
   case Streaming(route: StreamRoute, args: Vector[String])
+  case Socket(route: SocketRoute, args: Vector[String])
 
   /** The route's own ACL, if it declared one; `None` defers to the endpoint's. */
   def acl: Option[Acl] = this match
     case Plain(route, _)     => route.acl
     case Streaming(route, _) => route.acl
+    case Socket(route, _)    => route.acl
 
 /** Matches requests to routes and turns handler outcomes into responses. */
 private final class Router(
     endpoints: Vector[HttpEndpoint],
     bodyTimeout: FiniteDuration,
-    callers: CallerSource = CallerSource.local
+    callers: CallerSource = CallerSource.local,
+    configuredUpgrades: Option[SocketUpgrades] = None
 ):
 
   // Sorted once at startup: most specific template first, so a literal segment is never
@@ -273,6 +299,9 @@ private final class Router(
 
   private val streamRoutesByEndpoint: Map[String, Vector[StreamRoute]] =
     endpoints.map(e => e.prefix -> e.streamRoutes.sortBy(_.template.specificity)).toMap
+
+  private val socketRoutesByEndpoint: Map[String, Vector[SocketRoute]] =
+    endpoints.map(e => e.prefix -> e.socketRoutes.sortBy(_.template.specificity)).toMap
 
   private val HealthPath = Vector("_ankka", "health")
 
@@ -309,6 +338,18 @@ private final class Router(
             case Right(caller) =>
               admitted(endpoint, request, remaining, found, effective, caller)
 
+  /** The subprotocol a browser's token arrives in, since a browser cannot set a header. */
+  private val BearerProtocol = "ankka.bearer."
+
+  /** The subprotocol a socket's 101 selects when offered; never the bearer one. */
+  private val SocketProtocol = "ankka.socket"
+
+  private def offeredProtocols(request: HttpRequest): Vector[String] =
+    request.headers
+      .collect { case h if h.lowercaseName == "sec-websocket-protocol" => h.value }
+      .flatMap(_.split(',').iterator.map(_.trim).filter(_.nonEmpty))
+      .toVector
+
   private def admitted(
       endpoint: HttpEndpoint,
       request: HttpRequest,
@@ -317,7 +358,10 @@ private final class Router(
       effective: Acl,
       caller: Caller
   )(using system: ActorSystem[?], ec: ExecutionContext): Future[HttpResponse] =
-    admit(effective, contextFor(request, caller)) match
+    val context = found match
+      case Some(Matched.Socket(_, _)) => forSocket(request, contextFor(request, caller))
+      case _                          => contextFor(request, caller)
+    admit(effective, context) match
       case Left(refused) => Future.successful(refused)
       case Right(context) =>
         found match
@@ -327,6 +371,9 @@ private final class Router(
           case Some(Matched.Streaming(route, args)) =>
             val origin = originOf(endpoint, route.method, route.template)
             dispatchStream(route, request, context, args, origin)
+          case Some(Matched.Socket(route, args)) =>
+            val origin = originOf(endpoint, "SOCKET", route.template)
+            dispatchSocket(route, request, context, args, origin)
           case None => unmatched(endpoint, request, remaining)
 
   /**
@@ -352,19 +399,29 @@ private final class Router(
       method: String,
       remaining: Vector[String]
   ): Option[Matched] =
-    val streaming = streamRoutesByEndpoint(endpoint.prefix).iterator
+    // Validation keeps a socket route off the template of any GET, so consulting it first changes
+    // nothing for the routes that were there before it.
+    val socket =
+      if method != "GET" then None
+      else
+        socketRoutesByEndpoint(endpoint.prefix).iterator
+          .map(route => route -> route.template.matches(remaining))
+          .collectFirst { case (route, Some(args)) => Matched.Socket(route, args) }
+    lazy val streaming = streamRoutesByEndpoint(endpoint.prefix).iterator
       .map(route => route -> route.template.matches(remaining))
       .collectFirst {
         case (route, Some(args)) if route.method == method => Matched.Streaming(route, args)
       }
 
-    streaming.orElse(
-      routesByEndpoint(endpoint.prefix).iterator
-        .map(route => route -> route.template.matches(remaining))
-        .collectFirst {
-          case (route, Some(args)) if route.method == method => Matched.Plain(route, args)
-        }
-    )
+    socket
+      .orElse(streaming)
+      .orElse(
+        routesByEndpoint(endpoint.prefix).iterator
+          .map(route => route -> route.template.matches(remaining))
+          .collectFirst {
+            case (route, Some(args)) if route.method == method => Matched.Plain(route, args)
+          }
+      )
 
   /** No route of this endpoint answers for the path, or none answers for the method. */
   private def unmatched(
@@ -375,7 +432,8 @@ private final class Router(
     // Distinguish "wrong verb" from "no such path" — a 404 for a POST to a GET-only
     // route sends the caller looking for a routing bug that is not there.
     val pathExists = endpoint.routes.exists(_.template.matches(remaining).isDefined) ||
-      endpoint.streamRoutes.exists(_.template.matches(remaining).isDefined)
+      endpoint.streamRoutes.exists(_.template.matches(remaining).isDefined) ||
+      endpoint.socketRoutes.exists(_.template.matches(remaining).isDefined)
     val failure =
       if pathExists then HttpProblem(405, s"${request.method.value} not allowed on this path")
       else HttpProblem.notFound(s"no route for ${request.method.value} ${request.uri.path}")
@@ -545,6 +603,70 @@ private final class Router(
           problem(HttpProblem(500, "internal error"))
       }
 
+  /**
+   * The opening request of a socket as its ACL and its handler see it. A browser cannot set
+   * `Authorization` on a socket, so a token it offers as the subprotocol `ankka.bearer.<token>` is
+   * presented as that header when there is none — exactly where every authenticator already looks.
+   * A header the client did send wins. `Sec-WebSocket-Protocol` is withheld either way, so the
+   * token reaches a handler, a log or a trace only as the header every route already treats with
+   * care.
+   */
+  private def forSocket(request: HttpRequest, context: SimpleRequestContext): SimpleRequestContext =
+    val withoutProtocols =
+      context.headers.filterNot((name, _) => name.equalsIgnoreCase("sec-websocket-protocol"))
+    val offered = offeredProtocols(request).collectFirst {
+      case p if p.startsWith(BearerProtocol) && p.length > BearerProtocol.length =>
+        p.drop(BearerProtocol.length)
+    }
+    val hasHeader = withoutProtocols.exists((name, _) => name.equalsIgnoreCase("authorization"))
+    context.copy(headers = offered match
+      case Some(token) if !hasHeader => withoutProtocols :+ ("Authorization" -> s"Bearer $token")
+      case _                         => withoutProtocols)
+
+  /**
+   * Opens a socket for an admitted request: 426 when it did not ask to upgrade, a 400 when its path
+   * does not parse, and otherwise the 101 — after which the handler runs on a virtual thread until
+   * it returns, and the socket is closed with what ended it.
+   */
+  private def dispatchSocket(
+      route: SocketRoute,
+      request: HttpRequest,
+      context: RequestContext,
+      args: Vector[String],
+      origin: CallOrigin
+  )(using system: ActorSystem[?]): Future[HttpResponse] =
+    AnkkaSocketUpgrade.of(request) match
+      case None =>
+        request.discardEntityBytes()
+        Future.successful(
+          problem(HttpProblem(426, s"${route.describe} is opened as a socket"))
+            .addHeader(headers.RawHeader("Upgrade", "websocket"))
+        )
+      case Some(upgrade) =>
+        val handler =
+          try Right(route.run(args))
+          catch case failure: HttpProblem => Left(problem(failure))
+        handler match
+          case Left(refused) => Future.successful(refused)
+          case Right(run) =>
+            val upgrades = configuredUpgrades.getOrElse(SocketUpgrades.from(system, OpenSockets()))
+            val socket   = upgrades.open()
+            val flow = socket.flow { opened =>
+              Future(
+                RequestScope.withContext(context)(
+                  Tracing.socket(route.describe, origin)(run(opened))
+                )
+              )(using AnkkaExecutors.virtual).onComplete {
+                case scala.util.Success(_) => opened.close(CloseReason.Finished)
+                case scala.util.Failure(failure) =>
+                  system.log.error(s"unhandled failure in ${route.describe}", failure)
+                  opened.close(CloseReason.Failed)
+              }(using AnkkaExecutors.virtual)
+            }
+            val protocol =
+              Option.when(offeredProtocols(request).contains(SocketProtocol))(SocketProtocol)
+            Future.successful(upgrades.respond(upgrade, flow, protocol, socket))
+
   private def text(status: Int, body: String): HttpResponse =
     HttpResponse(StatusCode.int2StatusCode(status), entity = HttpEntity(body))
 
@@ -631,6 +753,35 @@ private[http] object CallerSource:
  */
 private[ankka] object Tracing:
 
+  /**
+   * A socket's span: from its opening to its close, recorded once it has closed. A span begun at
+   * the open would hold a slot in the ring for as long as the socket lasted, and the ring reuses a
+   * slot once enough newer spans exist — so the span of exactly the long sockets worth looking at
+   * would never be recorded. The calls the handler makes meanwhile name this span as their parent.
+   *
+   * A handler ended by `SocketClosed` ended as a handler ends when its client goes, so it is `Ok`.
+   */
+  def socket(describe: String, origin: CallOrigin)(body: => Unit)(using
+      system: ActorSystem[?]
+  ): Unit =
+    val observability = Observability(system)
+    val recorder      = observability.recorder
+    // A socket opened by a caller that sent its trace continues that trace, as a request does.
+    val continued =
+      RequestScope.currentContext.flatMap(_.header(Traceparent.Name)).flatMap(Traceparent.parse)
+    val span = recorder.reserve(
+      continued.fold(Trace.mintHigh())(_.traceIdHigh),
+      continued.fold(Trace.mint())(_.traceId),
+      observability.names.intern("http"),
+      observability.names.intern(describe)
+    )
+    var outcome = SpanOutcome.Failed
+    try
+      try Trace.within(span, origin)(body)
+      catch case _: SocketClosed => ()
+      outcome = SpanOutcome.Ok
+    finally recorder.record(span, continued.fold(0L)(_.spanId), SpanKind.Server, outcome)
+
   def request[A](describe: String, origin: CallOrigin)(body: => A)(using
       system: ActorSystem[?]
   ): A =
@@ -656,3 +807,56 @@ private[ankka] object Tracing:
       outcome = SpanOutcome.Ok
       result
     finally observability.recorder.complete(span, outcome)
+
+/**
+ * What a server needs to open a socket: the limits, pekko-http's settings for the upgrade with the
+ * keep-alive set, and where the open sockets are kept so the server can close them when it stops.
+ */
+private[http] final class SocketUpgrades(
+    settings: SocketSettings,
+    upgradeSettings: org.apache.pekko.http.scaladsl.settings.WebSocketSettings,
+    log: org.apache.pekko.event.LoggingAdapter,
+    registry: OpenSockets
+):
+  def open(): OpenSocket = OpenSocket(settings, registry)
+
+  def respond(
+      upgrade: org.apache.pekko.http.scaladsl.model.ws.WebSocketUpgrade,
+      flow: org.apache.pekko.stream.scaladsl.Flow[
+        org.apache.pekko.http.scaladsl.model.ws.Message,
+        org.apache.pekko.http.scaladsl.model.ws.Message,
+        ?
+      ],
+      subprotocol: Option[String],
+      socket: OpenSocket
+  ): HttpResponse =
+    AnkkaSocketUpgrade.respond(
+      upgrade,
+      flow,
+      subprotocol,
+      () => socket.chosen(),
+      upgradeSettings,
+      log
+    )
+
+private[http] object SocketUpgrades:
+
+  /**
+   * From the system's configuration, refusing limits that cannot work: a keep-alive not shorter
+   * than pekko-http's own idle timeout would leave every quiet socket to be cut off.
+   */
+  def from(system: ActorSystem[?], registry: OpenSockets): SocketUpgrades =
+    val settings = SocketSettings.from(system.settings.config)
+    val server   = org.apache.pekko.http.scaladsl.settings.ServerSettings(system)
+    SocketSettings.problems(settings, server.timeouts.idleTimeout) match
+      case Vector() => ()
+      case found =>
+        throw IllegalArgumentException(
+          found.mkString("invalid ankka http configuration:\n  - ", "\n  - ", "")
+        )
+    SocketUpgrades(
+      settings,
+      server.websocketSettings.withPeriodicKeepAliveMaxIdle(settings.keepAlive),
+      org.apache.pekko.event.Logging(system.classicSystem, classOf[HttpServer]),
+      registry
+    )

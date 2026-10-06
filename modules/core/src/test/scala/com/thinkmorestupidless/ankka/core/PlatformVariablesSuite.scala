@@ -40,11 +40,11 @@ class PlatformVariablesSuite extends munit.FunSuite:
 
   test(
     "the variables for the platform's program alone: a model's, a database's, the issuers', " +
-      "the secret key"
+      "a socket's limits, the secret key"
   ) {
     assertEquals(
       RuntimeOnlyPrefixes,
-      Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_")
+      Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_", "ANKKA_SOCKET_")
     )
     assertEquals(RuntimeOnlyNames, Set(SecretKey, ServiceClientTimeout))
     assertEquals(SecretKey, "ANKKA_SECRET_KEY")
@@ -86,6 +86,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(runtimeOnly("ANTHROPIC_API_KEY"))
     assert(runtimeOnly("ANKKA_SECRET_KEY"))
     assert(runtimeOnly("ANKKA_AUTH_ISSUERS"))
+    assert(runtimeOnly("ANKKA_SOCKET_KEEP_ALIVE"), "the platform's program holds the socket")
     assert(!runtimeOnly("ANKKA_SECRET_KEYS"))
     assert(!runtimeOnly("ANKKA_KAFKA_BOOTSTRAP_SERVERS"))
     assert(!runtimeOnly("GREETING"))
@@ -101,6 +102,7 @@ class PlatformVariablesSuite extends munit.FunSuite:
     assert(withheldFromModule("ANKKA_SECRET_KEY"), "runtime-only by name")
     assert(withheldFromModule("ANKKA_DB_PASSWORD"), "runtime-only by prefix")
     assert(withheldFromModule("ANKKA_AUTH_ISSUERS"), "runtime-only by prefix: the issuers")
+    assert(withheldFromModule("ANKKA_SOCKET_MAX_FRAME_SIZE"), "runtime-only by prefix: a socket's")
     assert(withheldFromModule("ANKKA_CLUSTER_SERVICE_X"), "read by the runtime")
     assert(withheldFromModule("ANKKA_BASE_DOMAIN"), "read by the runtime, by name")
     assert(!withheldFromModule("ANKKA_KAFKA_BOOTSTRAP_SERVERS"), "shared, so a module may read it")

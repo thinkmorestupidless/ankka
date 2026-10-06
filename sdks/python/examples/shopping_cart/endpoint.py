@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+
 from collections.abc import AsyncIterator
 
-from ankka import Acl, Done, Endpoint, HttpProblem, delete, get, post, sse
+from ankka import Acl, Done, Endpoint, HttpProblem, Socket, delete, get, post, socket, sse
+from ankka.codec import default_codec_for
 from ankka.client import Calls, ComponentClient
 
 from examples.shopping_cart.cart_rows import CartRow
@@ -48,6 +51,19 @@ class ShoppingCartEndpoint(Endpoint):
     async def discard(self, cartId: str) -> Done:
         return await self._cart(cartId).call("discard").invoke(reply=Done)
     # docs:end endpoint
+
+    # docs:start socket
+    # A socket: the client sends "refresh" and is sent the cart, for as long as it keeps the socket
+    # open. `async for` ends when the socket is closed, and so does the handler.
+    @socket("/{cartId}/watch")
+    async def watch(self, cartId: str, socket: Socket) -> None:
+        async for text in socket:
+            if text == "refresh":
+                cart = await self._cart(cartId).call("get-cart").invoke(reply=ShoppingCart)
+                await socket.send(default_codec_for(ShoppingCart).encode(cart).decode("utf-8"))
+            else:
+                await socket.send(json.dumps({"error": f"unknown request {text!r}; send refresh"}))
+    # docs:end socket
 
     # ── The view, the workflow and the notifier's log ──────────────────────
 

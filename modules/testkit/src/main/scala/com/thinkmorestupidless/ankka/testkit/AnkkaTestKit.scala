@@ -65,6 +65,20 @@ final class AnkkaTestKit private (
   def jdbcUrl: String = database.jdbcUrl
 
   /**
+   * Opens a socket to `path` on the service's HTTP server, which must be one of its extensions. A
+   * `Left` is the opening request's answer when it was not an upgrade.
+   */
+  def socket(
+      path: String,
+      headers: Map[String, String] = Map.empty,
+      subprotocols: Seq[String] = Nil
+  ): Either[TestSocket.Refused, TestSocket] =
+    val base = current.boundAddresses
+      .find(_.startsWith("http"))
+      .getOrElse(throw IllegalStateException("the service has no HTTP server bound"))
+    TestSocket.open("ws" + base.stripPrefix("http") + path, headers, subprotocols)
+
+  /**
    * Polls `check` every 100ms until it answers, failing with `description` after `within`.
    *
    * The wait belongs around the value that changes; assert on anything that does not change after

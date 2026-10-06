@@ -38,7 +38,7 @@ export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (m
     async discover(info) {
       log(`ankka: discovery from sidecar (protocol ${info.protocolVersion}, runtime ${info.runtimeVersion})`)
       const answer = spec()
-      const why = refusal(answer, info.protocolVersion)
+      const why = refusal(answer, info.protocolVersion) ?? socketRefusal(answer, info.protocolVersion)
       if (why !== undefined) {
         log(`ankka: ${why}`)
         problems.push(why)
@@ -52,4 +52,18 @@ export function discoveryRoutes(router: ConnectRouter, spec: () => Spec, log: (m
       return create(EmptySchema)
     },
   })
+}
+
+/** The protocol version whose runtimes serve socket routes. */
+export const SOCKETS_SINCE: readonly [number, number] = [1, 9]
+
+/** Why `spec` cannot be declared to a runtime speaking `runtime`, or undefined. A runtime before 1.9
+ * does not know a socket route, and would serve it as a plain GET. */
+export function socketRefusal(spec: Spec, runtime: string): string | undefined {
+  const routes = spec.endpoints.flatMap((e) => e.routes.filter((r) => r.socket).map((r) => `${e.id}.${r.id}`))
+  if (routes.length === 0) return undefined
+  const [major, minor] = runtime.split(".").map((part) => Number.parseInt(part, 10))
+  const speaks = Number.isFinite(major) && Number.isFinite(minor) ? [major!, minor!] : [0, 0]
+  if (speaks[0]! > SOCKETS_SINCE[0] || (speaks[0] === SOCKETS_SINCE[0] && speaks[1]! >= SOCKETS_SINCE[1])) return undefined
+  return `this runtime speaks protocol ${runtime || "unknown"}; a socket route needs 1.9 (${routes.join(", ")})`
 }

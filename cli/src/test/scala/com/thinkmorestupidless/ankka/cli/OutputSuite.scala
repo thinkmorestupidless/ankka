@@ -342,3 +342,31 @@ class OutputSuite extends munit.FunSuite:
     assert(Output.organization(capped, Format.Json).contains("\"quota\":{\"services\":3}"))
     assertEquals(Output.quota(Quota(Some(1), None, Some(3))), "projects 1, instances 3")
   }
+
+  test("the topology of a service shows its socket routes beside its routes") {
+    val topology = ServiceTopology(
+      service = "notices",
+      running = 2,
+      contributing = 2,
+      partial = false,
+      instances = Vector.empty,
+      window = TopologyWindow(300, "2026-10-04T00:00:00Z", 0),
+      nodes = Vector(
+        TopologyNode(
+          "endpoint:/notices",
+          "Endpoint",
+          0,
+          platform = false,
+          Vector(
+            TopologyHandler("GET /notices", "route", Some(false)),
+            TopologyHandler("SOCKET /notices/stream", "route", Some(true))
+          )
+        )
+      ),
+      declared = Vector.empty,
+      calls = Vector.empty,
+      differences = Vector.empty
+    )
+    val printed = Output.topology(topology, Format.Table)
+    assert(printed.contains("GET /notices, SOCKET /notices/stream"), printed)
+  }

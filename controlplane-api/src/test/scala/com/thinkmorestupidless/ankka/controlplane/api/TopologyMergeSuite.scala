@@ -122,3 +122,23 @@ class TopologyMergeSuite extends FunSuite:
     assertEquals(merged.nodes, Vector.empty)
     assertEquals(merged.instances.map(_.pod), Vector("p-a"))
   }
+
+  test("the topology of a service shows its socket routes once, merged across its instances") {
+    val notices = TopologyNode(
+      "endpoint:/notices",
+      "Endpoint",
+      0,
+      platform = false,
+      Vector(
+        TopologyHandler("GET /notices", "route", Some(false)),
+        TopologyHandler("SOCKET /notices/stream", "route", Some(true))
+      )
+    )
+    val a      = document(at, Vector(notices, cart), pair(1L, buckets = histogram(10 -> 1L)))
+    val b      = document(at, Vector(notices, cart), pair(1L, buckets = histogram(10 -> 1L)))
+    val merged = TopologyMerge.merge("cart", 2, Vector(ok("p-a") -> Some(a), ok("p-b") -> Some(b)))
+    assertEquals(
+      merged.nodes.filter(_.id == "endpoint:/notices").flatMap(_.handlers.map(_.name)),
+      Vector("GET /notices", "SOCKET /notices/stream")
+    )
+  }

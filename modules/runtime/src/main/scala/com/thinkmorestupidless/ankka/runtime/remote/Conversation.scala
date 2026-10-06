@@ -13,6 +13,7 @@ import org.apache.pekko.NotUsed
 import org.apache.pekko.stream.scaladsl.Source
 
 import scala.concurrent.Future
+import scala.concurrent.duration.FiniteDuration
 
 /**
  * What crosses the boundary to a developer's process, as plain Scala values.
@@ -162,7 +163,7 @@ enum ConsumerOutcome:
  * with anything an earlier runtime would not understand.
  */
 object WireProtocol:
-  val Version: String     = "1.8"
+  val Version: String     = "1.9"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -300,7 +301,49 @@ trait Conversation:
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]]
   def handleHttpStream(request: HttpForward): Source[String, NotUsed]
 
+  /**
+   * Opens a socket route's socket in the process: `request` is the request that opened it, with no
+   * body. A conversation that cannot hold a socket — a module's — refuses, and discovery has
+   * already refused the route; this is the backstop.
+   */
+  def openSocket(request: HttpForward): SocketLink =
+    throw UnsupportedOperationException("this conversation cannot hold a socket")
+
   def reachable(): Boolean
+
+/** What the process sends on an open socket. */
+enum SocketOutput:
+  /** A frame for the client. */
+  case Frame(text: String)
+
+  /** The process's handler returned: the socket is closed "finished". */
+  case Completed
+
+  /** The process's handler threw, or the process could not be reached: closed "failed". */
+  case Failed(message: String)
+
+/**
+ * One open socket relayed to the process, in plain values: frames each way, then an end. The
+ * sidecar holds the socket itself — its ACL, its limits, its close codes — so this is only ever the
+ * frames and the reason it ended.
+ */
+trait SocketLink:
+
+  /**
+   * Relays a frame the client sent, waiting while the process cannot take one: a process that does
+   * not read leaves frames in the socket's own bounded queue rather than in this link. `false` once
+   * the link has ended, when the frame is not sent.
+   */
+  def send(text: String): Boolean
+
+  /** Tells the process the socket is closed, and why, then ends this side. Idempotent. */
+  def close(reason: String): Unit
+
+  /**
+   * The process's next message, waiting up to `within`. After `Completed` or `Failed` it goes on
+   * answering the same.
+   */
+  def next(within: FiniteDuration): Option[SocketOutput]
 
 /** What a process said about an autonomous agent's result. */
 enum TaskResultVerdict:

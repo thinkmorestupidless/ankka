@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +40,13 @@ test("pack: the published tarball installs alone and every entry point imports",
     ].join("\n");
     const result = execFileSync(process.execPath, ["--input-type=module", "-e", script], { cwd: app, encoding: "utf8" });
     assert.match(result, /ok/);
+    // The stylesheet, the properties alone, and the face the stylesheet names beside it.
+    const installed = join(app, "node_modules", "ankka-console", "dist");
+    for (const f of ["styles.css", "theme.css", "fonts/inter-latin-wght-normal.woff2", "fonts/inter-latin-ext-wght-normal.woff2"]) {
+      assert.ok(existsSync(join(installed, f)), `the package does not ship dist/${f}`);
+    }
+    const resolved = execFileSync(process.execPath, ["--input-type=module", "-e", 'console.log(import.meta.resolve("ankka-console/theme.css"))'], { cwd: app, encoding: "utf8" });
+    assert.match(resolved, /dist\/theme\.css/);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

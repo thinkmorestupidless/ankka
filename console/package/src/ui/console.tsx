@@ -6,7 +6,8 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { Form, Link, useMatches, useNavigation, type FormProps, type LinkProps } from "react-router";
 import type { ConsoleExtensions, Operation } from "../extensions/types.ts";
-import type { ConsolePageData } from "../context.ts";
+import { button } from "./primitives/button.ts";
+import type { ConsolePageData, Crumb, ShellData } from "../context.ts";
 
 const ExtensionsContext = createContext<ConsoleExtensions>({});
 
@@ -21,6 +22,8 @@ export function ConsoleProvider({ extensions, children }: { extensions?: Console
 
 export interface UseConsole extends ConsolePageData {
   extensions: ConsoleExtensions;
+  /** The shell around the page; empty on a host's own page that supplies none. */
+  shell: ShellData;
   href(path?: string): string;
   shows(operation: Operation): boolean;
 }
@@ -40,6 +43,7 @@ export function useConsole(): UseConsole {
     mount,
     principal: page?.principal ?? null,
     hidden: [...hidden],
+    shell: page?.shell ?? { crumbs: [] },
     extensions,
     href: (path = "") => mount + path.replace(/^\/+/, ""),
     shows: (operation) => !hidden.has(operation),
@@ -72,13 +76,55 @@ export function ConsoleForm({
   );
 }
 
-export function Submit({ intent, children, danger }: { intent?: string; children: ReactNode; danger?: boolean }) {
+export function Submit({
+  intent,
+  children,
+  danger,
+  primary,
+  className,
+  label,
+}: {
+  intent?: string;
+  children: ReactNode;
+  danger?: boolean;
+  primary?: boolean;
+  /** Replaces the button's own classes, for a control drawn differently (the shape's tab). */
+  className?: string;
+  /** The control's accessible name, when its content is an icon. */
+  label?: string;
+}) {
   const navigation = useNavigation();
   const busy = navigation.state === "submitting" && (intent === undefined || navigation.formData?.get("intent") === intent);
+  const classes = className ?? button({ variant: danger ? "danger" : primary ? "primary" : "default" });
   return (
-    <button type="submit" className={danger ? "ac-button ac-button-danger" : "ac-button"} disabled={busy} aria-busy={busy || undefined}>
+    <button type="submit" className={classes} disabled={busy} aria-busy={busy || undefined} aria-label={label} title={label}>
       {children}
     </button>
+  );
+}
+
+/** One operation as a form with one button, posting its intent to the page it is on. */
+export function OperationForm({
+  intent,
+  children,
+  danger,
+  primary,
+  className,
+  label,
+}: {
+  intent: string;
+  children: ReactNode;
+  danger?: boolean;
+  primary?: boolean;
+  className?: string;
+  label?: string;
+}) {
+  return (
+    <ConsoleForm intent={intent}>
+      <Submit intent={intent} danger={danger} primary={primary} className={className} label={label}>
+        {children}
+      </Submit>
+    </ConsoleForm>
   );
 }
 
@@ -102,10 +148,7 @@ export function Field({
   );
 }
 
-export interface Crumb {
-  label: string;
-  to?: string;
-}
+export type { Crumb };
 
 /** Where the page sits in the installation: organization, project, service. */
 export function Breadcrumbs({ trail }: { trail: Crumb[] }) {

@@ -6,10 +6,11 @@
  */
 import { useMemo, useState } from "react";
 import { Form, useLoaderData, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { guard, pageData, useConsoleContext } from "../context.ts";
+import { applyPrimary, guard, pageData, projectShell, useConsoleContext } from "../context.ts";
 import { ControlPlaneError } from "../client/errors.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs, useConsole } from "../ui/console.tsx";
+import { useConsole } from "../ui/console.tsx";
+import { Page, ServiceSections } from "../ui/shell.tsx";
 import { useServiceStream } from "../ui/use-stream.ts";
 import { lines } from "../stream/log-follow.ts";
 
@@ -27,7 +28,7 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     since: q.get("since") ? Number(q.get("since")) : undefined,
   };
   return guard(ctx, async () => {
-    const [service, project, page] = await Promise.all([ctx.client.getService(projectId, name), ctx.client.getProject(projectId), pageData(ctx)]);
+    const [service, project, services, page] = await Promise.all([ctx.client.getService(projectId, name), ctx.client.getProject(projectId), ctx.client.listServices(projectId), pageData(ctx)]);
     const organization = await ctx.client.getOrganization(project.organizationId);
     let instances: { instance: string; lines: string[]; error?: string }[] = [];
     let none: string | undefined;
@@ -40,12 +41,21 @@ export async function loader({ request, params, context }: LoaderFunctionArgs) {
     }
     // Every instance the service has had output from, for the choice; the current read may be of one.
     const known = query.instance ? [query.instance, ...instances.map((i) => i.instance).filter((i) => i !== query.instance)] : instances.map((i) => i.instance);
-    return { console: page, service, project, organization, instances, none, query, known };
+    const shell = projectShell(
+      page,
+      organization,
+      project,
+      services,
+      [{ label: name, to: `projects/${encodeURIComponent(projectId)}/services/${encodeURIComponent(name)}` }, { label: "Logs" }],
+      applyPrimary(projectId, name),
+      name,
+    );
+    return { console: shell, service, project, organization, instances, none, query, known };
   });
 }
 
 export default function Logs() {
-  const { service, project: p, organization: o, instances, none, query, known } = useLoaderData<typeof loader>();
+  const { service, project: p, instances, none, query, known } = useLoaderData<typeof loader>();
   const { mount } = useConsole();
   const [follow, setFollow] = useState(true);
   const initial = useMemo(() => Object.fromEntries(instances.map((i) => [i.instance, { lines: i.lines, error: i.error }])), [instances]);
@@ -63,19 +73,13 @@ export default function Logs() {
   });
   const shown = Object.entries(byInstance);
   return (
-    <section className="ac-page">
-      <Breadcrumbs
-        trail={[
-          { label: "Organizations", to: "" },
-          { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` },
-          { label: p.name, to: `projects/${encodeURIComponent(p.id)}` },
-          { label: service.name, to: `projects/${encodeURIComponent(p.id)}/services/${encodeURIComponent(service.name)}` },
-          { label: "Logs" },
-        ]}
-      />
-      <h1>Logs of {service.name}</h1>
+    <Page>
+      <div className="ac-head">
+        <h1>Logs of {service.name}</h1>
+        <ServiceSections projectId={p.id} name={service.name} current="logs" />
+      </div>
 
-      <Form method="get" className="ac-inline" aria-label="Which logs">
+      <Form method="get" className="ac-card ac-inline" aria-label="Which logs">
         <div className="ac-field">
           <label htmlFor="instance">Instance</label>
           <select id="instance" name="instance" defaultValue={query.instance ?? ""}>
@@ -128,7 +132,7 @@ export default function Logs() {
       {none ? <p className="ac-empty">{none}. Logs exist only while an instance runs.</p> : null}
       {!none && shown.length === 0 ? <p className="ac-empty">No output yet.</p> : null}
       {shown.map(([instance, log]) => (
-        <section key={instance} aria-labelledby={`log-${instance}`}>
+        <section key={instance} className="ac-card" aria-labelledby={`log-${instance}`}>
           <h2 id={`log-${instance}`}>{instance}</h2>
           {log.error ? <p className="ac-refusal">{log.error}</p> : null}
           <pre className="ac-log" tabIndex={0} data-instance={instance}>
@@ -136,7 +140,7 @@ export default function Logs() {
           </pre>
         </section>
       ))}
-    </section>
+    </Page>
   );
 }
 

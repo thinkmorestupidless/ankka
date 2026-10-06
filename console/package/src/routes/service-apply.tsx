@@ -4,9 +4,10 @@
  * refusal is shown problem by problem beside the text.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { act, guard, pageData, useConsoleContext, type ActionRefusal } from "../context.ts";
+import { act, guard, pageData, projectShell, useConsoleContext, type ActionRefusal } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs, ConsoleForm, Submit } from "../ui/console.tsx";
+import { ConsoleForm, Submit } from "../ui/console.tsx";
+import { Page } from "../ui/shell.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import { data } from "react-router";
 
@@ -15,10 +16,13 @@ export const meta: MetaFunction = () => [{ title: "Apply a descriptor · ankka" 
 export async function loader({ request, params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   return guard(ctx, async () => {
-    const project = await ctx.client.getProject(params.projectId!);
+    const [project, services, page] = await Promise.all([ctx.client.getProject(params.projectId!), ctx.client.listServices(params.projectId!), pageData(ctx)]);
     const organization = await ctx.client.getOrganization(project.organizationId);
     const name = new URL(request.url).searchParams.get("name");
-    return { console: await pageData(ctx), project, organization, name };
+    const tail = name
+      ? [{ label: name, to: `projects/${encodeURIComponent(project.id)}/services/${encodeURIComponent(name)}` }, { label: "Apply a descriptor" }]
+      : [{ label: "Apply a descriptor" }];
+    return { console: projectShell(page, organization, project, services, tail, undefined, name ?? undefined), project, organization, name };
   });
 }
 
@@ -56,23 +60,15 @@ const example = `{
 }`;
 
 export default function ApplyDescriptor() {
-  const { project: p, organization: o, name } = useLoaderData<typeof loader>();
+  const { name } = useLoaderData<typeof loader>();
   const refusal = useRefusal("apply");
   return (
-    <section className="ac-page">
-      <Breadcrumbs
-        trail={[
-          { label: "Organizations", to: "" },
-          { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` },
-          { label: p.name, to: `projects/${encodeURIComponent(p.id)}` },
-          { label: "Apply a descriptor" },
-        ]}
-      />
+    <Page>
       <h1>Apply a descriptor{name ? ` to ${name}` : ""}</h1>
       <p className="ac-lede">
         A descriptor is a service's <code>service.json</code>. Applying it creates the service, or updates it if one with that name exists.
       </p>
-      <ConsoleForm intent="apply" encType="multipart/form-data" className="ac-form">
+      <ConsoleForm intent="apply" encType="multipart/form-data" className="ac-card ac-form">
         <div className="ac-field">
           <label htmlFor="descriptor">Descriptor</label>
           <textarea
@@ -94,10 +90,12 @@ export default function ApplyDescriptor() {
         </div>
         <Refused intent="apply" />
         <div>
-          <Submit intent="apply">Apply</Submit>
+          <Submit intent="apply" primary>
+            Apply
+          </Submit>
         </div>
       </ConsoleForm>
-    </section>
+    </Page>
   );
 }
 

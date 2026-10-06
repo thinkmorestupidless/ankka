@@ -66,6 +66,7 @@ export function consoleRoutes(options: ConsoleRoutesOptions = {}): RouteConfigEn
     page("projects/:projectId/services/:name", "service"),
     page("projects/:projectId/services/:name/logs", "logs"),
     page("projects/:projectId/services/:name/topology", "service-topology"),
+    page("projects/:projectId/services/:name/history", "service-history"),
     resource("stream/projects/:projectId", "stream.project"),
     resource("stream/services/:projectId/:name", "stream.service"),
     ...(auth

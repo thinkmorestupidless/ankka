@@ -1,7 +1,9 @@
 Feature: A host building on the console
   The console is published for hosts to build on: a host serves what the console shows under a
   path of its own, inside its own look, with its own sign-in and its own way of keeping sign-ins,
-  and adds its own things beside the console's, without changing the console.
+  and adds its own things beside the console's, without changing the console. The installation's
+  console is one host; the hosted product's website is another, which mounts the shell around its
+  own pages. A host restyles the console by setting its custom properties, never by changing its rules.
 
   Scenario: a host serves the console under a path of its own, inside its own look
     Given a host with a look of its own
@@ -54,3 +56,27 @@ Feature: A host building on the console
     Given every kind of answer the control plane gives, as the control plane itself writes it
     When the console reads each of them
     Then the console reads the same values the control plane wrote
+
+  Scenario: a host mounts the parts of the shell it has content for, without a change to the package
+    Given a host with a page of its own
+    When the host mounts the console with its page inside the backdrop and the bar, and no rail, panel or inspector
+    Then the host's page is shown inside the bar, over the backdrop
+    And no rail, panel or inspector is shown
+    And the package is unchanged
+
+  Scenario: a host restyles the console by setting its custom properties and not its rules
+    Given a host that sets the console's ink custom property to a colour of its own
+    When a member reads a page of the console in that host
+    Then the page's text is in the host's colour
+    And every rule of the console is unchanged
+
+  Scenario: the hosted product's website keeps working on the new package
+    Given the website built on the package
+    When the website's pages are audited and every operation of theirs is made, with and without scripts
+    Then every operation completes
+    And no accessibility violation is reported
+
+  Scenario: the installation's console stays small
+    Given the installation's console
+    When the lines of its own source are counted
+    Then there are fewer than 500

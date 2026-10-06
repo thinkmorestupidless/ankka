@@ -4,16 +4,21 @@
  * than passing silently through single sign-on. Only a POST signs anyone out.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { pageData, useConsoleContext } from "../context.ts";
+import { pageData, useConsoleContext, withShell } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
 import { ConsoleForm, ConsoleLink, Submit } from "../ui/console.tsx";
+import { Page } from "../ui/shell.tsx";
+import { button } from "../ui/primitives/button.ts";
 
 export const meta: MetaFunction = () => [{ title: "Sign out · ankka" }];
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const signedIn = (await ctx.runtime.store.read(request)) !== null;
-  return { console: await pageData(ctx).catch(() => ({ mount: ctx.mount, principal: null, hidden: [] })), signedIn };
+  const page = await pageData(ctx)
+    .then((p) => withShell(p, { area: "organizations", crumbs: [{ label: "Organizations", to: "" }, { label: "Sign out" }] }))
+    .catch(() => ({ mount: ctx.mount, principal: null, hidden: [] }));
+  return { console: page, signedIn };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -36,12 +41,15 @@ export async function action({ request, context }: ActionFunctionArgs) {
 export default function SignOut() {
   const { signedIn } = useLoaderData<typeof loader>();
   return (
-    <section className="ac-page">
+    <Page>
       {signedIn ? (
         <>
           <h1>Sign out</h1>
-          <ConsoleForm to="auth/sign-out">
-            <Submit>Sign out</Submit>
+          <ConsoleForm to="auth/sign-out" className="ac-card">
+            <p>Sign out of this console and of the identity provider.</p>
+            <div>
+              <Submit primary>Sign out</Submit>
+            </div>
           </ConsoleForm>
         </>
       ) : (
@@ -49,13 +57,13 @@ export default function SignOut() {
           <h1>You are signed out</h1>
           <p>Your session in this console and in the identity provider has ended.</p>
           <p>
-            <ConsoleLink to="auth/sign-in" className="ac-button">
+            <ConsoleLink to="auth/sign-in" className={button({ variant: "primary" })}>
               Sign in
             </ConsoleLink>
           </p>
         </>
       )}
-    </section>
+    </Page>
   );
 }
 

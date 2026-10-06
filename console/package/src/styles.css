@@ -1,556 +1,1415 @@
-/* The console's pages. Every class is prefixed `ac-`; every colour, face and space is a custom
-   property on .ac-root, so a host restyles the pages by overriding properties, not rules.
+/* The console's pages. Compiled by Tailwind at the package's build into dist/styles.css; a host
+   imports the result and needs no Tailwind of its own.
 
-   Birch paper and lake ink by day, the lake at night after dark. One accent, duckbill amber, is kept
-   for focus and for what is live; red is kept for failure. No web fonts: a console inside a cluster
-   must not fetch anything from outside it. */
+   Every colour, face, radius and size is a `--ac-*` property generated from src/ui/tokens.ts, and
+   every rule here sits in a cascade layer. A host restyles the console by setting properties in its
+   own, unlayered stylesheet, which wins over any layered rule whatever its specificity. Utilities
+   are prefixed `ac:` and are the package's own; component classes are prefixed `ac-`.
 
-.ac-root {
-  --ac-paper: #f1f4f1;
-  --ac-surface: #fbfcfb;
-  --ac-ink: #13343b;
-  --ac-reed: #4f6b56;
-  --ac-water: #d5e2de;
-  --ac-amber: #e0a526;
-  --ac-amber-ink: #6b4a00;
-  --ac-red: #a8231b;
-  --ac-red-wash: #fbe9e7;
-  --ac-green: #1f6b3a;
-  --ac-serif: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
-  --ac-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --ac-step: 1rem;
-  --ac-measure: 72rem;
-  --ac-radius-control: 6px;
+   Glass over a mesh: the backdrop is slate with an ember glow at the centre of the screen and a
+   faint dot grid across it; every surface is a translucent tint with the backdrop blurred through
+   it. Text keeps its contrast at the glow's brightest point, which test/contrast.test.ts proves of
+   the properties. One accent, amber, is kept for focus, selection and the primary operation; red is
+   kept for failure. The face is served from the package itself, never from outside the cluster. */
 
-  color: var(--ac-ink);
-  background: var(--ac-paper);
-  font-family: var(--ac-sans);
-  font-size: 1rem;
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
-  min-height: 100vh;
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) prefix(ac);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(ac);
+@import "./theme.generated.css";
+
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(./fonts/inter-latin-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-@media (prefers-color-scheme: dark) {
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(./fonts/inter-latin-ext-wght-normal.woff2) format("woff2-variations");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ── Base: the root and plain elements inside it ─────────────────────────── */
+
+@layer base {
   .ac-root {
-    --ac-paper: #0f2226;
-    --ac-surface: #142b30;
-    --ac-ink: #e3ecea;
-    --ac-reed: #9fbcaa;
-    --ac-water: #26434a;
-    --ac-amber: #f0b83c;
-    --ac-amber-ink: #f0b83c;
-    --ac-red: #ff8a80;
-    --ac-red-wash: #3a1b19;
-    --ac-green: #7fd4a0;
+    color-scheme: dark;
+    position: relative;
+    isolation: isolate;
+    min-height: 100vh;
+    color: var(--ac-color-ink);
+    font-family: var(--ac-font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .ac-root.ac-light {
+    color-scheme: light;
+  }
+
+  .ac-root *,
+  .ac-root *::before,
+  .ac-root *::after {
+    box-sizing: border-box;
+  }
+
+  .ac-root h1,
+  .ac-root h2,
+  .ac-root h3,
+  .ac-root p,
+  .ac-root dl,
+  .ac-root dd,
+  .ac-root figure {
+    margin: 0;
+  }
+
+  .ac-root h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+
+  .ac-root h2 {
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  .ac-root h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .ac-root p {
+    max-width: 72ch;
+  }
+
+  .ac-root a {
+    color: inherit;
+    text-decoration-color: var(--ac-color-ink-3);
+    text-underline-offset: 0.2em;
+  }
+
+  .ac-root a:hover {
+    text-decoration-color: var(--ac-color-amber);
+    text-decoration-thickness: 2px;
+  }
+
+  .ac-root :focus-visible {
+    outline: 3px solid var(--ac-color-amber);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .ac-root code,
+  .ac-root pre {
+    font-family: var(--ac-font-mono);
+  }
+
+  .ac-root input,
+  .ac-root select,
+  .ac-root textarea {
+    font: inherit;
+    color: var(--ac-color-ink);
+    background: var(--ac-color-inset);
+    border: 1px solid var(--ac-color-glass-line);
+    border-radius: var(--ac-radius-control);
+    padding: 0.5rem 0.75rem;
+    width: 100%;
+  }
+
+  .ac-root input::placeholder,
+  .ac-root textarea::placeholder {
+    color: var(--ac-color-ink-3);
+  }
+
+  .ac-root textarea {
+    font-family: var(--ac-font-mono);
+    font-size: 0.8125rem;
+    min-height: 16rem;
+  }
+
+  .ac-root input[type="checkbox"],
+  .ac-root input[type="radio"] {
+    width: auto;
+    accent-color: var(--ac-color-amber);
+  }
+
+  .ac-root input[type="file"] {
+    padding: 0.4rem;
+  }
+
+  .ac-root [aria-invalid="true"] {
+    border-color: var(--ac-color-red);
   }
 }
 
-.ac-root *,
-.ac-root *::before,
-.ac-root *::after {
-  box-sizing: border-box;
-}
+/* ── Components ──────────────────────────────────────────────────────────── */
 
-/* ── Frame ───────────────────────────────────────────────────────────────── */
+@layer components {
+  /* The backdrop: fixed behind everything, the glow at the centre and the dots across it. */
+  .ac-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(var(--ac-color-dot) 1px, transparent 1.3px) 0 0 / 16px 16px,
+      radial-gradient(42% 46% at 56% 52%, var(--ac-color-glow) 0%, transparent 72%),
+      radial-gradient(40% 50% at 90% 88%, var(--ac-color-peach) 0%, transparent 65%),
+      radial-gradient(55% 60% at 8% 10%, var(--ac-color-mesh-slate) 0%, transparent 70%),
+      linear-gradient(160deg, var(--ac-color-mesh-base), var(--ac-color-mesh-slate));
+  }
 
-.ac-bar {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ac-step);
-  flex-wrap: wrap;
-  padding: calc(var(--ac-step) * 0.75) var(--ac-step);
-  border-bottom: 1px solid var(--ac-water);
-}
+  /* Glass: the shell's surfaces. Without blur, a surface is drawn over the mesh's base instead,
+     opaque, so its text keeps the contrast it is tested for. */
+  .ac-rail,
+  .ac-bar,
+  .ac-listing,
+  .ac-inspector {
+    background: var(--ac-color-glass);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    backdrop-filter: blur(20px) saturate(150%);
+    border: 1px solid var(--ac-color-glass-line);
+    border-radius: var(--ac-radius-panel);
+  }
 
-.ac-wordmark {
-  font-family: var(--ac-serif);
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--ac-ink);
-  text-decoration: none;
-}
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .ac-rail,
+    .ac-bar,
+    .ac-listing,
+    .ac-inspector,
+    .ac-card,
+    .ac-panel,
+    .ac-part {
+      background: linear-gradient(var(--ac-color-glass), var(--ac-color-glass)), var(--ac-color-mesh-base);
+    }
+  }
 
-.ac-wordmark-sub {
-  font-family: var(--ac-serif);
-  font-style: italic;
-  color: var(--ac-reed);
-}
+  /* The shell: whichever of rail, bar, listing, page and inspector are present, in a grid whose
+     columns take no room for a part that is absent. */
+  .ac-shell {
+    --ac-shell-gap: 12px;
+    --ac-shell-rail: 0px;
+    --ac-shell-listing: 0px;
+    --ac-shell-inspector: 0px;
+    display: grid;
+    grid-template-columns: var(--ac-shell-rail) var(--ac-shell-listing) minmax(0, 1fr) var(--ac-shell-inspector);
+    grid-template-rows: auto 1fr;
+    column-gap: 0;
+    row-gap: var(--ac-shell-gap);
+    padding: var(--ac-shell-gap);
+    align-items: start;
+  }
 
-.ac-bar-person {
-  margin-left: auto;
-  display: flex;
-  align-items: baseline;
-  gap: calc(var(--ac-step) * 0.75);
-  color: var(--ac-reed);
-}
+  .ac-shell:has(> .ac-rail) {
+    --ac-shell-rail: calc(var(--ac-size-rail) + var(--ac-shell-gap));
+  }
 
-.ac-bar-person form {
-  display: inline;
-}
+  .ac-shell:has(> .ac-listing) {
+    --ac-shell-listing: calc(var(--ac-size-panel) + var(--ac-shell-gap));
+  }
 
-.ac-main {
-  max-width: var(--ac-measure);
-  padding: var(--ac-step);
-  margin: 0 auto;
-}
+  .ac-shell:has(.ac-inspector) {
+    --ac-shell-inspector: calc(var(--ac-size-inspector) + var(--ac-shell-gap));
+  }
 
-.ac-page > * + * {
-  margin-top: calc(var(--ac-step) * 1.5);
-}
+  .ac-rail {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    margin-inline-end: var(--ac-shell-gap);
+    position: sticky;
+    top: var(--ac-shell-gap);
+    max-height: calc(100vh - 2 * var(--ac-shell-gap));
+  }
 
-.ac-root h1,
-.ac-root h2 {
-  font-family: var(--ac-serif);
-  line-height: 1.2;
-  margin: 0;
-  font-weight: 700;
-}
+  .ac-bar {
+    grid-column: 2 / -1;
+    grid-row: 1;
+  }
 
-.ac-root h1 {
-  font-size: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
-  letter-spacing: -0.015em;
-}
+  .ac-listing {
+    grid-column: 2;
+    grid-row: 2;
+    margin-inline-end: var(--ac-shell-gap);
+    position: sticky;
+    top: calc(var(--ac-size-bar) + 2 * var(--ac-shell-gap));
+    max-height: calc(100vh - var(--ac-size-bar) - 3 * var(--ac-shell-gap));
+  }
 
-.ac-root h2 {
-  font-size: 1.35rem;
-  margin-top: calc(var(--ac-step) * 2.5);
-}
+  .ac-page {
+    display: contents;
+  }
 
-.ac-root p {
-  margin: 0;
-  max-width: 68ch;
-}
+  .ac-body {
+    grid-column: 3;
+    grid-row: 2;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-block-end: 24px;
+  }
 
-.ac-lede {
-  color: var(--ac-reed);
-}
+  .ac-inspector {
+    grid-column: 4;
+    grid-row: 2;
+    margin-inline-start: var(--ac-shell-gap);
+    position: sticky;
+    top: calc(var(--ac-size-bar) + 2 * var(--ac-shell-gap));
+    max-height: calc(100vh - var(--ac-size-bar) - 3 * var(--ac-shell-gap));
+    overflow: auto;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
 
-.ac-root a {
-  color: inherit;
-  text-decoration-color: var(--ac-reed);
-  text-underline-offset: 0.2em;
-}
+  /* The rail: the areas as icons, the current one in amber. */
+  .ac-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 0;
+  }
 
-.ac-root a:hover {
-  text-decoration-color: var(--ac-amber);
-  text-decoration-thickness: 2px;
-}
+  .ac-rail-areas {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
 
-.ac-root :focus-visible {
-  outline: 3px solid var(--ac-amber);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
+  .ac-rail-foot {
+    margin-top: auto;
+  }
 
-/* ── Breadcrumbs ─────────────────────────────────────────────────────────── */
+  .ac-mark {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 8px;
+    color: var(--ac-color-ink);
+  }
 
-.ac-crumbs ol {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  color: var(--ac-reed);
-}
+  .ac-rail-item {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    color: var(--ac-color-ink-2);
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
 
-.ac-crumbs li + li::before {
-  content: "›";
-  margin-right: 0.25rem;
-}
+  .ac-rail-item svg {
+    width: 20px;
+    height: 20px;
+  }
 
-/* ── Tables: every listing is one ───────────────────────────────────────── */
+  a.ac-rail-item:hover,
+  button.ac-rail-item:hover {
+    background: var(--ac-color-glass-strong);
+    color: var(--ac-color-ink);
+  }
 
-.ac-table-wrap {
-  overflow-x: auto;
-}
+  .ac-rail-item[aria-current] {
+    background: var(--ac-color-amber);
+    color: var(--ac-color-amber-ink);
+  }
 
-.ac-table {
-  width: 100%;
-  border-collapse: collapse;
-}
+  .ac-rail-item[aria-disabled="true"] {
+    color: var(--ac-color-ink-3);
+    opacity: 0.5;
+    cursor: default;
+  }
 
-.ac-table th,
-.ac-table td {
-  text-align: left;
-  padding: 0.6rem 0.75rem 0.6rem 0;
-  border-bottom: 1px solid var(--ac-water);
-  vertical-align: top;
-}
+  /* The bar: the wordmark and a host's own navigation, where the member is, and what to do first. */
+  .ac-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+    min-height: var(--ac-size-bar);
+    padding: 8px 16px;
+  }
 
-.ac-table th {
-  font-weight: 600;
-  color: var(--ac-reed);
-  font-size: 0.9rem;
-}
+  .ac-bar-start,
+  .ac-bar-end {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+  }
 
-.ac-table td.ac-num,
-.ac-table th.ac-num {
-  text-align: right;
-}
+  .ac-bar-end {
+    justify-content: flex-end;
+  }
 
-.ac-empty {
-  padding: var(--ac-step) 0;
-  color: var(--ac-reed);
-}
+  .ac-wordmark {
+    font-weight: 600;
+    font-size: 1rem;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
 
-/* ── Facts: a detail page's fields ──────────────────────────────────────── */
+  .ac-root a.ac-wordmark {
+    text-decoration: none;
+  }
 
-.ac-facts {
-  display: grid;
-  grid-template-columns: minmax(9rem, max-content) 1fr;
-  gap: 0.4rem var(--ac-step);
-  margin: 0;
-}
+  .ac-wordmark span {
+    color: var(--ac-color-ink-2);
+    font-weight: 400;
+  }
 
-.ac-facts dt {
-  color: var(--ac-reed);
-}
+  .ac-person {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--ac-color-glass-strong);
+    border: 1px solid var(--ac-color-glass-line);
+    font-size: 0.75rem;
+    font-weight: 600;
+    flex: none;
+  }
 
-.ac-facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
+  .ac-crumbs ol {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    color: var(--ac-color-ink-2);
+    white-space: nowrap;
+  }
 
-/* ── Status ─────────────────────────────────────────────────────────────── */
+  .ac-crumbs li + li::before {
+    content: "/";
+    color: var(--ac-color-ink-3);
+    margin-right: 8px;
+  }
 
-.ac-status {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4em;
-  font-weight: 600;
-  white-space: nowrap;
-}
+  .ac-root .ac-crumbs a {
+    text-decoration: none;
+  }
 
-.ac-status-mark {
-  font-size: 0.85em;
-  letter-spacing: -0.15em;
-}
+  .ac-root .ac-crumbs a:hover {
+    color: var(--ac-color-ink);
+    text-decoration: underline;
+    text-decoration-color: var(--ac-color-amber);
+  }
 
-.ac-status-ready .ac-status-mark {
-  color: var(--ac-green);
-}
+  .ac-crumbs [aria-current="page"] {
+    color: var(--ac-color-ink);
+    font-weight: 500;
+  }
 
-.ac-status-moving .ac-status-mark,
-.ac-status-partial .ac-status-mark {
-  color: var(--ac-amber-ink);
-}
+  /* The listing: what sits beside the page. The one being read stays at an edge of the listing
+     whatever it is scrolled to, with no script. */
+  .ac-listing {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+  }
 
-.ac-status-trouble {
-  color: var(--ac-red);
-}
+  .ac-listing-items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    overflow: auto;
+    min-height: 0;
+  }
 
-.ac-status-stopped .ac-status-mark,
-.ac-status-idle .ac-status-mark {
-  color: var(--ac-reed);
-}
+  .ac-listing-items > li:has(> [aria-current="page"]) {
+    position: sticky;
+    top: 0;
+    bottom: 0;
+    z-index: 1;
+  }
 
-.ac-status-note {
-  font-weight: 400;
-  color: var(--ac-reed);
-}
+  .ac-listing-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 2px 8px;
+    padding: 8px 10px;
+    border-radius: var(--ac-radius-control);
+    border: 1px solid transparent;
+    background: var(--ac-color-tile);
+  }
 
-.ac-live {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
-  color: var(--ac-reed);
-  font-size: 0.9rem;
-}
+  .ac-root a.ac-listing-item {
+    text-decoration: none;
+  }
 
-.ac-live::before {
-  content: "";
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--ac-amber);
-}
+  .ac-listing-item:hover {
+    background: var(--ac-color-glass-strong);
+  }
 
-@media (prefers-reduced-motion: no-preference) {
+  /* Opaque, because it is pinned over the items that scroll beneath it. */
+  .ac-listing-item[aria-current="page"] {
+    background: linear-gradient(var(--ac-color-glass-strong), var(--ac-color-glass-strong)), var(--ac-color-mesh-base);
+    border-color: var(--ac-color-glass-line);
+  }
+
+  .ac-listing-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ac-listing-count {
+    color: var(--ac-color-ink-2);
+    font-size: 0.75rem;
+    grid-row: 1 / 3;
+    grid-column: 2;
+  }
+
+  /* Labels above a group in a side column. */
+  .ac-section-title {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ac-color-ink-3);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0;
+  }
+
+  /* A page's sections, as links. */
+  .ac-seg {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    padding: 3px;
+    background: var(--ac-color-inset);
+    border-radius: 999px;
+  }
+
+  .ac-seg a {
+    text-align: center;
+    padding: 6px 14px;
+    border-radius: 999px;
+    color: var(--ac-color-ink-2);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .ac-root .ac-seg a {
+    text-decoration: none;
+  }
+
+  .ac-seg a[aria-current="page"] {
+    background: var(--ac-color-glass-strong);
+    color: var(--ac-color-ink);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  }
+
+  /* The page's own heading row. */
+  .ac-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+    padding: 4px 6px 0;
+  }
+
+  .ac-head .ac-seg {
+    margin-left: auto;
+  }
+
+  .ac-lede,
+  .ac-hint,
+  .ac-empty {
+    color: var(--ac-color-ink-2);
+  }
+
+  .ac-hint {
+    font-size: 0.8125rem;
+  }
+
+  /* A card: a group on the page. A host's panels are cards too. */
+  .ac-card,
+  .ac-panel {
+    background: var(--ac-color-tile);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--ac-color-tile-line);
+    border-radius: var(--ac-radius-card);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .ac-panel-failed {
+    color: var(--ac-color-red);
+  }
+
+  /* Tables: every listing on a page is one. */
+  .ac-table-wrap {
+    overflow-x: auto;
+  }
+
+  .ac-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .ac-table th,
+  .ac-table td {
+    text-align: left;
+    padding: 9px 12px 9px 0;
+    border-top: 1px solid var(--ac-color-tile-line);
+    vertical-align: top;
+  }
+
+  .ac-table thead th {
+    border-top: 0;
+    padding-top: 0;
+    color: var(--ac-color-ink-2);
+    font-weight: 500;
+    font-size: 0.8125rem;
+  }
+
+  .ac-table .ac-num {
+    text-align: right;
+  }
+
+  /* Facts: a page's fields. */
+  .ac-facts {
+    display: grid;
+    grid-template-columns: minmax(8rem, max-content) minmax(0, 1fr);
+    column-gap: 24px;
+  }
+
+  .ac-facts dt,
+  .ac-facts dd {
+    padding: 9px 0;
+    border-top: 1px solid var(--ac-color-tile-line);
+  }
+
+  .ac-facts dt {
+    color: var(--ac-color-ink-2);
+  }
+
+  .ac-facts dd {
+    overflow-wrap: anywhere;
+  }
+
+  .ac-facts > div {
+    display: contents;
+  }
+
+  /* Status: a word and a shape; the shape carries the state as well as the colour does. */
+  .ac-status {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .ac-status-mark {
+    font-size: 0.75em;
+    letter-spacing: -0.15em;
+  }
+
+  .ac-status-ready .ac-status-mark {
+    color: var(--ac-color-green);
+  }
+
+  .ac-status-moving .ac-status-mark,
+  .ac-status-partial .ac-status-mark {
+    color: var(--ac-color-amber);
+  }
+
+  .ac-status-trouble {
+    color: var(--ac-color-red);
+  }
+
+  .ac-status-stopped .ac-status-mark,
+  .ac-status-idle .ac-status-mark {
+    color: var(--ac-color-ink-3);
+  }
+
+  .ac-status-note {
+    font-weight: 400;
+    color: var(--ac-color-ink-2);
+  }
+
+  .ac-pill {
+    padding: 4px 10px 4px 8px;
+    border-radius: 999px;
+    background: var(--ac-color-glass-strong);
+    border: 1px solid var(--ac-color-glass-line);
+  }
+
+  .ac-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ac-color-ink-2);
+    font-size: 0.8125rem;
+  }
+
   .ac-live::before {
-    animation: ac-ripple 2.4s ease-out infinite;
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ac-color-amber);
+    flex: none;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ac-live::before {
+      animation: ac-ripple 2.4s ease-out infinite;
+    }
+  }
+
+  /* Forms. */
+  .ac-field {
+    display: grid;
+    gap: 4px;
+    max-width: 32rem;
+    min-width: 0;
+  }
+
+  .ac-field label {
+    font-weight: 500;
+  }
+
+  .ac-field-error {
+    color: var(--ac-color-red);
+  }
+
+  .ac-form {
+    display: grid;
+    gap: 16px;
+  }
+
+  .ac-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: end;
+  }
+
+  .ac-inline .ac-field {
+    flex: 1 1 12rem;
+  }
+
+  .ac-inspector .ac-inline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ac-inspector .ac-inline .ac-field {
+    flex: none;
+  }
+
+  .ac-inspector .ac-field {
+    max-width: none;
+  }
+
+  /* A switch: the browser's own checkbox, drawn as a track. It submits with its form without
+     scripts, as any checkbox does. */
+  .ac-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+  }
+
+  .ac-root .ac-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+
+  .ac-switch-track {
+    width: 40px;
+    height: 24px;
+    border-radius: 999px;
+    background: var(--ac-color-inset);
+    border: 1px solid var(--ac-color-glass-line);
+    position: relative;
+    flex: none;
+  }
+
+  .ac-switch-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--ac-color-ink);
+  }
+
+  .ac-switch input:checked + .ac-switch-track {
+    background: var(--ac-color-amber);
+    border-color: var(--ac-color-amber);
+  }
+
+  .ac-switch input:checked + .ac-switch-track::after {
+    transform: translateX(16px);
+    background: var(--ac-color-amber-ink);
+  }
+
+  .ac-switch input:focus-visible + .ac-switch-track {
+    outline: 3px solid var(--ac-color-amber);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ac-switch-track,
+    .ac-switch-track::after {
+      transition:
+        background 0.15s,
+        transform 0.15s;
+    }
+  }
+
+  /* Buttons: a pill. One primary per page, amber; a destructive one, red. */
+  .ac-button {
+    font: inherit;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--ac-color-glass-line);
+    background: var(--ac-color-glass-strong);
+    color: var(--ac-color-ink);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .ac-root a.ac-button {
+    color: var(--ac-color-ink);
+    text-decoration: none;
+  }
+
+  .ac-button svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .ac-button:hover {
+    background: var(--ac-color-glass-line);
+  }
+
+  .ac-button-primary,
+  .ac-root a.ac-button-primary {
+    background: var(--ac-color-amber);
+    border-color: var(--ac-color-amber);
+    color: var(--ac-color-amber-ink);
+  }
+
+  .ac-button-primary:hover {
+    background: color-mix(in srgb, var(--ac-color-amber) 88%, white);
+  }
+
+  .ac-button-danger,
+  .ac-root a.ac-button-danger {
+    background: var(--ac-color-red);
+    border-color: var(--ac-color-red);
+    color: var(--ac-color-mesh-base);
+  }
+
+  .ac-button-danger:hover {
+    background: color-mix(in srgb, var(--ac-color-red) 88%, white);
+  }
+
+  .ac-button-quiet {
+    background: transparent;
+  }
+
+  .ac-button-small {
+    padding: 4px 10px;
+    font-size: 0.8125rem;
+  }
+
+  .ac-button[disabled] {
+    opacity: 0.55;
+    cursor: progress;
+  }
+
+  .ac-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .ac-actions form {
+    display: inline;
+  }
+
+  /* A side column's operations, one under another at its full width. */
+  .ac-ops {
+    display: grid;
+    gap: 8px;
+  }
+
+  .ac-ops > form,
+  .ac-ops > .ac-button,
+  .ac-ops > form > .ac-button {
+    width: 100%;
+  }
+
+  /* Secondary and destructive operations wait behind a disclosure, so a page shows its state first. */
+  .ac-more {
+    border-top: 1px solid var(--ac-color-glass-line);
+    padding-top: 12px;
+  }
+
+  .ac-more summary {
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .ac-more[open] > * + * {
+    margin-top: 12px;
+  }
+
+  .ac-danger-zone {
+    border-left: 3px solid var(--ac-color-red);
+    padding: 8px 0 8px 12px;
+    display: grid;
+    gap: 10px;
+  }
+
+  .ac-danger-zone p {
+    color: var(--ac-color-ink-2);
+    font-size: 0.8125rem;
+  }
+
+  /* Messages. */
+  .ac-refusal {
+    border-left: 3px solid var(--ac-color-red);
+    background: var(--ac-color-red-wash);
+    padding: 10px 14px;
+    border-radius: 0 var(--ac-radius-control) var(--ac-radius-control) 0;
+  }
+
+  .ac-refusal ul {
+    margin: 6px 0 0;
+    padding-left: 1.2rem;
+  }
+
+  .ac-notice {
+    border-left: 3px solid var(--ac-color-amber);
+    padding: 10px 14px;
+    background: var(--ac-color-tile);
+    border-radius: 0 var(--ac-radius-control) var(--ac-radius-control) 0;
+  }
+
+  .ac-secret {
+    display: block;
+    font-family: var(--ac-font-mono);
+    background: var(--ac-color-inset);
+    border: 1px dashed var(--ac-color-ink-3);
+    border-radius: var(--ac-radius-control);
+    padding: 10px;
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+
+  .ac-log {
+    font-family: var(--ac-font-mono);
+    font-size: 0.8125rem;
+    background: var(--ac-color-inset);
+    border: 1px solid var(--ac-color-tile-line);
+    border-radius: var(--ac-radius-control);
+    padding: 12px;
+    max-height: 32rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    margin: 0;
+  }
+
+  .ac-mounts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+  }
+
+  .ac-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* ── The shape: what the platform runs for a service ─────────────────────── */
+
+  .ac-shape {
+    padding: 28px 20px 20px;
+    border-radius: var(--ac-radius-panel);
+    border: 1px solid var(--ac-color-glass-line);
+  }
+
+  .ac-tree {
+    display: grid;
+    justify-items: center;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .ac-row {
+    display: grid;
+    width: 100%;
+    justify-items: center;
+  }
+
+  .ac-row-many {
+    gap: 24px;
+  }
+
+  .ac-part {
+    position: relative;
+    width: 100%;
+    max-width: 300px;
+    background: var(--ac-color-node);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid var(--ac-color-node-line);
+    border-radius: var(--ac-radius-node);
+    padding: 16px 16px 14px;
+    box-shadow: var(--ac-shadow-part);
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 12px;
+    row-gap: 2px;
+    align-items: center;
+  }
+
+  .ac-part-self {
+    box-shadow:
+      var(--ac-shadow-part),
+      0 0 0 2px var(--ac-color-amber),
+      0 0 24px color-mix(in srgb, var(--ac-color-amber) 45%, transparent);
+  }
+
+  .ac-part-icon {
+    grid-row: 1 / 3;
+    width: 40px;
+    height: 40px;
+    color: var(--ac-color-ink);
+  }
+
+  .ac-part-icon svg {
+    width: 40px;
+    height: 40px;
+  }
+
+  .ac-part-title,
+  .ac-part-sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ac-part-title {
+    font-weight: 500;
+  }
+
+  .ac-part-sub {
+    color: var(--ac-color-ink-2);
+    font-size: 0.8125rem;
+  }
+
+  .ac-part-inset {
+    grid-column: 1 / 3;
+    margin-top: 10px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: var(--ac-color-inset);
+    font-size: 0.8125rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* A port: where a join leaves a part and where it arrives. */
+  .ac-part-up::before,
+  .ac-part-down::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    width: 12px;
+    height: 7px;
+    transform: translateX(-50%);
+    background: var(--ac-color-node);
+    border: 1px solid var(--ac-color-node-line);
+  }
+
+  .ac-part-down::after {
+    bottom: -7px;
+    border-top: 0;
+    border-radius: 0 0 7px 7px;
+  }
+
+  .ac-part-up::before {
+    top: -7px;
+    border-bottom: 0;
+    border-radius: 7px 7px 0 0;
+  }
+
+  /* The tab on a part's top edge that holds its own controls. */
+  .ac-part-tab {
+    position: absolute;
+    top: -27px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 2px;
+    padding: 2px 8px 6px;
+    background: var(--ac-color-node);
+    border: 1px solid var(--ac-color-node-line);
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .ac-part-tab form {
+    display: contents;
+  }
+
+  .ac-tab-control {
+    width: 24px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+    color: var(--ac-color-ink);
+    background: transparent;
+    border: 0;
+    padding: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .ac-tab-control:hover {
+    background: var(--ac-color-glass-strong);
+  }
+
+  .ac-tab-control svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .ac-part-tabbed {
+    margin-top: 27px;
+  }
+
+  .ac-part-tabbed.ac-part-up::before {
+    display: none;
+  }
+
+  .ac-edge {
+    display: block;
+    width: 100%;
+    height: 48px;
+    color: var(--ac-color-edge);
+    overflow: visible;
+  }
+
+  .ac-edge path {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+  }
+
+  /* ── A service's topology: the picture and its detail side by side ────────── */
+
+  .ac-topology {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .ac-topology-picture {
+    overflow-x: auto;
+    min-width: 0;
+    flex: 1;
+    padding: 8px;
+    border-radius: var(--ac-radius-panel);
+    border: 1px solid var(--ac-color-glass-line);
+  }
+
+  .ac-topology-detail {
+    flex: 0 0 18rem;
+  }
+
+  .ac-topology-node rect {
+    fill: var(--ac-color-node);
+    stroke: var(--ac-color-node-line);
+    stroke-width: 1;
+  }
+
+  .ac-topology-node {
+    cursor: pointer;
+  }
+
+  .ac-topology-node:focus-visible rect,
+  .ac-topology-selected rect {
+    stroke: var(--ac-color-amber);
+    stroke-width: 2;
+  }
+
+  .ac-topology-node:focus {
+    outline: none;
+  }
+
+  .ac-topology-outside rect,
+  .ac-topology-differs rect {
+    stroke-dasharray: 4 3;
+  }
+
+  .ac-topology-platform rect {
+    fill: var(--ac-color-inset);
+  }
+
+  .ac-topology-name {
+    fill: var(--ac-color-ink);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .ac-topology-kind {
+    fill: var(--ac-color-ink-2);
+    font-size: 11px;
+  }
+
+  .ac-topology-declared {
+    fill: none;
+    stroke: var(--ac-color-edge);
+    stroke-width: 1.25px;
+  }
+
+  .ac-topology-call {
+    fill: none;
+    stroke: var(--ac-color-ink);
+    stroke-dasharray: 5 4;
+  }
+
+  .ac-topology-warning {
+    stroke: var(--ac-color-red);
+  }
+
+  .ac-topology-mark {
+    fill: var(--ac-color-red);
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  /* ── Forced colours: every surface keeps an edge, every control an outline ── */
+
+  @media (forced-colors: active) {
+    .ac-rail,
+    .ac-bar,
+    .ac-listing,
+    .ac-inspector,
+    .ac-card,
+    .ac-panel,
+    .ac-part,
+    .ac-listing-item {
+      border: 1px solid CanvasText;
+    }
+
+    .ac-button,
+    .ac-rail-item,
+    .ac-seg a {
+      border: 1px solid ButtonText;
+    }
+
+    .ac-rail-item[aria-current],
+    .ac-seg a[aria-current="page"],
+    .ac-listing-item[aria-current="page"] {
+      outline: 2px solid Highlight;
+    }
+  }
+
+  /* ── Narrower screens: the shell collapses in reading order and hides nothing ── */
+
+  @media (max-width: 1180px) {
+    .ac-shell,
+    .ac-shell:has(> .ac-listing),
+    .ac-shell:has(.ac-inspector) {
+      grid-template-columns: var(--ac-shell-rail) minmax(0, 1fr);
+      grid-template-rows: none;
+      grid-auto-rows: auto;
+    }
+
+    .ac-rail {
+      grid-row: 1 / span 5;
+    }
+
+    .ac-bar,
+    .ac-listing,
+    .ac-body,
+    .ac-inspector {
+      grid-column: 2;
+      grid-row: auto;
+      margin-inline: 0;
+      position: static;
+      max-height: none;
+    }
+
+    .ac-listing-items {
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      max-height: 18rem;
+    }
+
+  }
+
+  @media (max-width: 720px) {
+    .ac-shell,
+    .ac-shell:has(> .ac-rail),
+    .ac-shell:has(> .ac-listing),
+    .ac-shell:has(.ac-inspector) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ac-rail {
+      grid-column: 1;
+      grid-row: auto;
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      position: static;
+      margin: 0;
+      padding: 8px 10px;
+      max-height: none;
+    }
+
+    .ac-rail-areas {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+
+    .ac-mark {
+      margin: 0 6px 0 0;
+    }
+
+    .ac-rail-foot {
+      margin-top: 0;
+      margin-left: auto;
+    }
+
+    .ac-bar,
+    .ac-listing,
+    .ac-body,
+    .ac-inspector {
+      grid-column: 1;
+    }
+
+    .ac-bar {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .ac-bar-start {
+      overflow: hidden;
+    }
+
+    .ac-wordmark span {
+      display: none;
+    }
+
+    .ac-crumbs {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+
+    .ac-crumbs ol {
+      flex-wrap: wrap;
+      white-space: normal;
+      row-gap: 2px;
+    }
+
+    .ac-head .ac-seg {
+      margin-left: 0;
+      width: 100%;
+    }
+
+    .ac-row-many {
+      grid-template-columns: minmax(0, 1fr) !important;
+      gap: 20px;
+    }
+
+    .ac-edge-split {
+      display: none;
+    }
+
+    .ac-facts {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .ac-facts dd {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .ac-topology {
+      flex-direction: column;
+    }
+
+    .ac-topology-detail {
+      flex-basis: auto;
+      width: 100%;
+    }
   }
 }
 
 @keyframes ac-ripple {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ac-amber) 60%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ac-color-amber) 60%, transparent);
   }
   100% {
     box-shadow: 0 0 0 0.6rem transparent;
   }
 }
-
-/* ── Forms ──────────────────────────────────────────────────────────────── */
-
-.ac-field {
-  display: grid;
-  gap: 0.25rem;
-  max-width: 32rem;
-}
-
-.ac-field label {
-  font-weight: 600;
-}
-
-.ac-root input,
-.ac-root select,
-.ac-root textarea {
-  font: inherit;
-  color: var(--ac-ink);
-  background: var(--ac-surface);
-  border: 1px solid var(--ac-reed);
-  border-radius: var(--ac-radius-control);
-  padding: 0.5rem 0.6rem;
-  width: 100%;
-}
-
-.ac-root textarea {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9rem;
-  min-height: 16rem;
-}
-
-.ac-root input[type="checkbox"] {
-  width: auto;
-}
-
-.ac-root [aria-invalid="true"] {
-  border-color: var(--ac-red);
-}
-
-.ac-hint {
-  color: var(--ac-reed);
-  font-size: 0.9rem;
-}
-
-.ac-field-error {
-  color: var(--ac-red);
-}
-
-.ac-form {
-  display: grid;
-  gap: var(--ac-step);
-}
-
-.ac-inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: end;
-}
-
-.ac-inline .ac-field {
-  flex: 1 1 12rem;
-}
-
-.ac-button {
-  font: inherit;
-  font-weight: 600;
-  display: inline-block;
-  padding: 0.45rem 0.9rem;
-  border-radius: var(--ac-radius-control);
-  border: 1px solid var(--ac-ink);
-  background: var(--ac-ink);
-  color: var(--ac-paper);
-  cursor: pointer;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.ac-button-quiet {
-  background: transparent;
-  color: var(--ac-ink);
-}
-
-.ac-button-danger {
-  background: var(--ac-red);
-  border-color: var(--ac-red);
-  color: #fff;
-}
-
-.ac-button[disabled] {
-  opacity: 0.55;
-  cursor: progress;
-}
-
-.ac-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.ac-actions form {
-  display: inline;
-}
-
-/* Secondary and destructive operations wait behind a disclosure, so a page shows its state first. */
-.ac-more {
-  border-top: 1px solid var(--ac-water);
-  padding-top: var(--ac-step);
-}
-
-.ac-more summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.ac-more[open] > * + * {
-  margin-top: var(--ac-step);
-}
-
-.ac-danger-zone {
-  border-left: 3px solid var(--ac-red);
-  padding-left: var(--ac-step);
-}
-
-/* ── Messages ───────────────────────────────────────────────────────────── */
-
-.ac-refusal {
-  border-left: 3px solid var(--ac-red);
-  background: var(--ac-red-wash);
-  padding: 0.6rem 0.8rem;
-}
-
-.ac-refusal ul {
-  margin: 0.4rem 0 0;
-  padding-left: 1.2rem;
-}
-
-.ac-notice {
-  border-left: 3px solid var(--ac-amber);
-  padding: 0.6rem 0.8rem;
-  background: var(--ac-surface);
-}
-
-.ac-secret {
-  display: block;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  background: var(--ac-surface);
-  border: 1px dashed var(--ac-reed);
-  padding: 0.6rem;
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
-/* ── Logs ───────────────────────────────────────────────────────────────── */
-
-.ac-log {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.85rem;
-  background: var(--ac-surface);
-  border: 1px solid var(--ac-water);
-  padding: 0.75rem;
-  max-height: 32rem;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  margin: 0;
-}
-
-/* ── Panels a host adds ─────────────────────────────────────────────────── */
-
-.ac-panel {
-  border-top: 1px solid var(--ac-water);
-  padding-top: var(--ac-step);
-}
-
-.ac-panel-failed {
-  color: var(--ac-red);
-}
-
-.ac-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
-@media (max-width: 40rem) {
-  .ac-facts {
-    grid-template-columns: 1fr;
-  }
-  .ac-facts dd {
-    margin-bottom: 0.5rem;
-  }
-}
-
-/* A service's topology: the picture and its detail side by side, the same facts as tables below. */
-.ac-topology {
-  display: flex;
-  gap: var(--ac-step);
-  align-items: flex-start;
-}
-.ac-topology-picture {
-  overflow-x: auto;
-  min-width: 0;
-  flex: 1;
-}
-.ac-topology-detail {
-  flex: 0 0 20rem;
-}
-.ac-topology-node rect {
-  fill: var(--ac-surface);
-  stroke: var(--ac-reed);
-  stroke-width: 1;
-}
-.ac-topology-node {
-  cursor: pointer;
-}
-.ac-topology-node:focus-visible rect,
-.ac-topology-selected rect {
-  stroke: var(--ac-amber);
-  stroke-width: 2;
-}
-.ac-topology-node:focus {
-  outline: none;
-}
-.ac-topology-outside rect,
-.ac-topology-differs rect {
-  stroke-dasharray: 4 3;
-}
-.ac-topology-platform rect {
-  fill: var(--ac-water);
-}
-.ac-topology-name {
-  fill: var(--ac-ink);
-  font-size: 12px;
-  font-weight: 600;
-}
-.ac-topology-kind {
-  fill: var(--ac-reed);
-  font-size: 11px;
-}
-.ac-topology-declared {
-  fill: none;
-  stroke: var(--ac-reed);
-  stroke-width: 1.25px;
-}
-.ac-topology-call {
-  fill: none;
-  stroke: var(--ac-ink);
-  stroke-dasharray: 5 4;
-}
-.ac-topology-warning {
-  stroke: var(--ac-red);
-}
-.ac-topology-mark {
-  fill: var(--ac-red);
-  font-weight: 700;
-  font-size: 14px;
-}
-@media (max-width: 48rem) {
-  .ac-topology {
-    flex-direction: column;
-  }
-  .ac-topology-detail {
-    flex-basis: auto;
-    width: 100%;
-  }
-}
-

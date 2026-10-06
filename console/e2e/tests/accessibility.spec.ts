@@ -1,4 +1,4 @@
-import { test, expect, seedTenancy } from "../fixtures.ts";
+import { test, expect, seedTenancy, ops } from "../fixtures.ts";
 import type { Locator, Page } from "@playwright/test";
 
 test("every page meets WCAG 2.1 AA as axe checks it", async ({ page, target, signIn, unique, audit, scriptsOff }) => {
@@ -20,6 +20,7 @@ test("every page meets WCAG 2.1 AA as axe checks it", async ({ page, target, sig
     `/projects/${project}/services/cart`,
     `/projects/${project}/services/cart/logs`,
     `/projects/${project}/services/cart/topology`,
+    `/projects/${project}/services/cart/history`,
     "/auth/sign-out",
   ];
   for (const path of pages) {
@@ -77,7 +78,7 @@ test("every operation can be completed with the keyboard alone", async ({ page, 
   await page.keyboard.press("Enter");
   await page.waitForURL(`${target.url}/projects/${project}/services/cart`);
 
-  await tabTo(page, page.getByRole("button", { name: "Pause" }));
+  await tabTo(page, ops(page).getByRole("button", { name: "Pause" }));
   await page.keyboard.press("Enter");
   await expect(page.locator(".ac-state-line")).toContainText("Paused");
 
@@ -101,4 +102,22 @@ test("every operation can be completed with the keyboard alone", async ({ page, 
   await page.keyboard.type("Renamed by keys");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { level: 1, name: "Renamed by keys" })).toBeVisible();
+});
+
+test("every operation is reached by keyboard with a visible focus", async ({ page, target, signIn, unique, scriptsOff }) => {
+  test.skip(scriptsOff, "focus is inspected from inside the page");
+  test.skip(target.kind !== "fake", "needs a seeded tenancy");
+  const project = unique("keysh");
+  seedTenancy(target, { org: unique("keysho"), project, service: "cart" });
+  await signIn(page, "owner", `/projects/${project}/services/cart`);
+  // The shell's own controls, in the order a keyboard reaches them: the rail, the bar, the listing,
+  // the page's sections, the shape's controls, and the inspector's operations.
+  await tabTo(page, page.getByRole("navigation", { name: "Console" }).getByRole("link", { name: /^Members of/ }));
+  await tabTo(page, page.getByRole("banner").getByRole("link", { name: "Apply a new descriptor" }));
+  await tabTo(page, page.locator("nav.ac-listing").getByRole("link").first());
+  await tabTo(page, page.getByRole("navigation", { name: "Sections of the service" }).getByRole("link", { name: "History" }));
+  await tabTo(page, page.getByRole("group", { name: "Controls of cart" }).getByRole("button", { name: "Restart" }));
+  await tabTo(page, ops(page).getByRole("button", { name: "Expose" }));
+  await page.keyboard.press("Enter");
+  await expect(ops(page).getByRole("button", { name: "Unexpose" })).toBeVisible();
 });

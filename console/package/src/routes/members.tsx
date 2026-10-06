@@ -4,9 +4,11 @@
  * and is shown as the machine it is.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
+import { act, guard, organizationShell, pageData, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs, ConsoleForm, Field, Submit, useConsole, when } from "../ui/console.tsx";
+import { ConsoleForm, Field, Submit, useConsole, when } from "../ui/console.tsx";
+import { Page, SectionTitle } from "../ui/shell.tsx";
+import { Select } from "../ui/primitives/select.tsx";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import type { Role } from "../client/schemas.ts";
 import { HostActions } from "../extensions/render.tsx";
@@ -17,8 +19,8 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.organizationId!;
   return guard(ctx, async () => {
-    const [organization, members, page] = await Promise.all([ctx.client.getOrganization(id), ctx.client.members(id), pageData(ctx)]);
-    return { console: page, organization, ...members };
+    const [organization, members, projects, page] = await Promise.all([ctx.client.getOrganization(id), ctx.client.members(id), ctx.client.listProjects(), pageData(ctx)]);
+    return { console: organizationShell(page, organization, projects, "members", [{ label: "Members" }]), organization, ...members };
   });
 }
 
@@ -57,13 +59,34 @@ export default function Members() {
   const { shows } = useConsole();
   const owner = o.role === "owner" || (page.principal?.platformAdmin ?? false);
   const inviteRefusal = useRefusal("invite");
+  const inspector =
+    owner && shows("member.invite") ? (
+      <section aria-labelledby="invite" className="ac-form">
+        <SectionTitle>
+          <span id="invite">Invite someone</span>
+        </SectionTitle>
+        <p className="ac-hint">They become a member the first time they sign in with this email address, once the identity provider has verified it.</p>
+        <ConsoleForm intent="invite" className="ac-inline">
+          <Field label="Email" name="email" type="email" required autoComplete="off" defaultValue={inviteRefusal?.values.email} />
+          <Select label="Role" id="invite-role" name="role" defaultValue={inviteRefusal?.values.role ?? "member"}>
+            <option value="member">Member</option>
+            <option value="owner">Owner</option>
+          </Select>
+          <Submit intent="invite" primary>
+            Invite
+          </Submit>
+        </ConsoleForm>
+        <Refused intent="invite" />
+        <div className="ac-ops">
+          <HostActions operation="member.invite" entity={o} />
+        </div>
+      </section>
+    ) : null;
   return (
-    <section className="ac-page">
-      <Breadcrumbs trail={[{ label: "Organizations", to: "" }, { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` }, { label: "Members" }]} />
+    <Page inspector={inspector}>
       <h1>Members of {o.name}</h1>
       <p className="ac-lede">Owners manage members and deploy tokens; every member can deploy.</p>
-
-      <div className="ac-table-wrap">
+      <div className="ac-card ac-table-wrap">
         <table className="ac-table">
           <caption className="ac-visually-hidden">Members</caption>
           <thead>
@@ -99,13 +122,13 @@ export default function Members() {
                             <ConsoleForm intent="role">
                               <input type="hidden" name="subject" value={m.subject} />
                               <input type="hidden" name="role" value={m.role === "owner" ? "member" : "owner"} />
-                              <Submit intent="role">{m.role === "owner" ? "Make member" : "Make owner"}</Submit>
+                              <Submit intent="role" className="ac-button ac-button-small">{m.role === "owner" ? "Make member" : "Make owner"}</Submit>
                             </ConsoleForm>
                           ) : null}
                           {shows("member.remove") ? (
                             <ConsoleForm intent="remove">
                               <input type="hidden" name="subject" value={m.subject} />
-                              <Submit intent="remove" danger>
+                              <Submit intent="remove" className="ac-button ac-button-small ac-button-danger">
                                 Remove
                               </Submit>
                             </ConsoleForm>
@@ -123,7 +146,8 @@ export default function Members() {
       <Refused intent="role" />
       <Refused intent="remove" />
 
-      <h2>Invitations</h2>
+      <section className="ac-card" aria-labelledby="invitations">
+      <h2 id="invitations">Invitations</h2>
       {invitations.length === 0 ? (
         <p className="ac-empty">No invitations are waiting.</p>
       ) : (
@@ -152,7 +176,7 @@ export default function Members() {
                       {shows("invitation.withdraw") ? (
                         <ConsoleForm intent="withdraw">
                           <input type="hidden" name="email" value={i.email} />
-                          <Submit intent="withdraw">Withdraw</Submit>
+                          <Submit intent="withdraw" className="ac-button ac-button-small">Withdraw</Submit>
                         </ConsoleForm>
                       ) : null}
                     </td>
@@ -164,29 +188,8 @@ export default function Members() {
         </div>
       )}
       <Refused intent="withdraw" />
-
-      {owner && shows("member.invite") ? (
-        <>
-          <h2>Invite someone</h2>
-          <p>They become a member the first time they sign in with this email address, once the identity provider has verified it.</p>
-          <ConsoleForm intent="invite" className="ac-inline">
-            <Field label="Email" name="email" type="email" required autoComplete="off" defaultValue={inviteRefusal?.values.email} />
-            <div className="ac-field">
-              <label htmlFor="invite-role">Role</label>
-              <select id="invite-role" name="role" defaultValue={inviteRefusal?.values.role ?? "member"}>
-                <option value="member">Member</option>
-                <option value="owner">Owner</option>
-              </select>
-            </div>
-            <Submit intent="invite">Invite</Submit>
-          </ConsoleForm>
-          <Refused intent="invite" />
-          <div className="ac-actions">
-            <HostActions operation="member.invite" entity={o} />
-          </div>
-        </>
-      ) : null}
-    </section>
+      </section>
+    </Page>
   );
 }
 

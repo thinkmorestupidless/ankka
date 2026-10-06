@@ -8,6 +8,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "tests",
   outputDir: "test-results",
+  globalSetup: "./preflight.ts",
   globalTeardown: "./parity.ts",
   // A test that fails once and passes on retry is a flake to fix, not a pass; CI reports it as such.
   retries: process.env.CI ? 1 : 0,

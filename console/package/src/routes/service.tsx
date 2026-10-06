@@ -4,9 +4,12 @@
  * state the control plane reports, never what the console expected.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { act, guard, pageData, text, useConsoleContext } from "../context.ts";
+import { act, applyPrimary, guard, pageData, projectShell, text, useConsoleContext } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { Breadcrumbs, ConsoleForm, ConsoleLink, Submit, useConsole, when } from "../ui/console.tsx";
+import { ConsoleForm, Submit, useConsole } from "../ui/console.tsx";
+import { Page, SectionTitle, ServiceSections } from "../ui/shell.tsx";
+import { Shape } from "../ui/shape.tsx";
+import { runsAs } from "../ui/hosting.ts";
 import { Refused, useRefusal } from "../ui/refused.tsx";
 import { Lifecycle } from "../ui/status.tsx";
 import { useServiceStream } from "../ui/use-stream.ts";
@@ -19,14 +22,20 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const { projectId, name } = params as { projectId: string; name: string };
   return guard(ctx, async () => {
-    const [service, history, project, page] = await Promise.all([
+    const [service, project, services, page] = await Promise.all([
       ctx.client.getService(projectId, name),
-      ctx.client.history(projectId, name),
       ctx.client.getProject(projectId),
+      ctx.client.listServices(projectId),
       pageData(ctx),
     ]);
     const organization = await ctx.client.getOrganization(project.organizationId);
-    return { console: page, service, history: [...history].reverse(), project, organization, panels: await loadPanels(ctx, "service", service) };
+    return {
+      console: projectShell(page, organization, project, services, [{ label: name }], applyPrimary(projectId, name), name),
+      service,
+      project,
+      organization,
+      panels: await loadPanels(ctx, "service", service),
+    };
   });
 }
 
@@ -48,16 +57,6 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
   });
 }
 
-const history = {
-  applied: "Applied",
-  restarted: "Restarted",
-  paused: "Paused",
-  resumed: "Resumed",
-  exposed: "Exposed",
-  unexposed: "Unexposed",
-  deleted: "Deleted",
-} as Record<string, string>;
-
 function Operation({ intent, label, operation, danger, entity }: { intent: string; label: string; operation: Operation; danger?: boolean; entity?: unknown }) {
   const { shows } = useConsole();
   return (
@@ -74,132 +73,24 @@ function Operation({ intent, label, operation, danger, entity }: { intent: strin
   );
 }
 
-/** Where the developer's code runs, in a sentence. */
-function runsAs(s: { hosting: string; protocol?: string; processPort?: number }): string {
-  if (s.hosting === "web") return `Your program beside the platform's proxy${s.processPort ? `, on port ${s.processPort}` : ""}`;
-  if (s.hosting === "process") return `A process beside the platform's sidecar${s.protocol ? `, protocol ${s.protocol}` : ""}`;
-  if (s.hosting === "wasm") return `A module loaded into the platform's runtime${s.protocol ? `, protocol ${s.protocol}` : ""}`;
-  return "Embedded in the platform's runtime";
-}
-
 export default function Service() {
   const data = useLoaderData<typeof loader>();
-  const { project: p, organization: o, panels } = data;
+  const { project: p, panels } = data;
   const { status: s, state } = useServiceStream(p.id, data.service.name, data.service);
   const deleteRefused = useRefusal("delete") !== undefined;
-  const path = `projects/${encodeURIComponent(p.id)}/services/${encodeURIComponent(s.name)}`;
-  return (
-    <section className="ac-page">
-      <Breadcrumbs
-        trail={[
-          { label: "Organizations", to: "" },
-          { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` },
-          { label: p.name, to: `projects/${encodeURIComponent(p.id)}` },
-          { label: s.name },
-        ]}
-      />
-      <h1>{s.name}</h1>
-      <p aria-live="polite" className="ac-state-line">
-        <Lifecycle lifecycle={s.lifecycle} confirmed={s.confirmed} />
-        {state === "live" ? <span className="ac-live"> Updating as the platform reports</span> : null}
-      </p>
-      {s.detail ? <p className="ac-notice">{s.detail}</p> : null}
-
-      <dl className="ac-facts">
-        <dt>Instances</dt>
-        <dd>
-          {s.readyInstances} ready of {s.desiredInstances}
-        </dd>
-        <dt>Image</dt>
-        <dd>{s.image}</dd>
-        <dt>Generation</dt>
-        <dd>{s.generation}</dd>
-        <dt>Address</dt>
-        <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
-        <dt>Database</dt>
-        <dd>{s.hosting === "web" ? "None" : (s.database ?? "Nothing reported yet")}</dd>
-        <dt>Runs as</dt>
-        <dd>{runsAs(s)}</dd>
-        {s.hosting === "web" ? (
-          <>
-            <dt>Admits</dt>
-            <dd>{["The internet", ...s.callers.map((c) => (c === "*" ? `Every service in ${p.name}` : c))].join(", ")}</dd>
-            <dt>Mounts</dt>
-            <dd>
-              {s.mounts.length === 0 ? (
-                "None"
-              ) : (
-                <ul className="ac-mounts">
-                  {s.mounts.map((m) => (
-                    <li key={m.path} data-mount={m.path}>
-                      <code>{m.path}</code> → {m.service}
-                      {m.state && m.state !== "ok" ? ` (${m.state})` : ""}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </dd>
-          </>
-        ) : null}
-        <dt>Stopped by</dt>
-        <dd>{s.suspended ? "Its organization is disabled" : s.paused ? "Its members paused it" : "Nobody"}</dd>
-        <dt>Report</dt>
-        <dd>{s.confirmed ? "Confirmed by the cluster" : "The last known state; the cluster has not confirmed it"}</dd>
-      </dl>
-
-      <div className="ac-actions" aria-label="Operations">
+  const inspector = (
+    <>
+      <section className="ac-ops" aria-labelledby="operations-title">
+        <SectionTitle>
+          <span id="operations-title">Operations</span>
+        </SectionTitle>
         {s.paused ? <Operation intent="resume" label="Resume" operation="service.resume" entity={s} /> : <Operation intent="pause" label="Pause" operation="service.pause" entity={s} />}
         <Operation intent="restart" label="Restart" operation="service.restart" entity={s} />
         {s.exposed ? <Operation intent="unexpose" label="Unexpose" operation="service.unexpose" entity={s} /> : <Operation intent="expose" label="Expose" operation="service.expose" entity={s} />}
-        <ConsoleLink to={`${path}/logs`} className="ac-button ac-button-quiet">
-          Logs
-        </ConsoleLink>
-        <ConsoleLink to={`${path}/topology`} className="ac-button ac-button-quiet">
-          Topology
-        </ConsoleLink>
-        <ConsoleLink to={`projects/${encodeURIComponent(p.id)}/services/apply?name=${encodeURIComponent(s.name)}`} className="ac-button ac-button-quiet">
-          Apply a new descriptor
-        </ConsoleLink>
-      </div>
+      </section>
       {serviceOperations.map((op) => (
         <Refused key={op} intent={op} />
       ))}
-
-      <Panels kind="service" entity={s} loaded={panels} />
-
-      <h2>History</h2>
-      {data.history.length === 0 ? (
-        <p className="ac-empty">Nothing recorded yet.</p>
-      ) : (
-        <div className="ac-table-wrap">
-          <table className="ac-table">
-            <thead>
-              <tr>
-                <th scope="col">What</th>
-                <th scope="col" className="ac-num">
-                  Generation
-                </th>
-                <th scope="col">Who</th>
-                <th scope="col">When</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.history.map((h, i) => (
-                <tr key={i}>
-                  <td>{history[h.kind] ?? h.kind}</td>
-                  <td className="ac-num">{h.generation}</td>
-                  <td>
-                    {h.actor ? (h.actor.display ?? h.actor.subject) : "—"}
-                    {h.actor?.administrative ? " (as administrator)" : ""}
-                  </td>
-                  <td>{when(h.at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       <details className="ac-more" open={deleteRefused || undefined}>
         <summary>Delete</summary>
         <div className="ac-danger-zone">
@@ -208,7 +99,71 @@ export default function Service() {
           <Refused intent="delete" />
         </div>
       </details>
-    </section>
+    </>
+  );
+  return (
+    <Page inspector={inspector}>
+      <div className="ac-head">
+        <h1>{s.name}</h1>
+        <p aria-live="polite" className="ac-actions ac-state-line">
+          <span className="ac-pill">
+            <Lifecycle lifecycle={s.lifecycle} confirmed={s.confirmed} />
+          </span>
+          {state === "live" ? <span className="ac-live"> Updating as the platform reports</span> : null}
+        </p>
+        <ServiceSections projectId={p.id} name={s.name} current="overview" />
+      </div>
+      {s.detail ? <p className="ac-notice">{s.detail}</p> : null}
+
+      <Shape service={s} />
+
+      <section className="ac-card" aria-labelledby="reported">
+        <h2 id="reported">Reported by the cluster</h2>
+        <dl className="ac-facts">
+          <dt>Instances</dt>
+          <dd>
+            {s.readyInstances} ready of {s.desiredInstances}
+          </dd>
+          <dt>Image</dt>
+          <dd>{s.image}</dd>
+          <dt>Generation</dt>
+          <dd>{s.generation}</dd>
+          <dt>Address</dt>
+          <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
+          <dt>Database</dt>
+          <dd>{s.hosting === "web" ? "None" : (s.database ?? "Nothing reported yet")}</dd>
+          <dt>Runs as</dt>
+          <dd>{runsAs(s)}</dd>
+          {s.hosting === "web" ? (
+            <>
+              <dt>Admits</dt>
+              <dd>{["The internet", ...s.callers.map((c) => (c === "*" ? `Every service in ${p.name}` : c))].join(", ")}</dd>
+              <dt>Mounts</dt>
+              <dd>
+                {s.mounts.length === 0 ? (
+                  "None"
+                ) : (
+                  <ul className="ac-mounts">
+                    {s.mounts.map((m) => (
+                      <li key={m.path} data-mount={m.path}>
+                        <code>{m.path}</code> → {m.service}
+                        {m.state && m.state !== "ok" ? ` (${m.state})` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </dd>
+            </>
+          ) : null}
+          <dt>Stopped by</dt>
+          <dd>{s.suspended ? "Its organization is disabled" : s.paused ? "Its members paused it" : "Nobody"}</dd>
+          <dt>Report</dt>
+          <dd>{s.confirmed ? "Confirmed by the cluster" : "The last known state; the cluster has not confirmed it"}</dd>
+        </dl>
+      </section>
+
+      <Panels kind="service" entity={s} loaded={panels} />
+    </Page>
   );
 }
 

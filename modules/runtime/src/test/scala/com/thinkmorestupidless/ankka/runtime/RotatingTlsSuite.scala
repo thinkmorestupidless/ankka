@@ -115,9 +115,10 @@ class RotatingTlsSuite extends munit.FunSuite:
   test("rewritten files are picked up after the interval, and not before it") {
     val directory = dir()
     val first     = root.issue(uris = Seq("ankka://p/s")).writeTo(directory)
-    val tls       = RotatingTls(first, 200.millis)
-    val original  = tls.current.getSerialNumber
-    val next      = root.issue(uris = Seq("ankka://p/s"))
+    // Issued before the clock starts: generating a key can outlast the interval on a slow runner.
+    val next     = root.issue(uris = Seq("ankka://p/s"))
+    val tls      = RotatingTls(first, 200.millis)
+    val original = tls.current.getSerialNumber
     next.writeTo(directory)
     touch(directory)
     assertEquals(tls.current.getSerialNumber, original, "reloaded before the interval")

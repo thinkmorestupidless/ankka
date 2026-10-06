@@ -3,10 +3,11 @@
  * yours with your role in each, or every one of them for a platform administrator.
  */
 import { useLoaderData, type LoaderFunctionArgs, type MetaFunction } from "react-router";
-import { guard, pageData, useConsoleContext } from "../context.ts";
+import { guard, pageData, useConsoleContext, withShell } from "../context.ts";
 import { ConsoleErrorBoundary } from "../ui/errors.tsx";
-import { ConsoleLink, useConsole } from "../ui/console.tsx";
-import { HostActions } from "../extensions/render.tsx";
+import { ConsoleLink } from "../ui/console.tsx";
+import { Page } from "../ui/shell.tsx";
+import { HostActions, useHostActions } from "../extensions/render.tsx";
 
 export const meta: MetaFunction = () => [{ title: "Organizations · ankka" }];
 
@@ -14,7 +15,12 @@ export async function loader({ context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   return guard(ctx, async () => {
     const [whoami, organizations] = await Promise.all([ctx.client.whoami(), ctx.client.listOrganizations()]);
-    return { console: await pageData(ctx), whoami, organizations };
+    const shell = {
+      area: "organizations" as const,
+      crumbs: [{ label: "Organizations" }],
+      primary: { label: "Create an organization", to: "organizations/new", operation: "organization.create" as const },
+    };
+    return { console: withShell(await pageData(ctx), shell), whoami, organizations };
   });
 }
 
@@ -22,9 +28,17 @@ const roleWords = { owner: "Owner", member: "Member" } as const;
 
 export default function Front() {
   const { whoami, organizations } = useLoaderData<typeof loader>();
-  const { shows } = useConsole();
+  const hostActions = useHostActions("organization.create");
   return (
-    <section className="ac-page">
+    <Page
+      inspector={
+        hostActions ? (
+          <div className="ac-ops">
+            <HostActions operation="organization.create" />
+          </div>
+        ) : null
+      }
+    >
       <h1>Organizations</h1>
       <p className="ac-lede">
         Signed in as <strong>{whoami.name ?? whoami.email ?? whoami.subject}</strong>
@@ -37,7 +51,7 @@ export default function Front() {
           You are not a member of any organization yet. Create one, or ask an owner to invite {whoami.email ?? "you"}.
         </p>
       ) : (
-        <div className="ac-table-wrap">
+        <div className="ac-card ac-table-wrap">
           <table className="ac-table">
             <caption className="ac-visually-hidden">Organizations you can see</caption>
             <thead>
@@ -67,16 +81,7 @@ export default function Front() {
           </table>
         </div>
       )}
-
-      <div className="ac-actions">
-        {shows("organization.create") ? (
-          <ConsoleLink to="organizations/new" className="ac-button">
-            Create an organization
-          </ConsoleLink>
-        ) : null}
-        <HostActions operation="organization.create" />
-      </div>
-    </section>
+    </Page>
   );
 }
 

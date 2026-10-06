@@ -181,11 +181,84 @@ export const text = (form: FormData, name: string): string => {
   return typeof v === "string" ? v.trim() : "";
 };
 
+/** The rail's areas, in the order it shows them. */
+export const areas = ["organizations", "projects", "services", "members", "tokens"] as const;
+export type Area = (typeof areas)[number];
+
+export interface Crumb {
+  label: string;
+  to?: string;
+}
+
+/** One entry of the shell's listing: a project's service, or an organization's project. */
+export type ListingItem =
+  | { kind: "service"; key: string; name: string; to: string; lifecycle: string; confirmed: boolean; ready: number; desired: number }
+  | { kind: "project"; key: string; name: string; to: string; services: number };
+
+/**
+ * What the shell around a page shows: the area the rail marks, where the bar says the member is,
+ * the page's primary operation, the organization and project the rail's areas open, and the listing
+ * beside the page. A page with no listing (the front page) leaves it out.
+ */
+export interface ShellData {
+  area?: Area;
+  crumbs: Crumb[];
+  primary?: { label: string; to: string; operation?: Operation };
+  /** `manages`: the member may manage its members and deploy tokens (an owner, or an administrator). */
+  organization?: { id: string; name: string; manages: boolean };
+  project?: { id: string; name: string };
+  listing?: { title: string; label: string; items: ListingItem[]; current?: string };
+}
+
 /** What every package page's loader data carries for the pages and the host's layout. */
 export interface ConsolePageData {
   mount: string;
   principal: Principal | null;
   hidden: Operation[];
+  shell?: ShellData;
+}
+
+const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+
+/** The listing of a project's services, in name order, marking the one being read. */
+export function servicesListing(
+  project: { id: string; name: string },
+  services: { name: string; lifecycle: string; confirmed: boolean; readyInstances: number; desiredInstances: number }[],
+  current?: string,
+): NonNullable<ShellData["listing"]> {
+  const base = `projects/${encodeURIComponent(project.id)}/services/`;
+  return {
+    title: project.name,
+    label: `Services in ${project.name}`,
+    current,
+    items: [...services].sort(byName).map((s) => ({
+      kind: "service",
+      key: s.name,
+      name: s.name,
+      to: base + encodeURIComponent(s.name),
+      lifecycle: s.lifecycle,
+      confirmed: s.confirmed,
+      ready: s.readyInstances,
+      desired: s.desiredInstances,
+    })),
+  };
+}
+
+/** The listing of an organization's projects, in name order, marking the one being read. */
+export function projectsListing(
+  organization: { id: string; name: string },
+  projects: { id: string; name: string; organizationId: string; services: number }[],
+  current?: string,
+): NonNullable<ShellData["listing"]> {
+  return {
+    title: organization.name,
+    label: `Projects in ${organization.name}`,
+    current,
+    items: projects
+      .filter((p) => p.organizationId === organization.id)
+      .sort(byName)
+      .map((p) => ({ kind: "project", key: p.id, name: p.name, to: `projects/${encodeURIComponent(p.id)}`, services: p.services })),
+  };
 }
 
 /**
@@ -197,4 +270,64 @@ export async function pageData(ctx: ConsoleContext): Promise<ConsolePageData> {
   const principal = await ctx.principal();
   if (!principal) throw new SignInRequired();
   return { mount: ctx.mount, principal, hidden: ctx.extensions.hidden ?? [] };
+}
+
+/** A page's data with the shell around it; loaders call it once everything the shell names is read. */
+export function withShell(page: ConsolePageData, shell: ShellData): ConsolePageData {
+  return { ...page, shell };
+}
+
+type OrganizationLike = { id: string; name: string; role?: "owner" | "member" | null };
+
+/** The shell of a page that belongs to an organization: its projects beside the page. */
+export function organizationShell(
+  page: ConsolePageData,
+  o: OrganizationLike,
+  projects: { id: string; name: string; organizationId: string; services: number }[],
+  area: Area,
+  tail: Crumb[],
+  primary?: ShellData["primary"],
+): ConsolePageData {
+  const orgPath = `organizations/${encodeURIComponent(o.id)}`;
+  return withShell(page, {
+    area,
+    crumbs: [{ label: "Organizations", to: "" }, { label: o.name, to: orgPath }, ...tail],
+    primary,
+    organization: { id: o.id, name: o.name, manages: o.role === "owner" || (page.principal?.platformAdmin ?? false) },
+    listing: projectsListing(o, projects),
+  });
+}
+
+/** The shell of a page that belongs to a project: its services beside the page. */
+export function projectShell(
+  page: ConsolePageData,
+  o: OrganizationLike,
+  p: { id: string; name: string },
+  services: Parameters<typeof servicesListing>[1],
+  tail: Crumb[],
+  primary?: ShellData["primary"],
+  current?: string,
+): ConsolePageData {
+  return withShell(page, {
+    area: current === undefined ? "projects" : "services",
+    crumbs: [
+      { label: "Organizations", to: "" },
+      { label: o.name, to: `organizations/${encodeURIComponent(o.id)}` },
+      { label: p.name, to: `projects/${encodeURIComponent(p.id)}` },
+      ...tail,
+    ],
+    primary,
+    organization: { id: o.id, name: o.name, manages: o.role === "owner" || (page.principal?.platformAdmin ?? false) },
+    project: { id: p.id, name: p.name },
+    listing: servicesListing(p, services, current),
+  });
+}
+
+/** A service's pages put applying a new descriptor first. */
+export function applyPrimary(projectId: string, name: string): NonNullable<ShellData["primary"]> {
+  return {
+    label: "Apply a new descriptor",
+    to: `projects/${encodeURIComponent(projectId)}/services/apply?name=${encodeURIComponent(name)}`,
+    operation: "service.apply",
+  };
 }

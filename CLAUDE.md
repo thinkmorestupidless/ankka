@@ -89,7 +89,7 @@ just docs-sync                    # refresh included samples, generated tables a
 just docs-reference               # rewrite the CLI and control plane route pages the JVM generates
 just build-console                # the ankka-console package, then the host
 just test-console                 # its type check, unit tests and Playwright suite against in-process fakes
-just test-console-compose         # the Playwright suite against compose's Keycloak and a running control plane
+just test-console-compose         # the Playwright suite against compose's Keycloak, a running control plane and `npm run dev`
 cd console && npm run dev         # the console on :3000 against compose's Keycloak and `sbt controlPlane/run`
 ```
 

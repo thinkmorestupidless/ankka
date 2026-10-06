@@ -90,8 +90,9 @@ build-console:
 test-console:
     cd console && npm ci && npm run typecheck && npm test && npm run e2e
 
-# The console's Playwright suite against the real stack: needs `docker compose up -d` and
-# `ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run` already running.
+# The console's Playwright suite against the real stack: needs `docker compose up -d`,
+# `ANKKA_AUTH_ISSUER=http://localhost:8081/realms/ankka sbt controlPlane/run` and the console itself
+# (`cd console && npm run dev`) already running. It checks all three first and names any that is not.
 test-console-compose:
     cd console && CONSOLE_E2E_TARGET=compose npm run e2e
 

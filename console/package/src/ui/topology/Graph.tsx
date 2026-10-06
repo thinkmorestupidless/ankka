@@ -66,7 +66,7 @@ export function Graph({
           if (e.key === "Enter" || e.key === " ") onSelect(n.id);
         }}
       >
-        <rect width={GRID.width} height={GRID.height} rx={6} />
+        <rect width={GRID.width} height={GRID.height} rx={12} filter="url(#ac-topology-shadow)" />
         <text x={10} y={16} className="ac-topology-name">
           {clip(n.label, 22)}
         </text>
@@ -79,6 +79,11 @@ export function Graph({
 
   return (
     <svg className="ac-topology-graph" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="group" aria-label={describe(shown)}>
+      <defs>
+        <filter id="ac-topology-shadow" x="-20%" y="-30%" width="140%" height="180%">
+          <feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#05090b" floodOpacity="0.28" />
+        </filter>
+      </defs>
       {shown.declared.map((e) => {
         const p = path(e.from, e.to, 0);
         return p ? (

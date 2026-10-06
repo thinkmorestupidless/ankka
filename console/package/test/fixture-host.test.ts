@@ -75,6 +75,30 @@ class Browser {
   }
 }
 
+/** Each declaration of `property` in a stylesheet, with its selector and whether a layer holds it. */
+function layersOf(stylesheet: string, property: string): { selector: string; layered: boolean }[] {
+  const css = stylesheet.replace(/\/\*[\s\S]*?\*\//g, "");
+  const found: { selector: string; layered: boolean }[] = [];
+  const stack: { layer: boolean; selector: string }[] = [];
+  let start = 0;
+  for (let i = 0; i < css.length; i++) {
+    const c = css[i];
+    if (c === "{") {
+      const head = css.slice(start, i).trim();
+      stack.push({ layer: head.startsWith("@layer"), selector: head });
+      start = i + 1;
+    } else if (c === "}") {
+      stack.pop();
+      start = i + 1;
+    } else if (c === ";") {
+      start = i + 1;
+    } else if (css.startsWith(property, i) && stack.length > 0) {
+      found.push({ selector: stack[stack.length - 1].selector, layered: stack.some((s) => s.layer) });
+    }
+  }
+  return found;
+}
+
 describe("a second host built on the package", () => {
   let issuer: FakeIssuer;
   let cp: FakeControlPlane;
@@ -135,14 +159,20 @@ describe("a second host built on the package", () => {
     assert.ok(![...browser.cookies.keys()].some((k) => k.includes("ankka_console") && !k.includes("flash") && !k.includes("login")));
   });
 
-  test("the host's stylesheet follows the package's, so its properties win", async () => {
+  test("a host restyles the console by setting its custom properties and not its rules", async () => {
     const front = await browser.follow("/x/");
+    assert.match(front.html, /class="ac-root ac-shell ac-light product"/);
     const sheet = /<link rel="stylesheet" href="([^"]+)"/.exec(front.html)![1];
     const css = await (await browser.request(sheet)).text();
-    // One bundle, in import order: the package's properties, then the host's overrides of them.
-    const packageRules = css.indexOf(".ac-root{");
-    const hostRules = css.indexOf(".product{");
-    assert.ok(packageRules >= 0 && hostRules > packageRules, `package at ${packageRules}, host at ${hostRules}`);
+    // Every declaration of the property in the package is in a cascade layer; the host's is not. An
+    // unlayered declaration beats a layered one whatever the specificity or the order, in either theme.
+    const declarations = layersOf(css, "--ac-color-ink:");
+    const host = declarations.filter((d) => d.selector.includes(".product"));
+    const pkg = declarations.filter((d) => !d.selector.includes(".product"));
+    assert.ok(pkg.length >= 2, "the package declares the ink for each theme");
+    for (const d of pkg) assert.ok(d.layered, `the package declares the ink outside a layer on ${d.selector}`);
+    assert.equal(host.length, 1);
+    assert.equal(host[0].layered, false, "the host's own declaration is unlayered");
   });
 
   test("an organization is created and shows the host's panel, action and no hidden control", async () => {
@@ -199,5 +229,16 @@ describe("a second host built on the package", () => {
   test("the host's own page sits beside the package's", async () => {
     const billing = await browser.follow("/x/billing");
     assert.match(billing.html, /Billing, a page of the host&#x27;s own|Billing, a page of the host's own/);
+  });
+
+  test("a host mounts the parts of the shell it has content for, without a change to the package", async () => {
+    const billing = await browser.follow("/x/billing");
+    assert.match(billing.html, /class="ac-backdrop"/);
+    assert.match(billing.html, /<header class="ac-bar"/);
+    assert.match(billing.html, /data-product-chrome/);
+    for (const absent of ['class="ac-rail"', 'class="ac-listing"', 'aria-label="Operations"']) assert.ok(!billing.html.includes(absent), `the host did not mount ${absent}`);
+    // A package page in the same host brings its own inspector.
+    const org = await browser.follow("/x/organizations/broken-org");
+    assert.match(org.html, /aria-label="Operations"/);
   });
 });

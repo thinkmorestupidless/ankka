@@ -191,10 +191,11 @@ final class ServiceBuilder private[ankka] (
     host(system, ownsSystem = false)
 
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =
-    // The service's own extensions, then any a module on its classpath provides: started last,
-    // stopped first.
+    // Any a module on its classpath provides, then the service's own: started first and stopped
+    // last. Stopped first, the telemetry exporter's final flush held every server open behind it
+    // while the pod's other containers were already stopping, and a rolling restart refused requests.
     val extensions =
-      this.extensions ++ RuntimeExtensionProvider.provided(system.settings.config)
+      RuntimeExtensionProvider.provided(system.settings.config) ++ this.extensions
     // Before anything runs a handler: every line a handler writes names its trace from here on.
     TraceLogging.install()
     val registry = validate.fold(

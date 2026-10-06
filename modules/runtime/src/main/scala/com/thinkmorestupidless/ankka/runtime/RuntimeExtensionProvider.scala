@@ -16,7 +16,8 @@ import com.typesafe.config.Config
  * Asked once, when the service starts, with the service's configuration. A provider that has
  * nothing to do for that configuration returns none and costs nothing after; one that throws fails
  * the start, naming itself, rather than leaving a service running without what it was configured
- * for. Its extension is started after the service's own and stopped before them.
+ * for. Its extension is started before the service's own and stopped after them, so it neither
+ * holds a server open while it stops nor misses what the service did last.
  */
 trait RuntimeExtensionProvider:
   def extension(config: Config): Option[RuntimeExtension]

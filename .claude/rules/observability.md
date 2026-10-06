@@ -33,8 +33,8 @@ pairs and recomputes percentiles from the instances' histograms.
 
 `runtime` records every invocation with no library (`Recorder`), and `ankka-telemetry-otlp` is the only
 place OpenTelemetry is (feature 026). It declares a `RuntimeExtensionProvider` in
-`META-INF/services`, and `ServiceBuilder` appends what declared providers return after the service's own
-extensions: the one extension a service does not hand over, so that "services opt into nothing" holds
+`META-INF/services`, and `ServiceBuilder` puts what declared providers return before the service's own
+extensions, so it starts first and stops last: the one extension a service does not hand over, so that "services opt into nothing" holds
 for an embedded service whose `Main` is the developer's. Components are still only ever handed over.
 With `ankka.telemetry.endpoint` empty the provider returns nothing and no exporter class loads.
 
@@ -133,3 +133,9 @@ which keeps nothing, is listed by no overlay and rendered by `kustomization/test
   line never sent. `TelemetryStoreSuite` writes its pod log lines with the current time.
 - **`otel/opentelemetry-collector-contrib` lags the core image's tags on Docker Hub.** 0.162.0 existed for
   the core collector and not for contrib; both are pinned at 0.161.0 so the two collectors match.
+- **An extension that stops slowly holds every extension stopped after it.** Extensions stop one at a
+  time, in reverse, and the telemetry exporter was put last so it stopped first: its final flush, up to
+  3 s, ran while the HTTP server and a sidecar's remote hosts stayed open and the pod's process was
+  already being stopped. Rolling restarts refused 1 request in a few hundred, only where a collector was
+  configured; `SidecarClusterSuite` failed on it three runs in three. A provided extension starts first
+  and stops last.

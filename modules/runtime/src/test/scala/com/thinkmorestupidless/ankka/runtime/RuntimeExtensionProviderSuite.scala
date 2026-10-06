@@ -37,14 +37,14 @@ final class RuntimeExtensionProviderSuite extends FunSuite:
       .parseString(s"""ankka.test.provider = "$provider"""")
       .withFallback(ClusterConfig.load())
 
-  test("a provided extension starts after the service's own, and stops before them") {
+  test("a provided extension starts before the service's own, and stops after them") {
     events.clear()
     val service = Ankka.service
       .withExtension(Recording("own"))
       .start("provider-suite", config("on"))
-    try assertEquals(events.asScala.toVector, Vector("start own", "start provided"))
+    try assertEquals(events.asScala.toVector, Vector("start provided", "start own"))
     finally service.terminate()
-    assertEquals(events.asScala.toVector.drop(2), Vector("stop provided", "stop own"))
+    assertEquals(events.asScala.toVector.drop(2), Vector("stop own", "stop provided"))
     assert(service.extensionNames.contains("provided"))
   }
 

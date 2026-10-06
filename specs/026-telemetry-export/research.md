@@ -522,9 +522,11 @@ exporter drains is the plan's"): the check reads `recorder.recorded`, which is o
 
 Stopping fits the phases that exist. Extensions are stopped from coordinated shutdown's first
 phase without being waited for, and waited for in the last, which has 20 s
-(`R/Ankka.scala:460-503`, `reference.conf:107-113`); providers' extensions are appended last and
-stopped first, so the exporter flushes while the instance still serves and takes three seconds of
-the twenty at most, collector or no collector.
+(`R/Ankka.scala:460-503`, `reference.conf:107-113`); providers' extensions are put first and so
+stopped last, after every server, and the exporter's flush takes three seconds of the twenty at
+most, collector or no collector. (Planned the other way round, stopped first so that it flushed
+while the instance still served: on a cluster that held every server open behind the flush while
+the pod's other containers were stopping, and rolling restarts refused requests.)
 
 ## R18. The operator gives the settings to the platform's program, and writes one Secret
 

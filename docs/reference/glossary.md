@@ -415,7 +415,22 @@ rewound: the generation keeps counting, the history shows both, and the service'
 
 ### Row
 
-One record of a view, keyed by its source's subject and stored as JSON in the view's table.
+One record of a view, kept under its row key and stored as JSON in the view's table.
+
+### Row key
+
+What a row of a view is kept under. A plain view's row key is the id of the entity the change came from;
+a keyed view's handlers name their rows' keys.
+
+### Declared query
+
+A question a view can be asked by name: one SQL statement over the view's own table, whose values are the
+`:name`s it holds. It is checked when the service starts, and run in a read-only transaction.
+
+### Keyed view
+
+A view of one or more entities whose handlers name every row they write or delete by key, and read the
+view's own rows. It handles one change at a time.
 
 ### Runtime version
 
@@ -534,8 +549,9 @@ usually time spent waiting on a database, a model, or work handed to another thr
 
 ### View
 
-A component that maintains a queryable table from a source's changes, answering questions no single entity can,
-such as "every cart containing this product".
+A component that maintains a queryable table from changes, answering questions no single entity can,
+such as "every cart containing this product". A plain view reads one source and keeps a row per entity of
+it; a keyed view reads several entities and names its rows' keys.
 
 ### Web hosting
 

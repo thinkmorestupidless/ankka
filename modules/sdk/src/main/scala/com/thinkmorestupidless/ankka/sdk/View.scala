@@ -12,7 +12,7 @@ import com.thinkmorestupidless.ankka.core.effect.*
  *
  * Rows are keyed by the source entity's id. Querying by any other attribute is done in the query,
  * not by re-keying the row — re-keying would silently orphan the old row when the attribute
- * changed.
+ * changed. A view that must name its rows' keys, or read several sources, is a [[KeyedView]].
  */
 abstract class View[Src, Row]:
 
@@ -68,6 +68,29 @@ object View:
 
     def create(ctx: ViewComponentContext): V
 
+    /** The table holding this view's rows, for a declared query's statement to name. */
+    final def table: String = ViewDescriptor.tableFor(componentId)
+
+    private val declared                 = scala.collection.mutable.ArrayBuffer.empty[DeclaredQuery]
+    @volatile private var taken: Boolean = false
+
+    /**
+     * Declares a query this view can be asked by name, and returns the handle to ask it with. Kept
+     * as a `val` of the companion; a statement is checked when the service starts (see
+     * [[DeclaredQuery]]).
+     */
+    protected final def query(name: String)(statement: String): DeclaredQuery =
+      declared.synchronized {
+        if taken then
+          throw IllegalStateException(
+            s"view '$componentId' declares the query '$name' after it was registered; declare " +
+              "every query as a val of the companion"
+          )
+        val query = DeclaredQuery(componentId, name, statement)
+        declared += query
+        query
+      }
+
     /**
      * How many projection instances share the work.
      *
@@ -77,14 +100,19 @@ object View:
     def parallelism: Int = 4
 
     /**
-     * Raise it to have this view read its topic again from its start position, emptied first.
-     * `None` is version 1. Only for a topic source: a version on one that reads an entity is
-     * refused when the service starts.
+     * Raise it to have this view emptied and its source read again: a topic from its start
+     * position, as far back as the broker retains; an entity from its first event or state, all of
+     * it. `None` is version 1. Raise it only once every instance runs a release that knows versions
+     * of views that read entities: an older instance cannot be told to stop writing.
      */
     def version: Option[Int] = None
 
     final def descriptor: ViewDescriptor[V, Src, Row] =
-      ViewDescriptor(componentId, source, rowSerializer, create, parallelism, version)
+      val queries = declared.synchronized {
+        taken = true
+        declared.toVector
+      }
+      ViewDescriptor(componentId, source, rowSerializer, create, parallelism, version, queries)
 
 /** The registered form of a view. */
 final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
@@ -93,7 +121,8 @@ final case class ViewDescriptor[V <: View[Src, Row], Src, Row](
     rowSerializer: Serializer[Row],
     create: ViewComponentContext => V,
     parallelism: Int,
-    version: Option[Int] = None
+    version: Option[Int] = None,
+    queries: Vector[DeclaredQuery] = Vector.empty
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.View
 

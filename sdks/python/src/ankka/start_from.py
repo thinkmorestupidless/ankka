@@ -70,7 +70,8 @@ def problems(cls: type, *, consumer: bool) -> list[str]:
     if version is not None:
         if isinstance(version, bool) or not isinstance(version, int) or version < 1:
             found.append(f"{name} declares version {version!r}; a version is a whole number of 1 or more")
-        elif not reads_topic:
+        elif consumer and not reads_topic:
+            # A view that reads an entity is rebuilt by its version; a consumer has nothing to rebuild.
             found.append(f"{name} declares a version, which applies to a topic; it reads a component")
     return found
 
@@ -87,9 +88,14 @@ def apply(source: discovery_pb2.Source, cls: type) -> discovery_pb2.Source:
     return source
 
 
-def older_than_start_positions(protocol_version: str) -> bool:
+def older_than(protocol_version: str, wanted: tuple[int, int]) -> bool:
+    """Whether ``protocol_version`` is earlier than ``wanted``; an unreadable one is not."""
     try:
         major, minor = (int(part) for part in protocol_version.split(".")[:2])
     except ValueError:
         return False
-    return (major, minor) < START_POSITION_PROTOCOL
+    return (major, minor) < wanted
+
+
+def older_than_start_positions(protocol_version: str) -> bool:
+    return older_than(protocol_version, START_POSITION_PROTOCOL)

@@ -8,7 +8,7 @@ copied onto the call, which is what makes it a child span in the console.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, overload
@@ -232,21 +232,64 @@ class Views:
     async def all(self, view_id: str, row: Any) -> list[Any]:
         return await self.query(view_id, "all", None, row)
 
-    async def query(self, view_id: str, name: str, key: str | None, row: Any) -> list[Any]:
-        import json
+    async def ask(
+        self,
+        view_id: str,
+        name: str,
+        row: Any,
+        values: Mapping[str, str] | None = None,
+        *,
+        limit: int | None = None,
+    ) -> list[Any]:
+        """The rows of one of the view's declared queries, decoded as ``row``'s default codec, with
+        each value it takes given by name in ``values``; at most ``limit`` rows, 1000 when it is not
+        given. The values are a mapping, not keywords, so a value may be called anything."""
+        request = client_pb2.QueryRequest(
+            view_id=view_id, name=name, metadata=self._metadata.to_pb(), values=dict(values or {}), limit=limit
+        )
+        return await self._rows(request, row)
 
+    async def query(self, view_id: str, name: str, key: str | None, row: Any) -> list[Any]:
         request = client_pb2.QueryRequest(
             view_id=view_id,
             name=name,
             payload=payload_pb2.Payload(content_type="text/plain", manifest="string", data=(key or "").encode()),
             metadata=self._metadata.to_pb(),
         )
+        return await self._rows(request, row)
+
+    async def _rows(self, request: client_pb2.QueryRequest, row: Any, codec: Codec[Any] | None = None) -> list[Any]:
+        import json
+
         answer = await self._stub.Query(request)
         if answer.HasField("error"):
             raise CommandError(_error(answer.error))
-        codec = default_codec_for(row)
+        decoding = codec or default_codec_for(row)
         documents = json.loads(answer.rows.data.decode("utf-8"))
-        return [codec.decode(json.dumps(d).encode("utf-8")) for d in documents]
+        return [decoding.decode(json.dumps(d).encode("utf-8")) for d in documents]
+
+
+@dataclass(frozen=True)
+class SidecarRows:
+    """A keyed view's own rows as the sidecar holds them, decoded with the view's row codec."""
+
+    views: Views
+
+    async def get(self, view_id: str, key: str, codec: Codec[Any]) -> Any | None:
+        request = client_pb2.QueryRequest(
+            view_id=view_id,
+            name="get",
+            payload=payload_pb2.Payload(content_type="text/plain", manifest="string", data=key.encode()),
+            metadata=self.views._metadata.to_pb(),
+        )
+        rows = await self.views._rows(request, None, codec)
+        return rows[0] if rows else None
+
+    async def ask(self, view_id: str, name: str, codec: Codec[Any], values: Mapping[str, str]) -> list[Any]:
+        request = client_pb2.QueryRequest(
+            view_id=view_id, name=name, metadata=self.views._metadata.to_pb(), values=dict(values)
+        )
+        return await self.views._rows(request, None, codec)
 
 
 RECURRING_TIMERS_SINCE = "1.12"

@@ -6,7 +6,7 @@
 
 import { Code, ConnectError, createClient, type Client as ConnectClient, type Transport } from "@connectrpc/connect"
 import { createGrpcTransport } from "@connectrpc/connect-node"
-import { Client } from "./_proto/ankka/protocol/v1/client_pb.ts"
+import { Client, type QueryReply } from "./_proto/ankka/protocol/v1/client_pb.ts"
 import type { Payload, ErrorCode as ProtoErrorCode } from "./_proto/ankka/protocol/v1/payload_pb.ts"
 import { codecFor, jsonCodec, isCodec, textCodecs, binaryCodecs, codecForManifest, type Codec, type Shape } from "./codec.ts"
 import { CommandError, type ErrorDetail, type Metadata } from "./effects/common.ts"
@@ -249,6 +249,25 @@ export class Views {
 
   async query<Row>(viewId: string, name: string, key: string | null, row: Shape<Row>): Promise<Row[]> {
     const answer = await stubOf(this.#connection).query({ viewId, name, payload: encodePayload(textCodecs.string, key ?? ""), metadata: metadataToProto(this.#metadata) })
+    return Views.#rows(answer, row)
+  }
+
+  /**
+   * The rows of one of a view's declared queries, asked by name with the values it takes. At most
+   * `limit` rows, 1000 when it is not given, in the statement's own order.
+   */
+  async ask<Row>(viewId: string, name: string, values: Readonly<Record<string, string>>, row: Shape<Row>, limit?: number): Promise<Row[]> {
+    const answer = await stubOf(this.#connection).query({
+      viewId,
+      name,
+      metadata: metadataToProto(this.#metadata),
+      values: { ...values },
+      ...(limit !== undefined ? { limit } : {}),
+    })
+    return Views.#rows(answer, row)
+  }
+
+  static #rows<Row>(answer: QueryReply, row: Shape<Row>): Row[] {
     switch (answer.result.case) {
       case "rows": {
         const text = new TextDecoder().decode(answer.result.value.data)

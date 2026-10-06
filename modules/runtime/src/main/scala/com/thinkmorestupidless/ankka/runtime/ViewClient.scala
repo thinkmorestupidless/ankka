@@ -1,10 +1,18 @@
 package com.thinkmorestupidless.ankka.runtime
 
-import com.thinkmorestupidless.ankka.core.Serializer
-import com.thinkmorestupidless.ankka.sdk.{ComponentClient, View, ViewDescriptor}
+import com.thinkmorestupidless.ankka.core.{CommandError, ComponentId, ErrorCode, Serializer}
+import com.thinkmorestupidless.ankka.sdk.{
+  ComponentClient,
+  DeclaredQuery,
+  KeyedView,
+  View,
+  ViewDescriptor
+}
+import io.r2dbc.spi.R2dbcException
 import org.apache.pekko.actor.typed.ActorSystem
 
-import scala.concurrent.duration.FiniteDuration
+import java.util.concurrent.ConcurrentHashMap
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 import scala.concurrent.{ExecutionContext, Future}
 
 /**
@@ -18,6 +26,29 @@ final class ViewClient private[ankka] (
     askTimeout: FiniteDuration
 )(using system: ActorSystem[?]):
 
+  // Each view's declared queries, checked once: a companion is asked for on every request.
+  private val checked = ConcurrentHashMap[ComponentId, Vector[CheckedQuery]]()
+
+  private def checkedFor(
+      view: ComponentId,
+      queries: => Vector[DeclaredQuery]
+  ): Vector[CheckedQuery] =
+    checked.computeIfAbsent(
+      view,
+      _ => QueryCheck.checkedAll(view, ViewDescriptor.tableFor(view), queries)
+    )
+
+  /** Queries against a keyed view, resolved from its companion so the row type is carried. */
+  def forView[V <: KeyedView[Row], Row](companion: KeyedView.Companion[V, Row]): ViewQueries[Row] =
+    ViewQueries(
+      companion.componentId.toString,
+      ViewDescriptor.tableFor(companion.componentId),
+      companion.rowSerializer,
+      database,
+      askTimeout,
+      checkedFor(companion.componentId, companion.descriptor.queries)
+    )
+
   /** Queries against a view, resolved from its companion so the row type is carried. */
   def forView[V <: View[Src, Row], Src, Row](
       companion: View.Companion[V, Src, Row]
@@ -27,7 +58,8 @@ final class ViewClient private[ankka] (
       ViewDescriptor.tableFor(companion.componentId),
       companion.rowSerializer,
       database,
-      askTimeout
+      askTimeout,
+      checkedFor(companion.componentId, companion.descriptor.queries)
     )
 
 /**
@@ -50,12 +82,26 @@ object ViewQueries:
 
   val Names: Set[String] = Set(Get, Where, Ordered, Count)
 
+  /** How many rows a read answers with when the caller does not say. */
+  val DefaultLimit: Int = 1000
+
+  /**
+   * How long the database lets a declared query run: the caller's wait, less a margin so the caller
+   * hears the database's answer rather than its own wait running out, and never under a second.
+   */
+  def statementTimeout(askTimeout: FiniteDuration): FiniteDuration =
+    (askTimeout - 500.millis).max(1.second)
+
+  /** A declared query's statement had no `payload` column to read a row from. */
+  private final class NoPayload extends RuntimeException("no payload column")
+
 final class ViewQueries[Row] private[ankka] (
     view: String,
     table: String,
     serializer: Serializer[Row],
     database: Database,
-    askTimeout: FiniteDuration
+    askTimeout: FiniteDuration,
+    declared: Vector[CheckedQuery] = Vector.empty
 )(using system: ActorSystem[?]):
 
   private given ExecutionContext = system.executionContext
@@ -126,3 +172,96 @@ final class ViewQueries[Row] private[ankka] (
 
   def count(condition: SqlFragment = SqlFragment.empty): Long =
     ComponentClient.await(countAsync(condition), askTimeout)
+
+  /**
+   * The rows of one of this view's declared queries, at most `ViewQueries.DefaultLimit` of them,
+   * with each value the query takes given by name.
+   */
+  def askAsync(query: DeclaredQuery, values: (String, String)*): Future[Vector[Row]] =
+    askAsync(query, ViewQueries.DefaultLimit, values*)
+
+  /** As `askAsync`, reading at most `limit` rows, in the statement's own order. */
+  def askAsync(query: DeclaredQuery, limit: Int, values: (String, String)*): Future[Vector[Row]] =
+    if query.view.toString != view then
+      Future.failed(
+        CommandError(
+          s"the query '${query.name}' is view '${query.view}'s, and this is view '$view'",
+          ErrorCode.NotFound
+        )
+      )
+    else askNamed(query.name, values.toMap, limit)
+
+  def ask(query: DeclaredQuery, values: (String, String)*): Vector[Row] =
+    ComponentClient.await(askAsync(query, values*), askTimeout)
+
+  def ask(query: DeclaredQuery, limit: Int, values: (String, String)*): Vector[Row] =
+    ComponentClient.await(askAsync(query, limit, values*), askTimeout)
+
+  /**
+   * A declared query by its name, as a process or a module asks one. Refused before anything is
+   * sent when the view declares no such query, or the values are not exactly the ones it takes.
+   */
+  private[ankka] def askNamed(
+      name: String,
+      values: Map[String, String],
+      limit: Int
+  ): Future[Vector[Row]] =
+    declared.find(_.name == name) match
+      case None =>
+        Future.failed(CommandError(s"view '$view' declares no query '$name'", ErrorCode.NotFound))
+      case Some(query) =>
+        val missing = query.values.find(!values.contains(_))
+        val extra   = values.keys.toVector.sorted.find(!query.values.contains(_))
+        if missing.nonEmpty then
+          Future.failed(
+            CommandError(
+              s"view '$view' query '$name' takes the value '${missing.get}', which was not given",
+              ErrorCode.BadRequest
+            )
+          )
+        else if extra.nonEmpty then
+          Future.failed(
+            CommandError(
+              s"view '$view' query '$name' takes no value '${extra.get}'; it takes " +
+                (if query.values.isEmpty then "none" else query.values.mkString(", ")),
+              ErrorCode.BadRequest
+            )
+          )
+        else if limit < 1 then
+          Future.failed(
+            CommandError(s"a limit is 1 or more, not $limit", ErrorCode.BadRequest)
+          )
+        else
+          val timeout = ViewQueries.statementTimeout(askTimeout)
+          counted(name)(
+            database
+              .readOnly(timeout)(
+                _.queryUpTo(query.sql, query.values.map(values), limit) { (row, metadata) =>
+                  if !metadata.contains("payload") then throw ViewQueries.NoPayload()
+                  decode(row.get("payload", classOf[String]))
+                }
+              )
+              .recoverWith { case failure => Future.failed(refusal(name, timeout, failure)) }
+          )
+
+  /** What went wrong with a declared query, as the caller is told it. */
+  private def refusal(name: String, timeout: FiniteDuration, failure: Throwable): Throwable =
+    def causes(t: Throwable): LazyList[Throwable] =
+      if t == null then LazyList.empty else t #:: causes(t.getCause)
+    val state = causes(failure).collectFirst { case e: R2dbcException => e.getSqlState }
+    if causes(failure).exists(_.isInstanceOf[ViewQueries.NoPayload]) then
+      CommandError(
+        s"view '$view' query '$name' answers with no payload column; a declared query selects " +
+          "the rows' payload",
+        ErrorCode.Internal
+      )
+    else if state.contains("57014") then
+      CommandError(
+        s"view '$view' query '$name' ran for longer than its $timeout, and the database ended it",
+        ErrorCode.Timeout
+      )
+    else
+      CommandError(
+        s"view '$view' query '$name' failed: ${Option(failure.getMessage).getOrElse(failure.toString)}",
+        ErrorCode.Internal
+      )

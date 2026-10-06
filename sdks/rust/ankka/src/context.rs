@@ -110,6 +110,7 @@ pub struct Context {
     metadata: Metadata,
     secrets: bool,
     services: bool,
+    rows_of: Option<String>,
 }
 
 impl Context {
@@ -128,6 +129,31 @@ impl Context {
             metadata,
             secrets: false,
             services: false,
+            rows_of: None,
+        }
+    }
+
+    /// This context with the rows of keyed view `view`: what the runtime builds for a keyed view's
+    /// handler, and a test builds for one.
+    pub fn with_rows(mut self, view: impl Into<String>) -> Context {
+        self.rows_of = Some(view.into());
+        self
+    }
+
+    /// The rows of the keyed view whose handler this is, for the length of the change: by key, or
+    /// by one of the view's declared queries.
+    ///
+    /// # Panics
+    ///
+    /// Outside a keyed view's handler: no other handler is handling a change to a view's rows.
+    pub fn rows(&self) -> ViewRows {
+        let view = self
+            .rows_of
+            .clone()
+            .unwrap_or_else(|| panic!("ctx.rows() is a keyed view's, in one of its handlers"));
+        ViewRows {
+            view,
+            client: self.client(),
         }
     }
 
@@ -218,5 +244,38 @@ impl Context {
     /// joins the same trace.
     pub fn client(&self) -> Client {
         Client::with_metadata(self.metadata.clone())
+    }
+}
+
+/// A keyed view's own rows, read while its handler handles one change. The runtime holds the
+/// view's lock throughout, so what is read is what the handler's rows replace.
+///
+/// A read that fails fails the change, which is handled again, so these panic rather than answer an
+/// error a handler could only pass on.
+#[derive(Debug, Clone)]
+pub struct ViewRows {
+    view: String,
+    client: Client,
+}
+
+impl ViewRows {
+    /// The row under `key`, or `None`.
+    pub fn get<R: serde::de::DeserializeOwned + 'static>(&self, key: &str) -> Option<R> {
+        let rows: Vec<R> = self
+            .client
+            .query_by_name(&self.view, "get", key.to_string())
+            .unwrap_or_else(|e| panic!("view '{}' could not read row '{key}': {e}", self.view));
+        rows.into_iter().next()
+    }
+
+    /// The rows of the view's declared query `name`, asked with `values`.
+    pub fn ask<R: serde::de::DeserializeOwned + 'static>(
+        &self,
+        name: &str,
+        values: &[(&str, &str)],
+    ) -> Vec<R> {
+        self.client
+            .ask_by_name(&self.view, name, values, None)
+            .unwrap_or_else(|e| panic!("view '{}' could not ask '{name}': {e}", self.view))
     }
 }

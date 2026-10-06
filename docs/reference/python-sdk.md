@@ -94,12 +94,24 @@ See [Key value entities](../build/key-value-entities.md).
 | Part | API |
 |---|---|
 | Base class | `ankka.view.View[Src, Row]` |
-| Class attributes | `component_id`, `source` (an entity class) or `topic` (a topic name), `event_codec`, `row_codec` |
+| Class attributes | `component_id`, `source` (an entity class) or `topic` (a topic name), `event_codec`, `row_codec`; optionally `version`, and declared queries as `query(name, statement)` from `ankka.view` |
 | Must define | `on_change(self, event) -> ViewEffect` |
 | May override | `on_delete(self) -> ViewEffect`, which deletes the row by default |
 | In a handler | `self.row` (the current row or `None`), `self.metadata` (`subject`, `sequence_number`), `self.effects` |
 | Effects | `update_row(row)`, `delete_row()`, `ignore()` |
-| Querying | `client.views.get(view_id, key, RowType)`, `client.views.all(view_id, RowType)` |
+| Querying | `client.views.get(view_id, key, RowType)`, `client.views.all(view_id, RowType)`, `client.views.ask(view_id, name, RowType, {"value": ...}, limit=None)` |
+| Table name | `table_of(component_id)`, for a statement to name |
+
+## Keyed view
+
+| Part | API |
+|---|---|
+| Base class | `ankka.keyed_view.KeyedView[Row]` |
+| Class attributes | `component_id`, `row_codec`; optionally `version` and declared queries |
+| Sources | a method per source marked `@on(EntityClass, event_codec)`; optionally `@on_deleted(EntityClass)` |
+| In a handler | `self.subject`, `self.metadata`, `self.rows.get(key)`, `self.rows.ask(name, ...)`, `self.effects` |
+| Effects | `update_row(key, row)`, `delete_row(key)`, `update_rows(...)`, `delete_rows(keys)`, `ignore()`, combined |
+| Testing | `KeyedViewTestKit.of(View)` |
 
 See [Views](../build/views.md).
 

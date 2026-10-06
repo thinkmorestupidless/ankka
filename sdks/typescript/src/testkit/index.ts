@@ -6,6 +6,7 @@ export {
   KeyValueTestKit,
   WorkflowTestKit,
   ViewTestKit,
+  KeyedViewTestKit,
   ConsumerTestKit,
   GraphConsumerTestKit,
   TimedActionTestKit,

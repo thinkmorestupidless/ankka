@@ -10,6 +10,8 @@ import { codecFor } from "../codec.ts"
 import { metadataFromProto, metadataToProto } from "../context.ts"
 import { ErrorCode } from "../effects/common.ts"
 import type { View } from "../view.ts"
+import { clientRows, type KeyedView } from "../keyedView.ts"
+import type { KeyedViewEffect } from "../effects/keyed.ts"
 import { ProtocolVersionError, requireSeveralMessages, type Consumer } from "../consumer.ts"
 import { GRAPH_DELTA_SCHEMA, deltaRecords, type GraphConsumer } from "../graph.ts"
 import { JSON_CONTENT } from "../codec.ts"
@@ -25,7 +27,41 @@ function messageOf(e: unknown): string {
   return e instanceof Error ? `${e.name}: ${e.message}` : String(e)
 }
 
+/**
+ * A keyed view's change: sent with the component it came from and no row, answered with the rows the
+ * source's handler names. The view reads its own rows through the client, on its own id.
+ */
+async function handleKeyedView(req: ViewRequest, sourceId: string, ctx: ServerContext): Promise<ProtoViewEffect> {
+  const registered = ctx.registry.of("keyed-view", req.componentId)
+  if (!registered) throw new ConnectError(`no keyed view ${JSON.stringify(req.componentId)} is registered`, Code.NotFound)
+  const source = registered.sources.get(sourceId)
+  if (!source) throw new ConnectError(`keyed view ${registered.id} reads no ${JSON.stringify(sourceId)}`, Code.NotFound)
+  const metadata = metadataFromProto(req.metadata)
+  const view = new registered.cls() as KeyedView<unknown>
+  try {
+    const client = ctx.client.withMetadata(metadata)
+    view._bind(metadata, client, clientRows(client, registered.id, registered.rowCodec))
+    const effect = (req.deleted
+      ? source.deleted
+        ? await source.deleted(view)
+        : undefined
+      : await source.onChange(view, decodePayload(source.eventCodec, req.event))) as KeyedViewEffect<unknown> | undefined
+    if (effect !== undefined && effect?.kind !== "rows") throw new TypeError(`${registered.id}'s handler for ${sourceId} returned something that is not a keyed view effect`)
+    const changes = (effect?.changes ?? []).map((c) =>
+      "deleted" in c
+        ? { key: c.key, change: { case: "delete" as const, value: {} } }
+        : { key: c.key, change: { case: "upsert" as const, value: encodePayload(registered.rowCodec, c.row) } },
+    )
+    return create(ViewEffectSchema, { effect: { case: "rows", value: { changes } } })
+  } catch (e) {
+    if (e instanceof ConnectError) throw e
+    ctx.log(`ankka: keyed view ${registered.id} on ${sourceId} ${metadata["ce-subject"] ?? "?"} threw: ${messageOf(e)}`)
+    throw new ConnectError(messageOf(e), Code.Internal)
+  }
+}
+
 export async function handleView(req: ViewRequest, ctx: ServerContext): Promise<ProtoViewEffect> {
+  if (req.sourceId !== undefined) return handleKeyedView(req, req.sourceId, ctx)
   const registered = ctx.registry.of("view", req.componentId)
   if (!registered) throw new ConnectError(`no view ${JSON.stringify(req.componentId)} is registered`, Code.NotFound)
   const metadata = metadataFromProto(req.metadata)

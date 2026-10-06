@@ -88,11 +88,20 @@ message StartFrom {
 }
 
 message ViewDetail {
-  Source source = 1;
+  Source source = 1;              // a plain view's one source; absent for a keyed view
   string row_manifest = 2;
   repeated string queries = 3;
-  optional uint32 version = 4;    // 1.7: only with a topic source; a higher one rebuilds the view. Absent: 1
+  // 1.7: with a topic source. 1.13: also with entity sources. A higher one rebuilds the view. Absent: 1
+  optional uint32 version = 4;
+  // 1.13: a keyed view's sources, each a component (an event sourced or a key value entity). When
+  // present `source` is absent, the view's changes carry `source_id`, and its effects are `rows`.
+  repeated Source sources = 5;
+  // 1.13: the queries this view can be asked by name.
+  repeated DeclaredQuery declared_queries = 6;
 }
+
+// 1.13: a statement over the view's own table. Its values are the `:name`s it holds.
+message DeclaredQuery { string name = 1; string statement = 2; }
 message ConsumerDetail {
   Source source = 1;
   optional string produces_to = 2;

@@ -48,6 +48,10 @@ import {
   mcpServer,
   resultGuardrail,
   type AgentOutcome,
+  KeyedView,
+  on,
+  declaredQuery,
+  tableOf,
   type Infer,
 } from "ankka"
 import { ShoppingCartEntity } from "./entity.ts"
@@ -172,6 +176,157 @@ export class TopicRows extends View<Infer<typeof Fanned>, Infer<typeof Fanned>> 
 
   onChange(message: Infer<typeof Fanned>) {
     return this.effects.updateRow(message)
+  }
+}
+
+// ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
+
+export const TreePlaced = s.record("TreePlaced", { under: s.option(s.string) })
+export const TreeRow = s.record("TreeRow", { key: s.string, under: s.option(s.string) })
+type TreePlaced = Infer<typeof TreePlaced>
+type TreeRow = Infer<typeof TreeRow>
+
+/** A node of a tree, placed under another node or under none: the parent's id, empty for none. */
+export class TreeNode extends EventSourcedEntity<TreePlaced, TreePlaced> {
+  static readonly componentId = "tree-node"
+  static readonly state = jsonCodec(TreePlaced, "tree-node")
+  static readonly events = jsonCodec(TreePlaced, "tree-event")
+
+  static readonly handlers = {
+    place: command("place", s.string, s.string, (n: TreeNode, under) => n.effects.persist({ under: under === "" ? null : under }).thenReply(() => "placed")),
+  }
+
+  emptyState(): TreePlaced {
+    return { under: null }
+  }
+
+  applyEvent(_state: TreePlaced, event: TreePlaced): TreePlaced {
+    return event
+  }
+}
+
+// docs:start declared-query
+/** One row per node, and every row under a row, to any depth, by key: the same statement in every language. */
+export class TreeRows extends View<TreePlaced, TreeRow> {
+  static readonly componentId = "tree-rows"
+  static readonly source = TreeNode
+  static readonly events = jsonCodec(TreePlaced, "tree-event")
+  static readonly row = jsonCodec(TreeRow, "tree-row")
+  static readonly declared = [
+    declaredQuery(
+      "under",
+      `WITH RECURSIVE below AS (
+  SELECT row_key, payload FROM ${tableOf("tree-rows")} WHERE payload::jsonb->>'under' = :row
+  UNION
+  SELECT n.row_key, n.payload FROM ${tableOf("tree-rows")} n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+)
+SELECT payload FROM below ORDER BY row_key`,
+    ),
+  ]
+
+  onChange(event: TreePlaced) {
+    return this.effects.updateRow({ key: this.subject, under: event.under })
+  }
+}
+// docs:end declared-query
+
+/** Places nodes of a tree and asks what is under one. */
+export class TreeEndpoint extends Endpoint {
+  static readonly prefix = "/tree"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    root: post("/{nodeId}", s.string, (ep: TreeEndpoint, req) => ep.client.of(TreeNode, req.params.nodeId).call(TreeNode.handlers.place).invoke("")),
+    under: post("/{nodeId}/under/{parentId}", s.string, (ep: TreeEndpoint, req) =>
+      ep.client.of(TreeNode, req.params.nodeId).call(TreeNode.handlers.place).invoke(req.params.parentId),
+    ),
+    below: get("/{nodeId}/below", s.list(s.string), async (ep: TreeEndpoint, req) =>
+      (await ep.client.views.ask(TreeRows.componentId, "under", { row: req.params.nodeId }, TreeRow)).map((row) => row.key),
+    ),
+  }
+}
+
+// ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
+
+export const Noted = s.record("Noted", { text: s.string })
+type Noted = Infer<typeof Noted>
+export const JoinedRow = s.record("JoinedRow", { key: s.string, holding: s.string, notes: s.list(s.string) })
+type JoinedRow = Infer<typeof JoinedRow>
+
+/** One side of the keyed view: an entity whose command records a line of text. */
+export class JoinedLeft extends EventSourcedEntity<number, Noted> {
+  static readonly componentId = "joined-left"
+  static readonly state = jsonCodec(s.int, "joining")
+  static readonly events = jsonCodec(Noted, "noted")
+  static readonly handlers = {
+    record: command("record", s.string, s.string, (e: JoinedLeft, text) => e.effects.persist({ text }).thenReply(() => "recorded")),
+  }
+  emptyState(): number {
+    return 0
+  }
+  applyEvent(state: number): number {
+    return state + 1
+  }
+}
+
+/** The other side. */
+export class JoinedRight extends EventSourcedEntity<number, Noted> {
+  static readonly componentId = "joined-right"
+  static readonly state = jsonCodec(s.int, "joining")
+  static readonly events = jsonCodec(Noted, "noted")
+  static readonly handlers = {
+    record: command("record", s.string, s.string, (e: JoinedRight, text) => e.effects.persist({ text }).thenReply(() => "recorded")),
+  }
+  emptyState(): number {
+    return 0
+  }
+  applyEvent(state: number): number {
+    return state + 1
+  }
+}
+
+/**
+ * The left names a row `key|holding` and writes it from what it held, noting itself; the right finds
+ * every row holding it by asking the view's own query, and notes itself on each.
+ */
+export class JoinedRows extends KeyedView<JoinedRow> {
+  static readonly componentId = "joined-rows"
+  static readonly row = jsonCodec(JoinedRow, "joined-row")
+  // docs:start keyed-view
+  static readonly sources = [on(JoinedLeft, Noted, (v: JoinedRows, e) => v.onLeft(e)), on(JoinedRight, Noted, (v: JoinedRows) => v.onRight())]
+  static readonly declared = [
+    declaredQuery("of-right", `SELECT payload FROM ${tableOf("joined-rows")} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key`),
+  ]
+
+  async onLeft(event: Noted) {
+    const [key, holding] = event.text.split("|")
+    const held = (await this.rows.get(key))?.notes ?? []
+    return this.effects.updateRow(key, { key, holding, notes: [...held, "left"] })
+  }
+
+  async onRight() {
+    const theirs = await this.rows.ask("of-right", { holding: this.subject })
+    return this.effects.updateRows(theirs.map((row) => [row.key, { ...row, notes: [...row.notes, "right"] }] as const))
+  }
+  // docs:end keyed-view
+}
+
+/** Records on either side of the keyed view, and reads its rows. */
+export class JoinedEndpoint extends Endpoint {
+  static readonly prefix = "/joined"
+  static readonly acl = Acl.allowAll
+
+  static readonly routes = {
+    // The left entity is the row's own key: one left per row.
+    left: post("/left/{key}/{holding}", s.string, (ep: JoinedEndpoint, req) =>
+      ep.client.of(JoinedLeft, req.params.key).call(JoinedLeft.handlers.record).invoke(`${req.params.key}|${req.params.holding}`),
+    ),
+    right: post("/right/{rightId}", s.string, (ep: JoinedEndpoint, req) => ep.client.of(JoinedRight, req.params.rightId).call(JoinedRight.handlers.record).invoke("")),
+    row: get("/rows/{key}", JoinedRow, async (ep: JoinedEndpoint, req) => {
+      const found = await ep.client.views.get(JoinedRows.componentId, req.params.key, JoinedRow)
+      if (found === null) throw new HttpProblem(404, `no row '${req.params.key}'`)
+      return found
+    }),
   }
 }
 
@@ -650,6 +805,11 @@ export function referenceService() {
     .register(CheckoutFanout)
     .register(TopicRows)
     .register(TopicRelay)
+    .register(TreeNode)
+    .register(TreeRows)
+    .register(JoinedLeft)
+    .register(JoinedRight)
+    .register(JoinedRows)
     .register(ConformanceCartGraph)
     .register(ProfileGraph)
     .register(Reminder)
@@ -657,6 +817,8 @@ export function referenceService() {
     .register(ConformanceAnswerer)
     .register(Approver)
     .register(ShoppingCartEndpoint)
+    .register(TreeEndpoint)
+    .register(JoinedEndpoint)
     .register(ConformanceEndpoint)
     .register(PrivateEndpoint)
     .register(CallersEndpoint)

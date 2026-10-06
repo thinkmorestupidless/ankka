@@ -130,10 +130,22 @@ See [Key value entities](../build/key-value-entities.md).
 | Trait | `View` |
 | Associated items | `type Row`, `type Event`, `COMPONENT_ID`; optionally `ROW_MANIFEST` |
 | Must define | `source() -> Source` (`Source::of(ShoppingCart)` or `Source::topic("name")`), `on_event(row, event, ctx) -> ViewEffect<Row>` |
-| May define | `on_deleted(row, ctx)`, which deletes the row by default; `queries()`, `["get", "all"]` by default |
+| May define | `on_deleted(row, ctx)`, which deletes the row by default; `queries()`, `["get", "all"]` by default; `declared()`, the view's declared queries (`query(name, statement)`); `version()` |
 | In a handler | `row` is the current row or `None`; `ctx.metadata().subject()` is the source's id |
 | Effects | `view::update_row(row)`, `view::delete_row()`, `view::ignore()` |
-| Querying | `ctx.client().query(CartRows, "by-id", key)`, `query(CartRows, "all", ())`, or `query_by_name(view_id, name, key)` |
+| Querying | `ctx.client().query(CartRows, "by-id", key)`, `query(CartRows, "all", ())`, `query_by_name(view_id, name, key)`, or a declared query with `ask(view, name, values)` / `ask_by_name(view_id, name, values, limit)` |
+| Table name | `table_of(id)`, for a statement to name |
+
+## Keyed view
+
+| Part | API |
+|---|---|
+| Trait | `KeyedView` |
+| Must define | `type Row`, `COMPONENT_ID`, `sources() -> Sources<Self>` (`Sources::new().on::<E>(Source::of(...), handler)`) |
+| May define | `declared()`, `version()` |
+| In a handler | `fn(event, ctx) -> KeyedViewEffect<Row>`; `ctx.rows().get(key)`, `ctx.rows().ask(name, values)` |
+| Effects | `update_row(key, row)`, `delete_row(key)`, `update_rows(...)`, `delete_rows(keys)`, `ignore()`, `and(...)` |
+| Testing | `KeyedViewTestKit::<C>::new()` |
 
 See [Views](../build/views.md).
 

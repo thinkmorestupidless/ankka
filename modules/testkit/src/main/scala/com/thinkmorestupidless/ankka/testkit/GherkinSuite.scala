@@ -231,6 +231,25 @@ object GherkinSuite:
       def run(body: (A, B, C, D, E) => R, values: Seq[Any]): Unit =
         body(a(values(0)), b(values(1)), c(values(2)), d(values(3)), e(values(4))): Unit
 
+    given six[A, B, C, D, E, G, R](using
+        a: StepValue[A],
+        b: StepValue[B],
+        c: StepValue[C],
+        d: StepValue[D],
+        e: StepValue[E],
+        g: StepValue[G]
+    ): StepBody[(A, B, C, D, E, G) => R] with
+      def arity = 6
+      def run(body: (A, B, C, D, E, G) => R, values: Seq[Any]): Unit =
+        body(
+          a(values(0)),
+          b(values(1)),
+          c(values(2)),
+          d(values(3)),
+          e(values(4)),
+          g(values(5))
+        ): Unit
+
   /** A step definition's parameter type, from what Cucumber Expressions matched. */
   trait StepValue[A]:
     def apply(value: Any): A

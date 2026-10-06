@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.12`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.13`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -31,7 +31,9 @@ discovery, the `RESULT` stage of `CheckGuardrail`, the `approval` case of `Invok
 `StreamToken`, `Decide` on `Client`, and the `event` frame of a stream route, a
 server-sent event of its own name. `1.12` added recurring
 timers: `ScheduleRecurring` on `Client` and the `schedule_recurring` import for a module,
-and `ankka.due` on every timed action request.
+and `ankka.due` on every timed action request. `1.13` added a view's declared queries, asked by name
+with values; the keyed view, whose several entity sources each send their changes with `source_id` and
+which answers with `rows`, several row changes by key; and a version on a view that reads entities.
 
 `MAJOR.MINOR`. Within a major:
 
@@ -48,7 +50,7 @@ and `ankka.due` on every timed action request.
 | `payload.proto` | `Payload`, `Metadata`, `Outcome`, `Retention`, `Error`, `Failure` — shared by everything |
 | `discovery.proto` | `Discovery.Discover` / `ReportError`: the process describes its components and endpoints |
 | `event_sourced.proto`, `key_value.proto`, `workflow.proto` | one bidirectional stream per loaded instance |
-| `view.proto`, `consumer.proto`, `timed_action.proto` | stateless: one request, one effect |
+| `view.proto`, `consumer.proto`, `timed_action.proto` | stateless: one request, one effect (a keyed view's effect may change several rows) |
 | `endpoint.proto` | `Http.Handle` / `HandleStream` / `HandleSocket`: HTTP requests, and open sockets, the sidecar forwards for declared routes |
 | `agent.proto` | `Agent.Plan` / `InvokeTool` / `CheckGuardrail`: the process plans and runs tools, the sidecar runs the loop |
 | `client.proto` | `Client`: the callback service the sidecar serves — component calls, view queries, timers |

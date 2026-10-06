@@ -7,7 +7,7 @@ import { create } from "@bufbuild/protobuf"
 import { Discovery, type Spec } from "../_proto/ankka/protocol/v1/discovery_pb.ts"
 import { EmptySchema } from "../_proto/ankka/protocol/v1/payload_pb.ts"
 import { PROTOCOL_VERSION } from "../spec.ts"
-import { olderThanStartPositions } from "../startFrom.ts"
+import { olderThanDeclaredQueries, olderThanStartPositions } from "../startFrom.ts"
 
 /**
  * A sidecar older than 1.7 would ignore where a topic source starts and its version: a consumer
@@ -15,6 +15,32 @@ import { olderThanStartPositions } from "../startFrom.ts"
  * naming what declares them, rather than served wrong.
  */
 export function refusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  return startPositionRefusal(spec, sidecarProtocol) ?? declaredQueryRefusal(spec, sidecarProtocol)
+}
+
+/**
+ * A sidecar older than 1.13 would ignore a view's declared queries, would read a keyed view as having
+ * no source, and would refuse a version on a view that reads an entity as applying only to a topic.
+ * Refused at discovery, naming the views, rather than found later or misreported.
+ */
+function declaredQueryRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
+  if (!olderThanDeclaredQueries(sidecarProtocol)) return undefined
+  const declaring = spec.components
+    .filter((c) => {
+      if (c.detail.case !== "view") return false
+      const v = c.detail.value
+      // A declared query, a keyed view, or a version on a view that reads an entity.
+      return v.declaredQueries.length > 0 || v.sources.length > 0 || (v.version !== undefined && v.source?.source.case === "component")
+    })
+    .map((c) => c.id)
+  if (declaring.length === 0) return undefined
+  return (
+    `${declaring.join(", ")} declare queries, several sources, or a version on a view that reads an entity, which the sidecar ignores: ` +
+    `it speaks protocol ${sidecarProtocol}, and this SDK ${PROTOCOL_VERSION}. Run a sidecar speaking 1.13 or later.`
+  )
+}
+
+function startPositionRefusal(spec: Spec, sidecarProtocol: string): string | undefined {
   if (!olderThanStartPositions(sidecarProtocol)) return undefined
   const declaring = spec.components
     .filter((c) => {

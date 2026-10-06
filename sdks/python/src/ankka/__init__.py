@@ -34,19 +34,25 @@ from ankka.services import (  # noqa: E402
 )
 from ankka.service import Ankka, ServiceBuilder  # noqa: E402
 from ankka.start_from import StartFrom  # noqa: E402
+from ankka.view import DeclaredQuery, table_of  # noqa: E402
+from ankka.effects.keyed_view import KeyedViewEffect  # noqa: E402
+from ankka.keyed_view import KeyedView  # noqa: E402
 from ankka import graph  # noqa: E402
 from ankka.graph import GraphConsumer  # noqa: E402
 from ankka.mcp import McpServer, ResultGuardrail  # noqa: E402
 
 __all__ = [
     "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail", "SseEvent",
-    "Acl", "Ankka", "Caller", "CallerMatcher", "Callers", "Codec", "CommandContext", "Gateway", "LocalCaller",
+    "Acl", "Ankka", "Caller", "CallerMatcher", "Callers", "Codec", "CommandContext", "DeclaredQuery", "Gateway",
+    "LocalCaller",
     "ServiceCaller", "DeleteNow", "Done", "DONE", "Endpoint", "Error",
-    "ErrorCode", "EventSourcedEffect", "EventSourcedEntity", "ExpireAfter", "GraphConsumer", "HttpProblem", "Metadata",
+    "ErrorCode", "EventSourcedEffect", "EventSourcedEntity", "ExpireAfter", "GraphConsumer", "HttpProblem", "KeyedView",
+    "KeyedViewEffect", "Metadata",
     "InMemorySecrets", "Principal", "ReadOnlyEffect", "RegistrationError", "RequestContext", "Secrets", "ServiceBuilder",
     "StartFrom",
     "ScriptedRequest", "ScriptedServices", "ServiceCallFailed", "ServiceClient", "ServiceError",
     "ServiceIdentityMismatch", "ServiceResponse", "Services", "ServiceUnanswered", "ServiceUnresolvable",
     "Socket", "SocketClosed",
     "command", "delete", "get", "graph", "json_codec", "patch", "post", "put", "query", "socket", "sse",
+    "table_of",
 ]

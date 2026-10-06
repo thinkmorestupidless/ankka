@@ -12,7 +12,7 @@ Feature: What the documentation says of topic sources
   Scenario: the documentation's limitations say what bounds a topic source's rebuild
     When a reader looks up topic sources in the limitations of the documentation
     Then the documentation says a rebuild is bounded by what the broker retains
-    And the documentation says a view reading an entity has no rebuild
+    And the documentation says a rebuild of a view reading an entity is not bounded by what a broker retains
 
   Scenario: the documentation says what an upgrade does to a service's groups
     When a reader looks up upgrading in the documentation

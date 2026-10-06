@@ -1,7 +1,7 @@
 // Renders the discovery Spec from the registry: what the sidecar hosts is exactly what is registered.
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf"
-import { Endpoint_Acl, SpecSchema, StartFrom_Named, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
+import { Endpoint_Acl, Kind, SpecSchema, StartFrom_Named, type CallerMatcherSchema, type Spec, type ComponentSchema, type EndpointSchema, type SourceSchema, type WorkflowDetail_SettingsSchema, type WorkflowDetail_RecoverySchema, type AutonomousAgentDetail_AutonomousSettingsSchema } from "./_proto/ankka/protocol/v1/discovery_pb.ts"
 import type { Registry, RegisteredAutonomousAgent, RegisteredComponent, Source } from "./service.ts"
 import { resultSchemaJson, type AutonomousSettings } from "./autonomous.ts"
 import type { HandlerRef } from "./handlers.ts"
@@ -25,7 +25,7 @@ function toolInit(t: ToolRef<any, any>) {
   }
 }
 
-export const PROTOCOL_VERSION = "1.12"
+export const PROTOCOL_VERSION = "1.13"
 export const SDK_NAME = "ankka-typescript"
 
 export function aclToProto(acl: Acl): Endpoint_Acl {
@@ -100,7 +100,7 @@ function settingsInit(s: WorkflowSettings): SettingsInit {
 }
 
 function componentInit(c: RegisteredComponent): ComponentInit {
-  const base = { kind: kindToProto(c.kind), id: c.id }
+  const base = { kind: c.kind === "keyed-view" ? Kind.VIEW : kindToProto(c.kind), id: c.id }
   switch (c.kind) {
     case "autonomous-agent":
       return autonomousInit(c)
@@ -120,7 +120,28 @@ function componentInit(c: RegisteredComponent): ComponentInit {
         handlers: [],
         detail: {
           case: "view",
-          value: { source: sourceInit(c.source), rowManifest: c.rowCodec.manifest, queries: [...c.queries], ...(c.version !== undefined ? { version: c.version } : {}) },
+          value: {
+            source: sourceInit(c.source),
+            rowManifest: c.rowCodec.manifest,
+            queries: [...c.queries],
+            ...(c.version !== undefined ? { version: c.version } : {}),
+            declaredQueries: c.declared.map((q) => ({ name: q.name, statement: q.statement })),
+          },
+        },
+      }
+    case "keyed-view":
+      return {
+        ...base,
+        handlers: [],
+        detail: {
+          case: "view",
+          value: {
+            rowManifest: c.rowCodec.manifest,
+            queries: [],
+            ...(c.version !== undefined ? { version: c.version } : {}),
+            sources: [...c.sources.values()].map((s) => sourceInit({ component: { kind: s.kind, id: s.id } })),
+            declaredQueries: c.declared.map((q) => ({ name: q.name, statement: q.statement })),
+          },
         },
       }
     case "consumer":

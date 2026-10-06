@@ -6,20 +6,24 @@
 //! sourced entities in memory — a workflow step that reads a cart, a tool that counts something —
 //! and without one those calls are refused as unavailable.
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
+
+use prost::Message;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::unit::{InMemory, hosted, in_memory};
+use crate::abi::imports::{Import, NativeHost, with_native_host};
 use crate::codec::{decode_payload, encode_payload};
 use crate::components::agent::Stage;
 use crate::components::autonomous::Registration as AutonomousRegistration;
 use crate::components::{
-    Agent, AutonomousAgent, ComponentOf, Consumer, HeldState, KeyValueEntity, Registered,
-    ResultCheck, TaskType, TimedAction, Verdict, View, Workflow, kinds,
+    Agent, AutonomousAgent, ComponentOf, Consumer, HeldState, KeyValueEntity, KeyedView,
+    Registered, ResultCheck, Source, TaskType, TimedAction, Verdict, View, Workflow, kinds,
 };
 use crate::context::Metadata;
 use crate::effects::consumer::{ConsumerEffect, Outgoing};
@@ -384,6 +388,7 @@ impl<C: View> ViewTestKit<C> {
             event,
             metadata: Some(metadata.to_proto()),
             row: self.rows.get(key).cloned(),
+            source_id: None,
         };
         let effect = self.registration.view(request).expect("a view answers");
         use proto::view_effect::Effect;
@@ -421,6 +426,191 @@ impl<C: View> ViewTestKit<C> {
                 .decode_value(&p.data)
                 .expect("the row decodes")
         })
+    }
+}
+
+// ── Keyed views ──────────────────────────────────────────────────────────────
+
+/// What a test says one declared query answers: given the values asked with and the view's rows.
+type Answer<Row> = Box<dyn Fn(&HashMap<String, String>, &[Row]) -> Vec<Row>>;
+
+/// Answers a keyed view's reads of its own rows: `get` from the kit's rows, a declared query from
+/// what the test said it answers.
+struct KeyedRows<C: KeyedView> {
+    rows: Rc<RefCell<BTreeMap<String, Payload>>>,
+    answers: Rc<RefCell<HashMap<String, Answer<C::Row>>>>,
+}
+
+impl<C: KeyedView> NativeHost for KeyedRows<C> {
+    fn call(&self, import: Import, request: &[u8]) -> Vec<u8> {
+        assert_eq!(
+            import,
+            Import::Query,
+            "a keyed view's handler called {import:?}; the kit answers its reads of its rows"
+        );
+        let request = proto::QueryRequest::decode(request).expect("a QueryRequest");
+        assert_eq!(
+            request.view_id,
+            C::COMPONENT_ID,
+            "view '{}' asked view '{}', which is not its own",
+            C::COMPONENT_ID,
+            request.view_id
+        );
+        let rows = self.rows.borrow();
+        let found: Vec<String> = if request.name == "get" {
+            let key = request
+                .payload
+                .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+                .unwrap_or_default();
+            rows.get(&key)
+                .map(|p| String::from_utf8_lossy(&p.data).into_owned())
+                .into_iter()
+                .collect()
+        } else {
+            let answers = self.answers.borrow();
+            let answer = answers.get(&request.name).unwrap_or_else(|| {
+                panic!(
+                    "view '{}' asked the query '{}', and the test has not said what it answers; \
+                     say so with answering(\"{}\", …)",
+                    C::COMPONENT_ID,
+                    request.name,
+                    request.name
+                )
+            });
+            let decoded: Vec<C::Row> = rows
+                .values()
+                .map(|p| C::row_codec().decode_value(&p.data).expect("a row decodes"))
+                .collect();
+            let values: HashMap<String, String> = request.values.into_iter().collect();
+            answer(&values, &decoded)
+                .iter()
+                .map(|row| {
+                    let payload = C::row_codec().to_payload(row).expect("a row encodes");
+                    String::from_utf8_lossy(&payload.data).into_owned()
+                })
+                .collect()
+        };
+        proto::QueryReply {
+            result: Some(proto::query_reply::Result::Rows(Payload {
+                content_type: "application/json".into(),
+                manifest: "rows".into(),
+                data: format!("[{}]", found.join(",")).into_bytes(),
+            })),
+        }
+        .encode_to_vec()
+    }
+}
+
+/// Feeds a keyed view changes of its sources, keeping the rows its handlers name by key. Each
+/// effect is applied in order, a later change to a key winning, as the runtime applies it.
+///
+/// A declared query is SQL, and there is no database to run it, so the test says what each query
+/// answers with [`KeyedViewTestKit::answering`]. A handler that asks a query the test has not
+/// answered panics, naming it: a kit that answered no rows would pass a handler that updated
+/// nothing.
+pub struct KeyedViewTestKit<C: KeyedView> {
+    registration: Box<dyn Registered>,
+    rows: Rc<RefCell<BTreeMap<String, Payload>>>,
+    answers: Rc<RefCell<HashMap<String, Answer<C::Row>>>>,
+    sequence: i64,
+}
+
+impl<C: KeyedView> Default for KeyedViewTestKit<C> {
+    fn default() -> KeyedViewTestKit<C> {
+        KeyedViewTestKit::new()
+    }
+}
+
+impl<C: KeyedView> KeyedViewTestKit<C> {
+    /// No rows.
+    ///
+    /// # Panics
+    ///
+    /// When the view's declaration has a problem the runtime would refuse it for.
+    pub fn new() -> KeyedViewTestKit<C> {
+        let registration = <C as ComponentOf<kinds::KeyedView>>::registration();
+        let problems = registration.problems();
+        assert!(problems.is_empty(), "{}", problems.join("; "));
+        KeyedViewTestKit {
+            registration,
+            rows: Rc::default(),
+            answers: Rc::default(),
+            sequence: 0,
+        }
+    }
+
+    /// What the declared query `name` answers, given the values it is asked with and the rows.
+    pub fn answering(
+        self,
+        name: &str,
+        answer: impl Fn(&HashMap<String, String>, &[C::Row]) -> Vec<C::Row> + 'static,
+    ) -> KeyedViewTestKit<C> {
+        self.answers
+            .borrow_mut()
+            .insert(name.to_string(), Box::new(answer));
+        self
+    }
+
+    fn feed(&mut self, source: &Source, key: &str, event: Option<Payload>) {
+        let Source::Component(_, source_id) = source else {
+            panic!("a keyed view reads entities, not {source:?}");
+        };
+        self.sequence += 1;
+        let metadata = Metadata::new()
+            .set("ce-subject", key)
+            .set("ankka.sequence", self.sequence.to_string());
+        let request = proto::ViewRequest {
+            component_id: C::COMPONENT_ID.to_string(),
+            deleted: event.is_none(),
+            event,
+            metadata: Some(metadata.to_proto()),
+            row: None,
+            source_id: Some(source_id.to_string()),
+        };
+        let host = KeyedRows::<C> {
+            rows: self.rows.clone(),
+            answers: self.answers.clone(),
+        };
+        let effect = with_native_host(host, || self.registration.view(request))
+            .expect("a keyed view answers");
+        if let Some(proto::view_effect::Effect::Rows(rows)) = effect.effect {
+            let mut stored = self.rows.borrow_mut();
+            for change in rows.changes {
+                match change.change {
+                    Some(proto::row_change::Change::Upsert(row)) => {
+                        stored.insert(change.key, row);
+                    }
+                    _ => {
+                        stored.remove(&change.key);
+                    }
+                }
+            }
+        }
+    }
+
+    /// One change of entity `key` of `source`.
+    pub fn change<E: Serialize + 'static>(&mut self, source: Source, key: &str, event: E) {
+        let event = encoded(&event, "the change");
+        self.feed(&source, key, Some(event));
+    }
+
+    /// Entity `key` of `source` was deleted.
+    pub fn deleted(&mut self, source: Source, key: &str) {
+        self.feed(&source, key, None);
+    }
+
+    /// The row under `key`.
+    pub fn row(&self, key: &str) -> Option<C::Row> {
+        self.rows.borrow().get(key).map(|p| {
+            C::row_codec()
+                .decode_value(&p.data)
+                .expect("the row decodes")
+        })
+    }
+
+    /// Every row's key, in order.
+    pub fn keys(&self) -> Vec<String> {
+        self.rows.borrow().keys().cloned().collect()
     }
 }
 

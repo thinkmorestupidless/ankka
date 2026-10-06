@@ -29,7 +29,7 @@ import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventS
 import ankka.protocol.v1.key_value.{KeyValueGrpc, KeyValueIn, KeyValueOut}
 import ankka.protocol.v1.payload as pb
 import ankka.protocol.v1.timed_action.{TimedActionEffect, TimedActionGrpc, TimedActionRequest}
-import ankka.protocol.v1.view.{ViewEffect, ViewGrpc, ViewRequest}
+import ankka.protocol.v1.view.{RowChange, RowChanges, ViewEffect, ViewGrpc, ViewRequest}
 import ankka.protocol.v1.workflow.{
   StepOutcome as PbStepOutcome,
   StepRef as PbStepRef,
@@ -212,7 +212,20 @@ object ProcessDouble:
       rowManifest: String = "double-row",
       queries: Vector[String] = Vector("get", "all"),
       startFrom: Option[StartFrom] = None,
-      version: Option[Int] = None
+      version: Option[Int] = None,
+      /** Name to statement, sent in discovery as the view's declared queries (protocol 1.13). */
+      declared: Vector[(String, String)] = Vector.empty
+  )
+
+  /**
+   * A keyed view over several components (protocol 1.13): each change arrives with the component it
+   * came from and no row, and `onChange` answers the rows to write (`Some`) and delete (`None`).
+   */
+  final case class KeyedViewOf(
+      id: String,
+      sources: Vector[(Kind, String)],
+      onChange: (String, Option[String], pb.Metadata) => Vector[(String, Option[String])],
+      rowManifest: String = "double-row"
   )
 
   /** One of several messages a consumer answers with. */
@@ -330,6 +343,7 @@ object ProcessDouble:
       keyValues: Vector[KeyValue] = Vector.empty,
       flows: Vector[Flow] = Vector.empty,
       views: Vector[ViewOf] = Vector.empty,
+      keyedViews: Vector[KeyedViewOf] = Vector.empty,
       consumers: Vector[ConsumerOf] = Vector.empty,
       actions: Vector[Action] = Vector.empty,
       agents: Vector[AgentOf] = Vector.empty,
@@ -496,7 +510,24 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
               sourceOf(v.sourceComponent, v.sourceTopic).map(_.copy(startFrom = v.startFrom)),
               v.rowManifest,
               v.queries,
-              v.version
+              v.version,
+              Vector.empty,
+              v.declared.map((name, statement) => DeclaredQuery(name, statement))
+            )
+          )
+        )
+      } ++ spec.keyedViews.map { v =>
+        Component(
+          Kind.VIEW,
+          v.id,
+          Vector.empty,
+          Component.Detail.View(
+            ViewDetail(
+              None,
+              v.rowManifest,
+              Vector.empty,
+              None,
+              v.sources.flatMap((kind, id) => sourceOf(Some((kind, id)), None))
             )
           )
         )
@@ -940,7 +971,26 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
   private val view = new ViewGrpc.View:
     def handle(request: ViewRequest): Future[ViewEffect] =
       received.add(Received(0, request))
+      val keyed = spec.keyedViews.find(_.id == request.componentId)
       spec.views.find(_.id == request.componentId) match
+        case None if keyed.isDefined =>
+          val v = keyed.get
+          Future.fromTry(Try {
+            val rows = v.onChange(
+              request.sourceId.getOrElse(""),
+              Option.when(!request.deleted)(request.event.map(_.data.toStringUtf8).getOrElse("")),
+              request.metadata.getOrElse(pb.Metadata())
+            )
+            ViewEffect(
+              ViewEffect.Effect.Rows(
+                RowChanges(rows.map {
+                  case (key, Some(row)) =>
+                    RowChange(key, RowChange.Change.Upsert(json(v.rowManifest, row)))
+                  case (key, None) => RowChange(key, RowChange.Change.Delete(pb.Empty()))
+                })
+              )
+            )
+          })
         case None => Future.failed(notFound(s"unknown view ${request.componentId}"))
         case Some(v) =>
           Future.fromTry(Try {

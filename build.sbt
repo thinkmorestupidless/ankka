@@ -254,6 +254,7 @@ lazy val runtime = project
       pekkoProjectionR2dbc,
       pekkoSerializationJackson,
       pekkoKafka,
+      jsqlparser,
       logback,
       pekkoPersistenceTestkit % Test,
       // DatabaseTlsSuite: a real Postgres with TLS and certificate authentication (feature 014).

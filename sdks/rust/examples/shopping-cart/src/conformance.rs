@@ -235,6 +235,297 @@ impl Consumer for CheckoutFanout {
 }
 // docs:end fanout
 
+// ── tree-node, tree-rows: a tree, walked by a declared recursive query ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Placed {
+    pub under: Option<String>,
+}
+
+pub struct TreeNode;
+
+impl TreeNode {
+    /// `under` is the parent's id, or empty for a root.
+    fn place(_: &Option<String>, under: String, _: &Context) -> Effect<Placed, String> {
+        let under = Some(under).filter(|u| !u.is_empty());
+        effects::persist(Placed { under }).then_reply_value("placed".to_string())
+    }
+}
+
+impl EventSourcedEntity for TreeNode {
+    type State = Option<String>;
+    type Event = Placed;
+    const COMPONENT_ID: &'static str = "tree-node";
+    const STATE_MANIFEST: Option<&'static str> = Some("tree-node");
+    const EVENT_MANIFEST: Option<&'static str> = Some("tree-event");
+
+    fn empty_state(_: &str) -> Option<String> {
+        None
+    }
+
+    fn apply(_: Option<String>, event: &Placed) -> Option<String> {
+        event.under.clone()
+    }
+
+    fn handlers() -> Handlers<TreeNode> {
+        Handlers::new().command("place", TreeNode::place)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeRow {
+    pub key: String,
+    pub under: Option<String>,
+}
+
+pub struct TreeRows;
+
+impl View for TreeRows {
+    type Row = TreeRow;
+    type Event = Placed;
+    const COMPONENT_ID: &'static str = "tree-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("tree-row");
+
+    fn source() -> Source {
+        Source::of(TreeNode)
+    }
+
+    fn on_event(_: Option<TreeRow>, event: Placed, ctx: &Context) -> ViewEffect<TreeRow> {
+        ViewEffect::UpdateRow(TreeRow {
+            key: ctx.metadata().subject().unwrap_or_default().to_string(),
+            under: event.under,
+        })
+    }
+
+    // docs:start declared-recursive-query
+    /// Every row under the row `row`, to any depth, in key order.
+    fn declared() -> Vec<DeclaredQuery> {
+        let table = table_of(Self::COMPONENT_ID);
+        vec![query(
+            "under",
+            format!(
+                "WITH RECURSIVE below AS (\n  \
+                 SELECT row_key, payload FROM {table} WHERE payload::jsonb->>'under' = :row\n  \
+                 UNION\n  \
+                 SELECT n.row_key, n.payload FROM {table} n JOIN below b ON n.payload::jsonb->>'under' = b.row_key\n\
+                 )\n\
+                 SELECT payload FROM below ORDER BY row_key"
+            ),
+        )]
+    }
+    // docs:end declared-recursive-query
+}
+
+/// Places nodes of a tree and asks what is under one.
+pub struct TreeEndpoint;
+
+impl TreeEndpoint {
+    fn root(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        let node = request.path("nodeId");
+        Ok(request
+            .client()
+            .invoke(TreeNode, node, "place", String::new())?)
+    }
+
+    fn under(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        let node = request.path("nodeId");
+        let parent = request.path("parentId").to_string();
+        Ok(request.client().invoke(TreeNode, node, "place", parent)?)
+    }
+
+    fn below(request: &Request) -> Result<Vec<String>, HttpProblem> {
+        let node = request.path("nodeId");
+        let rows: Vec<TreeRow> = request.client().ask(TreeRows, "under", &[("row", node)])?;
+        Ok(rows.into_iter().map(|row| row.key).collect())
+    }
+}
+
+impl Endpoint for TreeEndpoint {
+    const ENDPOINT_ID: &'static str = "TreeEndpoint";
+    const PREFIX: &'static str = "/tree";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<TreeEndpoint> {
+        Routes::new()
+            .post("/{nodeId}", TreeEndpoint::root)
+            .post("/{nodeId}/under/{parentId}", TreeEndpoint::under)
+            .get("/{nodeId}/below", TreeEndpoint::below)
+    }
+}
+
+// ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Noted {
+    pub text: String,
+}
+
+fn record_noted(_: &i32, text: String, _: &Context) -> Effect<Noted, String> {
+    effects::persist(Noted { text }).then_reply_value("recorded".to_string())
+}
+
+pub struct JoinedLeft;
+
+impl EventSourcedEntity for JoinedLeft {
+    type State = i32;
+    type Event = Noted;
+    const COMPONENT_ID: &'static str = "joined-left";
+    const STATE_MANIFEST: Option<&'static str> = Some("joining");
+    const EVENT_MANIFEST: Option<&'static str> = Some("noted");
+
+    fn empty_state(_: &str) -> i32 {
+        0
+    }
+
+    fn apply(state: i32, _: &Noted) -> i32 {
+        state + 1
+    }
+
+    fn handlers() -> Handlers<JoinedLeft> {
+        Handlers::new().command("record", record_noted)
+    }
+}
+
+pub struct JoinedRight;
+
+impl EventSourcedEntity for JoinedRight {
+    type State = i32;
+    type Event = Noted;
+    const COMPONENT_ID: &'static str = "joined-right";
+    const STATE_MANIFEST: Option<&'static str> = Some("joining");
+    const EVENT_MANIFEST: Option<&'static str> = Some("noted");
+
+    fn empty_state(_: &str) -> i32 {
+        0
+    }
+
+    fn apply(state: i32, _: &Noted) -> i32 {
+        state + 1
+    }
+
+    fn handlers() -> Handlers<JoinedRight> {
+        Handlers::new().command("record", record_noted)
+    }
+}
+
+/// A row the left writes under the key it names, holding a right entity's id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinedRow {
+    pub key: String,
+    pub holding: String,
+    pub notes: Vec<String>,
+}
+
+// docs:start keyed-view
+pub struct JoinedRows;
+
+impl JoinedRows {
+    /// The left names a row `key|holding`, and writes it from what it held, noting itself.
+    fn on_left(event: Noted, ctx: &Context) -> KeyedViewEffect<JoinedRow> {
+        let (key, holding) = event
+            .text
+            .split_once('|')
+            .unwrap_or((event.text.as_str(), ""));
+        let mut notes = ctx
+            .rows()
+            .get::<JoinedRow>(key)
+            .map(|row| row.notes)
+            .unwrap_or_default();
+        notes.push("left".to_string());
+        KeyedViewEffect::update_row(
+            key,
+            JoinedRow {
+                key: key.to_string(),
+                holding: holding.to_string(),
+                notes,
+            },
+        )
+    }
+
+    /// The right finds every row holding it by asking the view's own query, and notes itself.
+    fn on_right(_: Noted, ctx: &Context) -> KeyedViewEffect<JoinedRow> {
+        let subject = ctx.metadata().subject().unwrap_or_default();
+        let theirs: Vec<JoinedRow> = ctx.rows().ask("of-right", &[("holding", subject)]);
+        KeyedViewEffect::update_rows(theirs.into_iter().map(|mut row| {
+            row.notes.push("right".to_string());
+            (row.key.clone(), row)
+        }))
+    }
+}
+
+impl KeyedView for JoinedRows {
+    type Row = JoinedRow;
+    const COMPONENT_ID: &'static str = "joined-rows";
+    const ROW_MANIFEST: Option<&'static str> = Some("joined-row");
+
+    fn sources() -> Sources<JoinedRows> {
+        Sources::new()
+            .on::<Noted>(Source::of(JoinedLeft), JoinedRows::on_left)
+            .on::<Noted>(Source::of(JoinedRight), JoinedRows::on_right)
+    }
+
+    /// The rows holding one right entity, by key: the same statement in every language.
+    fn declared() -> Vec<DeclaredQuery> {
+        vec![query(
+            "of-right",
+            format!(
+                "SELECT payload FROM {} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+                table_of(Self::COMPONENT_ID)
+            ),
+        )]
+    }
+}
+// docs:end keyed-view
+
+/// Records on either side of the keyed view, and reads its rows.
+pub struct JoinedEndpoint;
+
+impl JoinedEndpoint {
+    fn left(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        let text = format!("{}|{}", request.path("key"), request.path("holding"));
+        Ok(request
+            .client()
+            // The left entity is the row's own key: one left per row.
+            .invoke(JoinedLeft, request.path("key"), "record", text)?)
+    }
+
+    fn right(request: &Request, (): ()) -> Result<String, HttpProblem> {
+        Ok(request.client().invoke(
+            JoinedRight,
+            request.path("rightId"),
+            "record",
+            String::new(),
+        )?)
+    }
+
+    fn row(request: &Request) -> Result<JoinedRow, HttpProblem> {
+        let key = request.path("key").to_string();
+        let rows: Vec<JoinedRow> = request.client().query(JoinedRows, "get", key.clone())?;
+        rows.into_iter()
+            .next()
+            .ok_or_else(|| HttpProblem::new(404, format!("no row '{key}'")))
+    }
+}
+
+impl Endpoint for JoinedEndpoint {
+    const ENDPOINT_ID: &'static str = "JoinedEndpoint";
+    const PREFIX: &'static str = "/joined";
+
+    fn acl() -> Acl {
+        Acl::AllowAll
+    }
+
+    fn routes() -> Routes<JoinedEndpoint> {
+        Routes::new()
+            .post("/left/{key}/{holding}", JoinedEndpoint::left)
+            .post("/right/{rightId}", JoinedEndpoint::right)
+            .get("/rows/{key}", JoinedEndpoint::row)
+    }
+}
+
 // ── topic-rows and topic-relay: a view and a consumer over a topic ──
 
 // docs:start topic-sources
@@ -1077,6 +1368,11 @@ pub fn build() -> Service {
         .register_as(CheckoutWorkflow, shape)
         .register_as(Conformance, shape)
         .register_as(Profile, shape)
+        .register_as(TreeNode, shape)
+        .register(TreeRows)
+        .register_as(JoinedLeft, shape)
+        .register_as(JoinedRight, shape)
+        .register(JoinedRows)
         .register(CheckoutRecorder);
     // The three that publish need a broker, and a runtime with none refuses a module that has
     // them. So they are registered where one is named, as the example's own are: the conformance
@@ -1095,6 +1391,8 @@ pub fn build() -> Service {
         .register(ConformanceAssistant)
         .register(ConformanceAnswerer)
         .endpoint(CartApi)
+        .endpoint(TreeEndpoint)
+        .endpoint(JoinedEndpoint)
         .endpoint(ConformanceEndpoint)
         .endpoint(PrivateEndpoint)
         .endpoint(CallersEndpoint)

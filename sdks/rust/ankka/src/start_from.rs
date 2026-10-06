@@ -51,11 +51,38 @@ pub(crate) const START_POSITION_PROTOCOL: (u32, u32) = (1, 7);
 
 /// Whether a host speaking `protocol_version` would ignore a start position and a version.
 pub(crate) fn older_than_start_positions(protocol_version: &str) -> bool {
+    older_than(protocol_version, START_POSITION_PROTOCOL)
+}
+
+/// The first protocol in which a module can declare a view's queries, a keyed view, or a version
+/// on a view that reads an entity.
+pub(crate) const DECLARED_QUERY_PROTOCOL: (u32, u32) = (1, 13);
+
+/// Whether a host speaking `protocol_version` would not know a view's declared queries, a keyed
+/// view, or a version on a view that reads an entity.
+pub(crate) fn older_than_declared_queries(protocol_version: &str) -> bool {
+    older_than(protocol_version, DECLARED_QUERY_PROTOCOL)
+}
+
+fn older_than(protocol_version: &str, first: (u32, u32)) -> bool {
     let mut parts = protocol_version.split('.').map(str::parse::<u32>);
     match (parts.next(), parts.next()) {
-        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) < START_POSITION_PROTOCOL,
+        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) < first,
         _ => false,
     }
+}
+
+/// Whether a discovered component declares what a host older than 1.13 would not know: a query, a
+/// keyed view's sources, or a version on a view that reads an entity.
+pub(crate) fn declares_queries(component: &proto::Component) -> bool {
+    let Some(proto::component::Detail::View(d)) = &component.detail else {
+        return false;
+    };
+    let over_entity = d
+        .source
+        .as_ref()
+        .is_some_and(|s| matches!(s.source, Some(proto::source::Source::Component(_))));
+    !d.declared_queries.is_empty() || !d.sources.is_empty() || (d.version.is_some() && over_entity)
 }
 
 /// The source as discovery says it, with the start position where it is declared.
@@ -93,7 +120,9 @@ pub(crate) fn problems(
         Some(0) => found.push(format!(
             "{named} declares version 0; a version is a whole number of 1 or more"
         )),
-        Some(_) if topic.is_none() => found.push(format!(
+        // A view that reads an entity is rebuilt from its journal when its version is raised; a
+        // consumer has no table to rebuild, and a version there would do nothing.
+        Some(_) if topic.is_none() && consumer => found.push(format!(
             "{named} declares a version, which applies to a topic; it reads a component"
         )),
         _ => {}

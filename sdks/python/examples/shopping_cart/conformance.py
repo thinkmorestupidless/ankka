@@ -28,7 +28,9 @@ from ankka.graph import GraphEffect
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import Ankka, ServiceBuilder
 from ankka.timed_action import TimedAction, action
-from ankka.view import View
+from ankka.view import View, query as declare, table_of
+from ankka.effects.keyed_view import KeyedViewEffect
+from ankka.keyed_view import KeyedView, on
 
 from examples.shopping_cart.cart_graph import CartGraph
 from examples.shopping_cart.cart_rows import CartRows
@@ -753,6 +755,178 @@ class AutonomousEndpoint(Endpoint):
         return json.dumps({"phase": s.phase, "queued": s.queued, "currentTask": s.current_task, "awaiting": awaiting})
 
 
+# ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
+
+
+@dataclass(frozen=True)
+class Placed:
+    under: str | None = None
+
+
+class TreeNode(EventSourcedEntity[Placed, Placed]):
+    """A node of a tree: ``place`` takes its parent's id, empty for none."""
+
+    component_id = "tree-node"
+    state_codec = json_codec(Placed, "tree-node")
+    event_codec = json_codec(Placed, "tree-event")
+
+    def empty_state(self) -> Placed:
+        return Placed()
+
+    def apply_event(self, state: Placed, event: Placed) -> Placed:
+        return event
+
+    @command("place")
+    def place(self, under: str) -> EventSourcedEffect[Placed, Placed, str]:
+        return self.effects.persist(Placed(under or None)).then_reply(lambda _: "placed")
+
+
+@dataclass(frozen=True)
+class TreeRow:
+    key: str
+    under: str | None = None
+
+
+class TreeRows(View[Placed, TreeRow]):
+    """One row per node, and every row under one to any depth: the same statement in every language."""
+
+    component_id = "tree-rows"
+    source = TreeNode
+    event_codec = TreeNode.event_codec
+    row_codec = json_codec(TreeRow, "tree-row")
+    under = declare(
+        "under",
+        f"""WITH RECURSIVE below AS (
+  SELECT row_key, payload FROM {table_of("tree-rows")} WHERE payload::jsonb->>'under' = :row
+  UNION
+  SELECT n.row_key, n.payload FROM {table_of("tree-rows")} n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+)
+SELECT payload FROM below ORDER BY row_key""",
+    )
+
+    def on_change(self, event: Placed) -> ViewEffect:
+        return self.effects.update_row(TreeRow(self.metadata.subject or "", event.under))
+
+
+class TreeEndpoint(Endpoint):
+    """Places nodes of a tree and asks what is under one."""
+
+    prefix = "/tree"
+    acl = Acl.ALLOW_ALL
+
+    def __init__(self, client: ComponentClient) -> None:
+        self.client = client
+
+    async def _place(self, node_id: str, under: str) -> str:
+        calls = self.client.with_metadata(self.request.metadata).for_event_sourced_entity("tree-node", node_id)
+        return await calls.call("place").invoke(under, reply=str)
+
+    @post("/{nodeId}")
+    async def root(self, nodeId: str) -> str:
+        return await self._place(nodeId, "")
+
+    @post("/{nodeId}/under/{parentId}")
+    async def under(self, nodeId: str, parentId: str) -> str:
+        return await self._place(nodeId, parentId)
+
+    @get("/{nodeId}/below")
+    async def below(self, nodeId: str) -> list[str]:
+        views = self.client.with_metadata(self.request.metadata).views
+        rows = await views.ask("tree-rows", "under", TreeRow, {"row": nodeId})
+        return [row.key for row in rows]
+
+
+# ── joined-left, joined-right, joined-rows: a keyed view of two sources ──
+
+
+@dataclass(frozen=True)
+class JoinedNote:
+    text: str = ""
+
+
+class JoinedLeft(EventSourcedEntity[int, JoinedNote]):
+    """``record`` takes text and records it; ``joined-right`` is the same entity under its own id."""
+
+    component_id = "joined-left"
+    state_codec = json_codec(int, "joining")
+    event_codec = json_codec(JoinedNote, "noted")
+
+    def empty_state(self) -> int:
+        return 0
+
+    def apply_event(self, state: int, event: JoinedNote) -> int:
+        return state + 1
+
+    @command("record")
+    def record(self, text: str) -> EventSourcedEffect[int, JoinedNote, str]:
+        return self.effects.persist(JoinedNote(text)).then_reply(lambda _: "recorded")
+
+
+class JoinedRight(JoinedLeft):
+    component_id = "joined-right"
+
+
+@dataclass(frozen=True)
+class JoinedRow:
+    key: str
+    holding: str
+    notes: list[str] = field(default_factory=list)
+
+
+class JoinedRows(KeyedView[JoinedRow]):
+    """A keyed view of two sources: the left names a row ``key|holding`` and notes itself on it; the
+    right finds every row holding it by asking the view's own query, and notes itself on each."""
+
+    component_id = "joined-rows"
+    row_codec = json_codec(JoinedRow, "joined-row")
+    of_right = declare(
+        "of-right",
+        f"SELECT payload FROM {table_of('joined-rows')} WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key",
+    )
+
+    @on(JoinedLeft, JoinedLeft.event_codec)
+    async def on_left(self, event: JoinedNote) -> KeyedViewEffect:
+        key, holding = event.text.split("|")
+        held = await self.rows.get(key)
+        notes = held.notes if held is not None else []
+        return self.effects.update_row(key, JoinedRow(key, holding, [*notes, "left"]))
+
+    @on(JoinedRight, JoinedRight.event_codec)
+    async def on_right(self, event: JoinedNote) -> KeyedViewEffect:
+        theirs = await self.rows.ask("of-right", holding=self.subject)
+        return self.effects.update_rows({row.key: JoinedRow(row.key, row.holding, [*row.notes, "right"]) for row in theirs})
+
+
+class JoinedEndpoint(Endpoint):
+    """Records on either side of the keyed view, and reads its rows."""
+
+    prefix = "/joined"
+    acl = Acl.ALLOW_ALL
+
+    def __init__(self, client: ComponentClient) -> None:
+        self.client = client
+
+    async def _record(self, entity: str, entity_id: str, text: str) -> str:
+        calls = self.client.with_metadata(self.request.metadata).for_event_sourced_entity(entity, entity_id)
+        return await calls.call("record").invoke(text, reply=str)
+
+    # The left entity is the row's own key: one left per row.
+    @post("/left/{key}/{holding}")
+    async def left(self, key: str, holding: str) -> str:
+        return await self._record("joined-left", key, f"{key}|{holding}")
+
+    @post("/right/{rightId}")
+    async def right(self, rightId: str) -> str:
+        return await self._record("joined-right", rightId, "")
+
+    @get("/rows/{key}")
+    async def rows(self, key: str) -> JoinedRow:
+        found = await self.client.with_metadata(self.request.metadata).views.get("joined-rows", key, JoinedRow)
+        if found is None:
+            raise HttpProblem(404, f"no row '{key}'")
+        return found  # type: ignore[no-any-return]
+
+
 class PrivateEndpoint(Endpoint):
     prefix = "/private"
     acl = Acl.AUTHENTICATED
@@ -792,6 +966,11 @@ def reference_service() -> ServiceBuilder:
         .register(CheckoutFanout)
         .register(TopicRows)
         .register(TopicRelay)
+        .register(TreeNode)
+        .register(TreeRows)
+        .register(JoinedLeft)
+        .register(JoinedRight)
+        .register(JoinedRows)
         .register(ConformanceCartGraph)
         .register(ProfileGraph)
         .register(Reminder)
@@ -800,6 +979,8 @@ def reference_service() -> ServiceBuilder:
         .register(Approver)
         .register(ShoppingCartEndpoint)
         .register(ConformanceEndpoint)
+        .register(TreeEndpoint)
+        .register(JoinedEndpoint)
         .register(PrivateEndpoint)
         .register(CallersEndpoint)
         .register(AutonomousEndpoint)

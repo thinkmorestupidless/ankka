@@ -1,9 +1,10 @@
 package com.thinkmorestupidless.ankka.runtime.remote
 
 import com.thinkmorestupidless.ankka.core.effect.ViewEffect
-import com.thinkmorestupidless.ankka.core.{Metadata, Serializer}
+import com.thinkmorestupidless.ankka.core.{ComponentId, Metadata, Serializer}
 import com.thinkmorestupidless.ankka.runtime.{
   CallOrigin,
+  EntityViewGuard,
   Database,
   IncomingMessage,
   JournalRecord,
@@ -94,6 +95,10 @@ private[ankka] object RemoteProjection:
     case ViewOutcome.UpdateRow(row) => ViewEffect.UpdateRow(row.data)
     case ViewOutcome.DeleteRow      => ViewEffect.DeleteRow
     case ViewOutcome.Ignore         => ViewEffect.Ignore
+    // Only a keyed view answers with rows, and a plain view is never one: a process that does is
+    // refused, its change failed and handled again, rather than its rows dropped.
+    case ViewOutcome.Rows(_) =>
+      throw IllegalStateException("a plain view answered with rows, which only a keyed view may")
 
 /** One remote view: what every source-specific handler below delegates to. */
 private[ankka] final class RemoteView(
@@ -157,6 +162,10 @@ private[ankka] final class RemoteView(
         writing(ViewStore.delete(table, subject))
       case ViewOutcome.Ignore =>
         Future.successful(Done)
+      case ViewOutcome.Rows(_) =>
+        Future.failed(
+          IllegalStateException("a plain view answered with rows, which only a keyed view may")
+        )
 
   def loadRow(database: Database, subject: String): Future[Option[Array[Byte]]] =
     database
@@ -165,9 +174,69 @@ private[ankka] final class RemoteView(
       )
       .map(_.headOption)
 
+/**
+ * A keyed view in another process or a module: each change is sent with the component it came from,
+ * and no row, and answered with the rows to write and delete by key. Hosted by the same
+ * `KeyedViewEventHandler` and `KeyedViewStateHandler` a Scala keyed view is, so the lock, the
+ * one-change-at-a-time rule and the all-or-nothing write are one implementation.
+ */
+private[ankka] final class RemoteKeyedView(
+    val descriptor: RemoteKeyedViewDescriptor,
+    conversation: Conversation,
+    observability: Observability
+)(using ec: ExecutionContext):
+  import RemoteProjection.*
+
+  private val componentRef = observability.names.intern(descriptor.componentId.toString)
+
+  def handle(source: ComponentId)(
+      subject: String,
+      sequence: Long,
+      change: Option[(Array[Byte], String)]
+  ): Future[Vector[(String, Option[String])]] =
+    val handler = source.toString
+    val span = observability.recorder.begin(
+      traceId = Trace.mint(),
+      parentSpanId = 0L,
+      componentRef = componentRef,
+      handlerRef = observability.names.intern(handler)
+    )
+    conversation
+      .handleView(
+        ViewRequest(
+          descriptor.componentId,
+          change.map((bytes, manifest) =>
+            Payload(Payload.contentTypeFor(manifest), manifest, bytes)
+          ),
+          CallOrigin.into(
+            Trace.into(changeMetadata(subject, sequence), span.traceId, span.id),
+            CallOrigin(descriptor.componentId.toString, handler)
+          ),
+          None,
+          Some(source)
+        )
+      )
+      .transform { result =>
+        observability.recorder
+          .complete(span, if result.isSuccess then SpanOutcome.Ok else SpanOutcome.Failed)
+        result
+      }
+      .flatMap {
+        case ViewOutcome.Rows(changes) =>
+          Future.successful(changes.map((key, row) => key -> row.map(p => String(p.data, "UTF-8"))))
+        case ViewOutcome.Ignore => Future.successful(Vector.empty)
+        case other =>
+          Future.failed(
+            IllegalStateException(
+              s"keyed view '${descriptor.componentId}' answered $other; a keyed view answers with rows"
+            )
+          )
+      }
+
 /** Exactly-once over an event sourced entity: the row and the offset in one transaction. */
-private[ankka] final class RemoteViewEventHandler(view: RemoteView)(using ec: ExecutionContext)
-    extends R2dbcHandler[EventEnvelope[JournalRecord]]:
+private[ankka] final class RemoteViewEventHandler(view: RemoteView, guard: EntityViewGuard)(using
+    ec: ExecutionContext
+) extends R2dbcHandler[EventEnvelope[JournalRecord]]:
   import RemoteProjection.*
 
   def process(session: R2dbcSession, envelope: EventEnvelope[JournalRecord]): Future[Done] =
@@ -178,15 +247,22 @@ private[ankka] final class RemoteViewEventHandler(view: RemoteView)(using ec: Ex
       case JournalRecord.KindExpiry => Future.successful(Done)
       case kind =>
         val change = if kind == JournalRecord.KindDomain then Some(payloadOf(record)) else None
-        ProjectionSupport.loadRow(session, view.table, subject, Serializer.bytes).flatMap { row =>
-          view.decide(subject, envelope.sequenceNr, change, row).flatMap { outcome =>
-            ProjectionSupport
-              .applyView(session, view.table, subject, toEffect(outcome), Serializer.bytes)
+        guard
+          .inSession(session)
+          .flatMap(_ => ProjectionSupport.loadRow(session, view.table, subject, Serializer.bytes))
+          .flatMap { row =>
+            view.decide(subject, envelope.sequenceNr, change, row).flatMap { outcome =>
+              ProjectionSupport
+                .applyView(session, view.table, subject, toEffect(outcome), Serializer.bytes)
+            }
           }
-        }
 
 /** At-least-once over a key value entity's state changes. */
-private[ankka] final class RemoteViewStateHandler(view: RemoteView, database: Database)(using
+private[ankka] final class RemoteViewStateHandler(
+    view: RemoteView,
+    database: Database,
+    guard: EntityViewGuard
+)(using
     ec: ExecutionContext
 ) extends Handler[DurableStateChange[StateRecord]]:
   import RemoteProjection.*
@@ -201,7 +277,20 @@ private[ankka] final class RemoteViewStateHandler(view: RemoteView, database: Da
         (Some(payloadOf(updated.value)), updated.revision)
       case deleted: DeletedDurableState[StateRecord] => (None, deleted.revision)
     view.loadRow(database, subject).flatMap { row =>
-      view.decide(subject, revision, payload, row).flatMap(view.apply(database, subject, _))
+      view
+        .decide(subject, revision, payload, row)
+        .flatMap(
+          view.apply(
+            database,
+            subject,
+            _,
+            Some(fragment =>
+              database.inTransaction(tx =>
+                guard.inTransaction(tx).flatMap(_ => tx.execute(fragment)).map(_ => Done)
+              )
+            )
+          )
+        )
     }
 
 /**

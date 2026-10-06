@@ -4,15 +4,18 @@ import com.thinkmorestupidless.ankka.agent.{AgentRuntime, Json, TestMcpServer, T
 import com.thinkmorestupidless.ankka.auth.oidc.{Oidc, OidcConfig, TestIssuer}
 import com.thinkmorestupidless.ankka.core.BuildInfo
 import com.thinkmorestupidless.ankka.http.{Acl, HttpServer}
+import ankka.protocol.v1.discovery.{Component, Spec}
 import com.thinkmorestupidless.ankka.sdk.{
   ServiceClient,
   ServiceClients,
   ServiceIdentityMismatch,
-  ServiceResponse
+  ServiceResponse,
+  ViewDescriptor
 }
 import com.thinkmorestupidless.ankka.runtime.{
   InMemoryBroker,
   ProjectionRuntime,
+  QueryCheck,
   ServedRoute,
   ServiceBuilder,
   TimerRuntime,
@@ -138,6 +141,15 @@ trait ConformanceTarget:
   /** A discovery with this protocol version; `Left` is the refusal. Process targets only. */
   def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]]
 
+  /** The statement of a view's declared query, as the target declared it. */
+  def declaredStatement(view: String, query: String): Option[String]
+
+  /**
+   * What the platform says of the target's own declaration with one query's statement replaced: the
+   * problems that stop it starting, through the same check the target's start went through.
+   */
+  def problemsWithStatement(view: String, query: String, statement: String): Vector[String]
+
   def stop(): Unit
 
 object ConformanceTarget:
@@ -207,6 +219,50 @@ object ConformanceTarget:
 
   private val reference = ConformanceReference
 
+  /** A declared query's statement in a Scala service's descriptors. */
+  private def declaredIn(
+      descriptors: Seq[com.thinkmorestupidless.ankka.core.ComponentDescriptor],
+      view: String,
+      query: String
+  ): Option[String] =
+    descriptors.collectFirst {
+      case d: ViewDescriptor[?, ?, ?] if d.componentId.toString == view =>
+        d.queries.find(_.name == query).map(_.statement)
+    }.flatten
+
+  /** A declared query's statement as a process or a module sent it in discovery. */
+  private def declaredIn(spec: Spec, view: String, query: String): Option[String] =
+    spec.components.collectFirst {
+      case c if c.id == view && c.detail.isView =>
+        c.detail.view.flatMap(_.declaredQueries.find(_.name == query).map(_.statement))
+    }.flatten
+
+  /** Discovery's verdict on `spec` with one view's query declaring `statement` instead. */
+  private def validateWith(
+      spec: Spec,
+      view: String,
+      query: String,
+      statement: String
+  ): Vector[String] =
+    val swapped = spec.copy(components = spec.components.map { c =>
+      if c.id != view then c
+      else
+        c.copy(detail =
+          c.detail.view.fold(c.detail)(v =>
+            Component.Detail.View(
+              v.copy(declaredQueries =
+                v.declaredQueries.map(q =>
+                  if q.name == query then q.copy(statement = statement) else q
+                )
+              )
+            )
+          )
+        )
+    })
+    Discovery
+      .validate(swapped, Discovery.ProtocolVersion, authConfigured = true)
+      .fold(identity, _ => Vector.empty)
+
   /** The Scala reference service on `AnkkaTestKit`. */
   final class InProcess(val model: TestModelProvider) extends ConformanceTarget:
     private val timers = TimerRuntime(200.millis)
@@ -244,6 +300,18 @@ object ConformanceTarget:
     def endpointRoutes: Set[String] = kit.service.routes.map(r => s"${r.method} ${r.path}").toSet
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] = None
+    def declaredStatement(view: String, query: String): Option[String] =
+      ConformanceTarget.declaredIn(reference.descriptors, view, query)
+    def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
+      reference.descriptors.toVector.flatMap {
+        case d: ViewDescriptor[?, ?, ?] if d.componentId.toString == view =>
+          QueryCheck.problemsOf(
+            d.componentId,
+            d.tableName,
+            d.queries.map(q => if q.name == query then q.copy(statement = statement) else q)
+          )
+        case _ => Vector.empty
+      }
     def stop(): Unit =
       try kit.stop()
       finally stopShared()
@@ -337,6 +405,10 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(Discovery.discover(channel, settings, BuildInfo.version, protocolVersion).map(_ => ()))
+    def declaredStatement(view: String, query: String): Option[String] =
+      ConformanceTarget.declaredIn(discovered.spec, view, query)
+    def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
+      ConformanceTarget.validateWith(discovered.spec, view, query, statement)
     def stop(): Unit =
       Try(kit.stop())
       channel.shutdownNow()
@@ -459,6 +531,10 @@ object ConformanceTarget:
     def topology: String            = ConformanceTarget.topologyOf(kit)
     def discoverWith(protocolVersion: String): Option[Either[Vector[String], Unit]] =
       Some(discover(protocolVersion).map(_ => ()))
+    def declaredStatement(view: String, query: String): Option[String] =
+      ConformanceTarget.declaredIn(discovered.spec, view, query)
+    def problemsWithStatement(view: String, query: String, statement: String): Vector[String] =
+      ConformanceTarget.validateWith(discovered.spec, view, query, statement)
     def stop(): Unit =
       Try(kit.stop()): Unit
       stopShared()

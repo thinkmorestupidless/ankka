@@ -19,7 +19,7 @@ use crate::components::{ComponentOf, Endpoint, HeldState, Registered, Shape};
 use crate::proto::{self, Kind};
 
 /// The version of the protocol this library speaks: the one its copy of `protocol/` describes.
-pub const PROTOCOL_VERSION: &str = "1.12";
+pub const PROTOCOL_VERSION: &str = "1.13";
 
 /// The version of the WebAssembly ABI this library speaks: the `1` in every `ankka1_` export.
 pub const ABI_VERSION: &str = "1";
@@ -369,6 +369,21 @@ fn not_found(component_id: &str) -> proto::Failure {
 
 /// Why a host speaking `host_protocol` cannot be answered with `components`, if it cannot.
 pub(crate) fn refusal(components: &[proto::Component], host_protocol: &str) -> Option<String> {
+    if start_from::older_than_declared_queries(host_protocol) {
+        let declaring: Vec<&str> = components
+            .iter()
+            .filter(|c| start_from::declares_queries(c))
+            .map(|c| c.id.as_str())
+            .collect();
+        if !declaring.is_empty() {
+            return Some(format!(
+                "{} declare queries, keyed views or versions on views that read entities, which \
+                 the runtime would not know: it speaks protocol {host_protocol}, and this crate \
+                 {PROTOCOL_VERSION}. Run a runtime speaking 1.13 or later.",
+                declaring.join(", ")
+            ));
+        }
+    }
     if !start_from::older_than_start_positions(host_protocol) {
         return None;
     }

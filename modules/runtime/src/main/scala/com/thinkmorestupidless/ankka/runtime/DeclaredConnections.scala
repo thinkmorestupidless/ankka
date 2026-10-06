@@ -3,10 +3,16 @@ package com.thinkmorestupidless.ankka.runtime
 import com.thinkmorestupidless.ankka.core.{ComponentDescriptor, ComponentId, ComponentKind}
 import com.thinkmorestupidless.ankka.runtime.remote.{
   RemoteConsumerDescriptor,
+  RemoteKeyedViewDescriptor,
   RemoteSource,
   RemoteViewDescriptor
 }
-import com.thinkmorestupidless.ankka.sdk.{ChangeSource, ConsumerDescriptor, ViewDescriptor}
+import com.thinkmorestupidless.ankka.sdk.{
+  ChangeSource,
+  ConsumerDescriptor,
+  KeyedViewDescriptor,
+  ViewDescriptor
+}
 
 /** What a view or a consumer declared it reads: one of three things, in either language. */
 private[runtime] enum DeclaredSource:
@@ -30,14 +36,21 @@ private[runtime] enum DeclaredSource:
 private[runtime] object DeclaredConnections:
 
   /**
-   * What `descriptor` reads, when it is a view or a consumer and its source has a change stream.
+   * Everything `descriptor` reads that has a change stream, when it is a view or a consumer: one
+   * source for a plain view or a consumer, every source for a keyed view.
    */
-  def sourceOf(descriptor: ComponentDescriptor): Option[DeclaredSource] = descriptor match
-    case view: ViewDescriptor[?, ?, ?]         => Some(of(view.source))
-    case consumer: ConsumerDescriptor[?, ?, ?] => Some(of(consumer.source))
-    case view: RemoteViewDescriptor            => of(view.source)
-    case consumer: RemoteConsumerDescriptor    => of(consumer.source)
-    case _                                     => None
+  def sourcesOf(descriptor: ComponentDescriptor): Vector[DeclaredSource] = descriptor match
+    case view: ViewDescriptor[?, ?, ?]         => Vector(of(view.source))
+    case consumer: ConsumerDescriptor[?, ?, ?] => Vector(of(consumer.source))
+    case view: KeyedViewDescriptor[?, ?]       => view.sources.map(s => of(s.source))
+    case view: RemoteViewDescriptor            => of(view.source).toVector
+    case consumer: RemoteConsumerDescriptor    => of(consumer.source).toVector
+    case view: RemoteKeyedViewDescriptor       => view.sources.flatMap(of)
+    case _                                     => Vector.empty
+
+  /** What a plain view or a consumer reads: its one source, when that has a change stream. */
+  def sourceOf(descriptor: ComponentDescriptor): Option[DeclaredSource] =
+    sourcesOf(descriptor).headOption
 
   /** The topic `descriptor` publishes to, when it is a consumer that publishes. */
   def destinationOf(descriptor: ComponentDescriptor): Option[String] = descriptor match

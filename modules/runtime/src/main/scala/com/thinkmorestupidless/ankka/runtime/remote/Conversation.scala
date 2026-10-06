@@ -128,13 +128,18 @@ final case class ViewRequest(
     componentId: ComponentId,
     event: Option[Payload],
     metadata: Metadata,
-    row: Option[Payload]
+    row: Option[Payload],
+    /** A keyed view's change: the component it came from. A keyed view is sent no row. */
+    sourceId: Option[ComponentId] = None
 )
 
 enum ViewOutcome:
   case UpdateRow(row: Payload)
   case DeleteRow
   case Ignore
+
+  /** A keyed view's answer: rows written (`Some`) and deleted (`None`) by key, in order. */
+  case Rows(changes: Vector[(String, Option[Payload])])
 
 /** `message` is absent when the source was deleted. */
 final case class ConsumerRequest(

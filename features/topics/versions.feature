@@ -39,14 +39,9 @@ Feature: Rebuilding a topic source by its version
     And the consumer reads under a new group naming version 2
     And the group it read under at version 1 is left as it was
 
-  Scenario Outline: a version on a view or consumer that reads an entity is refused
-    When a service registers a <kind> reading an entity and declaring the version 2
-    Then the registration is refused, naming the <kind>
-
-    Examples:
-      | kind     |
-      | view     |
-      | consumer |
+  Scenario: a version on a consumer that reads an entity is refused
+    When a service registers a consumer reading an entity and declaring the version 2
+    Then the registration is refused, naming the consumer
 
   Scenario Outline: a version that is not a positive whole number is refused
     When a service registers a view reading the topic and declaring the version "<version>"

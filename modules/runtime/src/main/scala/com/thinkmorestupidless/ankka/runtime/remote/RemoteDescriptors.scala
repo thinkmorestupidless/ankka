@@ -10,6 +10,7 @@ import com.thinkmorestupidless.ankka.core.{
 }
 import com.thinkmorestupidless.ankka.sdk.{
   ConsumerDescriptor,
+  DeclaredQuery,
   StartFrom,
   ViewDescriptor,
   WorkflowSettings
@@ -92,7 +93,8 @@ final case class RemoteViewDescriptor(
     source: RemoteSource,
     rowManifest: String,
     queries: Set[MethodName],
-    version: Option[Int] = None
+    version: Option[Int] = None,
+    declaredQueries: Vector[DeclaredQuery] = Vector.empty
 ) extends RemoteDescriptor:
   val kind: ComponentKind = ComponentKind.View
   val handlers: Map[MethodName, RemoteHandler] =
@@ -100,6 +102,29 @@ final case class RemoteViewDescriptor(
 
   /** As a Scala view declares: what it does with a change. Its queries are read, not called. */
   override def declaredHandlers: Vector[DeclaredHandler] = Vector(ViewDescriptor.OnChange)
+
+/**
+ * A keyed view in another process or a module: several entity sources, each change sent with the
+ * component it came from, and answered with row changes by key (protocol 1.13).
+ */
+final case class RemoteKeyedViewDescriptor(
+    componentId: ComponentId,
+    sources: Vector[RemoteSource],
+    rowManifest: String,
+    version: Option[Int] = None,
+    declaredQueries: Vector[DeclaredQuery] = Vector.empty
+) extends RemoteDescriptor:
+  val kind: ComponentKind                      = ComponentKind.View
+  val handlers: Map[MethodName, RemoteHandler] = Map.empty
+
+  /** One handler per source, named for what it reads, as a Scala keyed view declares. */
+  override def declaredHandlers: Vector[DeclaredHandler] =
+    sources
+      .map {
+        case RemoteSource.Component(_, id) => DeclaredHandler(id.toString, HandlerKind.Update)
+        case RemoteSource.Topic(name, _)   => DeclaredHandler(name, HandlerKind.Update)
+      }
+      .sortBy(_.name)
 
 /**
  * `startDeclarable` is false when the process's SDK predates start positions and so could not have

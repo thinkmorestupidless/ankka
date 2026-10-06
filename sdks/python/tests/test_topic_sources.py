@@ -80,11 +80,25 @@ def test_a_version_that_is_not_a_positive_whole_number_is_refused(version: Any) 
         view(version=version)
 
 
-def test_a_version_or_start_on_a_component_that_reads_an_entity_is_refused() -> None:
+def test_a_version_on_a_view_that_reads_an_entity_is_accepted_and_sent() -> None:
+    assert view(topic=None, source=CounterEntity, version=2).to_component().view.version == 2
+
+
+def test_a_version_on_a_consumer_that_reads_an_entity_is_refused() -> None:
     with pytest.raises(RegistrationError, match="declares a version, which applies to a topic"):
-        view(topic=None, source=CounterEntity, version=2)
+        consumer(topic=None, source=CounterEntity, start_from=None, version=2)
+
+
+def test_a_start_on_a_component_that_reads_an_entity_is_refused() -> None:
     with pytest.raises(RegistrationError, match="declares a start position, which applies to a topic"):
         consumer(topic=None, source=CounterEntity, start_from=StartFrom.LATEST)
+
+
+def test_a_version_on_a_view_that_reads_an_entity_needs_a_1_8_sidecar() -> None:
+    servicer = DiscoveryServicer(Ankka.service().register(view(topic=None, source=CounterEntity, version=2))._registry)
+    refusal = servicer.refusal("1.7")
+    assert refusal is not None and "1.7" in refusal and "1.13" in refusal
+    assert servicer.refusal("1.13") is None
 
 
 def test_a_sidecar_too_old_for_start_positions_is_refused_naming_what_declares_one() -> None:

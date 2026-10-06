@@ -43,7 +43,8 @@ from ankka._proto.ankka.protocol.v1 import (
 from ankka import start_from
 from ankka.agent import Agent
 from ankka.autonomous import AutonomousAgent, Malformed
-from ankka.client import CommandError, ComponentClient
+from ankka.client import CommandError, ComponentClient, SidecarRows
+from ankka.effects import keyed_view as keyed_effects
 from ankka.secrets import Secrets
 from ankka.services import Services
 from ankka.context import Caller, CommandContext, Gateway, LocalCaller, Metadata, Principal, RequestContext, ServiceCaller
@@ -57,6 +58,7 @@ from ankka.endpoint import HttpProblem, Socket, SocketClosed, SseEvent
 from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import PROTOCOL_VERSION, Registry
+from ankka.view import DECLARED_QUERY_PROTOCOL, declares_queries
 from ankka.workflow import Workflow
 
 log = logging.getLogger("ankka")
@@ -85,7 +87,24 @@ class DiscoveryServicer(discovery_pb2_grpc.DiscoveryServicer):
     def refusal(self, sidecar_protocol: str) -> str | None:
         """A sidecar older than 1.7 would ignore where a topic source starts and its version: a
         consumer declared ``latest`` would read everything, and a raised version would rebuild nothing.
-        Refused, naming what declares them, rather than served wrong."""
+        One older than 1.13 would not know a view's declared queries, which would be missing at their
+        first asking. Refused, naming what declares them, rather than served wrong."""
+        if start_from.older_than(sidecar_protocol, DECLARED_QUERY_PROTOCOL):
+            asking = [cls.__name__ for cls in self.registry.views.values() if declares_queries(cls)]
+            # A keyed view, and a version on a view that reads an entity, are 1.13's too: an older
+            # sidecar would refuse the one and misread the other.
+            asking += [cls.__name__ for cls in self.registry.keyed_views.values()]
+            asking += [
+                cls.__name__
+                for cls in self.registry.views.values()
+                if cls.version is not None and cls.source is not None and cls.__name__ not in asking
+            ]
+            if asking:
+                return (
+                    f"{', '.join(asking)} declare queries, keyed sources or a version over an entity, which the "
+                    f"sidecar does not know: it speaks protocol {sidecar_protocol}, and this SDK {PROTOCOL_VERSION}. "
+                    "Run a sidecar speaking 1.13 or later."
+                )
         if not start_from.older_than_start_positions(sidecar_protocol):
             return None
         declaring = [
@@ -425,10 +444,14 @@ class WorkflowServicer(workflow_pb2_grpc.WorkflowServicer):
 
 
 class ViewServicer(view_pb2_grpc.ViewServicer):
-    def __init__(self, registry: Registry) -> None:
+    def __init__(self, registry: Registry, client: ComponentClient | None = None) -> None:
         self.registry = registry
+        # A plain view reads nothing; a keyed view reads its own rows through the sidecar.
+        self.client = client or ComponentClient()
 
     async def Handle(self, request: view_pb2.ViewRequest, context: Any) -> view_pb2.ViewEffect:
+        if request.HasField("source_id"):
+            return await self._keyed(request, context)
         cls = self.registry.views.get(request.component_id)
         if cls is None:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown view {request.component_id!r}")
@@ -444,6 +467,24 @@ class ViewServicer(view_pb2_grpc.ViewServicer):
         if isinstance(effect, view_effects.DeleteRow):
             return view_pb2.ViewEffect(delete_row=payload_pb2.Empty())
         return view_pb2.ViewEffect(ignore=payload_pb2.Empty())
+
+    async def _keyed(self, request: view_pb2.ViewRequest, context: Any) -> view_pb2.ViewEffect:
+        """A keyed view's change, sent with the component it came from: answered with the rows to
+        write and delete by key, in the order the handler named them."""
+        cls = self.registry.keyed_views.get(request.component_id)
+        if cls is None:
+            await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown keyed view {request.component_id!r}")
+        assert cls is not None
+        metadata = Metadata.from_pb(request.metadata)
+        reader = SidecarRows(self.client.with_metadata(metadata).views)
+        effect = await cls()._handle(request.source_id, None if request.deleted else request.event.data, metadata, reader)
+        changes = [
+            view_pb2.RowChange(key=c.key, upsert=_payload_of(cls.row_codec, c.row))
+            if isinstance(c, keyed_effects.Upsert)
+            else view_pb2.RowChange(key=c.key, delete=payload_pb2.Empty())
+            for c in effect.changes
+        ]
+        return view_pb2.ViewEffect(rows=view_pb2.RowChanges(changes=changes))
 
 
 class ConsumerServicer(consumer_pb2_grpc.ConsumerServicer):
@@ -858,7 +899,7 @@ class Server:
         event_sourced_pb2_grpc.add_EventSourcedServicer_to_server(EventSourcedServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         key_value_pb2_grpc.add_KeyValueServicer_to_server(KeyValueServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         workflow_pb2_grpc.add_WorkflowServicer_to_server(WorkflowServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
-        view_pb2_grpc.add_ViewServicer_to_server(ViewServicer(self.registry), server)  # type: ignore[no-untyped-call]
+        view_pb2_grpc.add_ViewServicer_to_server(ViewServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         consumer_pb2_grpc.add_ConsumerServicer_to_server(ConsumerServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         timed_action_pb2_grpc.add_TimedActionServicer_to_server(TimedActionServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]
         endpoint_pb2_grpc.add_HttpServicer_to_server(HttpServicer(self.registry, self.client), server)  # type: ignore[no-untyped-call]

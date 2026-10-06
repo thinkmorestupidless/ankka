@@ -31,7 +31,8 @@ the runtime makes it happen.
 Because the process holds no durable state, it can be restarted, redeployed or crash without losing
 anything. An entity whose process is briefly unavailable is re-opened when the process returns; callers
 waiting at that moment are told the service is unavailable and the component client retries such a
-refusal briefly, so a rolling replacement refuses nothing.
+refusal briefly. A query lost while its entity moves to another instance is sent again; a command is
+not, and can time out during a rollout (see [Limitations](../reference/limitations.md#platform)).
 
 ## The protocol
 

@@ -88,7 +88,9 @@ restarting a pod for a slow garbage collection costs more than the pause did.
 A service rolls out one new instance at a time, never removing an old one first. The new instance joins
 the existing cluster, entities are handed over to it, and only then is an old instance stopped. This
 holds at one instance too: the new pod joins the old pod's cluster, takes its entities, and the old pod
-leaves. A caller reading an entity throughout a rollout sees no failed request.
+leaves. A caller reading an entity throughout a rollout sees no failed request: a query lost while its
+entity moves is sent again. A command lost the same way is not, and times out; see
+[Limitations](../reference/limitations.md#platform).
 
 Before an instance begins shutting down, it waits five seconds while still serving. Kubernetes takes a
 moment to stop routing to a pod that is leaving, and the wait covers that moment so that no request is

@@ -80,6 +80,7 @@ Settings with no environment variable, overridable in the service's own `applica
 | Configuration key | Default | Applies in |
 |---|---|---|
 | `ankka.ask-timeout` | `10s` | every service |
+| `ankka.query-resend-after` | `2s` | every service |
 | `ankka.tls.cluster-directory` | `""` | every service |
 | `ankka.tls.service-directory` | `""` | every service |
 | `ankka.tls.reload-interval` | `1m` | every service |

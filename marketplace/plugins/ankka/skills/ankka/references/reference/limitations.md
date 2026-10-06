@@ -11,6 +11,14 @@ feature also says what that feature does not do.
 - **One region.** There is no multi-region deployment, replication filtering or routing by origin.
 - **No autoscaling.** `minInstances` is a fixed instance count. `maxInstances` and `targetCpuPercent` are
   validated and stored, and nothing acts on them. Scaling is a change to the descriptor.
+- **A command in flight while its entity moves can time out.** During a rollout, a scale-in or a failure,
+  an entity moves from one instance to another, and the platform delivers a call to it at most once while
+  it does: a call that reaches the old instance after the move began is dropped, and nobody answers it. A
+  query that goes unanswered is sent again after `ankka.query-resend-after` (2 seconds) and answered,
+  within the same `ankka.ask-timeout`. A command is never sent again, because one that went unanswered
+  may have run, so its caller is told it timed out after `ankka.ask-timeout` (10 seconds) and cannot tell
+  whether it ran. It is rare: about one call in five hundred during a three-instance rollout under steady
+  load. A caller that must know makes the command safe to repeat and repeats it.
 - **Readiness is membership, not health.** An instance is ready once it has joined its cluster and bound its
   HTTP port. The platform does not call your routes, because it knows neither your routes nor their ACLs,
   and there is no liveness probe.

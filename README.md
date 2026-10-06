@@ -10,417 +10,144 @@
 [![node 22.22+](https://img.shields.io/badge/node-22.22%2B-5FA04E?logo=nodedotjs&logoColor=white)](docs/get-started/install.md) [![npm](https://img.shields.io/npm/v/ankka?label=npm&logo=npm&logoColor=white)](https://www.npmjs.com/package/ankka)<br>
 [![rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-000000?logo=rust&logoColor=white)](docs/get-started/install.md) [![crates.io](https://img.shields.io/crates/v/ankka?label=crates.io&logo=rust&logoColor=white)](https://crates.io/crates/ankka)
 
-A serverless application platform for agentic AI, built on the actor model — a component model
-in Scala 3 on [Apache Pekko](https://pekko.apache.org/), with services in Scala, Python,
+ankka is a serverless platform for stateful services and agentic AI. You write components — entities,
+workflows, views, agents, endpoints — and the platform runs them: distributed, durable, secured and
+observed, on Kubernetes, with a database it provisions for you. Services are written in Scala, Python,
 TypeScript or Rust.
 
-![The components of one ankka service and how they communicate: callers reach an HTTP endpoint; the endpoint, workflow steps, agent tools, consumers and timed actions all call components through the component client; agents, workflows and entities write to the service's Postgres journal or durable state; projections of those changes feed views and consumers; stored timers fire timed actions; agents call the model provider; views and consumers can read Kafka topics and consumers can publish to them.](docs/assets/diagrams/components.svg)
+![The ankka console showing the shopping cart sample deployed: the cart service is Ready, exposed on the installation's gateway at its own hostname, running one instance with its database provisioned, beside its web interface cart-web in the same project.](assets/console-service.png)
 
-You write components; ankka supplies the runtime. Sharding, persistence, replay,
-projections, durable orchestration, timers, HTTP and the agent loop are the platform's
-problem, not yours. A control plane, an operator and a CLI deploy, expose, scale and observe
-the result on Kubernetes.
+It is a reimplementation of [Akka's](https://doc.akka.io/) component model on
+[Apache Pekko](https://pekko.apache.org/), Apache 2.0 from top to bottom.
 
-An agent carries out a task by talking to a model. Its handler describes the interaction — the
-instructions, the user's message, the tools the model may call and the guardrails to apply — and the
-runtime runs the loop: it calls the model, runs the tools it asks for, keeps the conversation as session
-memory and counts the tokens. The shopping cart's assistant, whose one tool looks up a cart entity, in
-each language:
+## Why ankka
 
-```scala
-final class CartAssistant extends Agent:
+### The actor model, without having to think about actors
 
-  private def describe(question: String) =
-    val client = componentClient
+Most backends are stateless processes in front of a database, with a cache, a queue, a workflow engine
+and a cron server bolted on as each need arrives. ankka puts state, messaging, orchestration and time
+into one model, built on the actor runtime that has carried Akka systems for more than a decade.
 
-    val lookup = FunctionTool
-      .named("lookup")
-      .describedAs("Looks up what is in a cart by its id.")
-      .param[String]("cartId", "The id of the cart to look up.")
-      .handle { cartId =>
-        val cart = client
-          .forEventSourcedEntity(EntityId(cartId))
-          .call(ShoppingCartEntity.getCart)
-          .invoke()
-        if cart.items.isEmpty then s"cart $cartId is empty"
-        else cart.items.map(item => s"${item.quantity} x ${item.name}").mkString(", ")
-      }
+- **State lives in memory, beside the code that changes it.** An entity is loaded once, kept in memory
+  and changed by one command at a time, so a read needs no database round trip and concurrent writes
+  cannot race. Every change is journaled first, so nothing is lost when an instance goes.
+- **Nothing is local by default, so scaling out is a number.** Components call each other through a
+  client that finds wherever the target lives in the cluster. Entities spread across instances by id, so
+  adding an instance adds capacity and your code does not change.
+- **Deploys and failures cost no downtime.** A new instance joins the running cluster and takes over its
+  share of entities before an old one stops, even when there is only one instance. An instance that dies
+  has its entities rebuilt elsewhere from the journal.
+- **Blocking is free.** Handlers run on virtual threads, so a workflow step or an agent's tool that calls
+  three other components is three lines of sequential code, not a chain of futures.
 
-    effects
-      .systemMessage(
-        "You help shoppers with their carts. Use the lookup tool before answering about a cart."
-      )
-      .userMessage(question)
-      .tools(lookup)
-      .guardrails(CartAssistant.noSecrets)
+[How ankka works](docs/concepts/architecture.md) · [Clusters and instances](docs/concepts/clustering.md) ·
+[Consistency](docs/concepts/consistency.md)
 
-  def ask(question: String): Effect[String] = describe(question).thenReply()
+### Serverless: the operating is the platform's job
 
-  def chat(question: String): StreamEffect = describe(question).thenStream()
+A service is a container image and a short descriptor. `ankka services apply` does the rest:
 
-object CartAssistant extends Agent.Companion[CartAssistant](ComponentId("assistant")):
+- **Its own database, provisioned automatically**, in its project's Postgres — created on first deploy,
+  its schema applied before the service starts, and never deleted when the service is. There is no
+  password to manage: the service logs in with a certificate the platform issues and renews.
+- **Zero-trust networking by default.** Every connection between instances, services and databases is
+  mutual TLS with certificates the platform issues and rotates, and a service knows from the certificate
+  which service is calling.
+- **One command to expose a service**, at its own hostname with a certificate, through the installation's
+  gateway.
+- **Observability built in.** Each service's topology — who calls whom, how often and how slowly — is
+  counted as it runs and merged across its instances, beside its metrics and logs; on your machine, every
+  request is traced through every component it touched.
+- **Organizations, projects and access control**, with sign-in through the installation's own identity
+  provider, deploy tokens for CI, and a [GitHub Action](https://github.com/thinkmorestupidless/ankka-action).
 
-  val noSecrets: Guardrail = new Guardrail:
-    val name = "no-secrets"
-    override def checkOutput(text: String): Either[String, Unit] =
-      if text.contains("sk-") then Left("a key leaked") else Right(())
+It is serverless you can run yourself: the whole platform installs into a Kubernetes cluster, or onto
+your laptop with kind and one script.
 
-  def create(context: AgentContext) = new CartAssistant
+[Deploy a service](docs/deploy/deploy-a-service.md) · [Databases](docs/platform/databases.md) ·
+[Networking and TLS](docs/platform/networking.md) · [Observability](docs/concepts/observability.md)
 
-  val ask  = command("ask")(_.ask)
-  val chat = stream("chat")(_.chat)
-```
+### Built to be built by a model
 
-<details>
-<summary><b>The same agent in Python</b></summary>
+Coding agents write a lot of code now, and two things stop that code being right: the language is too
+low-level to say what is meant, and the requirement is too vague to know what was meant. ankka addresses
+both.
 
-```python
-@dataclass(frozen=True)
-class CartLookup:
-    cartId: str
+**Building blocks instead of plumbing.** A model asked to write a distributed system in a general-purpose
+language writes the distribution too — retries, locking, serialization, idempotency — and rewrites it each
+time it gets it wrong. In ankka it writes components, and every handler returns an
+[effect](docs/concepts/effects.md): a plain value describing what should happen, which the runtime carries
+out. The pieces compose in one way, and in Scala the type system refuses the wrong ones — a query
+handler cannot persist anything, by its signature. That is less code to generate, fewer tokens spent getting there, and
+a unit test for every handler that runs in milliseconds with no infrastructure.
 
+**A specification that cannot be read two ways.** [speckit-bdd](https://github.com/thinkmorestupidless/speckit-bdd)
+extends [Spec Kit](https://github.com/github/spec-kit) to keep a feature's acceptance scenarios as Gherkin,
+in a project-wide [glossary](GLOSSARY.md)'s words. Its checker turns every undefined word, synonym,
+contradiction and untraced requirement into a clarification question before anything is planned. A
+Scala service runs those scenarios as its tests, so the specification and the behaviour cannot drift
+apart. ankka's own
+[features](features/) are written this way.
 
-async def _lookup(agent: Agent, arguments: CartLookup) -> str:
-    assert agent.client is not None
-    cart = await agent.client.for_event_sourced_entity("shopping-cart", arguments.cartId).call("get-cart").invoke(reply=ShoppingCart)
-    if not cart.items:
-        return f"cart {arguments.cartId} is empty"
-    return ", ".join(f"{i.quantity} x {i.name}" for i in cart.items)
+**And the model knows the platform.** Every project `ankka init` makes carries ankka's documentation as Agent Skills for the
+version it was built against, with samples copied from code the build compiles and tests, and `ankka mcp`
+gives an agent the CLI, the services running on your machine and the docs as MCP tools.
 
+[Work with a coding agent](docs/get-started/coding-agents.md) ·
+[Acceptance scenarios as tests](docs/build/testing.md#acceptance-scenarios-as-integration-tests)
 
-class CartAssistant(Agent):
-    component_id = "assistant"
-    tools = {"lookup": Tool("Looks up what is in a cart by its id.", _lookup, CartLookup)}
-    guardrails = {"no-secrets": Guardrail(lambda stage, text: "a key leaked" if stage == "output" and "sk-" in text else None)}
+### Agents are components
 
-    def _describe(self, question: str) -> AgentEffect[str]:
-        return (
-            self.effects.system_message("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
-            .user_message(question)
-            .tools("lookup")
-            .guardrails("no-secrets")
-            .then_reply()
-        )
+An agent is a component like any other, so it inherits everything above: its session memory is an event
+sourced entity, durable and shared between agents; its tools call other components through the same
+client; it scales, survives restarts and is traced like the rest. The runtime runs the model loop, so
+your code is only called to run a tool or check a guardrail and never holds the model's key. Autonomous
+agents work a task until it is done, and judgments ask a model for typed answers — a choice, a score, a
+yes or no — with probabilities.
 
-    @command("ask")
-    def ask(self, question: str) -> AgentEffect[str]:
-        return self._describe(question)
+[Agents](docs/concepts/agents.md) · [Autonomous agents](docs/concepts/autonomous-agents.md) ·
+[Judgments](docs/build/judgments.md)
 
-    @stream("chat")
-    def chat(self, question: str) -> AgentEffect[str]:
-        return self._describe(question)
-```
+### Your language, one platform
 
-</details>
+Scala services run in the runtime's own JVM. Python and TypeScript services run beside it as a sidecar,
+and Rust services are WebAssembly modules loaded into it — the same components, the same guarantees and
+the same deployment in each. A user interface in any language deploys beside them as a web-hosted service.
 
-<details>
-<summary><b>The same agent in TypeScript</b></summary>
+[One platform, several languages](docs/concepts/polyglot.md) · [Deploy a user interface](docs/deploy/web-hosting.md)
 
-```ts
-const CartLookup = s.record("CartLookup", { cartId: s.string })
+### Open, and honest about it
 
-export class CartAssistant extends Agent {
-  static readonly componentId = "assistant"
-  static readonly role = "helps shoppers with their carts"
-
-  static readonly tools = {
-    lookup: tool("lookup", "Looks up what is in a cart by its id.", CartLookup, (a: CartAssistant, input) => a.lookup(input.cartId)),
-  }
-
-  static readonly guardrails = {
-    noSecrets: guardrail("no-secrets", (stage, text) => (stage === "output" && text.includes("sk-") ? "a key leaked" : null)),
-  }
-
-  static readonly handlers = {
-    ask: command("ask", s.string, s.string, (a: CartAssistant, question) => a.describe(question)),
-    chat: stream("chat", s.string, (a: CartAssistant, question) => a.describe(question)),
-  }
-
-  describe(question: string) {
-    return this.effects
-      .systemMessage("You help shoppers with their carts. Use the lookup tool before answering about a cart.")
-      .userMessage(question)
-      .tools("lookup")
-      .guardrails("no-secrets")
-      .thenReply()
-  }
-
-  async lookup(cartId: string): Promise<string> {
-    const cart = await this.client.of(ShoppingCartEntity, cartId).call(ShoppingCartEntity.handlers.getCart).invoke()
-    if (cart.items.length === 0) return `cart ${cartId} is empty`
-    return cart.items.map((i) => `${i.quantity} x ${i.name}`).join(", ")
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>The same agent in Rust</b></summary>
-
-```rust
-#[derive(Debug, Deserialize)]
-pub struct CartLookup {
-    #[serde(rename = "cartId")]
-    pub cart_id: String,
-}
-
-pub struct CartAssistant;
-
-impl CartAssistant {
-    fn ask(question: String, _: &Context) -> AgentEffect {
-        agent::system_message(
-            "You help shoppers with their carts. Use the lookup tool before answering about a cart.",
-        )
-        .user_message(question)
-        .tools(["lookup"])
-        .guardrails(["no-secrets"])
-        .then_reply()
-    }
-
-    fn lookup(args: CartLookup, ctx: &Context) -> Result<String, String> {
-        let cart: Cart = ctx
-            .client()
-            .invoke(ShoppingCart, &args.cart_id, "get-cart", ())
-            .map_err(|e| e.message)?;
-        if cart.items.is_empty() {
-            return Ok(format!("cart {} is empty", args.cart_id));
-        }
-        let lines: Vec<String> = cart
-            .items
-            .iter()
-            .map(|i| format!("{} x {}", i.quantity, i.name))
-            .collect();
-        Ok(lines.join(", "))
-    }
-
-    fn no_secrets(stage: Stage, text: &str, _: &Context) -> Result<(), String> {
-        if stage == Stage::Output && text.contains("sk-") {
-            Err("a key leaked".to_string())
-        } else {
-            Ok(())
-        }
-    }
-}
-
-impl Agent for CartAssistant {
-    const COMPONENT_ID: &'static str = "assistant";
-
-    fn handlers() -> AgentHandlers<CartAssistant> {
-        AgentHandlers::new().command("ask", CartAssistant::ask)
-    }
-
-    fn tools() -> Tools<CartAssistant> {
-        Tools::new().tool(
-            "lookup",
-            "Looks up what is in a cart by its id.",
-            Schema::object().string("cartId", "the cart's id"),
-            CartAssistant::lookup,
-        )
-    }
-
-    fn guardrails() -> Guardrails<CartAssistant> {
-        Guardrails::new().guardrail("no-secrets", CartAssistant::no_secrets)
-    }
-}
-```
-
-A service in Rust is a WebAssembly module, and a module cannot stream a reply, so this agent has `ask`
-and no `chat`.
-
-</details>
-
-## How your code is hosted
-
-In Python and TypeScript the loop runs in the runtime beside your process, and in Rust in the runtime your
-service's WebAssembly module is loaded into; either way your code is only called back to run a tool or
-check a guardrail — so it never holds the model's key. [Agents](docs/build/agents.md)
-covers memory, structured replies, streaming and compaction.
-
-![Where an agent runs. In Scala, the agent and the ankka runtime share one JVM in one container: the handler returns an effect describing the request, and the runtime runs the loop, running the agent's tool and guardrail as ordinary method calls. In Python or TypeScript, the pod has two containers: your process, listening on loopback port 9010, and the runtime as a sidecar, listening on 9011. They speak protobuf over gRPC on loopback: the sidecar asks the process to Plan a request, InvokeTool and CheckGuardrail, and the tool's call to the cart entity goes back through the sidecar's Client Invoke. In Rust, the pod has one container: the runtime, with your service's WebAssembly module loaded into its JVM. They speak the same protobuf messages across the module's memory, with no network: the runtime calls the module's exports ankka1_plan, ankka1_invoke_tool and ankka1_check_guardrail, and the tool's call to the cart entity goes through the ankka1 invoke import. In all three, only the runtime calls the model provider and writes to the service's Postgres.](docs/assets/diagrams/agent-hosting.svg)
-
-A user interface for your services is deployed beside them as a **web-hosted service**: any program
-that serves HTTP, run next to the platform's proxy. The proxy puts your backends under the interface's
-own address, so they never need exposing, and lets the interface's server call them by name as itself.
-`ankka init --language web` starts one, and `ankka local web` runs it on your machine exactly as a
-cluster would. [Deploy a user interface](docs/deploy/web-hosting.md) explains it.
-
-## The platform
-
-The platform runs on Kubernetes. The CLI talks to a **control plane**, which records what you asked for
-and writes one `AnkkaService` resource per service into the project's namespace; an in-cluster
-**operator** watches those resources and creates everything each service needs — its instances, its own
-database, and a route when it is exposed. [How ankka works](docs/concepts/architecture.md) explains the
-split.
-
-![The ankka platform on Kubernetes: the CLI and CI jobs reach the control plane through the installation's gateway, and sign in with Keycloak. The control plane writes one AnkkaService resource per service into the project's namespace; the operator watches those resources, creates and owns each service's Deployment, database and route, and writes status back. Callers reach an exposed service through the same gateway. A Scala service is a Deployment of JVM instances forming one Pekko cluster; a Python or TypeScript service is your process beside the runtime; a Rust service is the runtime with your WebAssembly module loaded into it. Each has its own database in the project's Postgres.](docs/assets/diagrams/platform.svg)
+Apache 2.0, with no licence condition on who runs the platform or what they run on it. What it does not
+do yet is listed plainly in [Limitations](docs/reference/limitations.md), and where it differs from Akka
+on purpose, [Divergences from Akka](docs/reference/akka-divergences.md) says why.
 
 ## Get started
 
-### Install the CLI
-
-On macOS, and on Linux with [Homebrew](https://brew.sh/), the CLI comes from ankka's tap as a native
-executable that needs no JVM:
-
 ```bash
 brew install thinkmorestupidless/tap/ankka
-ankka version
+ankka init cart                         # or --language python, typescript, rust
 ```
 
-Without Homebrew, take the native executable straight from a
-[release](https://github.com/thinkmorestupidless/ankka/releases) — `linux-x64`, `linux-arm64`,
-`macos-arm64` or `macos-x64`, each beside a `.sha256`:
-
-```bash
-version=0.7.0                                        # a release from the releases page
-platform=linux-x64                                   # or linux-arm64, macos-arm64, macos-x64
-base="https://github.com/thinkmorestupidless/ankka/releases/download/v$version"
-curl -LO "$base/ankka-cli-$version-$platform.tar.gz" -LO "$base/ankka-cli-$version-$platform.tar.gz.sha256"
-shasum -a 256 --check "ankka-cli-$version-$platform.tar.gz.sha256"
-tar -xzf "ankka-cli-$version-$platform.tar.gz"       # one file, ankka: put it on your PATH
-./ankka version
-```
-
-**There is no Windows build yet**, and the Linux executables need glibc 2.35 or later, so they do not
-run on Alpine. Every release also carries a zip that runs anywhere with a JDK 21 on the `PATH`.
-[Install the tools](docs/get-started/install.md) covers that, and the prerequisites and SDK for each
-language.
-
-### Create a service and run it
-
-`ankka init` writes a complete service: an event sourced entity, a view, an HTTP endpoint, tests at
-both levels, a `docker-compose.yml`, a Dockerfile, the deployment descriptor and GitHub workflows.
-
-```bash
-ankka init cart                          # Scala, and needs sbt on your PATH
-ankka init cart --language python        # or Python
-ankka init cart --language typescript    # or TypeScript
-ankka init cart --language rust          # or Rust
-cd cart
-```
-
-Then, in that directory — Docker is needed whichever language, for the Postgres that holds the
-journal, the views, the timers and the offsets:
-
-```bash
-sbt schema && docker compose up -d && sbt run                     # Scala
-uv sync && docker compose up -d && uv run python -m cart.main     # Python
-npm install && docker compose up -d && npm start                  # TypeScript
-cargo module && docker compose up -d runtime                      # Rust
-```
-
-A Python or TypeScript service runs as its own process beside the **sidecar**, which owns everything
-stateful and distributed. That image is not on a public registry yet, so build it once from a
-checkout of this repository: `sbt sidecar/Docker/publishLocal`. A Rust service is a WebAssembly module
-the same image loads into itself: `cargo module` builds it, and the `runtime` service loads it.
-
-The service answers on port 9000:
-
-```bash
-curl -XPOST localhost:9000/items/i1 -H 'content-type: application/json' -d '{"name":"Widget","count":2}'
-curl localhost:9000/items/i1
-curl localhost:9000/items/               # the view, which follows the journal a moment behind
-```
-
-```bash
-ankka local console                      # http://localhost:9889
-```
-
-The console lists every ankka service running on this machine and, for each, its components, a form
-per HTTP route, and the trace of every request it served.
-
-### Deploy it
-
-A local platform is a kind cluster and one script —
-[Install a local platform](docs/platform/install-local.md). From there the CLI deploys the
-`service.json` the template wrote:
-
-```bash
-ankka login
-ankka organizations create acme --name "Acme Corp"
-ankka projects create checkout --name Checkout -O acme
-ankka services apply -f service.json
-ankka services list                      # Ready
-ankka services expose cart               # a hostname that answers
-```
-
-[Deploy to a local platform](docs/get-started/deploy-locally.md) walks the whole path.
-
-The template's GitHub workflows do the same thing without you: push the project and it builds and
-tests on every commit, and a version tag builds the image, pushes it to the repository's container
-registry and deploys it. That needs a credential a machine can hold, which is what a **deploy token**
-is — `ankka organizations tokens create acme --label github`, a few repository secrets, and nothing
-about the installation to administer. See
-[Deploy from GitHub Actions](docs/deploy/ci.md).
+[Install the tools](docs/get-started/install.md) covers every platform and language, then write a first
+service in [Scala](docs/get-started/first-service-scala.md), [Python](docs/get-started/first-service-python.md),
+[TypeScript](docs/get-started/first-service-typescript.md) or [Rust](docs/get-started/first-service-rust.md),
+and [deploy it to a local platform](docs/get-started/deploy-locally.md).
 
 ## Documentation
 
-**[docs.ankka.cloud](https://docs.ankka.cloud/)**, and the same
-pages as Markdown in [`docs/`](docs/index.md):
-
-- **[Get started](docs/get-started/install.md)** — install the tools, write a first service in
-  [Scala](docs/get-started/first-service-scala.md), [Python](docs/get-started/first-service-python.md),
-  [TypeScript](docs/get-started/first-service-typescript.md) or [Rust](docs/get-started/first-service-rust.md), and
-  [deploy it to a local platform](docs/get-started/deploy-locally.md).
-- **[Concepts](docs/concepts/architecture.md)** — how ankka works, the component model, and
-  [designing a service](docs/concepts/designing-services.md).
-- **[Build](docs/build/event-sourced-entities.md)**, **[Run and deploy](docs/deploy/run-locally.md)**,
-  **[Observe and operate](docs/operate/local-console.md)**, **[Run the platform](docs/platform/install-local.md)**.
-- **[Reference](docs/reference/cli.md)** — the CLI, the service descriptor, the control plane API,
-  configuration, the SDKs, the sidecar protocol, and an honest list of [limitations](docs/reference/limitations.md).
-
-For coding agents: the documentation ships as Agent Skills in every project made from the template and
-in the Claude Code plugin published to [`ankka-marketplace`](https://github.com/thinkmorestupidless/ankka-marketplace), `ankka mcp` serves the platform's tools
-over MCP, and the site publishes `llms.txt` and `llms-full.txt`. See
-[Work with a coding agent](docs/get-started/coding-agents.md).
-
-## Why Pekko
-
-[Apache Pekko](https://pekko.apache.org/) is an Apache 2.0 actor runtime carrying everything a
-distributed, stateful platform needs — typed actors, cluster sharding, persistence, projections,
-streams and HTTP. Building on it means ankka's programming model comes with no licence constraint on
-who runs it, or on what they run on it.
+**[docs.ankka.cloud](https://docs.ankka.cloud/)**, and the same pages as Markdown in [`docs/`](docs/index.md):
+[concepts](docs/concepts/architecture.md), [building](docs/build/event-sourced-entities.md),
+[deploying](docs/deploy/run-locally.md), [operating](docs/operate/local-console.md),
+[running the platform](docs/platform/install-local.md) and the [reference](docs/reference/cli.md). The site
+also publishes `llms.txt` and `llms-full.txt`.
 
 ## This repository
 
-```
-modules/core      effects, ids, codecs, component descriptors — no Pekko, no I/O
-modules/sdk       the component API: entities, workflows, views, consumers, timers, client
-modules/runtime   interprets effects: sharding, persistence, projections, timers
-modules/http      endpoint DSL and server
-modules/grpc      gRPC endpoints, their server and the client for calling other services' gRPC
-modules/agent     model providers, session memory, function tools, the agent loop
-modules/testkit   unit and integration test support
-controlplane-api  descriptors, statuses and validation shared by the server and the CLI
-controlplane      the control plane, built as an ankka application
-crd               the AnkkaService custom resource — the contract, no ankka dependencies
-operator          the Kubernetes operator: watches resources, owns the workloads
-cli               the `ankka` command, over HTTP; `ankka mcp` for agents
-protocol          the sidecar protocol: .proto files, ENCODING.md, WASM-ABI.md, the encoding fixtures
-sidecar           the runtime booted from a discovery handshake, for a service in another language —
-                  a process beside it, or a WebAssembly module loaded into it
-sdks/python       the Python SDK, its testkits, and the sample cart ported to it
-sdks/typescript   the TypeScript SDK, its testkits, and the sample cart ported to it
-sdks/rust         the Rust crate for services built to WebAssembly modules, and the sample cart
-samples/          the shopping cart and the multi-agent planner
-ankka.g8          the service template
-action            the GitHub Action that installs and authenticates the CLI; pushed to ankka-action on release
-homebrew          the Homebrew formula for the CLI; pushed to homebrew-tap on release
-docs              the documentation; tools/docs builds it
-marketplace       the Claude Code plugin: the documentation as skills, and `ankka mcp`; pushed to ankka-marketplace on release
-kustomization     the platform's manifests and the local deploy script
-```
-
-Contributing starts at [`CLAUDE.md`](CLAUDE.md) and the topic files in [`.claude/rules/`](.claude/rules) — the architecture, the build, and the traps that have
-already cost debugging time — and, for the documentation,
-[Writing documentation](docs/contributing/documentation.md).
-
-```bash
-sbt -Dankka.cluster.tests=off test   # everything but the Kubernetes suites; Docker required
-just docs                            # check and build the documentation
-(cd sdks/rust && cargo build -p shopping-cart --release --target wasm32-unknown-unknown)   # the Rust cart, as a module
-docker compose --profile wasm up -d  # the runtime hosting that module on :9000
-```
+The runtime and SDKs (`modules/`, `sdks/`), the control plane, operator and CLI, the sidecar, the console,
+the platform's manifests (`kustomization/`), the samples and the documentation. Contributing starts at
+[`CLAUDE.md`](CLAUDE.md) and the topic files in [`.claude/rules/`](.claude/rules): the architecture, the build,
+and the traps that have already cost debugging time.
 
 ## Licence
 

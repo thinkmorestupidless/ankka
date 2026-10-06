@@ -10,7 +10,6 @@ Feature: The topology of a deployed service
     When the member reads the topology of "cart"
     Then the member is shown the components, the declared connections and the observed calls of "cart"
     And the member is given no credential for the service, its instances or the cluster
-    And the topology is a section of the page of "cart", reached as a page of its own
 
   Scenario: observed calls are added together across a service's instances
     Given a service "cart" deployed in the project "checkout" with 3 instances

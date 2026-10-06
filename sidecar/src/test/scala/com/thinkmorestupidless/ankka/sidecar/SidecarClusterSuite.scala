@@ -762,11 +762,33 @@ spec:
   }
 
   /**
-   * Every trace in which a span of `service` took most of `ankka.ask-timeout`, span by span: where
-   * a refused request's ten seconds went, and on which instance. Waits a while for the exporters'
-   * last batches; an instance that has stopped flushed its own on the way out.
+   * Follows the logs of every pod of `service`, each container, from now until the suite ends, into
+   * files on the node: the pods a rollout replaces are deleted with their logs, and a refused
+   * request's cause may be on one of them. Started before the rollout; a pod that appears during it
+   * is picked up within a second.
    */
-  private def slowTraces(service: String): String =
+  private def followLogs(service: String): Unit =
+    val dir = s"/tmp/rollout-logs/$service"
+    val script =
+      s"""mkdir -p $dir
+         |while true; do
+         |  for p in $$(kubectl -n $Namespace get pods -o name | grep -E '^pod/$service-[a-z0-9]+-[a-z0-9]+$$'); do
+         |    f=$dir/$${p#pod/}.log
+         |    [ -f "$$f" ] || (kubectl -n $Namespace logs -f --timestamps --prefix --all-containers "$$p" > "$$f" 2>&1 &)
+         |  done
+         |  sleep 1
+         |done""".stripMargin
+    // Detached, with nothing inherited: an exec returns only once every holder of its output closes.
+    nodeExec("sh", "-c", s"( $script ) > /dev/null 2>&1 < /dev/null &"): Unit
+
+  /**
+   * Where a refused request's ten seconds went: every trace in which a span of `service` took nine
+   * seconds or more, span by span; every span of the service that began inside that window,
+   * whatever its trace; one healthy trace to compare with; and what every pod of the service logged
+   * over the window, the pods the rollout deleted included. `before` names the pods the rollout
+   * replaced.
+   */
+  private def rolloutReport(service: String, before: Set[String]): String =
     import com.thinkmorestupidless.ankka.operator.{CollectorLog, CollectorStack}
     def slow(seen: Vector[CollectorLog.Span]) =
       seen.filter(s => s.service == service && s.durationMillis >= 9000)
@@ -775,25 +797,66 @@ spec:
     while slow(seen).isEmpty && deadline.hasTimeLeft() do
       Thread.sleep(2000)
       seen = CollectorStack.spans(k3s)
-    val traces = slow(seen).map(_.traceId).distinct.take(3)
-    if traces.isEmpty then "\nno span of the service took nine seconds or more"
+    val mine                  = seen.filter(_.service == service)
+    def age(instance: String) = if before.contains(instance) then "old" else "new"
+    def line(s: CollectorLog.Span, t0: Long) =
+      val a = s.attributes
+      s"  +${(s.startNanos - t0) / 1000000}ms ${s.durationMillis}ms ${s.instance}(${age(s.instance)}) " +
+        s"${s.kind} ${s.name} id=${s.spanId} parent=${s.parentId} trace=${s.traceId.take(8)} " +
+        s"${a.getOrElse("ankka.component", "")}/${a.getOrElse("ankka.handler", "")} " +
+        s"outcome=${a.getOrElse("ankka.outcome", "")}"
+    val slowSpans = slow(seen).sortBy(_.startNanos).take(3)
+    if slowSpans.isEmpty then return "\nno span of the service took nine seconds or more"
+    val healthy = mine
+      .groupBy(_.traceId)
+      .values
+      .find(t => t.size > 1 && t.forall(_.durationMillis < 1000))
+      .map(t => t.sortBy(_.startNanos))
+    val healthyText = healthy.fold("\nno healthy trace with more than one span") { t =>
+      t.map(line(_, t.head.startNanos)).mkString("\na healthy trace:\n", "\n", "")
+    }
+    val windows = slowSpans.map { slowSpan =>
+      val t0     = slowSpan.startNanos
+      val tEnd   = t0 + slowSpan.durationMillis * 1000000L
+      val traced = seen.filter(_.traceId == slowSpan.traceId).sortBy(_.startNanos)
+      val during = mine
+        .filter(s =>
+          s.traceId != slowSpan.traceId && s.startNanos >= t0 - 1000000000L && s.startNanos <= tEnd
+        )
+        .sortBy(_.startNanos)
+      val logs = logsBetween(service, t0 - 2000000000L, tEnd + 2000000000L)
+      traced.map(line(_, t0)).mkString(s"\ntrace ${slowSpan.traceId}:\n", "\n", "") +
+        s"\nspans of $service in other traces from 1s before it until it ended (${during.size}):\n" +
+        during.take(60).map(line(_, t0)).mkString("\n") +
+        s"\nlogs of $service from 2s before it until 2s after it ended:\n" + logs
+    }
+    windows.mkString + healthyText
+
+  /** Lines that `followLogs` kept for `service` stamped between the two instants, at most 300. */
+  private def logsBetween(service: String, fromNanos: Long, toNanos: Long): String =
+    val (_, out) = nodeExec("sh", "-c", s"cat /tmp/rollout-logs/$service/*.log 2>/dev/null")
+    val Stamp    = """.*?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z).*""".r
+    def nanosOf(line: String): Option[Long] = line match
+      case Stamp(t) =>
+        scala.util
+          .Try(java.time.Instant.parse(t))
+          .toOption
+          .map(i => i.getEpochSecond * 1000000000L + i.getNano)
+      case _ => None
+    val kept = out.linesIterator
+      .flatMap(l => nanosOf(l).map(_ -> l))
+      .filter((t, _) => t >= fromNanos && t <= toNanos)
+      .toVector
+      .sortBy(_._1)
+      .map(_._2)
+    if kept.isEmpty then "  (none)"
     else
-      traces.map { trace =>
-        val spans = seen.filter(_.traceId == trace).sortBy(_.startNanos)
-        val t0    = spans.head.startNanos
-        spans
-          .map { s =>
-            val at = (s.startNanos - t0) / 1000000
-            val a  = s.attributes
-            s"  +${at}ms ${s.durationMillis}ms ${s.instance} ${s.kind} ${s.name} id=${s.spanId} " +
-              s"parent=${s.parentId} ${a.getOrElse("ankka.component", "")}/${a.getOrElse("ankka.handler", "")} " +
-              s"outcome=${a.getOrElse("ankka.outcome", "")} caller=${a.getOrElse("ankka.caller", "")}"
-          }
-          .mkString(s"\ntrace $trace:\n", "\n", "")
-      }.mkString
+      (if kept.size > 300 then kept.take(300) :+ s"  … ${kept.size - 300} more" else kept)
+        .mkString("\n")
 
   test("S2.3 a restart replaces pods one at a time with no refused request") {
     val before = pods.map(_.getMetadata.getName).toSet
+    followLogs(Service)
     apply(spec(instances = 3, restarts = 1))
     var refused  = Vector.empty[String]
     var requests = 0
@@ -811,7 +874,7 @@ spec:
     assert(
       refused.isEmpty,
       s"${refused.size} of $requests requests were refused during the rollout: ${refused
-          .mkString(" | ")}${if refused.isEmpty then "" else slowTraces(Service)}"
+          .mkString(" | ")}${if refused.isEmpty then "" else rolloutReport(Service, before)}"
     )
   }
 
@@ -980,6 +1043,7 @@ spec:
     assert(podsOf(RustService).exists(_.getMetadata.getName == first), "the first pod was replaced")
 
     val before = podsOf(RustService).map(_.getMetadata.getName).toSet
+    followLogs(RustService)
     applyAs(RustService, wasmSpec(RustService, RustImage, instances = 3, restarts = 1))
     var refused  = Vector.empty[String]
     var requests = 0
@@ -998,7 +1062,7 @@ spec:
     assert(
       refused.isEmpty,
       s"${refused.size} of $requests requests were refused during the rollout: ${refused
-          .mkString(" | ")}${if refused.isEmpty then "" else slowTraces(RustService)}"
+          .mkString(" | ")}${if refused.isEmpty then "" else rolloutReport(RustService, before)}"
     )
   }
 

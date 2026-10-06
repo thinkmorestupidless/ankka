@@ -83,6 +83,8 @@ interface Project {
   organizationId: string;
   registry?: Registry;
   secrets?: Map<string, ProjectSecret>;
+  /** Declared topics, by name: their partitions and what the broker reported of each. */
+  topics?: Map<string, { partitions: number; phase?: string; detail?: string }>;
   hidden: boolean;
 }
 
@@ -108,6 +110,10 @@ interface Service {
   mounts?: { path: string; service: string; state: string }[];
   callers?: string[];
   processPort?: number;
+  /** What the operator reported of the service's credential on the installation's broker. */
+  broker?: string;
+  /** Topics the service's components use that its project does not declare, as last read. */
+  undeclaredTopics?: string[];
   /** What the instances report when asked for the topology; generated from the service when unset. */
   topology?: FakeTopology;
 }
@@ -216,7 +222,11 @@ export interface FakeSeed {
     exposed?: boolean;
     /** What the cluster reports of its database; `null` until it has reported one. */
     database?: string | null;
+    broker?: string;
+    undeclaredTopics?: string[];
   }[];
+  /** Topics a project declares, as the control plane holds them, with the broker's report. */
+  topics?: { projectId: string; name: string; partitions: number; phase?: string; detail?: string }[];
 }
 
 export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): Promise<FakeControlPlane> {
@@ -281,6 +291,8 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       mounts: s.mounts ?? [],
       callers: s.callers ?? [],
       processPort: s.processPort ?? null,
+      broker: s.broker ?? null,
+      undeclaredTopics: s.undeclaredTopics ?? null,
     };
   };
 
@@ -681,6 +693,42 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       .map(([name, s]) => ({ name, entries: [...s.entries.keys()].sort(), setAt: s.setAt, setBy: s.setBy }));
   });
 
+  // Project topics: the control plane's rules, one declaration per name, never fewer partitions.
+  const TopicName = /^[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?$/;
+  const TopicNameRule = 'a name is lower-case letters, digits, "-" and ".", starting and ending with a letter or digit, at most 100 characters';
+
+  route("PUT", "/projects/{projectId}/topics/{name}", (c, p, body) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    const name = p.name;
+    const partitions = Number((body as { partitions?: number }).partitions);
+    const problems: string[] = [];
+    if (!TopicName.test(name)) problems.push(`topic '${name}': ${TopicNameRule}`);
+    if (!Number.isInteger(partitions) || partitions < 1 || partitions > 1000)
+      problems.push(`topic '${name}': partitions ${partitions} is outside the range 1-1000`);
+    if (problems.length > 0) throw new HttpError(400, problems.join("; "));
+    project.topics ??= new Map();
+    const has = project.topics.get(name)?.partitions;
+    if (has !== undefined && has > partitions)
+      throw new HttpError(409, `topic '${name}' has ${has} partitions and cannot have fewer; ${partitions} was asked`);
+    project.topics.set(name, { ...(project.topics.get(name) ?? {}), partitions });
+    return "done";
+  });
+
+  route("DELETE", "/projects/{projectId}/topics/{name}", (c, p) => {
+    const { project, org } = requireProject(c, p.projectId);
+    requireWrite(org);
+    if (!project.topics?.delete(p.name)) throw new HttpError(404, `project '${p.projectId}' declares no topic '${p.name}'`);
+    return "done";
+  });
+
+  route("GET", "/projects/{projectId}/topics", (c, p) => {
+    const { project } = requireProject(c, p.projectId);
+    return [...(project.topics ?? new Map()).entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, t]) => ({ name, partitions: t.partitions, phase: t.phase, detail: t.detail }));
+  });
+
   route("GET", "/services/{projectId}", (c, p) => {
     requireProject(c, p.projectId);
     return [...services.values()].filter((s) => s.projectId === p.projectId).map(serviceStatus);
@@ -982,7 +1030,15 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           mounts: s.mounts,
           callers: s.callers,
           processPort: s.processPort,
+          broker: s.broker,
+          undeclaredTopics: s.undeclaredTopics,
         });
+      }
+      for (const t of seed.topics ?? []) {
+        const project = projects.get(t.projectId);
+        if (!project) throw new Error(`no project ${t.projectId}`);
+        project.topics ??= new Map();
+        project.topics.set(t.name, { partitions: t.partitions, phase: t.phase, detail: t.detail });
       }
     },
     close: () =>

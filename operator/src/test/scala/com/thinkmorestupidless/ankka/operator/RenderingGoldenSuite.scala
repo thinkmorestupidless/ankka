@@ -62,7 +62,21 @@ class RenderingGoldenSuite extends munit.FunSuite:
     )
   )
 
-  cases.foreach { (name, spec, settings, plan) =>
+  /**
+   * A service in an installation with a broker (feature 027): its user, its certificate's common
+   * name and the variables that tell it where the broker is. Its project's topics are the project's
+   * resource's, rendered by `ProjectReconciler`.
+   */
+  private val brokerCases: Vector[(String, AnkkaServiceSpec, Settings, ProvisioningPlan)] = Vector(
+    (
+      "broker",
+      base.copy(provisionDatabase = false),
+      Settings.default.copy(broker = Some(BrokerStack.settings)),
+      ProvisioningPlan.Supplied
+    )
+  )
+
+  (cases ++ brokerCases).foreach { (name, spec, settings, plan) =>
     test(s"what is rendered for '$name' is what was rendered before") {
       val rendered = render(spec, settings, plan)
       val file     = directory.resolve(s"$name.txt")
@@ -85,7 +99,12 @@ class RenderingGoldenSuite extends munit.FunSuite:
         .build()
     )
     resource.setSpec(spec)
-    Rendering.render(resource, settings, plan) match
+    Rendering.render(
+      resource,
+      settings,
+      plan,
+      BrokerProvisioning.known(spec, settings.broker)
+    ) match
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
       case Right(actions) => actions.map(document).mkString("\n")
 
@@ -123,4 +142,6 @@ class RenderingGoldenSuite extends munit.FunSuite:
     case Action.EnsureIssuer(i)           => Some(i)
     case Action.EnsureNetworkPolicy(p)    => Some(p)
     case Action.EnsureBackendTlsPolicy(p) => Some(p)
+    case Action.EnsureKafkaUser(u)        => Some(u)
+    case Action.EnsureKafkaTopic(t)       => Some(t)
     case _                                => None

@@ -115,6 +115,9 @@ The table is generated from the control plane's own route declarations.
 | `DELETE` | `/projects/{projectId}/registry` | |
 | `PUT` | `/projects/{projectId}/secrets/{name}` | |
 | `DELETE` | `/projects/{projectId}/secrets/{name}` | |
+| `PUT` | `/projects/{projectId}/topics/{name}` | |
+| `DELETE` | `/projects/{projectId}/topics/{name}` | |
+| `GET` | `/projects/{projectId}/topics` | |
 | `GET` | `/projects/{projectId}/secrets` | |
 | `GET` | `/services/{projectId}` | |
 | `GET` | `/services/{projectId}/{name}` | |
@@ -415,6 +418,31 @@ no entry left is no longer listed.
 The project's secrets, by name: `[{ "name": "checkout", "entries": ["STRIPE_KEY"], "setAt": "…",
 "setBy": "…" }]`. From the control plane's own record, so a secret just set is listed at once. Never a
 value — the control plane cannot read a Secret back.
+
+### `PUT /projects/{projectId}/topics/{name}`
+
+Declares a topic on the project, which the platform makes on the installation's broker as
+`<projectId>.<name>`, or gives a declared topic more partitions. Body: `{ "partitions": 12 }`. Members of
+the project's organization, including deploy tokens. Answers `204`.
+
+A project holds one declaration per topic, and every service of the project uses the topic by its name.
+Declaring a topic again with the partitions it has records nothing. A name that is not lower-case
+letters, digits, `-` and `.` starting and ending with a letter or digit, or is over 100 characters, and
+partitions outside 1 to 1000, are refused with `400`, every problem at once. Fewer partitions than the
+project declares is refused with `409`, naming both counts: a topic is never made smaller.
+
+### `DELETE /projects/{projectId}/topics/{name}`
+
+Stops declaring a topic. Answers `204`, or `404` when the project declares no topic of that name. The
+topic and what was published to it stay on the broker; declaring it again finds them.
+
+### `GET /projects/{projectId}/topics`
+
+The project's declared topics, by name: `[{ "name": "transactions", "partitions": 12, "phase":
+"provisioned" }]`. From the project's own record, so a topic just declared is listed at once. `phase`
+says how far the platform has got with it — `waiting for broker`, `provisioned`, `recovered` or
+`failed`, with a `detail` — and is absent until the operator has reported on the topic, or when the
+cluster cannot be read.
 
 ## Services
 

@@ -399,6 +399,49 @@ object Main:
       set.orElse(clear)
     }
 
+    val topics = Opts.subcommand(
+      "topics",
+      "A project's topics on the installation's broker: declared once, on the project, with their " +
+        "partitions; every service of the project uses them by name."
+    ) {
+      val set = Opts.subcommand(
+        "set",
+        "Declare a topic on the project, or give it more partitions. A topic is never given fewer."
+      ) {
+        (
+          Opts.argument[String]("name"),
+          Opts.option[Int]("partitions", "How many partitions the topic has."),
+          contextOpt
+        ).mapN { (name, partitions, ctx) => () =>
+          val problems = ProjectTopics.problems(name, partitions)
+          if problems.nonEmpty then throw ApiError(0, problems.mkString("; "))
+          ctx.client.declareTopic(ctx.project, name, partitions)
+          s"topic '$name' in '${ctx.project}' has $partitions partitions"
+        }
+      }
+
+      val unset = Opts.subcommand(
+        "unset",
+        "Stop declaring a topic. The topic and what was published to it stay on the broker."
+      ) {
+        (Opts.argument[String]("name"), contextOpt).mapN { (name, ctx) => () =>
+          ctx.client.removeTopic(ctx.project, name)
+          s"'${ctx.project}' no longer declares topic '$name'; it stays on the broker"
+        }
+      }
+
+      val list = Opts.subcommand(
+        "list",
+        "List a project's topics, with how far the platform has got with each."
+      ) {
+        contextOpt.map { ctx => () =>
+          Output.projectTopics(ctx.client.listTopics(ctx.project), ctx.format)
+        }
+      }
+
+      set.orElse(unset).orElse(list)
+    }
+
     val secrets = Opts.subcommand(
       "secrets",
       "Project secrets: values a descriptor's variables take by secretKeyRef, which the control " +
@@ -439,7 +482,14 @@ object Main:
       set.orElse(unset).orElse(list)
     }
 
-    list.orElse(get).orElse(create).orElse(rename).orElse(delete).orElse(registry).orElse(secrets)
+    list
+      .orElse(get)
+      .orElse(create)
+      .orElse(rename)
+      .orElse(delete)
+      .orElse(registry)
+      .orElse(secrets)
+      .orElse(topics)
   }
 
   // ── services ──────────────────────────────────────────────────────────────

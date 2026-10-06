@@ -182,6 +182,20 @@ final class ControlPlaneClient(settings: Settings):
   def listProjectSecrets(projectId: String): Vector[ProjectSecretSummary] =
     get[Vector[ProjectSecretSummary]](s"/projects/${segment(projectId)}/secrets")
 
+  /** Declares a topic on a project, or raises its partitions (feature 027). */
+  def declareTopic(projectId: String, name: String, partitions: Int): Unit =
+    send(
+      "PUT",
+      s"/projects/${segment(projectId)}/topics/${segment(name)}",
+      Some(writeToString(TopicDeclarationRequest(partitions)))
+    ): Unit
+
+  def removeTopic(projectId: String, name: String): Unit =
+    send("DELETE", s"/projects/${segment(projectId)}/topics/${segment(name)}", None): Unit
+
+  def listTopics(projectId: String): Vector[ProjectTopic] =
+    get[Vector[ProjectTopic]](s"/projects/${segment(projectId)}/topics")
+
   // ── Services ──────────────────────────────────────────────────────────────
 
   def listServices(projectId: String): Vector[ServiceStatus] =

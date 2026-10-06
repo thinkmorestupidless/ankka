@@ -31,6 +31,36 @@ should depend on as little as possible.
 `Action` values are inert descriptions of cluster mutations and `Fabric8Executor` is the
 only thing that performs them, which is the same organising idea as the component effects.
 
+## The installation's broker is a component the operator provisions into
+
+An installation has one Kafka for every project (feature 027), installed by the `broker` component
+(`kustomization/components/broker`: Strimzi at a pinned release, one KRaft `Kafka`, a long-lived
+certificate `ankka://platform/broker` from the service authority, and the operator's three settings
+`ANKKA_BROKER_{BOOTSTRAP,NAMESPACE,CLUSTER}` — all or none, `BrokerSettings.read`). An installation without
+the component has no broker and renders exactly what it rendered before (`RenderingGoldenSuite`).
+
+Services are known to the broker the way they are known to their database: by the certificate they hold.
+With a broker, the service certificate gains `commonName: <project>.<service>`, and the operator writes a
+`KafkaUser` of that name (`tls-external`, topics `<project>.` prefix Read/Write/Describe, groups
+`ankka.<project>.<service>.` prefix Read — feature 024's group ids) in `ankka-broker`, with no owner
+reference and no action that removes it. It gives the service `ANKKA_KAFKA_BOOTSTRAP_SERVERS`,
+`ANKKA_KAFKA_TLS_DIRECTORY` and `ANKKA_KAFKA_TOPIC_PREFIX` (shared with a process). `BrokerProvisioning.decide`
+is the credential's status, in the database's shape. A descriptor with any `ANKKA_KAFKA_` variable supplies
+its own broker and gets nothing.
+
+Topics are the **project's**, declared once on it (`PUT /projects/{id}/topics/{name}`, `ankka projects topics
+set`): the `Project` entity holds one declaration per name, so "never fewer partitions" is its own rule and
+there is no cross-service check. Descriptors declared topics until a k3s run showed two declaring services
+could never grow one. `ProjectTopicsTrigger` writes the declarations as an `AnkkaProject` in the project's
+namespace (crd `AnkkaProject`, schema `ankkaproject.yaml`); the operator's `ProjectReconciler`, on a queue of
+its own, renders a `KafkaTopic` per declaration (`TopicProvisioning.topicsToRender`: never fewer partitions
+than one has) and writes each topic's phase onto the resource's status, which the topics route reads. A
+service's status names the topics its components use that the project has not declared
+(`undeclaredTopics`, read from its topology when an instance is ready). `docs/platform/broker.md` is the
+contract. A cluster without the `AnkkaProject` type still runs the operator, which only logs that no
+project's topics are made, so a k3s suite that declares topics must apply `ankkaproject.yaml` beside
+`ankkaservice.yaml`, or every declaration simply never becomes a `KafkaTopic`.
+
 ## Deploying locally
 
 ```bash
@@ -121,6 +151,28 @@ and everything else follows a symlink.
 The journal and projection scripts are taken verbatim from the Pekko projects.
 
 ## Traps
+
+- **Kafka knows a TLS client by its certificate's subject and nothing else.** The default principal builder
+  reads the distinguished name; a subject alternative name is invisible to it. A service certificate with
+  only an `ankka://` URI authenticated as `User:` and was denied everything, which is why the service
+  certificate carries a common name on an installation with a broker — and only there, so nothing else's
+  rendering changed.
+- **Strimzi replaces the broker's pod whenever its listener certificate changes**, measured within 12s. The
+  broker's certificate therefore lives a year, not the day every workload's does.
+- **A custom listener trusts an authority by its certificate; Strimzi's own client authority wants the key.**
+  Handing Strimzi the service authority's key would let it mint any service's identity. `authentication:
+  custom` with `ssl.client.auth: required` and a PEM truststore of the authority's `ca.crt` needs only the
+  public half.
+- **Strimzi writes its listener's network policy, and policies only add.** A stricter policy of ankka's
+  beside it narrowed nothing; who may connect is the listener's `networkPolicyPeers`.
+- **A Strimzi `Ready` condition can describe an earlier generation.** A topic asked for more partitions reads
+  `Ready=True` from before until the topic operator catches up; `StrimziObjectState.found` disregards a
+  condition whose `observedGeneration` is behind the resource's, which is waiting.
+- **Jackson reads an `Option[Long]` field of a Scala case class as an `Integer`.** Erasure hides the element
+  type, so a status's `observedGeneration` held a boxed `Integer`, `==` with `Some(3L)` still passed (Scala's
+  boxed equality crosses numeric types), and the operator's first comparison with a generation threw
+  `ClassCastException` on every reconcile — found only by the k3s suite. Such a field carries
+  `@JsonDeserialize(contentAs = classOf[java.lang.Long])`, and a test uses the value as a `Long`.
 
 - **The operator's `secrets: get` reads any Secret by name**, including an issued certificate's,
   whose name is derivable. Its code never does; narrowing the grant means the credential Secret

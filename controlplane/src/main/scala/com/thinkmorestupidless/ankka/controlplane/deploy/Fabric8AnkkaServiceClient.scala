@@ -186,6 +186,39 @@ final class Fabric8AnkkaServiceClient(
         .serverSideApply()
       log.debug("projected {}/{} at generation {}", namespace, name, spec.generation)
 
+  def putProject(
+      namespace: String,
+      name: String,
+      spec: com.thinkmorestupidless.ankka.crd.AnkkaProjectSpec
+  ): Unit =
+    ensureNamespace(namespace)
+    val resources = client
+      .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+      .inNamespace(namespace)
+      .withName(name)
+    if Option(resources.get()).exists(r => Option(r.getSpec).contains(spec)) then
+      log.debug("project {}/{} unchanged; no write", namespace, name)
+    else
+      // A fresh object, never one read back, for the reason `put` gives.
+      val _ = client
+        .resource(com.thinkmorestupidless.ankka.crd.AnkkaProject(namespace, name, spec))
+        .fieldManager(FieldManager)
+        .forceConflicts()
+        .serverSideApply()
+      log.debug("projected project {}/{}: {} topics", namespace, name, spec.topics.size)
+
+  def projectStatus(
+      namespace: String,
+      name: String
+  ): Option[com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus] =
+    Option(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(name)
+        .get()
+    ).flatMap(p => Option(p.getStatus))
+
   def delete(namespace: String, name: String): Unit =
     val _ = client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).delete()
     log.debug("deleted resource {}/{}", namespace, name)

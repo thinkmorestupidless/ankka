@@ -24,7 +24,9 @@
 #   kubectl apply -k kustomization/components/cnpg --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/certmanager --server-side --force-conflicts
 #   kubectl apply -k kustomization/components/envoy-gateway --server-side --force-conflicts
-#   # wait for those three controllers to be Ready, then the one thing here that is not kustomize:
+#   kubectl apply -f kustomization/components/broker/namespace.yaml --server-side
+#   kubectl apply -k kustomization/components/broker/strimzi --server-side --force-conflicts
+#   # wait for those four controllers to be Ready, then the one thing here that is not kustomize:
 #   helm repo add certmanager-webhook https://puzzle.github.io/cert-manager-webhook-dnsimple
 #   helm install cert-manager-webhook-dnsimple \
 #     certmanager-webhook/cert-manager-webhook-dnsimple \
@@ -62,6 +64,9 @@ components:
   - ../../components/crd
   - ../../components/gateway
   - ../../components/operator
+  # The installation's broker, after the operator so its patch tells the operator where it is.
+  # Strimzi's CRDs go first, as CNPG's do: apply components/broker/strimzi before the overlay.
+  - ../../components/broker
   - ../../components/postgres
   - ../../components/keycloak-operator
   - ../../components/keycloak
@@ -110,6 +115,11 @@ patches:
     target:
       kind: Deployment
       name: ankka-operator
+  # The broker sized for this cluster.
+  - path: broker-size.yaml
+    target:
+      kind: KafkaNodePool
+      name: dual
   # A real load balancer rather than the local overlay's pinned node ports.
   - path: loadbalancer.yaml
     target:

@@ -11,6 +11,7 @@ import {
   organizationSummarySchema,
   projectDetailSchema,
   projectSecretSummarySchema,
+  projectTopicSchema,
   projectSummarySchema,
   serviceStatusSchema,
   whoamiSchema,
@@ -31,6 +32,7 @@ import {
   type ServiceStatus,
   type SetRegistry,
   type ProjectSecretSummary,
+  type ProjectTopic,
   type Whoami,
 } from "./schemas.ts";
 
@@ -223,6 +225,20 @@ export class ControlPlaneClient {
 
   listProjectSecrets(id: string): Promise<ProjectSecretSummary[]> {
     return this.#call("GET", `/projects/${segment(id)}/secrets`, { schema: arrayOf(projectSecretSummarySchema) });
+  }
+
+  /** Declares a topic on the project, or raises its partitions. */
+  declareTopic(id: string, name: string, partitions: number): Promise<void> {
+    return this.#call("PUT", `/projects/${segment(id)}/topics/${segment(name)}`, { body: { partitions } });
+  }
+
+  /** Stops declaring a topic; it stays on the broker. */
+  removeTopic(id: string, name: string): Promise<void> {
+    return this.#call("DELETE", `/projects/${segment(id)}/topics/${segment(name)}`);
+  }
+
+  listTopics(id: string): Promise<ProjectTopic[]> {
+    return this.#call("GET", `/projects/${segment(id)}/topics`, { schema: arrayOf(projectTopicSchema) });
   }
 
   // ── Services ──────────────────────────────────────────────────────────────

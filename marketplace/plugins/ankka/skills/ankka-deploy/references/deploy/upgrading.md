@@ -123,6 +123,14 @@ names both versions, and no instance starts. A descriptor with no `runtime` is n
 means a platform can be upgraded one minor version ahead of its services, and each service then has until
 the platform's next minor release to follow.
 
+## Installing the broker
+
+An installation that adds the `broker` component to a platform already running services gives every
+service with components the installation's broker on the operator's next pass. Each is told where the
+broker is, and the certificate it holds is reissued with its name, so each service's instances are
+replaced once, as a rolling update that refuses no request. A service whose descriptor names a broker of
+its own is left as it is. See [The installation's broker](../platform/broker.md).
+
 ## The move to mutual TLS
 
 The first deployment of a service on a runtime that speaks mutual TLS, when its running instances do not,

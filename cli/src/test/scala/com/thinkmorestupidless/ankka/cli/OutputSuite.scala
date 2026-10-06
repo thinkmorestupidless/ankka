@@ -95,6 +95,47 @@ class OutputSuite extends munit.FunSuite:
     assert(!rendered.contains("detail"), rendered)
   }
 
+  test("a single service shows its broker and the topics it uses that are not declared") {
+    val rendered = Output.service(
+      status("ledger", database = Some("provisioned")).copy(
+        broker = Some("provisioned"),
+        undeclaredTopics = Some(Vector("entries", "notices"))
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    val at    = lines.indexWhere(_.startsWith("broker"))
+    assert(at > lines.indexWhere(_.startsWith("database")), rendered)
+    assert(lines(at).endsWith("provisioned"), rendered)
+    assert(
+      lines(at + 1).startsWith("undeclared topics") && lines(at + 1).endsWith("entries"),
+      rendered
+    )
+    assert(lines(at + 2).trim == "notices", rendered)
+  }
+
+  test("a service with nothing reported of a broker, or every topic declared, shows neither line") {
+    val rendered = Output.service(status("wallet"), Format.Table)
+    assert(!rendered.contains("broker") && !rendered.contains("topics"), rendered)
+    val declared =
+      Output.service(status("wallet").copy(undeclaredTopics = Some(Vector.empty)), Format.Table)
+    assert(!declared.contains("topics"), declared)
+  }
+
+  test("a project's topics list each with its partitions and phase") {
+    val rendered = Output.projectTopics(
+      Vector(
+        ProjectTopic("transactions", 12, Some("provisioned")),
+        ProjectTopic("entries", 3, Some("failed"), Some("the installation has no broker"))
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    assert(lines.head.startsWith("TOPIC"), rendered)
+    assert(lines(1).contains("transactions") && lines(1).contains("12"), rendered)
+    assert(lines(2).contains("the installation has no broker"), rendered)
+  }
+
   test("a single service shows its database phrase when one has been reported") {
     val rendered = Output.service(status("cart", database = Some("provisioned")), Format.Table)
     assert(rendered.contains("database"), rendered)

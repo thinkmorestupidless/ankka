@@ -60,8 +60,38 @@ final class ServiceEndpoint(
 
   get("/{projectId}/{name}") { (projectId: String, name: String) =>
     authz.project(principal, projectId, write = false)
-    withMountStates(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
+    withUndeclaredTopics(
+      withMountStates(withHostname(entity(projectId, name).call(ServiceEntity.get).invoke()))
+    )
   }
+
+  /**
+   * The topics the service's components read or publish to that its project does not declare
+   * (feature 027), from the topology its running instances report: every topic node is a topic a
+   * component names. Asked only of a service with an instance ready, and absent when none answered,
+   * so "every topic is declared" is never said without having looked.
+   */
+  private def withUndeclaredTopics(status: ServiceStatus): ServiceStatus =
+    if status.readyInstances < 1 then status
+    else
+      val read =
+        try topology.read(status.projectId, status.name).flatMap(_._2)
+        catch case scala.util.control.NonFatal(_) => Vector.empty
+      if read.isEmpty then status
+      else
+        val used = read
+          .flatMap(_.nodes)
+          .filter(_.kind == "Topic")
+          .map(_.id.stripPrefix("topic:"))
+          .distinct
+          .sorted
+        val declared =
+          clients.componentClient
+            .forEventSourcedEntity(EntityId(status.projectId))
+            .call(com.thinkmorestupidless.ankka.controlplane.application.ProjectEntity.topics)
+            .invoke()
+            .keySet
+        status.copy(undeclaredTopics = Some(used.filterNot(declared)))
 
   /**
    * The organization is asked for the capacity first (feature 015): a refusal for quota changes

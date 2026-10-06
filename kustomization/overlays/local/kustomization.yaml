@@ -19,6 +19,8 @@ components:
   - ../../components/crd
   - ../../components/gateway
   - ../../components/operator
+  # After the operator: its patch tells the operator where the broker is.
+  - ../../components/broker
   - ../../components/postgres
   - ../../components/keycloak-operator
   - ../../components/keycloak

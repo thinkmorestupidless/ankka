@@ -48,7 +48,8 @@ object StatusIngest:
         desiredInstances = service.desiredInstances,
         detail = Some(s"could not reach the cluster: $reason"),
         confirmed = false,
-        database = service.database
+        database = service.database,
+        broker = service.broker
       )
 
     case ClusterView.Refused(reason) =>
@@ -59,7 +60,8 @@ object StatusIngest:
         desiredInstances = service.desiredInstances,
         detail = Some(reason),
         confirmed = true,
-        database = service.database
+        database = service.database,
+        broker = service.broker
       )
 
     case ClusterView.NoReport =>
@@ -70,7 +72,8 @@ object StatusIngest:
         desiredInstances = 0,
         detail = Some("no operator has reported on this service"),
         confirmed = false,
-        database = service.database
+        database = service.database,
+        broker = service.broker
       )
 
     case ClusterView.Reported(status) =>
@@ -86,7 +89,8 @@ object StatusIngest:
         desiredInstances = status.desiredInstances,
         detail = withRoute(status.detail, status.route),
         confirmed = true,
-        database = status.database.map(_.phase)
+        database = status.database.map(_.phase),
+        broker = status.broker.map(_.phase)
       )
 
   /**

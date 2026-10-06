@@ -223,10 +223,23 @@ Neither is routed to a sidecar: judgments are available to Scala services only.
 
 ### Broker topics
 
-- `ANKKA_KAFKA_BOOTSTRAP_SERVERS` is the Kafka bootstrap address for a process-hosted service. The sidecar
-  needs it only for a view sourced from a topic or a consumer that produces to one, and refuses to start
-  without it when the service has either, naming the variable. A Scala service passes its broker to
+- `ANKKA_KAFKA_BOOTSTRAP_SERVERS` is the Kafka bootstrap address. `ProjectionRuntime.fromEnv()` connects
+  a Scala service to it, and the sidecar connects a process-hosted service to it. The sidecar needs it only
+  for a view sourced from a topic or a consumer that produces to one, and refuses to start without it when
+  the service has either, naming the variable. A Scala service may pass its broker to
   `ProjectionRuntime.withKafka` in code instead.
+- `ANKKA_KAFKA_TLS_DIRECTORY` is where the certificate a service presents to the broker is, as
+  `tls.key`, `tls.crt` and `ca.crt`. With it the service connects over TLS, presenting that certificate
+  and picking up its renewal on the next connection; without it, in plain text.
+- `ANKKA_KAFKA_TOPIC_PREFIX` is what the broker's names for the project's topics start with. A component
+  names a topic as its project declared it, and the prefix is added where the topic is handed to the
+  broker.
+
+On an installation with a broker the platform sets all three on every service with components, naming
+the installation's broker, the service's own certificate and `<project>.`; for a process-hosted service it
+sets them on the sidecar and on the process. A descriptor that sets any variable beginning
+`ANKKA_KAFKA_` names a broker of its own instead: the platform sets none of them, and the service connects
+as the descriptor says. See [The installation's broker](../platform/broker.md).
 - `ANKKA_SERVICE_NAME`, or `ankka.service.name`, is a service's name when it runs on a developer's
   machine. Each view or consumer that reads a topic reads under a consumer group named for it, so two
   services on one broker never share one; with no name stated, a group is named for its component alone.

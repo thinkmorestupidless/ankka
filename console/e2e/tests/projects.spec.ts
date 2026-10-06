@@ -130,3 +130,41 @@ test("a project secret's entries are set and removed, and no value is ever shown
   await page.reload();
   for (const b of bodies) expect(b).not.toContain(value);
 });
+
+test("a project declares a topic once, gives it more partitions, never fewer, and stops declaring it", async ({ page, target, signIn, unique, audit }) => {
+  await signIn(page, "owner");
+  const org = unique("top");
+  await page.goto(`${target.url}/organizations/new`);
+  await page.getByLabel("Id").fill(org);
+  await page.getByLabel("Name").fill("Topics Org");
+  await page.getByRole("button", { name: "Create organization" }).click();
+  await page.getByRole("link", { name: "Create a project" }).click();
+  const project = unique("money");
+  await page.getByLabel("Id").fill(project);
+  await page.getByLabel("Name").fill("Money");
+  await page.getByRole("button", { name: "Create project" }).click();
+  await page.waitForURL(`${target.url}/projects/${project}`);
+  await expect(page.getByText("No topics declared.")).toBeVisible();
+
+  const declare = async (name: string, partitions: string) => {
+    const field = page.getByLabel("Topic", { exact: true });
+    if (!(await field.isVisible())) await page.getByText("Declare a topic").click();
+    await field.fill(name);
+    await page.getByLabel("Partitions", { exact: true }).fill(partitions);
+    await page.getByRole("button", { name: "Declare topic" }).click();
+  };
+  const row = page.locator('tr[data-topic="transactions"]');
+
+  await declare("transactions", "12");
+  await expect(row).toContainText("12");
+  await declare("transactions", "24");
+  await expect(row).toContainText("24");
+  // Never fewer, in the control plane's words.
+  await declare("transactions", "6");
+  await expect(page.getByText("cannot have fewer")).toBeVisible();
+  await expect(row).toContainText("24");
+  await audit(page);
+
+  await page.getByRole("button", { name: "Stop declaring transactions" }).click();
+  await expect(row).toHaveCount(0);
+});

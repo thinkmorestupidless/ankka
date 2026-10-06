@@ -163,11 +163,14 @@ object ZeroTrust:
   def serviceCertificate(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      commonName: Option[String] = None
   ): GenericKubernetesResource =
     certificate(
       metadata(resource, spec, namespace, serviceCertificateName(spec.serviceName)),
-      Map(
+      // A common name only where the installation has a broker (feature 027): Kafka knows a TLS
+      // client by its certificate's subject and nothing else, and the service's user is named for it.
+      commonName.map("commonName" -> _).toMap ++ Map(
         "secretName" -> serviceSecretName(spec.serviceName),
         "uris"       -> List(identityUri(spec)).asJava,
         "dnsNames"   -> serviceDnsNames(spec, namespace).asJava,

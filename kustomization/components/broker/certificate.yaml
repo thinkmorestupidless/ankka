@@ -1,0 +1,37 @@
+# The broker's own certificate: the platform's identity, from the installation's service authority,
+# so every service already trusts it with the ca.crt it mounts.
+#
+# A year, renewed a month before, where every workload's certificate lives a day: Strimzi replaces
+# the broker's pod whenever the listener's certificate changes (measured within 12 seconds), so a
+# daily renewal would restart the broker daily.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ankka-broker
+  namespace: ankka-broker
+  labels:
+    app.kubernetes.io/managed-by: ankka
+spec:
+  secretName: ankka-broker-tls
+  uris:
+    - ankka://platform/broker
+  dnsNames:
+    - ankka-kafka-bootstrap
+    - ankka-kafka-bootstrap.ankka-broker
+    - ankka-kafka-bootstrap.ankka-broker.svc
+    - ankka-kafka-bootstrap.ankka-broker.svc.cluster.local
+    - "*.ankka-kafka-brokers.ankka-broker.svc"
+    - "*.ankka-kafka-brokers.ankka-broker.svc.cluster.local"
+  usages:
+    - server auth
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    encoding: PKCS8
+    rotationPolicy: Always
+  issuerRef:
+    name: ankka-service
+    kind: ClusterIssuer
+    group: cert-manager.io

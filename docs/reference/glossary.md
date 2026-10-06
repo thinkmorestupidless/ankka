@@ -33,6 +33,18 @@ The domain an installation serves under. The control plane answers at `api.<base
 provider at `auth.<base domain>`, and an exposed service at `<service>-<project>.<base domain>`. A local
 platform uses `127.0.0.1.sslip.io`.
 
+### Broker
+
+What holds topics and carries what is published to one to whatever reads it: Kafka. An installation has
+one, which the platform provides for every project; a descriptor may name another instead. See
+[The installation's broker](../platform/broker.md).
+
+### Broker variable
+
+A variable that says where a broker is or how to connect to it, beginning `ANKKA_KAFKA_`. A descriptor that
+gives one names a broker of its own; the platform gives them to every service with components on an
+installation with a broker.
+
 ### Calling address
 
 The address, inside an instance of a web-hosted service, at which the process calls another service by
@@ -99,6 +111,12 @@ A component that reacts to changes from a source — an entity's events, a key v
 The service that operates the platform: it records organizations, projects and service descriptors, checks
 who may change them, and projects each service's desired state into an AnkkaService resource. It is itself an
 ankka service. The CLI is its client.
+
+### Declared topic
+
+A topic a member declares on a project, once, with its partitions, which the platform makes on the
+installation's broker. Every service of the project publishes to it and reads it by its name; no service
+declares it. See [Broker topics](../build/topics.md#declaring-a-topic).
 
 ### Delta
 
@@ -248,6 +266,11 @@ is invisible to non-members.
 
 The organization role that can also rename and delete the organization and manage its members. Whoever creates
 an organization is its first owner.
+
+### Partition
+
+One of the parts a topic is divided into on a broker, each in order. The members of a consumer group divide
+a topic's partitions between them. A topic may be given more partitions and never fewer.
 
 ### Passivation
 

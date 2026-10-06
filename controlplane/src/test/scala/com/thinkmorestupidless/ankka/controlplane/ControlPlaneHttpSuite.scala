@@ -949,6 +949,65 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
   private def topologyOf(name: String, token: Option[String] = Some(Token)): (Int, String) =
     send("GET", s"/services/topo-proj/$name/topology", token = token)
 
+  // features/broker/topics.feature (feature 027)
+  test("the status of a service names a topic it uses that its project has not declared") {
+    topologyProject
+    val _   = send("PUT", "/services/topo-proj/ledger", Some(descriptor("ledger", "cart:1.0")))
+    def get = send("GET", "/services/topo-proj/ledger")
+    // No instance ready: nothing is asked, and nothing is claimed.
+    assert(!get._2.contains("undeclaredTopics"), get._2)
+
+    // An instance is ready, as the operator would report it.
+    testKit.componentClient
+      .forEventSourcedEntity(
+        com.thinkmorestupidless.ankka.core.EntityId(
+          com.thinkmorestupidless.ankka.controlplane.domain.ServiceKey("topo-proj", "ledger").id
+        )
+      )
+      .call(com.thinkmorestupidless.ankka.controlplane.application.ServiceEntity.observe)
+      .invoke(
+        com.thinkmorestupidless.ankka.controlplane.domain.ServiceObservation(
+          generation = 1L,
+          lifecycle = com.thinkmorestupidless.ankka.controlplane.api.ServiceLifecycle.Ready,
+          readyInstances = 1,
+          desiredInstances = 1
+        )
+      ): Unit
+    val topic =
+      (name: String) =>
+        com.thinkmorestupidless.ankka.controlplane.api.TopologyNode(
+          s"topic:$name",
+          "Topic",
+          2,
+          platform = false,
+          Vector.empty
+        )
+    topologies.script(
+      "topo-proj",
+      "ledger",
+      Vector(
+        Topologies.ok("ledger-a") ->
+          Some(Topologies.cart("ledger-a", 0L, Vector(topic("entries"), topic("transactions"))))
+      )
+    )
+    assertEquals(
+      send("PUT", "/projects/topo-proj/topics/transactions", Some("""{"partitions":3}"""))._1,
+      204
+    )
+    assert(get._2.contains(""""undeclaredTopics":["entries"]"""), get._2)
+
+    // Declared, and no longer named.
+    assertEquals(
+      send("PUT", "/projects/topo-proj/topics/entries", Some("""{"partitions":3}"""))._1,
+      204
+    )
+    assert(get._2.contains(""""undeclaredTopics":[]"""), get._2)
+
+    // Instances that cannot be read claim nothing either way.
+    topologies.clear("topo-proj", "ledger")
+    assert(!get._2.contains("undeclaredTopics"), get._2)
+  }
+
   test("a member reads a merged topology: counts summed, instances listed, no histogram") {
     topologyProject
     val _ = send("PUT", "/services/topo-proj/topo", Some(descriptor("topo", "cart:1.0")))

@@ -221,6 +221,13 @@ final case class ServiceSpec(
   /** Any program that serves HTTP, beside the platform's proxy (feature 021). */
   def isWebHosted: Boolean = hosting == ServiceSpec.Web
 
+  /**
+   * Whether the descriptor names a broker of its own (feature 027): any variable whose name starts
+   * `ANKKA_KAFKA_`. By name, never value, as a supplied database is, so a variable taken from a
+   * secret counts.
+   */
+  def suppliesBroker: Boolean = env.exists(_.name.startsWith(ServiceSpec.BrokerVariablePrefix))
+
   /** The port a web-hosted service's program is told to listen on; `None` for any other hosting. */
   def resolvedProcessPort: Option[Int] =
     Option.when(isWebHosted)(processPort.getOrElse(ServiceSpec.DefaultProcessPort))
@@ -429,6 +436,12 @@ object ServiceSpec:
 
   /** The port a web-hosted service's program is told when its descriptor states none. */
   val DefaultProcessPort: Int = 8080
+
+  /**
+   * What every broker variable's name starts with (feature 027). A descriptor that gives one names
+   * a broker of its own, and the platform makes nothing for it on the installation's.
+   */
+  val BrokerVariablePrefix: String = "ANKKA_KAFKA_"
 
   /**
    * The ports the platform uses inside a pod, which a web-hosted service's program may not take:
@@ -721,7 +734,20 @@ final case class ServiceStatus(
      */
     callers: Vector[String] = Vector.empty,
     /** The port a web-hosted service's process listens on, stated or defaulted. */
-    processPort: Option[Int] = None
+    processPort: Option[Int] = None,
+    /**
+     * A short phrase for what the platform did about this service's credential on the
+     * installation's broker (feature 027) — `"provisioned"`, `"supplied"`, `"waiting for broker"` —
+     * or `None` when there is nothing to report: a web-hosted service, or an installation with no
+     * broker. A phrase, as `database` is.
+     */
+    broker: Option[String] = None,
+    /**
+     * The topics this service's components read or publish to that its project does not declare, by
+     * the names the components gave them. Read from the service's running instances: `None` when
+     * none answered, and on a listing row; empty when they answered and every topic is declared.
+     */
+    undeclaredTopics: Option[Vector[String]] = None
 )
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
@@ -1178,6 +1204,54 @@ object Registries:
       if password.isEmpty then Vector("registry password must not be empty") else Vector.empty
     serverProblems ++ usernameProblems ++ passwordProblems
 
+// ── Project topics (feature 027) ─────────────────────────────────────────────
+
+/** `PUT /projects/{id}/topics/{name}`: the partitions a declared topic has. */
+final case class TopicDeclarationRequest(partitions: Int)
+
+/**
+ * A topic a project declares, and how far the platform has got with it: `phase` is a phrase, as a
+ * database's is — `"waiting for broker"`, `"provisioned"`, `"recovered"`, `"failed"` — absent
+ * before the operator has reported on it.
+ */
+final case class ProjectTopic(
+    name: String,
+    partitions: Int,
+    phase: Option[String] = None,
+    detail: Option[String] = None
+)
+
+/** What is wrong with a topic's declaration, checked identically by the CLI and the server. */
+object ProjectTopics:
+
+  /** The most partitions a declared topic may ask for. */
+  val MaxPartitions: Int = 1000
+
+  /**
+   * A name the broker can hold under a project's prefix, and one the topic's resource can be named
+   * for: a Kubernetes name, which is what keeps `<project>.<name>` within Kafka's limit too.
+   */
+  val NameRule: String =
+    "a name is lower-case letters, digits, \"-\" and \".\", starting and ending with a letter " +
+      "or digit, at most 100 characters"
+
+  private val Name = "[a-z0-9]([a-z0-9.-]{0,98}[a-z0-9])?".r
+
+  def validName(name: String): Boolean = Name.matches(name)
+
+  /** Everything wrong with declaring `name` with `partitions`, all at once. */
+  def problems(name: String, partitions: Int): Vector[String] =
+    Option.when(!validName(name))(s"topic '$name': $NameRule").toVector ++
+      Option
+        .when(partitions < 1 || partitions > MaxPartitions)(
+          s"topic '$name': partitions $partitions is outside the range 1-$MaxPartitions"
+        )
+        .toVector
+
+  /** The refusal of fewer partitions than the project declares: the entity's rule, worded here. */
+  def fewer(name: String, has: Int, asked: Int): String =
+    s"topic '$name' has $has partitions and cannot have fewer; $asked was asked"
+
 // ── Project secrets (feature 023) ────────────────────────────────────────────
 
 /**
@@ -1317,7 +1391,11 @@ object Wire:
   given tokenSummaryCodec: JsonValueCodec[DeployTokenSummary] = Codecs.make[DeployTokenSummary]
   given tokensCodec: JsonValueCodec[Vector[DeployTokenSummary]] =
     Codecs.make[Vector[DeployTokenSummary]]
-  given setRegistryCodec: JsonValueCodec[SetRegistry]            = Codecs.make[SetRegistry]
+  given setRegistryCodec: JsonValueCodec[SetRegistry] = Codecs.make[SetRegistry]
+  given topicDeclarationCodec: JsonValueCodec[TopicDeclarationRequest] =
+    Codecs.make[TopicDeclarationRequest]
+  given projectTopicCodec: JsonValueCodec[ProjectTopic]          = Codecs.make[ProjectTopic]
+  given projectTopicsCodec: JsonValueCodec[Vector[ProjectTopic]] = Codecs.make[Vector[ProjectTopic]]
   given setProjectSecretCodec: JsonValueCodec[SetProjectSecret]  = Codecs.make[SetProjectSecret]
   given projectSecretCodec: JsonValueCodec[ProjectSecretSummary] = Codecs.make[ProjectSecretSummary]
   given projectSecretsCodec: JsonValueCodec[Vector[ProjectSecretSummary]] =

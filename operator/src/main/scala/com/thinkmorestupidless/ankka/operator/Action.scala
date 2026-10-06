@@ -18,6 +18,7 @@ import com.thinkmorestupidless.ankka.operator.cnpg.{
   PostgresDatabase,
   PostgresDatabaseRole
 }
+import com.thinkmorestupidless.ankka.operator.strimzi.{KafkaTopicResource, KafkaUserResource}
 
 /**
  * Something that should happen to the cluster, as a value.
@@ -92,6 +93,13 @@ enum Action:
   /** Writes the status subresource, and nothing else. */
   case SetStatus(namespace: String, name: String, status: AnkkaServiceStatus)
 
+  /** A project's topics' phases, onto its `AnkkaProject`'s status subresource (feature 027). */
+  case SetProjectStatus(
+      namespace: String,
+      name: String,
+      status: com.thinkmorestupidless.ankka.crd.AnkkaProjectStatus
+  )
+
   /**
    * Ensures a project's shared Postgres capacity. Idempotent; concurrent first-service applies in
    * one project converge on the same object rather than racing to create two.
@@ -136,6 +144,15 @@ enum Action:
 
   /** A service's own logical database. Server-side apply; idempotent. */
   case EnsureDatabase(database: PostgresDatabase)
+
+  /**
+   * A service's user on the installation's broker, with its permissions (feature 027). Server-side
+   * apply; idempotent. There is no action that removes one, or a topic.
+   */
+  case EnsureKafkaUser(user: KafkaUserResource)
+
+  /** A declared topic on the installation's broker. Server-side apply; idempotent. */
+  case EnsureKafkaTopic(topic: KafkaTopicResource)
 
   /**
    * The schema `ConfigMap`, one per project namespace, mounted by every service's schema-init
@@ -194,6 +211,9 @@ enum Action:
     case EnsureRoleBinding(b) =>
       s"ensure rolebinding ${b.getMetadata.getNamespace}/${b.getMetadata.getName}"
     case SetStatus(ns, name, status) => s"set status $ns/$name to ${status.lifecycle}"
+    case SetProjectStatus(ns, name, status) =>
+      s"set project status $ns/$name: " +
+        status.topics.map(t => s"${t.name} ${t.phase}").mkString(", ")
     case EnsureCluster(c) =>
       s"ensure cluster ${c.getMetadata.getNamespace}/${c.getMetadata.getName}"
     case EnsureCredentials(s) =>
@@ -204,6 +224,10 @@ enum Action:
       s"ensure database role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureDatabase(d) =>
       s"ensure database ${d.getMetadata.getNamespace}/${d.getMetadata.getName}"
+    case EnsureKafkaUser(u) =>
+      s"ensure kafka user ${u.getMetadata.getNamespace}/${u.getMetadata.getName}"
+    case EnsureKafkaTopic(t) =>
+      s"ensure kafka topic ${t.getMetadata.getNamespace}/${t.getMetadata.getName}"
     case EnsureSchemaConfig(cm) =>
       s"ensure schema config ${cm.getMetadata.getNamespace}/${cm.getMetadata.getName}"
     case NoAction => "nothing to do"

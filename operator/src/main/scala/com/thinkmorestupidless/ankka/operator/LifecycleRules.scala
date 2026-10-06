@@ -141,6 +141,22 @@ object LifecycleRules:
     snapshot.firstProblem.map(_.describe)
 
   /**
+   * `BrokerPlan` becomes the status an operator reads (feature 027), in the database's shape: the
+   * phase is the plan's own. Nothing is reported for a plan with no phase.
+   */
+  def brokerStatus(plan: BrokerPlan): Option[com.thinkmorestupidless.ankka.crd.BrokerStatus] =
+    plan.reportedPhase.map { phase =>
+      com.thinkmorestupidless.ankka.crd.BrokerStatus(
+        phase = phase,
+        recovered = plan == BrokerPlan.Ready(recovered = true),
+        detail = plan match
+          case BrokerPlan.Waiting(detail)  => detail
+          case BrokerPlan.Failed(problems) => Some(problems.mkString("; "))
+          case _                           => None
+      )
+    }
+
+  /**
    * `ProvisioningPlan` becomes the status an operator reads. The reported phase comes from the plan
    * itself (`reportedPhase`) — never restated here — so the two can never say something different
    * about the same reconcile pass.

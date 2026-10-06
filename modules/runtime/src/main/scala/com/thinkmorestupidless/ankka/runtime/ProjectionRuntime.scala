@@ -743,16 +743,20 @@ object ProjectionRuntime:
    * because a broker's retention is not an event journal.
    */
   def withKafka(bootstrapServers: String): ProjectionRuntime =
+    withKafka(KafkaConnection(bootstrapServers))
+
+  /** To the broker `connection` describes: its address, and its TLS and prefix when it has them. */
+  def withKafka(connection: KafkaConnection): ProjectionRuntime =
     new ProjectionRuntime(
-      Some(system => KafkaPublisher(bootstrapServers)(using system)),
-      Some(system => KafkaSubscriber(bootstrapServers)(using system)),
+      Some(system => KafkaPublisher(connection)(using system)),
+      Some(system => KafkaSubscriber(connection, 1.second, 30.seconds)(using system)),
       ownsPublisher = true
     )
 
   /**
    * The variable [[fromEnv]] reads, and a process-hosted service's sidecar reads, for the broker.
    */
-  val KafkaEnvVar: String = "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
+  val KafkaEnvVar: String = KafkaConnection.BootstrapVariable
 
   /** The first protocol in which a process can declare where a topic source starts. */
   val StartPositionProtocol: String = "1.7"
@@ -760,13 +764,13 @@ object ProjectionRuntime:
   /**
    * Kafka when the environment names a broker, entity sources only when it does not.
    *
-   * The platform provides no broker, and a deployed service is configured by its descriptor's
-   * `env`, not by code — so this is how a service reaches one: `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in
-   * the descriptor, the same variable a process-hosted service's sidecar reads. Without it, a
-   * producing consumer or a topic-sourced view is still refused at startup.
+   * A deployed service is told of a broker by its environment, not by code: the operator writes the
+   * installation's broker's address, certificate directory and topic prefix, and a descriptor that
+   * names a broker of its own gives `ANKKA_KAFKA_BOOTSTRAP_SERVERS` instead (`KafkaConnection`).
+   * Without a broker, a producing consumer or a topic-sourced view is still refused at startup.
    */
   def fromEnv(env: Map[String, String] = sys.env): ProjectionRuntime =
-    env.get(KafkaEnvVar).map(_.trim).filter(_.nonEmpty).fold(apply())(withKafka)
+    KafkaConnection.fromEnv(env).fold(apply())(withKafka)
 
 // ── Handlers ────────────────────────────────────────────────────────────────
 

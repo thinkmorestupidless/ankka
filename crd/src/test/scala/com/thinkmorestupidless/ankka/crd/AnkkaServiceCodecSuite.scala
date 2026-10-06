@@ -198,6 +198,65 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
     assert(!json.contains("database"), s"an absent Option should not appear at all: $json")
   }
 
+  test("a resource from before the broker is known to the broker") {
+    val sparse = """{"projectId":"checkout","serviceName":"cart","generation":1,"image":"img:1"}"""
+    val spec   = serialization.unmarshal(sparse, classOf[AnkkaServiceSpec])
+    assertEquals(spec.provisionBroker, true)
+  }
+
+  test("provisionBroker round-trips") {
+    val supplied = fullSpec.copy(provisionBroker = false)
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(supplied), classOf[AnkkaServiceSpec]),
+      supplied
+    )
+  }
+
+  test("a project's declared topics and their status round-trip") {
+    val spec = AnkkaProjectSpec(
+      "money",
+      List(
+        ProjectTopicEntry("transactions", 12, "2026-10-05T10:00:00Z"),
+        ProjectTopicEntry("entries", 3, "2026-10-05T10:01:00Z")
+      )
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(spec), classOf[AnkkaProjectSpec]),
+      spec
+    )
+    val status = AnkkaProjectStatus(
+      List(
+        ProjectTopicStatus("transactions", "Provisioned", Some(12)),
+        ProjectTopicStatus("entries", "Failed", None, Some("the installation has no broker"))
+      )
+    )
+    val read = serialization.unmarshal(serialization.asJson(status), classOf[AnkkaProjectStatus])
+    assertEquals(read, status)
+    // Read as an Int, as the operator compares it: equality alone passes for a boxed Long too.
+    assertEquals(read.topics.head.partitions.map(_ + 1), Some(13))
+  }
+
+  test("a BrokerStatus round-trips, and a status with none decodes to None and writes none") {
+    val status = AnkkaServiceStatus(
+      lifecycle = "Ready",
+      broker = Some(
+        BrokerStatus("Recovered", recovered = true, detail = None)
+      )
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(status), classOf[AnkkaServiceStatus]),
+      status
+    )
+    val older = """{"generation":1,"lifecycle":"Ready"}"""
+    assertEquals(serialization.unmarshal(older, classOf[AnkkaServiceStatus]).broker, None)
+    assert(!serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready")).contains("broker"))
+  }
+
+  test("a report that differs only in the broker is a new report") {
+    val a = AnkkaServiceStatus(lifecycle = "Ready", broker = Some(BrokerStatus("Waiting")))
+    assert(!a.sameReport(a.copy(broker = Some(BrokerStatus("Provisioned")))))
+  }
+
   test("a gRPC port is absent from a resource that has none, and round-trips when present") {
     val without = serialization.asJson(fullSpec)
     assert(!without.contains("grpcPort"), without)

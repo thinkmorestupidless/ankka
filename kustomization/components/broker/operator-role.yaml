@@ -1,0 +1,32 @@
+# What ankka's operator may do in the broker's namespace: write topics and users, and read them back
+# for their status. No delete, of either: nothing the platform made on the broker is removed by the
+# platform. In this component, so an installation without a broker grants nothing here.
+#
+# patch and not only create: server-side apply is a PATCH even for an object that does not exist yet.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ankka-operator
+  namespace: ankka-broker
+  labels:
+    app.kubernetes.io/managed-by: ankka
+rules:
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkatopics, kafkausers]
+    verbs: [get, list, watch, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ankka-operator
+  namespace: ankka-broker
+  labels:
+    app.kubernetes.io/managed-by: ankka
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ankka-operator
+subjects:
+  - kind: ServiceAccount
+    name: ankka-operator
+    namespace: ankka-operator

@@ -9,6 +9,7 @@ pages:
   - platform/console.md
   - operate/console.md
   - platform/databases.md
+  - platform/broker.md
   - platform/secrets.md
   - platform/networking.md
   - concepts/tenancy-and-access.md

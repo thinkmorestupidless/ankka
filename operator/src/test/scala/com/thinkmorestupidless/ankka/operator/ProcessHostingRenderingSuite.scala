@@ -87,6 +87,15 @@ class ProcessHostingRenderingSuite extends munit.FunSuite:
     )
   }
 
+  // features/broker/supplied.feature
+  test("a broker variable is given to both programs of a service hosted as a process") {
+    val variable = "ANKKA_KAFKA_BOOTSTRAP_SERVERS"
+    val cs       = containers(process)
+    assertEquals(cs.map(_.getName), Vector("cart", "cart-app"))
+    assertEquals(envOf(cs(0)).get(variable), Some("kafka.kafka.svc:9092"), "the platform's program")
+    assertEquals(envOf(cs(1)).get(variable), Some("kafka.kafka.svc:9092"), "the process")
+  }
+
   test(
     "the environment is split: model variables to the sidecar, the rest to the process, the broker to both"
   ) {

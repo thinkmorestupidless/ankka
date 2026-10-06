@@ -50,13 +50,25 @@ final class ServiceReconciler(
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
 
     val databasePlan = decideDatabasePlan(ref, spec)
+    val brokerSeen   = observeBroker(ref, spec)
+    val brokerPlan   = BrokerProvisioning.decide(spec, settings.broker, brokerSeen)
+    def status(
+        snapshot: Option[ClusterSnapshot],
+        problems: Vector[String],
+        resource: AnkkaService
+    ) = this.status(spec, snapshot, problems, resource, databasePlan, brokerPlan)
 
-    Rendering.render(resource, settings, databasePlan) match
+    Rendering.render(
+      resource,
+      settings,
+      databasePlan,
+      BrokerProvisioning.known(spec, settings.broker)
+    ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
         // why, which is the only way an operator finds out.
         log.warn("{} cannot be rendered: {}", ref, problems.mkString("; "))
-        report(ref, resource, status(spec, None, problems, resource, databasePlan))
+        report(ref, resource, status(None, problems, resource))
 
       case Right(actions) =>
         if executor.foreignObjectAt(namespace, spec.serviceName) then
@@ -66,11 +78,11 @@ final class ServiceReconciler(
             s"a deployment named '${spec.serviceName}' already exists in '$namespace' and is " +
               "not managed by ankka"
           )
-          report(ref, resource, status(spec, None, problem, resource, databasePlan))
+          report(ref, resource, status(None, problem, resource))
         else
           val transitioning =
             Transition.needed(executor.podTemplateLabels(namespace, spec.serviceName))
-          def transitionStatus = status(spec, None, Vector.empty, resource, databasePlan)
+          def transitionStatus = status(None, Vector.empty, resource)
             .copy(lifecycle = "UpdateInProgress", detail = Some(Transition.Detail))
           val ready =
             if !transitioning then true
@@ -95,8 +107,7 @@ final class ServiceReconciler(
             )
           else
             actions.foreach(executor.execute)
-            val observed =
-              status(spec, snapshotOf(namespace, spec), Vector.empty, resource, databasePlan)
+            val observed = status(snapshotOf(namespace, spec), Vector.empty, resource)
             report(
               ref,
               resource,
@@ -118,6 +129,18 @@ final class ServiceReconciler(
       else com.thinkmorestupidless.ankka.operator.cnpg.DatabaseObservation.empty
     Provisioning.decide(spec, observed)
 
+  /**
+   * What the broker has for this service (feature 027), read only when the service is known to an
+   * installation's broker: no Strimzi read is made for any other.
+   */
+  private def observeBroker(ref: ServiceRef, spec: AnkkaServiceSpec): BrokerObservation =
+    settings.broker.filter(_ => BrokerProvisioning.known(spec, settings.broker)) match
+      case None => BrokerObservation.empty
+      case Some(broker) =>
+        executor
+          .observeBroker(broker.namespace, BrokerNames.user(spec.projectId, spec.serviceName))
+          .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
+
   /** Pods are read only when the Deployment is not fully ready — explaining costs an API call. */
   private def snapshotOf(namespace: String, spec: AnkkaServiceSpec): Option[ClusterSnapshot] =
     executor.snapshot(namespace, spec.serviceName).map { snapshot =>
@@ -133,7 +156,8 @@ final class ServiceReconciler(
       snapshot: Option[ClusterSnapshot],
       problems: Vector[String],
       resource: AnkkaService,
-      databasePlan: ProvisioningPlan
+      databasePlan: ProvisioningPlan,
+      brokerPlan: BrokerPlan
   ) =
     val base = LifecycleRules.observe(
       spec,
@@ -152,6 +176,12 @@ final class ServiceReconciler(
         CnpgRendering.projectClusterName,
         spec.serviceName
       ),
+      broker = LifecycleRules.brokerStatus(brokerPlan),
+      // A broker that failed says why where a member looks first, without changing the
+      // service's lifecycle: a service whose credential cannot be had is still deployed.
+      detail = base.detail.orElse(brokerPlan match
+        case BrokerPlan.Failed(problems) => Some(s"broker: ${problems.mkString("; ")}")
+        case _                           => None),
       // Only an exposed service has a route to report on; the field stays absent otherwise.
       route = Option.when(spec.exposed)(
         LifecycleRules.routeStatus(

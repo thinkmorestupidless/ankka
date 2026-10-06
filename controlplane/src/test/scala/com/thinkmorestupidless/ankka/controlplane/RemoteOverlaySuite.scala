@@ -387,6 +387,75 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
 
   // ── Web hosting (feature 021) ─────────────────────────────────────────────
 
+  // ── the installation's broker (features/broker/installation.feature) ────────
+
+  private def yamlOf(document: String): java.util.Map[String, Any] =
+    org.yaml.snakeyaml.Yaml().load[java.util.Map[String, Any]](document)
+
+  private def at(node: Any, path: String*): Any =
+    path.foldLeft(node) {
+      case (m: java.util.Map[?, ?], key) => m.asInstanceOf[java.util.Map[String, Any]].get(key)
+      case (other, key)                  => fail(s"no '$key' in $other")
+    }
+
+  private def kafka(render: String): java.util.Map[String, Any] =
+    yamlOf(documentsOfKind(render, "Kafka").headOption.getOrElse(fail("no Kafka rendered")))
+
+  test("an installation in a cluster has the broker a local platform has") {
+    // The same listener, the same authorization and the same configuration: only its size differs.
+    for path <- Seq(
+        Seq("spec", "kafka", "listeners"),
+        Seq("spec", "kafka", "authorization"),
+        Seq("spec", "kafka", "config")
+      )
+    do assertEquals(at(kafka(remote), path*), at(kafka(local), path*), path.mkString("."))
+    // Told of it the same way: each of the operator's three settings once, in its one container.
+    for overlay <- Seq(remote -> "cloud", local -> "local") do
+      val operator = operatorDeployment(overlay._1, overlay._2)
+      for variable <- Seq(
+          "ANKKA_BROKER_BOOTSTRAP",
+          "ANKKA_BROKER_NAMESPACE",
+          "ANKKA_BROKER_CLUSTER"
+        )
+      do assertEquals(variable.r.findAllIn(operator).size, 1, s"${overlay._2}: $variable")
+      val parsed = io.fabric8.kubernetes.client.utils.Serialization
+        .unmarshal(operator, classOf[io.fabric8.kubernetes.api.model.apps.Deployment])
+      assertEquals(parsed.getSpec.getTemplate.getSpec.getContainers.size, 1, overlay._2)
+    assertEquals(
+      environmentValue(operatorDeployment(remote, "cloud"), "ANKKA_BROKER_BOOTSTRAP"),
+      environmentValue(operatorDeployment(local, "local"), "ANKKA_BROKER_BOOTSTRAP")
+    )
+  }
+
+  test("the size of the broker is left for whoever installs it to state") {
+    val source = Files.readString(repoRoot.resolve("kustomization/overlays/cloud/broker-size.yaml"))
+    // Every value that sizes the broker is marked to be set.
+    for key <- Seq("replicas:", "size:", "-Xms:", "-Xmx:", "memory:", "cpu:") do
+      val lines = source.linesIterator.filter(_.trim.startsWith(key)).toVector
+      assert(lines.nonEmpty, s"no $key in broker-size.yaml")
+      assert(lines.forall(_.contains("# SET")), s"$key is not marked SET: $lines")
+    // And the patch reaches the node pool the component renders.
+    val pool = documentsOfKind(remote, "KafkaNodePool")
+    assertEquals(pool.size, 1)
+    assert(pool.head.contains("name: dual"), pool.head)
+  }
+
+  test("the broker's certificate is the platform's, from an issuer that exists, in both overlays") {
+    for (render, name) <- Seq(remote -> "cloud", local -> "local") do
+      val certificate = documentsOfKind(render, "Certificate")
+        .map(yamlOf)
+        .find(c => at(c, "metadata", "name") == "ankka-broker")
+        .getOrElse(fail(s"$name: no broker certificate"))
+      assertEquals(at(certificate, "spec", "uris"), java.util.List.of("ankka://platform/broker"))
+      val issuer = at(certificate, "spec", "issuerRef", "name")
+      assert(
+        documentsOfKind(render, "ClusterIssuer")
+          .map(yamlOf)
+          .exists(i => at(i, "metadata", "name") == issuer),
+        s"$name: the broker's certificate names '$issuer', which is not rendered"
+      )
+  }
+
   test("the operator is told which proxy image to run, from the registry, in its own container") {
     val remoteOperator = operatorDeployment(remote, "cloud")
     assert(

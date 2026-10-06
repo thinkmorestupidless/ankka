@@ -827,14 +827,6 @@ name only when it states one.
 ### row
 *Proposed.* One entry a view holds, written by the view from a message it read.
 
-### broker
-*Proposed.* The system that holds topics and delivers their messages. One broker may serve many
-services.
-
-### partition
-*Proposed.* One ordered part of a topic. A group's members divide a topic's partitions between
-them.
-
 ### topic source
 *Proposed.* A view's or a consumer's declaration that it reads a topic, with the start position
 and the version it reads at.
@@ -1439,6 +1431,37 @@ The part of a pipeline that applies the deltas on a topic to a store, each only 
 A service the conformance suite plays: it records the call it is given and answers
 what it was told to answer.
 
+## Broker
+
+### broker
+What holds topics and carries what is published to one to whatever reads it; one
+broker serves many services. The installation has one, which the platform provides for every
+project; a descriptor may name another instead, and its service then uses that one.
+
+Avoid: Kafka, message bus, queue
+
+### partition
+One of the parts a topic is divided into on a broker, each in order. A group's members
+divide a topic's partitions between them. A descriptor says how many a topic it declares has. A
+topic may be given more and never fewer.
+
+Avoid: shard
+
+### declared topic
+A topic a member declares on a project, once, with the partitions it has, which the platform makes
+on the installation's broker. Every service of the project reads it and publishes to it by its
+name; no service declares it. It is not a declared connection, which is a component saying what it
+reads or publishes to.
+
+Avoid: managed topic, provisioned topic
+
+### broker variable
+A variable that says where a broker is or how to connect to it. A descriptor names a
+broker of its own by giving one; the platform gives them to a service that declares topics. It is
+not a platform setting: both programs of a service hosted as a process are given it.
+
+Avoid: Kafka variable
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
@@ -1507,4 +1530,4 @@ foot, hidden, scroll, scrolls, sideways, pauses, saying, overview, open, reloade
 visible, keyboard, brightest, point, least, brighter, shipped, colour, accord, blur, opaque,
 readable, border, outline, forces, edge, clipped, below, facts, controls, prefers, preference,
 dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright, enough,
-front, width, would, choose
+front, width, would, choose, whoever, clear, declaration

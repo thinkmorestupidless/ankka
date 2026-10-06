@@ -72,6 +72,9 @@ GRAALVM_HOME=... sbt cli/GraalVMNativeImage/packageBin   # the CLI as one execut
 sbt shoppingCart/test             # samples: shoppingCart multiAgentPlanner
 sbt proxyCore/test proxy/test     # a web-hosted service's proxy: rules and engine (JDK only), then TLS
 sbt -Dankka.template.tests=web 'cli/testOnly *WebTemplateSuite'   # `ankka init --language web`; needs node, npm
+caffeinate -i sbt 'set controlPlane / Test / logBuffered := false' 'controlPlane/testOnly *BrokerKeptFeatures'
+                                   # features/broker on k3s, one suite per file (Broker<File>Features):
+                                   # Strimzi, one Kafka, real carts, a probe holding a service's certificate
 sbt sidecar/test                  # the polyglot sidecar: protocol, remote hosts, one k3s suite
 sbt 'sidecar/testOnly *ConformanceSuite'                                       # the Scala reference, in-process
 sbt 'sidecar/testOnly *ClientRequestSuite'                                     # a process's call to another service, as the sidecar makes it

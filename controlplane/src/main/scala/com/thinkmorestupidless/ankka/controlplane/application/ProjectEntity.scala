@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   CreateProject,
   ProjectDetail,
   ProjectSecretSummary,
+  ProjectTopics,
   RegistrySummary
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.*
@@ -35,6 +36,9 @@ final class ProjectEntity(context: EventSourcedEntityContext)
       currentState.onSecretEntriesSet(name, entries, actor, at)
     case ProjectSecretEntryRemoved(name, entry, _, _) =>
       currentState.onSecretEntryRemoved(name, entry)
+    case ProjectTopicDeclared(name, partitions, _, at) =>
+      currentState.onTopicDeclared(name, partitions, at)
+    case ProjectTopicRemoved(name, _, _) => currentState.onTopicRemoved(name)
 
   def create(request: CreateProject): Effect[Done] =
     if currentState.deleted then
@@ -120,6 +124,44 @@ final class ProjectEntity(context: EventSourcedEntityContext)
         .persist(ProjectSecretEntryRemoved(request.name, request.entry, actor, at))
         .thenReply(_ => Done)
 
+  /**
+   * Declare a topic on the project, or raise its partitions (feature 027). Its rules are the
+   * project's own state, so every one is checked here: a name and a count the broker can hold, and
+   * never fewer partitions than the project declares. The same count again records nothing.
+   */
+  def declareTopic(request: DeclareTopic): Effect[Done] =
+    if !currentState.exists then notFound
+    else
+      val problems = ProjectTopics.problems(request.name, request.partitions)
+      if problems.nonEmpty then effects.error(problems.mkString("; "))
+      else
+        currentState.topics.get(request.name).map(_.partitions) match
+          case Some(has) if has > request.partitions =>
+            effects.error(
+              ProjectTopics.fewer(request.name, has, request.partitions),
+              ErrorCode.Conflict
+            )
+          case Some(has) if has == request.partitions => effects.reply(Done)
+          case _ =>
+            effects
+              .persist(ProjectTopicDeclared(request.name, request.partitions, actor, at))
+              .thenReply(_ => Done)
+
+  /** Stop declaring a topic. Nothing on the broker is removed; one not declared is not found. */
+  def removeTopic(request: RemoveTopic): Effect[Done] =
+    if !currentState.exists then notFound
+    else if !currentState.topics.contains(request.name) then
+      effects.error(
+        s"project '${context.entityId}' declares no topic '${request.name}'",
+        ErrorCode.NotFound
+      )
+    else effects.persist(ProjectTopicRemoved(request.name, actor, at)).thenReply(_ => Done)
+
+  /** The project's declared topics, by name. */
+  def topics: ReadOnlyEffect[Map[String, DeclaredTopic]] =
+    if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
+    else effects.reply(currentState.topics)
+
   /** The project's secrets by name, from this entity's own record: exact, and never a value. */
   def secrets: ReadOnlyEffect[Vector[ProjectSecretSummary]] =
     if !currentState.exists then effects.error(notFoundMessage, ErrorCode.NotFound)
@@ -176,6 +218,10 @@ object ProjectEntity
   given Serializer[RemoveSecretEntry] = Codecs.serializer[RemoveSecretEntry]("remove-secret-entry")
   given Serializer[Vector[ProjectSecretSummary]] =
     Codecs.serializer[Vector[ProjectSecretSummary]]("project-secrets")
+  given Serializer[DeclareTopic] = Codecs.serializer[DeclareTopic]("declare-topic")
+  given Serializer[RemoveTopic]  = Codecs.serializer[RemoveTopic]("remove-topic")
+  given Serializer[Map[String, DeclaredTopic]] =
+    Codecs.serializer[Map[String, DeclaredTopic]]("declared-topics")
 
   def create(context: EventSourcedEntityContext) = new ProjectEntity(context)
 
@@ -192,3 +238,7 @@ object ProjectEntity
   val setSecretEntries  = command("set-secret-entries")(_.setSecretEntries)
   val removeSecretEntry = command("remove-secret-entry")(_.removeSecretEntry)
   val secrets           = query("secrets")(_.secrets)
+
+  val declareTopic = command("declare-topic")(_.declareTopic)
+  val removeTopic  = command("remove-topic")(_.removeTopic)
+  val topics       = query("topics")(_.topics)

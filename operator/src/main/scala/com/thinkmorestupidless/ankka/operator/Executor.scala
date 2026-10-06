@@ -55,6 +55,18 @@ trait Executor:
   def resourceCreatedAt(namespace: String, name: String): Option[Instant]
 
   /**
+   * What `BrokerProvisioning.decide` needs: the service's user and each of `topics`, by the name
+   * the broker holds it under, in the broker's namespace (feature 027).
+   */
+  def observeBroker(namespace: String, user: String): BrokerObservation
+
+  /**
+   * What `TopicProvisioning.decide` needs for a project: each of `topics`, by the name the broker
+   * holds it under, in the broker's namespace.
+   */
+  def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState]
+
+  /**
    * The labels on an ankka-owned Deployment's pod template, or None when there is no such
    * Deployment.
    */
@@ -233,6 +245,20 @@ final class Fabric8Executor(
       else if existing.isDefined then
         log.debug("left httproute {}/{} alone: not owned by this resource", namespace, name)
 
+    case Action.SetProjectStatus(namespace, name, status) =>
+      val resources = client
+        .resources(classOf[com.thinkmorestupidless.ankka.crd.AnkkaProject])
+        .inNamespace(namespace)
+        .withName(name)
+      if resources.get() == null then
+        log.debug("project {}/{} vanished before its status could be written", namespace, name)
+      else
+        val _ = resources.editStatus { (current: com.thinkmorestupidless.ankka.crd.AnkkaProject) =>
+          current.setStatus(status)
+          current
+        }
+        log.debug("set project status {}/{}", namespace, name)
+
     case Action.SetStatus(namespace, name, status) =>
       // Through the status subresource, so the operator never rewrites desired state. Its
       // RBAC grants `ankkaservices/status: update` and not `ankkaservices: update`, which
@@ -341,6 +367,18 @@ final class Fabric8Executor(
         "ensured database role {}/{}",
         role.getMetadata.getNamespace,
         role.getMetadata.getName
+      )
+
+    case Action.EnsureKafkaUser(user) =>
+      val _ = client.resource(user).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug("ensured kafka user {}/{}", user.getMetadata.getNamespace, user.getMetadata.getName)
+
+    case Action.EnsureKafkaTopic(topic) =>
+      val _ = client.resource(topic).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured kafka topic {}/{}",
+        topic.getMetadata.getNamespace,
+        topic.getMetadata.getName
       )
 
     case Action.EnsureDatabase(database) =>
@@ -595,6 +633,47 @@ final class Fabric8Executor(
         .flatMap(r => Option(r.getSpec))
         .exists(spec => !spec.disablePassword.contains(true))
     )
+
+  /** One of Strimzi's objects as found, or absent. */
+  private def strimziState(
+      found: Option[io.fabric8.kubernetes.api.model.HasMetadata],
+      status: => Option[com.thinkmorestupidless.ankka.operator.strimzi.StrimziStatus]
+  ): StrimziObjectState =
+    found match
+      case None => StrimziObjectState.absent
+      case Some(resource) =>
+        StrimziObjectState.found(
+          Option(resource.getMetadata.getGeneration).map(_.longValue),
+          status,
+          parseTimestamp(resource.getMetadata.getCreationTimestamp)
+        )
+
+  /** A cluster without Strimzi's resource types reads as nothing made yet, not as a failure. */
+  private def ifTypeExists[A](read: => A): Option[A] =
+    try Option(read)
+    catch case e: KubernetesClientException if e.getCode == 404 => None
+
+  override def observeBroker(namespace: String, user: String): BrokerObservation =
+    val found = ifTypeExists(
+      client
+        .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaUserResource])
+        .inNamespace(namespace)
+        .withName(user)
+        .get()
+    )
+    BrokerObservation(user = strimziState(found, found.flatMap(u => Option(u.getStatus))))
+
+  override def observeTopics(namespace: String, topics: Vector[String]): Map[String, TopicState] =
+    val topicClient = client
+      .resources(classOf[com.thinkmorestupidless.ankka.operator.strimzi.KafkaTopicResource])
+      .inNamespace(namespace)
+    topics.map { name =>
+      val found = ifTypeExists(topicClient.withName(name).get())
+      name -> TopicState(
+        strimziState(found, found.flatMap(t => Option(t.getStatus))),
+        found.flatMap(t => Option(t.getSpec)).map(_.partitions)
+      )
+    }.toMap
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =
     Option(client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).get())

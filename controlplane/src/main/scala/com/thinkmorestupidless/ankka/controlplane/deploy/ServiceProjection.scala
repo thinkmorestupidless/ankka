@@ -138,6 +138,11 @@ object ServiceProjection:
               // and the program's port resolved here, once, as `port` is.
               mounts = descriptor.service.mounts.map(m => MountEntry(m.path, m.service)).toList,
               callers = descriptor.service.callers.toList,
-              processPort = descriptor.service.resolvedProcessPort
+              processPort = descriptor.service.resolvedProcessPort,
+              // Feature 027: whether the platform knows the service on the installation's broker at
+              // all — not when it names a broker of its own, checked by name as a supplied database
+              // is, and never for a web-hosted service.
+              provisionBroker =
+                !descriptor.service.isWebHosted && !descriptor.service.suppliesBroker
             )
           )

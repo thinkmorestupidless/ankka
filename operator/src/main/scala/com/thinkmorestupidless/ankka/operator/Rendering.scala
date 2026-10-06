@@ -198,10 +198,19 @@ object Rendering:
   def render(
       resource: AnkkaService,
       settings: Settings,
-      databasePlan: ProvisioningPlan
+      databasePlan: ProvisioningPlan,
+      knownToBroker: Boolean = false
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
+    // The installation's broker, when this service is known to it (`BrokerProvisioning.known`): its
+    // user is rendered, its certificate names it, and its runtime is told where the broker is.
+    // `false` renders exactly what was rendered before the broker existed.
+    val broker = settings.broker.filter(_ => knownToBroker)
+    val deployed = broker.fold(spec) { b =>
+      spec.copy(env = spec.env ++ StrimziRendering.environment(spec, b))
+    }
+    val commonName = broker.map(_ => BrokerNames.user(spec.projectId, spec.serviceName))
 
     val problems =
       Names.namespaceProblems(settings.namespacePrefix, spec.projectId) ++
@@ -230,11 +239,12 @@ object Rendering:
           identityActions(resource, spec, namespace) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
-          zeroTrustActions(resource, spec, namespace) :+
+          zeroTrustActions(resource, spec, namespace, commonName) ++
+          brokerActions(spec, broker) :+
           Action.ApplyDeployment(
             deployment(
               resource,
-              spec,
+              deployed,
               namespace,
               databasePlan,
               settings.sidecarImage,
@@ -324,10 +334,22 @@ object Rendering:
    * (feature 014) — before the Deployment, so the Secrets exist by the time a pod asks the kubelet
    * for them. A pod scheduled first waits on its volume and starts once cert-manager has issued.
    */
+  /**
+   * The service's user on the installation's broker (feature 027): before the Deployment, so the
+   * user is being made by the time the runtime first connects. Its project's topics are rendered
+   * from the project's resource, not here.
+   */
+  private def brokerActions(
+      spec: AnkkaServiceSpec,
+      broker: Option[BrokerSettings]
+  ): Vector[Action] =
+    broker.toVector.map(settings => Action.EnsureKafkaUser(StrimziRendering.user(spec, settings)))
+
   private def zeroTrustActions(
       resource: AnkkaService,
       spec: AnkkaServiceSpec,
-      namespace: String
+      namespace: String,
+      commonName: Option[String]
   ): Vector[Action] =
     val ownerUid = Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
     // The HTTP policy, then the gRPC one: the order every hosting renders them in.
@@ -366,7 +388,9 @@ object Rendering:
       // others with, and the runtime's HTTP server starts in every ankka service, exposed or not.
       Vector(
         Action.EnsureCertificate(ZeroTrust.clusterCertificate(resource, spec, namespace)),
-        Action.EnsureCertificate(ZeroTrust.serviceCertificate(resource, spec, namespace)),
+        Action.EnsureCertificate(
+          ZeroTrust.serviceCertificate(resource, spec, namespace, commonName)
+        ),
         Action.EnsureNetworkPolicy(ZeroTrust.clusterPolicy(resource, spec, namespace))
       ) ++ http
 

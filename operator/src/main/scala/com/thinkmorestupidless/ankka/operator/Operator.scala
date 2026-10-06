@@ -3,7 +3,7 @@ package com.thinkmorestupidless.ankka.operator
 import io.fabric8.kubernetes.api.model.apps.Deployment
 import io.fabric8.kubernetes.client.KubernetesClient
 import io.fabric8.kubernetes.client.informers.{ResourceEventHandler, SharedIndexInformer}
-import com.thinkmorestupidless.ankka.crd.AnkkaService
+import com.thinkmorestupidless.ankka.crd.{AnkkaProject, AnkkaService}
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.jdk.CollectionConverters.*
@@ -26,12 +26,24 @@ trait Reconciler:
  * disconnect. Level-triggered throughout: an event says only "look at this resource again", never
  * what changed, so a lost event costs latency and never correctness.
  */
-final class Operator(client: KubernetesClient, settings: Settings, reconciler: Reconciler)
-    extends AutoCloseable:
+final class Operator(
+    client: KubernetesClient,
+    settings: Settings,
+    reconciler: Reconciler,
+    projects: Option[Reconciler] = None
+) extends AutoCloseable:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator")
 
   private val queue = new WorkQueue(settings, reconciler.reconcile)
+
+  /**
+   * A project's topics (feature 027), on a queue of their own so a slow broker never delays a
+   * service's pass. `ProjectReconciler` unless a test supplies another.
+   */
+  private val projectReconciler: Reconciler =
+    projects.getOrElse(ProjectReconciler(client, settings))
+  private val projectQueue = new WorkQueue(settings, projectReconciler.reconcile)
 
   private var informers: Vector[SharedIndexInformer[?]] = Vector.empty
 
@@ -58,12 +70,14 @@ final class Operator(client: KubernetesClient, settings: Settings, reconciler: R
       service   <- labels.get(Labels.ServiceKey)
     yield ServiceRef(namespace, service)
 
-  private def handler[T](toRef: T => Option[ServiceRef]): ResourceEventHandler[T] =
+  private def handler[T](toRef: T => Option[ServiceRef])(using
+      target: WorkQueue = queue
+  ): ResourceEventHandler[T] =
     new ResourceEventHandler[T]:
-      def onAdd(obj: T): Unit                = toRef(obj).foreach(queue.enqueue)
-      def onUpdate(old: T, updated: T): Unit = toRef(updated).foreach(queue.enqueue)
+      def onAdd(obj: T): Unit                = toRef(obj).foreach(target.enqueue)
+      def onUpdate(old: T, updated: T): Unit = toRef(updated).foreach(target.enqueue)
       def onDelete(obj: T, deletedFinalStateUnknown: Boolean): Unit =
-        toRef(obj).foreach(queue.enqueue)
+        toRef(obj).foreach(target.enqueue)
 
   def start(): Unit =
     val resyncMillis = settings.resyncInterval.toMillis
@@ -80,8 +94,34 @@ final class Operator(client: KubernetesClient, settings: Settings, reconciler: R
       .withLabel(Labels.ManagedByKey, Labels.ManagedByAnkka)
       .inform(handler[Deployment](refOf), resyncMillis)
 
-    informers = Vector(services, deployments)
+    // A cluster whose API server has no AnkkaProject type yet (an installation from before the
+    // type, mid-upgrade) still has its services reconciled; its projects' topics wait for the type.
+    val projectInformer =
+      try
+        Some(
+          client
+            .resources(classOf[AnkkaProject])
+            .inAnyNamespace()
+            .inform(
+              handler[AnkkaProject](p =>
+                Option(p.getMetadata)
+                  .filter(m => watched(m.getNamespace))
+                  .map(m => ServiceRef(m.getNamespace, m.getName))
+              )(using projectQueue),
+              resyncMillis
+            )
+        )
+      catch
+        case scala.util.control.NonFatal(e) =>
+          log.warn(
+            "no AnkkaProject type in this cluster; projects' topics are not made: {}",
+            e.getMessage
+          )
+          None
+
+    informers = Vector(services, deployments) ++ projectInformer
     queue.start()
+    projectQueue.start()
 
     log.info(
       "operator watching namespaces '{}-*' (resync every {})",
@@ -98,6 +138,7 @@ final class Operator(client: KubernetesClient, settings: Settings, reconciler: R
     informers.foreach(_.close())
     informers = Vector.empty
     queue.stop()
+    projectQueue.stop()
 
   /** Test seam. */
   private[operator] def workQueue: WorkQueue = queue

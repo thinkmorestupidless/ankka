@@ -26,6 +26,7 @@ class CartTopologySuite extends munit.FunSuite:
     "CheckoutWorkflow"   -> CheckoutWorkflow.descriptor,
     "CartRows"           -> CartRows.descriptor,
     "CheckoutNotifier"   -> CheckoutNotifier.descriptor,
+    "CheckoutsSeen"      -> CheckoutsSeen.descriptor,
     "CartAssistant"      -> CartAssistant.descriptor,
     "CartAnswerer"       -> CartAnswerer.descriptor,
     "CartGraph"          -> CartGraph.descriptor,
@@ -71,6 +72,8 @@ class CartTopologySuite extends munit.FunSuite:
         ("shopping-cart", "cart-rows", "events"),
         ("shopping-cart", "checkout-notifier", "events"),
         ("checkout-notifier", "topic:cart-checkouts", "topic-publication"),
+        // Registered when there is a broker: the notices read back from their topic.
+        ("topic:cart-checkouts", "checkouts-seen", "topic-subscription"),
         // Two graph consumers of the cart's events, both publishing to one topic.
         ("shopping-cart", "cart-graph", "events"),
         ("cart-graph", "topic:cart-graph", "topic-publication"),

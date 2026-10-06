@@ -79,10 +79,12 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
 
   protected def freshTopic(prefix: String): String = KafkaSuite.createTopic(bootstrap, prefix)
 
-  private def publish(event: StockEvent): Unit =
+  private def publish(event: StockEvent): Unit = publish("stock-events", event)
+
+  private def publish(topic: String, event: StockEvent): Unit =
     Await.result(
       publisher.publish(
-        "stock-events",
+        topic,
         eventSerializer.toBytes(event),
         Metadata.empty.withSubject(event.sku)
       ),
@@ -453,14 +455,25 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
 
   test("a service that stops closes the Kafka producer it opened") {
     // Every producer runs one network thread for as long as it is open, so a restart that leaked
-    // the stopped service's producer leaves one more than it found: the new service's replaces it.
+    // the stopped service's producer leaves one more than it found once the new service's is
+    // open. A service opens its producer when it first publishes, so each is made to publish.
     def producers =
       Thread.getAllStackTraces.keySet.asScala.count(t =>
         t.isAlive && t.getName.startsWith("kafka-producer-network-thread")
       )
+    def servicePublishes(subject: String): Unit =
+      publish("fanout-events", StockEvent(subject, 5, "w1"))
+      eventually(s"the service publishing $subject") {
+        Option.when(
+          KafkaSuite
+            .readHeaders(bootstrap, "fanout-lines", s"assert-$subject")
+            .exists((_, headers) => headers.get("ce-subject").contains(subject))
+        )(())
+      }
+    servicePublishes("k-running")
     val before = producers
-    assert(before >= 1, "the running service should have a producer open")
     testKit.restartService()
+    servicePublishes("k-restarted")
     assertEquals(producers, before, "the stopped service's producer is still open")
   }
 

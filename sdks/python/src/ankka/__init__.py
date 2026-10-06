@@ -16,7 +16,7 @@ from ankka.context import (  # noqa: E402
 )
 from ankka.effects.common import DeleteNow, Error, ErrorCode, ExpireAfter  # noqa: E402
 from ankka.effects.event_sourced import EventSourcedEffect, ReadOnlyEffect  # noqa: E402
-from ankka.endpoint import Acl, CallerMatcher, Callers, Endpoint, HttpProblem, Socket, SocketClosed  # noqa: E402
+from ankka.endpoint import Acl, CallerMatcher, Callers, Endpoint, HttpProblem, SseEvent, Socket, SocketClosed  # noqa: E402
 from ankka.endpoint import delete, get, patch, post, put, socket, sse  # noqa: E402
 from ankka.event_sourced_entity import EventSourcedEntity, RegistrationError, command, query  # noqa: E402
 from ankka.secrets import InMemorySecrets, Secrets  # noqa: E402
@@ -39,7 +39,7 @@ from ankka.graph import GraphConsumer  # noqa: E402
 from ankka.mcp import McpServer, ResultGuardrail  # noqa: E402
 
 __all__ = [
-    "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail",
+    "Answered", "Approval", "ApprovalAwaited", "ApprovalRequest", "AwaitingApproval", "McpServer", "ResultGuardrail", "SseEvent",
     "Acl", "Ankka", "Caller", "CallerMatcher", "Callers", "Codec", "CommandContext", "Gateway", "LocalCaller",
     "ServiceCaller", "DeleteNow", "Done", "DONE", "Endpoint", "Error",
     "ErrorCode", "EventSourcedEffect", "EventSourcedEntity", "ExpireAfter", "GraphConsumer", "HttpProblem", "Metadata",

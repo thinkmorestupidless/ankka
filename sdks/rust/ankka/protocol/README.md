@@ -28,7 +28,8 @@ no message: `request`, which carries `ServiceRequest` and `ServiceReply` across 
 `now` and `random`, which carry none. A process is the same at 1.9 and 1.10. `1.11` added approvals, MCP servers and result
 guardrails to an agent: a tool's `approval` and an agent's `mcp_servers` and `result_guardrails` in
 discovery, the `RESULT` stage of `CheckGuardrail`, the `approval` case of `InvokeReply` and
-`StreamToken`, and `Decide` on `Client`.
+`StreamToken`, `Decide` on `Client`, and the `event` frame of a stream route, a
+server-sent event of its own name.
 
 `MAJOR.MINOR`. Within a major:
 

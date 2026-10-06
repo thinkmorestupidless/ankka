@@ -53,7 +53,7 @@ from ankka.effects import timed_action as timed_effects
 from ankka.effects import view as view_effects
 from ankka.effects.common import Fail, NoReply, Reply, retention_to_pb
 from ankka.effects.workflow import End, Pause, StepFail, StepRef, TransitionTo
-from ankka.endpoint import HttpProblem, Socket, SocketClosed
+from ankka.endpoint import HttpProblem, Socket, SocketClosed, SseEvent
 from ankka.event_sourced_entity import EventSourcedEntity
 from ankka.key_value_entity import KeyValueEntity
 from ankka.service import PROTOCOL_VERSION, Registry
@@ -755,7 +755,10 @@ class HttpServicer(endpoint_pb2_grpc.HttpServicer):
         ctx = self._context(request)
         try:
             async for frame in instance._handle_stream(spec, list(request.path_args), request.body, ctx):
-                yield endpoint_pb2.StreamFrame(text=frame)
+                if isinstance(frame, SseEvent):
+                    yield endpoint_pb2.StreamFrame(event=endpoint_pb2.SseEvent(name=frame.name, data=frame.data()))
+                else:
+                    yield endpoint_pb2.StreamFrame(text=frame)
             yield endpoint_pb2.StreamFrame(completed=payload_pb2.Empty())
         except Exception as e:
             yield endpoint_pb2.StreamFrame(failed=payload_pb2.Error(message=str(e) or type(e).__name__, code=payload_pb2.INTERNAL))

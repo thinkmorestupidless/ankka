@@ -631,10 +631,12 @@ skills' `pages:` lists.
   the loop's thread after a tool answered, where no session is known, and no SDK's check reads one.
   The Rust crate names the new fields at their defaults, and a module's client answers an approval
   reply as a `CONFLICT` naming the wait, since a module takes no part in approvals.
-- **T064 not built**: a process's HTTP stream route sends text frames only, so a process-hosted
-  endpoint cannot yet forward an approval request as a named SSE event. No 1.11 scenario needs it
-  (the stream scenario is the Scala agent's, held by `HttpSseSuite`); it goes on the limitations
-  page.
+- **T064 as built**: a process's stream route sent text frames only, so `StreamFrame` gains an `event`
+  case (protocol 1.11), a name and JSON data on one line. `Conversation.handleHttpEvents` carries text
+  and events (by default, the text of `handleHttpStream`, so a module's path is unchanged); the sidecar
+  serves an event as a named `SseEvent` and ends the stream on one whose name or data would break the
+  framing. Python handlers yield `SseEvent(name, value)`, TypeScript ones `sseEvent(name, value)`.
+  `RemoteEndpointSuite` holds both, and each SDK's servicer test the frame.
 - **Conformance as built (T065, T068, T071–T074)**: each reference has the agent `approver` (`refund`
   with approval, `ask_scripted` calling the service `scripted`, the servers `tickets` and `guarded` by
   name, the result guardrail `no-instructions`), a tool with approval on `answerer`, and the routes

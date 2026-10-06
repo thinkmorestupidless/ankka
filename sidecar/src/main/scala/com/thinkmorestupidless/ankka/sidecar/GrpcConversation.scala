@@ -477,10 +477,13 @@ final class GrpcConversation(
     http.handle(toHttpRequest(request)).map(fromHttpReply)
 
   def handleHttpStream(request: HttpForward): Source[String, NotUsed] =
+    handleHttpEvents(request).collect { case StreamPart.Text(text) => text }
+
+  override def handleHttpEvents(request: HttpForward): Source[StreamPart, NotUsed] =
     // The gRPC call starts when the stream is materialized, so no materializer is needed here and
     // nothing is sent to the process for a response nobody consumes.
     Source
-      .queue[String](256)
+      .queue[StreamPart](256)
       .mapMaterializedValue { queue =>
         http.handleStream(
           toHttpRequest(request),
@@ -497,13 +500,16 @@ final class GrpcConversation(
                 done = true
                 queue.fail(t)
             def onNext(frame: StreamFrame): Unit = frame.frame match
-              case StreamFrame.Frame.Text(text) =>
-                queue.offer(text) match
-                  case QueueOfferResult.Enqueued => ()
-                  case other                     => log.warn("SSE frame dropped: {}", other)
+              case StreamFrame.Frame.Text(text) => offer(StreamPart.Text(text))
+              case StreamFrame.Frame.Event(event) =>
+                offer(StreamPart.Event(event.name, event.data))
               case StreamFrame.Frame.Completed(_) => finish()
               case StreamFrame.Frame.Failed(e)    => fail(fromError(e))
               case StreamFrame.Frame.Empty        => ()
+            private def offer(part: StreamPart): Unit =
+              queue.offer(part) match
+                case QueueOfferResult.Enqueued => ()
+                case other                     => log.warn("SSE frame dropped: {}", other)
             def onError(t: Throwable): Unit = fail(t)
             def onCompleted(): Unit         = finish()
         )

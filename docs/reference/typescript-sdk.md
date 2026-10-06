@@ -254,6 +254,7 @@ test an autonomous agent's behaviour end to end, through a sidecar with `ANKKA_M
 
 | Part | API |
 |---|---|
+| Named events | an `sse` handler may yield `sseEvent(name, value)` among its text, sent as an event of that name with the value as JSON (protocol 1.11) |
 | Base class | `Endpoint` |
 | Statics | `prefix`, `acl` (required: `Acl.allowAll`, `Acl.denyAll`, `Acl.authenticated` or `Acl.allowCallers(...)`), `routes` |
 | Declarations | `get(template, reply, run, options?)`, `post`/`put`/`patch`/`del(template, body?, reply, run, options?)`, `sse(template, run, options?)`, `socket(template, (self, req, socket) => Promise<void>, options?)`; `options` may carry `acl` for that route alone and `params` schemas narrowing path parameters |

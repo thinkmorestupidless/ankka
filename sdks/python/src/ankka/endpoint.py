@@ -98,6 +98,36 @@ Acl.DENY_ALL = Acl(discovery_pb2.Endpoint.DENY_ALL)
 Acl.AUTHENTICATED = Acl(discovery_pb2.Endpoint.AUTHENTICATED)
 
 
+@dataclass(frozen=True)
+class SseEvent:
+    """A server-sent event under a name of its own, which an ``@sse`` handler may yield beside text:
+    an agent turn that stops for approval ends its stream with ``SseEvent("approval", requests)``.
+    ``value`` is sent as JSON; a dataclass, a list or a dict of them is encoded field by field.
+    Needs protocol 1.11 of the runtime."""
+
+    name: str
+    value: Any
+
+    def __post_init__(self) -> None:
+        if not self.name or "\n" in self.name or "\r" in self.name:
+            raise ValueError(f"an event name must be one non-empty line, not {self.name!r}")
+
+    def data(self) -> str:
+        import dataclasses
+        import json
+
+        def plain(v: Any) -> Any:
+            if dataclasses.is_dataclass(v) and not isinstance(v, type):
+                return {k: plain(x) for k, x in dataclasses.asdict(v).items()}
+            if isinstance(v, (list, tuple)):
+                return [plain(x) for x in v]
+            if isinstance(v, dict):
+                return {k: plain(x) for k, x in v.items()}
+            return v
+
+        return json.dumps(plain(self.value), separators=(",", ":"))
+
+
 class HttpProblem(Exception):
     """Raise from a handler to answer with this status and message."""
 

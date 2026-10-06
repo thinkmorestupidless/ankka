@@ -241,9 +241,6 @@ feature also says what that feature does not do.
   is no editing its arguments, and a decision is not streamed back to a caller still connected.
 - **A module's agents take no part in approvals or MCP servers.** A WebAssembly module declares neither,
   and its client answers a call that would wait for a person as a conflict.
-- **A process cannot send a named server-sent event.** A Python or TypeScript endpoint's stream route sends
-  text frames only, so it cannot forward an approval request as an event of its own name the way a Scala
-  endpoint can; end the stream and send the requests in its last frame instead.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.

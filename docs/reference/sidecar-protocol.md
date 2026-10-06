@@ -216,7 +216,8 @@ SDK refuses to answer discovery with one to a runtime that states an earlier ver
 guardrails to agents: a tool's `approval` and an agent's `mcp_servers` and `result_guardrails` in discovery,
 the `RESULT` stage of `CheckGuardrail` with the MCP tool it checks, the `approval` case of `InvokeReply` and
 `StreamToken` that answers a turn waiting for a person, and `Decide` on `Client`, which sends a person's
-decision. The sidecar connects to the MCP servers and enforces approval itself: a process is never asked to
+decision, and the `event` case of `StreamFrame`, which sends a server-sent event under a name of its own — an
+approval request, say — from a stream route. The sidecar connects to the MCP servers and enforces approval itself: a process is never asked to
 run an MCP server's tool, nor a tool that awaits a decision. A process built for `1.11` that decides on an
 earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runtime being too old.
 

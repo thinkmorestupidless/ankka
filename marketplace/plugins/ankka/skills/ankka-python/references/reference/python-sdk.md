@@ -213,6 +213,7 @@ result against its task type and rules. See [Autonomous agents](../build/autonom
 |---|---|
 | Base class | `Endpoint` |
 | Class attributes | `prefix`, `acl` (required: `Acl.ALLOW_ALL`, `Acl.DENY_ALL`, `Acl.AUTHENTICATED` or `Acl.allow_callers(...)`) |
+| Named events | an `@sse` handler may yield `SseEvent(name, value)` among its text, sent as an event of that name with the value as JSON (protocol 1.11) |
 | Decorators | `@get`, `@post`, `@put`, `@patch`, `@delete`, `@sse`, `@socket`, each with a path template and an optional `acl=` for that route alone |
 | A socket | the handler's parameter annotated `Socket`: `async for text in socket`, `await socket.receive()` (`None` once closed), `await socket.send(text)`, which raises `SocketClosed` once closed; testing, `EndpointTestKit.socket(path, frames)` answers what the handler sent and how it ended |
 | Handlers | `async` methods; path parameters bind by name, one further typed parameter is the body, the return value is encoded by its type |

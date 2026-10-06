@@ -665,7 +665,10 @@ decideApproval: post("/approver/{session}/decide/{id}", s.string, s.string, asyn
 ```
 
 `invoke` and `stream` raise (or reject with) `ApprovalAwaited` when the turn waits, and `stream_parts`
-(`streamParts`) yields the text and then the awaited requests. The rules of a decision are the same as
+(`streamParts`) yields the text and then the awaited requests. An `@sse` (`sse`) route can pass those on
+as a server-sent event of its own name by yielding `SseEvent("approval", requests)` in Python or
+`sseEvent("approval", requests)` in TypeScript after the text: the value is sent as JSON, as the Scala
+endpoint's `SseEvent.json` sends it. The rules of a decision are the same as
 in Scala, and the sidecar enforces them: the process is never asked to run a tool that awaits a decision.
 
 A handler declared with `@stream` in Python, or `stream` in TypeScript, streams its reply; see

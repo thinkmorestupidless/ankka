@@ -22,6 +22,7 @@ import ankka.protocol.v1.endpoint.{
   SocketFrame,
   SocketIn,
   SocketOut,
+  SseEvent,
   StreamFrame
 }
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
@@ -91,6 +92,8 @@ object ProcessDouble:
       handler: HttpRequest => Either[Throwable, HttpResponse] = _ =>
         Right(HttpResponse(200, "text/plain", ByteString.copyFromUtf8("ok"))),
       frames: HttpRequest => Vector[String] = _ => Vector.empty,
+      // Sent after the text frames, each as a named event: its name and its JSON data.
+      events: HttpRequest => Vector[(String, String)] = _ => Vector.empty,
       socket: Boolean = false,
       onSocket: SocketScript = SocketScript.Echo
   )
@@ -1148,6 +1151,10 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           out.onCompleted()
         case Some(r) =>
           r.frames(request).foreach(f => out.onNext(StreamFrame(StreamFrame.Frame.Text(f))))
+          r.events(request)
+            .foreach((name, data) =>
+              out.onNext(StreamFrame(StreamFrame.Frame.Event(SseEvent(name, data))))
+            )
           out.onNext(StreamFrame(StreamFrame.Frame.Completed(pb.Empty())))
           out.onCompleted()
 

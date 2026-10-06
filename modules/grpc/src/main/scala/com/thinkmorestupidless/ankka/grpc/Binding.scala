@@ -7,8 +7,11 @@ import com.thinkmorestupidless.ankka.runtime.{
   AnkkaExecutors,
   Observability,
   Span,
+  SpanKind,
   SpanOutcome,
-  Trace
+  Trace,
+  TraceContext,
+  Traceparent
 }
 import io.grpc.*
 import org.apache.pekko.stream.Materializer
@@ -292,13 +295,16 @@ private[grpc] object Binding:
           call: ServerCall[Array[Byte], Any],
           headers: Metadata
       ): ServerCall.Listener[Array[Byte]] =
+        // A call that carries a trace context is continued, refused or not; one that carries none,
+        // or one that cannot be read, starts a trace of its own.
+        val parent = Option(headers.get(Spans.TraceparentKey)).flatMap(Traceparent.parse)
         admitted(call, headers, declared.fullName, acl, admission) match
           case Left((status, trailers)) =>
-            spans.refused()
+            spans.refused(parent)
             call.close(status, trailers)
             new ServerCall.Listener[Array[Byte]] {}
           case Right(context) =>
-            val span = spans.call()
+            val span = spans.call(parent)
             lazy val out: Outgoing = Outgoing(
               call,
               status =>
@@ -391,18 +397,30 @@ private[grpc] final class Spans(observability: Option[Observability], fullName: 
   private val refs = observability.map(o => (o.names.intern("grpc"), o.names.intern(fullName)))
 
   /** A call its ACL refused: recorded and ended at once, since no handler will run. */
-  def refused(): Unit =
+  def refused(parent: Option[TraceContext]): Unit =
     for o <- observability; (component, handler) <- refs do
-      o.recorder.complete(
-        o.recorder.begin(Trace.mint(), 0L, component, handler),
-        SpanOutcome.Refused
-      )
+      o.recorder.complete(Spans.begin(o, component, handler, parent), SpanOutcome.Refused)
 
-  def call(): Spans.Call = Spans.Call(observability, refs)
+  def call(parent: Option[TraceContext]): Spans.Call = Spans.Call(observability, refs, parent)
 
 private[grpc] object Spans:
 
-  final class Call(observability: Option[Observability], refs: Option[(Int, Int)]):
+  /** The metadata key a caller's trace context arrives under. */
+  val TraceparentKey: Metadata.Key[String] =
+    Metadata.Key.of(Traceparent.Name, Metadata.ASCII_STRING_MARSHALLER)
+
+  /** A call's span: under the caller's span when the call carried one, else a new trace's root. */
+  def begin(o: Observability, component: Int, handler: Int, parent: Option[TraceContext]): Span =
+    parent match
+      case Some(p) =>
+        o.recorder.begin(p.traceIdHigh, p.traceId, p.spanId, component, handler, SpanKind.Server)
+      case None => o.recorder.beginRoot(component, handler, SpanKind.Server)
+
+  final class Call(
+      observability: Option[Observability],
+      refs: Option[(Int, Int)],
+      parent: Option[TraceContext]
+  ):
     @volatile private var span: Option[Span] = None
     private val completed                    = AtomicBoolean(false)
 
@@ -410,9 +428,9 @@ private[grpc] object Spans:
     def within[A](body: => A): A =
       (observability, refs) match
         case (Some(o), Some((component, handler))) =>
-          val opened = o.recorder.begin(Trace.mint(), 0L, component, handler)
+          val opened = Spans.begin(o, component, handler, parent)
           span = Some(opened)
-          Trace.within(opened.traceId, opened.id)(body)
+          Trace.within(opened)(body)
         case _ => body
 
     /** Ends the span with how the call ended; once, whichever writer ended it. */

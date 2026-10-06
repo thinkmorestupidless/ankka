@@ -229,6 +229,7 @@ object Rendering:
           databaseActions(resource, spec, namespace, settings, databasePlan)) ++
           identityActions(resource, spec, namespace) ++
           secretKeyAction(spec, namespace) ++
+          telemetryAction(resource, spec, namespace, settings) ++
           zeroTrustActions(resource, spec, namespace) :+
           Action.ApplyDeployment(
             deployment(
@@ -240,7 +241,9 @@ object Rendering:
               settings.namespacePrefix,
               settings.proxyImage,
               settings.baseDomain,
-              settings.httpsPort
+              settings.httpsPort,
+              settings.otlpEndpoint,
+              settings.otlpHeaders.isDefined
             )
           ) :+
           addressAction(resource, spec, namespace) :+
@@ -263,6 +266,55 @@ object Rendering:
         )
       )
       .toVector
+
+  /**
+   * The service's telemetry Secret, before the Deployment that names it, when the installation
+   * names a collector that wants a credential. A web-hosted service exports nothing, so has none.
+   */
+  private def telemetryAction(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings
+  ): Vector[Action] =
+    Option
+      .when(
+        settings.otlpEndpoint.isDefined && settings.otlpHeaders.isDefined && spec.hosting != WebHosting
+      )(
+        Action.EnsureTelemetrySecret(
+          namespace,
+          Names.telemetrySecret(spec.serviceName),
+          Labels.identity(spec.projectId, spec.serviceName),
+          Labels.ownerReference(resource)
+        )
+      )
+      .toVector
+
+  /**
+   * Where the platform's program of a workload sends its telemetry (feature 026): the collector's
+   * address as a literal, and what to send with it by reference to the service's telemetry Secret.
+   * On the container the runtime runs in — the one container of an embedded or a module-hosted
+   * service, the sidecar of a process-hosted one — and never on a process or a web-hosted service's
+   * containers. Nothing at all when the installation names no collector.
+   */
+  private def telemetryEnv(
+      spec: AnkkaServiceSpec,
+      otlpEndpoint: Option[String],
+      otlpHeaders: Boolean
+  ): Vector[EnvVar] =
+    otlpEndpoint.toVector.flatMap { endpoint =>
+      val headers = Option.when(otlpHeaders) {
+        val selector = new SecretKeySelectorBuilder()
+          .withName(Names.telemetrySecret(spec.serviceName))
+          .withKey(Names.TelemetryHeadersEntry)
+          .build()
+        new EnvVarBuilder()
+          .withName(PlatformVariables.OtlpHeaders)
+          .withValueFrom(new EnvVarSourceBuilder().withSecretKeyRef(selector).build())
+          .build()
+      }
+      literal(PlatformVariables.OtlpEndpoint, endpoint) +: headers.toVector
+    }
 
   private def rendersSecretKey(spec: AnkkaServiceSpec): Boolean =
     !spec.env.exists(_.name == PlatformVariables.SecretKey)
@@ -744,7 +796,9 @@ object Rendering:
       namespacePrefix: String = Settings.default.namespacePrefix,
       proxyImage: String = Settings.default.proxyImage,
       baseDomain: Option[String] = None,
-      httpsPort: Int = Settings.default.httpsPort
+      httpsPort: Int = Settings.default.httpsPort,
+      otlpEndpoint: Option[String] = None,
+      otlpHeaders: Boolean = false
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -766,7 +820,8 @@ object Rendering:
       namespacePrefix,
       proxyImage,
       baseDomain,
-      httpsPort
+      httpsPort,
+      telemetryEnv(spec, otlpEndpoint, otlpHeaders)
     )
     // A web-hosted pod holds the service certificate alone: no cluster to join, no database.
     val held =
@@ -956,14 +1011,15 @@ object Rendering:
       namespacePrefix: String,
       proxyImage: String,
       baseDomain: Option[String],
-      httpsPort: Int
+      httpsPort: Int,
+      telemetry: Vector[EnvVar]
   ): Vector[Container] = spec.hosting match
     case WasmHosting =>
       val node = container(
         spec.copy(image = sidecarImage),
         identity,
         withDatabaseEnv,
-        extraEnv = Vector(literal("ANKKA_WASM_MODULE", ModuleFile)),
+        extraEnv = Vector(literal("ANKKA_WASM_MODULE", ModuleFile)) ++ telemetry,
         namespacePrefix = namespacePrefix
       )
       Vector(
@@ -982,7 +1038,15 @@ object Rendering:
           .build()
       )
     case EmbeddedHosting =>
-      Vector(container(spec, identity, withDatabaseEnv, namespacePrefix = namespacePrefix))
+      Vector(
+        container(
+          spec,
+          identity,
+          withDatabaseEnv,
+          extraEnv = telemetry,
+          namespacePrefix = namespacePrefix
+        )
+      )
     case WebHosting =>
       webContainers(spec, namespacePrefix, proxyImage, baseDomain, httpsPort)
     case ProcessHosting =>
@@ -1001,7 +1065,7 @@ object Rendering:
         extraEnv = Vector(
           literal("ANKKA_PROCESS_ADDRESS", s"127.0.0.1:$ProcessPort"),
           literal("ANKKA_SIDECAR_PORT", SidecarPort.toString)
-        ),
+        ) ++ telemetry,
         namespacePrefix = namespacePrefix
       )
       // The sidecar is the node: it holds every identity. The process beside it speaks only to the
@@ -1155,7 +1219,7 @@ object Rendering:
       spec: AnkkaServiceSpec,
       identity: Map[String, String],
       withDatabaseEnv: Boolean,
-      extraEnv: Vector[EnvVar] = Vector.empty,
+      extraEnv: Vector[EnvVar],
       namespacePrefix: String
   ): Container =
     // Requests equal limits. The descriptor models one size, and inventing a ratio between

@@ -56,11 +56,14 @@ private[ankka] final class ViewTopicHandler(
 
             val effect =
               try
-                ProjectionSupport.handling(
-                  observability,
-                  descriptor.componentId.toString,
-                  ViewDescriptor.OnChange.name
-                )(view.onChange(descriptor.source.decoder.fromBytes(message.payload)))
+                ProjectionSupport
+                  .traced(
+                    observability,
+                    descriptor.componentId.toString,
+                    ViewDescriptor.OnChange.name,
+                    ProjectionSupport.carried(message)
+                  )(view.onChange(descriptor.source.decoder.fromBytes(message.payload)))
+                  ._1
               finally view._setContext(None)
 
             effect match
@@ -98,9 +101,14 @@ private[ankka] final class ConsumerTopicHandler(
     val subject = message.subject.getOrElse("")
 
     consumer._setContext(Some(SimpleChangeContext(subject, 0L, localOrigin = true)))
-    val effect =
+    val (effect, context) =
       try
-        ProjectionSupport.handling(observability, id, ConsumerDescriptor.OnMessage.name) {
+        ProjectionSupport.traced(
+          observability,
+          id,
+          ConsumerDescriptor.OnMessage.name,
+          ProjectionSupport.carried(message)
+        ) {
           consumer.onMessage(descriptor.source.decoder.fromBytes(message.payload))
         }
       catch
@@ -109,4 +117,4 @@ private[ankka] final class ConsumerTopicHandler(
           return Future.failed(failure)
       finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher)
+    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))

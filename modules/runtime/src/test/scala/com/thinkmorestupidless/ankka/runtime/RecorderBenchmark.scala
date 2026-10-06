@@ -73,8 +73,10 @@ final class RecorderBenchmark extends FunSuite:
   test("the cost of recording one span, and the invocation size it fits inside") {
     val recorder = Recorder(4096)
 
+    // Both halves of the trace id, a kind, and the count since start that `complete` makes: what a
+    // span costs once it can be exported.
     val recordingOnly = nanosPerOp(Warmup, Iterations) { i =>
-      val span = recorder.begin(i.toLong, 0L, componentRef = 1, handlerRef = 2)
+      val span = recorder.begin(i.toLong, i.toLong, 0L, 1, 2, SpanKind.Internal)
       recorder.complete(span, SpanOutcome.Ok)
     }
 
@@ -99,6 +101,34 @@ final class RecorderBenchmark extends FunSuite:
       recordingOnly < 200.0,
       f"recording a span cost $recordingOnly%.1f ns — that is no longer a cheap constant, " +
         "and the always-on decision should be revisited before anything is built on it."
+    )
+  }
+
+  test("the cost of recording one span while an exporter's cursor reads the ring") {
+    val recorder          = Recorder(4096)
+    val cursor            = recorder.cursor()
+    @volatile var reading = true
+    // An exporter reading as fast as it can: harsher than one that reads once a second.
+    val reader = Thread.ofPlatform().start { () =>
+      while reading do cursor.commit(cursor.read(512))
+    }
+    val withReader =
+      try
+        nanosPerOp(Warmup, Iterations) { i =>
+          val span = recorder.begin(i.toLong, i.toLong, 0L, 1, 2, SpanKind.Internal)
+          recorder.complete(span, SpanOutcome.Ok)
+        }
+      finally
+        reading = false
+        reader.join()
+
+    println(f"""
+         |  recording one span, a cursor reading the ring throughout : $withReader%.1f ns
+         |""".stripMargin)
+
+    assert(
+      withReader < 200.0,
+      f"recording a span cost $withReader%.1f ns with a reader: the reader is costing the writers."
     )
   }
 

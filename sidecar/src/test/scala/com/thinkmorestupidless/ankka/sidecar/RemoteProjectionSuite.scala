@@ -525,3 +525,63 @@ class RemoteProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(invoke("profile", "p2", "misbehave").left.map(_.code), Left(ErrorCode.Internal))
     assertEquals(invoke("profile", "p2", "get"), Right("Bob"))
   }
+
+  // ── The trace a published message carries, and continues ───────────────────
+
+  private def observability =
+    com.thinkmorestupidless.ankka.runtime.Observability(kit.service.system)
+
+  private def spansNamed(component: String) =
+    observability.recorder
+      .snapshot()
+      .filter(s => observability.names.nameOf(s.componentRef).contains(component))
+
+  private def carried(message: com.thinkmorestupidless.ankka.runtime.IncomingMessage) =
+    message.metadata
+      .get(com.thinkmorestupidless.ankka.runtime.Traceparent.Name)
+      .flatMap(com.thinkmorestupidless.ankka.runtime.Traceparent.parse)
+
+  test(
+    "P10 a remote consumer's message carries its span, and the remote view that reads it continues it"
+  ) {
+    record("t1", "a")
+    val published = eventually()(
+      broker.publishedTo("notified").find(_.message.subject.contains("t1"))
+    )
+    val context  = carried(published.message).getOrElse(fail("no trace context on the message"))
+    val consumer = eventually()(spansNamed("notifier").find(_.spanId == context.spanId))
+    assertEquals((consumer.traceIdHigh, consumer.traceId), (context.traceIdHigh, context.traceId))
+    // The view reading "notified" handled that message under the consumer's span.
+    val view = eventually()(spansNamed("notified-rows").find(_.parentSpanId == context.spanId))
+    assertEquals(view.traceId, context.traceId)
+    assertEquals(view.kind, com.thinkmorestupidless.ankka.runtime.SpanKind.Consumer)
+  }
+
+  test("P10b each of a remote consumer's several messages carries the span that published them") {
+    record("f10", "a")
+    val records  = eventually()(Some(fanned("f10")).filter(_.sizeIs >= 3))
+    val contexts = records.map(r => carried(r.message))
+    assert(contexts.forall(_.isDefined), contexts.toString)
+    assertEquals(contexts.distinct.size, 1)
+    assert(spansNamed("fanout").exists(_.spanId == contexts.head.get.spanId))
+  }
+
+  test("P10c a remote consumer reading a topic continues the trace its message carries") {
+    val parent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    val _ = Try(
+      Await.result(
+        broker.publish(
+          "never-fed",
+          "{}".getBytes,
+          Metadata.empty.withSubject("t3").set("traceparent", parent)
+        ),
+        10.seconds
+      )
+    )
+    val span = eventually()(
+      spansNamed("oversize").find(
+        _.parentSpanId == java.lang.Long.parseUnsignedLong("b7ad6b7169203331", 16)
+      )
+    )
+    assertEquals(span.kind, com.thinkmorestupidless.ankka.runtime.SpanKind.Consumer)
+  }

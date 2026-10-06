@@ -1,0 +1,49 @@
+# The store: Grafana's development stack in one container. For a developer's machine, and only
+# that: no volume, so what it holds is gone when it restarts, and its sign-in is the image's own,
+# admin/admin, public knowledge — which is why no overlay but the local one renders it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm
+  namespace: ankka-telemetry
+  labels:
+    app.kubernetes.io/name: lgtm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lgtm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lgtm
+    spec:
+      containers:
+        - name: lgtm
+          image: grafana/otel-lgtm:0.35.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: otlp-grpc, containerPort: 4317 }
+            - { name: grafana, containerPort: 3000 }
+          readinessProbe:
+            httpGet: { path: /api/health, port: grafana }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 250m, memory: 1Gi }
+            limits: { cpu: "2", memory: 2Gi }
+---
+# The address the local overlay's telemetry settings name, and Grafana's for the route:
+# http://lgtm.ankka-telemetry.svc.cluster.local:4318
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgtm
+  namespace: ankka-telemetry
+spec:
+  selector:
+    app.kubernetes.io/name: lgtm
+  ports:
+    - { name: otlp-http, port: 4318, targetPort: otlp-http }
+    - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
+    - { name: grafana, port: 3000, targetPort: grafana }

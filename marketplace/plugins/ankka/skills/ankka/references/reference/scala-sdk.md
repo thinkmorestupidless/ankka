@@ -30,12 +30,15 @@ libraryDependencies ++= Seq(
   "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,
   "com.thinkmorestupidless" %% "ankka-http"    % ankkaVersion,
   "com.thinkmorestupidless" %% "ankka-agent"   % ankkaVersion,
+  "com.thinkmorestupidless" %% "ankka-telemetry-otlp" % ankkaVersion,
   "com.thinkmorestupidless" %% "ankka-testkit" % ankkaVersion % Test
 )
 ```
 
-`ankka-runtime` brings `ankka-sdk` and `ankka-core` with it. A service created from the template already
-has these lines.
+`ankka-runtime` brings `ankka-sdk` and `ankka-core` with it. `ankka-telemetry-otlp` is the only line a
+service needs to export its traces and metrics to the collector the installation names; nothing in its
+code names it, and with no collector named it starts nothing (see [Telemetry](../operate/telemetry.md)).
+A service created from the template already has these lines.
 
 ## The shape every component shares
 

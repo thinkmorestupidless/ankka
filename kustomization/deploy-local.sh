@@ -286,6 +286,7 @@ kubectl -n ankka-gateway get secret ankka-root-ca -o jsonpath='{.data.ca\.crt}' 
 
 API_URL="https://api.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
 CONSOLE_URL="https://console.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
+GRAFANA_URL="https://grafana.${BASE_DOMAIN}:${HTTPS_HOST_PORT}"
 
 # A real request to a real route, and the status is checked.
 #
@@ -339,12 +340,44 @@ MSG
     ;;
 esac
 
+# The telemetry store: Grafana answering through the gateway (a 200, not merely an exchange), then
+# a trace from the control plane in it — which exercises the control plane's exporter, the store's
+# network policy and the route at once. Warnings only, like the check above: the platform works
+# without a store, and a developer is told what to look at.
+echo "==> waiting for the telemetry store"
+if ! kubectl -n ankka-telemetry rollout status deployment/lgtm --timeout=300s; then
+  echo >&2 "warning: the telemetry store did not become ready; kubectl -n ankka-telemetry describe pod -l app.kubernetes.io/name=lgtm"
+fi
+GRAFANA_STATUS="$(curl -s --cacert "$HOME/.ankka/local-ca.crt" -o /dev/null -w '%{http_code}' -m 15 \
+  "$GRAFANA_URL/api/health" || true)"
+if [[ "${GRAFANA_STATUS:-000}" != "200" ]]; then
+  echo >&2 "warning: $GRAFANA_URL answered ${GRAFANA_STATUS:-000} for /api/health, not 200."
+else
+  TRACED=""
+  for _ in $(seq 1 30); do
+    # Tempo's search, through Grafana's own data source proxy, for anything the control plane sent.
+    if curl -s --cacert "$HOME/.ankka/local-ca.crt" -u admin:admin -m 10 \
+        "$GRAFANA_URL/api/datasources/proxy/uid/tempo/api/search?tags=service.name%3Dcontrolplane&limit=1" \
+        | grep -q '"traceID"'; then
+      TRACED=yes
+      break
+    fi
+    sleep 2
+  done
+  if [[ -z "$TRACED" ]]; then
+    echo >&2 "warning: no trace from the control plane reached the telemetry store within 60s."
+    echo >&2 "  kubectl -n ankka-controlplane logs -l app.kubernetes.io/name=ankka-controlplane --tail=50 | grep telemetry"
+  fi
+fi
+
 cat <<MSG
 
 Deployed. The control plane is at $API_URL — no port-forward needed. The console is at
 $CONSOLE_URL — sign in as dev / dev, in a browser that trusts ~/.ankka/local-ca.crt
 (on macOS: open it in Keychain Access and mark it trusted for SSL). The identity provider's
-console is at $AUTH_URL/admin/ (admin / admin); users are created there.
+console is at $AUTH_URL/admin/ (admin / admin); users are created there. Every service's traces,
+metrics and logs are at $GRAFANA_URL (admin / admin): the telemetry store, which keeps nothing
+when it restarts.
 
   ankka config set url $API_URL
   ankka config set ca ~/.ankka/local-ca.crt

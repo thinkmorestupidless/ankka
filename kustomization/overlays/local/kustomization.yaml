@@ -24,6 +24,9 @@ components:
   - ../../components/keycloak
   - ../../components/controlplane
   - ../../components/console
+  # Where a developer reads their services' traces, metrics and logs: https://grafana.<base domain>.
+  # Not the otel-collector component, which keeps nothing; the two make one namespace.
+  - ../../components/telemetry-store
 
 resources:
   - platform-configmap.yaml
@@ -98,6 +101,14 @@ replacements:
         options:
           delimiter: "."
           index: 1
+      - select:
+          kind: HTTPRoute
+          name: grafana
+        fieldPaths:
+          - spec.hostnames.0
+        options:
+          delimiter: "."
+          index: 1
   # The console's own address, host and port together, which the realm client's redirect address
   # and the console's origin check both need whole. RemoteOverlaySuite holds it to its derivation.
   - source:
@@ -143,3 +154,20 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+  # Where every workload exports its telemetry: the operator renders it onto each service, and the
+  # control plane exports there itself. Empty names no collector.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.otlpEndpoint
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_OTLP_ENDPOINT].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value

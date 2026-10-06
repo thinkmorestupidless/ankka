@@ -464,6 +464,40 @@ class KafkaSuite extends munit.FunSuite with LogCapturing with SubscriberContrac
     assertEquals(producers, before, "the stopped service's producer is still open")
   }
 
+  test(
+    "a published message carries the trace of what published it as a Kafka header, and is continued"
+  ) {
+    import com.thinkmorestupidless.ankka.runtime.{Observability, Traceparent}
+    val incoming = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+    Await.result(
+      publisher.publish(
+        "stock-events",
+        eventSerializer.toBytes(StockEvent("k-trace-1", -20, "w1")),
+        Metadata.empty.withSubject("k-trace-1").set(Traceparent.Name, incoming)
+      ),
+      30.seconds
+    ): Unit
+
+    val headers = eventually("the alert is readable") {
+      KafkaSuite
+        .readHeaders(bootstrap, "stock-alerts", "assert-trace-headers")
+        .find((key, _) => key == "k-trace-1")
+        .map(_._2)
+    }
+    val carried =
+      headers.get(Traceparent.Name).flatMap(Traceparent.parse).getOrElse(fail(headers.toString))
+    assertEquals(
+      carried.traceIdHex,
+      "0af7651916cd43dd8448eb211c80319c",
+      "the same trace, continued"
+    )
+    // The span it names is the notifier's, which is under the span the incoming message named.
+    val observability = Observability(testKit.service.system)
+    val notifier      = observability.recorder.snapshot().find(_.spanId == carried.spanId).get
+    assertEquals(observability.names.nameOf(notifier.componentRef), Some("low-stock-notifier"))
+    assertEquals(notifier.parentSpanId, java.lang.Long.parseUnsignedLong("b7ad6b7169203331", 16))
+  }
+
 /** A consumer that records each message it is handed, with the version it was declared at. */
 final class RecordingAt(
     version: Int,
@@ -522,6 +556,21 @@ object KafkaSuite:
     admin(bootstrap)(
       _.createTopics(java.util.List.of(NewTopic(name, partitions, 1.toShort))).all().get()
     ): Unit
+    // Created is not led: a producer whose first send meets a partition with no leader yet retries,
+    // and an idempotent one can then meet OUT_OF_ORDER_SEQUENCE_NUMBER on every retry thereafter.
+    val deadline = System.nanoTime() + 30_000_000_000L
+    def led = admin(bootstrap)(
+      _.describeTopics(java.util.List.of(name))
+        .allTopicNames()
+        .get()
+        .get(name)
+        .partitions()
+        .asScala
+        .forall(_.leader() != null)
+    )
+    while !led do
+      if System.nanoTime() > deadline then sys.error(s"topic $name has a partition with no leader")
+      Thread.sleep(100)
     name
 
   /** Every consumer group the broker knows. */

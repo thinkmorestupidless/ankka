@@ -28,3 +28,10 @@ data:
   # is 443. Written out because a replacement cannot join the two above; RemoteOverlaySuite fails if
   # it disagrees with them.
   consoleAuthority: console.example.com # SET
+  # The OpenTelemetry collector every service exports its spans and metrics to:
+  # http://host:4318 or https://host. Empty exports nothing. When the collector wants a credential,
+  # put it as name=value,name=value under the key `headers` of a Secret named ankka-telemetry in
+  # both ankka-operator and ankka-controlplane, out of band; the operator copies it into each
+  # service's own Secret. The platform installs no collector and no store here: they are the
+  # installation's.
+  otlpEndpoint: "" # SET to export

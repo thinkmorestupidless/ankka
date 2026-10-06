@@ -57,8 +57,10 @@ via testcontainers. No API key is needed.
 sbt test                          # everything, including three k3s suites (CNPG inside; minutes, not
                                    # seconds) and the shopping cart image they deploy
 sbt -Dankka.cluster.tests=off test  # skip the k3s suites AND the sample image build; about a minute
-sbt agent/test                    # one module: core sdk runtime http grpc agent testkit
+sbt agent/test                    # one module: core sdk runtime http grpc agent testkit telemetryOtlp
 sbt grpc/test                     # gRPC endpoints: offline suites, and features/grpc/ through GherkinSuite
+sbt telemetryOtlp/test            # telemetry export against a fake collector; TelemetryStoreSuite pulls
+                                   # grafana/otel-lgtm (~850 MB) and takes minutes
 sbt -Dankka.spikes=on 'grpc/testOnly *GrpcTlsSpike'                  # mutual TLS from RotatingTls's managers
 caffeinate -i sbt -Dankka.spikes=on 'controlPlane/testOnly *GatewayGrpcSpike'   # gRPC through the gateway (k3s)
 sbt operator/test                 # the Kubernetes operator (one k3s suite)
@@ -186,14 +188,15 @@ thing that performs them.
 
 ```
 core → sdk → runtime → {http, agent} → testkit → samples
+runtime → telemetry-otlp → {sidecar, controlplane, samples}   (http, grpc, testkit are Test-only deps)
 http → grpc → samples                                    (grpc-fixtures and testkit are Test-only deps)
 http → auth-oidc → {controlplane, sidecar}               (the one token verifier; nimbus lives here only)
 core → controlplane-api → cli
 crd → operator                                           (no ankka dependencies at all)
-controlplane-api + crd + sdk + runtime + http → controlplane
+controlplane-api + crd + sdk + runtime + http + telemetry-otlp → controlplane
                                   (cli, operator, testkit are Test-only deps)
 protocol → nothing                                       (generated ScalaPB; -Wunused off, -source:3.3)
-runtime + http + agent + protocol → sidecar              (testkit and operator are Test-only deps)
+runtime + http + agent + protocol + telemetry-otlp → sidecar   (testkit and operator are Test-only deps)
 proxy-core → nothing                                     (the JDK's HTTP server and client only)
 proxy-core + runtime + http → proxy                      (test-pki and testkit are Test-only deps)
 controlplane-api + proxy-core → cli

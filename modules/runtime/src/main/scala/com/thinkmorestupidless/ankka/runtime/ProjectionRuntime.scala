@@ -874,9 +874,9 @@ private final class ConsumerEventHandler(
     consumer._setContext(
       Some(SimpleChangeContext(subject, envelope.sequenceNr, localOrigin = true))
     )
-    val effect =
+    val (effect, context) =
       try
-        ProjectionSupport.handling(observability, id, ConsumerDescriptor.OnMessage.name) {
+        ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
           record.kind match
             case JournalRecord.KindDomain =>
               consumer.onMessage(descriptor.source.decoder.fromBytes(record.payload))
@@ -885,7 +885,7 @@ private final class ConsumerEventHandler(
         }
       finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher)
+    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))
 
 /** As `ConsumerEventHandler`, but for key value state changes. */
 private final class ConsumerStateHandler(
@@ -910,9 +910,9 @@ private final class ConsumerStateHandler(
       case deleted: DeletedDurableState[StateRecord] => deleted.revision
 
     consumer._setContext(Some(SimpleChangeContext(subject, revision, localOrigin = true)))
-    val effect =
+    val (effect, context) =
       try
-        ProjectionSupport.handling(observability, id, ConsumerDescriptor.OnMessage.name) {
+        ProjectionSupport.traced(observability, id, ConsumerDescriptor.OnMessage.name, None) {
           change match
             // A deletion is a state marked deleted (`KeyValueEntityHost.Stored`).
             case updated: UpdatedDurableState[StateRecord] if updated.value.deleted =>
@@ -923,4 +923,4 @@ private final class ConsumerStateHandler(
         }
       finally consumer._setContext(None)
 
-    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher)
+    ProjectionSupport.applyConsumer(effect, subject, descriptor, publisher, Some(context))

@@ -88,7 +88,7 @@ final class HttpServiceClients(
         body: Option[Array[Byte]],
         contentType: Option[String],
         headers: Seq[(String, String)]
-    ): ServiceResponse = counted(project, name, method) {
+    ): ServiceResponse = counted(project, name, method) { traceparent =>
       val (host, port) = locate(project, name).getOrElse(
         throw ServiceUnresolvable(
           target,
@@ -96,7 +96,16 @@ final class HttpServiceClients(
         )
       )
       val client = clientFor(identity)
-      try send(client, URI(s"https://$host:$port$path"), method, body, contentType, headers)
+      try
+        send(
+          client,
+          URI(s"https://$host:$port$path"),
+          method,
+          body,
+          contentType,
+          headers,
+          traceparent
+        )
       catch
         case e: SSLHandshakeException if Option(e.getMessage).exists(_.contains("peer identity")) =>
           throw ServiceIdentityMismatch(target, e.getMessage)
@@ -128,42 +137,49 @@ final class HttpServiceClients(
         body: Option[Array[Byte]],
         contentType: Option[String],
         headers: Seq[(String, String)]
-    ): ServiceResponse = counted(project, name, method) {
+    ): ServiceResponse = counted(project, name, method) { traceparent =>
       val base = localAddress(name).getOrElse(
         throw ServiceUnresolvable(
           target,
           s"not in ankka.local-services and not announced in ${ServiceRegistration.directory}"
         )
       )
-      send(plain, URI(s"${base.stripSuffix("/")}$path"), method, body, contentType, headers)
+      send(
+        plain,
+        URI(s"${base.stripSuffix("/")}$path"),
+        method,
+        body,
+        contentType,
+        headers,
+        traceparent
+      )
     }
 
   /**
-   * A call to another service, counted where it is made: nothing in this service hosts the callee,
-   * so the caller's side is the only one that can count it. The callee is the service, admitted by
-   * name up to a limit, and its handler is the request's method and never its path, which may carry
-   * an id. Who made it is the calling thread's own origin, taken before anything is sent. A
+   * A call to another service, recorded and counted where it is made: nothing in this service hosts
+   * the callee, so the caller's side is the only one that can. The callee is the service, admitted
+   * by name up to a limit, and its handler is the request's method and never its path, which may
+   * carry an id. Who made it is the calling thread's own origin, taken before anything is sent. A
    * response is handled as its status says — refused when the callee said no, failed when it could
    * not answer — and a call that got no response at all is unanswered: timed out, or never
    * delivered, including one to a name that resolves to nothing.
+   *
+   * The call is a span of its own, under the calling handler's, and the request carries that span's
+   * `traceparent`: the callee continues the trace under it. With no recorder the thread's own
+   * context is carried, so a trace still joins across services.
    */
   private def counted(project: String, name: String, method: String)(
-      request: => ServiceResponse
+      request: Option[String] => ServiceResponse
   ): ServiceResponse =
     val target = s"$project/$name"
     def call: ServiceResponse =
       observability match
-        case None => request
+        case None => request(Trace.currentContext.map(Traceparent.render))
         case Some(o) =>
           o.calling(
             o.externalServices.nameFor(project, name),
             HttpServiceClients.methodName(method)
-          )((response: ServiceResponse) =>
-            response.status / 100 match
-              case 4 => SpanOutcome.Refused
-              case 5 => SpanOutcome.Failed
-              case _ => SpanOutcome.Ok
-          )(request)
+          )(HttpServiceClients.outcomeOf)(t => request(Some(t)))
     try call
     catch
       case e: (ServiceUnresolvable | ServiceIdentityMismatch) => throw e
@@ -197,7 +213,8 @@ final class HttpServiceClients(
       method: String,
       body: Option[Array[Byte]],
       contentType: Option[String],
-      headers: Seq[(String, String)]
+      headers: Seq[(String, String)],
+      traceparent: Option[String]
   ): ServiceResponse =
     val builder = HttpRequest
       .newBuilder(uri)
@@ -207,7 +224,13 @@ final class HttpServiceClients(
         body.fold(HttpRequest.BodyPublishers.noBody())(HttpRequest.BodyPublishers.ofByteArray)
       )
     contentType.foreach(c => builder.header("Content-Type", c): Unit)
-    OutboundHeaders.sent(headers).foreach((k, v) => builder.header(k, v): Unit)
+    // The platform's context replaces any a handler supplied: a handler forwarding the headers it
+    // was given would otherwise put this call under whoever called it.
+    OutboundHeaders
+      .sent(headers)
+      .filterNot((k, _) => k.equalsIgnoreCase(Traceparent.Name))
+      .foreach((k, v) => builder.header(k, v): Unit)
+    traceparent.foreach(t => builder.header(Traceparent.Name, t): Unit)
     val response = client.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray())
     ServiceResponse(
       response.statusCode,
@@ -225,6 +248,17 @@ object HttpServiceClients:
    * The methods a call is counted under; any other is `(other)`, so the table of names is bounded.
    */
   private val Methods = Set("GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS")
+
+  /** How a call ended as its caller saw it, for its span and its count. */
+  private[runtime] def outcomeOf(result: scala.util.Try[ServiceResponse]): SpanOutcome =
+    result match
+      case scala.util.Success(response) =>
+        response.status / 100 match
+          case 4 => SpanOutcome.Refused
+          case 5 => SpanOutcome.Failed
+          case _ => SpanOutcome.Ok
+      case scala.util.Failure(_: HttpTimeoutException) => SpanOutcome.TimedOut
+      case scala.util.Failure(_)                       => SpanOutcome.Failed
 
   /** A request's method as the handler its call is counted under. */
   def methodName(method: String): String =

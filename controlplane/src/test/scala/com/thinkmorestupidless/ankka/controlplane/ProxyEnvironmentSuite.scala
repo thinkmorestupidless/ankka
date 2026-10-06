@@ -27,7 +27,10 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
   private val settings = Settings.default.copy(
     proxyImage = "ankka-proxy:test",
     baseDomain = Some("example.test"),
-    httpsPort = 8443
+    httpsPort = 8443,
+    // An installation with a collector that wants a credential, so the telemetry Secret is rendered.
+    otlpEndpoint = Some("http://collector:4318"),
+    otlpHeaders = Some(Settings.Credential("authorization=x"))
   )
 
   private def resource(spec: AnkkaServiceSpec): AnkkaService =
@@ -129,7 +132,8 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
 
   /**
    * Every Secret a rendering names: what each certificate asks cert-manager to write, what each pod
-   * mounts, and the database cluster's own, which the CNPG objects reference.
+   * mounts, the telemetry credential the operator writes, and the database cluster's own, which the
+   * CNPG objects reference.
    */
   private def issuedSecrets(all: Vector[Action]): Set[String] =
     val certificates = all.collect { case Action.EnsureCertificate(c) =>
@@ -144,7 +148,8 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
         .flatMap(v => Option(v.getSecret))
         .map(_.getSecretName)
     }.flatten
-    (certificates ++ volumes).toSet
+    val written = all.collect { case Action.EnsureTelemetrySecret(_, name, _, _) => name }
+    (certificates ++ volumes ++ written).toSet
 
   test(
     "every Secret the platform issues for a provisioned service is one a descriptor may not read"
@@ -156,7 +161,8 @@ class ProxyEnvironmentSuite extends munit.FunSuite:
         CnpgRendering.clientCaName,
         CnpgRendering.replicationName
       )
-    assert(names.size >= 6, names)
+    assert(names.size >= 7, names)
+    assert(names.contains("cart-telemetry") || names.exists(_.endsWith("-telemetry")), names)
     for name <- names do
       assert(
         ServiceSpec.isPlatformSecret(name),

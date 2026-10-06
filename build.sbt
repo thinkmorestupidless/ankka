@@ -67,7 +67,7 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
 
 lazy val templateArtifacts =
   taskKey[Unit](
-    "Publishes the seven service libraries locally for TemplateSuite, unless template tests are off"
+    "Publishes the eight service libraries locally for TemplateSuite, unless template tests are off"
   )
 
 lazy val sampleImageForClusterTests =
@@ -333,6 +333,22 @@ lazy val agent = project
     libraryDependencies ++= Seq(anthropicJava, pekkoHttp, pekkoStreamTyped)
   )
 
+/**
+ * Telemetry export (feature 026): the recorder's spans and the runtime's invocation totals sent to
+ * an OpenTelemetry collector over OTLP. A module of its own so that the OpenTelemetry SDK reaches a
+ * service only through this dependency: `runtime` records with no library at all. A service names
+ * it in its build and nowhere else, because the runtime finds its extension through a declared
+ * provider (`RuntimeExtensionProvider`); with no collector configured it starts nothing.
+ */
+lazy val telemetryOtlp = project
+  .in(file("modules/telemetry-otlp"))
+  .dependsOn(runtime, testPki % Test, http % Test, grpc % Test, grpcFixtures % Test, testkit % Test)
+  .settings(commonSettings)
+  .settings(
+    name := "ankka-telemetry-otlp",
+    libraryDependencies ++= Seq(otelExporterOtlp, otelSenderJdk, testcontainersPg % Test)
+  )
+
 /** Unit and integration test support, plus TestModelProvider. */
 lazy val testkit = project
   .in(file("modules/testkit"))
@@ -455,6 +471,8 @@ lazy val controlPlane = project
     sdk,
     runtime,
     http,
+    // The control plane is an ankka service: it exports its telemetry as any service does.
+    telemetryOtlp,
     // test->test as well: the control plane's suites mint tokens with the module's test issuer, so
     // there is one test issuer as there is one verifier.
     authOidc % "compile;test->test",
@@ -573,9 +591,12 @@ lazy val sidecar = project
     authOidc % "compile;test->test",
     agent,
     protocol,
-    testkit  % Test,
-    operator % "test->test;test->compile",
-    testPki  % Test
+    // The image every process-hosted and module-hosted service runs: it exports for them, so their
+    // developers write no telemetry code. test->test for the fake collector.
+    telemetryOtlp % "compile;test->test",
+    testkit       % Test,
+    operator      % "test->test;test->compile",
+    testPki       % Test
   )
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
@@ -783,7 +804,7 @@ lazy val cli = project
       if (selected.exists(s => s == "off" || !s.split(',').map(_.trim).contains("scala")))
         Def.task(())
       else
-        // Seven of the nine by name: a task dependency on the root's publishLocal runs only the
+        // Eight of the ten by name: a task dependency on the root's publishLocal runs only the
         // root's own (skipped) publish — aggregation is how the command line fans out, not the task
         // graph. controlPlaneApi is a client's library; the template is a service.
         // `grpc` is here for the suite's last case, which adds a gRPC endpoint to the expansion as
@@ -797,6 +818,8 @@ lazy val cli = project
           (grpc / publishLocal).value
           (agent / publishLocal).value
           (testkit / publishLocal).value
+          // The template's build names the exporter, so a project it makes exports when deployed.
+          (telemetryOtlp / publishLocal).value
           ()
         }
     }.value,
@@ -813,7 +836,7 @@ lazy val shoppingCart = project
   // `agent` because the cart carries an assistant, as the Python and TypeScript carts do — the three
   // samples are one service written three times, and a component missing from one makes its
   // documentation page unable to show all three.
-  .dependsOn(sdk, runtime, http, grpc, shoppingCartApi, agent, testkit % Test)
+  .dependsOn(sdk, runtime, http, grpc, shoppingCartApi, agent, telemetryOtlp, testkit % Test)
   .enablePlugins(JavaAppPackaging, DockerPlugin)
   .settings(commonSettings)
   .settings(dockerSettings)
@@ -884,6 +907,7 @@ lazy val root = project
     authOidc,
     agent,
     testkit,
+    telemetryOtlp,
     controlPlaneApi,
     crd,
     operator,

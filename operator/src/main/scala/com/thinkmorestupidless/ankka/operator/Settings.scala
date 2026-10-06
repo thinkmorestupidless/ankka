@@ -1,13 +1,15 @@
 package com.thinkmorestupidless.ankka.operator
 
+import com.thinkmorestupidless.ankka.core.PlatformVariables
+
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /**
  * The operator's whole configuration surface.
  *
  * Read from system properties first, then the environment, then a default. No HOCON, because the
- * operator carries no config library and should not gain one for eleven values — and because a file
- * baked into a container image is the least useful place to configure a container.
+ * operator carries no config library and should not gain one for thirteen values — and because a
+ * file baked into a container image is the least useful place to configure a container.
  *
  * System properties come first for the reason the CLI's `Settings.path` does it: an environment
  * variable cannot be set in-process, so an env-only reader is untestable without spawning a
@@ -49,7 +51,19 @@ final case class Settings(
      * the process the address a browser used (feature 021). The same `ankka-platform` value the
      * control plane reads; 443 when the overlay says nothing.
      */
-    httpsPort: Int = 443
+    httpsPort: Int = 443,
+    /**
+     * The collector every workload that runs the platform's runtime exports its telemetry to
+     * (feature 026): the installation's to say, once, on the `ankka-platform` ConfigMap. `None`
+     * renders nothing at all, so a Deployment is what it was before the feature.
+     */
+    otlpEndpoint: Option[String] = None,
+    /**
+     * What is sent with the telemetry so the collector accepts it: a credential, from the
+     * installation's `ankka-telemetry` Secret. Written into each service's own Secret, never onto a
+     * Deployment, and never printed.
+     */
+    otlpHeaders: Option[Settings.Credential] = None
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -65,6 +79,10 @@ final case class Settings(
     if doubled > retryMaxBackoff then retryMaxBackoff else doubled
 
 object Settings:
+
+  /** A value that is a credential: kept, passed on, and never printed by `toString`. */
+  final case class Credential(value: String):
+    override def toString: String = "Credential(****)"
 
   val default: Settings = Settings(
     namespacePrefix = "ankka",
@@ -124,7 +142,10 @@ object Settings:
         default.sidecarImage
       ),
       proxyImage = string("ankka.operator.proxy-image", "ANKKA_PROXY_IMAGE", default.proxyImage),
-      httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort)
+      httpsPort = int("ankka.operator.https-port", "ANKKA_HTTPS_PORT", default.httpsPort),
+      otlpEndpoint = raw("ankka.operator.otlp-endpoint", PlatformVariables.OtlpEndpoint),
+      otlpHeaders =
+        raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_))
     )
 
   private def raw(property: String, variable: String): Option[String] =

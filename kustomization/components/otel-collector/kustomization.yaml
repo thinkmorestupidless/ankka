@@ -1,0 +1,16 @@
+# The platform's collector: the least an installation can export its services' telemetry to. It
+# receives OTLP from the installation's own workloads and prints what it receives to its own log,
+# in detail; it keeps nothing. Where telemetry is kept and shown is the installation's business —
+# point the ankka-platform ConfigMap's otlpEndpoint at the collector the installation runs.
+#
+# No overlay lists it: the local overlay lists the telemetry store instead, which receives the same
+# OTLP and keeps and shows it. The two make the same namespace, so an overlay can list only one.
+# kustomization/tests/otel-collector renders this component so that something always does.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - config.yaml
+  - deployment.yaml
+  - service.yaml
+  - network-policy.yaml

@@ -3,9 +3,13 @@ package com.thinkmorestupidless.ankka.grpc
 import com.thinkmorestupidless.ankka.runtime.{
   AnkkaService,
   HttpServiceClients,
+  Observability,
   RotatingTls,
   RuntimeExtension,
-  ServiceRegistration
+  ServiceRegistration,
+  SpanOutcome,
+  Trace,
+  Traceparent
 }
 import com.thinkmorestupidless.ankka.sdk.{
   ServiceIdentityMismatch,
@@ -61,10 +65,17 @@ final class GrpcClients private (locate: Option[GrpcClients.Locate]) extends Run
   @volatile private var setting: Option[Setting] = None
   private val channels = ConcurrentHashMap[(String, String), ManagedChannel]()
 
-  def start(service: AnkkaService): Unit = configure(service.system.settings.config): Unit
+  def start(service: AnkkaService): Unit =
+    configure(service.system.settings.config, Some(Observability(service.system))): Unit
 
-  /** For suites that call a server of their own, with no service around them. */
-  private[ankka] def configure(config: Config): GrpcClients =
+  /**
+   * For suites that call a server of their own, with no service around them. With a recorder, a
+   * call is recorded as a span of the calling handler's, and carries that span's trace context.
+   */
+  private[ankka] def configure(
+      config: Config,
+      observability: Option[Observability] = None
+  ): GrpcClients =
     val directory = config.getString("ankka.tls.service-directory")
     val tls = Option.when(directory.nonEmpty)(
       RotatingTls(
@@ -72,7 +83,7 @@ final class GrpcClients private (locate: Option[GrpcClients.Locate]) extends Run
         FiniteDuration(config.getDuration("ankka.tls.reload-interval").toMillis, MILLISECONDS)
       )
     )
-    setting = Some(Setting(config, tls))
+    setting = Some(Setting(config, tls, observability))
     this
 
   /** A service of this service's own project. */
@@ -130,7 +141,9 @@ final class GrpcClients private (locate: Option[GrpcClients.Locate]) extends Run
           .overrideAuthority(authority)
     builder
       .defaultLoadBalancingPolicy("round_robin")
-      .intercept(Outcomes(target))
+      // The last runs first: `CallSpans` is nearest the transport, so it reads a status as it
+      // arrived, before `Outcomes` gives it a cause — a cause there means a local failure.
+      .intercept(CallSpans(setting.observability, project, name), Outcomes(target))
       .build()
 
   /** Kubernetes DNS in a cluster; the developer's setting, then the running service, locally. */
@@ -182,7 +195,11 @@ object GrpcClients:
     /** Fixed addresses: a service on this machine, or a suite's servers. */
     case Addresses(addresses: Vector[SocketAddress], authority: String)
 
-  private final case class Setting(config: Config, tls: Option[RotatingTls])
+  private final case class Setting(
+      config: Config,
+      tls: Option[RotatingTls],
+      observability: Option[Observability]
+  )
 
   private val StaticScheme = "ankka-static"
 
@@ -212,6 +229,59 @@ object GrpcClients:
                 .build()
             )
           def shutdown(): Unit = ())
+
+  /**
+   * A call to another service as a span of the calling handler's, begun on the calling thread when
+   * the call starts and ended when it closes, with the status mapped as the called service maps its
+   * own; the call carries that span's `traceparent`, replacing any the caller set, so the called
+   * service continues the trace under it. With no recorder the thread's own context is carried, so
+   * a trace still joins.
+   */
+  private final class CallSpans(observability: Option[Observability], project: String, name: String)
+      extends ClientInterceptor:
+    def interceptCall[Q, R](
+        method: MethodDescriptor[Q, R],
+        options: CallOptions,
+        next: Channel
+    ): ClientCall[Q, R] =
+      new ForwardingClientCall.SimpleForwardingClientCall[Q, R](next.newCall(method, options)):
+        override def start(listener: ClientCall.Listener[R], headers: Metadata): Unit =
+          headers.removeAll(Spans.TraceparentKey): Unit
+          observability match
+            case None =>
+              Trace.currentContext.foreach(c =>
+                headers.put(Spans.TraceparentKey, Traceparent.render(c))
+              )
+              super.start(listener, headers)
+            case Some(o) =>
+              val span = o.beginCall(
+                o.externalServices.nameFor(project, name),
+                o.externalServices.methodFor(method.getFullMethodName)
+              )
+              val ended = java.util.concurrent.atomic.AtomicBoolean(false)
+              def end(outcome: SpanOutcome): Unit =
+                if ended.compareAndSet(false, true) then o.recorder.complete(span, outcome)
+              headers.put(Spans.TraceparentKey, Traceparent.render(span.context))
+              try
+                super.start(
+                  new ForwardingClientCallListener.SimpleForwardingClientCallListener[R](listener):
+                    override def onClose(status: Status, trailers: Metadata): Unit =
+                      end(CallSpans.outcomeOf(status))
+                      super.onClose(status, trailers)
+                  ,
+                  headers
+                )
+              catch
+                case e: Throwable =>
+                  end(SpanOutcome.Failed)
+                  throw e
+
+  private object CallSpans:
+    /** As the called service's span says it, but a deadline the caller set is the caller's wait. */
+    def outcomeOf(status: Status): SpanOutcome =
+      if status.getCode == Status.Code.DEADLINE_EXCEEDED then SpanOutcome.TimedOut
+      else if status.getCause != null && !status.isOk then SpanOutcome.Failed
+      else Spans.outcomeOf(status)
 
   /**
    * How a call to another service ended, said in ankka's terms: a refusal carries its

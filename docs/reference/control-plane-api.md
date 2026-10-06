@@ -399,8 +399,8 @@ The entries named are added or replaced and every other entry of the secret is k
 a Kubernetes Secret in the project's namespace before anything is recorded, and a cluster that could not
 be written answers `503` and records nothing. No value appears in any reply, listing or history: the
 control plane records the secret's name and its entries' names. A name the platform uses for its own
-Secrets (beginning `ankka-`, or ending `-db`, `-cluster-tls`, `-service-tls`, `-database-tls` or
-`-secret-key`), a malformed name or entry, an empty value or one over 64 KiB is refused with `400`, every
+Secrets (beginning `ankka-`, or ending `-db`, `-cluster-tls`, `-service-tls`, `-database-tls`,
+`-secret-key` or `-telemetry`), a malformed name or entry, an empty value or one over 64 KiB is refused with `400`, every
 problem at once.
 
 ### `DELETE /projects/{projectId}/secrets/{name}`

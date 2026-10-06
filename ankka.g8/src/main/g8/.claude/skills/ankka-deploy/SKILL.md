@@ -115,6 +115,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/operate/console.md` — Use an installation's web console at console.<base domain> to sign in, manage organizations, projects, members and deploy tokens, and deploy, operate and watch services without the CLI.
 - `references/operate/status-and-history.md` — Read a deployed service's status with `ankka services list` and `get`, understand every field including unconfirmed readings, and see who changed a service with `ankka services history`.
 - `references/operate/logs.md` — Read what a deployed service printed with `ankka services logs` — from every instance or one, from the container before the last restart, limited by lines or time — and know what it does not keep.
+- `references/operate/telemetry.md` — Send every service's traces and metrics to an OpenTelemetry collector the installation names once, read one request across services as one trace, join logs to traces, and open a local platform's telemetry store.
 - `references/operate/service-lifecycle.md` — What pausing, resuming, restarting and deleting a deployed service do to its instances, its data, its hostname and its generation, and how a suspended service differs from a paused one.
 - `references/operate/troubleshooting.md` — Symptoms you are likely to meet building, running, deploying and operating ankka services, with the cause of each and what to do about it.
 

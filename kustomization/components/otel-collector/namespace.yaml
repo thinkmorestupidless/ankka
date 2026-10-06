@@ -1,0 +1,6 @@
+# The collector's own namespace. Not labelled managed-by: ankka: it is no workload of the
+# installation's, and nothing else admits it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ankka-telemetry

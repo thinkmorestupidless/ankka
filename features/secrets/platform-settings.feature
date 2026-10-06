@@ -21,12 +21,14 @@ Feature: The platform's own settings
     Then "payments" is told that the variable is not set
 
     Examples:
-      | variable           |
-      | ANTHROPIC_API_KEY  |
-      | ANKKA_MODEL_NAME   |
-      | ANKKA_DB_HOST      |
-      | ANKKA_CLUSTER_MODE |
-      | ANKKA_HTTP_PORT    |
+      | variable            |
+      | ANTHROPIC_API_KEY   |
+      | ANKKA_MODEL_NAME    |
+      | ANKKA_DB_HOST       |
+      | ANKKA_CLUSTER_MODE  |
+      | ANKKA_HTTP_PORT     |
+      | ANKKA_OTLP_ENDPOINT |
+      | ANKKA_OTLP_HEADERS  |
 
   Scenario: every platform setting kept from a process is kept from a module
     Given the platform settings a process is not given

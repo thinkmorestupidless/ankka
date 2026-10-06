@@ -35,6 +35,9 @@ lazy val root = project
       "com.thinkmorestupidless" %% "ankka-sdk"     % ankkaVersion,
       "com.thinkmorestupidless" %% "ankka-runtime" % ankkaVersion,
       "com.thinkmorestupidless" %% "ankka-http"    % ankkaVersion,
+      // Exports this service's traces and metrics to the collector the installation names; with
+      // none named it starts nothing. Nothing in the code names it.
+      "com.thinkmorestupidless" %% "ankka-telemetry-otlp" % ankkaVersion,
       // "com.thinkmorestupidless" %% "ankka-agent" % ankkaVersion,   // agents: uncomment
       // "com.thinkmorestupidless" %% "ankka-auth-oidc" % ankkaVersion,   // your users' tokens: uncomment
       "com.thinkmorestupidless" %% "ankka-testkit" % ankkaVersion % Test,

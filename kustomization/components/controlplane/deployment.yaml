@@ -102,6 +102,16 @@ spec:
             # that works; replaced by the overlay from ankka-platform.httpsPort.
             - name: ANKKA_HTTPS_PORT
               value: "443"
+            # Where the control plane, an ankka service itself, exports its telemetry, and what
+            # it sends with it. The address is replaced by the overlay from
+            # ankka-platform.otlpEndpoint; empty names no collector, and nothing is exported. The
+            # headers are a credential, from the installation's own ankka-telemetry Secret in this
+            # namespace when the collector wants one.
+            - name: ANKKA_OTLP_ENDPOINT
+              value: ""
+            - name: ANKKA_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef: { name: ankka-telemetry, key: headers, optional: true }
             # How this pod finds its peers — the same five variables the operator injects into
             # every service (feature 004). ANKKA_CLUSTER_MODE selects the Kubernetes overlay.
             - name: ANKKA_CLUSTER_MODE

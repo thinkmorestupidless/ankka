@@ -3,7 +3,7 @@ title: Runtime configuration
 description: Every environment variable and configuration key a running ankka service reads, their defaults, how configuration is layered, and which variables the platform sets for you.
 kind: reference
 languages: [scala, python]
-related: [deploy/run-locally.md, reference/service-descriptor.md, concepts/clustering.md, reference/runtime-endpoints.md]
+related: [deploy/run-locally.md, reference/service-descriptor.md, concepts/clustering.md, reference/runtime-endpoints.md, operate/telemetry.md]
 ---
 
 # Runtime configuration
@@ -62,6 +62,8 @@ The table is generated from the runtime's configuration files.
 | `ANKKA_HTTP_PORT` | `ankka.http.port` | `9000` | every service |
 | `ANKKA_GRPC_INTERFACE` | `ankka.grpc.interface` | `"0.0.0.0"` | a service that serves gRPC |
 | `ANKKA_GRPC_PORT` | `ankka.grpc.port` | `9090` | a service that serves gRPC |
+| `ANKKA_OTLP_ENDPOINT` | `ankka.telemetry.endpoint` | `""` | a service that exports telemetry |
+| `ANKKA_OTLP_HEADERS` | `ankka.telemetry.headers` | `""` | a service that exports telemetry |
 | `ANKKA_CLUSTER_SEED_NODES` | `ankka.cluster.seed-nodes` | `""` | local mode |
 | `ANKKA_CLUSTER_PORT` | `pekko.remote.artery.canonical.port` | `0` | local mode |
 | `POD_IP` | `pekko.remote.artery.canonical.hostname` | required, set by the platform | kubernetes mode |
@@ -82,18 +84,28 @@ Settings with no environment variable, overridable in the service's own `applica
 | `ankka.probe.enabled` | `off` | every service |
 | `ankka.probe.port` | `7627` | every service |
 | `ankka.observability.ring-capacity` | `4096` | every service |
+| `ankka.observability.max-counted-handlers` | `1024` | every service |
 | `ankka.observability.call-window` | `10m` | every service |
 | `ankka.observability.call-buckets` | `60` | every service |
 | `ankka.observability.observe.enabled` | `off` | every service |
 | `ankka.observability.observe.port` | `7628` | every service |
 | `ankka.observability.observe.peer` | `"ankka://platform/controlplane"` | every service |
 | `ankka.observability.max-external-services` | `32` | every service |
+| `ankka.observability.max-external-methods` | `256` | every service |
 | `ankka.http.body-timeout` | `10s` | every service |
 | `ankka.grpc.max-message-size` | `4MiB` | a service that serves gRPC |
 | `ankka.grpc.max-connection-age` | `2m` | a service that serves gRPC |
 | `ankka.grpc.shutdown-grace` | `5s` | a service that serves gRPC |
 | `ankka.grpc.keepalive-time` | `30s` | a service that serves gRPC |
 | `ankka.grpc.keepalive-timeout` | `10s` | a service that serves gRPC |
+| `ankka.telemetry.interval` | `1s` | a service that exports telemetry |
+| `ankka.telemetry.batch-size` | `512` | a service that exports telemetry |
+| `ankka.telemetry.export-timeout` | `5s` | a service that exports telemetry |
+| `ankka.telemetry.max-backoff` | `30s` | a service that exports telemetry |
+| `ankka.telemetry.metric-interval` | `10s` | a service that exports telemetry |
+| `ankka.telemetry.shutdown-timeout` | `3s` | a service that exports telemetry |
+| `ankka.telemetry.service-name` | `""` | a service that exports telemetry |
+| `ankka.telemetry.project` | `""` | a service that exports telemetry |
 | `ankka.cluster.formation` | `join-self-or-seeds` | local mode |
 | `ankka.join-self-if-no-seed-nodes` | `on` | local mode |
 | `ankka.cluster.formation` | `bootstrap` | kubernetes mode |
@@ -328,6 +340,25 @@ These are overridden in the service's `application.conf` or with a system proper
   pair of handlers.
 - `ankka.observability.max-external-services` is how many other services a topology shows by name, `32`
   by default. Calls to any service beyond that are counted together as other services.
+- `ankka.observability.max-external-methods` is how many gRPC methods of other services a call is recorded
+  under by name, `256` by default; calls to any method beyond that are recorded together as other methods.
+- `ankka.observability.max-counted-handlers` is how many pairs of component and handler the invocation
+  counts name, `1024` by default; any beyond are counted together as `(other)`. These are the counts a
+  service exports as its metrics, since it started.
+- `ankka.telemetry.endpoint`, from `ANKKA_OTLP_ENDPOINT`, is the OpenTelemetry collector a service exports
+  its spans and metrics to, `http://host:4318` or `https://host[:port]`; empty, the default, exports
+  nothing and starts nothing. `ankka.telemetry.headers`, from `ANKKA_OTLP_HEADERS`, is what is sent with
+  every export, as `name=value,name=value`, and is never logged. On the platform the operator sets both
+  from the installation's settings and a descriptor may not; read only by a service with the
+  `ankka-telemetry-otlp` module. See [Telemetry](../operate/telemetry.md).
+- `ankka.telemetry.interval`, `1s`, is how often recorded spans are read and sent, sooner when half the
+  trace window is unread; `ankka.telemetry.batch-size`, `512`, is the most spans in one export; and
+  `ankka.telemetry.export-timeout`, `5s`, is how long one export may take.
+- `ankka.telemetry.max-backoff`, `30s`, is the longest wait between tries while the collector cannot be
+  reached; `ankka.telemetry.metric-interval`, `10s`, is how often the metrics are sent; and
+  `ankka.telemetry.shutdown-timeout`, `3s`, is how long a stopping instance spends sending what it holds.
+- `ankka.telemetry.service-name` and `ankka.telemetry.project` say who an instance is where it has no
+  certificate to say so, such as a developer's machine; on the platform the certificate is used instead.
 - `ankka.observability.observe.enabled`, `ankka.observability.observe.port` and
   `ankka.observability.observe.peer` start the listener the installation's control plane reads a deployed
   instance's topology from: off by default, on in `kubernetes` mode, on port `7628`, admitting only the peer

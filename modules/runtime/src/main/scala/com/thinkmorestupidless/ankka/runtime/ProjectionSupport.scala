@@ -36,25 +36,61 @@ private[ankka] object ProjectionSupport:
    * Runs a view's or a consumer's one handler as a span of its own, and as the origin of whatever
    * the handler calls.
    *
-   * A trace root, as every projection's work is: it is caught up from a journal or a topic, not
-   * continued from whatever wrote the change. Without the span a consumer does not appear in a
-   * trace or a metric at all, and without the origin a call it makes is from nobody.
+   * A change read from a journal starts a trace: threading the writer's trace into it would make
+   * one request appear to last for as long as its consumers took to catch up, and a journal record
+   * has no room for a trace anyway. A message read from a topic is different: it says which trace
+   * it belongs to (`traceparent`, put there by the consumer that published it), and its handling
+   * continues that trace under the publisher's span — a second or a week later, and again for each
+   * time it is delivered. Without the span a consumer does not appear in a trace or a metric at
+   * all, and without the origin a call it makes is from nobody.
    */
   def handling[A](observability: Observability, component: String, handler: String)(
       body: => A
-  ): A =
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
-      componentRef = observability.names.intern(component),
-      handlerRef = observability.names.intern(handler)
-    )
+  ): A = traced(observability, component, handler, None)(body)._1
+
+  /**
+   * As `handling`, continuing `parent` when a message carried one, and returning the context of the
+   * span it recorded: what the messages the handler produces are stamped with, once the span has
+   * closed and its thread has moved on.
+   */
+  def traced[A](
+      observability: Observability,
+      component: String,
+      handler: String,
+      parent: Option[TraceContext]
+  )(body: => A): (A, TraceContext) =
+    val componentRef = observability.names.intern(component)
+    val handlerRef   = observability.names.intern(handler)
+    val span = parent match
+      case Some(p) =>
+        observability.recorder.begin(
+          p.traceIdHigh,
+          p.traceId,
+          p.spanId,
+          componentRef,
+          handlerRef,
+          SpanKind.Consumer
+        )
+      case None => observability.recorder.beginRoot(componentRef, handlerRef)
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span.traceId, span.id, CallOrigin(component, handler))(body)
+      val result = Trace.within(span, CallOrigin(component, handler))(body)
       outcome = SpanOutcome.Ok
-      result
+      (result, span.context)
     finally observability.recorder.complete(span, outcome)
+
+  /** The trace context a message read from a topic carries, if it carries one that can be read. */
+  def carried(message: IncomingMessage): Option[TraceContext] =
+    message.metadata.get(Traceparent.Name).flatMap(Traceparent.parse)
+
+  /**
+   * A message's metadata as it is published: with the trace context of the span of the handler that
+   * produced it, replacing any the handler set itself. The one place this is done, for a single
+   * message and for several, in process, behind a sidecar or in a module, so that a reader of the
+   * topic continues the publisher's trace whatever published it.
+   */
+  def stamped(metadata: Metadata, context: Option[TraceContext]): Metadata =
+    context.fold(metadata)(c => metadata.set(Traceparent.Name, Traceparent.render(c)))
 
   /** Sets up the view's per-change state, runs it, and always clears the context. */
   def runView(
@@ -183,7 +219,8 @@ private[ankka] object ProjectionSupport:
       effect: ConsumerEffect[Any],
       subject: String,
       descriptor: ConsumerDescriptor[Consumer[Any, Any], Any, Any],
-      publisher: Option[MessagePublisher]
+      publisher: Option[MessagePublisher],
+      context: Option[TraceContext] = None
   ): Future[Done] =
     effect match
       case ConsumerEffect.Done | ConsumerEffect.Ignore =>
@@ -200,7 +237,9 @@ private[ankka] object ProjectionSupport:
               subject,
               topic,
               target,
-              messages.map(m => Encoded(serializer.toBytes(m.payload), m.metadata, m.key))
+              messages.map(m =>
+                Encoded(serializer.toBytes(m.payload), stamped(m.metadata, context), m.key)
+              )
             )
 
           case _ =>
@@ -214,9 +253,9 @@ private[ankka] object ProjectionSupport:
       case ConsumerEffect.Produce(payload, metadata) =>
         (descriptor.produceTo, publisher, descriptor.outputSerializer) match
           case (Some(topic), Some(target), Some(serializer)) =>
-            val enriched =
+            val withSubject =
               if metadata.subject.isDefined then metadata else metadata.withSubject(subject)
-            target.publish(topic, serializer.toBytes(payload), enriched)
+            target.publish(topic, serializer.toBytes(payload), stamped(withSubject, context))
 
           case _ =>
             // Startup validation rules this out; reaching it means a producing consumer

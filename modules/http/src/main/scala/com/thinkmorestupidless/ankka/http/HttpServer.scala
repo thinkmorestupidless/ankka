@@ -4,8 +4,10 @@ import com.thinkmorestupidless.ankka.runtime.{
   CallOrigin,
   Observability,
   ServedRoute,
+  SpanKind,
   SpanOutcome,
-  Trace
+  Trace,
+  Traceparent
 }
 import com.thinkmorestupidless.ankka.core.CommandError
 import com.thinkmorestupidless.ankka.runtime.{AnkkaExecutors, AnkkaService, RuntimeExtension}
@@ -616,11 +618,16 @@ private[http] object CallerSource:
       new CallerSource(self, tls = true)
 
 /**
- * The request's own span: the root every component invocation it causes hangs from.
+ * The request's own span: what every component invocation it causes hangs from.
  *
  * Lives in `http` rather than `runtime` because only this module knows what a request is, and
  * reaches the recorder through the extension `runtime` publishes — the same direction every other
  * part of the seam runs in.
+ *
+ * A request that carries a `traceparent` — another service's call, or an edge proxy's request from
+ * outside the cluster — is continued: the span joins that trace under that span. One that carries
+ * none, or one that cannot be read, starts a trace of its own. The header is read from the request
+ * context already on this thread, and nothing is echoed.
  */
 private[ankka] object Tracing:
 
@@ -628,15 +635,24 @@ private[ankka] object Tracing:
       system: ActorSystem[?]
   ): A =
     val observability = Observability(system)
-    val span = observability.recorder.begin(
-      traceId = Trace.mint(),
-      parentSpanId = 0L,
-      componentRef = observability.names.intern("http"),
-      handlerRef = observability.names.intern(describe)
-    )
+    val componentRef  = observability.names.intern("http")
+    val handlerRef    = observability.names.intern(describe)
+    val continued =
+      RequestScope.currentContext.flatMap(_.header(Traceparent.Name)).flatMap(Traceparent.parse)
+    val span = continued match
+      case Some(parent) =>
+        observability.recorder.begin(
+          parent.traceIdHigh,
+          parent.traceId,
+          parent.spanId,
+          componentRef,
+          handlerRef,
+          SpanKind.Server
+        )
+      case None => observability.recorder.beginRoot(componentRef, handlerRef, SpanKind.Server)
     var outcome = SpanOutcome.Failed
     try
-      val result = Trace.within(span.traceId, span.id, origin)(body)
+      val result = Trace.within(span, origin)(body)
       outcome = SpanOutcome.Ok
       result
     finally observability.recorder.complete(span, outcome)

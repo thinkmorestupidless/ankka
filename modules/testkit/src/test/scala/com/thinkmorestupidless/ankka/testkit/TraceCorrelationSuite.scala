@@ -28,17 +28,22 @@ final class TraceCorrelationSuite extends FunSuite with LogCapturing:
   private def recorder = Observability(testKit.service.system).recorder
 
   test("an invocation with no inbound trace is a root, and gets one of its own") {
-    val id     = EntityId("root-1")
-    val before = recorder.recorded
+    val id = EntityId("root-1")
+    // Span ids start at a random number per recorder, so "after" is what was not there before.
+    val before = recorder.snapshot().map(_.spanId).toSet
     val _ = testKit.componentClient
       .forKeyValueEntity(id)
       .call(ProfileEntity.register)
       .invoke(Profile("Ada", "ada@example.com", 1))
 
-    val spans = recorder.snapshot().filter(_.spanId > before)
+    val spans = recorder.snapshot().filterNot(s => before(s.spanId))
     assertEquals(spans.size, 1, "one invocation, one span")
     assertEquals(spans.head.parentSpanId, 0L, "nothing called it, so it has no parent")
     assertNotEquals(spans.head.traceId, 0L, "but it still belongs to a trace")
+    assert(
+      spans.head.callerUnknown,
+      "a call made outside any handler is from a caller the service cannot tell, and says so"
+    )
   }
 
   test("a component calling another component produces one trace, not two") {

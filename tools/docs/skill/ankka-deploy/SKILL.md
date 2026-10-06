@@ -21,6 +21,7 @@ pages:
   - operate/local-console.md
   - operate/status-and-history.md
   - operate/logs.md
+  - operate/telemetry.md
   - operate/service-lifecycle.md
   - operate/troubleshooting.md
   - concepts/control-plane.md

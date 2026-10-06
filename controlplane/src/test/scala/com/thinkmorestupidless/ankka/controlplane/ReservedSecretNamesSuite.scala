@@ -22,7 +22,8 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
       ZeroTrust.clusterSecretName(service),
       ZeroTrust.serviceSecretName(service),
       ZeroTrust.Database.certificateSecret(service),
-      Names.secretKeySecret(service)
+      Names.secretKeySecret(service),
+      Names.telemetrySecret(service)
     )
 
   private val projectNames: Vector[String] =

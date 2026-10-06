@@ -90,7 +90,9 @@ object Ankka:
  *
  * Registration is explicit — there is no classpath scanning — so the set of components a service
  * hosts is a value you can inspect, test and diff, and a component that was never registered fails
- * at startup rather than at its first request.
+ * at startup rather than at its first request. The one thing added that the service did not hand
+ * over is a platform extension a module on its classpath declares (`RuntimeExtensionProvider`),
+ * which joins the service's own extensions after them when it starts.
  */
 final class ServiceBuilder private[ankka] (
     private val descriptors: Vector[ComponentDescriptor],
@@ -189,6 +191,13 @@ final class ServiceBuilder private[ankka] (
     host(system, ownsSystem = false)
 
   private def host(system: ActorSystem[?], ownsSystem: Boolean): AnkkaService =
+    // Any a module on its classpath provides, then the service's own: started first and stopped
+    // last. Stopped first, the telemetry exporter's final flush held every server open behind it
+    // while the pod's other containers were already stopping, and a rolling restart refused requests.
+    val extensions =
+      RuntimeExtensionProvider.provided(system.settings.config) ++ this.extensions
+    // Before anything runs a handler: every line a handler writes names its trace from here on.
+    TraceLogging.install()
     val registry = validate.fold(
       problems =>
         throw IllegalArgumentException(

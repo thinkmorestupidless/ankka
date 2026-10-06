@@ -62,13 +62,38 @@ ankka services logs cart --platform    # the sidecar, or the proxy
 For a service whose pod has one container, `--platform` is refused:
 `--platform applies to a service with process or web hosting`.
 
+## Lines that name their trace
+
+A line written while a handler runs carries the trace and span it belongs to, in the logging context as
+`trace_id` and `span_id`, and the platform's own programs — the sidecar beside a process, the control
+plane, and every project `ankka init` makes — end such a line with them:
+
+```text
+12:00:01.123 INFO  c.t.a.cart.Cart - an item was added trace_id=4bf92f3577b34da6a3ce929d0e0e4736 span_id=00f067aa0ba902b7
+12:00:01.200 INFO  c.t.a.runtime.Ankka - ankka shopping-cart service started
+```
+
+A line written outside any handler carries neither, and ends exactly as it did before. That is what lets
+a log store join a service's lines to its traces in the collector the installation names. Logs are never
+exported: they are gathered from standard output, by [the telemetry store](telemetry.md) on a local
+platform and by the installation's own agent anywhere else.
+
+A Scala service whose `logback.xml` predates this prints the ids once its pattern names them; append this
+after `%msg`:
+
+```text
+%replace( trace_id=%X{trace_id} span_id=%X{span_id}){' trace_id= span_id=$', ''}
+```
+
+A Python or TypeScript process's own lines are its own, and carry no ids.
+
 ## What it is not
 
 `ankka services logs` is not a log store. It keeps nothing, searches nothing, and aggregates nothing.
 Kubernetes holds the output of a pod's current container and the one before it, so a service that has
 restarted many times has lost everything but its last two containers, and a pod that has been replaced
 has taken its logs with it. For retention and search, collect container output with the logging stack of
-the cluster you run on.
+the cluster you run on; on a local platform the telemetry store already does.
 
 Reading logs is the only thing that gives the control plane read access to pods. It can read pods and
 their logs, and nothing else about them; it cannot execute commands in a pod or change one.

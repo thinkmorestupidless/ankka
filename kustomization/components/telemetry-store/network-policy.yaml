@@ -1,0 +1,33 @@
+# Who may reach the store: the installation's own workloads — every project's services and the
+# platform's own — and the log agent, with OTLP; the gateway's proxy pods, which Envoy Gateway runs
+# in its own namespace, with Grafana's port; nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lgtm
+  namespace: ankka-telemetry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: lgtm
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - { protocol: TCP, port: 4318 }
+        - { protocol: TCP, port: 4317 }
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: log-agent }
+    - ports:
+        - { protocol: TCP, port: 3000 }
+      from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: envoy-gateway-system }
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-name: ankka
+              gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway

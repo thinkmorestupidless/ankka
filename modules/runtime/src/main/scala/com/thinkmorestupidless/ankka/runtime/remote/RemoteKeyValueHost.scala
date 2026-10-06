@@ -8,6 +8,7 @@ import com.thinkmorestupidless.ankka.runtime.{
   EntityProtocol,
   MetaEntry,
   Observability,
+  SpanKind,
   SpanOutcome,
   StateRecord,
   Trace
@@ -118,11 +119,14 @@ private[ankka] object RemoteKeyValueHost:
             inFlight = Some(invoke)
             sentNanos = System.nanoTime()
             val metadata = MetaEntry.toMetadata(invoke.metadata)
+            val inbound  = Trace.inbound(metadata)
             val span = observability.recorder.begin(
-              traceId = Trace.traceIdOf(metadata).getOrElse(Trace.mint()),
-              parentSpanId = Trace.parentSpanIdOf(metadata).getOrElse(0L),
+              traceIdHigh = inbound.traceIdHigh,
+              traceId = inbound.traceId,
+              parentSpanId = inbound.parentSpanId,
               componentRef = componentRef,
-              handlerRef = observability.names.intern(invoke.method)
+              handlerRef = observability.names.intern(invoke.method),
+              kind = SpanKind.Internal
             )
             val payload = Payload(
               metadata.get(PayloadKeys.ContentType).getOrElse(Payload.Json),
@@ -132,7 +136,7 @@ private[ankka] object RemoteKeyValueHost:
             // The span is the parent of anything the process calls back for, and this handler is
             // who such a call is from: not whoever called this one.
             val carried = CallOrigin.into(
-              Trace.into(metadata, span.traceId, span.id),
+              Trace.into(metadata, span.context),
               CallOrigin(component, invoke.method)
             )
             val command = Command(id, handler.name, payload, carried, false)

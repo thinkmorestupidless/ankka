@@ -285,3 +285,20 @@ replacements:
           name: ankka-operator
         fieldPaths:
           - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_HTTPS_PORT].value
+  # Where every workload exports its telemetry: the operator renders it onto each service, and the
+  # control plane exports there itself. Empty, as this example ships, names no collector.
+  - source:
+      kind: ConfigMap
+      name: ankka-platform
+      fieldPath: data.otlpEndpoint
+    targets:
+      - select:
+          kind: Deployment
+          name: ankka-controlplane
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-controlplane].env.[name=ANKKA_OTLP_ENDPOINT].value
+      - select:
+          kind: Deployment
+          name: ankka-operator
+        fieldPaths:
+          - spec.template.spec.containers.[name=ankka-operator].env.[name=ANKKA_OTLP_ENDPOINT].value

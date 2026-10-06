@@ -76,8 +76,10 @@ The script takes several minutes on its first run. In order, it:
 5. **Applies the `AnkkaService` custom resource definition**, then the control plane's namespace.
 6. **Applies everything else** with one `kubectl apply -k` of the local overlay: the operator, the control
    plane with its own Postgres cluster and the schema that cluster is created with, the installation's
-   gateway with a local certificate authority and a wildcard certificate, and Keycloak with its database
-   and the `ankka` realm's import. The overlay is the whole platform, so applying it any other way — by
+   gateway with a local certificate authority and a wildcard certificate, Keycloak with its database
+   and the `ankka` realm's import, and the telemetry store every service exports its traces and metrics
+   to, with an agent on the node that gathers what every pod printed. The store's image is about a
+   gigabyte, pulled the first time. The overlay is the whole platform, so applying it any other way — by
    hand, or from a GitOps tool — installs the same thing.
 7. **Restarts the operator and the control plane** so they run the images just loaded, even when nothing
    in their manifests changed.
@@ -90,7 +92,8 @@ The script takes several minutes on its first run. In order, it:
 10. **Exports the local certificate authority's root** to `~/.ankka/local-ca.crt`.
 11. **Checks the platform end to end**: it obtains a token from the identity provider and lists
     organizations through the gateway, which exercises DNS, TLS, both routes, token verification and the
-    control plane's database. A problem is printed as a warning naming the likely cause.
+    control plane's database. Then it asks the telemetry store, through Grafana, for a trace from the
+    control plane. A problem is printed as a warning naming the likely cause.
 
 It ends by printing the control plane's address and the commands to use it.
 
@@ -112,6 +115,13 @@ verification.
 with password `dev`. A browser shows it only once it trusts the local certificate authority, which the
 deploy script exported to `~/.ankka/local-ca.crt`. On macOS, open that file in Keychain Access and mark it
 trusted for SSL; remove it from the keychain when you tear the platform down.
+
+## Open the telemetry store
+
+Every service's traces, metrics and logs are at `https://grafana.127.0.0.1.sslip.io:8443`, as `admin`
+with password `admin`, in the same browser that trusts the local certificate authority. The control
+plane's own traces are there before anything is deployed. The store keeps what it holds only until it
+restarts. See [Telemetry](../operate/telemetry.md).
 
 ## The identity provider
 

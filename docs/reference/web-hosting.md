@@ -53,6 +53,11 @@ the hop-by-hop headers (`Connection`, `Keep-Alive`, `Proxy-Authenticate`, `Proxy
 last entry is the gateway's and the ones before it are whatever the client sent, and removed from a
 service's request.
 
+A trace context passes as it arrived, on a request to the process, on a request under a mount and on a
+call made at the calling address: `traceparent` and `tracestate` are neither removed nor changed, and
+the proxy records no span of its own. A trace crosses a web-hosted service unbroken, and a process that
+wants a span in it exports one itself.
+
 When the installation has no base domain, the three `X-Forwarded-` headers are left out of a request
 from the internet and `Host` is passed as it arrived.
 

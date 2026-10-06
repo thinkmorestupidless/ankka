@@ -109,6 +109,7 @@ extra:
           - { path: modules/runtime/src/main/resources/reference.conf, scope: every service }
           - { path: modules/http/src/main/resources/reference.conf, scope: every service }
           - { path: modules/grpc/src/main/resources/reference.conf, scope: a service that serves gRPC }
+          - { path: modules/telemetry-otlp/src/main/resources/reference.conf, scope: a service that exports telemetry }
           - { path: modules/runtime/src/main/resources/ankka-cluster-local.conf, scope: local mode }
           - { path: modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf, scope: kubernetes mode }
         prefix: ankka.
@@ -199,6 +200,7 @@ nav:
       - The console: operate/console.md
       - Status and history: operate/status-and-history.md
       - Logs: operate/logs.md
+      - Telemetry: operate/telemetry.md
       - Pause, resume, restart and delete: operate/service-lifecycle.md
       - Troubleshooting: operate/troubleshooting.md
   - Run the platform:

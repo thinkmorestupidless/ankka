@@ -19,3 +19,6 @@ data:
   # 443. Derivable from the two above, and written out because a replacement cannot join them;
   # RemoteOverlaySuite fails if it ever disagrees with them.
   consoleAuthority: console.127.0.0.1.sslip.io:8443
+  # Where every workload exports its spans and metrics: the telemetry store this overlay lists,
+  # which a developer reads at https://grafana.<baseDomain>.
+  otlpEndpoint: http://lgtm.ankka-telemetry.svc.cluster.local:4318

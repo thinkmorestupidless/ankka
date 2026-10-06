@@ -31,6 +31,12 @@ private[ankka] object PlatformVariables:
   /** The port the service serves gRPC on. A descriptor declares `grpcPort` instead. */
   val GrpcPort: String = "ANKKA_GRPC_PORT"
 
+  /** The collector an instance exports its telemetry to: the installation's to say, once. */
+  val OtlpEndpoint: String = "ANKKA_OTLP_ENDPOINT"
+
+  /** What is sent with the telemetry so the collector accepts it: a credential, from a Secret. */
+  val OtlpHeaders: String = "ANKKA_OTLP_HEADERS"
+
   /**
    * A service's name when it runs on a developer's machine, which names its topic sources' consumer
    * groups. A deployed service's name is its certificate's, so a descriptor that gives this is
@@ -62,7 +68,10 @@ private[ankka] object PlatformVariables:
     // How the runtime finds and sizes a module.
     "ANKKA_WASM_MODULE",
     "ANKKA_WASM_INSTANCES",
-    "ANKKA_WASM_MAX_MEMORY_PAGES"
+    "ANKKA_WASM_MAX_MEMORY_PAGES",
+    // Where telemetry goes: the installation's, given only to the platform's program.
+    OtlpEndpoint,
+    OtlpHeaders
   )
 
   /**

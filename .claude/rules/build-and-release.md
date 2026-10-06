@@ -19,23 +19,25 @@ paths:
 
 ## Publishing
 
-Nine modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Eight are libraries a
-*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `testkit`;
+Ten modules are published as `com.thinkmorestupidless:ankka-<module>_3`. Nine are libraries a
+*service* depends on — `core`, `sdk`, `runtime`, `http`, `grpc`, `auth-oidc`, `agent`, `testkit`,
+`telemetry-otlp`;
 `ankka-grpc` names grpc-java directly in its POM and no ScalaPB, which is the developer's build's, and a
 service adds `auth-oidc` only when it has users of its own whose tokens it verifies, which is why it is
-a module and not part of `http` (feature 022). The ninth, `controlplane-api`, is for a *client of the
+a module and not part of `http` (feature 022), and `telemetry-otlp` is a module so that the
+OpenTelemetry SDK reaches a service only through it (feature 026). The tenth, `controlplane-api`, is for a *client of the
 control plane*: the hosted product in `ankka-cloud` provisions organizations through it (feature 011),
 and a client that redefined the wire types by hand would drift from them. It still depends on `core`
-alone, and its POM's compile scope says so. `templateArtifacts` names seven, the template being a
+alone, and its POM's compile scope says so. `templateArtifacts` names eight, the template being a
 service: its own template carries no gRPC, and the suite's last case adds a gRPC endpoint to the
 expansion as the documentation says to (FR-040 of feature 020), so `ankka-grpc` must resolve locally
-too. The template has no users, so `auth-oidc` is a commented line in it and is not among the seven. Everything else (`crd`,
+too, and the template names `telemetry-otlp`, so a project it makes exports when deployed. The template has no users, so `auth-oidc` is a commented line in it and is not among the eight. Everything else (`crd`,
 `operator`, `controlplane`, `cli`, the samples, root) carries `publish / skip := true`: a
 platform-side jar cannot reach a repository by accident, and "these are not libraries" is a build
 fact rather than a note.
 
 ```bash
-sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly nine artifacts
+sbt publishLocal                     # the development loop: ~/.ivy2/local, exactly ten artifacts
 sbt 'show version'                   # sbt-dynver: 0.2.0 at tag v0.2.0; 0.2.0+3-sha-SNAPSHOT past it; dirty tree → -SNAPSHOT
 sbt -Dankka.release.local=/tmp/repo publishSigned   # the release path against a directory, with a throwaway key
 git tag v0.2.0 && git push --tags    # the only thing that publishes; the workflow stages it for approval

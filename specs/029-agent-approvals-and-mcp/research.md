@@ -621,3 +621,16 @@ skills' `pages:` lists.
   loop counts it as a failed iteration whose calls are settled again. Shown failing once with the
   check removed. Not built: a whole-service case for a request agent's judged result guardrail
   that cannot decide — the path is the one every guardrail fault already takes there.
+- **R18 as built (T059–T063)**: `main` reached 1.7 with feature 024 while this was being built, so
+  the branch merged `main` and this feature is **protocol 1.11**. Discovery carries a tool's
+  `approval`, an agent's `mcp_servers` and `result_guardrails`; `GuardrailRequest` has the `RESULT`
+  stage and an optional `tool`; `InvokeReply` and `StreamToken` have an `approval` case; `Client`
+  has `Decide`. `GuardrailStage.Result(tool)` carries the tool so `checkGuardrail`'s signature is
+  unchanged. A request agent's remote result guardrail is checked with no session id: it runs on
+  the loop's thread after a tool answered, where no session is known, and no SDK's check reads one.
+  The Rust crate names the new fields at their defaults, and a module's client answers an approval
+  reply as a `CONFLICT` naming the wait, since a module takes no part in approvals.
+- **T064 not built**: a process's HTTP stream route sends text frames only, so a process-hosted
+  endpoint cannot yet forward an approval request as a named SSE event. No 1.11 scenario needs it
+  (the stream scenario is the Scala agent's, held by `HttpSseSuite`); it goes on the limitations
+  page.

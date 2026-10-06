@@ -247,7 +247,12 @@ object ProcessDouble:
       tools: Map[String, (String, String) => Either[String, String]] = Map.empty,
       guardrails: Map[String, (GuardrailRequest.Stage, String) => Option[String]] = Map.empty,
       role: String = "",
-      maxToolCallSteps: Int = 0
+      maxToolCallSteps: Int = 0,
+      // 1.11: tools that wait for a person, the MCP servers the sidecar connects to, and the
+      // guardrails (by name, answered from `guardrails`) checked on those servers' results.
+      approvals: Set[String] = Set.empty,
+      mcpServers: Vector[ankka.protocol.v1.discovery.McpServer] = Vector.empty,
+      resultGuardrails: Vector[String] = Vector.empty
   )
 
   /**
@@ -522,16 +527,21 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
             ),
           Component.Detail.Agent(
             AgentDetail(
-              a.role,
-              a.maxToolCallSteps,
-              a.tools.keys.toVector.sorted.map(n =>
+              role = a.role,
+              maxToolCallSteps = a.maxToolCallSteps,
+              tools = a.tools.keys.toVector.sorted.map(n =>
                 Tool(
-                  n,
-                  s"the $n tool",
-                  """{"type":"object","properties":{"id":{"type":"string"}}}"""
+                  name = n,
+                  description = s"the $n tool",
+                  inputSchemaJson = """{"type":"object","properties":{"id":{"type":"string"}}}""",
+                  approval = Option.when(a.approvals.contains(n))(
+                    ankka.protocol.v1.discovery.Approval()
+                  )
                 )
               ),
-              a.guardrails.keys.toVector.sorted
+              guardrails = a.guardrails.keys.toVector.sorted.filterNot(a.resultGuardrails.contains),
+              mcpServers = a.mcpServers,
+              resultGuardrails = a.resultGuardrails
             )
           )
         )

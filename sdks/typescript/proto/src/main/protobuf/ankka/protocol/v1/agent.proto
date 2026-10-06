@@ -51,7 +51,10 @@ message GuardrailRequest {
   Stage stage = 4;
   string text = 5;
   Metadata metadata = 6;   // protocol 1.3: the trace, and the handler whose call this check is
-  enum Stage { INPUT = 0; OUTPUT = 1; }
+  optional string tool = 7; // protocol 1.11: with RESULT, the MCP tool whose result this is
+  // RESULT (1.11): what an MCP server's tool answered, checked by a result guardrail before the
+  // model is told it.
+  enum Stage { INPUT = 0; OUTPUT = 1; RESULT = 2; }
 }
 
 message GuardrailResult { oneof result { Empty pass = 1; string block = 2; } }

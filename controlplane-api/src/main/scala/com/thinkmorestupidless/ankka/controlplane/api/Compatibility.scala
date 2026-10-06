@@ -57,9 +57,12 @@ object Protocol:
    * view or consumer that reads one (feature 024). 1.8 added `Request` on `Client`: a call to
    * another service, made by the runtime as the service (feature 025). 1.9 added socket routes:
    * `Route.socket` and `Http.HandleSocket` (feature 028). 1.10 added three imports for a module,
-   * `request`, `now` and `random`, and changed no message (feature 030).
+   * `request`, `now` and `random`, and changed no message (feature 030). 1.11 added approvals, MCP
+   * servers and result guardrails to an agent: a tool's approval and an agent's servers and result
+   * guardrails in discovery, the RESULT stage of a guardrail check, the approval-request reply and
+   * stream token, and `Decide` on `Client` (feature 029).
    */
-  val version: ProtocolVersion = ProtocolVersion(1, 10)
+  val version: ProtocolVersion = ProtocolVersion(1, 11)
 
 object Compatibility:
 

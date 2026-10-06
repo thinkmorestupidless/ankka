@@ -25,7 +25,10 @@ socket routes: `Route.socket` in discovery and `Http.HandleSocket`, a stream in 
 as long as a socket is open. The sidecar refuses a socket route from a process that declares an
 earlier minor, and a module cannot declare one. `1.10` added three imports for a module and changed
 no message: `request`, which carries `ServiceRequest` and `ServiceReply` across a module's memory, and
-`now` and `random`, which carry none. A process is the same at 1.9 and 1.10.
+`now` and `random`, which carry none. A process is the same at 1.9 and 1.10. `1.11` added approvals, MCP servers and result
+guardrails to an agent: a tool's `approval` and an agent's `mcp_servers` and `result_guardrails` in
+discovery, the `RESULT` stage of `CheckGuardrail`, the `approval` case of `InvokeReply` and
+`StreamToken`, and `Decide` on `Client`.
 
 `MAJOR.MINOR`. Within a major:
 

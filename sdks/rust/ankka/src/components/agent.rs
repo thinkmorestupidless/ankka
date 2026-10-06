@@ -291,6 +291,8 @@ impl<C> Tools<C> {
                 name: name.clone(),
                 description: description.clone(),
                 input_schema_json: schema.to_json(),
+                // A module's tool runs when the model calls it: approvals are not offered to modules.
+                approval: None,
             })
             .collect()
     }
@@ -470,6 +472,8 @@ impl<C: Agent> Registered for Registration<C> {
                 max_tool_call_steps: C::max_tool_call_steps() as i32,
                 tools: self.tools.to_proto(),
                 guardrails: self.guardrails.names(),
+                mcp_servers: Vec::new(),
+                result_guardrails: Vec::new(),
             })),
         }
     }

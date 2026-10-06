@@ -105,9 +105,37 @@ message AgentDetail {
   int32 max_tool_call_steps = 2;
   repeated Tool tools = 3;
   repeated string guardrails = 4;
+  repeated McpServer mcp_servers = 5;        // 1.11: servers whose tools the sidecar offers the model
+  repeated string result_guardrails = 6;     // 1.11: names the process answers CheckGuardrail RESULT for
 }
 
-message Tool { string name = 1; string description = 2; string input_schema_json = 3; }
+message Tool {
+  string name = 1;
+  string description = 2;
+  string input_schema_json = 3;
+  optional Approval approval = 4;            // 1.11: unset, the tool runs when the model calls it
+}
+
+// 1.11: that a tool waits for a person's decision before it runs. With no time limit it waits until
+// decided; with one, the platform refuses it when the limit passes.
+message Approval { optional int64 within_millis = 1; }
+
+// 1.11: an MCP server an agent lists. The sidecar connects to it when it starts, reads its tools and
+// offers them as `mcp__<name>__<tool>`; the process is never asked to run one. Its address, and the
+// value of each header, are read from the sidecar's own environment: a variable named here starts
+// ANKKA_MCP_, and those reach only the platform's container.
+message McpServer {
+  string name = 1;                           // [a-z0-9-]+
+  oneof address {                            // unset: ANKKA_MCP_<NAME>_URL must be set
+    string url = 2;
+    Service service = 3;
+  }
+  optional Approval approval = 4;            // every tool of the server
+  repeated Header headers = 5;
+
+  message Service { optional string project = 1; string name = 2; string path = 3; }
+  message Header  { string name = 1; string variable = 2; }
+}
 
 // An autonomous agent's whole definition (protocol 1.2). There is nothing to plan per task: the
 // sidecar runs the loop from this and asks the process only to run a tool (Agent.InvokeTool), check
@@ -122,6 +150,8 @@ message AutonomousAgentDetail {
   repeated TaskAcceptance accepts = 6;
   optional AutonomousSettings settings = 7;
   optional string model = 8;                // a name in the sidecar's configuration; absent: its default
+  repeated McpServer mcp_servers = 9;       // 1.11
+  repeated string result_guardrails = 10;   // 1.11
 
   message TaskType {
     string name = 1;                        // the wire name, written into every task of this type

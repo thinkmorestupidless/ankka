@@ -170,5 +170,5 @@ class FunctionToolSuite extends munit.FunSuite:
 
   test("a time limit for approval must be positive") {
     intercept[IllegalArgumentException](weather.requiresApproval(0.seconds))
-    intercept[IllegalArgumentException](weather.requiresApproval(-1.second))
+    intercept[IllegalArgumentException](weather.requiresApproval((-1).second))
   }

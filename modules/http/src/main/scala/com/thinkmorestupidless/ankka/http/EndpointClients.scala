@@ -1,12 +1,7 @@
 package com.thinkmorestupidless.ankka.http
 
 import com.thinkmorestupidless.ankka.runtime.ViewClient
-import com.thinkmorestupidless.ankka.sdk.{
-  ComponentClient,
-  SecretStore,
-  ServiceClient,
-  ServiceClients
-}
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceClients}
 
 /**
  * What an endpoint is handed when the server builds it.
@@ -36,7 +31,4 @@ final class EndpointClients private[ankka] (
 )
 
 object EndpointClients:
-  private[ankka] val noServices: ServiceClients = new ServiceClients:
-    def apply(name: String): ServiceClient =
-      throw IllegalStateException(s"no service client is configured; cannot call '$name'")
-    def apply(project: String, name: String): ServiceClient = apply(name)
+  private[ankka] val noServices: ServiceClients = ServiceClients.unavailable

@@ -53,6 +53,12 @@ object RemoteAutonomousAgent:
       }
       named(s"rule of task type '${t.name}' — a rule", t.rules)
     }
+    p ++= RemoteMcp.problems(
+      s"autonomous agent '$id'",
+      d.mcpServers,
+      d.tools,
+      d.resultGuardrails
+    )
     if d.accepts.isEmpty then p += s"autonomous agent '$id' accepts no task type"
     d.accepts.groupBy(_.taskType).collect { case (n, as) if as.sizeIs > 1 => n }.foreach { n =>
       p += s"autonomous agent '$id': task type '$n' is accepted ${d.accepts.count(_.taskType == n)} times"
@@ -142,7 +148,7 @@ object RemoteAutonomousAgent:
 
     val tools = detail.tools.toVector.map { t =>
       val schema = Json.parse(t.inputSchemaJson).getOrElse(Json.obj("type" -> Json.str("object")))
-      FunctionTool.raw(ToolSpec(t.name, t.description, schema)) { arguments =>
+      FunctionTool.raw(ToolSpec(t.name, t.description, schema), RemoteMcp.approval(t)) { arguments =>
         await(
           conversation
             .invokeTool(id, session, t.name, arguments.render, Trace.outbound(Metadata.empty)),
@@ -176,18 +182,35 @@ object RemoteAutonomousAgent:
       )
     }
 
-    val definition = AutonomousAgentDefinition.remote(
-      description = detail.description,
-      instructions = detail.instructions,
-      guardrails = guardrails,
-      model = model,
-      acceptances = detail.accepts.toVector.flatMap(a =>
-        taskTypes
-          .get(a.taskType)
-          .map(t => TaskAcceptance.of(t).maxIterationsPerTask(a.maxIterations))
-      ),
-      settings = settings
-    )
+    val definition = AutonomousAgentDefinition
+      .remote(
+        description = detail.description,
+        instructions = detail.instructions,
+        guardrails = guardrails,
+        model = model,
+        acceptances = detail.accepts.toVector.flatMap(a =>
+          taskTypes
+            .get(a.taskType)
+            .map(t => TaskAcceptance.of(t).maxIterationsPerTask(a.maxIterations))
+        ),
+        settings = settings
+      )
+      .mcpServers(RemoteMcp.servers(detail.mcpServers)*)
+      .resultGuardrails(detail.resultGuardrails.toVector.map { name =>
+        RemoteMcp.resultGuardrail(name) { text =>
+          await(
+            conversation.checkGuardrail(
+              id,
+              session,
+              name,
+              GuardrailStage.Result(None),
+              text,
+              Trace.outbound(Metadata.empty)
+            ),
+            callTimeout
+          )
+        }
+      }*)
 
     AutonomousAgentDescriptor[AutonomousAgent](id, definition, context => Remote(context, tools))
 

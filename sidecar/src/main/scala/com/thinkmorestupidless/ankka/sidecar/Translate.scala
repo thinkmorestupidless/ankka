@@ -255,15 +255,19 @@ private[sidecar] object Translate:
       metadata: Metadata
   ): GuardrailRequest =
     GuardrailRequest(
-      componentId,
-      sessionId,
-      guardrail,
-      stage match
-        case GuardrailStage.Input  => GuardrailRequest.Stage.INPUT
-        case GuardrailStage.Output => GuardrailRequest.Stage.OUTPUT
+      componentId = componentId,
+      sessionId = sessionId,
+      guardrail = guardrail,
+      stage = stage match
+        case GuardrailStage.Input     => GuardrailRequest.Stage.INPUT
+        case GuardrailStage.Output    => GuardrailRequest.Stage.OUTPUT
+        case GuardrailStage.Result(_) => GuardrailRequest.Stage.RESULT
       ,
-      text,
-      Some(toMetadata(metadata))
+      text = text,
+      metadata = Some(toMetadata(metadata)),
+      tool = stage match
+        case GuardrailStage.Result(tool) => tool
+        case _                           => None
     )
 
   def fromGuardrailResult(result: GuardrailResult): Either[String, Unit] = result.result match

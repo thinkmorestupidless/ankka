@@ -107,6 +107,10 @@ impl Client {
             Some(proto::invoke_reply::Result::Error(error)) => {
                 Err(CommandError::from_proto(&error))
             }
+            Some(proto::invoke_reply::Result::Approval(_)) => Err(CommandError::new(
+                ErrorCode::Conflict,
+                "the agent's turn is awaiting an approval decision, which a module cannot make",
+            )),
             None => Err(CommandError::new(
                 ErrorCode::Internal,
                 "the runtime answered an invoke with nothing",

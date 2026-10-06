@@ -44,9 +44,10 @@ object Discovery:
    * three calls on `Client` and three module imports (feature 023). 1.7: a topic source declares
    * where it starts, and a view or consumer over a topic its version (feature 024). 1.8: a call to
    * another service, `Request` on `Client`, made by the runtime as the service (feature 025). 1.9:
-   * three imports for a module, `request`, `now` and `random`, and no message changed (feature
-   * 030). 1.10: three imports for a module, `request`, `now` and `random`, and no message changed
-   * (feature 030).
+   * socket routes, `Route.socket` and `Http.HandleSocket` (feature 028). 1.10: three imports for a
+   * module, `request`, `now` and `random`, and no message changed (feature 030). 1.11: a tool's
+   * approval, an agent's MCP servers and result guardrails, the RESULT guardrail stage, the
+   * approval-request reply and token, and `Decide` (feature 029).
    */
   val ProtocolVersion: String = WireProtocol.Version
 
@@ -236,6 +237,12 @@ object Discovery:
                 }
               if d.maxToolCallSteps < 0 then
                 problems += s"agent '${c.id}': max_tool_call_steps must not be negative"
+              problems ++= RemoteMcp.problems(
+                s"agent '${c.id}'",
+                d.mcpServers,
+                d.tools,
+                d.resultGuardrails
+              )
               agents += c
             case (Kind.AUTONOMOUS_AGENT, Component.Detail.AutonomousAgent(d)) =>
               problems ++= RemoteAutonomousAgent.problems(c.id, d)

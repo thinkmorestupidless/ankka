@@ -511,6 +511,8 @@ impl<C: AutonomousAgent> Registered for Registration<C> {
                     instructions: C::INSTRUCTIONS.map(str::to_string),
                     tools: self.tools.to_proto(),
                     guardrails: self.guardrails.names(),
+                    mcp_servers: Vec::new(),
+                    result_guardrails: Vec::new(),
                     task_types: self.task_types().iter().map(|t| t.to_proto()).collect(),
                     accepts: self
                         .accepts

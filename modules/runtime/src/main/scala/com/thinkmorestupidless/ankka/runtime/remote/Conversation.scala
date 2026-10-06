@@ -163,7 +163,7 @@ enum ConsumerOutcome:
  * with anything an earlier runtime would not understand.
  */
 object WireProtocol:
-  val Version: String     = "1.10"
+  val Version: String     = "1.11"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -205,6 +205,9 @@ final case class RemotePlan(
 
 enum GuardrailStage:
   case Input, Output
+
+  /** What an MCP server's tool answered (protocol 1.11), and which tool, when it is known. */
+  case Result(tool: Option[String])
 
 final case class RemotePrincipal(
     subject: String,

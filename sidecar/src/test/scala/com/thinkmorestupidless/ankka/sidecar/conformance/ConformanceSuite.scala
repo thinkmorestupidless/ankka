@@ -1421,10 +1421,8 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   // `features/service-calls/sdks.feature` and the outlines of `calling.feature`: this target is one
   // row of their Examples, and a case named for a scenario holds it for this language. Each drives the reference's `service-call` route,
   // which makes the call through the SDK's own client, against `target.scripted`, another service
-  // played on loopback that records what it is sent. A module has no import for the call yet.
-
-  private def onlyWhereServiceCalls(): Unit =
-    assume(!target.isModule, "a module has no import for a call to another service")
+  // played on loopback that records what it is sent. A module makes the call through its `request`
+  // import (protocol 1.10), a process through `Client.Request`: the cases are the same for both.
 
   private final case class Called(
       outcome: String,
@@ -1466,7 +1464,6 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test(
     "service.request-reaches-target: on a developer's machine a service in every language calls another service running there"
   ) {
-    onlyWhereServiceCalls()
     val called = serviceCall(
       "scripted",
       method = "POST",
@@ -1487,7 +1484,6 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test(
     "service.answer-reaches-handler: the conformance suite's call to another service passes for every SDK"
   ) {
-    onlyWhereServiceCalls()
     target.scripted.answer(_ =>
       ServiceResponse(
         201,
@@ -1509,7 +1505,6 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test(
     "service.refusal-is-the-answer: a refusal by the service called reaches the calling handler as that refusal"
   ) {
-    onlyWhereServiceCalls()
     target.scripted.answer(_ => ServiceResponse(403, "text/plain", "no".getBytes, Vector.empty))
     try
       val raw = serviceCall("scripted")
@@ -1521,7 +1516,6 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("service.unresolvable") {
-    onlyWhereServiceCalls()
     val called = serviceCall("unknown")
     assertEquals(called.outcome, "unresolvable", called.toString)
     assert(called.message.contains("unknown"), called.message)
@@ -1529,7 +1523,6 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("service.unanswered") {
-    onlyWhereServiceCalls()
     val called = serviceCall("nobody-home")
     assertEquals(called.outcome, "unanswered", called.toString)
   }
@@ -1537,14 +1530,12 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   test(
     "service.identity-mismatch: a call is not sent to a workload that is not the service asked for"
   ) {
-    onlyWhereServiceCalls()
     val called = serviceCall("impostor")
     assertEquals(called.outcome, "mismatch", called.toString)
     assertEquals(target.scripted.requests, Vector.empty)
   }
 
   test("service.platform-headers-replaced") {
-    onlyWhereServiceCalls()
     assertEquals(serviceCall("scripted").outcome, "response")
     val request = target.scripted.requests.head
     assertEquals(request.header("x-ankka-caller"), None)
@@ -1552,7 +1543,6 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("service.counted-from-handler") {
-    onlyWhereServiceCalls()
     assertEquals(serviceCall("scripted").outcome, "response")
     eventually() {
       Some(observedCalls())

@@ -1,7 +1,7 @@
 //! The encoding's time types, formatted by the library: `Instant` as ISO-8601 in UTC with a `Z`
 //! suffix, `Duration` as an ISO-8601 duration the way `java.time.Duration` writes one, and two
-//! calendar types kept as the validated text they are. No clock: a module has none, and the
-//! runtime's time reaches a handler through its `Context`.
+//! calendar types kept as the validated text they are. No clock: a module has none of its own, and
+//! asks the runtime for the time through its `Context`.
 
 use std::fmt;
 use std::str::FromStr;
@@ -144,7 +144,7 @@ impl Instant {
         Instant::from_total_nanos(total)
     }
 
-    /// Milliseconds since the Unix epoch, as the runtime's clock (`ankka.now`) is given.
+    /// Milliseconds since the Unix epoch, as the runtime's clock is given.
     pub fn from_epoch_millis(millis: i64) -> Instant {
         Instant::from_total_nanos(i128::from(millis) * 1_000_000)
     }

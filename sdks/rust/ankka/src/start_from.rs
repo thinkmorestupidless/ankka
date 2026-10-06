@@ -16,7 +16,7 @@ pub enum StartFrom {
     /// After the newest: only what is published from then on.
     Latest,
     /// The first message published at or after this time, in milliseconds since the epoch. A
-    /// module has no clock, so a start time is stated as a number.
+    /// component is declared before any handler runs, so a start time is stated, not read.
     AtMillis(i64),
 }
 

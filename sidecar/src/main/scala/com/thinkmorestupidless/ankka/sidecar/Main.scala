@@ -101,7 +101,11 @@ object Main:
     val path = settings.wasmModule.get
     val started = for
       module <- wasm.ModuleLoader.load(path)
-      imports = wasm.HostImports(settings.commandTimeout, settings.requestTimeout)
+      imports = wasm.HostImports(
+        settings.commandTimeout,
+        settings.requestTimeout,
+        serviceClientTimeout = settings.serviceClientTimeout
+      )
       bootstrap <- scala.util
         .Try(wasm.GuestInstance.build(module, imports.values, settings.wasmMaxMemoryPages))
         .toEither

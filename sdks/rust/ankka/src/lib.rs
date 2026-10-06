@@ -29,6 +29,7 @@ pub mod prelude;
 pub mod proto;
 pub mod secrets;
 pub mod service;
+pub mod services;
 pub mod start_from;
 pub mod testkit;
 
@@ -39,6 +40,7 @@ pub use config::config;
 pub use context::{Context, Metadata};
 pub use secrets::Secrets;
 pub use service::{Problem, Service};
+pub use services::{RequestOptions, ServiceClient, ServiceError, ServiceResponse, Services};
 pub use start_from::StartFrom;
 
 /// serde, as this library uses it: the derives a service's types need.

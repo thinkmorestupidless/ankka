@@ -70,6 +70,32 @@ What this feature is not: it is not a way to interrupt a module, so a `request` 
 returns still holds its blocking-pool instance until the callee answers or the client's own
 timeout fires; it is not streaming; and it is not a route for a module to accept a connection.
 
+## Clarifications
+
+### Session 2026-10-04
+
+- Q: Should `request` carry a timeout of its own, below the component call's? → A: No. It is the
+  message a process sends, which 025's contract gives no timeout: the wait is the service's
+  `ankka.service-client.timeout`, thirty seconds unless the service sets it. That setting is
+  therefore also the longest an abandoned call holds its instance, whatever the deadline of the
+  handler that made it.
+- Q: Should `random` be seeded so a test can make it deterministic? → A: Never. The runtime always
+  answers from a secure source and has no setting that fixes it. A native Rust test never reaches
+  the import; the crate's test kit lets it fix the bytes there.
+- Q: 025 has not landed, and the message and the client call this feature is built on exist only
+  in its contract. In what order is the work done? → A: The plan and the tasks are written now;
+  nothing is implemented until 025 is on `main` and this branch is rebased onto it.
+- Q (raised by reading the host): a view's handler runs on the blocking pool, and FR-005 says it
+  traps. Is the rule the pool or the export? → A: The export. The pool is why the permitted
+  exports are safe, and it is not the test: `request` proceeds from `run_step`, `consumer`,
+  `timed_action`, `invoke_tool`, `check_guardrail`, `check_task_result`, `http` and `plan`, and
+  traps from every other export, so an export added later traps until it is listed.
+- Q (raised by reading the host): an agent's `plan` export is in neither FR-004 nor FR-005. → A:
+  Permitted. It runs on a fresh instance, and 025 lets a process's agent handler make the call.
+- Q (raised by reading 025): which protocol version carries the imports? → A: The one after
+  025's. `main` reached 1.7 with replayable topic sources, so 025 lands at a later version than
+  its contract says, and this feature takes the next.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A module calls another service as itself (Priority: P1)
@@ -87,26 +113,15 @@ of services at all.
 calls a scripted target through `request`: assert the request the target saw and the reply the
 consumer received. In the k3s suite, a module calls a Scala service whose route admits it by name.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a module whose consumer calls `request` naming a service and a path, **When** an
-   event is delivered, **Then** the runtime makes the request through the service client with the
-   service's certificate, and the callee's `allowCallers` admits it by name.
-2. **Given** the reply, **When** the consumer reads it, **Then** it holds the status, the headers
-   and the body the callee sent, in the `Request` reply shape.
-3. **Given** a `request` to a service the callee refuses, **When** the consumer makes it, **Then**
-   the refusal reaches the guest as the status and body the callee sent, not as a trap.
-4. **Given** a `request` naming a service that does not exist, **When** it is made, **Then** the
-   guest receives the unresolvable error the Scala client would raise, and nothing hangs.
-5. **Given** a workflow step, a timed action, an agent tool, a guardrail, a result check and an
-   HTTP route in a module, **When** each calls `request`, **Then** each proceeds, because each runs
-   on the blocking pool.
-6. **Given** a `request` made from a step, **When** the step's trace is read, **Then** the call
-   appears as a span under the step.
-7. **Given** a `request` whose callee answers after the component client's timeout for the call
-   that is running, **When** the wait ends, **Then** the step is abandoned and answered with a
-   fault as any over-long module call is, and the instance is discarded when the callee finally
-   answers.
+- added `features/wasm/calling-services.feature`: a module's consumer is admitted by name by a route that admits only its service
+- added `features/wasm/calling-services.feature`: the answer of the service called reaches a module's handler as the service made it
+- added `features/wasm/calling-services.feature`: a refusal by the service called reaches a module's handler as that refusal
+- added `features/wasm/calling-services.feature`: a module's call to a service that cannot be found fails, naming the service, and is not sent
+- added `features/wasm/calling-services.feature`: a module calls another service from every handler that may wait
+- added `features/wasm/calling-services.feature`: a call made from a module's step is nested under the step in the trace
+- added `features/wasm/calling-services.feature`: a module's handler that waits for another service longer than the platform waits for the handler fails
 
 ---
 
@@ -124,22 +139,13 @@ handler stalls every command to its key for as long as a callee takes to answer.
 command, assert the fault and its message, then send a second command and assert it succeeds and
 the state is what the first commands left.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** an entity whose command handler calls `request`, **When** a command is sent,
-   **Then** the import traps before any request is made, the command is answered with a fault
-   naming `request` and the handler, and no request reaches the service client.
-2. **Given** that trap, **When** the next command is sent to the same key, **Then** it runs on a
-   fresh instance holding the state the entity had, so nothing is lost.
-3. **Given** an event handler that calls `request`, **When** an event is applied during replay,
-   **Then** the import traps, and the entity is reported as failing to load, naming the handler.
-4. **Given** a view handler that calls `request`, **When** a change is delivered, **Then** the
-   import traps and the projection reports the failure, so a view's fold stays a pure fold.
-5. **Given** a workflow's command handler, as distinct from its steps, **When** it calls
-   `request`, **Then** it traps as an entity command does.
-6. **Given** a guest crate that refuses `request` from a command at compile time or with its own
-   error, **When** a module built without the crate's check calls it anyway, **Then** the runtime
-   still traps it, so the rule does not depend on the guest.
+- added `features/wasm/handlers-that-may-not-call.feature`: a command in a module that calls another service fails before anything is sent
+- added `features/wasm/handlers-that-may-not-call.feature`: an entity whose command failed by calling another service keeps its state
+- added `features/wasm/handlers-that-may-not-call.feature`: an event sourced entity in a module that calls another service while reading its events fails
+- added `features/wasm/handlers-that-may-not-call.feature`: a view in a module that calls another service fails the event it was reading
+- added `features/wasm/handlers-that-may-not-call.feature`: the platform stops a command's call whatever the module was built with
 
 ---
 
@@ -156,19 +162,13 @@ that needs a fresh id has had no honest way to make one.
 command and `random` from a command: assert `now` lies within the call's start and end on the
 runtime's clock, and that two `random` fills differ.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** a step that calls `now`, **When** it runs, **Then** the value is the runtime's clock
-   in epoch milliseconds and lies between the call's start and end as the runtime recorded them.
-2. **Given** a command handler that calls `now`, **When** it runs, **Then** it proceeds: `now`
-   does not wait and is permitted everywhere.
-3. **Given** a command that calls `random` for a sixteen-byte buffer twice, **When** it runs,
-   **Then** the two buffers differ and each is filled to its length.
-4. **Given** a module built against the Rust crate as it was before this feature, **When** the
-   runtime loads it, **Then** it still reads the time from `ankka.now` metadata and runs, because
-   the runtime still sets it.
-5. **Given** a module that names an import the runtime does not offer, **When** it is loaded,
-   **Then** the failure names the import, as today.
+- added `features/wasm/time-and-random-bytes.feature`: the time a module's step is told is the platform's, read while the step runs
+- added `features/wasm/time-and-random-bytes.feature`: a module reads the time from every handler
+- added `features/wasm/time-and-random-bytes.feature`: a module is given random bytes that differ each time it asks
+- added `features/wasm/time-and-random-bytes.feature`: a module built before a module could ask for the time still reads the time
+- changed `features/wasm/loading.feature`: a module the platform cannot load is refused, saying why
 
 ---
 
@@ -184,16 +184,11 @@ nobody else.
 **Independent Test**: The documentation build passes; the Rust example's consumer uses `request`
 and is an included sample; `cargo test` in the workspace runs the native fallbacks.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
-1. **Given** `protocol/WASM-ABI.md` and the ABI reference page, **When** a reader looks for the
-   imports, **Then** all three are listed with their messages and the table of exports from which
-   `request` is permitted.
-2. **Given** the Rust SDK reference, **When** a reader looks for the time, **Then** it says
-   `Context::now()` reads the runtime's clock, and natively falls back to the system clock.
-3. **Given** the limitations page, **When** a reader looks for modules, **Then** it says a module
-   cannot be interrupted and so a `request` holds its instance until the callee answers, and no
-   longer says a module has no clock.
+- added `features/documentation/modules.feature`: the documentation lists what a module may ask the platform for and which handlers may call another service
+- added `features/documentation/modules.feature`: the documentation of the Rust SDK says where a module's time comes from
+- added `features/documentation/modules.feature`: the documentation's limitations say a module cannot be interrupted and not that it cannot read the time
 
 ---
 
@@ -208,9 +203,8 @@ and is an included sample; `cargo test` in the workspace runs the native fallbac
   would admit it; nothing special.
 - **`request` and a redirect.** Not followed, as the Scala client does not follow one; the 3xx is
   the reply.
-- **A callee that never answers.** The blocking-pool instance is held until the service client's
-  own timeout; whether `request` should carry a timeout below the component call's is an open
-  question.
+- **A callee that never answers.** The instance is held until the service client's own timeout,
+  `ankka.service-client.timeout`, and no longer; `request` carries none of its own.
 - **Two modules in one pod.** There is one module per service; the question does not arise.
 - **`now` under replay.** The time is the runtime's clock at the call, never a recorded one; an
   event handler that needs the time of an event reads it from the event, as the designing guide
@@ -228,18 +222,21 @@ and is an included sample; `cargo test` in the workspace runs the native fallbac
   message and answering its reply, served through the runtime's service client with the
   service's certificate.
 - **FR-002**: The `ankka1` import module MUST offer `now`, answering the runtime's clock in epoch
-  milliseconds, and `random`, filling a guest buffer of a given length with random bytes.
+  milliseconds, and `random`, filling a guest buffer of a given length with random bytes from a
+  secure source that no setting seeds.
 - **FR-003**: The runtime MUST keep setting `ankka.now` metadata on every call for at least one
   protocol minor version after this feature, so a module built before it still reads the time.
 
 **Call sites**
 
-- **FR-004**: `request` MUST proceed from an export the host runs on the blocking pool: a
-  workflow step, a consumer, a timed action, an agent tool, a guardrail, a result check and an
-  HTTP route.
-- **FR-005**: `request` MUST trap from an export the host runs on the command pool or in a fold:
-  an entity command handler, an event handler, a key value entity's command handler, a workflow
-  command handler and a view handler; the trap MUST happen before any request is made.
+- **FR-004**: `request` MUST proceed from the exports that run a workflow step, a consumer, a
+  timed action, an agent's handler, an agent tool, a guardrail, a result check and an HTTP route,
+  each of which the host runs on the blocking pool.
+- **FR-005**: `request` MUST trap from every other export, which is every export the host runs on
+  the command pool or as a fold: an entity command handler, an event handler, a key value
+  entity's command handler, a workflow command handler and a view handler, the last although it
+  runs on the blocking pool; the trap MUST happen before any request is made. The rule is a list
+  of permitted exports, so an export the host gains later traps until it is added.
 - **FR-006**: The trap's fault MUST name the import and the handler, the trapped instance MUST be
   discarded and replaced, and the next call to the same key MUST succeed with the state the
   component had.
@@ -253,8 +250,8 @@ and is an included sample; `cargo test` in the workspace runs the native fallbac
   target that cannot be resolved MUST be answered with an error, never a hang.
 - **FR-010**: A `request` made during a call that runs past the component's timeout MUST be
   handled as any over-long module call is: the caller answered with a fault, the instance
-  discarded on return. Whether `request` carries its own shorter timeout is [NEEDS CLARIFICATION:
-  a per-request timeout below the component call's, or none].
+  discarded on return. `request` carries no timeout of its own: it waits the service client's
+  `ankka.service-client.timeout` and is answered as unanswered when that passes.
 - **FR-011**: A `request` MUST be recorded as a span under the handler that made it.
 
 **Rust crate and documentation**
@@ -287,8 +284,9 @@ and is an included sample; `cargo test` in the workspace runs the native fallbac
 
 ## Assumptions
 
-- 025-polyglot-service-client lands first, so `Request` exists in the protocol and
-  `HttpServiceClients` is already reachable from `ClientLogic`.
+- 025-polyglot-service-client lands first, so its `ServiceRequest` and `ServiceReply` exist in
+  the protocol and `ClientLogic.request` already reaches `HttpServiceClients`. Nothing here is
+  implemented before it is on `main`.
 - The host can tell, at the moment an import is called, which export it is executing and on
   which pool; `WasmConversation` already chooses the pool per export.
 - Chicory's import mechanism resolves imports by name only when a module names them, so adding
@@ -304,8 +302,4 @@ and is an included sample; `cargo test` in the workspace runs the native fallbac
 
 ## Open Questions
 
-- Should `request` take a timeout of its own below the component call's, since an abandoned
-  call cannot be interrupted and holds a blocking-pool instance until the callee answers?
-- Should `random` be seeded from the runtime per instance so a test can make it deterministic, or
-  is a scripted callee enough for testing?
 - When `ankka.now` metadata is withdrawn, is that a protocol minor or major change for a module?

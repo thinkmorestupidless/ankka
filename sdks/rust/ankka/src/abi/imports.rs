@@ -6,6 +6,11 @@
 //! so the calls go to a [`NativeHost`] the test installs with [`with_native_host`]; with none, a
 //! component call is refused as unavailable, a variable reads as unset, and a log line goes to
 //! standard error.
+//!
+//! Three imports are not requests answered with bytes the same way, and each is a function of its
+//! own here, linked only by a module that calls it: [`call_request`], a call to another service;
+//! [`now`], the runtime's clock; and [`random`], bytes from the runtime's secure source. A module
+//! that calls none of them imports none of them, and runs on a runtime from before protocol 1.10.
 
 /// The imports that take and answer bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -31,7 +36,13 @@ pub enum Import {
     /// `delete_secret`: `DeleteSecretRequest` in, `DeleteSecretReply` out. Called through
     /// [`call_secret`].
     DeleteSecret,
+    /// `request`: `ServiceRequest` in, `ServiceReply` out. Called through [`call_request`].
+    Request,
 }
+
+/// The most bytes the runtime fills in one call of its `random` import. [`random`] fills a longer
+/// buffer in parts.
+pub const MAX_RANDOM_BYTES: usize = 65536;
 
 /// The level of a log line sent through `ankka1::log`, as the runtime reads it: 0 trace, 1 debug,
 /// 2 info, 3 warn, 4 error.
@@ -60,6 +71,32 @@ pub fn call(import: Import, request: &[u8]) -> Vec<u8> {
 /// import it, or it would need a runtime that offers one (protocol 1.4).
 pub fn call_secret(import: Import, request: &[u8]) -> Vec<u8> {
     host::call_secret(import, request)
+}
+
+/// Calls another service: an encoded `ServiceRequest` in, an encoded `ServiceReply` out. Apart from
+/// [`call`] for the reason [`call_secret`] is: a module that never calls another service must not
+/// import the function, or it would need a runtime that offers it (protocol 1.10).
+///
+/// The runtime serves it only to a handler that may wait: a workflow's step, a consumer, a timed
+/// action, an agent's handler, tool, guardrail or task rule, and an endpoint's route. Called from
+/// an entity's or a workflow's command, from an event being applied or from a view, it does not
+/// return: the runtime ends the call there and answers its caller with a fault.
+pub fn call_request(request: &[u8]) -> Vec<u8> {
+    host::call_request(request)
+}
+
+/// The runtime's clock, as milliseconds since the Unix epoch, when it is asked. Natively, the
+/// machine's clock, or the time a test fixed.
+pub fn now() -> i64 {
+    host::now()
+}
+
+/// Fills `buf` with random bytes from the runtime's secure source, which nothing seeds. Natively,
+/// from the system's source, or with the bytes a test fixed.
+pub fn random(buf: &mut [u8]) {
+    for part in buf.chunks_mut(MAX_RANDOM_BYTES) {
+        host::random(part);
+    }
 }
 
 /// Sends a line to the runtime's log, under the module's logger.
@@ -94,6 +131,25 @@ mod host {
         fn delete_secret(ptr: u32, len: u32) -> u64;
     }
 
+    // Each a block of its own, reached only from the one function that calls it, so the linker
+    // drops it from a module that never does.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn request(ptr: u32, len: u32) -> u64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "now"]
+        fn now_import() -> i64;
+    }
+
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        #[link_name = "random"]
+        fn random_import(ptr: u32, len: u32);
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -110,6 +166,7 @@ mod host {
                 Import::GetSecret | Import::PutSecret | Import::DeleteSecret => {
                     panic!("the secret store's imports are called through call_secret")
                 }
+                Import::Request => panic!("request is called through call_request"),
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -133,6 +190,26 @@ mod host {
         unsafe { memory::take(rptr as i32, rlen as i32) }
     }
 
+    pub(super) fn call_request(asked: &[u8]) -> Vec<u8> {
+        let (ptr, len) = (asked.as_ptr() as usize as u32, asked.len() as u32);
+        // SAFETY: as for `call`.
+        let packed = unsafe { request(ptr, len) };
+        let (rptr, rlen) = memory::unpack(packed);
+        // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
+        unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    pub(super) fn now() -> i64 {
+        // SAFETY: the import takes nothing and touches no memory.
+        unsafe { now_import() }
+    }
+
+    pub(super) fn random(buf: &mut [u8]) {
+        // SAFETY: the buffer is ours for the length of the call, and the runtime writes exactly
+        // `len` bytes at `ptr`.
+        unsafe { random_import(buf.as_mut_ptr() as usize as u32, buf.len() as u32) }
+    }
+
     pub(super) fn log(level: Level, text: &str) {
         // SAFETY: the runtime reads the text during the call and keeps nothing.
         unsafe {
@@ -148,11 +225,13 @@ mod host {
 #[cfg(not(target_arch = "wasm32"))]
 use native as host;
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{NativeHost, with_native_host};
+pub use native::{
+    NativeHost, with_native_clock, with_native_host, with_native_random, with_native_services,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     use prost::Message;
@@ -192,6 +271,97 @@ mod native {
 
     fn installed() -> Option<Rc<dyn NativeHost>> {
         HOST.with(|h| h.borrow().clone())
+    }
+
+    /// What answers a call to another service in a test: the request in, the reply out.
+    type Services = Rc<dyn Fn(proto::ServiceRequest) -> proto::ServiceReply>;
+
+    thread_local! {
+        static SERVICES: RefCell<Option<Services>> = const { RefCell::new(None) };
+        static CLOCK: Cell<Option<i64>> = const { Cell::new(None) };
+        /// The bytes a test fixed, and how many of them have been handed out.
+        static RANDOM: RefCell<Option<(Vec<u8>, usize)>> = const { RefCell::new(None) };
+    }
+
+    /// Puts a thread-local back as it was when the scope that changed it ends, however it ends.
+    struct Restore<F: FnMut()>(F);
+    impl<F: FnMut()> Drop for Restore<F> {
+        fn drop(&mut self) {
+            (self.0)()
+        }
+    }
+
+    /// Runs `f` with `services` answering every call to another service made on this thread. It is
+    /// apart from the [`NativeHost`], so it works beside whichever host a testkit installs.
+    pub fn with_native_services<T>(
+        services: impl Fn(proto::ServiceRequest) -> proto::ServiceReply + 'static,
+        f: impl FnOnce() -> T,
+    ) -> T {
+        let mut previous = SERVICES.with(|s| s.replace(Some(Rc::new(services))));
+        let _restore = Restore(|| SERVICES.with(|s| *s.borrow_mut() = previous.take()));
+        f()
+    }
+
+    /// Runs `f` with [`now`](super::now) answering `millis` on this thread.
+    pub fn with_native_clock<T>(millis: i64, f: impl FnOnce() -> T) -> T {
+        let previous = CLOCK.with(|c| c.replace(Some(millis)));
+        let _restore = Restore(|| CLOCK.with(|c| c.set(previous)));
+        f()
+    }
+
+    /// Runs `f` with [`random`](super::random) handing out `bytes` on this thread, in order and
+    /// from the start again when they run out.
+    pub fn with_native_random<T>(bytes: &[u8], f: impl FnOnce() -> T) -> T {
+        assert!(
+            !bytes.is_empty(),
+            "a fixed source of random bytes needs at least one byte"
+        );
+        let mut previous = RANDOM.with(|r| r.replace(Some((bytes.to_vec(), 0))));
+        let _restore = Restore(|| RANDOM.with(|r| *r.borrow_mut() = previous.take()));
+        f()
+    }
+
+    pub(super) fn call_request(request: &[u8]) -> Vec<u8> {
+        if let Some(services) = SERVICES.with(|s| s.borrow().clone()) {
+            let request = proto::ServiceRequest::decode(request).expect("a ServiceRequest");
+            return services(request).encode_to_vec();
+        }
+        if let Some(host) = installed() {
+            return host.call(Import::Request, request);
+        }
+        proto::ServiceReply {
+            result: Some(proto::service_reply::Result::Error(proto::Error {
+                message: NO_RUNTIME.into(),
+                code: proto::ErrorCode::Unavailable as i32,
+            })),
+        }
+        .encode_to_vec()
+    }
+
+    pub(super) fn now() -> i64 {
+        CLOCK.with(|c| c.get()).unwrap_or_else(|| {
+            let since = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("the machine's clock is after 1970");
+            since.as_millis() as i64
+        })
+    }
+
+    pub(super) fn random(buf: &mut [u8]) {
+        let fixed = RANDOM.with(|r| {
+            let mut source = r.borrow_mut();
+            let Some((bytes, position)) = source.as_mut() else {
+                return false;
+            };
+            for byte in buf.iter_mut() {
+                *byte = bytes[*position % bytes.len()];
+                *position += 1;
+            }
+            true
+        });
+        if !fixed {
+            getrandom::fill(buf).expect("the system's source of random bytes answers");
+        }
     }
 
     thread_local! {
@@ -281,6 +451,7 @@ mod native {
             Import::GetSecret | Import::PutSecret | Import::DeleteSecret => {
                 call_secret(import, request)
             }
+            Import::Request => call_request(request),
         }
     }
 

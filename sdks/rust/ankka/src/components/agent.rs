@@ -431,7 +431,9 @@ pub(super) fn session_context(
     session_id: &str,
     metadata: Option<&proto::Metadata>,
 ) -> Context {
-    Context::new(component_id, session_id, 0, Metadata::from_proto(metadata)).with_secrets()
+    Context::new(component_id, session_id, 0, Metadata::from_proto(metadata))
+        .with_secrets()
+        .with_services()
 }
 
 impl<C: Agent> Registered for Registration<C> {

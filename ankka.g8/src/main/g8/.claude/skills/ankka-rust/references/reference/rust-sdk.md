@@ -34,8 +34,10 @@ The release profile should set `panic = "abort"`: a panic is a trap the runtime 
 module has any use for.
 
 A module has no network, no file system and no clock of its own. `std::net`, `std::fs`, `std::env` and
-`SystemTime::now` do nothing useful in one; the runtime is reached through the context's client, the time
-through `ctx.now()`, and configuration through [`config`](#configuration).
+`SystemTime::now` do nothing useful in one. Everything is asked of the runtime: other components through
+the context's client, [other services](#calling-other-services) through `ctx.services()`,
+[the time and random bytes](#the-time-and-random-bytes) through `ctx.now()` and `ctx.random()`, and
+configuration through [`config`](#configuration).
 
 ## Codec and types
 
@@ -441,6 +443,87 @@ protocol 1.4. Natively, a unit test talks to an in-memory store that applies the
 `NativeHost` answers. The integration test kit sets a generated `ANKKA_SECRET_KEY` on the runtime it
 starts.
 
+## Calling other services
+
+A handler calls a route of another service by that service's name, and the runtime makes the call as this
+service, so the other service's access rules can admit it by name
+([Calling other services](../build/calling-services.md)). `ctx.services()` answers `Some(Services)` in an
+endpoint's route, a workflow's step, a consumer, a timed action, an agent's handler, tool and guardrail,
+and an autonomous agent's task rule. It answers `None` in an entity, a view and a workflow's command
+handler: a call to another service waits for as long as that service takes, and a command that waited
+would hold every other command to the same entity behind it.
+
+```rust
+// A consumer may call another service; an entity's context answers `None` here. The call
+// is made by the runtime as this service, so the other service's ACL can admit it by name.
+let services = ctx.services().expect("a consumer may call another service");
+let answer =
+    match services
+        .service(&service)
+        .request("GET", &path, RequestOptions::default())
+    {
+        // Whatever the service answered, a refusal included: its status and its body.
+        Ok(response) => Answer {
+            status: i32::from(response.status),
+            body: String::from_utf8_lossy(&response.body).into_owned(),
+        },
+        // No answer came: the service was not found, was not the one named, or did not
+        // answer in time. What that means here is the handler's to decide.
+        Err(error) => Answer {
+            status: 0,
+            body: error.to_string(),
+        },
+    };
+```
+
+`services.service(name)` is a service of the same project and `service_in(project, name)` one of another.
+A `ServiceClient` has `get`, `post` and `put`, which send and read JSON through the crate's codec,
+`get_text`, `delete`, and the raw `request(method, path, RequestOptions)`, which answers a
+`ServiceResponse` — status, content type, body and headers — for every status. `with_headers` adds headers
+to every call a client makes. Every call blocks the handler until the service answers.
+
+A call fails with a `ServiceError`:
+
+| Error | When | Was anything sent |
+|---|---|---|
+| `Unresolvable { service, reason }` | no such service was found | no |
+| `IdentityMismatch { service, detail }` | what answers for the name is not the service asked for | no |
+| `Unanswered { service, reason }` | the connection was refused or broke, or no answer came in time | perhaps |
+| `CallFailed { service, status, body }` | the service answered with a status outside 2xx, to a typed helper | yes, and it answered |
+| `Refused(CommandError)` | the runtime refused the request, or the crate did: a body over 4,000,000 bytes, an answer that does not decode | no |
+
+A `ServiceError` converts into a `CommandError`, so `?` works in a handler that answers one.
+
+**The rule about where a call may be made is the runtime's, not the crate's.** `ctx.services()` being
+`None` is the earlier answer, with the better message. A command that reaches the client some other way is
+stopped by the runtime: the call does not return, the command is answered with a fault naming the import
+and the command, and the entity keeps the state it had.
+
+A module that never calls another service imports nothing for it. One that does needs a runtime that
+speaks protocol 1.10, and an earlier runtime refuses the module at start, naming the import `request`.
+
+In a unit test, `ScriptedServices` plays the other services: `answer(name, |request| …)` says what a
+service answers, `unresolvable`, `unanswered` and `mismatch` make a call fail in each way, `requests()` is
+every request made, and `run(|| …)` runs the code under test with them in place. A call to a service with
+no script fails the test, naming the service.
+
+## The time and random bytes
+
+`ctx.now()` is the runtime's clock, read when it is called, from any handler. Two reads in one handler may
+differ, so a handler that needs one time reads it once. When an event is applied again the time is still
+the present: an event's time belongs in the event.
+
+`ctx.random(&mut buf)` fills a buffer of any length with random bytes from the runtime's secure source,
+from any handler. An id made from them in a command belongs in the event the command persists, because
+applying the event again does not run the command again.
+
+Natively there is no runtime: `now()` is the machine's clock and `random` the system's source. A unit test
+fixes either with the test kit's `with_clock(instant, || …)` and `with_random(&bytes, || …)`.
+
+A module that reads the time or asks for random bytes imports `now` or `random`, and needs a runtime that
+speaks protocol 1.10; an earlier runtime refuses the module at start, naming the import. A module built with
+an earlier version of the crate reads the time the runtime states on every call, and still runs.
+
 ## Running a service
 
 ```rust
@@ -474,7 +557,9 @@ runtime refuses a module with problems, logging each. Locally, the ankka reposit
 | `AnkkaTestKit::start(Module::build()?)` | The whole module in the real runtime image and a throwaway Postgres (feature `testkit`, Docker). `restart()` starts a new runtime on the same database. |
 
 The kits that call other components take `with_service(build())` too. Unit kits run natively with
-`cargo test` and still round-trip every value through the codec. See [Testing](../build/testing.md).
+`cargo test` and still round-trip every value through the codec. `ScriptedServices`, `with_clock` and
+`with_random` stand in for other services, the runtime's clock and its random bytes, beside any kit. See
+[Testing](../build/testing.md).
 
 ## Developing the crate
 

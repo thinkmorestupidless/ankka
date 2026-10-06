@@ -33,7 +33,11 @@ object WasmDiscovery:
       authConfigured: Boolean
   ): Either[Vector[String], Discovered] =
     val answered = instance
-      .call(Abi.Prefix + "discover", SidecarInfo(protocolVersion, runtimeVersion).toByteArray)
+      .call(
+        Abi.Prefix + "discover",
+        SidecarInfo(protocolVersion, runtimeVersion).toByteArray,
+        Purpose.none
+      )
       .left
       .map(f => Vector(s"the module's discovery failed: ${f.message}"))
       .flatMap(bytes =>

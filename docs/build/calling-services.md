@@ -1,8 +1,8 @@
 ---
 title: Calling other services
-description: Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python or TypeScript — so that service's access rules can admit yours by name.
+description: Call another service's routes as your own service — from an endpoint, a workflow step, a consumer, a timed action or an agent's tool, in Scala, Python, TypeScript or Rust — so that service's access rules can admit yours by name.
 kind: guide
-languages: [scala, python, typescript]
+languages: [scala, python, typescript, rust]
 components: [http-endpoint, workflow, consumer, timed-action, agent]
 related: [build/http-endpoints.md, build/workflows.md, build/testing.md, platform/networking.md, reference/configuration.md]
 ---
@@ -23,7 +23,7 @@ service's own access rule's decision.
 
 Every component whose handlers already run ordinary sequential code may make a call: an endpoint, a
 workflow's step, a consumer, a timed action, an agent's tool and an autonomous agent's tool, in Scala,
-Python and TypeScript.
+Python, TypeScript and Rust.
 
 An **entity** and a **view** may not. Their contexts have no client for other services at all: in Scala
 reaching for one does not compile, in TypeScript the property does not exist on the type, and in Python
@@ -34,6 +34,12 @@ entity's.
 
 A workflow's command handlers share their context with its steps, so a workflow's client answers only
 inside a step; a call from a command handler is refused with a message saying so.
+
+A service written in Rust is a WebAssembly module the runtime loads, and the rule is the same with one
+difference in how it is kept. A handler's context answers `None` for the client in an entity, a view and
+a workflow's command. A module that makes the call from one of those anyway is stopped by the runtime:
+the call does not return, the handler's caller is answered with a fault naming the handler, and an
+entity keeps the state it had. See the [Rust SDK](../reference/rust-sdk.md#calling-other-services).
 
 ## Calling from an endpoint
 
@@ -243,7 +249,9 @@ counted from the unknown caller. The trace does not continue into the service ca
 trace of its own.
 
 A Python or TypeScript process never holds a certificate or a key. It asks the runtime beside it to make
-the call, and the runtime makes it with the service's certificate.
+the call, and the runtime makes it with the service's certificate. A Rust module asks the runtime that
+loaded it in the same way, and the runtime attributes the call to the handler it was running, whatever the
+module says.
 
 ## On a developer's machine
 

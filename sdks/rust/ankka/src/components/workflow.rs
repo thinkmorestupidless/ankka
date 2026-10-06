@@ -485,7 +485,8 @@ impl<C: Workflow> Registered for Registration<C> {
             0,
             Metadata::from_proto(run_step.metadata.as_ref()),
         )
-        .with_secrets();
+        .with_secrets()
+        .with_services();
         let effect = match (entry.run)(&state, run_step.input.as_ref(), &ctx) {
             Ok(effect) => effect,
             Err(message) => return fault(run_step.id, message),

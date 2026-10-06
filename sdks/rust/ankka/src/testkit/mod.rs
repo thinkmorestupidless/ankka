@@ -10,6 +10,8 @@ pub mod integration;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod kinds;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod services;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod unit;
 
 #[cfg(all(feature = "testkit", not(target_arch = "wasm32")))]
@@ -20,6 +22,8 @@ pub use kinds::{
     GraphConsumerTestKit, KeyValueEntityTestKit, KeyValueOutcome, Published, ScriptedModel,
     StepNext, TimedActionTestKit, ViewTestKit, WorkflowTestKit,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use services::{ScriptedRequest, ScriptedServices, with_clock, with_random};
 #[cfg(not(target_arch = "wasm32"))]
 pub use unit::{CommandOutcome, EndpointTestKit, EventSourcedTestKit, with_config};
 

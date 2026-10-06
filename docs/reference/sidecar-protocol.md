@@ -194,7 +194,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.9`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.10`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -211,7 +211,7 @@ reports as the runtime being too old to call another service; a process that dec
 and sends one all the same is refused, naming both versions. `1.9` added socket routes: `Route.socket`
 in discovery and `Http.HandleSocket`. A socket route is refused from both ends across that line: the
 sidecar refuses a `Spec` declaring one under an earlier minor, naming the route and both versions, and an
-SDK refuses to answer discovery with one to a runtime that states an earlier version.
+SDK refuses to answer discovery with one to a runtime that states an earlier version. `1.10` changed no message: it added three imports for a WebAssembly module, `request`, `now` and `random`, which the [WebAssembly ABI](wasm-abi.md) describes. A process is the same at `1.9` and `1.10`.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

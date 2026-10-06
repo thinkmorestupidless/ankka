@@ -14,6 +14,7 @@ Feature: Loading a module
       | is not a module at all                           | that it is not a module                                     |
       | lacks a function the platform calls              | the function it lacks                                       |
       | was made for an ABI version the platform does not speak | the ABI version it was made for and the ABI version the platform speaks |
+      | asks the platform for something the platform does not offer | what it asked for |
 
   Scenario: a module that declares a route answered as a stream is refused
     Given a service "shop" whose module declares an endpoint with a route answered as a stream

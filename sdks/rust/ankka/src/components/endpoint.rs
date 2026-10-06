@@ -215,6 +215,11 @@ impl Request {
             .map(|(_, v)| v.as_str())
     }
 
+    /// Every header, in request order.
+    pub fn headers(&self) -> &[(String, String)] {
+        &self.headers
+    }
+
     /// The request body's content type.
     pub fn content_type(&self) -> &str {
         &self.content_type
@@ -603,7 +608,9 @@ impl<E: Endpoint> RegisteredEndpoint for EndpointRegistration<E> {
                 issuer: p.issuer,
             }),
             caller: caller_of(request.caller),
-            context: Context::new(E::ENDPOINT_ID, "", 0, metadata).with_secrets(),
+            context: Context::new(E::ENDPOINT_ID, "", 0, metadata)
+                .with_secrets()
+                .with_services(),
         };
         let response = (route.handler)(&forwarded).unwrap_or_else(|problem| Response {
             status: problem.status,

@@ -305,7 +305,8 @@ impl Consumer for TopicRelay {
 ```
 
 `start_from()` returns `StartFrom::Earliest`, `StartFrom::Latest` or `StartFrom::AtMillis(millis)`, or
-`StartFrom::at(system_time)`. A module has no clock, so a time is stated, not read.
+`StartFrom::at(system_time)`. A component is declared before any handler runs, so a start time is
+stated, not read.
 
 ///
 

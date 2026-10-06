@@ -13,7 +13,7 @@ ankka's.
 
 ## Version
 
-The protocol version is `1.9`, carried in discovery by both sides and checked by the sidecar.
+The protocol version is `1.10`, carried in discovery by both sides and checked by the sidecar.
 It is written once for code in `controlplane-api` (`Protocol.version`) and once here. `1.6` added
 the secret store: `GetSecret`, `PutSecret` and `DeleteSecret` on `Client`, and the imports of the
 same names for a module. `1.7` added where a topic source starts and the version of a view or
@@ -23,7 +23,9 @@ versions if it sends one; an earlier runtime answers a 1.8 process's `Request` w
 which each SDK reports as the runtime being too old. No module import carries it yet. `1.9` added
 socket routes: `Route.socket` in discovery and `Http.HandleSocket`, a stream in each direction for
 as long as a socket is open. The sidecar refuses a socket route from a process that declares an
-earlier minor, and a module cannot declare one.
+earlier minor, and a module cannot declare one. `1.10` added three imports for a module and changed
+no message: `request`, which carries `ServiceRequest` and `ServiceReply` across a module's memory, and
+`now` and `random`, which carry none. A process is the same at 1.9 and 1.10.
 
 `MAJOR.MINOR`. Within a major:
 

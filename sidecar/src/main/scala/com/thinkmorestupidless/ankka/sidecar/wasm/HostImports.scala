@@ -6,12 +6,15 @@ import ankka.protocol.v1.wasm.{ConfigReply, ConfigRequest, StreamTokens}
 import com.dylibso.chicory.runtime.{HostFunction, ImportValues, Instance, WasmFunctionHandle}
 import com.dylibso.chicory.wasm.types.{FunctionType, ValType}
 import com.thinkmorestupidless.ankka.core.PlatformVariables
-import com.thinkmorestupidless.ankka.sidecar.ClientLogic
+import com.thinkmorestupidless.ankka.sidecar.{ClientLogic, ServiceCalls, Translate}
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.duration.FiniteDuration
+import java.security.SecureRandom
+import java.util.concurrent.TimeoutException
+import scala.concurrent.duration.*
 import scala.concurrent.{Await, Future, Promise}
 import scala.jdk.CollectionConverters.*
+import scala.util.control.NonFatal
 
 /**
  * The `ankka1` import module: what a guest calls the runtime for.
@@ -27,19 +30,42 @@ import scala.jdk.CollectionConverters.*
  * platform's: a model key, the database credentials, the secret key, the cluster's and the
  * runtime's own settings all read as absent. This is the read-time version of the split the
  * operator makes at render time for a process; both read `core`'s `PlatformVariables`.
+ *
+ * `request`, a call to another service, is the one import that asks what it was called from
+ * (`CallSite`): it waits on something outside the service for as long as that takes, so it is
+ * served only to a call the host runs on an instance of its own. `now` and `random` wait on nothing
+ * and are served to every call. `clock` is the runtime's clock, the one `now` answers and the one a
+ * call's `ankka.now` entry is stamped from; `serviceClientTimeout` is how long the service's client
+ * waits for another service's answer.
  */
 final class HostImports(
     commandTimeout: FiniteDuration,
     streamTimeout: FiniteDuration,
-    env: String => Option[String] = sys.env.get
+    env: String => Option[String] = sys.env.get,
+    serviceClientTimeout: FiniteDuration = 30.seconds,
+    val clock: () => Long = () => System.currentTimeMillis()
 ):
   import HostImports.*
 
-  private val moduleLog                            = LoggerFactory.getLogger("ankka.module")
-  @volatile private var logic: Option[ClientLogic] = None
+  private val moduleLog                             = LoggerFactory.getLogger("ankka.module")
+  private val secure                                = SecureRandom()
+  @volatile private var logic: Option[ClientLogic]  = None
+  @volatile private var calls: Option[ServiceCalls] = None
+
+  /**
+   * How long `request` waits for the client. The client answers within its own timeout and the five
+   * seconds it allows a connection, so this is longer than both: it ends the wait only for a client
+   * that failed to answer at all.
+   */
+  private val serviceWait: FiniteDuration = serviceClientTimeout + 6.seconds
 
   /** Called once the service has started and its client exists. */
-  def bind(client: ClientLogic): Unit = logic = Some(client)
+  def bind(client: ClientLogic): Unit =
+    logic = Some(client)
+    calls = Some(client)
+
+  /** What `request` calls, alone: a suite's stand-in for the client, with no service running. */
+  private[sidecar] def bindCalls(standIn: ServiceCalls): Unit = calls = Some(standIn)
 
   /**
    * The imports, the same for every instance: each call is handed the instance that made it. Lazy,
@@ -57,6 +83,9 @@ final class HostImports(
     .addFunction(bytes("get_secret")(getSecret))
     .addFunction(bytes("put_secret")(putSecret))
     .addFunction(bytes("delete_secret")(deleteSecret))
+    .addFunction(bytes("request")(request))
+    .addFunction(nowFunction)
+    .addFunction(randomFunction)
     .addFunction(logFunction)
     .build()
 
@@ -141,6 +170,32 @@ final class HostImports(
       case Some(c) =>
         await(c.deleteSecret(DeleteSecretRequest.parseFrom(request)), commandTimeout).toByteArray
 
+  /**
+   * A call to another service, as this service (protocol 1.10). Refused, by throwing, anywhere but
+   * in a call that may wait: nothing is parsed and nothing is sent first, and the call into the
+   * module ends there as it does for a trap. The metadata sent with the call is what the host gave
+   * the function being run, not what the guest wrote, so the call is counted from the handler that
+   * made it and traced under it whatever the module was built with.
+   */
+  private def request(asked: Array[Byte]): Array[Byte] =
+    val site = CallSite.current.getOrElse(
+      throw ImportRefused("request", "request may not be called outside a call into the module")
+    )
+    site.mayRequest.left.foreach(reason => throw ImportRefused("request", reason))
+    calls match
+      case None => ServiceReply(ServiceReply.Result.Error(notReady)).toByteArray
+      case Some(client) =>
+        val call = ServiceRequest
+          .parseFrom(asked)
+          .copy(metadata = Some(Translate.toMetadata(site.purpose.metadata)))
+        try await(client.request(call), serviceWait).toByteArray
+        catch
+          case _: TimeoutException =>
+            throw ImportRefused(
+              "request",
+              s"request to ${call.service} was given no answer by the runtime within $serviceWait"
+            )
+
   private def config(request: Array[Byte]): Array[Byte] =
     ConfigReply(lookup(ConfigRequest.parseFrom(request).name)).toByteArray
 
@@ -162,6 +217,43 @@ final class HostImports(
           Array(give(instance, answer(request)))
     )
 
+  /** The runtime's clock, as milliseconds since the Unix epoch, when it is asked. */
+  private val nowFunction: HostFunction = new HostFunction(
+    Abi.ImportModule,
+    "now",
+    FunctionType.of(List.empty[ValType].asJava, List(ValType.I64).asJava),
+    new WasmFunctionHandle:
+      def apply(instance: Instance, args: Long*): Array[Long] = Array(clock())
+  )
+
+  /**
+   * Fills a buffer the guest owns with bytes from a secure source that nothing seeds. The length is
+   * bounded, so the host never allocates what a guest names; a longer buffer is filled in parts.
+   */
+  private val randomFunction: HostFunction = new HostFunction(
+    Abi.ImportModule,
+    "random",
+    FunctionType.of(List(ValType.I32, ValType.I32).asJava, List.empty[ValType].asJava),
+    new WasmFunctionHandle:
+      def apply(instance: Instance, args: Long*): Array[Long] =
+        val (ptr, len) = (args(0).toInt, args(1).toInt)
+        if len < 0 || len > MaxRandomBytes then
+          throw ImportRefused(
+            "random",
+            s"random fills at most $MaxRandomBytes bytes in one call, and was asked for $len"
+          )
+        val filled = new Array[Byte](len)
+        secure.nextBytes(filled)
+        try instance.memory().write(ptr, filled)
+        catch
+          case NonFatal(e) =>
+            throw ImportRefused(
+              "random",
+              s"random was given a buffer that is not in the module's memory: ${e.getMessage}"
+            )
+        Array.emptyLongArray
+  )
+
   private val logFunction: HostFunction = new HostFunction(
     Abi.ImportModule,
     "log",
@@ -179,6 +271,9 @@ final class HostImports(
   )
 
 object HostImports:
+
+  /** The most bytes `random` fills in one call. */
+  val MaxRandomBytes: Int = 65536
 
   private val notReady =
     pb.Error("the runtime is not ready to be called yet", pb.ErrorCode.UNAVAILABLE)

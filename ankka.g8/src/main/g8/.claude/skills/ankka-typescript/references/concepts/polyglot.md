@@ -106,8 +106,9 @@ The Rust SDK builds services this way. See [WebAssembly ABI](../reference/wasm-a
   ```
 
 - **A module reaches nothing but the runtime.** It has no network, no file system and no clock of its
-  own: it calls other components, queries views and sets timers through the runtime, reads the time the
-  runtime hands it, and reads its configuration through a `config` call that answers the descriptor's
+  own: it calls other components, queries views and sets timers through the runtime, calls other services
+  through it from the handlers that may wait, asks it for the time and for random bytes, and reads its
+  configuration through a `config` call that answers the descriptor's
   variables and withholds the platform's own — a model key, the database's credentials, the cluster's
   settings. Because one container has one environment, that withholding happens when the module asks,
   not when the pod is rendered.

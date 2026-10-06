@@ -28,6 +28,15 @@ class CollectorLogSuite extends munit.FunSuite:
     assertEquals(payments.traceId, orders.traceId)
   }
 
+  test("a span's start and duration are read from the times the collector prints") {
+    val orders = CollectorLog.spans(sample).head
+    assertEquals(
+      orders.startNanos,
+      java.time.Instant.parse("2025-10-04T17:46:40Z").toEpochMilli * 1000000L
+    )
+    assertEquals(orders.durationMillis, 1L)
+  }
+
   test("a log with nothing received is no spans") {
     assertEquals(
       CollectorLog.spans("2026-10-04T19:25:22Z\tinfo\tEverything is ready."),

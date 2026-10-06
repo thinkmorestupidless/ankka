@@ -761,6 +761,37 @@ spec:
     assertEquals(code, 0, body)
   }
 
+  /**
+   * Every trace in which a span of `service` took most of `ankka.ask-timeout`, span by span: where
+   * a refused request's ten seconds went, and on which instance. Waits a while for the exporters'
+   * last batches; an instance that has stopped flushed its own on the way out.
+   */
+  private def slowTraces(service: String): String =
+    import com.thinkmorestupidless.ankka.operator.{CollectorLog, CollectorStack}
+    def slow(seen: Vector[CollectorLog.Span]) =
+      seen.filter(s => s.service == service && s.durationMillis >= 9000)
+    val deadline = 30.seconds.fromNow
+    var seen     = CollectorStack.spans(k3s)
+    while slow(seen).isEmpty && deadline.hasTimeLeft() do
+      Thread.sleep(2000)
+      seen = CollectorStack.spans(k3s)
+    val traces = slow(seen).map(_.traceId).distinct.take(3)
+    if traces.isEmpty then "\nno span of the service took nine seconds or more"
+    else
+      traces.map { trace =>
+        val spans = seen.filter(_.traceId == trace).sortBy(_.startNanos)
+        val t0    = spans.head.startNanos
+        spans
+          .map { s =>
+            val at = (s.startNanos - t0) / 1000000
+            val a  = s.attributes
+            s"  +${at}ms ${s.durationMillis}ms ${s.instance} ${s.kind} ${s.name} id=${s.spanId} " +
+              s"parent=${s.parentId} ${a.getOrElse("ankka.component", "")}/${a.getOrElse("ankka.handler", "")} " +
+              s"outcome=${a.getOrElse("ankka.outcome", "")} caller=${a.getOrElse("ankka.caller", "")}"
+          }
+          .mkString(s"\ntrace $trace:\n", "\n", "")
+      }.mkString
+
   test("S2.3 a restart replaces pods one at a time with no refused request") {
     val before = pods.map(_.getMetadata.getName).toSet
     apply(spec(instances = 3, restarts = 1))
@@ -779,7 +810,8 @@ spec:
     )
     assert(
       refused.isEmpty,
-      s"${refused.size} of $requests requests were refused during the rollout: ${refused.mkString(" | ")}"
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused
+          .mkString(" | ")}${if refused.isEmpty then "" else slowTraces(Service)}"
     )
   }
 
@@ -965,7 +997,8 @@ spec:
     )
     assert(
       refused.isEmpty,
-      s"${refused.size} of $requests requests were refused during the rollout: ${refused.mkString(" | ")}"
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused
+          .mkString(" | ")}${if refused.isEmpty then "" else slowTraces(RustService)}"
     )
   }
 

@@ -77,12 +77,32 @@ object CollectorLog:
       spanId: String,
       name: String,
       kind: String,
-      attributes: Map[String, String]
+      attributes: Map[String, String],
+      start: String = "",
+      end: String = ""
   ):
-    def service: String = resource.getOrElse("service.name", "")
+    def service: String  = resource.getOrElse("service.name", "")
+    def instance: String = resource.getOrElse("service.instance.id", "")
+
+    /** Nanoseconds since the epoch, from the debug exporter's `Start time`; 0 when absent. */
+    def startNanos: Long     = CollectorLog.nanos(start)
+    def durationMillis: Long = (CollectorLog.nanos(end) - startNanos) / 1000000
 
   private val Attribute = """\s+-> ([^:]+): \w+\((.*)\)""".r
   private val Field     = """\s{4}([A-Za-z ]+?)\s*: ?(.*)""".r
+
+  /** The debug exporter prints `2026-10-06 10:21:47.423988 +0000 UTC`; always UTC. */
+  private[operator] def nanos(time: String): Long =
+    time.split(' ') match
+      case Array(date, clock, _*) =>
+        scala.util
+          .Try(java.time.LocalDateTime.parse(s"${date}T$clock"))
+          .map { t =>
+            val i = t.toInstant(java.time.ZoneOffset.UTC)
+            i.getEpochSecond * 1000000000L + i.getNano
+          }
+          .getOrElse(0L)
+      case _ => 0L
 
   def spans(log: String): Vector[Span] =
     val lines    = log.linesIterator.toVector
@@ -123,7 +143,9 @@ object CollectorLog:
           fields.getOrElse("ID", ""),
           fields.getOrElse("Name", ""),
           fields.getOrElse("Kind", ""),
-          attributes
+          attributes,
+          fields.getOrElse("Start time", ""),
+          fields.getOrElse("End time", "")
         )
       else at += 1
     result.result()

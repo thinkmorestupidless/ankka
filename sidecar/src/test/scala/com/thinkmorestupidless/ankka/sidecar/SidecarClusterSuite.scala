@@ -536,14 +536,26 @@ spec:
   private lazy val prober: String =
     com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service)
 
-  private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
+  /**
+   * The rollout cases' limit: longer than `ankka.ask-timeout` (10s), so a request the platform
+   * gives up on shows its own answer rather than curl's cut-off at the same moment.
+   */
+  private val DiagnoseSeconds = 15
+
+  private def nodeHttp(
+      path: String,
+      post: Option[String] = None,
+      diagnose: Boolean = false
+  ): (Int, String) =
     val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
       k3s,
       Namespace,
       prober,
       s"https://$Service.$Namespace.svc.cluster.local:9000$path",
       method = if post.isDefined then "POST" else "GET",
-      body = post
+      body = post,
+      maxSeconds = if diagnose then DiagnoseSeconds else 10,
+      timings = diagnose
     )
     (if code / 100 == 2 then 0 else 1, s"$code $body")
 
@@ -757,7 +769,7 @@ spec:
     val deadline = System.nanoTime() + 300.seconds.toNanos
     while pods.exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
     do
-      val (code, body) = nodeHttp("/carts/c1")
+      val (code, body) = nodeHttp("/carts/c1", diagnose = true)
       requests += 1
       if code != 0 then refused :+= body
     waitFor(120.seconds)(readyReplicas == 3 && pods.forall(readyOf))
@@ -867,14 +879,20 @@ spec:
       .map(_.intValue)
       .getOrElse(0)
 
-  private def rustHttp(path: String, post: Option[String] = None): (Int, String) =
+  private def rustHttp(
+      path: String,
+      post: Option[String] = None,
+      diagnose: Boolean = false
+  ): (Int, String) =
     val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
       k3s,
       Namespace,
       prober,
       s"https://$RustService.$Namespace.svc.cluster.local:9000$path",
       method = if post.isDefined then "POST" else "GET",
-      body = post
+      body = post,
+      maxSeconds = if diagnose then DiagnoseSeconds else 10,
+      timings = diagnose
     )
     (code, body)
 
@@ -937,7 +955,7 @@ spec:
     while podsOf(RustService)
         .exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
     do
-      val (code, body) = rustHttp("/carts/r1")
+      val (code, body) = rustHttp("/carts/r1", diagnose = true)
       if code != 200 then refused :+= s"$code $body"
       requests += 1
     waitFor(120.seconds)(readyReplicasOf(RustService) == 3 && podsOf(RustService).forall(readyOf))

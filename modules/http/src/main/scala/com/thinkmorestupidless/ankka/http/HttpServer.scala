@@ -766,24 +766,21 @@ private[ankka] object Tracing:
   ): Unit =
     val observability = Observability(system)
     val recorder      = observability.recorder
-    val traceId       = Trace.mint()
-    val spanId        = recorder.reserve()
-    val started       = System.nanoTime()
-    var outcome       = SpanOutcome.Failed
+    // A socket opened by a caller that sent its trace continues that trace, as a request does.
+    val continued =
+      RequestScope.currentContext.flatMap(_.header(Traceparent.Name)).flatMap(Traceparent.parse)
+    val span = recorder.reserve(
+      continued.fold(Trace.mintHigh())(_.traceIdHigh),
+      continued.fold(Trace.mint())(_.traceId),
+      observability.names.intern("http"),
+      observability.names.intern(describe)
+    )
+    var outcome = SpanOutcome.Failed
     try
-      try Trace.within(traceId, spanId, origin)(body)
+      try Trace.within(span, origin)(body)
       catch case _: SocketClosed => ()
       outcome = SpanOutcome.Ok
-    finally
-      recorder.record(
-        traceId,
-        spanId,
-        0L,
-        observability.names.intern("http"),
-        observability.names.intern(describe),
-        started,
-        outcome
-      )
+    finally recorder.record(span, continued.fold(0L)(_.spanId), SpanKind.Server, outcome)
 
   def request[A](describe: String, origin: CallOrigin)(body: => A)(using
       system: ActorSystem[?]

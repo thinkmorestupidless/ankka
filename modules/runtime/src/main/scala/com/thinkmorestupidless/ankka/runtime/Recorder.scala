@@ -214,39 +214,41 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
       if sequences(slot) == seq && read.durationNanos >= 0L then read else null
 
   /**
-   * A span id for a span that will be recorded later, whole, by `record`. Claims no slot.
-   *
-   * For an invocation that may outlive the ring: a socket is open for as long as its client wants,
-   * and a slot claimed by `begin` at the open would be reused by newer spans long before the close,
-   * so the span would never be published. Its children name this id as their parent meanwhile.
+   * A span that will be recorded later, whole, by `record`: its trace, its id and its start, and no
+   * slot. For an invocation that may outlive the ring — a socket is open for as long as its client
+   * wants, and a slot claimed by `begin` at the open would be reused by newer spans long before the
+   * close, so the span would never be published. Calls made meanwhile name it as their parent
+   * (`Trace.within(span, …)`), and appear before it does.
    */
-  def reserve(): Long = spanId.incrementAndGet()
+  def reserve(
+      traceIdHigh: Long,
+      traceId: Long,
+      componentRef: Int,
+      handlerRef: Int
+  ): Span =
+    Span(-1, 0L, nextSpanId(), traceIdHigh, traceId, componentRef, handlerRef, System.nanoTime())
 
   /**
-   * Claims a slot and publishes a span at once: one that started at `startedNanos`
-   * (`System.nanoTime` then) and ends now. The id is one `reserve` returned.
+   * Publishes a span `reserve` made, ending now: claims a slot as `begin` does, writes it whole,
+   * counts it as `complete` does, and publishes it at once.
    */
-  def record(
-      traceId: Long,
-      spanId: Long,
-      parentSpanId: Long,
-      componentRef: Int,
-      handlerRef: Int,
-      startedNanos: Long,
-      outcome: SpanOutcome
-  ): Unit =
+  def record(span: Span, parentSpanId: Long, kind: SpanKind, outcome: SpanOutcome): Unit =
+    val duration = System.nanoTime() - span.startedNanos
+    totals.add(span.componentRef, span.handlerRef, outcome, duration)
     val seq  = next.incrementAndGet()
     val slot = ((seq - 1) & mask).toInt
-    sequences(slot) = 0L // mark in-flight: a reader must not trust this slot yet
-    traceIds(slot) = traceId
-    spanIds(slot) = spanId
-    parentIds(slot) = parentSpanId
-    this.componentRef(slot) = componentRef
-    this.handlerRef(slot) = handlerRef
-    this.startedNanos(slot) = startedNanos
-    durations(slot) = System.nanoTime() - startedNanos
-    outcomes(slot) = outcome.ordinal.toByte
-    sequences(slot) = seq // publish last: now a reader may trust it
+    if hold(slot, seq) then
+      traceIdsHigh(slot) = span.traceIdHigh
+      traceIds(slot) = span.traceId
+      spanIds(slot) = span.id
+      parentIds(slot) = parentSpanId
+      this.componentRef(slot) = span.componentRef
+      this.handlerRef(slot) = span.handlerRef
+      kinds(slot) = kind.ordinal.toByte
+      startedNanos(slot) = span.startedNanos
+      durations(slot) = duration
+      outcomes(slot) = outcome.ordinal.toByte
+      Recorder.Sequences.setRelease(sequences, slot, seq) // publish: now it may be read
 
   /**
    * Every complete span currently held, newest first.

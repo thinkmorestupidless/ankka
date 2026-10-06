@@ -132,6 +132,26 @@ export default function Service() {
           <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
           <dt>Database</dt>
           <dd>{s.hosting === "web" ? "None" : (s.database ?? "Nothing reported yet")}</dd>
+          {s.broker ? (
+            <>
+              <dt>Broker</dt>
+              <dd>{s.broker}</dd>
+            </>
+          ) : null}
+          {s.undeclaredTopics && s.undeclaredTopics.length > 0 ? (
+            <>
+              <dt>Undeclared topics</dt>
+              <dd>
+                <ul className="ac-topics">
+                  {s.undeclaredTopics.map((t) => (
+                    <li key={t} data-topic={t}>
+                      <code>{t}</code>
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
           <dt>Runs as</dt>
           <dd>{runsAs(s)}</dd>
           {s.hosting === "web" ? (

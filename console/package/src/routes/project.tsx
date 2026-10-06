@@ -1,6 +1,6 @@
 /**
- * A project: its services, kept current while the page is open, its registry credential and its
- * project secrets — by name and entry, never a value.
+ * A project: its services, kept current while the page is open, its registry credential, its
+ * project secrets — by name and entry, never a value — and the topics it declares on the broker.
  */
 import { redirect, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type MetaFunction } from "react-router";
 import { act, guard, pageData, projectShell, text, useConsoleContext } from "../context.ts";
@@ -18,10 +18,11 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
   const ctx = useConsoleContext(context);
   const id = params.projectId!;
   return guard(ctx, async () => {
-    const [project, services, secrets, page] = await Promise.all([
+    const [project, services, secrets, topics, page] = await Promise.all([
       ctx.client.getProject(id),
       ctx.client.listServices(id),
       ctx.client.listProjectSecrets(id),
+      ctx.client.listTopics(id),
       pageData(ctx),
     ]);
     const organization = await ctx.client.getOrganization(project.organizationId);
@@ -32,6 +33,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
       organization,
       services,
       secrets,
+      topics,
       panels: await loadPanels(ctx, "project", project),
     };
   });
@@ -67,6 +69,12 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       case "secret-unset":
         await ctx.client.unsetProjectSecretEntry(id, text(form, "secretName"), text(form, "secretEntry"));
         return redirect(self);
+      case "topic-set":
+        await ctx.client.declareTopic(id, text(form, "topicName"), Number(text(form, "topicPartitions")));
+        return redirect(self);
+      case "topic-unset":
+        await ctx.client.removeTopic(id, text(form, "topicName"));
+        return redirect(self);
       default:
         throw new Response(`unknown operation '${intent}'`, { status: 400 });
     }
@@ -74,13 +82,14 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 }
 
 export default function Project() {
-  const { project: p, organization: o, services: initial, secrets, panels } = useLoaderData<typeof loader>();
+  const { project: p, organization: o, services: initial, secrets, topics, panels } = useLoaderData<typeof loader>();
   const { services, state } = useProjectStream(p.id, initial);
   const { shows } = useConsole();
   const renameRefusal = useRefusal("rename");
   const deleteRefusal = useRefusal("delete");
   const registryRefusal = useRefusal("registry-set");
   const secretRefusal = useRefusal("secret-set");
+  const topicRefusal = useRefusal("topic-set");
   const path = `projects/${encodeURIComponent(p.id)}`;
   const inspector = (
     <>
@@ -126,6 +135,24 @@ export default function Project() {
               <Refused intent="secret-set" />
               <div>
                 <Submit intent="secret-set">Save entry</Submit>
+              </div>
+            </ConsoleForm>
+          </details>
+        </section>
+      ) : null}
+      {shows("project-topic.set") ? (
+        <section className="ac-form" aria-labelledby="topic-set-title">
+          <SectionTitle>
+            <span id="topic-set-title">Topics</span>
+          </SectionTitle>
+          <details className="ac-more" open={topicRefusal !== undefined || undefined}>
+            <summary>Declare a topic</summary>
+            <ConsoleForm intent="topic-set" className="ac-form">
+              <Field label="Topic" name="topicName" required placeholder="transactions" defaultValue={topicRefusal?.values.topicName} />
+              <Field label="Partitions" name="topicPartitions" type="number" required defaultValue={topicRefusal?.values.topicPartitions ?? "3"} hint="A topic can be given more partitions later, never fewer." />
+              <Refused intent="topic-set" />
+              <div>
+                <Submit intent="topic-set">Declare topic</Submit>
               </div>
             </ConsoleForm>
           </details>
@@ -266,6 +293,53 @@ export default function Project() {
           </div>
         )}
         <Refused intent="secret-unset" />
+      </section>
+
+      <section className="ac-card" aria-labelledby="topics">
+        <h2 id="topics">Topics</h2>
+        {topics.length === 0 ? (
+          <p className="ac-empty">No topics declared. Every service of the project uses a declared topic by its name.</p>
+        ) : (
+          <div className="ac-table-wrap">
+            <table className="ac-table" aria-describedby="topics">
+              <thead>
+                <tr>
+                  <th scope="col">Topic</th>
+                  <th scope="col" className="ac-num">
+                    Partitions
+                  </th>
+                  <th scope="col">Broker</th>
+                  <th scope="col">
+                    <span className="ac-visually-hidden">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {topics.map((t) => (
+                  <tr key={t.name} data-topic={t.name}>
+                    <td>
+                      <code>{t.name}</code>
+                    </td>
+                    <td className="ac-num">{t.partitions}</td>
+                    <td>
+                      {t.phase ?? "Nothing reported yet"}
+                      {t.detail ? ` — ${t.detail}` : ""}
+                    </td>
+                    <td>
+                      {shows("project-topic.unset") ? (
+                        <ConsoleForm intent="topic-unset" className="ac-inline">
+                          <input type="hidden" name="topicName" value={t.name} />
+                          <Submit intent="topic-unset">{`Stop declaring ${t.name}`}</Submit>
+                        </ConsoleForm>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <Refused intent="topic-unset" />
       </section>
 
       <Panels kind="project" entity={p} loaded={panels} />

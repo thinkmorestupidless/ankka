@@ -13,8 +13,8 @@ import scala.util.Try
 
 /**
  * What a process declares for an agent's approvals, MCP servers and result guardrails (protocol
- * 1.11), as the Scala agent's own declarations — so the sidecar hosts the same loop, connects to the
- * same servers and enforces the same approvals as for an agent written in Scala.
+ * 1.11), as the Scala agent's own declarations — so the sidecar hosts the same loop, connects to
+ * the same servers and enforces the same approvals as for an agent written in Scala.
  */
 private[sidecar] object RemoteMcp:
 

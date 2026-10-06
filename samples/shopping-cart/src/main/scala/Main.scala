@@ -9,6 +9,7 @@ import shoppingcart.api.{
   CheckoutsSeenEndpoint,
   GrpcCallersEndpoint,
   QuestionsEndpoint,
+  ServiceCallerEndpoint,
   ShoppingCartEndpoint
 }
 import shoppingcart.application.*
@@ -104,9 +105,24 @@ import shoppingcart.application.*
   val grpcClients = GrpcClients()
   // docs:end grpc-clients
 
+  /**
+   * `CART_CALLING_AGENT=on`, with no model key, registers an agent whose tool calls another service
+   * of the project, answered by a model that needs no key (`RelayModel`). It is how the platform's
+   * cluster suite shows a tool's call admitted by the called service's ACL, by this service's name.
+   */
+  val callingAgent =
+    sys.env.get("CART_CALLING_AGENT").contains("on") && !sys.env.contains("ANTHROPIC_API_KEY")
+
   val service = sys.env
     .get("ANTHROPIC_API_KEY")
-    .fold(withGrpc) { key =>
+    .fold(
+      if !callingAgent then withGrpc
+      else
+        withGrpc
+          .register(ServiceCaller.descriptor)
+          .registerAll(AgentRuntime.descriptors)
+          .withExtension(AgentRuntime.withDefaultModel(RelayModel))
+    ) { key =>
       withGrpc
         .register(CartAssistant.descriptor)
         .register(CartAnswerer.descriptor)
@@ -120,7 +136,8 @@ import shoppingcart.application.*
           clients => CallersEndpoint(clients.services),
           clients => QuestionsEndpoint(clients.componentClient),
           _ => GrpcCallersEndpoint(grpcClients)
-        ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient))*
+        ) ++ Option.when(brokered)(clients => CheckoutsSeenEndpoint(clients.viewClient)) ++
+          Option.when(callingAgent)(clients => ServiceCallerEndpoint(clients.componentClient))*
       )
     )
     .withExtension(grpcClients)

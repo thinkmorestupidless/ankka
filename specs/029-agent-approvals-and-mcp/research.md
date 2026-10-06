@@ -665,6 +665,14 @@ skills' `pages:` lists.
   every response it lists is asserted by `ApprovalSuite`, `SuspendedTurnSuite` and the conformance
   cases, with a restart between the request and the decision.
 
+- **T042 as built**: a deployed Scala service can run an agent with no model key — the shopping
+  cart sample registers `ServiceCaller` with `RelayModel` when `CART_CALLING_AGENT=on` and no key is
+  set. The model asks for the `call_service` tool and replies with what the tool was answered, so the
+  agent's reply is the called route's answer. `ZeroTrustClusterSuite` case 6b deploys the project's
+  `orders` service with the switch, asks its agent to call the `carts` route that admits `orders`
+  alone, and asserts the reply is `admitted: checkout/orders`; the same route refuses the service of
+  that name in another project. `ServiceCallerSuite` holds the sample's wiring without a cluster.
+
 ## Audit: every scenario and the test that holds it (T080)
 
 Each scenario of the five feature files spec 029 names, and the test named after it — or, where none
@@ -711,7 +719,7 @@ is, what holds it. Run in-process unless the row says otherwise.
 | `mcp-servers` | an error from an MCP server reaches the model as the tool's error | McpAgentSuite.scala |
 | `mcp-servers` | every tool of an MCP server that requires approval waits for a decision | McpAgentSuite.scala |
 | `mcp-servers` | a service whose agent lists an MCP server that cannot be reached does not start | McpAgentSuite.scala, McpToolsSuite.scala |
-| `mcp-servers` | the platform connects to an MCP server that is a service as the agent's service | McpToolsSuite ("an MCP server that is a service is reached through the service client"); the certificate it presents: ServiceClientSuite, and the k3s case of T042 |
+| `mcp-servers` | the platform connects to an MCP server that is a service as the agent's service | McpToolsSuite ("an MCP server that is a service is reached through the service client"); the certificate it presents: ServiceClientSuite, and ZeroTrustClusterSuite case 6b |
 | `mcp-servers` | an MCP server's tool with the name of one of the agent's own is offered beside it | McpAgentSuite.scala |
 | `mcp-servers` | a tool an MCP server gains after the service started is not offered until the service restarts | McpAgentSuite.scala |
 | `mcp-servers` | a tool an MCP server no longer has fails the tool call with the server's error | McpAgentSuite.scala |

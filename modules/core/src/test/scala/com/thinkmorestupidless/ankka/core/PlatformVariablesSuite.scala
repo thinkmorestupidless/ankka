@@ -44,7 +44,14 @@ class PlatformVariablesSuite extends munit.FunSuite:
   ) {
     assertEquals(
       RuntimeOnlyPrefixes,
-      Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_", "ANKKA_SOCKET_", "ANKKA_MCP_")
+      Vector(
+        "ANTHROPIC_",
+        "ANKKA_MODEL_",
+        "ANKKA_DB_",
+        "ANKKA_AUTH_",
+        "ANKKA_SOCKET_",
+        "ANKKA_MCP_"
+      )
     )
     assertEquals(RuntimeOnlyNames, Set(SecretKey, ServiceClientTimeout))
     assertEquals(SecretKey, "ANKKA_SECRET_KEY")

@@ -5,7 +5,8 @@ import com.thinkmorestupidless.ankka.crd.{
   AnkkaSerialization,
   AnkkaService,
   AnkkaServiceSpec,
-  AutoscalingSpec
+  AutoscalingSpec,
+  EnvEntry
 }
 import com.thinkmorestupidless.ankka.operator.{
   ClusterImages,
@@ -100,7 +101,11 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
       operator.start()
 
       write(Checkout, spec("checkout", "carts", instances = 3, exposed = true))
-      write(Checkout, spec("checkout", "orders"))
+      // With an agent whose tool calls other services, answered by a model that needs no key.
+      write(
+        Checkout,
+        spec("checkout", "orders").copy(env = List(EnvEntry("CART_CALLING_AGENT", Some("on"))))
+      )
       write(Billing, spec("billing", "orders"))
       for (ns, name, n) <- Vector(
           (Checkout, "carts", 3),
@@ -446,6 +451,22 @@ class ZeroTrustClusterSuite extends munit.FunSuite with LogCapturing:
       s"https://orders.$Checkout.svc.cluster.local:9000/callers/call/carts?path=/callers/orders-alone"
     )
     assertEquals((admitted, answer), (200, "admitted: checkout/orders"))
+  }
+
+  test(
+    "6b. a tool calls another service as its agent's service, and is admitted by name (SC-003)"
+  ) {
+    // The orders service's agent runs a tool that calls the carts service's route admitting the
+    // orders service alone; its model relays what the tool was answered, so the reply is the route's.
+    val (code, reply) = InPod.curl(
+      k3s,
+      Checkout,
+      aPod(Checkout, "orders"),
+      s"https://orders.$Checkout.svc.cluster.local:9000/agent/call/carts?path=/callers/orders-alone"
+    )
+    assertEquals((code, reply), (200, "admitted: checkout/orders"))
+    // The same route refuses a caller it does not name: the service of that name in another project.
+    assertEquals(callCarts(Billing, "/callers/orders-alone")._1, 403)
   }
 
   test("a route that admits only one service by name refuses the gateway (on a cluster)") {

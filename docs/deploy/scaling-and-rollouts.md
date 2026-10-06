@@ -73,6 +73,11 @@ Service's endpoints the moment its deletion starts, but each node's network prox
 second later, and in that second a request can still be routed to the old instance. The pause, a
 `preStop` sleep, lets those requests be answered rather than refused.
 
+While an entity moves from a stopping instance to another, a call to it can be lost: the platform
+delivers each call at most once during the move. A query that goes unanswered is sent again and
+answered. A command is not sent again, since it may have run, and its caller gets a timeout after
+`ankka.ask-timeout`. See [Limitations](../reference/limitations.md#platform).
+
 ## Scaling does not roll
 
 Changing `minInstances` from 3 to 4 starts one new instance, which joins the cluster and takes a share of

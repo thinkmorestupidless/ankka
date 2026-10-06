@@ -22,6 +22,34 @@ trait CallTransport:
   ): Future[Array[Byte]]
 
   /**
+   * `ask`, for a handler that only reads (a query).
+   *
+   * Cluster sharding delivers at most once while an instance moves between nodes: a message that
+   * reaches the old node's region after the hand-off began is dropped, and nobody answers. A query
+   * changes nothing, so a transport may send one that went unanswered again, within the same
+   * `askTimeout`; a command it may not, since an unanswered command may yet have run. Here, `ask`.
+   */
+  def askQuery(
+      componentId: ComponentId,
+      entityId: EntityId,
+      method: MethodName,
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[Array[Byte]] = ask(componentId, entityId, method, payload, metadata)
+
+  /** `askQuery` for a read-only handler, `ask` for any other. */
+  private[ankka] final def askHandler(
+      readOnly: Boolean,
+      componentId: ComponentId,
+      entityId: EntityId,
+      method: MethodName,
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[Array[Byte]] =
+    if readOnly then askQuery(componentId, entityId, method, payload, metadata)
+    else ask(componentId, entityId, method, payload, metadata)
+
+  /**
    * Sends a message without awaiting a reply.
    *
    * `Any` because the message types live in `ankka-runtime`, which the SDK must not depend on. Used
@@ -134,7 +162,8 @@ final class Invocation[I, O] private[ankka] (
   /** Issues the call without waiting — use this to fan out across many instances. */
   def invokeAsync(input: I): Future[O] =
     transport
-      .ask(
+      .askHandler(
+        handle.readOnly,
         handle.componentId,
         entityId,
         handle.name,
@@ -158,5 +187,12 @@ final class NoArgInvocation[O] private[ankka] (
 
   def invokeAsync(): Future[O] =
     transport
-      .ask(handle.componentId, entityId, handle.name, Array.emptyByteArray, metadata)
+      .askHandler(
+        handle.readOnly,
+        handle.componentId,
+        entityId,
+        handle.name,
+        Array.emptyByteArray,
+        metadata
+      )
       .map(handle.outputSerializer.fromBytes)(using ExecutionContext.parasitic)

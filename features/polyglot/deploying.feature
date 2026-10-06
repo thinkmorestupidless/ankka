@@ -55,7 +55,7 @@ Feature: Deploying a service written in another language
 
   Scenario Outline: a service written in another language is restarted one instance at a time and refuses no request
     Given a service "shop" written in "<language>" deployed with 3 instances
-    And a caller sending requests to "shop" one after another
+    And a caller sending requests that only read to "shop" one after another
     When a member restarts "shop"
     Then each instance of "shop" is replaced one at a time
     And every request the caller sends is answered

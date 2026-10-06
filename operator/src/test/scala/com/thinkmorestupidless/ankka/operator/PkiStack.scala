@@ -166,6 +166,9 @@ object InPod:
    * `curl` inside `pod`'s node container. `identity` is `cluster` (management, remoting's peer
    * certificate) or `service` (HTTP). Answers the status and body; a TLS or connection failure is
    * status 0 with curl's message.
+   *
+   * `timings` adds curl's connect, TLS, first-byte and total times to the body, so a failure says
+   * where the time went: a stalled connection, or a server that accepted and never answered.
    */
   def curl(
       k3s: K3sContainer,
@@ -177,7 +180,9 @@ object InPod:
       body: Option[String] = None,
       verifyHost: Boolean = true,
       container: Option[String] = None,
-      headers: Seq[String] = Nil
+      headers: Seq[String] = Nil,
+      maxSeconds: Int = 10,
+      timings: Boolean = false
   ): (Int, String) =
     val dir = s"/var/run/secrets/ankka/$identity"
     val tls =
@@ -195,15 +200,20 @@ object InPod:
         "curl",
         "-sS",
         "-m",
-        "10",
+        maxSeconds.toString,
         "-X",
         method,
         "-w",
-        "\n%{http_code}"
+        if timings then s"\n%{http_code} $Timings" else "\n%{http_code}"
       ) ++ tls ++ payload :+ url
     val result = k3s.execInContainer(args*)
     val out    = result.getStdout
     val lines  = out.split("\n", -1).toVector
-    val code   = lines.lastOption.flatMap(_.trim.toIntOption).getOrElse(0)
+    val last   = lines.lastOption.map(_.trim).getOrElse("")
+    val code   = last.takeWhile(_ != ' ').toIntOption.getOrElse(0)
+    val times  = if timings then " (" + last.dropWhile(_ != ' ').trim + ")" else ""
     if result.getExitCode != 0 then (0, (out + result.getStderr).trim)
-    else (code, lines.dropRight(1).mkString("\n"))
+    else (code, lines.dropRight(1).mkString("\n") + times)
+
+  private val Timings =
+    "connect=%{time_connect}s tls=%{time_appconnect}s first-byte=%{time_starttransfer}s total=%{time_total}s"

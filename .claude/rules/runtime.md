@@ -109,8 +109,16 @@ localServices = …)` sets `ankka.local-services` for one service rather than th
 - **A Pekko stash is dropped when the actor stops**, and a remote entity waiting on its process is
   exactly the actor that stops mid-command in a hand-off: every stashed caller would time out with
   no answer. The remote hosts keep an explicit queue in the actor's state and answer it
-  `Unavailable` from `PostStop`; the client service retries `Unavailable` briefly, so a rolling
-  replacement refuses nothing.
+  `Unavailable` from `PostStop`; the client service retries `Unavailable` briefly.
+- **Sharding drops a call that reaches a leaving region after its shard's hand-off began.**
+  `ShardRegion` on `HandOff` discards what it buffered for the shard "to avoid re-ordering" and logs
+  `Dropping [n] buffered messages to shard [s] during hand off`; the caller gets no answer at all and
+  times out at `ankka.ask-timeout`. It cost the sidecar's rolling-restart cases about one call in five
+  hundred, on half the runs, JVM services being exposed exactly the same way. A query goes through
+  `CallTransport.askQuery`, which `ShardingTransport` sends again every `ankka.query-resend-after` within
+  the one ask timeout (`QueryResendSuite`); a command is never sent again, since a dropped command and a
+  slow one look alike, and `docs/reference/limitations.md` says so. Retrying `Unavailable` longer does
+  not help: nothing comes back to retry.
 - **`snapshotWhen` sees the state *before* the event it is asked about**, and Pekko may snapshot at
   a sequence the host did not expect. `RemoteStateRecord` carries absolute positions and the
   predicate accepts the process's snapshot at its own sequence or the next one — which is why a

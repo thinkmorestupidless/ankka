@@ -536,14 +536,26 @@ spec:
   private lazy val prober: String =
     com.thinkmorestupidless.ankka.operator.InPod.prober(k3s, Namespace, Service)
 
-  private def nodeHttp(path: String, post: Option[String] = None): (Int, String) =
+  /**
+   * The rollout cases' limit: longer than `ankka.ask-timeout` (10s), so a request the platform
+   * gives up on shows its own answer rather than curl's cut-off at the same moment.
+   */
+  private val DiagnoseSeconds = 15
+
+  private def nodeHttp(
+      path: String,
+      post: Option[String] = None,
+      diagnose: Boolean = false
+  ): (Int, String) =
     val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
       k3s,
       Namespace,
       prober,
       s"https://$Service.$Namespace.svc.cluster.local:9000$path",
       method = if post.isDefined then "POST" else "GET",
-      body = post
+      body = post,
+      maxSeconds = if diagnose then DiagnoseSeconds else 10,
+      timings = diagnose
     )
     (if code / 100 == 2 then 0 else 1, s"$code $body")
 
@@ -749,23 +761,121 @@ spec:
     assertEquals(code, 0, body)
   }
 
+  /**
+   * Follows the logs of every pod of `service`, each container, from now until the suite ends, into
+   * files on the node: the pods a rollout replaces are deleted with their logs, and a refused
+   * request's cause may be on one of them. Started before the rollout; a pod that appears during it
+   * is picked up within a second.
+   */
+  private def followLogs(service: String): Unit =
+    val dir = s"/tmp/rollout-logs/$service"
+    val script =
+      s"""mkdir -p $dir
+         |while true; do
+         |  for p in $$(kubectl -n $Namespace get pods -o name | grep -E '^pod/$service-[a-z0-9]+-[a-z0-9]+$$'); do
+         |    f=$dir/$${p#pod/}.log
+         |    [ -f "$$f" ] || (kubectl -n $Namespace logs -f --timestamps --prefix --all-containers "$$p" > "$$f" 2>&1 &)
+         |  done
+         |  sleep 1
+         |done""".stripMargin
+    // Detached, with nothing inherited: an exec returns only once every holder of its output closes.
+    nodeExec("sh", "-c", s"( $script ) > /dev/null 2>&1 < /dev/null &"): Unit
+
+  /**
+   * Where a refused request's ten seconds went: every trace in which a span of `service` took nine
+   * seconds or more, span by span; every span of the service that began inside that window,
+   * whatever its trace; one healthy trace to compare with; and what every pod of the service logged
+   * over the window, the pods the rollout deleted included. `before` names the pods the rollout
+   * replaced.
+   */
+  private def rolloutReport(service: String, before: Set[String]): String =
+    import com.thinkmorestupidless.ankka.operator.{CollectorLog, CollectorStack}
+    def slow(seen: Vector[CollectorLog.Span]) =
+      seen.filter(s => s.service == service && s.durationMillis >= 9000)
+    val deadline = 30.seconds.fromNow
+    var seen     = CollectorStack.spans(k3s)
+    while slow(seen).isEmpty && deadline.hasTimeLeft() do
+      Thread.sleep(2000)
+      seen = CollectorStack.spans(k3s)
+    val mine                  = seen.filter(_.service == service)
+    def age(instance: String) = if before.contains(instance) then "old" else "new"
+    def line(s: CollectorLog.Span, t0: Long) =
+      val a = s.attributes
+      s"  +${(s.startNanos - t0) / 1000000}ms ${s.durationMillis}ms ${s.instance}(${age(s.instance)}) " +
+        s"${s.kind} ${s.name} id=${s.spanId} parent=${s.parentId} trace=${s.traceId.take(8)} " +
+        s"${a.getOrElse("ankka.component", "")}/${a.getOrElse("ankka.handler", "")} " +
+        s"outcome=${a.getOrElse("ankka.outcome", "")}"
+    val slowSpans = slow(seen).sortBy(_.startNanos).take(3)
+    if slowSpans.isEmpty then return "\nno span of the service took nine seconds or more"
+    val healthy = mine
+      .groupBy(_.traceId)
+      .values
+      .find(t => t.size > 1 && t.forall(_.durationMillis < 1000))
+      .map(t => t.sortBy(_.startNanos))
+    val healthyText = healthy.fold("\nno healthy trace with more than one span") { t =>
+      t.map(line(_, t.head.startNanos)).mkString("\na healthy trace:\n", "\n", "")
+    }
+    val windows = slowSpans.map { slowSpan =>
+      val t0     = slowSpan.startNanos
+      val tEnd   = t0 + slowSpan.durationMillis * 1000000L
+      val traced = seen.filter(_.traceId == slowSpan.traceId).sortBy(_.startNanos)
+      val during = mine
+        .filter(s =>
+          s.traceId != slowSpan.traceId && s.startNanos >= t0 - 1000000000L && s.startNanos <= tEnd
+        )
+        .sortBy(_.startNanos)
+      val logs = logsBetween(service, t0 - 2000000000L, tEnd + 2000000000L)
+      traced.map(line(_, t0)).mkString(s"\ntrace ${slowSpan.traceId}:\n", "\n", "") +
+        s"\nspans of $service in other traces from 1s before it until it ended (${during.size}):\n" +
+        during.take(60).map(line(_, t0)).mkString("\n") +
+        s"\nlogs of $service from 2s before it until 2s after it ended:\n" + logs
+    }
+    windows.mkString + healthyText
+
+  /** Lines that `followLogs` kept for `service` stamped between the two instants, at most 300. */
+  private def logsBetween(service: String, fromNanos: Long, toNanos: Long): String =
+    val (_, out) = nodeExec("sh", "-c", s"cat /tmp/rollout-logs/$service/*.log 2>/dev/null")
+    val Stamp    = """.*?(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z).*""".r
+    def nanosOf(line: String): Option[Long] = line match
+      case Stamp(t) =>
+        scala.util
+          .Try(java.time.Instant.parse(t))
+          .toOption
+          .map(i => i.getEpochSecond * 1000000000L + i.getNano)
+      case _ => None
+    val kept = out.linesIterator
+      .flatMap(l => nanosOf(l).map(_ -> l))
+      .filter((t, _) => t >= fromNanos && t <= toNanos)
+      .toVector
+      .sortBy(_._1)
+      .map(_._2)
+    if kept.isEmpty then "  (none)"
+    else
+      (if kept.size > 300 then kept.take(300) :+ s"  … ${kept.size - 300} more" else kept)
+        .mkString("\n")
+
   test("S2.3 a restart replaces pods one at a time with no refused request") {
     val before = pods.map(_.getMetadata.getName).toSet
+    followLogs(Service)
     apply(spec(instances = 3, restarts = 1))
-    var refused  = 0
+    var refused  = Vector.empty[String]
     var requests = 0
     val deadline = System.nanoTime() + 300.seconds.toNanos
     while pods.exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
     do
-      val (code, _) = nodeHttp("/carts/c1")
+      val (code, body) = nodeHttp("/carts/c1", diagnose = true)
       requests += 1
-      if code != 0 then refused += 1
+      if code != 0 then refused :+= body
     waitFor(120.seconds)(readyReplicas == 3 && pods.forall(readyOf))
     assert(
       requests > 5,
       s"the rollout finished before the loop measured anything ($requests requests)"
     )
-    assertEquals(refused, 0, s"$refused of $requests requests were refused during the rollout")
+    assert(
+      refused.isEmpty,
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused
+          .mkString(" | ")}${if refused.isEmpty then "" else rolloutReport(Service, before)}"
+    )
   }
 
   test("SC-008 the protocol ports are unreachable from another pod in the namespace") {
@@ -864,14 +974,20 @@ spec:
       .map(_.intValue)
       .getOrElse(0)
 
-  private def rustHttp(path: String, post: Option[String] = None): (Int, String) =
+  private def rustHttp(
+      path: String,
+      post: Option[String] = None,
+      diagnose: Boolean = false
+  ): (Int, String) =
     val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
       k3s,
       Namespace,
       prober,
       s"https://$RustService.$Namespace.svc.cluster.local:9000$path",
       method = if post.isDefined then "POST" else "GET",
-      body = post
+      body = post,
+      maxSeconds = if diagnose then DiagnoseSeconds else 10,
+      timings = diagnose
     )
     (code, body)
 
@@ -927,21 +1043,27 @@ spec:
     assert(podsOf(RustService).exists(_.getMetadata.getName == first), "the first pod was replaced")
 
     val before = podsOf(RustService).map(_.getMetadata.getName).toSet
+    followLogs(RustService)
     applyAs(RustService, wasmSpec(RustService, RustImage, instances = 3, restarts = 1))
-    var refused  = 0
+    var refused  = Vector.empty[String]
     var requests = 0
     val deadline = System.nanoTime() + 300.seconds.toNanos
     while podsOf(RustService)
         .exists(p => before.contains(p.getMetadata.getName)) && System.nanoTime() < deadline
     do
-      if rustHttp("/carts/r1")._1 != 200 then refused += 1
+      val (code, body) = rustHttp("/carts/r1", diagnose = true)
+      if code != 200 then refused :+= s"$code $body"
       requests += 1
     waitFor(120.seconds)(readyReplicasOf(RustService) == 3 && podsOf(RustService).forall(readyOf))
     assert(
       requests > 5,
       s"the rollout finished before the loop measured anything ($requests requests)"
     )
-    assertEquals(refused, 0, s"$refused of $requests requests were refused during the rollout")
+    assert(
+      refused.isEmpty,
+      s"${refused.size} of $requests requests were refused during the rollout: ${refused
+          .mkString(" | ")}${if refused.isEmpty then "" else rolloutReport(RustService, before)}"
+    )
   }
 
   test("wasm: a module of another ABI version fails the service, naming the versions") {

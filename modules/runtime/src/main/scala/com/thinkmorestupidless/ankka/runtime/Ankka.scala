@@ -222,9 +222,16 @@ final class ServiceBuilder private[ankka] (
         java.util.concurrent.TimeUnit.MILLISECONDS
       )
 
+    val queryResendAfter =
+      FiniteDuration(
+        system.settings.config.getDuration("ankka.query-resend-after").toMillis,
+        java.util.concurrent.TimeUnit.MILLISECONDS
+      )
+
     // Components receive the client through their context, so it has to exist before any
     // of them is instantiated.
-    val componentClient = ShardingTransport.clientFor(sharding, askTimeout)(using system)
+    val componentClient =
+      ShardingTransport.clientFor(sharding, askTimeout, queryResendAfter)(using system)
 
     // The secret store too, for the same reason. A key that is set and malformed stops the start
     // here, naming the variable; no key at all is a service that runs and refuses to keep secrets.

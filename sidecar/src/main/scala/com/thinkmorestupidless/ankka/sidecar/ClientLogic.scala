@@ -15,7 +15,7 @@ import com.thinkmorestupidless.ankka.core.{
   MethodName,
   Serializer
 }
-import com.thinkmorestupidless.ankka.runtime.remote.PayloadKeys
+import com.thinkmorestupidless.ankka.runtime.remote.{PayloadKeys, RemoteDescriptor}
 import com.thinkmorestupidless.ankka.runtime.{
   AnkkaExecutors,
   AnkkaService,
@@ -73,7 +73,20 @@ final class ClientLogic(
 
   private given ec: ExecutionContext = system.executionContext
   private val transport              = service.componentClient.transportRef
-  private val observability          = Observability(system)
+
+  /**
+   * The read-only handlers of this service's sharded components, which the transport may send again
+   * when an answer does not come (`CallTransport.askQuery`). Sharded kinds never share an id.
+   */
+  private val queries: Set[(ComponentId, MethodName)] =
+    service.registry.components
+      .collect {
+        case d: RemoteDescriptor if d.kind.sharded =>
+          d.handlers.values.filter(_.readOnly).map(h => (d.componentId, h.name))
+      }
+      .flatten
+      .toSet
+  private val observability = Observability(system)
 
   /**
    * Makes a call the process asked for as the handler the process was running.
@@ -107,8 +120,10 @@ final class ClientLogic(
   /**
    * `Unavailable` is what a remote host answers a command caught in a shard hand-off — an instance
    * stopping on a node that is leaving during a rollout. The next attempt goes through sharding to
-   * the instance's new home. Retried here, in the sidecar, so every SDK gets the same behaviour and
-   * a rollout refuses nothing (S2.3).
+   * the instance's new home. Retried here, in the sidecar, so every SDK gets the same behaviour.
+   *
+   * A call the hand-off *drops* gets no `Unavailable`, or any answer: that one only a query
+   * survives, by `askQuery` sending it again (`queries`).
    */
   private val RetryDelays: Vector[FiniteDuration] = Vector(200.millis, 500.millis, 1.second)
 
@@ -121,7 +136,16 @@ final class ClientLogic(
       attempt: Int = 0
   ): Future[Array[Byte]] =
     // Each attempt is a call, and is counted as one where it lands or where it goes unanswered.
-    asCaller(metadata)(transport.ask(componentId, entityId, method, bytes, metadata)).recoverWith {
+    asCaller(metadata)(
+      transport.askHandler(
+        queries.contains((componentId, method)),
+        componentId,
+        entityId,
+        method,
+        bytes,
+        metadata
+      )
+    ).recoverWith {
       case e: CommandError if e.code == ErrorCode.Unavailable && attempt < RetryDelays.size =>
         val promise = scala.concurrent.Promise[Array[Byte]]()
         val _ = system.scheduler.scheduleOnce(

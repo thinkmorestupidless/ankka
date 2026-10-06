@@ -1,0 +1,27 @@
+# Tells the operator where the store is. In this component rather than the operator's own manifest,
+# so an installation without the component renders an operator with no store — and a service that
+# asks for a bucket is then reported as failed, with the reason, instead of waiting on nothing.
+#
+# The container's name must be the operator's own, `ankka-operator`: a strategic merge patch that
+# names a container the Deployment lacks adds a second container instead.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ankka-operator
+  namespace: ankka-operator
+spec:
+  template:
+    spec:
+      containers:
+        - name: ankka-operator
+          env:
+            - name: ANKKA_OBJECT_STORE_ADMIN_URL
+              value: "http://garage.garage-system.svc.cluster.local:3903"
+            - name: ANKKA_OBJECT_STORE_ADMIN_TOKEN
+              valueFrom: { secretKeyRef: { name: ankka-object-store-admin, key: token } }
+            - name: ANKKA_OBJECT_STORE_ENDPOINT
+              value: "http://garage.garage-system.svc.cluster.local:3900"
+            - name: ANKKA_OBJECT_STORE_REGION
+              value: "garage"
+            - name: ANKKA_OBJECT_STORE_SERVICE
+              value: "garage-system/garage:3900"

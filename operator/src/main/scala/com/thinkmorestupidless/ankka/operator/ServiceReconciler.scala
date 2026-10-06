@@ -1,7 +1,12 @@
 package com.thinkmorestupidless.ankka.operator
 
 import io.fabric8.kubernetes.client.KubernetesClient
-import com.thinkmorestupidless.ankka.crd.{AnkkaService, AnkkaServiceDefinition, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaService,
+  AnkkaServiceDefinition,
+  AnkkaServiceSpec,
+  Buckets
+}
 import org.slf4j.{Logger, LoggerFactory}
 
 import java.time.{Clock, Instant}
@@ -52,17 +57,19 @@ final class ServiceReconciler(
     val databasePlan = decideDatabasePlan(ref, spec)
     val brokerSeen   = observeBroker(ref, spec)
     val brokerPlan   = BrokerProvisioning.decide(spec, settings.broker, brokerSeen)
+    val storagePlan  = decideObjectStoragePlan(ref, spec)
     def status(
         snapshot: Option[ClusterSnapshot],
         problems: Vector[String],
         resource: AnkkaService
-    ) = this.status(spec, snapshot, problems, resource, databasePlan, brokerPlan)
+    ) = this.status(spec, snapshot, problems, resource, databasePlan, brokerPlan, storagePlan)
 
     Rendering.render(
       resource,
       settings,
       databasePlan,
-      BrokerProvisioning.known(spec, settings.broker)
+      BrokerProvisioning.known(spec, settings.broker),
+      storagePlan
     ) match
       case Left(problems) =>
         // A resource that cannot be rendered leaves nothing half-applied. The status says
@@ -130,6 +137,19 @@ final class ServiceReconciler(
     Provisioning.decide(spec, observed)
 
   /**
+   * Asks the store about this service's bucket, only when the service asks for one and the
+   * installation has a store, and decides (feature 034).
+   */
+  private def decideObjectStoragePlan(ref: ServiceRef, spec: AnkkaServiceSpec): ObjectStoragePlan =
+    val observed =
+      if ObjectStorage.observes(spec, settings) then
+        executor
+          .observeObjectStorage(Buckets.name(spec.projectId, spec.serviceName))
+          .copy(resourceCreatedAt = executor.resourceCreatedAt(ref.namespace, ref.name))
+      else ObjectStorageObservation.empty
+    ObjectStorage.decide(spec, settings, observed)
+
+  /**
    * What the broker has for this service (feature 027), read only when the service is known to an
    * installation's broker: no Strimzi read is made for any other.
    */
@@ -157,7 +177,8 @@ final class ServiceReconciler(
       problems: Vector[String],
       resource: AnkkaService,
       databasePlan: ProvisioningPlan,
-      brokerPlan: BrokerPlan
+      brokerPlan: BrokerPlan,
+      objectStoragePlan: ObjectStoragePlan
   ) =
     val base = LifecycleRules.observe(
       spec,
@@ -177,6 +198,7 @@ final class ServiceReconciler(
         spec.serviceName
       ),
       broker = LifecycleRules.brokerStatus(brokerPlan),
+      objectStorage = ObjectStorage.status(objectStoragePlan, spec, settings),
       // A broker that failed says why where a member looks first, without changing the
       // service's lifecycle: a service whose credential cannot be had is still deployed.
       detail = base.detail.orElse(brokerPlan match
@@ -210,4 +232,12 @@ final class ServiceReconciler(
 
 object ServiceReconciler:
   def apply(client: KubernetesClient, settings: Settings): ServiceReconciler =
-    new ServiceReconciler(client, settings, new Fabric8Executor(client, settings.otlpHeaders))
+    new ServiceReconciler(
+      client,
+      settings,
+      new Fabric8Executor(
+        client,
+        settings.otlpHeaders,
+        settings.objectStore.map(store => GarageStore(store.adminUrl, store.adminToken))
+      )
+    )

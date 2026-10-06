@@ -1,1 +1,1 @@
-{"type":"ServiceDescriptor","json":{"name":"cart","service":{"image":"cart:1","runtime":"0.7.0","grpc":true}}}
+{"type":"ServiceDescriptor","json":{"name":"cart","service":{"image":"cart:1","runtime":"0.7.0","grpc":true,"provisionObjectStorage":true}}}

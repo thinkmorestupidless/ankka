@@ -123,3 +123,65 @@ class StatusIngestSuite extends munit.FunSuite with LogCapturing:
       )
     assertEquals(observation.lifecycle, ServiceLifecycle.Unavailable)
   }
+
+  // Object storage (feature 034).
+
+  private def reported(storage: com.thinkmorestupidless.ankka.crd.ObjectStorageStatus) =
+    StatusIngest.observe(
+      service(),
+      ClusterView.Reported(
+        AnkkaServiceStatus(
+          generation = 4L,
+          lifecycle = "Ready",
+          readyInstances = 1,
+          desiredInstances = 1,
+          objectStorage = Some(storage)
+        )
+      )
+    )
+
+  test("a reported object storage phase is carried, verbatim") {
+    val observation =
+      reported(
+        com.thinkmorestupidless.ankka.crd.ObjectStorageStatus("Provisioned", "checkout.cart")
+      )
+    assertEquals(observation.objectStorage, Some("Provisioned"))
+    assertEquals(observation.detail, None)
+  }
+
+  test("why a bucket waits or failed is said in the detail, so a member reads it") {
+    val observation = reported(
+      com.thinkmorestupidless.ankka.crd.ObjectStorageStatus(
+        "Failed",
+        "checkout.cart",
+        detail = Some("the installation has no object store")
+      )
+    )
+    assertEquals(observation.objectStorage, Some("Failed"))
+    assertEquals(observation.detail, Some("object storage: the installation has no object store"))
+  }
+
+  test("a cluster that cannot be read, or has not reported, restates the last phase") {
+    val known = service().onObserved(
+      com.thinkmorestupidless.ankka.controlplane.domain.ServiceEvent.ServiceObserved(
+        4L,
+        ServiceLifecycle.Ready,
+        1,
+        1,
+        None,
+        confirmed = true,
+        objectStorage = Some("Recovered")
+      )
+    )
+    for view <- Vector(
+        ClusterView.Unreachable("down"),
+        ClusterView.Refused("no"),
+        ClusterView.NoReport
+      )
+    do
+      assertEquals(
+        StatusIngest.observe(known, view).objectStorage,
+        Some("Recovered"),
+        view.toString
+      )
+  }

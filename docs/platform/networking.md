@@ -72,6 +72,16 @@ caller and the service keep it open. gRPC-Web is not routed.
 The gateway applies no authentication, rate limit or header policy of its own: who may call an endpoint is
 decided by the endpoint's ACL.
 
+### A bucket reachable from the internet
+
+A bucket whose descriptor asks that it be reachable gets a route of its own, `<service>-storage`, in its
+project's namespace and owned by the service, so deleting the service removes it. It matches the bucket's
+path at the store's one hostname, `storage.<base domain>`, which the wildcard certificate covers, and names
+the store's Service in `garage-system` through a `ReferenceGrant` the operator writes there, one per project.
+The route has no request timeout, so a large upload or download is not cut off. Every other path at that
+hostname answers `404` from the gateway and never reaches the store. See
+[Object storage](object-storage.md).
+
 ## In-cluster addresses
 
 Every service that serves HTTP has a `ClusterIP` Service with the service's name. From the same project it
@@ -202,6 +212,8 @@ Each workload also gets network policies, which refuse a connection before any T
 | 7628 (observe) | the control plane's pods, in the control plane's namespace, and nothing else |
 | 5432 on a project's database | that project's ankka workloads, the database's own instances and the database operator |
 | 9093 on the installation's broker | any pod of an ankka workload in any ankka namespace |
+| 3900 on the object store | any pod of an ankka workload in any ankka namespace, and the installation gateway's proxy pods |
+| 3903, the object store's administration | the operator's pods, and nothing else |
 
 Envoy Gateway runs a gateway's proxy pods in its own namespace, `envoy-gateway-system`, not in the
 `Gateway`'s. The policy therefore names those pods by the labels Envoy Gateway gives them, for the gateway

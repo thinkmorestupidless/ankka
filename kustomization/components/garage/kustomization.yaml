@@ -1,0 +1,26 @@
+# The installation's object store (feature 034): Garage, one node, in a namespace of its own. The
+# operator gives a service that asks for one a bucket here and a credential that reaches it alone,
+# through Garage's administration API; nothing else talks to that API.
+#
+# One node with one volume: the store's durability is its disk's. An installation that needs more
+# raises the replica count and the replication factor in its own overlay and applies a layout
+# through the administration API. `server --single-node` is what makes this component need no
+# imperative step, so `kubectl apply -k` stays the whole deploy.
+#
+# The namespace is `garage-system`, outside the `ankka-<name>` pattern a project's namespace has, so
+# no project id can ever name it.
+#
+# secrets.yaml holds development values, public in this repository. The cloud overlay deletes both
+# Secrets, and the store and the operator then refuse to start until real ones exist.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - config.yaml
+  - statefulset.yaml
+  - service.yaml
+  - zero-trust.yaml
+  - grants.yaml
+patches:
+  - path: operator-patch.yaml

@@ -62,6 +62,9 @@ database    provisioned
 | `protocol` | For a process-hosted service, the sidecar protocol version it declared. |
 | `hostname` | The external URL, `not exposed`, or a note that it is exposed but the control plane has no base domain configured. |
 | `database` | What the platform did about the service's database, once something has reported: `waiting for database`, `provisioned`, `recovered existing data`, `supplied` or `database provisioning failed`. |
+| `object storage` | What the platform did about the service's bucket, for a service that has object storage: `waiting for object storage`, `provisioned`, `recovered existing bucket`, `supplied` or `object storage provisioning failed`. Why it waits or failed is in `detail`, after `object storage:`. |
+| `bucket` | The bucket the platform gives the service, when its descriptor asks for one. |
+| `bucket address` | The bucket's address on the internet, when its descriptor asks that it be reachable. |
 | `detail` | Why the service is in its state, when there is something to say: a rollout problem, a refused version, an unreachable cluster, or a route the gateway has not accepted (`route rejected: <reason>`). |
 
 `detail` is shown only by `get`, which is why `list` marks unconfirmed readings in the status column

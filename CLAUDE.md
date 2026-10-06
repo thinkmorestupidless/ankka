@@ -299,6 +299,8 @@ handed to another thread cannot see a thread-local** — request context, trace 
 - Reconciliation is split: the control plane projects desired state into an `AnkkaService` resource,
   and an in-cluster operator (deliberately *not* an ankka application) owns everything below it. →
   `kubernetes.md`
+- A service can ask for a bucket in the installation's object store, Garage, provisioned as a database
+  is and never deleted; the credential is issued without a read of anything. → `kubernetes.md`
 - The control plane *is* an ankka application; Keycloak authenticates, the `Organization` entity
   authorizes; cross-entity checks live in endpoints, never handlers. → `control-plane.md`
 - DDL has one canonical copy, `kustomization/components/postgres/ddl/`; a new file is named in seven

@@ -49,7 +49,8 @@ object StatusIngest:
         detail = Some(s"could not reach the cluster: $reason"),
         confirmed = false,
         database = service.database,
-        broker = service.broker
+        broker = service.broker,
+        objectStorage = service.objectStorage
       )
 
     case ClusterView.Refused(reason) =>
@@ -61,7 +62,8 @@ object StatusIngest:
         detail = Some(reason),
         confirmed = true,
         database = service.database,
-        broker = service.broker
+        broker = service.broker,
+        objectStorage = service.objectStorage
       )
 
     case ClusterView.NoReport =>
@@ -73,7 +75,8 @@ object StatusIngest:
         detail = Some("no operator has reported on this service"),
         confirmed = false,
         database = service.database,
-        broker = service.broker
+        broker = service.broker,
+        objectStorage = service.objectStorage
       )
 
     case ClusterView.Reported(status) =>
@@ -87,10 +90,11 @@ object StatusIngest:
           ServiceLifecycle.byName(status.lifecycle).getOrElse(ServiceLifecycle.Unavailable),
         readyInstances = status.readyInstances,
         desiredInstances = status.desiredInstances,
-        detail = withRoute(status.detail, status.route),
+        detail = withObjectStorage(withRoute(status.detail, status.route), status.objectStorage),
         confirmed = true,
         database = status.database.map(_.phase),
-        broker = status.broker.map(_.phase)
+        broker = status.broker.map(_.phase),
+        objectStorage = status.objectStorage.map(_.phase)
       )
 
   /**
@@ -98,6 +102,21 @@ object StatusIngest:
    * detail, so a hostname that will not answer says why on `services get`. An accepted route is the
    * expected state and adds nothing.
    */
+  /**
+   * Why a bucket waits or failed is said in the detail (feature 034), as a route's state is: "the
+   * installation has no object store" is the whole of what a member needs to read, and the status's
+   * object storage field carries only the phase.
+   */
+  private def withObjectStorage(
+      detail: Option[String],
+      storage: Option[com.thinkmorestupidless.ankka.crd.ObjectStorageStatus]
+  ): Option[String] =
+    storage.flatMap(_.detail) match
+      case None => detail
+      case Some(reason) =>
+        val phrase = s"object storage: $reason"
+        Some(detail.fold(phrase)(d => s"$d; $phrase"))
+
   private def withRoute(detail: Option[String], route: Option[String]): Option[String] =
     route.filterNot(_ == "accepted") match
       case None => detail

@@ -266,3 +266,45 @@ class AnkkaServiceCodecSuite extends munit.FunSuite:
       withGrpc
     )
   }
+
+  // Object storage (feature 034).
+
+  test("a resource from before object storage asks for no bucket and exposes none") {
+    val sparse = """{"projectId":"checkout","serviceName":"cart","generation":1,"image":"img:1"}"""
+    val spec   = serialization.unmarshal(sparse, classOf[AnkkaServiceSpec])
+    assertEquals(spec.provisionObjectStorage, false)
+    assertEquals(spec.exposeObjectStorage, false)
+  }
+
+  test("asking for a bucket, and for it to be reachable, round-trips") {
+    val asked = fullSpec.copy(provisionObjectStorage = true, exposeObjectStorage = true)
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(asked), classOf[AnkkaServiceSpec]),
+      asked
+    )
+  }
+
+  test("an ObjectStorageStatus round-trips, its address and the recovered flag included") {
+    val status = ObjectStorageStatus(
+      phase = "Recovered",
+      bucket = "checkout.cart",
+      publicAddress = Some("https://storage.example.com/checkout.cart"),
+      recovered = true,
+      detail = Some("a detail")
+    )
+    assertEquals(
+      serialization.unmarshal(serialization.asJson(status), classOf[ObjectStorageStatus]),
+      status
+    )
+  }
+
+  test("a status with no object storage decodes to None, and None is omitted, not null") {
+    assertEquals(
+      serialization
+        .unmarshal("""{"generation":1,"lifecycle":"Ready"}""", classOf[AnkkaServiceStatus])
+        .objectStorage,
+      None
+    )
+    val json = serialization.asJson(AnkkaServiceStatus(lifecycle = "Ready"))
+    assert(!json.contains("objectStorage"), json)
+  }

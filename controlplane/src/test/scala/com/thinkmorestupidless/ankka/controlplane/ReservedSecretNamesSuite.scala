@@ -1,6 +1,7 @@
 package com.thinkmorestupidless.ankka.controlplane
 
 import com.thinkmorestupidless.ankka.controlplane.api.{ProjectSecrets, Registries}
+import com.thinkmorestupidless.ankka.crd.Buckets
 import com.thinkmorestupidless.ankka.operator.{CnpgRendering, Names, ZeroTrust}
 
 /**
@@ -23,7 +24,9 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
       ZeroTrust.serviceSecretName(service),
       ZeroTrust.Database.certificateSecret(service),
       Names.secretKeySecret(service),
-      Names.telemetrySecret(service)
+      Names.telemetrySecret(service),
+      ZeroTrust.mountSecretName(service),
+      Buckets.secret(service)
     )
 
   private val projectNames: Vector[String] =
@@ -39,6 +42,16 @@ final class ReservedSecretNamesSuite extends munit.FunSuite:
   test("every Secret name the platform gives a project is refused as a project secret") {
     for name <- projectNames do
       assert(ProjectSecrets.nameProblems(name).nonEmpty, s"'$name' must be refused")
+  }
+
+  test("every Secret a descriptor may not read includes each per-service Secret holding a secret") {
+    // A storage credential is a secret key a sibling's descriptor could otherwise name (feature 034).
+    for service <- services do
+      assert(
+        com.thinkmorestupidless.ankka.controlplane.api.ServiceSpec
+          .isPlatformSecret(Buckets.secret(service)),
+        Buckets.secret(service)
+      )
   }
 
   test("an ordinary name is not caught by the rule") {

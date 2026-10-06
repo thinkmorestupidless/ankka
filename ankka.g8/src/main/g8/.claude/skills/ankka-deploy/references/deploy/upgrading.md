@@ -74,6 +74,13 @@ Within a supported range, ankka's schema only ever gains tables and columns. A r
 a table or column it needs, which is what lets services on the older supported minor version keep
 running on a platform that has moved to the newer one.
 
+## Names a project secret can no longer take
+
+A project secret whose name ends `-storage` or `-mount-tls` can no longer be set, since those are the names
+of a service's storage credential and its mount certificate. One that already exists is kept and listed,
+and its entries can be removed; a descriptor that takes a variable from one is refused at its next apply.
+Rename it and point the descriptor at the new name.
+
 ## Consumer groups are named for the service
 
 Each view or consumer that reads a topic reads under a Kafka consumer group named for the service it

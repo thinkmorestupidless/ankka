@@ -14,8 +14,8 @@ package com.thinkmorestupidless.ankka.crd
  * (`a-b` in `c`, `a` in `b-c`); the control plane refuses both cases at expose time rather than
  * ever producing a hostname that does not resolve or names the wrong service. Research R2.
  *
- * The control plane's own hostname is a reserved label with no hyphen, `api`; every service label
- * has one, so the two can never coincide.
+ * The control plane's own hostname is a reserved label with no hyphen, `api`, as the object store's
+ * is, `storage`; every service label has one, so they can never coincide.
  */
 object Hostnames:
 
@@ -30,6 +30,15 @@ object Hostnames:
     s"${label(serviceName, projectId)}.$baseDomain"
 
   def controlPlane(baseDomain: String): String = s"$ControlPlaneLabel.$baseDomain"
+
+  /**
+   * The installation's object store, for a bucket that is reachable from the internet (feature
+   * 034). One hostname for every bucket, with the bucket in the path: a hostname per bucket would
+   * be two labels deep, which the wildcard does not cover. No hyphen, as `api` has none.
+   */
+  val StorageLabel: String = "storage"
+
+  def storage(baseDomain: String): String = s"$StorageLabel.$baseDomain"
 
   /** Why this pair cannot be exposed, if it cannot. Empty means it can. */
   def problems(serviceName: String, projectId: String): Vector[String] =

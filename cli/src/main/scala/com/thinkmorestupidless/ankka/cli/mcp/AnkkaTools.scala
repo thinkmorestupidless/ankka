@@ -135,7 +135,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "get_service",
       "Get a service",
-      "One service's full status: lifecycle, instances, generation, image, hosting, database, broker, the topics it uses that its project has not declared, hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
+      "One service's full status: lifecycle, instances, generation, image, hosting, database, bucket and its object storage phase, broker, the topics it uses that its project has not declared, hostname if exposed, and detail explaining a state that is not Ready. `confirmed: false` means the control plane is restating what it last knew.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = true,
       idempotent = true
@@ -255,7 +255,7 @@ private[cli] final class AnkkaTools(
     Tool(
       "delete_service",
       "Delete a service",
-      "Delete a service: its instances stop and its route goes. Its database is kept, and applying a descriptor with the same name recovers its data.",
+      "Delete a service: its instances stop and its route goes. Its database and its bucket are kept, and applying a descriptor with the same name recovers their data.",
       schema(Seq("name"), serviceArg, projectArg),
       readOnly = false,
       destructive = true,

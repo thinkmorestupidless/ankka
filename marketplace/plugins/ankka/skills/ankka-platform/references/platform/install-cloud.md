@@ -103,6 +103,21 @@ An identity provider that refuses to start is a loud and immediate failure. One 
 published administrator password is neither. The realm contains no users at all; add them in the
 console. See [Identity and machine accounts](identity.md).
 
+### The object store's secrets
+
+The example overlay deletes the object store's two development Secrets as it deletes the identity
+provider's, and the store and the operator cannot start until you create them. The administrator token is
+written twice, once for the store and once for the operator:
+
+```bash
+TOKEN="$(openssl rand -base64 32)"
+kubectl -n garage-system create secret generic garage-secrets \
+  --from-literal=rpc-secret="$(openssl rand -hex 32)" --from-literal=admin-token="$TOKEN"
+kubectl -n ankka-operator create secret generic ankka-object-store-admin --from-literal=token="$TOKEN"
+```
+
+See [Object storage](object-storage.md).
+
 ### The console
 
 The overlay's `ankka-platform` ConfigMap names [the console's](../operate/console.md) address as

@@ -120,6 +120,38 @@ class ServiceEntitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(kit.currentState.toStatus.database, Some("provisioned"))
   }
 
+  test(
+    "each object storage phase becomes its phrase, and a bucket is named when one is asked for"
+  ) {
+    val kit  = newKit
+    val asks = descriptor().copy(service = descriptor().service.copy(provisionObjectStorage = true))
+    val _    = kit.call(ServiceEntity.applyDescriptor)(ApplyService("acme", asks))
+    assertEquals(kit.currentState.toStatus.bucket, Some("acme.cart"))
+    assertEquals(kit.currentState.toStatus.objectStorage, None)
+    val phrases = Vector(
+      "Waiting"     -> "waiting for object storage",
+      "Provisioned" -> "provisioned",
+      "Recovered"   -> "recovered existing bucket",
+      "Supplied"    -> "supplied",
+      "Failed"      -> "object storage provisioning failed"
+    )
+    for (phase, phrase) <- phrases do
+      val result = kit.call(ServiceEntity.observe)(
+        ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, objectStorage = Some(phase))
+      )
+      assertEquals(result.events.size, 1, s"$phase was not recorded")
+      assertEquals(kit.currentState.toStatus.objectStorage, Some(phrase))
+    // The same report again changes nothing, so nothing is recorded.
+    val again = kit.call(ServiceEntity.observe)(
+      ServiceObservation(1L, ServiceLifecycle.Ready, 1, 1, objectStorage = Some("Failed"))
+    )
+    assertEquals(again.events.size, 0)
+    // A service that asks for none is named no bucket.
+    val plain = newKit
+    val _     = plain.call(ServiceEntity.applyDescriptor)(applying())
+    assertEquals(plain.currentState.toStatus.bucket, None)
+  }
+
   test("a web-hosted service's status says web, no database, its callers, mounts and port") {
     val kit = newKit
     val web = ServiceDescriptor(

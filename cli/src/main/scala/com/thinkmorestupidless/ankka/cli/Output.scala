@@ -191,6 +191,9 @@ object Output:
           row.undeclaredTopics
             .filter(_.nonEmpty)
             .map("undeclared topics" -> _.mkString("\n")) ++
+          // Feature 034: each only when present, so a service with no bucket reads as before.
+          row.objectStorage.map("object storage" -> _) ++ row.bucket.map("bucket" -> _) ++
+          row.bucketAddress.map("bucket address" -> _) ++
           row.detail.map("detail" -> _) ++ webFields(row)
         val width = fields.map(_._1.length).max
         // A value of several lines (a web-hosted service's mounts) continues under the first.

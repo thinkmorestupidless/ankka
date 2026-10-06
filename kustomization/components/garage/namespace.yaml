@@ -1,0 +1,7 @@
+# Not labelled app.kubernetes.io/managed-by: ankka. That label is what admits a namespace's routes
+# to the Gateway and its pods to every service's port; the store needs neither. A bucket's route
+# lives in its service's own namespace and reaches here by a ReferenceGrant.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: garage-system

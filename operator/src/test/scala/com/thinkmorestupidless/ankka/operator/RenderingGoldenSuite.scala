@@ -75,9 +75,33 @@ class RenderingGoldenSuite extends munit.FunSuite:
     )
   )
 
-  (cases ++ brokerCases).foreach { (name, spec, settings, plan) =>
+  private val store = ObjectStoreSettings(
+    "http://garage.garage-system.svc.cluster.local:3903",
+    "the-admin-token",
+    "http://garage.garage-system.svc.cluster.local:3900",
+    "garage",
+    ObjectStoreSettings.ServiceRef("garage-system", "garage", 3900)
+  )
+
+  /**
+   * A service with a bucket (feature 034). The record is read for a secret too: neither the store's
+   * token nor any key may appear in it.
+   */
+  private val storageCase =
+    (
+      "object-storage",
+      base.copy(provisionObjectStorage = true),
+      Settings.default.copy(objectStore = Some(store)),
+      provisioning
+    )
+
+  private def storagePlanOf(name: String): ObjectStoragePlan =
+    if name == storageCase._1 then ObjectStoragePlan.Ready(recovered = false)
+    else ObjectStoragePlan.NotAsked
+
+  (cases ++ brokerCases :+ storageCase).foreach { (name, spec, settings, plan) =>
     test(s"what is rendered for '$name' is what was rendered before") {
-      val rendered = render(spec, settings, plan)
+      val rendered = render(spec, settings, plan, storagePlanOf(name))
       val file     = directory.resolve(s"$name.txt")
       if update then
         Files.createDirectories(directory)
@@ -88,7 +112,17 @@ class RenderingGoldenSuite extends munit.FunSuite:
     }
   }
 
-  private def render(spec: AnkkaServiceSpec, settings: Settings, plan: ProvisioningPlan): String =
+  test("nothing rendered for a service with a bucket holds the store's token") {
+    val (name, spec, settings, plan) = storageCase
+    assert(!render(spec, settings, plan, storagePlanOf(name)).contains("the-admin-token"))
+  }
+
+  private def render(
+      spec: AnkkaServiceSpec,
+      settings: Settings,
+      plan: ProvisioningPlan,
+      storagePlan: ObjectStoragePlan
+  ): String =
     val resource = new AnkkaService
     resource.setMetadata(
       new ObjectMetaBuilder()
@@ -102,7 +136,8 @@ class RenderingGoldenSuite extends munit.FunSuite:
       resource,
       settings,
       plan,
-      BrokerProvisioning.known(spec, settings.broker)
+      BrokerProvisioning.known(spec, settings.broker),
+      storagePlan
     ) match
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")
       case Right(actions) => actions.map(document).mkString("\n")
@@ -143,4 +178,5 @@ class RenderingGoldenSuite extends munit.FunSuite:
     case Action.EnsureBackendTlsPolicy(p) => Some(p)
     case Action.EnsureKafkaUser(u)        => Some(u)
     case Action.EnsureKafkaTopic(t)       => Some(t)
+    case Action.EnsureReferenceGrant(g)   => Some(g)
     case _                                => None

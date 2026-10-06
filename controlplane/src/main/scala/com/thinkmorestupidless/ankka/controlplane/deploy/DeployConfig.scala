@@ -34,6 +34,16 @@ final case class DeployConfig(
       s"https://${com.thinkmorestupidless.ankka.crd.Hostnames.of(serviceName, projectId, base)}$port"
     }
 
+  /**
+   * A bucket's address on the internet (feature 034), if a base domain is configured: the store's
+   * one hostname, then the bucket. The operator derives the same one (`Buckets`).
+   */
+  def bucketAddressFor(projectId: String, serviceName: String): Option[String] =
+    baseDomain.map(base =>
+      com.thinkmorestupidless.ankka.crd.Buckets
+        .publicAddress(projectId, serviceName, base, httpsPort)
+    )
+
   /** Bounded, doubling. A permanently failing service costs a few attempts a minute. */
   def backoffFor(attempts: Int): FiniteDuration =
     val factor  = 1L << math.min(math.max(attempts, 0), 10)

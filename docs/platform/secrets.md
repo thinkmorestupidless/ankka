@@ -131,9 +131,10 @@ ending with a letter or digit, at most 253 characters. An entry's name is letter
 `-`. A value is not empty and at most 64 KiB.
 
 A name of a form the platform uses for its own Secrets in a project is refused: one beginning `ankka-`, or
-ending `-db`, `-cluster-tls`, `-service-tls`, `-database-tls`, `-secret-key` or `-telemetry`. Those hold a
-service's database location, its certificates, its secret key and the credential it sends its telemetry
-with, and the control plane writes a project secret by
+ending `-db`, `-cluster-tls`, `-service-tls`, `-database-tls`, `-mount-tls`, `-secret-key`,
+`-telemetry` or `-storage`. Those hold a service's database location, its certificates, its secret key,
+the credential it sends its telemetry with and its storage credential, and the control plane writes a
+project secret by
 name without being able to look first — a project secret named `payments-secret-key` would otherwise
 replace that service's key and make everything it kept unreadable.
 

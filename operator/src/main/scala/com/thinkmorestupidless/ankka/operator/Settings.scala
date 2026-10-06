@@ -68,7 +68,14 @@ final case class Settings(
      * The installation's broker, when it has one (feature 027). `None` means it has none: no
      * service is told of one, and a service that declares a topic reports that it cannot have it.
      */
-    broker: Option[BrokerSettings] = None
+    broker: Option[BrokerSettings] = None,
+    /**
+     * The installation's object store (feature 034). `None` when the installation has none: a
+     * service that asks for a bucket is then reported as failed, with that reason, and nothing is
+     * asked of anything. Set by the object store's component, not the operator's own manifest, so
+     * an overlay without the component renders an operator without a store.
+     */
+    objectStore: Option[ObjectStoreSettings] = None
 ):
   /**
    * Backoff for the nth consecutive failure, doubling to the ceiling.
@@ -151,8 +158,38 @@ object Settings:
       otlpEndpoint = raw("ankka.operator.otlp-endpoint", PlatformVariables.OtlpEndpoint),
       otlpHeaders =
         raw("ankka.operator.otlp-headers", PlatformVariables.OtlpHeaders).map(Credential(_)),
-      broker = BrokerSettings.read(raw)
+      broker = BrokerSettings.read(raw),
+      objectStore = objectStore()
     )
+
+  /**
+   * The object store, whole or not at all. The administration URL says there is one; with it set, a
+   * missing companion is a startup failure naming the variable, never a store that half works.
+   */
+  private def objectStore(): Option[ObjectStoreSettings] =
+    raw("ankka.operator.object-store.admin-url", "ANKKA_OBJECT_STORE_ADMIN_URL").map { adminUrl =>
+      def required(key: String, variable: String): String =
+        raw(s"ankka.operator.object-store.$key", variable).getOrElse(
+          throw new IllegalArgumentException(
+            s"ANKKA_OBJECT_STORE_ADMIN_URL is set, so $variable must be too: the operator cannot " +
+              "give a service a bucket without it"
+          )
+        )
+      val service = required("service", "ANKKA_OBJECT_STORE_SERVICE")
+      ObjectStoreSettings(
+        adminUrl = adminUrl,
+        adminToken = required("admin-token", "ANKKA_OBJECT_STORE_ADMIN_TOKEN"),
+        endpoint = required("endpoint", "ANKKA_OBJECT_STORE_ENDPOINT"),
+        region = required("region", "ANKKA_OBJECT_STORE_REGION"),
+        service = ObjectStoreSettings.ServiceRef
+          .parse(service)
+          .getOrElse(
+            throw new IllegalArgumentException(
+              s"ANKKA_OBJECT_STORE_SERVICE is '$service'; it must be <namespace>/<name>:<port>"
+            )
+          )
+      )
+    }
 
   private def raw(property: String, variable: String): Option[String] =
     Option(System.getProperty(property))

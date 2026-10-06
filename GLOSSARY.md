@@ -1,7 +1,7 @@
 # Glossary
 
 The words the platform's features use, each in exactly one sense. A term marked *Proposed.* has
-still to be settled by `/speckit-clarify`: those under *Topic sources*, at present. The platform's established words
+still to be settled by `/speckit-clarify`: those under *Topic sources* and *Object storage*, at present. The platform's established words
 are defined as `docs/reference/glossary.md` defines them for the people who build on it. The
 shopping cart sample has a glossary of its own, in `samples/shopping-cart/`.
 
@@ -1667,6 +1667,36 @@ declared. The platform checks a statement by the tables it reads when the servic
 service does not start with one that is not a single query of the view's own table.
 
 Avoid: SQL
+## Object storage
+
+### object store
+*Proposed.* Where an installation keeps buckets. The platform makes buckets in the installation's
+own; a service may instead have one of its own, outside the platform, which its descriptor gives
+the variables of.
+
+### bucket
+*Proposed.* A named place in an object store where a service keeps objects. The platform makes one
+for a service whose descriptor asks for it, names it from the project and the service, and never
+deletes it.
+
+### object
+*Proposed.* Something a service keeps in a bucket under a name and reads back by that name, such
+as a document a person gave it.
+
+### storage credential
+*Proposed.* The credential the platform makes for a service's bucket. It reaches that bucket and
+no other. The platform makes it once, gives it to the service's instances when they start, and can
+never read it back. It is not a service secret, and it is not an entry of a project secret.
+
+### signed URL
+*Proposed.* An address for one object that a service makes with its storage credential and gives
+to a browser. Whoever holds it can read that object, or keep it, until the signed URL expires,
+without holding the storage credential. It works only while the bucket is reachable from the
+internet.
+
+### recovered
+*Proposed.* Of a bucket: given to a service and older than it, because a service of the same name
+in the same project had it before and was deleted.
 
 ## Everyday words
 

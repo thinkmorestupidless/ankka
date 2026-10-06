@@ -1,0 +1,22 @@
+# No [s3_web] section: with no web listener, a bucket is served to nobody without a signature,
+# whatever its owner sets. No root_domain: buckets are addressed by path only, which is what one
+# hostname with the bucket in the path needs.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-config
+  namespace: garage-system
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "lmdb"
+    replication_factor = 1
+    rpc_bind_addr = "[::]:3901"
+
+    [s3_api]
+    s3_region = "garage"
+    api_bind_addr = "[::]:3900"
+
+    [admin]
+    api_bind_addr = "[::]:3903"

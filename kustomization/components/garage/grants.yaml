@@ -1,0 +1,27 @@
+# A bucket's route lives in its service's namespace, owned by the service, so deleting the service
+# removes it. Naming the store's Service from there needs a ReferenceGrant here, one per project
+# namespace, which the operator writes. This Role is the operator's only grant in this namespace,
+# and the only one on ReferenceGrants anywhere: its ClusterRole has none.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ankka-operator-grants
+  namespace: garage-system
+rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["referencegrants"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ankka-operator-grants
+  namespace: garage-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ankka-operator-grants
+subjects:
+  - kind: ServiceAccount
+    name: ankka-operator
+    namespace: ankka-operator

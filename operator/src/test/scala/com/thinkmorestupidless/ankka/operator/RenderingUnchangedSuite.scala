@@ -23,12 +23,14 @@ import java.nio.file.{Files, Path, Paths}
  *
  * The fixtures were written from the operator as it was before web hosting and are never rewritten
  * as a side effect of anything else: only `-Dankka.rendering.pin=true` rewrites them, deliberately,
- * and `ankka.docs.update`, which other suites share, does not. They have been repinned once since,
+ * and `ankka.docs.update`, which other suites share, does not. They have been repinned twice since,
  * on purpose: the secret store (feature 023) gives every service a secret key, its Secret and the
  * variable naming it, and the table in its schema — a change meant to reach every service. And
  * again when the operator lost `get` on Secrets: a provisioned database's credential is ensured on
  * every pass, by a `create` an existing Secret refuses, so a ready service's actions gained that
- * one action, and no object changed.
+ * one action, and no object changed. And once more, for object storage (feature 034): one action
+ * and no object, the removal of a bucket's route if one is owned, rendered for every service so
+ * that dropping a bucket leaves no route behind.
  */
 class RenderingUnchangedSuite extends munit.FunSuite:
 

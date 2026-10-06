@@ -125,6 +125,24 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
     assertEquals(ServiceEntity.eventSerializer.fromBytes(bytes), event)
   }
 
+  test("a descriptor applied before object storage asks for no bucket (feature 034)") {
+    val applied = samples("service-event")
+      .map(ServiceEntity.eventSerializer.fromBytes)
+      .collectFirst { case a: ServiceEvent.ServiceApplied => a }
+      .getOrElse(fail("the fixture has no ServiceApplied"))
+    assertEquals(applied.descriptor.service.provisionObjectStorage, false)
+  }
+
+  test("a descriptor that asks for a bucket round-trips through the event") {
+    val descriptor =
+      ServiceDescriptor("reports", ServiceSpec("reports:1", provisionObjectStorage = true))
+    val event: ServiceEvent = ServiceEvent.ServiceApplied("shop", descriptor, 1L)
+    assertEquals(
+      ServiceEntity.eventSerializer.fromBytes(ServiceEntity.eventSerializer.toBytes(event)),
+      event
+    )
+  }
+
   test("an attributed event round-trips with its actor and time") {
     val at = java.time.Instant.parse("2026-09-22T10:00:00Z")
     val event = ServiceEvent.ServicePaused(

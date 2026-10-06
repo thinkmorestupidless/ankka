@@ -148,6 +148,9 @@ export const serviceStatusSchema = z.object({
   broker: optional(z.string()),
   /** Topics the service's components use that its project does not declare; absent when not read. */
   undeclaredTopics: optional(z.array(z.string())),
+  objectStorage: optional(z.string()),
+  bucket: optional(z.string()),
+  bucketAddress: optional(z.string()),
 });
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 

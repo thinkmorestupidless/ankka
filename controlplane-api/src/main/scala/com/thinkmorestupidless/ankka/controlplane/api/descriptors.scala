@@ -225,7 +225,19 @@ final case class ServiceSpec(
      * Absent means the platform's default, `DefaultProcessPort`. An `Option` defaulting to `None`,
      * the one shape the codec's reading of `null` as absent cannot turn into something else.
      */
-    processPort: Option[Int] = None
+    processPort: Option[Int] = None,
+    /**
+     * Whether the platform gives this service a bucket in the installation's object store, and a
+     * storage credential that reaches it and nothing else (feature 034). The developer's program is
+     * told where it is as `ANKKA_S3_*` variables; a descriptor that gives one of those itself has
+     * an object store of its own. A positive boolean, for the reason `http` is one.
+     */
+    provisionObjectStorage: Boolean = false,
+    /**
+     * Whether that bucket is reachable from the internet, at the store's hostname, so the service
+     * can give a browser URLs it signs (feature 034). Only with `provisionObjectStorage`.
+     */
+    exposeObjectStorage: Boolean = false
 ):
 
   /** The declared runtime, parsed; `None` when undeclared; the problem text when malformed. */
@@ -381,7 +393,30 @@ final case class ServiceSpec(
     runtimeProblems ++ imageProblems ++ envProblems ++ portProblems ++ portEnvProblems ++ platformEnvProblems ++
       serviceNameEnvProblems ++ secretProblems ++ hostingProblems ++ moduleProblems ++ webProblems ++
       protocolProblems ++
-      grpcProblems ++ resources.problems
+      grpcProblems ++ objectStorageProblems ++ resources.problems
+
+  /**
+   * Asking the platform for a bucket, and having a store of one's own, are two different services
+   * (feature 034). A bucket's name needs the project as well, so its limit is checked where the
+   * project is known: the control plane's apply and its projection.
+   */
+  private def objectStorageProblems: Vector[String] =
+    val own = env.map(_.name).filter(PlatformVariables.objectStorage)
+    val both =
+      if provisionObjectStorage then
+        own.map(name =>
+          s"provisionObjectStorage cannot be combined with env var '$name', which supplies an " +
+            "object store of the service's own"
+        )
+      else Vector.empty
+    val exposed =
+      Option
+        .when(exposeObjectStorage && !provisionObjectStorage)(
+          "exposeObjectStorage needs provisionObjectStorage: only a bucket the platform made can " +
+            "be reached from outside the cluster"
+        )
+        .toVector
+    both ++ exposed
 
   /**
    * What only a web-hosted service may say, and what it may not (feature 021). Empty for a service
@@ -481,7 +516,9 @@ object ServiceSpec:
    */
   val PlatformSecretSuffixes: Vector[String] =
     // `-telemetry`: the collector's credential, which the operator writes for each service.
-    Vector("-service-tls", "-mount-tls", "-cluster-tls", "-database-tls", "-telemetry")
+    // `-storage`: a service's storage credential (feature 034), a secret key a sibling's descriptor
+    // could otherwise hand to another service.
+    Vector("-service-tls", "-mount-tls", "-cluster-tls", "-database-tls", "-telemetry", "-storage")
 
   /** The project database's cluster name, and the prefix of every Secret it is issued. */
   val PlatformSecretPrefix: String = "ankka-db"
@@ -768,7 +805,18 @@ final case class ServiceStatus(
      * the names the components gave them. Read from the service's running instances: `None` when
      * none answered, and on a listing row; empty when they answered and every topic is declared.
      */
-    undeclaredTopics: Option[Vector[String]] = None
+    undeclaredTopics: Option[Vector[String]] = None,
+    /**
+     * What the platform did about the service's bucket (feature 034), as a phrase — `provisioned`,
+     * `recovered existing bucket`, `supplied`, `waiting for object storage`, `object storage
+     * provisioning failed` — like `database`, and for the same reason. Absent when the service has
+     * no object storage, or nothing has reported yet.
+     */
+    objectStorage: Option[String] = None,
+    /** The bucket the platform gives the service, when its descriptor asks for one. */
+    bucket: Option[String] = None,
+    /** Where that bucket is on the internet, when its descriptor asks that it be reachable. */
+    bucketAddress: Option[String] = None
 )
 
 /** Who did what to a service, and when: `GET /services/{project}/{name}/history` (feature 008). */
@@ -1315,7 +1363,16 @@ object ProjectSecrets:
   val MaxValueBytes: Int = 65536
   val ReservedPrefix     = "ankka-"
   val ReservedSuffixes =
-    Vector("-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key", "-telemetry")
+    Vector(
+      "-db",
+      "-cluster-tls",
+      "-service-tls",
+      "-database-tls",
+      "-secret-key",
+      "-telemetry",
+      "-mount-tls",
+      "-storage"
+    )
   private val ValidName  = """[a-z0-9]([a-z0-9.-]*[a-z0-9])?""".r
   private val ValidEntry = """[A-Za-z0-9._-]+""".r
 

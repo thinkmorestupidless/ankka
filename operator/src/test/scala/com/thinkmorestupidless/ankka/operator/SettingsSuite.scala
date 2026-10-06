@@ -79,3 +79,54 @@ class SettingsSuite extends munit.FunSuite:
       assert(!refused.getMessage.contains("ANKKA_BROKER_BOOTSTRAP"), refused.getMessage)
     }
   }
+  // The object store (feature 034). With no administration URL the installation has none; with one,
+  // the other four must be there too, or the operator would provision buckets it cannot describe.
+
+  private val store = Vector(
+    "ankka.operator.object-store.admin-url" -> "http://garage.garage-system.svc.cluster.local:3903",
+    "ankka.operator.object-store.admin-token" -> "a-token",
+    "ankka.operator.object-store.endpoint" -> "http://garage.garage-system.svc.cluster.local:3900",
+    "ankka.operator.object-store.region"   -> "garage",
+    "ankka.operator.object-store.service"  -> "garage-system/garage:3900"
+  )
+
+  test("with no administration URL the installation has no object store") {
+    assertEquals(Settings.fromEnvironment().objectStore, None)
+    assertEquals(Settings.default.objectStore, None)
+  }
+
+  test("the object store is read whole from its five settings") {
+    withProperties(store*) {
+      assertEquals(
+        Settings.fromEnvironment().objectStore,
+        Some(
+          ObjectStoreSettings(
+            adminUrl = "http://garage.garage-system.svc.cluster.local:3903",
+            adminToken = "a-token",
+            endpoint = "http://garage.garage-system.svc.cluster.local:3900",
+            region = "garage",
+            service = ObjectStoreSettings.ServiceRef("garage-system", "garage", 3900)
+          )
+        )
+      )
+    }
+  }
+
+  test("an object store missing a setting fails, naming the variable") {
+    withProperties(store.filterNot(_._1.endsWith("admin-token"))*) {
+      val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+      assert(e.getMessage.contains("ANKKA_OBJECT_STORE_ADMIN_TOKEN"), e.getMessage)
+    }
+  }
+
+  test("the store's service is namespace/name:port, and anything else fails naming the variable") {
+    for bad <- Vector("garage:3900", "garage-system/garage", "garage-system/garage:port") do
+      withProperties(
+        (store.filterNot(_._1.endsWith("service")) :+
+          ("ankka.operator.object-store.service" -> bad))*
+      ) {
+        val e = intercept[IllegalArgumentException](Settings.fromEnvironment())
+        assert(e.getMessage.contains("ANKKA_OBJECT_STORE_SERVICE"), e.getMessage)
+        assert(e.getMessage.contains(bad), e.getMessage)
+      }
+  }

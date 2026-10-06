@@ -702,3 +702,59 @@ final class RemoteOverlaySuite extends FunSuite with LogCapturing:
     val config = documentsOfKind(collectorOnly, "ConfigMap").head
     assert(config.contains("verbosity: detailed"), "the collector would print no ids")
   }
+
+  // ── Object storage (feature 034) ──────────────────────────────────────────
+
+  private val StoreVariables = Vector(
+    "ANKKA_OBJECT_STORE_ADMIN_URL",
+    "ANKKA_OBJECT_STORE_ADMIN_TOKEN",
+    "ANKKA_OBJECT_STORE_ENDPOINT",
+    "ANKKA_OBJECT_STORE_REGION",
+    "ANKKA_OBJECT_STORE_SERVICE"
+  )
+
+  test(
+    "both overlays tell the operator where the object store is, once each, in its one container"
+  ) {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val operator = operatorDeployment(render, name)
+      for variable <- StoreVariables do
+        assertEquals(variable.r.findAllIn(operator).size, 1, s"$name: $variable")
+      val parsed = io.fabric8.kubernetes.client.utils.Serialization
+        .unmarshal(operator, classOf[io.fabric8.kubernetes.api.model.apps.Deployment])
+      assertEquals(parsed.getSpec.getTemplate.getSpec.getContainers.size, 1, name)
+      // The token is referenced, never written into the Deployment.
+      assert(operator.contains("name: ankka-object-store-admin"), name)
+  }
+
+  test("the object store's development secrets reach only the local render") {
+    def secretNamed(render: String, secret: String) =
+      documentsOfKind(render, "Secret").exists(_.contains(s"name: $secret"))
+    for secret <- Vector("garage-secrets", "ankka-object-store-admin") do
+      assert(secretNamed(local, secret), s"local has no $secret")
+      assert(!secretNamed(remote, secret), s"the cloud render carries $secret")
+  }
+
+  test("the object store is the pinned image, in a namespace no project can have") {
+    for (render, name) <- Vector(remote -> "cloud", local -> "local") do
+      val store = documentsOfKind(render, "StatefulSet")
+        .find(_.contains("name: garage"))
+        .getOrElse(fail(s"$name: no object store"))
+      assert(store.contains("image: dxflrs/garage:v2.3.0"), store)
+      assert(store.contains("namespace: garage-system"), store)
+      val namespace = documentsOfKind(render, "Namespace")
+        .find(_.contains("name: garage-system"))
+        .getOrElse(fail(s"$name: no garage-system namespace"))
+      // The label that admits a namespace's routes and pods everywhere; the store needs neither.
+      assert(!namespace.contains("app.kubernetes.io/managed-by"), namespace)
+  }
+
+  test("the operator's one grant in the store's namespace is on reference grants, and no more") {
+    val role = documentsOfKind(local, "Role")
+      .find(_.contains("name: ankka-operator-grants"))
+      .getOrElse(fail("no role for the operator in the store's namespace"))
+    assert(role.contains("namespace: garage-system"), role)
+    assert(role.contains("referencegrants"), role)
+    assertEquals("- apiGroups:".r.findAllIn(role).size, 1, role)
+    assert(!role.contains("delete") && !role.contains("list") && !role.contains("watch"), role)
+  }

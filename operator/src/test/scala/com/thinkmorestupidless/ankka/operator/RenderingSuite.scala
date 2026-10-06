@@ -512,9 +512,10 @@ class RenderingSuite extends munit.FunSuite:
     Rendering.render(resource(s, "uid-1"), settings, ProvisioningPlan.Supplied) match
       case Right(actions) =>
         actions
+          // The service's own route, by its name: a bucket's route (feature 034) is another.
           .collectFirst {
-            case a: Action.EnsureHttpRoute => a
-            case a: Action.RemoveHttpRoute => a
+            case a: Action.EnsureHttpRoute if a.route.getMetadata.getName == s.serviceName => a
+            case a: Action.RemoveHttpRoute if a.name == s.serviceName                      => a
           }
           .getOrElse(fail(s"no route action was rendered: $actions"))
       case Left(problems) => fail(s"rendering failed: ${problems.mkString("; ")}")

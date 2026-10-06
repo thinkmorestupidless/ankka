@@ -1,0 +1,38 @@
+# Who may connect to the store. Its ports are plain HTTP inside the cluster — Garage serves no TLS —
+# so this policy is the whole of who can reach them. From outside the cluster a request is TLS as far
+# as the Gateway, under the installation's wildcard certificate.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: garage
+  namespace: garage-system
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: garage }
+  policyTypes: [Ingress]
+  ingress:
+    # S3: ankka workloads, and the gateway's proxies for a bucket that is reachable from the internet.
+    - ports: [{ protocol: TCP, port: 3900 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+          podSelector:
+            matchLabels: { app.kubernetes.io/managed-by: ankka }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: envoy-gateway-system }
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-name: ankka
+              gateway.envoyproxy.io/owning-gateway-namespace: ankka-gateway
+    # Administration: the operator alone.
+    - ports: [{ protocol: TCP, port: 3903 }]
+      from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ankka-operator }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: ankka-operator }
+    # The nodes' own RPC.
+    - ports: [{ protocol: TCP, port: 3901 }]
+      from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: garage }

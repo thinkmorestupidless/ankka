@@ -221,6 +221,19 @@ spec:
                     Absent means it serves none, and nothing about gRPC is rendered. Present means a
                     container port and ANKKA_GRPC_PORT, a second port on the service's address, a
                     headless address, a network policy and, when exposed, a route rule for gRPC.
+                provisionObjectStorage:
+                  type: boolean
+                  description: >-
+                    Whether the platform gives this service a bucket in the installation's object
+                    store and a storage credential that reaches it alone. Set by the control plane
+                    from the descriptor. A service with an object store of its own says so with an
+                    ANKKA_S3_ variable in env, which the operator reads.
+                exposeObjectStorage:
+                  type: boolean
+                  description: >-
+                    Whether that bucket is reachable from the internet, for URLs the service signs.
+                    The bucket's name and address are never in the resource: the operator derives
+                    them.
             status:
               type: object
               properties:
@@ -288,6 +301,27 @@ spec:
                         - Provisioned
                         - Recovered
                         - Failed
+                    recovered:
+                      type: boolean
+                    detail:
+                      type: string
+                objectStorage:
+                  type: object
+                  description: What the platform did about this service's bucket. Absent only when
+                    the service neither asks for one nor has an object store of its own.
+                  properties:
+                    phase:
+                      type: string
+                      enum:
+                        - Supplied
+                        - Waiting
+                        - Provisioned
+                        - Recovered
+                        - Failed
+                    bucket:
+                      type: string
+                    publicAddress:
+                      type: string
                     recovered:
                       type: boolean
                     detail:

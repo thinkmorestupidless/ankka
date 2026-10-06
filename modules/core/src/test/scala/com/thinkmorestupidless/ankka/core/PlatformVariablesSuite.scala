@@ -127,3 +127,18 @@ class PlatformVariablesSuite extends munit.FunSuite:
       "a process is not given it, and a descriptor may not give it"
     )
   }
+
+  test("the object store's variables are the developer's program's, by prefix") {
+    assert(objectStorage("ANKKA_S3_BUCKET"))
+    assert(objectStorage("ANKKA_S3_ANYTHING"))
+    assert(!objectStorage("ANKKA_DB_HOST"))
+    assert(!objectStorage("S3_BUCKET"))
+  }
+
+  test("the object store's variables are kept from no program: they are for the developer's") {
+    for name <- Vector("ANKKA_S3_ENDPOINT", "ANKKA_S3_BUCKET", "ANKKA_S3_SECRET_KEY") do
+      assert(!platformOnly(name), name)
+      assert(!runtimeOnly(name), name)
+      assert(!shared(name), name)
+      assert(!withheldFromModule(name), name)
+  }

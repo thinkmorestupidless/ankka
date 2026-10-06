@@ -5,6 +5,7 @@ import com.thinkmorestupidless.ankka.crd.{
   AnkkaProjectStatus,
   AnkkaServiceSpec,
   AnkkaServiceStatus,
+  ObjectStorageStatus,
   ProjectTopicEntry,
   ProjectTopicStatus
 }
@@ -120,4 +121,28 @@ class CrdSchemaSuite extends munit.FunSuite:
       .get("hosting")
     val enumerated = hosting.getEnum.asScala.map(_.asText).toSet
     assertEquals(enumerated, Rendering.Hostings)
+  }
+
+  test("the object storage status block is declared field for field, in both directions") {
+    // A closed schema checks a nested object's properties too, and the top-level cases above do not
+    // look inside one: a field missing here would be refused on every status write, silently.
+    val inSchema = declared("status", "objectStorage")
+    val inClass  = fieldsOf(classOf[ObjectStorageStatus])
+    assertEquals(inClass -- inSchema, Set.empty[String], "fields the schema does not declare")
+    assertEquals(inSchema -- inClass, Set.empty[String], "properties the status cannot carry")
+  }
+
+  test("the object storage phases are the database's") {
+    def phases(block: String) =
+      crd.getSpec.getVersions.asScala.head.getSchema.getOpenAPIV3Schema.getProperties
+        .get("status")
+        .getProperties
+        .get(block)
+        .getProperties
+        .get("phase")
+        .getEnum
+        .asScala
+        .map(_.asText)
+        .toSet
+    assertEquals(phases("objectStorage"), phases("database"))
   }

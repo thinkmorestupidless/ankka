@@ -1,6 +1,6 @@
 ---
 name: ankka-platform
-description: Install, configure and operate the ankka platform itself — a local kind installation with deploy-local.sh, a production kustomize overlay on a real cluster (load balancer, DNS-01 wildcard certificate, base domain, registry images), the control plane and operator, Keycloak identity (users, platform administrators, machine accounts, the issuer), organizations, projects, members and roles, per-service CloudNativePG databases, and the gateway, routes, ports and TLS. Use when the task is about running or administering the platform rather than a service on it — kustomize overlays, Keycloak, CNPG, Envoy Gateway, cert-manager, organizations, invitations, or the control plane's HTTP API.
+description: Install, configure and operate the ankka platform itself — a local kind installation with deploy-local.sh, a production kustomize overlay on a real cluster (load balancer, DNS-01 wildcard certificate, base domain, registry images), the control plane and operator, Keycloak identity (users, platform administrators, machine accounts, the issuer), organizations, projects, members and roles, per-service CloudNativePG databases and object storage buckets, and the gateway, routes, ports and TLS. Use when the task is about running or administering the platform rather than a service on it — kustomize overlays, Keycloak, CNPG, Envoy Gateway, cert-manager, organizations, invitations, or the control plane's HTTP API.
 ---
 
 # The ankka platform
@@ -105,6 +105,7 @@ Open the one a task needs; each is one topic and stands alone.
 - `references/platform/console.md` — Install the web console at console.<base domain>, give it its realm client and secrets, add it to an installation whose realm predates it, run it locally, or leave it out.
 - `references/platform/databases.md` — How the platform provisions a Postgres database for every service with CloudNativePG, why each service must have its own, how data survives deletion, and how to bring your own database instead.
 - `references/platform/broker.md` — The Kafka an installation provides for every project — what the component installs, how a service is known by its certificate, why a project's topics are its own, what is kept, sizing it, and running without it.
+- `references/platform/object-storage.md` — How the platform gives a service a bucket of its own, the variables any S3 client needs to reach it, why buckets are never deleted, how a bucket is made reachable for signed URLs, and how to bring your own store.
 - `references/platform/secrets.md` — The secret key the platform makes for each deployed service, and project secrets — values a member sets for a project, with no cluster credential, that a descriptor's variable takes by secretKeyRef.
 - `references/platform/networking.md` — How traffic reaches ankka services and moves between them — the gateway, mutual TLS on every port, the certificates each workload holds, caller identity, the network policies, readiness, and what a cluster must provide.
 

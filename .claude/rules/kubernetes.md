@@ -61,6 +61,26 @@ contract. A cluster without the `AnkkaProject` type still runs the operator, whi
 project's topics are made, so a k3s suite that declares topics must apply `ankkaproject.yaml` beside
 `ankkaservice.yaml`, or every declaration simply never becomes a `KafkaTopic`.
 
+## A service can ask for a bucket, provisioned like a database
+
+`provisionObjectStorage` (feature 034) gives a service one bucket in the installation's object store,
+Garage, and a storage credential that reaches it and no other. The store is the `garage` component, one
+node in `garage-system` — outside the `ankka-<name>` pattern, so no project id can name it — started with
+`server --single-node` so `kubectl apply -k` stays the whole deploy; the component also patches the
+operator's Deployment with the five `ANKKA_OBJECT_STORE_*` settings, so an overlay without it renders an
+operator with no store, and a service that asks is reported failed with that reason. The operator reaches
+the store through `ObjectStore` (`GarageStore`, the JDK's HTTP client; no dependency added), decides with
+`ObjectStorage.decide` as `Provisioning.decide` decides about a database, and issues the credential with
+`StorageCredential.ensure`: a key issued speculatively and offered as a `create` of `<service>-storage`,
+whose 409 is the only thing it ever learns about the Secret — nothing is read back from the cluster or the
+store. The bucket's name, `<project>.<service>`, is derived in `crd`'s `Buckets` beside `Hostnames`, so the
+resource carries two booleans. The variables go to the developer's program in every hosting, never the
+sidecar or the proxy. `exposeObjectStorage` adds one `HTTPRoute` per bucket in the project's namespace,
+owned by the service, at `storage.<base>` with the bucket in the path, naming the store's Service through a
+`ReferenceGrant` the operator writes in `garage-system` under a Role of the component's. The store speaks
+plain HTTP inside the cluster — the one departure from "every port is mutual TLS", written into the
+limitations. `docs/platform/object-storage.md` is the contract with a service.
+
 ## Deploying locally
 
 ```bash
@@ -452,3 +472,15 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   scenario run does not reproduce were exactly this.
 - **The API server writes quantities back normalised**: `1000m` as `1`, `1024Mi` as `1Gi`. Compare
   resources by amount, not by string.
+- **Garage refuses a secret file anyone but its owner can read, and a macOS bind mount reports 0640
+  whatever the file's mode.** `GARAGE_RPC_SECRET_FILE` failed `File … is world-readable! (expected 0600)`
+  in every local run; the component gives the RPC secret and the admin token as variables from a Secret,
+  which have no mode to get wrong.
+- **The AWS SDK for Java since 2.30 sends a trailing checksum in an `aws-chunked` upload, and Garage refuses
+  it as `Invalid payload signature`.** Configure a client with `requestChecksumCalculation(WHEN_REQUIRED)`
+  and `responseChecksumValidation(WHEN_REQUIRED)`; the docs' object storage page says so for every client,
+  since other SDKs changed the same default.
+- **The route's removal for a bucket is rendered for every service**, asked or not, so dropping
+  `exposeObjectStorage` (or the bucket) leaves no route; that is why `RenderingUnchangedSuite` was repinned
+  for feature 034, gaining one action line per fixture and no object. A repin that changes an object is a
+  service rolling on upgrade, and is never accepted.

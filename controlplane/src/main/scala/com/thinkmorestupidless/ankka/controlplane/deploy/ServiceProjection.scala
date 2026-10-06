@@ -9,7 +9,13 @@ import com.thinkmorestupidless.ankka.controlplane.api.{
   Version
 }
 import com.thinkmorestupidless.ankka.controlplane.domain.{RegistryRef, Service}
-import com.thinkmorestupidless.ankka.crd.{AutoscalingSpec, EnvEntry, AnkkaServiceSpec, MountEntry}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaServiceSpec,
+  AutoscalingSpec,
+  Buckets,
+  EnvEntry,
+  MountEntry
+}
 
 /**
  * Desired state becomes a resource spec.
@@ -76,7 +82,11 @@ object ServiceProjection:
               .toVector ++
             descriptor.problems ++
             runtimeProblems(descriptor, config) ++
-            protocolProblems(descriptor)
+            protocolProblems(descriptor) ++
+            // The bucket's name needs the project, which the descriptor's own rules cannot see.
+            (if descriptor.service.provisionObjectStorage then
+               Buckets.problems(service.projectId, service.name)
+             else Vector.empty)
 
         if problems.nonEmpty then Left(problems)
         else
@@ -143,6 +153,8 @@ object ServiceProjection:
               // all — not when it names a broker of its own, checked by name as a supplied database
               // is, and never for a web-hosted service.
               provisionBroker =
-                !descriptor.service.isWebHosted && !descriptor.service.suppliesBroker
+                !descriptor.service.isWebHosted && !descriptor.service.suppliesBroker,
+              provisionObjectStorage = descriptor.service.provisionObjectStorage,
+              exposeObjectStorage = descriptor.service.exposeObjectStorage
             )
           )

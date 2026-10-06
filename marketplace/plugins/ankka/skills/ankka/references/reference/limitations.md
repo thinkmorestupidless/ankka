@@ -39,6 +39,12 @@ feature also says what that feature does not do.
   administers the installation; see [The installation's broker](../platform/broker.md#what-is-kept).
 - **Deleting a service keeps its database.** Nothing the platform does destroys a database. Removing one is a
   manual task for whoever administers the cluster.
+- **One object store, of one node.** A bucket is in the installation's own store, a single Garage node with
+  one volume, so its durability is that volume's. A cloud provider's buckets are not provisioned; a service
+  that needs one supplies its own store through `ANKKA_S3_*` variables. A bucket and its objects are never
+  deleted by the platform, and a storage credential is never rotated.
+- **No storage client in the SDKs.** A service keeps and reads objects with its own language's S3 client. A
+  service run on a developer's own machine is given no bucket.
 - **Listings can lag.** Organization, project and service listings are read from projections and may miss a
   change made a moment ago. Checks that depend on a count — "the project has no services" before it is
   deleted — use the same projections, so they guard against the obvious mistake rather than every race.
@@ -72,6 +78,10 @@ feature also says what that feature does not do.
 
 - **No restriction on where a workload connects to.** Network policies decide who may connect to a
   workload; nothing restricts where it may connect. There is no egress policy.
+- **The object store speaks plain HTTP inside the cluster.** Every other port a workload reaches is mutual
+  TLS; the store's are not. A network policy admits only ankka workloads, the gateway and the operator, and
+  a request is signed, so a secret key never crosses the network, but an object's contents cross it
+  unencrypted. A request from a browser is encrypted as far as the gateway.
 - **A project is not a network boundary for HTTP.** Any ankka workload can open a connection to any
   service's HTTP port; whether the request is served is the callee's ACL's decision, from the caller's
   certificate. Cluster ports and databases are closed to other projects.

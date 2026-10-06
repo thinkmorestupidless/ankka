@@ -53,12 +53,14 @@ enum SpanKind:
  *     of pairs of component and handler they hold, with one overflow entry beyond it; a cursor
  *     holds at most a ring's worth of sequences it is waiting on.
  *
- * Spans are written by many threads and read by occasional readers, so the ring takes writes with a
- * single atomic increment and accepts that a reader may catch a slot mid-write. A reader therefore
- * validates what it reads rather than trusting it: a slot's sequence is cleared before its fields
- * are written and published after, behind fences, and a reader checks it before and after reading
- * the fields. A torn span is dropped, and its trace is reported partial. Locking writers to give a
- * reader a perfect view would be paying on the hot path for the benefit of the cold one.
+ * Spans are written by many threads and read by occasional readers, so a reader never stops a
+ * writer and accepts that it may catch a slot mid-write. A reader therefore validates what it reads
+ * rather than trusting it: a slot's sequence is checked before and after its fields are read, and a
+ * span read while its slot changed is dropped, its trace reported partial. Writers hold a slot
+ * while they write it — one uncontended compare-and-set — because a writer that pauses mid-`begin`
+ * for a whole lap of the ring would otherwise write its fields into a slot a newer span holds, and
+ * the mixture would pass a reader's checks. The older span gives way: it is the one the ring has
+ * already overwritten.
  *
  * Span ids start at a random number per recorder, so that two instances' spans in one trace do not
  * share ids; the counter is otherwise exactly as cheap as one that started at one.
@@ -81,7 +83,10 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
   private val durations    = new Array[Long](capacity)
   private val outcomes     = new Array[Byte](capacity)
 
-  /** 0 means "never written"; otherwise the sequence that claimed the slot. Guards torn reads. */
+  /**
+   * 0 means "never written", `Recorder.Writing` that a writer holds the slot, `-seq` that the span
+   * `seq` is in flight in it, and `seq` that the span is complete and may be read.
+   */
   private val sequences = new Array[Long](capacity)
 
   private val next   = new AtomicLong(0L)
@@ -127,23 +132,41 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
     val slot    = ((seq - 1) & mask).toInt
     val id      = nextSpanId()
     val started = System.nanoTime()
-    sequences(slot) = 0L // mark in-flight: a reader must not trust this slot yet
-    VarHandle.storeStoreFence()
-    traceIdsHigh(slot) = traceIdHigh
-    traceIds(slot) = traceId
-    spanIds(slot) = id
-    parentIds(slot) = parentSpanId
-    this.componentRef(slot) = componentRef
-    this.handlerRef(slot) = handlerRef
-    kinds(slot) = kind.ordinal.toByte
-    startedNanos(slot) = started
-    durations(slot) = -1L
-    outcomes(slot) = SpanOutcome.Ok.ordinal.toByte
+    if hold(slot, seq) then
+      traceIdsHigh(slot) = traceIdHigh
+      traceIds(slot) = traceId
+      spanIds(slot) = id
+      parentIds(slot) = parentSpanId
+      this.componentRef(slot) = componentRef
+      this.handlerRef(slot) = handlerRef
+      kinds(slot) = kind.ordinal.toByte
+      startedNanos(slot) = started
+      durations(slot) = -1L
+      outcomes(slot) = SpanOutcome.Ok.ordinal.toByte
+      Recorder.Sequences.setRelease(sequences, slot, -seq) // in flight: not to be read yet
     Span(slot, seq, id, traceIdHigh, traceId, componentRef, handlerRef, started)
 
   /** A span that is the root of a fresh trace: an entry point's, which nothing called. */
   def beginRoot(componentRef: Int, handlerRef: Int, kind: SpanKind = SpanKind.Internal): Span =
     begin(Trace.mintHigh(), Trace.mint(), 0L, componentRef, handlerRef, kind)
+
+  /**
+   * Takes `slot` for the span `seq` to write, unless a newer span already has it: then this span is
+   * one the ring has overwritten, and is counted lost by whoever reads. Waits only on a writer in
+   * the middle of its handful of stores.
+   */
+  private def hold(slot: Int, seq: Long): Boolean =
+    var held    = false
+    var decided = false
+    while !decided do
+      val current = Recorder.Sequences.getVolatile(sequences, slot).asInstanceOf[Long]
+      if current == Recorder.Writing then Thread.onSpinWait()
+      else if math.abs(current) > seq then decided = true
+      else if Recorder.Sequences.compareAndSet(sequences, slot, current, Recorder.Writing) then
+        held = true
+        decided = true
+    if held then VarHandle.storeStoreFence() // the mark before any field: a reader sees it change
+    held
 
   private def nextSpanId(): Long =
     var id = spanId.incrementAndGet()
@@ -158,11 +181,11 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
     val duration = System.nanoTime() - span.startedNanos
     totals.add(span.componentRef, span.handlerRef, outcome, duration)
     val slot = span.slot
-    if spanIds(slot) == span.id then
+    // Only while the slot is still this span's: one a newer span has taken is left alone.
+    if Recorder.Sequences.compareAndSet(sequences, slot, -span.sequence, Recorder.Writing) then
       durations(slot) = duration
       outcomes(slot) = outcome.ordinal.toByte
-      VarHandle.storeStoreFence()
-      sequences(slot) = span.sequence // publish last: now a reader may trust it
+      Recorder.Sequences.setRelease(sequences, slot, span.sequence) // publish: now it may be read
 
   /**
    * The span in `slot` if it is complete and is the one `seq` claimed, read so that a slot
@@ -276,6 +299,13 @@ final class Recorder(val capacity: Int, countedHandlers: Int = Recorder.DefaultC
 
 object Recorder:
   def apply(capacity: Int): Recorder = new Recorder(capacity)
+
+  /** Atomic access to a slot's sequence, for the publish. */
+  private val Sequences: VarHandle =
+    java.lang.invoke.MethodHandles.arrayElementVarHandle(classOf[Array[Long]])
+
+  /** A slot's sequence while a writer holds it: no sequence is this negative. */
+  private val Writing: Long = Long.MinValue
 
   def apply(capacity: Int, countedHandlers: Int): Recorder = new Recorder(capacity, countedHandlers)
 

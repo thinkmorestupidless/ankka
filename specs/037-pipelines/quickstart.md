@@ -8,7 +8,7 @@ cluster for the manual walk-through (`just deploy`).
 ```bash
 sbt 'core/testOnly *ContractFixturesSuite *GraphFixturesSuite'     # fingerprints and the graph fixtures are ankka's own
 sbt 'runtime/testOnly *ProjectDeclarationsSuite *TopicSourceRulesSuite'   # the start-time check: the table in contracts/declarations.md
-sbt 'controlPlane/testOnly *ProjectTopicsSuite *ProjectBrokersSuite *EventCompatibilitySuite'
+sbt 'controlPlaneApi/testOnly *ProjectTopicsSuite *ProjectBrokersSuite' 'controlPlane/testOnly *EventCompatibilitySuite'
 sbt 'operator/testOnly *ProjectRenderingSuite *TopicProvisioningSuite *RenderingGoldenSuite *CrdSchemaSuite'
 sbt 'graphNeo4j/test'                                               # Neo4jMergeSuite (carried) and Neo4jSinkSuite, Neo4j in a container
 sbt 'testkit/testOnly *KafkaSuite'                                  # parallel partitions, lag, the no-database service, a SASL broker
@@ -50,5 +50,5 @@ and deploy the `intake` sample consumer: messages produced on the outside Kafka 
 ## Done when
 
 - SC-001–SC-006 of the spec hold; `grep -ri ankka-flow docs/` finds only `contributing/documentation.md`.
-- `RenderingGoldenSuite` and `RenderingUnchangedSuite` pass without regenerating.
+- `RenderingGoldenSuite` and `RenderingUnchangedSuite` pass, regenerated once in the commit that adds the termination policy and the project mount, with a diff of those fields alone.
 - The release workflow's `images` job lists `ankka-graph-sink` and the public-pull check passes once the package is public.

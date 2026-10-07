@@ -48,11 +48,12 @@ runtimes.
 
 **Performance Goals**: SC-004: a parallel consumer over N partitions with a handler of fixed cost
 handles N messages in the time it handled one (N = 4 in the suite). Lag polled every 30 s per
-subscription with one raw consumer per poll. A schema fingerprint in under a millisecond for a
-64 KiB document.
+subscription with one raw consumer per poll.
 
-**Constraints**: no change for a project without contracts, compaction or declared brokers
-(FR-012: goldens and the rendering pin stay green); no credential of a declared broker in the
+**Constraints**: no change in behaviour for a project without contracts, compaction or declared
+brokers (FR-012; the operator's goldens and the rendering pin are regenerated once for the
+additive fields every Deployment gains, the termination policy and the project mount, and the
+diff is reviewed to be those alone); no credential of a declared broker in the
 process container, the journal or any log; no message checked against a schema as it flows; the
 operator keeps its render/execute split and the control plane its "write the cluster first"
 rule; a start-time refusal reaches `services get`.
@@ -71,7 +72,7 @@ in `CLAUDE.md` and `.claude/rules/`:
 |---|---|
 | Reconciliation is split; the operator is not an ankka application | The operator renders two ConfigMaps and a volume from `AnkkaProject`; the control plane writes `AnkkaProject` and the schema ConfigMap; neither reads the other (R3, R16, R17). |
 | `Action` values are inert; `Fabric8Executor` performs them | `EnsureProjectConfig` is an action; `observeTopics` reads `config` (R17). |
-| Pure deciders | `Provisioning.decide` gains `NotNeeded` for `database: none`; `TopicProvisioning` compares compaction; `Rendering.render` stays pure (R10, R11, R17). |
+| Pure deciders | `Provisioning.decide` gains `NotNeeded` for `database: none`; `TopicProvisioning` compares compaction; `Rendering.render` stays pure and takes the project's declared brokers as an input beside `databasePlan` (R7, R10, R11, R17). |
 | No secret value in the journal; write the cluster first | A schema goes to a ConfigMap first and the entity records its fingerprint; a declared broker records a secret's name, never a value (R16, R17). |
 | `ANKKA_KAFKA_*` means "supplies its own broker" and is shared with the process | Declared brokers use `ANKKA_TOPIC_BROKER_*`, runtime-only, and a mounted secret (R7). |
 | Forked tests do not inherit `-D` | `ankka.neo4j.image` and `ankka.fixtures.regenerate` are forwarded (R15, R14). |

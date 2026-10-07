@@ -280,8 +280,13 @@ learn whether a pipeline keeps up.
   its next start. Compatibility between names is out of scope.
 - **A topic declared compacted whose partitions are reduced.** Refused, as today: never fewer
   partitions.
-- **A declared broker that cannot be reached.** The topic source retries with backoff and the
-  service's status names the broker, as a database that cannot be reached is named.
+- **A declared broker that cannot be reached.** The topic source retries with backoff, and every
+  topic source on that broker reports the broker and the connection error as the change it is
+  failing on, in the service's status.
+- **A broker declared or removed.** Every service of the project is given or relieved of its
+  credential, so each rolls once, as a changed descriptor rolls it.
+- **A project secret a declared broker names.** It cannot be removed while a broker names it; the
+  broker is removed first.
 - **A sink whose store is unreachable.** Reads nothing, commits nothing, retries; its status says
   so.
 - **A delta the sink refuses.** The change fails: the delta is named in the log and the status

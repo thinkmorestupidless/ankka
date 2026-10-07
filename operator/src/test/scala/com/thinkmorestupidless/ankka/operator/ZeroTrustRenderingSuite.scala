@@ -348,7 +348,7 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
   }
 
   test("the database admits this project's workloads, its own instances and the operator only") {
-    for plan <- Vector(ready, ProvisioningPlan.Waiting(true, true, true, true, None)) do
+    for plan <- Vector(ready, ProvisioningPlan.Waiting(true, true, true, None)) do
       val policy = rendered(plan)
         .collectFirst {
           case Action.EnsureNetworkPolicy(p) if p.getMetadata.getName == "ankka-db-database" => p
@@ -383,7 +383,7 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
   }
 
   test("the project's database authority and the cluster's TLS fields are ensured on every pass") {
-    for plan <- Vector(ready, ProvisioningPlan.Waiting(true, true, true, true, None)) do
+    for plan <- Vector(ready, ProvisioningPlan.Waiting(true, true, true, None)) do
       val a = rendered(plan)
       assert(
         a.exists {
@@ -417,10 +417,11 @@ class ZeroTrustRenderingSuite extends munit.FunSuite:
     val migrated = roles(ProvisioningPlan.Ready(recovered = false, migrateRole = true))
     assertEquals(migrated.map(_.getSpec.disablePassword), Vector(Some(true)))
     assertEquals(migrated.map(_.getSpec.inRoles), Vector(Vector("ankka_tls")))
-    // And the credential Secret and the database are never rewritten by the migration.
+    // And the database is never rewritten by the migration. The credential Secret is ensured on
+    // every pass, by a create that an existing Secret refuses, so it is never rewritten either.
     assert(!rendered(ProvisioningPlan.Ready(false, true)).exists {
-      case _: Action.EnsureCredentials | _: Action.EnsureDatabase => true
-      case _                                                      => false
+      case _: Action.EnsureDatabase => true
+      case _                        => false
     })
   }
 

@@ -119,7 +119,11 @@ final class Fabric8Executor(
    * `EnsureSecretKey` every time, asks the API server once per service and not once per pass.
    */
   private val secretKeysKnown = java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
-  private val random          = new java.security.SecureRandom()
+
+  /** The database credential Secrets this process has created or found created, as above. */
+  private val credentialsKnown =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
+  private val random = new java.security.SecureRandom()
 
   def execute(action: Action): Unit = action match
     case Action.NoAction => ()
@@ -285,27 +289,18 @@ final class Fabric8Executor(
       )
 
     case Action.EnsureCredentials(secret) =>
-      // The one action in this file that is not server-side apply, on purpose: this must
-      // create-if-absent, never overwrite. Regenerating a password under a running service on
-      // every reconcile pass is a self-inflicted outage on a timer.
-      val existing = client
-        .secrets()
-        .inNamespace(secret.getMetadata.getNamespace)
-        .withName(secret.getMetadata.getName)
-        .get()
-      if existing == null then
-        val _ = client.resource(secret).create()
-        log.debug(
-          "created credentials {}/{}",
-          secret.getMetadata.getNamespace,
-          secret.getMetadata.getName
-        )
-      else
-        log.debug(
-          "credentials {}/{} already exist; not overwriting",
-          secret.getMetadata.getNamespace,
-          secret.getMetadata.getName
-        )
+      // Created, never read, never overwritten: a `create` of a Secret that exists is a 409, which
+      // is how the operator learns it is there — its grant on Secrets has no `get`. Regenerating a
+      // credential under a running service on every pass would be an outage on a timer.
+      val key = (secret.getMetadata.getNamespace, secret.getMetadata.getName)
+      if !credentialsKnown.contains(key) then
+        try
+          client.resource(secret).create(): Unit
+          log.debug("created credentials {}/{}", key._1, key._2)
+        catch
+          case e: KubernetesClientException if e.getCode == 409 =>
+            log.debug("credentials {}/{} already exist; not overwriting", key._1, key._2)
+        credentialsKnown.add(key): Unit
 
     case Action.EnsureSecretKey(namespace, name, labels) =>
       // Created, never read: a create of a Secret that exists is a 409, which is the answer
@@ -596,7 +591,6 @@ final class Fabric8Executor(
       clusterName: String,
       serviceName: String
   ): DatabaseObservation =
-    val secret = Option(client.secrets().inNamespace(namespace).withName(s"$serviceName-db").get())
     val cluster =
       Option(
         client
@@ -625,10 +619,9 @@ final class Fabric8Executor(
     DatabaseObservation(
       clusterReadyInstances =
         cluster.flatMap(c => Option(c.getStatus)).map(_.readyInstances).getOrElse(0),
-      secretExists = secret.isDefined,
       role = objectState(role.map(r => Option(r.getStatus))),
       database = objectState(database.map(d => Option(d.getStatus))),
-      secretCreatedAt = secret.flatMap(s => parseTimestamp(s.getMetadata.getCreationTimestamp)),
+      databaseCreatedAt = database.flatMap(d => parseTimestamp(d.getMetadata.getCreationTimestamp)),
       roleHasPassword = role
         .flatMap(r => Option(r.getSpec))
         .exists(spec => !spec.disablePassword.contains(true))

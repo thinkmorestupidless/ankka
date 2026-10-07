@@ -30,29 +30,28 @@ final case class DatabaseObservation(
      * does not exist or because it is still starting.
      */
     clusterReadyInstances: Int = 0,
-    secretExists: Boolean = false,
     role: CnpgObjectState = CnpgObjectState.absent,
     database: CnpgObjectState = CnpgObjectState.absent,
     /**
-     * When the `AnkkaService` resource's *current* incarnation was created, and when its credential
-     * secret was created — if the secret predates the resource, it is a leftover from a prior
-     * incarnation of this same service name (FR-026), because nothing this platform does ever
-     * deletes one.
+     * When the `AnkkaService` resource's *current* incarnation was created, and when its `Database`
+     * was — if the database predates the resource, it is a leftover from a prior incarnation of
+     * this same service name (FR-026), because nothing this platform does ever deletes one. The
+     * `Database`, not the credential Secret, because the operator reads no Secret.
      */
     resourceCreatedAt: Option[Instant] = None,
-    secretCreatedAt: Option[Instant] = None,
+    databaseCreatedAt: Option[Instant] = None,
     /**
      * The role exists and still logs in by password: provisioned before feature 014, and due the
      * one write that moves it to certificate authentication.
      */
     roleHasPassword: Boolean = false
 ):
-  /** True when the credential secret is older than the resource asking for it. See FR-026. */
+  /** True when the database is older than the resource asking for it. See FR-026. */
   def recovered: Boolean =
     (for
-      secretAt   <- secretCreatedAt
+      databaseAt <- databaseCreatedAt
       resourceAt <- resourceCreatedAt
-    yield secretAt.isBefore(resourceAt)).getOrElse(false)
+    yield databaseAt.isBefore(resourceAt)).getOrElse(false)
 
 object DatabaseObservation:
   val empty: DatabaseObservation = DatabaseObservation()

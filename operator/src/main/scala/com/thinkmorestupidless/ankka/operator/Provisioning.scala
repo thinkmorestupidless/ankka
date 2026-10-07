@@ -24,13 +24,14 @@ enum ProvisioningPlan:
   case Supplied
 
   /**
-   * Provisioning is under way. `needs*` says which of the four objects still have to be ensured
+   * Provisioning is under way. `needs*` says which of the CNPG objects still have to be ensured
    * this pass; the others are already present and applied, or not yet reachable because something
-   * earlier in the chain (the cluster, then the secret, then the role) is not ready yet.
+   * earlier in the chain (the cluster, then the role) is not ready yet. The credential Secret is
+   * not among them: the operator never reads a Secret, so it ensures that one on every pass, by a
+   * `create` that a Secret already there answers with a conflict.
    */
   case Waiting(
       needsCluster: Boolean,
-      needsCredentials: Boolean,
       needsRole: Boolean,
       needsDatabase: Boolean,
       detail: Option[String]
@@ -53,11 +54,11 @@ enum ProvisioningPlan:
   def reportedPhase: String = this match
     case ProvisioningPlan.NotNeeded =>
       throw IllegalStateException("a web-hosted service has no database and reports no phase")
-    case ProvisioningPlan.Supplied               => "Supplied"
-    case ProvisioningPlan.Waiting(_, _, _, _, _) => "Waiting"
-    case ProvisioningPlan.Ready(true, _)         => "Recovered"
-    case ProvisioningPlan.Ready(false, _)        => "Provisioned"
-    case ProvisioningPlan.Failed(_)              => "Failed"
+    case ProvisioningPlan.Supplied            => "Supplied"
+    case ProvisioningPlan.Waiting(_, _, _, _) => "Waiting"
+    case ProvisioningPlan.Ready(true, _)      => "Recovered"
+    case ProvisioningPlan.Ready(false, _)     => "Provisioned"
+    case ProvisioningPlan.Failed(_)           => "Failed"
 
 /**
  * Decides between provisioning, the escape hatch, waiting and failure — total, pure, no clock.
@@ -94,22 +95,12 @@ object Provisioning:
       // meaningfully attempted, so ask for everything that is not already there.
       ProvisioningPlan.Waiting(
         needsCluster = true,
-        needsCredentials = !observed.secretExists,
-        needsRole = !observed.role.exists,
-        needsDatabase = !observed.database.exists,
-        detail = None
-      )
-    else if !observed.secretExists then
-      // Rule 5: capacity exists, but nothing to authenticate with yet.
-      ProvisioningPlan.Waiting(
-        needsCluster = false,
-        needsCredentials = true,
         needsRole = !observed.role.exists,
         needsDatabase = !observed.database.exists,
         detail = None
       )
     else
-      // Capacity and credentials exist. A terminal rejection on either object, if there is one,
+      // Capacity exists; the credential is ensured on every pass, whatever the plan. A terminal rejection on either object, if there is one,
       // is checked before anything else — rule 8 must win over rule 6/7's "just keep trying".
       val roleRejected     = objectRejected(observed.role)
       val databaseRejected = objectRejected(observed.database)
@@ -122,7 +113,6 @@ object Provisioning:
         // object is idempotent, so there is nothing to gain from telling them apart here.
         ProvisioningPlan.Waiting(
           needsCluster = false,
-          needsCredentials = false,
           needsRole = !observed.role.applied,
           needsDatabase = !observed.database.applied,
           detail = observed.role.message.orElse(observed.database.message)

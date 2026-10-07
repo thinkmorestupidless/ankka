@@ -168,10 +168,10 @@ object LifecycleRules:
   ): Option[com.thinkmorestupidless.ankka.crd.DatabaseStatus] =
     // A web-hosted service has no database, so nothing is reported about one (feature 021).
     val reported: Option[(String, Option[String])] = plan match
-      case ProvisioningPlan.NotNeeded              => None
-      case ProvisioningPlan.Supplied               => Some(("", None))
-      case ProvisioningPlan.Waiting(_, _, _, _, d) => Some((serviceName, d))
-      case ProvisioningPlan.Ready(_, _)            => Some((serviceName, None))
+      case ProvisioningPlan.NotNeeded           => None
+      case ProvisioningPlan.Supplied            => Some(("", None))
+      case ProvisioningPlan.Waiting(_, _, _, d) => Some((serviceName, d))
+      case ProvisioningPlan.Ready(_, _)         => Some((serviceName, None))
       case ProvisioningPlan.Failed(problems) => Some((serviceName, Some(problems.mkString("; "))))
     reported.map { (name, detail) =>
       com.thinkmorestupidless.ankka.crd.DatabaseStatus(

@@ -28,10 +28,10 @@ metadata:
 #
 #   - No `update` or `patch` on ankkaservices itself, only on its status subresource. The
 #     operator therefore cannot rewrite desired state, even with a bug.
-#   - `secrets` gained `get`, `create`, `patch` with feature 002 (CNPG database provisioning):
-#     the operator generates and reads back one credential secret per provisioned database. It
-#     still has no `list` — it cannot enumerate secrets it was not told the name of by a
-#     AnkkaServiceSpec — and no `delete` on `secrets` or on the CNPG kinds below: nothing this
+#   - `secrets` has `create` and `patch`, and no `get`: the operator writes a Secret once and learns
+#     from a conflict that one is already there, so it cannot read any Secret back — a credential
+#     it wrote, or a key cert-manager issued. No `list` either, and no `delete` on `secrets` or on
+#     the CNPG kinds below: nothing this
 #     platform does may destroy a database or the credentials that unlock it. (`delete` *is*
 #     granted on deployments and services, which hold no data.) A descriptor's *own* env-var secret references still go straight to the
 #     kubelet, never through the operator, so "a status detail can never contain a value from one
@@ -96,13 +96,14 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters", "databases", "databaseroles"]
     verbs: ["get", "list", "watch", "create", "patch"]
-  # get to check whether a service's credentials already exist before generating a password;
-  # create to write them once; patch for completeness, though EnsureCredentials never uses it.
-  # No "list": the operator must not be able to enumerate secrets it was not told about. No
-  # "delete": generated credentials, like the databases they unlock, are never destroyed.
+  # create, to write a Secret once — a service's database location, its secret key, its storage
+  # credential — and learn from a conflict that it is already there; patch, for server-side apply of
+  # the telemetry Secret. No "get" and no "list": the operator writes credentials where a pod reads
+  # them and can never read one back, its own included, nor an issued certificate's key. No
+  # "delete": a credential, like the database it unlocks, is never destroyed.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "create", "patch"]
+    verbs: ["create", "patch"]
   # The schema ConfigMap, one per project namespace.
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -117,11 +118,8 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
   # Zero trust (feature 014). The operator *requests* each workload's certificates — cluster,
   # service, database — and a project's database authority, an Issuer over a self-signed root in
-  # the project's namespace. Its code never reads what cert-manager issues, and nothing here was
-  # added to let it: but `secrets: get` above predates this, works by name, and the name of an
-  # issued Secret is derivable, so the grant does not stop a compromised operator reading a key.
-  # Narrowing it means the credential Secret becoming a ConfigMap (it holds nothing secret since
-  # feature 014) — named as a limitation until it is done. No clusterissuers: the installation's
+  # the project's namespace. It cannot read what cert-manager issues: its grant on Secrets has no
+  # `get`. No clusterissuers: the installation's
   # authorities are the installer's, and the operator cannot replace one. delete, because a
   # certificate or policy belongs to its service and goes with it — and an owned object is only
   # ever deleted after an owner check.

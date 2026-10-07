@@ -37,7 +37,6 @@ class RenderingGoldenSuite extends munit.FunSuite:
   private val provisioning =
     ProvisioningPlan.Waiting(
       needsCluster = true,
-      needsCredentials = true,
       needsRole = true,
       needsDatabase = true,
       detail = None

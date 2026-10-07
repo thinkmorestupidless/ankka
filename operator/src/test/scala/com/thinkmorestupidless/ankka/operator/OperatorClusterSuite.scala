@@ -785,6 +785,17 @@ class OperatorClusterSuite extends munit.FunSuite:
         s"expected the API server itself to refuse the delete: ${ex.getMessage}"
       )
 
+      // The operator cannot read a Secret back — a credential it wrote, or a certificate's key —
+      // because its grant on Secrets has no `get`. Refused by the API server, not merely unused.
+      val read = intercept[io.fabric8.kubernetes.client.KubernetesClientException] {
+        restricted.secrets().inNamespace(Namespace).withName(s"$DbService2-db").get(): Unit
+      }
+      assertEquals(
+        read.getCode,
+        403,
+        s"expected the API server to refuse the read: ${read.getMessage}"
+      )
+
       // The other direction, and the only test that can catch a *missing* grant: everything else
       // here runs the operator on the admin kubeconfig, so a ClusterRole with no `services` rule
       // — which is what shipped until feature 003 looked — passes every other case and fails on
@@ -838,6 +849,22 @@ class OperatorClusterSuite extends munit.FunSuite:
 
       asOperator.execute(Action.RemoveService(probeNamespace, "probe", owner.getMetadata.getUid))
       waitFor(30.seconds)(probeService.isEmpty)
+
+      // A database credential under the same identity, with no `get`: the first `create` writes it,
+      // and another process — an operator restarted — meets it as a conflict and changes nothing.
+      val credential = CnpgRendering.credentialSecret(probeSpec, probeNamespace, "ankka-db")
+      asOperator.execute(Action.EnsureCredentials(credential))
+      def credentialVersion =
+        client
+          .secrets()
+          .inNamespace(probeNamespace)
+          .withName("probe-db")
+          .get()
+          .getMetadata
+          .getResourceVersion
+      val written = credentialVersion
+      new Fabric8Executor(restricted).execute(Action.EnsureCredentials(credential))
+      assertEquals(credentialVersion, written, "an existing credential was rewritten")
 
       // Feature 004: the identity objects, under the same real identity. Kubernetes refuses a
       // Role granting what its creator does not hold — the operator holds pods:get/list/watch,

@@ -204,6 +204,29 @@
   }
 }
 
+# ensure credentials ankka-checkout/cart-db (create-if-absent)
+{
+  "apiVersion" : "v1",
+  "kind" : "Secret",
+  "metadata" : {
+    "labels" : {
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart",
+      "ankka.thinkmorestupidless.com/project" : "checkout",
+      "ankka.thinkmorestupidless.com/service" : "cart"
+    },
+    "name" : "cart-db",
+    "namespace" : "ankka-checkout"
+  },
+  "stringData" : {
+    "ANKKA_DB_HOST" : "ankka-db-rw",
+    "ANKKA_DB_PORT" : "5432",
+    "ANKKA_DB_NAME" : "cart",
+    "ANKKA_DB_USER" : "cart"
+  },
+  "type" : "Opaque"
+}
+
 # ensure schema config ankka-checkout/ankka-schema
 {
   "apiVersion" : "v1",

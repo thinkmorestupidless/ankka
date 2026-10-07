@@ -206,6 +206,29 @@ ankka-shop
   }
 }
 ---
+# EnsureCredentials
+{
+  "apiVersion" : "v1",
+  "kind" : "Secret",
+  "metadata" : {
+    "labels" : {
+      "ankka.thinkmorestupidless.com/project" : "shop",
+      "ankka.thinkmorestupidless.com/service" : "cart",
+      "app.kubernetes.io/managed-by" : "ankka",
+      "app.kubernetes.io/name" : "cart"
+    },
+    "name" : "cart-db",
+    "namespace" : "ankka-shop"
+  },
+  "stringData" : {
+    "ANKKA_DB_HOST" : "ankka-db-rw",
+    "ANKKA_DB_NAME" : "cart",
+    "ANKKA_DB_PORT" : "5432",
+    "ANKKA_DB_USER" : "cart"
+  },
+  "type" : "Opaque"
+}
+---
 # EnsureSchemaConfig
 {
   "apiVersion" : "v1",

@@ -58,6 +58,13 @@ string codec in their companion, as `TaskStatus` has. New fields on existing rec
 | `Workers` | `workers`, `chosenBy` (optional read) | at least two, or one with `chosenBy`; `chosenBy` resolves to an array of strings (R22); the action names no worker |
 | `Times` | `n` | above one |
 
+A step that repeats gives a list: `Each` a list of what each doing gave, `Workers` a list of
+`{worker, result}` and `Times` a list of `{n, result}`, so a reader can tell the answers apart. The
+step's `result` is the whole of it; one doing answers with its item (`Over.itemOf`), and the check
+refuses a repeating step whose result shape is not that list. The builders wrap the result set so
+far when an `over` is added (`Over.resultOf`), so `.result(item).each("list")` and
+`.each("list").result(arr(item))` say the same.
+
 ### Until (a verdict within rounds)
 
 | Field | Type | Rule |
@@ -182,6 +189,14 @@ Row: `runId`, `blueprint`, `version`, `status`, `startedAt`, `endedAt`. Source: 
 ## `ankka-blueprint-schedule` (timed action, platform)
 
 Timer `schedule:<blueprint>:<due epoch millis>`, payload the blueprint name and the due time.
+
+### TaskDefinition (on `ankka-task`, for a work step)
+
+| Field | Type | Rule |
+|---|---|---|
+| `instructions`, `model`, `tools`, `guardrails`, `budget` | the worker's | resolved by the service's `TaskDefinitionResolver` |
+| `resultSchema` | Json | the step's shape, or its items' |
+| `context` | Map[String, String] | `run`, `step`, `blueprint`, `version` |
 
 ## Changes to existing records
 

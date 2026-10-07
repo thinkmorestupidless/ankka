@@ -158,9 +158,16 @@ final case class TaskBuilder[R] private[autonomous] (
     instructions: String,
     id: Option[String],
     attachments: Vector[Attachment],
-    dependencies: Vector[String]
+    dependencies: Vector[String],
+    definition: Option[TaskDefinition] = None
 ):
   def withId(taskId: String): TaskBuilder[R] = copy(id = Some(taskId))
+
+  /**
+   * The agent's definition for this task alone; the platform's blueprints give their work steps
+   * one.
+   */
+  private[ankka] def withDefinition(d: TaskDefinition): TaskBuilder[R] = copy(definition = Some(d))
 
   def attach(name: String, contentType: String, content: String): TaskBuilder[R] =
     copy(attachments =
@@ -189,7 +196,9 @@ final case class TaskBuilder[R] private[autonomous] (
     client
       .forEventSourcedEntity(EntityId(taskId))
       .call(TaskEntity.createTask)
-      .invoke(TaskEntity.Create(task.name, instructions, attachments, dependencies.distinct))
+      .invoke(
+        TaskEntity.Create(task.name, instructions, attachments, dependencies.distinct, definition)
+      )
     val ended = dependencies.distinct.iterator
       .map(dep =>
         dep -> client

@@ -170,8 +170,9 @@ final class AgentRuntime private (
         )
       )
 
-    startAutonomous(service, timers)
+    // Blueprints first: the autonomous hosts resolve a work step's task against the registry.
     startBlueprints(service, timers)
+    startAutonomous(service, timers)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
     if agents.isEmpty then system.log.debug("no agents registered")
@@ -279,7 +280,13 @@ final class AgentRuntime private (
       // sharding itself, from its record, with nothing sent to it.
       val _ = ClusterSharding(system).init(
         Entity(EntityTypeKey[EntityProtocol.Command](blueprint.RunHost.ComponentId)) { ctx =>
-          blueprint.RunHost.behavior(ctx.entityId, ctx.shard, service.componentClient, registry)
+          blueprint.RunHost.behavior(
+            ctx.entityId,
+            ctx.shard,
+            service.componentClient,
+            registry,
+            judgments
+          )
         }.withStopMessage(blueprint.RunHost.Stop)
           .withSettings(
             ClusterShardingSettings(system)
@@ -351,6 +358,12 @@ final class AgentRuntime private (
     if autonomousAgents.nonEmpty then
       val sharding = ClusterSharding(system)
       val client   = service.componentClient
+      // A task that carries a definition of its own is a blueprint's work step: resolved against
+      // what the service registered for blueprints, or refused when it registered nothing.
+      val perTask: autonomous.TaskDefinitionResolver =
+        blueprintCalls.fold(autonomous.TaskDefinitionResolver.none)(calls =>
+          blueprint.BlueprintTasks.resolver(calls.registry, defaultModel)
+        )
       autonomousAgents.foreach { d =>
         val descriptor =
           d.asInstanceOf[autonomous.AutonomousAgentDescriptor[autonomous.AutonomousAgent]]
@@ -413,7 +426,8 @@ final class AgentRuntime private (
               service.secrets,
               service.services,
               timers,
-              mcpTools
+              mcpTools,
+              perTask
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -497,6 +511,7 @@ object AgentRuntime:
       blueprint.BlueprintEntity.descriptor,
       blueprint.RunEntity.descriptor,
       blueprint.AskAgent.platformDescriptor,
+      blueprint.WorkerAgent.platformDescriptor,
       blueprint.RunsView.platformDescriptor
     )
 

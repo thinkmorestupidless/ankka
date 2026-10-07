@@ -19,9 +19,10 @@ import scala.util.control.NonFatal
  * ask turn already ended in its session is taken as the answer without a call.
  */
 private[ankka] final class RunWorker(
-    runId: String,
-    client: ComponentClient,
+    private[blueprint] val runId: String,
+    private[blueprint] val client: ComponentClient,
     private[blueprint] val registry: BlueprintRegistry,
+    judgments: com.thinkmorestupidless.ankka.agent.judgment.Judgments,
     reportStopped: () => Unit
 ):
   import RunEvent as E
@@ -143,74 +144,10 @@ private[ankka] final class RunWorker(
 
   /** Carries one step out, by what it does, how it repeats and until what. */
   private def stepOnce(run: RunRecord, blueprint: Blueprint, step: Step): Unit =
-    (step.does, step.over, step.until) match
-      case (Action.Ask(Some(workerName)), Over.Once, None) =>
-        askStep(run, blueprint, step, workerName)
-      case (Action.Call(handler), Over.Once, None) => callStep(run, step, handler)
-      case _ => end(RunStatus.Failed, Some(s"${step.name}: this shape of step is not built yet"))
+    Patterns.carryOut(this, run, blueprint, step, judgments)
 
-  private def askStep(run: RunRecord, blueprint: Blueprint, step: Step, workerName: String): Unit =
-    val worker =
-      blueprint.workers
-        .find(_.name == workerName)
-        .getOrElse(throw IllegalStateException(s"no worker '$workerName'"))
-    val session = s"run:$runId:${step.name}:$workerName"
-    val ref     = RunRef(runId, step.name, blueprint.name, run.version)
-    val message = Reads.message(step, run)
-    val before  = history(session)
-
-    Turns.answer(this, session, worker, message, step.result, ref, step.name) match
-      case Turns.Interrupted     => () // the record says why; the next look at it ends the run
-      case Turns.Failed(failure) => end(RunStatus.Failed, Some(s"${step.name}: $failure"))
-      case Turns.Answered(result) =>
-        val after = history(session)
-        record(
-          E.StepEnded(
-            step.name,
-            result.render,
-            Vector(session),
-            RunWorker.minus(after.usage, before.usage),
-            RunWorker.minus(after.judgmentUsage, before.judgmentUsage),
-            Turns.modelCalls(after) - Turns.modelCalls(before),
-            now()
-          )
-        )
-
-  /** A registered handler, given what the step reads; what it returns is the step's result. */
-  private def callStep(run: RunRecord, step: Step, handlerName: String): Unit =
-    val handler =
-      registry
-        .handler(handlerName)
-        .getOrElse(throw IllegalStateException(s"no handler '$handlerName'"))
-    val ref   = RunRef(runId, step.name, run.blueprint, run.version)
-    val input = Reads.values(step, run)
-    val result =
-      try Right(RunContext.within(ref)(handler.run(ref, input)))
-      catch case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
-    result match
-      case Left(failure) =>
-        end(RunStatus.Failed, Some(s"${step.name}: the handler '$handlerName' failed: $failure"))
-      case Right(json) =>
-        val problems = step.result.check(json)
-        if problems.nonEmpty then
-          end(
-            RunStatus.Failed,
-            Some(
-              s"${step.name}: the handler '$handlerName' did not answer with the step's shape: ${problems.mkString("; ")}"
-            )
-          )
-        else
-          record(
-            E.StepEnded(
-              step.name,
-              json.render,
-              Vector.empty,
-              TokenUsage.zero,
-              TokenUsage.zero,
-              0,
-              now()
-            )
-          )
+  private[blueprint] def endRun(status: RunStatus, reason: Option[String]): Unit =
+    end(status, reason)
 
   // ── Shared by the patterns ────────────────────────────────────────────────
 

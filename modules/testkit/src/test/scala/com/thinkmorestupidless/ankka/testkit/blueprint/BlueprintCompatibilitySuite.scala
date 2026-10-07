@@ -48,6 +48,48 @@ class BlueprintCompatibilitySuite extends munit.FunSuite with LogCapturing:
     assert(problems.isEmpty, problems.mkString("\n"))
   }
 
+  test("a task created with a definition of its own is pinned, and one without reads with none") {
+    import com.thinkmorestupidless.ankka.agent.autonomous.*
+    val definition = TaskDefinition(
+      "Say what this paper finds.",
+      "default",
+      Vector("search"),
+      Vector.empty,
+      3,
+      Shape.obj("text" -> Shape.string).schema,
+      Map("run" -> "r-1", "step" -> "findings", "blueprint" -> "digest", "version" -> "1")
+    )
+    val created = TaskEvent.Created(
+      "t-1",
+      "blueprint-step",
+      "Step 'findings'.",
+      Vector.empty,
+      Vector.empty,
+      1L,
+      Some(definition)
+    )
+    val generated = s"task-event ${String(TaskEntity.eventSerializer.toBytes(created), "UTF-8")}\n"
+    assertEquals(
+      TaskEntity.eventSerializer.fromBytes(TaskEntity.eventSerializer.toBytes(created)),
+      created
+    )
+    val problems = Fixtures.check(
+      Map(
+        Fixtures.repositoryRoot.resolve(
+          "modules/testkit/src/test/resources/journal/task-created-with-definition.json"
+        ) -> generated
+      )
+    )
+    assert(problems.isEmpty, problems.mkString("\n"))
+    // A task journal written before definitions reads with none.
+    val before =
+      """{"type":"Created","id":"t-0","typeName":"answer","instructions":"How many?","attachments":[],"dependencies":[],"at":1}"""
+    assertEquals(
+      TaskEntity.eventSerializer.fromBytes(before.getBytes("UTF-8")),
+      TaskEvent.Created("t-0", "answer", "How many?", Vector.empty, Vector.empty, 1L)
+    )
+  }
+
   test("every event case is pinned") {
     assertEquals(events.map(_.ordinal).distinct.sorted, events.indices.toVector)
     assertEquals(BlueprintEvent.ScheduleStopped(0L).ordinal, events.map(_.ordinal).max)

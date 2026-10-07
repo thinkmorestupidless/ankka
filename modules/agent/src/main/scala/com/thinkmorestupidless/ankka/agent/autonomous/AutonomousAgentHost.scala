@@ -75,7 +75,8 @@ private[ankka] object AutonomousAgentHost:
       secrets: SecretStore,
       services: ServiceClients,
       approvalTimers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
-      mcpTools: Vector[com.thinkmorestupidless.ankka.agent.FunctionTool] = Vector.empty
+      mcpTools: Vector[com.thinkmorestupidless.ankka.agent.FunctionTool] = Vector.empty,
+      perTask: TaskDefinitionResolver = TaskDefinitionResolver.none
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withTimers { timers =>
@@ -107,7 +108,9 @@ private[ankka] object AutonomousAgentHost:
             mcpTools,
             idle => self ! WorkerIdle(idle),
             () => self ! WorkerStopped,
-            Observability(ctx.system)
+            Observability(ctx.system),
+            perTask,
+            Some(context)
           )
 
           // Announced on the first message, not here: sharding creates the actor before delivering
@@ -505,7 +508,9 @@ private[ankka] object AutonomousAgentHost:
       mcpTools: Vector[com.thinkmorestupidless.ankka.agent.FunctionTool],
       reportIdle: Boolean => Unit,
       reportStopped: () => Unit,
-      observability: Observability
+      observability: Observability,
+      perTask: TaskDefinitionResolver = TaskDefinitionResolver.none,
+      context: Option[AutonomousAgentContext] = None
   ):
     private val definition  = descriptor.definition
     private val settings    = definition.settings
@@ -513,6 +518,8 @@ private[ankka] object AutonomousAgentHost:
     private val me          = Assignee(componentId.toString, instanceId)
     private val wake        = LinkedBlockingQueue[Unit]()
     // Absent when neither the definition nor the runtime names a model: every task then fails, saying so.
+    private val spans =
+      com.thinkmorestupidless.ankka.agent.ToolSpans(Some(observability), componentId.toString)
     private val loopOrNone =
       model.map(m =>
         IterationLoop(
@@ -525,11 +532,54 @@ private[ankka] object AutonomousAgentHost:
           judgments,
           emit,
           approvalTimers,
-          com.thinkmorestupidless.ankka.agent.ToolSpans(Some(observability), componentId.toString),
+          spans,
           mcpTools
         )
       )
     private def loop: IterationLoop = loopOrNone.get
+
+    /**
+     * The loop, acceptance and unanswerable guardrail for one task: the companion's, or, for a task
+     * that carries a definition of its own, resolved for that task against what the service
+     * registered. A loop is cheap to build; the record is what lasts.
+     */
+    private def taskLoop(
+        t: TaskRecord
+    ): Either[String, (IterationLoop, TaskAcceptance, Option[String])] =
+      t.definition match
+        case Some(d) =>
+          context
+            .toRight(s"'$componentId' cannot resolve a task's own definition: it has no context")
+            .flatMap(ctx => perTask.resolve(d, ctx))
+            .map { r =>
+              val perTaskLoop = IterationLoop(
+                r.definition,
+                r.agent,
+                instanceId,
+                client,
+                r.model,
+                modelTimeout,
+                judgments,
+                emit,
+                approvalTimers,
+                spans,
+                Nil
+              )
+              (
+                perTaskLoop,
+                r.acceptance,
+                AgentRuntime.unanswerableGuardrail(r.definition.guardrails, judgments)
+              )
+            }
+        case None =>
+          definition.accepted(t.typeName) match
+            case None => Left(s"'$componentId' does not accept '${t.typeName}' tasks")
+            case Some(_) if loopOrNone.isEmpty =>
+              Left(
+                s"'$componentId' has no model: set one with model(...) on its definition, or " +
+                  "configure a default provider on the AgentRuntime"
+              )
+            case Some(acceptance) => Right((loop, acceptance, unanswerable))
 
     /** A judged guardrail that nobody can answer: no provider of its own, and none configured. */
     private val unanswerable: Option[String] =
@@ -703,27 +753,20 @@ private[ankka] object AutonomousAgentHost:
         end(w.taskId, outcomeOf(t))
         false
       else
-        definition.accepted(t.typeName) match
-          case None =>
-            fail(t, s"'$componentId' does not accept '${t.typeName}' tasks")
+        taskLoop(t) match
+          case Left(reason) =>
+            fail(t, reason)
             false
-          case Some(_) if loopOrNone.isEmpty =>
-            fail(
-              t,
-              s"'$componentId' has no model: set one with model(...) on its definition, or " +
-                "configure a default provider on the AgentRuntime"
-            )
+          case Right((_, _, Some(guard))) =>
+            fail(t, AgentRuntime.noJudgmentProvider(componentId, guard))
             false
-          case Some(_) if unanswerable.nonEmpty =>
-            fail(t, AgentRuntime.noJudgmentProvider(componentId, unanswerable.get))
-            false
-          case Some(acceptance) =>
-            if !w.started then start(t)
+          case Right((taskLoop, acceptance, None)) =>
+            if !w.started then start(t, taskLoop)
             else if t.status == TaskStatus.ResultRejected then
               task(t.id).call(TaskEntity.start).invoke(): Unit
-            running && iterate(t, acceptance)
+            running && iterate(t, acceptance, taskLoop)
 
-    private def start(t: TaskRecord): Unit =
+    private def start(t: TaskRecord, loop: IterationLoop): Unit =
       loop.startCheck(t) match
         case IterationLoop.StartCheck.Refused(reason)      => fail(t, reason)
         case IterationLoop.StartCheck.CouldNotCheck(error) =>
@@ -736,7 +779,7 @@ private[ankka] object AutonomousAgentHost:
           record(InstanceEvent.TaskStarted(t.id, now()))
           emit(Notification.TaskStarted(componentId, instanceId, t.id, now()))
 
-    private def iterate(t0: TaskRecord, acceptance: TaskAcceptance): Boolean =
+    private def iterate(t0: TaskRecord, acceptance: TaskAcceptance, loop: IterationLoop): Boolean =
       val rec = get()
       rec.current.filter(_.taskId == t0.id).filter(_.started) match
         case None => false // failed at start, or ended: the next round sees it

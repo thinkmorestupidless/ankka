@@ -58,6 +58,8 @@ object Shape:
 
   // ── Builders ───────────────────────────────────────────────────────────────
 
+  /** Any value: an object with no properties named, which is how a shape says nothing. */
+  val any: Shape     = obj(Seq.empty, Seq.empty)
   val string: Shape  = unchecked(Json.obj("type" -> Json.str("string")))
   val number: Shape  = unchecked(Json.obj("type" -> Json.str("number")))
   val integer: Shape = unchecked(Json.obj("type" -> Json.str("integer")))

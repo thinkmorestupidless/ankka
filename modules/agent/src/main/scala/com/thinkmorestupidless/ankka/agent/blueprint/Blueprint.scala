@@ -108,6 +108,25 @@ enum Over:
     case Workers(_, Some(by)) => Vector(by)
     case _                    => Vector.empty
 
+  /**
+   * The step's result when one doing answers with `item`: the item itself once; a list of them over
+   * each of a list; and over workers or times, a list that says who gave each, or which time.
+   */
+  def resultOf(item: Shape): Shape = this match
+    case Once          => item
+    case Each(_, _, _) => Shape.arr(item)
+    case Workers(_, _) => Shape.arr(Shape.obj("worker" -> Shape.string, "result" -> item))
+    case Times(_)      => Shape.arr(Shape.obj("n" -> Shape.integer, "result" -> item))
+
+  /**
+   * What one doing answers with, from the step's result: `resultOf` the other way, as far as it
+   * goes.
+   */
+  def itemOf(result: Shape): Shape = this match
+    case Once          => result
+    case Each(_, _, _) => result.items.getOrElse(Shape.any)
+    case _             => result.items.flatMap(_.field("result")).getOrElse(Shape.any)
+
 /** Drafts go back with the verdict's reasons until one passes, up to `rounds` rounds. */
 final case class Until(verdict: Verdict, rounds: Int, keepLast: Boolean = false)
 
@@ -125,14 +144,23 @@ final case class Step(
     result: Shape = Shape.string
 ):
   def reads(names: String*): Step = copy(reads = reads ++ names)
-  def result(shape: Shape): Step  = copy(result = shape)
-  def each(read: String, limit: Int = 4, keepGoing: Boolean = false): Step =
-    copy(over = Over.Each(read, limit, keepGoing))
-  def overWorkers(workers: String*): Step = copy(over = Over.Workers(workers.toVector))
+
+  /** The whole step's result: a list, when the step repeats. */
+  def result(shape: Shape): Step = copy(result = shape)
+
+  /**
+   * An `over` wraps the result set so far as its list, so give the item's shape first or the list's
+   * after.
+   */
+  def each(read: String, limit: Int = 4, keepGoing: Boolean = false): Step = repeating(
+    Over.Each(read, limit, keepGoing)
+  )
+  def overWorkers(workers: String*): Step = repeating(Over.Workers(workers.toVector))
   def chosenBy(read: String): Step = over match
     case Over.Workers(ws, _) => copy(over = Over.Workers(ws, Some(read)))
-    case _                   => copy(over = Over.Workers(Vector.empty, Some(read)))
-  def times(n: Int): Step = copy(over = Over.Times(n))
+    case _                   => repeating(Over.Workers(Vector.empty, Some(read)))
+  def times(n: Int): Step              = repeating(Over.Times(n))
+  private def repeating(o: Over): Step = copy(over = o, result = o.resultOf(over.itemOf(result)))
   def until(verdict: Verdict, rounds: Int, keepLast: Boolean = false): Step =
     copy(until = Some(Until(verdict, rounds, keepLast)))
 
@@ -173,17 +201,17 @@ object Step:
 
     /** A for-each step: one worker, once per item. */
     def forEach(worker: String, over: String, limit: Int = 4, keepGoing: Boolean = false): Step =
-      Step(name, Action.Ask(Some(worker)), Over.Each(over, limit, keepGoing))
+      Step(name, Action.Ask(Some(worker))).each(over, limit, keepGoing)
 
     /** A gather step: several workers, the same input. */
     def gather(workers: String*): Step =
-      Step(name, Action.Ask(None), Over.Workers(workers.toVector))
+      Step(name, Action.Ask(None)).overWorkers(workers*)
     def gather(workers: Seq[String], chosenBy: String): Step =
-      Step(name, Action.Ask(None), Over.Workers(workers.toVector, Some(chosenBy)))
+      Step(name, Action.Ask(None)).overWorkers(workers*).chosenBy(chosenBy)
 
     /** A gather step: one worker several times. */
     def gather(worker: String, times: Int): Step =
-      Step(name, Action.Ask(Some(worker)), Over.Times(times))
+      Step(name, Action.Ask(Some(worker))).times(times)
 
     /** A critique step: one worker drafts until a verdict passes. */
     def critique(drafter: String, verdict: Verdict, rounds: Int, keepLast: Boolean = false): Step =

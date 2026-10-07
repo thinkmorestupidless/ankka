@@ -27,11 +27,12 @@ private[ankka] object RunHost:
       runId: String,
       shard: ActorRef[ClusterSharding.ShardCommand],
       client: ComponentClient,
-      registry: BlueprintRegistry
+      registry: BlueprintRegistry,
+      judgments: com.thinkmorestupidless.ankka.agent.judgment.Judgments
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       val self   = ctx.self
-      val worker = RunWorker(runId, client, registry, () => self ! WorkerStopped)
+      val worker = RunWorker(runId, client, registry, judgments, () => self ! WorkerStopped)
       worker.start()
 
       Behaviors

@@ -255,6 +255,30 @@ object BlueprintCheck:
             )
         case Over.Once => ()
 
+      // A step that repeats gives a list; over workers or times, a list of what each gave and who
+      // gave it, so the pattern can wrap each answer and a reader can tell them apart.
+      step.over match
+        case Over.Once => ()
+        case Over.Each(_, _, _) =>
+          if !step.result.isArray then
+            problem(
+              s"$at.result",
+              "list",
+              s"for-each step '${step.name}' gives ${describe(step.result)}, and must give a list"
+            )
+        case over =>
+          val tag  = if over.isInstanceOf[Over.Times] then "n" else "worker"
+          val item = step.result.items
+          val sound = step.result.isArray && item.exists(i =>
+            i.kind == "object" && i.field("result").isDefined && i.field(tag).isDefined
+          )
+          if !sound then
+            problem(
+              s"$at.result",
+              "list",
+              s"gather step '${step.name}' gives ${describe(step.result)}, and must give a list of objects with '$tag' and 'result'"
+            )
+
       step.does match
         case Action.Judge(questions) if questions.isEmpty =>
           problem(s"$at.does.questions", "questions", s"judge step '${step.name}' asks no question")

@@ -442,6 +442,17 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   blueprint registered by two services at once would serialise on the entity, and the restart case
   showed a carried blueprint re-registered at start adds no version. The calls moved to the
   `AgentRuntime` (R23).
+- Phase 5 (T034–T042): `patterns.feature` passes, 18 scenarios. The per-task definition is
+  generic (`TaskDefinition` names tools, model, guardrails and budget, and carries a context map),
+  so the autonomous package knows nothing of blueprints; `BlueprintTasks.resolver` is the service's
+  side of R4, and the host builds an `IterationLoop` per task that carries one. A work step's task
+  and instance are named for the step, so a worker that stops finds the task it made rather than
+  making another. A for-each or gather result is an array in order, `null` where an item failed and
+  the step kept going, with the failure on the item's record. Found by the gather scenarios: a
+  step over workers or times answers one item at a time, and the item is the `result` inside
+  `{worker, result}` or `{n, result}`, not the whole; `Over.itemOf` and `Over.resultOf` hold the
+  two directions, the builders wrap, and the check refuses a repeating step whose result is not
+  the list its over gives (data-model, *Over*).
 - Review, found by running three steps at once (R24): the platform's ask waits ten seconds
   (`ankka.ask-timeout`), and an ask turn whose tool takes longer outlives its call. The worker
   treats the timed-out call as a turn still in progress and watches the session for its answer or

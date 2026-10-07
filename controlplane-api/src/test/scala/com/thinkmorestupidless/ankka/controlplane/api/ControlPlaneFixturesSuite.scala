@@ -117,7 +117,10 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
         callers = Vector("orders", "billing/invoices", "*"),
         processPort = Some(3000),
         broker = Some("provisioned"),
-        undeclaredTopics = Some(Vector("cart-checkouts"))
+        undeclaredTopics = Some(Vector("cart-checkouts")),
+        objectStorage = Some("provisioned"),
+        bucket = Some("shop.cart"),
+        bucketAddress = Some("https://storage.example.com/shop.cart")
       ),
       ServiceStatus("cart", "shop", ServiceLifecycle.NotDeployed, 0, "cart:1", 0, 0)
     ),
@@ -244,12 +247,15 @@ class ControlPlaneFixturesSuite extends munit.FunSuite:
     // the list is whole and the TypeScript side can say it is deliberately not decoded.
     fixture(
       "ServiceDescriptor",
-      ServiceDescriptor("cart", ServiceSpec("cart:1", runtime = Some("0.7.0"), grpc = true)),
+      ServiceDescriptor(
+        "cart",
+        ServiceSpec("cart:1", runtime = Some("0.7.0"), grpc = true, provisionObjectStorage = true)
+      ),
       ServiceDescriptor("cart", ServiceSpec("cart:1"))
     ),
     fixture(
       "ServiceSpec",
-      ServiceSpec("cart:1", runtime = Some("0.7.0"), grpc = true),
+      ServiceSpec("cart:1", runtime = Some("0.7.0"), grpc = true, provisionObjectStorage = true),
       ServiceSpec("cart:1")
     ),
     fixture(

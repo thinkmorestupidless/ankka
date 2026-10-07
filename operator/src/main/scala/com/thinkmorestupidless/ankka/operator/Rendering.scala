@@ -4,6 +4,7 @@ import com.thinkmorestupidless.ankka.core.PlatformVariables
 import io.fabric8.kubernetes.api.model.gatewayapi.v1.{
   HTTPBackendRefBuilder,
   HTTPHeaderMatchBuilder,
+  HTTPPathMatchBuilder,
   HTTPRouteMatchBuilder,
   HTTPRouteTimeoutsBuilder,
   HTTPRoute,
@@ -31,6 +32,8 @@ import io.fabric8.kubernetes.api.model.rbac.{
 import io.fabric8.kubernetes.api.model.{
   Container,
   ContainerBuilder,
+  GenericKubernetesResource,
+  GenericKubernetesResourceBuilder,
   ContainerPortBuilder,
   HTTPGetActionBuilder,
   Lifecycle,
@@ -63,7 +66,13 @@ import io.fabric8.kubernetes.api.model.{
   VolumeBuilder,
   VolumeMountBuilder
 }
-import com.thinkmorestupidless.ankka.crd.{EnvEntry, Hostnames, AnkkaService, AnkkaServiceSpec}
+import com.thinkmorestupidless.ankka.crd.{
+  AnkkaService,
+  AnkkaServiceSpec,
+  Buckets,
+  EnvEntry,
+  Hostnames
+}
 
 import scala.jdk.CollectionConverters.*
 
@@ -199,7 +208,8 @@ object Rendering:
       resource: AnkkaService,
       settings: Settings,
       databasePlan: ProvisioningPlan,
-      knownToBroker: Boolean = false
+      knownToBroker: Boolean = false,
+      objectStoragePlan: ObjectStoragePlan = ObjectStoragePlan.NotAsked
   ): Either[Vector[String], Vector[Action]] =
     val spec      = Option(resource.getSpec).getOrElse(AnkkaServiceSpec())
     val namespace = Names.namespace(settings.namespacePrefix, spec.projectId)
@@ -239,6 +249,7 @@ object Rendering:
           identityActions(resource, spec, namespace) ++
           secretKeyAction(spec, namespace) ++
           telemetryAction(resource, spec, namespace, settings) ++
+          objectStorageActions(resource, spec, namespace, settings, objectStoragePlan) ++
           zeroTrustActions(resource, spec, namespace, commonName) ++
           brokerActions(spec, broker) :+
           Action.ApplyDeployment(
@@ -253,7 +264,8 @@ object Rendering:
               settings.baseDomain,
               settings.httpsPort,
               settings.otlpEndpoint,
-              settings.otlpHeaders.isDefined
+              settings.otlpHeaders.isDefined,
+              storageEnv(spec, settings)
             )
           ) :+
           addressAction(resource, spec, namespace) :+
@@ -324,6 +336,172 @@ object Rendering:
           .build()
       }
       literal(PlatformVariables.OtlpEndpoint, endpoint) +: headers.toVector
+    }
+
+  /**
+   * A service's bucket and its storage credential (feature 034), before the Deployment that names
+   * the credential's Secret. Rendered only while the store is there to answer: with no store, or
+   * one that cannot be reached, there is nothing to ask, and the plan's status says why.
+   */
+  private def objectStorageActions(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings,
+      plan: ObjectStoragePlan
+  ): Vector[Action] =
+    val bucket = Buckets.name(spec.projectId, spec.serviceName)
+    val provision = plan match
+      case ObjectStoragePlan.Waiting(None) | ObjectStoragePlan.Ready(_) =>
+        Vector(
+          Action.EnsureBucket(bucket),
+          Action.EnsureStorageCredential(
+            namespace,
+            Buckets.secret(spec.serviceName),
+            Labels.identity(spec.projectId, spec.serviceName),
+            bucket
+          )
+        )
+      case _ => Vector.empty
+    provision ++ bucketExposure(resource, spec, namespace, settings, plan)
+
+  /**
+   * A bucket reachable from the internet (feature 034): one route in the service's own namespace,
+   * owned by its resource so deleting the service removes it, at the store's one hostname and the
+   * bucket's path, naming the store's Service through a grant in the store's namespace. Every other
+   * service, whether it ever asked or not, has the route's removal rendered — owner-checked, and a
+   * read that finds nothing for one that never had one — so dropping the request, or the bucket,
+   * leaves no route behind, and a URL signed before stops working.
+   */
+  private def bucketExposure(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      settings: Settings,
+      plan: ObjectStoragePlan
+  ): Vector[Action] =
+    val asked = plan match
+      case ObjectStoragePlan.Waiting(_) | ObjectStoragePlan.Ready(_) =>
+        spec.provisionObjectStorage && spec.exposeObjectStorage
+      case _ => false
+    (asked, settings.baseDomain, settings.objectStore) match
+      case (true, Some(base), Some(store)) =>
+        Vector(
+          Action.EnsureReferenceGrant(referenceGrant(namespace, store)),
+          Action.EnsureHttpRoute(bucketRoute(resource, spec, namespace, base, store))
+        )
+      case _ =>
+        Vector(
+          Action.RemoveHttpRoute(
+            namespace,
+            Names.bucketRoute(spec.serviceName),
+            Option(resource.getMetadata).flatMap(m => Option(m.getUid)).getOrElse("")
+          )
+        )
+
+  /** Lets the routes of one project's namespace name the store's Service, and nothing else. */
+  def referenceGrant(namespace: String, store: ObjectStoreSettings): GenericKubernetesResource =
+    new GenericKubernetesResourceBuilder()
+      .withApiVersion("gateway.networking.k8s.io/v1beta1")
+      .withKind("ReferenceGrant")
+      .withMetadata(
+        new ObjectMetaBuilder()
+          .withName(namespace)
+          .withNamespace(store.service.namespace)
+          .withLabels(Map(Labels.ManagedByKey -> Labels.ManagedByAnkka).asJava)
+          .build()
+      )
+      .withAdditionalProperties(
+        Map[String, AnyRef](
+          "spec" -> Map[String, AnyRef](
+            "from" -> java.util.List.of(
+              Map(
+                "group"     -> "gateway.networking.k8s.io",
+                "kind"      -> "HTTPRoute",
+                "namespace" -> namespace
+              ).asJava
+            ),
+            "to" -> java.util.List.of(
+              Map("group" -> "", "kind" -> "Service", "name" -> store.service.name).asJava
+            )
+          ).asJava
+        ).asJava
+      )
+      .build()
+
+  /**
+   * The bucket's route: its path at the store's hostname, with no route timeout, since Envoy's
+   * default of fifteen seconds ends an upload or a download of any size worth signing a URL for. No
+   * `BackendTLSPolicy`: the store speaks no TLS, and the gateway ends the browser's.
+   */
+  def bucketRoute(
+      resource: AnkkaService,
+      spec: AnkkaServiceSpec,
+      namespace: String,
+      baseDomain: String,
+      store: ObjectStoreSettings
+  ): HTTPRoute =
+    new HTTPRouteBuilder()
+      .withMetadata(identityMeta(resource, spec, namespace, Names.bucketRoute(spec.serviceName)))
+      .withSpec(
+        new HTTPRouteSpecBuilder()
+          .withParentRefs(
+            new ParentReferenceBuilder()
+              .withGroup("gateway.networking.k8s.io")
+              .withKind("Gateway")
+              .withName(GatewayName)
+              .withNamespace(GatewayNamespace)
+              .withSectionName(GatewaySection)
+              .build()
+          )
+          .withHostnames(Hostnames.storage(baseDomain))
+          .withRules(
+            new HTTPRouteRuleBuilder()
+              .withMatches(
+                new HTTPRouteMatchBuilder()
+                  .withPath(
+                    new HTTPPathMatchBuilder()
+                      .withType("PathPrefix")
+                      .withValue("/" + Buckets.name(spec.projectId, spec.serviceName))
+                      .build()
+                  )
+                  .build()
+              )
+              .withTimeouts(new HTTPRouteTimeoutsBuilder().withRequest("0s").build())
+              .withBackendRefs(
+                new HTTPBackendRefBuilder()
+                  .withName(store.service.name)
+                  .withNamespace(store.service.namespace)
+                  .withPort(store.service.port)
+                  .build()
+              )
+              .build()
+          )
+          .build()
+      )
+      .build()
+
+  /**
+   * What the developer's container is told about its bucket, for a service that asks: the
+   * credential's Secret, whatever the plan — so with no store there is no Secret and no instance
+   * starts with an empty credential — and where the bucket is, when the installation has a store.
+   */
+  def storageEnv(spec: AnkkaServiceSpec, settings: Settings): Option[StorageEnv] =
+    Option.when(spec.provisionObjectStorage) {
+      val bucket = Buckets.name(spec.projectId, spec.serviceName)
+      val where = settings.objectStore.toVector.flatMap(store =>
+        Vector(StorageEnv.Endpoint -> store.endpoint, StorageEnv.Region -> store.region)
+      )
+      // Only for a bucket reachable from the internet: the address a URL for a browser is signed
+      // for, since a signature covers the host it was made for.
+      val public = (for
+        _    <- Option.when(spec.exposeObjectStorage)(())
+        base <- settings.baseDomain
+      yield StorageEnv.PublicEndpoint -> Buckets.publicEndpoint(base, settings.httpsPort)).toVector
+      StorageEnv(
+        secret = Buckets.secret(spec.serviceName),
+        literals = (where :+ (StorageEnv.Bucket -> bucket)) ++ public
+      )
     }
 
   private def rendersSecretKey(spec: AnkkaServiceSpec): Boolean =
@@ -824,7 +1002,8 @@ object Rendering:
       baseDomain: Option[String] = None,
       httpsPort: Int = Settings.default.httpsPort,
       otlpEndpoint: Option[String] = None,
-      otlpHeaders: Boolean = false
+      otlpHeaders: Boolean = false,
+      storage: Option[StorageEnv] = None
   ): Deployment =
     val identity    = selectorLabels(spec)
     val labels      = Labels.merged(spec.projectId, spec.serviceName, spec.labels)
@@ -838,16 +1017,20 @@ object Rendering:
       case _                                                      => true
 
     val web = spec.hosting == WebHosting
-    val containers = containersFor(
+    val containers = withStorage(
       spec,
-      identity,
-      withDatabaseEnv = provisioned,
-      sidecarImage,
-      namespacePrefix,
-      proxyImage,
-      baseDomain,
-      httpsPort,
-      telemetryEnv(spec, otlpEndpoint, otlpHeaders)
+      containersFor(
+        spec,
+        identity,
+        withDatabaseEnv = provisioned,
+        sidecarImage,
+        namespacePrefix,
+        proxyImage,
+        baseDomain,
+        httpsPort,
+        telemetryEnv(spec, otlpEndpoint, otlpHeaders)
+      ),
+      storage
     )
     // A web-hosted pod holds the service certificate alone: no cluster to join, no database.
     val held =
@@ -978,6 +1161,35 @@ object Rendering:
       )
       .withSpec(deploymentSpec)
       .build()
+
+  /**
+   * The bucket's variables go to the developer's program and to no program of the platform's: the
+   * one container of an embedded or a wasm service (whose module asks its `config` for them), and
+   * `<service>-app` beside a sidecar or a proxy, neither of which opens a bucket. Unlike a
+   * database's credential, which the sidecar holds because the sidecar opens the database.
+   */
+  private def withStorage(
+      spec: AnkkaServiceSpec,
+      containers: Vector[Container],
+      storage: Option[StorageEnv]
+  ): Vector[Container] =
+    storage.fold(containers) { env =>
+      val target =
+        if spec.hosting == ProcessHosting || spec.hosting == WebHosting then
+          containers.indexWhere(_.getName == Names.container(spec.serviceName) + "-app")
+        else 0
+      containers.updated(
+        target,
+        new ContainerBuilder(containers(target))
+          .addToEnv(env.literals.map((name, value) => literal(name, value))*)
+          .addToEnvFrom(
+            new EnvFromSourceBuilder()
+              .withSecretRef(new SecretEnvSourceBuilder().withName(env.secret).build())
+              .build()
+          )
+          .build()
+      )
+    }
 
   /**
    * A wasm service's module, copied by its own image into the pod's module volume before the
@@ -1462,3 +1674,16 @@ object Rendering:
         // Validation upstream makes this unreachable; rendering an empty value rather than
         // throwing keeps the rest of the service deployable and lets the status say why.
         builder.withValue("").build()
+
+/**
+ * What a developer's container is told about its bucket (feature 034): the credential's Secret by
+ * `envFrom`, and the rest as literals, which change with the pod template and so reach every
+ * instance when they change. Only what never changes is in the Secret, which is written once.
+ */
+final case class StorageEnv(secret: String, literals: Vector[(String, String)])
+
+object StorageEnv:
+  val Endpoint: String       = PlatformVariables.ObjectStoragePrefix + "ENDPOINT"
+  val Region: String         = PlatformVariables.ObjectStoragePrefix + "REGION"
+  val Bucket: String         = PlatformVariables.ObjectStoragePrefix + "BUCKET"
+  val PublicEndpoint: String = PlatformVariables.ObjectStoragePrefix + "PUBLIC_ENDPOINT"

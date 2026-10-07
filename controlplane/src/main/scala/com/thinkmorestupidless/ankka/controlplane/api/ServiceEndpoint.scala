@@ -12,7 +12,7 @@ import com.thinkmorestupidless.ankka.controlplane.deploy.{
 import com.thinkmorestupidless.ankka.controlplane.domain.{ApplyService, RollbackService, ServiceKey}
 import com.thinkmorestupidless.ankka.controlplane.tenancy.OrganizationUsage
 import com.thinkmorestupidless.ankka.core.{CommandError, Done, EntityId, ErrorCode}
-import com.thinkmorestupidless.ankka.crd.Hostnames
+import com.thinkmorestupidless.ankka.crd.{Buckets, Hostnames}
 import com.thinkmorestupidless.ankka.http.*
 import com.thinkmorestupidless.ankka.runtime.SqlSyntax.{jsonText, sql}
 
@@ -108,7 +108,10 @@ final class ServiceEndpoint(
           s"descriptor names service '${descriptor.name}' but was applied to '$name'",
           ErrorCode.BadRequest
         )
-      val problems = descriptor.problems
+      // The bucket's name needs the project, which the descriptor's own rules cannot see.
+      val problems = descriptor.problems ++
+        (if descriptor.service.provisionObjectStorage then Buckets.problems(projectId, name)
+         else Vector.empty)
       if problems.nonEmpty then
         throw CommandError(
           problems.mkString("invalid descriptor: ", "; ", ""),
@@ -259,8 +262,14 @@ final class ServiceEndpoint(
       })
 
   private def withHostname(status: ServiceStatus): ServiceStatus =
-    if status.exposed then status.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
-    else status
+    val located = status.copy(
+      // Recorded as the bucket's path; the address is the store's, which is configuration.
+      bucketAddress =
+        status.bucketAddress.flatMap(_ => deploy.bucketAddressFor(status.projectId, status.name))
+    )
+    if status.exposed then
+      located.copy(hostname = deploy.hostnameFor(status.projectId, status.name))
+    else located
 
   /**
    * Another exposed service whose derived label equals this one's — `a-b` in `c` against `a` in

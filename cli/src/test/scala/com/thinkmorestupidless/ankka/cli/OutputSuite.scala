@@ -243,6 +243,28 @@ class OutputSuite extends munit.FunSuite:
     assertEquals(rendered.linesIterator.toVector.last, "database    provisioned")
   }
 
+  test("a service with a bucket says so after its database, and its address when it has one") {
+    val rendered = Output.service(
+      status("reports", database = Some("provisioned")).copy(
+        objectStorage = Some("recovered existing bucket"),
+        bucket = Some("shop.reports"),
+        bucketAddress = Some("https://storage.example.com/shop.reports")
+      ),
+      Format.Table
+    )
+    val lines = rendered.linesIterator.toVector
+    val at    = lines.indexWhere(_.startsWith("database"))
+    assertEquals(
+      lines.slice(at, at + 4),
+      Vector(
+        "database        provisioned",
+        "object storage  recovered existing bucket",
+        "bucket          shop.reports",
+        "bucket address  https://storage.example.com/shop.reports"
+      )
+    )
+  }
+
   test("the token is never printed, in either format") {
     val settings = Settings("http://cp", Some("super-secret-token"), Some("checkout"))
 

@@ -203,6 +203,8 @@ kubectl -n ankka-controlplane wait --for=jsonpath='{.status.readyInstances}'=1 c
 
 echo "==> waiting for the operator"
 kubectl -n ankka-operator rollout status deployment/ankka-operator --timeout=120s
+echo "==> waiting for the object store"
+kubectl -n garage-system rollout status statefulset/garage --timeout=180s
 
 echo "==> waiting for the control plane"
 # Three instances rolled one at a time (feature 004), each a JVM that has to join the cluster

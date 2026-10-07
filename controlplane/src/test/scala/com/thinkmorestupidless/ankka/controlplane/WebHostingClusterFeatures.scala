@@ -19,6 +19,7 @@ import com.thinkmorestupidless.ankka.http.HttpServer
 import com.thinkmorestupidless.ankka.operator.{
   ClusterImages,
   GatewayStack,
+  ObjectStoreStack,
   Operator,
   ServiceReconciler,
   Settings as OperatorSettings
@@ -51,8 +52,11 @@ import scala.jdk.CollectionConverters.*
  *
  * Disable with `-Dankka.cluster.tests=off`, which also skips building the images.
  */
-abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = false)
-    extends GherkinSuite(feature)
+abstract class WebHostingClusterSteps(
+    feature: String,
+    withDatabases: Boolean = false,
+    withObjectStore: Boolean = false
+) extends GherkinSuite(feature)
     with LogCapturing:
 
   override val munitTimeout: FiniteDuration = 10.minutes
@@ -142,11 +146,14 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
           d != null && Option(d.getStatus).flatMap(st => Option(st.getReadyReplicas)).exists(_ > 0)
         }
 
+      // The installation's object store, for a suite whose services ask for buckets (feature 034).
+      if withObjectStore then objectStore = ObjectStoreStack.install(k3s, k8s, repoRoot)
       val operatorSettings = OperatorSettings.default.copy(
         resyncInterval = 2.seconds,
         proxyImage = ProxyImage,
         baseDomain = Some(BaseDomain),
-        httpsPort = httpsPort
+        httpsPort = httpsPort,
+        objectStore = Option(objectStore).map(_.settings)
       )
       operator = new Operator(k8s, operatorSettings, ServiceReconciler(k8s, operatorSettings))
       operator.start()
@@ -191,8 +198,11 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
     if config != null then Files.deleteIfExists(config): Unit
     if testKit != null then testKit.stop()
     if operator != null then operator.close()
+    if objectStore != null then objectStore.close()
     if k8s != null then k8s.close()
     if k3s != null then k3s.stop()
+
+  protected var objectStore: ObjectStoreStack.Installed = null
 
   /**
    * Builds the stand-in's three images under this build's tag; nothing is named by a literal tag.
@@ -309,6 +319,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
   protected var processPort: Option[Int]                         = None
   protected var instanceType: String                             = "small"
   protected var mounts: Vector[(String, String)]                 = Vector.empty
+  protected var provisionObjectStorage: Boolean                  = false
   protected var appliedAt: Instant                               = Instant.EPOCH
   protected var last: Run                                        = Run(0, "", "")
   protected var lastStatus: Option[ServiceStatus]                = None
@@ -326,6 +337,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
       processPort = None
       instanceType = "small"
       mounts = Vector.empty
+      provisionObjectStorage = false
       last = Run(0, "", "")
       lastStatus = None
       stoppedPod = ""
@@ -348,6 +360,7 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
       Some(
         s""""resources":{"instanceType":"$instanceType","autoscaling":{"minInstances":$instances}}"""
       ),
+      Option.when(provisionObjectStorage)(""""provisionObjectStorage":true"""),
       Option.when(mounts.nonEmpty)(
         mounts
           .map((path, svc) => s"""{"path":"$path","service":"$svc"}""")
@@ -920,6 +933,109 @@ abstract class WebHostingClusterSteps(feature: String, withDatabases: Boolean = 
         ),
         statusOf(service).toString
       )
+  }
+
+/**
+ * `features/web-hosting/object-storage.feature` on k3s (feature 034): a web-hosted service with a
+ * bucket, whose process keeps and reads an object with the variables it was given, and whose proxy
+ * is given none of them.
+ */
+class WebHostingObjectStorageFeatures
+    extends WebHostingClusterSteps(
+      "../features/web-hosting/object-storage.feature",
+      withObjectStore = true
+    ):
+
+  private def envOf(container: String): Map[String, String] =
+    val pod = pods(service).find(ready).getOrElse(fail(s"$service has no ready pod"))
+    val r = k3s.execInContainer(
+      "kubectl",
+      "exec",
+      "-n",
+      Namespace,
+      pod.getMetadata.getName,
+      "-c",
+      container,
+      "--",
+      "env"
+    )
+    r.getStdout.linesIterator
+      .flatMap(l => l.split("=", 2) match { case Array(k, v) => Some(k -> v); case _ => None })
+      .toMap
+
+  /** A signed request from inside the process's container: its status, and the body. */
+  private def s3(method: String, obj: String, upload: Option[String] = None): (Int, String) =
+    val pod = pods(service).find(ready).getOrElse(fail(s"$service has no ready pod"))
+    // The payload's hash, sent as its own header: a curl before 8 signs without it, and the store
+    // refuses a request that does not say it (`Missing X-Amz-Content-Sha256`).
+    val body = upload.fold("printf '' > /tmp/upload && ")(content =>
+      s"printf '%s' '$content' > /tmp/upload && "
+    ) + "hash=$(sha256sum /tmp/upload | cut -d' ' -f1) && "
+    val send = upload.fold("")(_ => "-T /tmp/upload ")
+    val r = k3s.execInContainer(
+      "kubectl",
+      "exec",
+      "-n",
+      Namespace,
+      pod.getMetadata.getName,
+      "-c",
+      s"$service-app",
+      "--",
+      "sh",
+      "-c",
+      body +
+        s"""curl -s -o /tmp/answer -w '%{http_code}' -X $method $send-H "x-amz-content-sha256: $$hash" --aws-sigv4 "aws:amz:$$ANKKA_S3_REGION:s3" """ +
+        s"""--user "$$ANKKA_S3_ACCESS_KEY:$$ANKKA_S3_SECRET_KEY" "$$ANKKA_S3_ENDPOINT/$$ANKKA_S3_BUCKET/$obj"; echo; cat /tmp/answer"""
+    )
+    val lines = (r.getStdout + r.getStderr).linesIterator.toVector
+    (lines.headOption.flatMap(_.trim.toIntOption).getOrElse(0), lines.drop(1).mkString("\n"))
+
+  private def awaitBucket(): Unit =
+    waitFor(240.seconds, s"$service's bucket being provisioned") {
+      statusOf(service).exists(
+        _.objectStorage.exists(p => p == "provisioned" || p.startsWith("recovered"))
+      )
+    }
+
+  Given("a descriptor for the web-hosted service {string} that asks for a bucket") {
+    (name: String) =>
+      service = name
+      provisionObjectStorage = true
+  }
+
+  Given("a web-hosted service {string} deployed with a bucket") { (name: String) =>
+    service = name
+    provisionObjectStorage = true
+    deploy()
+    awaitBucket()
+  }
+
+  Then(
+    "the process of {string} is given the variables {string}, {string}, {string}, {string} and {string}"
+  ) { (name: String, a: String, b: String, c: String, d: String, e: String) =>
+    assertEquals(name, service)
+    readyWith(instances)
+    val env = envOf(s"$service-app")
+    for v <- Vector(a, b, c, d, e) do assert(env.get(v).exists(_.nonEmpty), s"$v is not set")
+  }
+
+  Then("the proxy of {string} is given none of them") { (name: String) =>
+    assertEquals(name, service)
+    assertEquals(envOf(service).keySet.filter(_.startsWith("ANKKA_S3_")), Set.empty[String])
+  }
+
+  When(
+    "the process of {string} keeps the object {string} in its bucket with what its variables say"
+  ) { (name: String, obj: String) =>
+    assertEquals(name, service)
+    val (code, body) = s3("PUT", obj, Some(s"contents of $obj"))
+    assertEquals(code, 200, body)
+  }
+
+  Then("the process of {string} reads the object {string} back from its bucket") {
+    (name: String, obj: String) =>
+      assertEquals(name, service)
+      assertEquals(s3("GET", obj), (200, s"contents of $obj"))
   }
 
 /** `features/web-hosting/deploying.feature` on k3s. */

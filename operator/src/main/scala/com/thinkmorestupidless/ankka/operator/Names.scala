@@ -10,6 +10,9 @@ package com.thinkmorestupidless.ankka.operator
 object Names:
 
   /** The Secret holding a service's secret key, under the entry `key`. */
+  /** A service's bucket's route, for a bucket reachable from the internet (feature 034). */
+  def bucketRoute(serviceName: String): String = s"$serviceName-storage"
+
   def secretKeySecret(serviceName: String): String = s"$serviceName-secret-key"
 
   /**

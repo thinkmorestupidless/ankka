@@ -125,6 +125,12 @@ interface Service {
   broker?: string;
   /** Topics the service's components use that its project does not declare, as last read. */
   undeclaredTopics?: string[];
+  /** The descriptor asked for a bucket (feature 034). */
+  provisionObjectStorage?: boolean;
+  /** The descriptor gave an ANKKA_S3_ variable: an object store of its own. */
+  ownObjectStore?: boolean;
+  /** The descriptor asked that the bucket be reachable from the internet. */
+  exposeObjectStorage?: boolean;
   /** What the instances report when asked for the topology; generated from the service when unset. */
   topology?: FakeTopology;
 }
@@ -235,6 +241,9 @@ export interface FakeSeed {
     database?: string | null;
     broker?: string;
     undeclaredTopics?: string[];
+    provisionObjectStorage?: boolean;
+    exposeObjectStorage?: boolean;
+    ownObjectStore?: boolean;
   }[];
   /** Topics a project declares, as the control plane holds them, with the broker's report. */
   topics?: { projectId: string; name: string; partitions: number; phase?: string; detail?: string }[];
@@ -281,9 +290,21 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
 
   /** An apply, or a rollback when `rolledBackTo` is given: a new generation with this descriptor. */
   const record = (s: Service, descriptor: unknown, by: ReturnType<typeof actor>, rolledBackTo?: number) => {
-    const d = descriptor as { service?: { image?: string; resources?: { autoscaling?: { minInstances?: number } } } };
+    const d = descriptor as {
+      service?: {
+        image?: string;
+        resources?: { autoscaling?: { minInstances?: number } };
+        provisionObjectStorage?: boolean;
+        exposeObjectStorage?: boolean;
+        env?: { name: string }[];
+      };
+    };
     s.generation += 1;
     s.image = d.service?.image ?? "";
+    // Object storage (feature 034), from the descriptor, so a rolled-back one says what it said then.
+    s.provisionObjectStorage = d.service?.provisionObjectStorage ?? false;
+    s.exposeObjectStorage = d.service?.exposeObjectStorage ?? false;
+    s.ownObjectStore = (d.service?.env ?? []).some((e) => e.name.startsWith("ANKKA_S3_"));
     s.desiredInstances = d.service?.resources?.autoscaling?.minInstances ?? 1;
     s.lifecycle = s.paused ? "Paused" : "UpdateInProgress";
     s.descriptor = descriptor;
@@ -324,6 +345,12 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
       processPort: s.processPort ?? null,
       broker: s.broker ?? null,
       undeclaredTopics: s.undeclaredTopics ?? null,
+      objectStorage: s.provisionObjectStorage ? "provisioned" : s.ownObjectStore ? "supplied" : null,
+      bucket: s.provisionObjectStorage ? `${s.projectId}.${s.name}` : null,
+      bucketAddress:
+        s.provisionObjectStorage && s.exposeObjectStorage
+          ? `https://storage.${options.baseDomain ?? "example.test"}/${s.projectId}.${s.name}`
+          : null,
     };
   };
 
@@ -681,7 +708,7 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   // Project secrets: the control plane's rules, its merge, and names only in what it answers.
   const SecretName = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
   const EntryName = /^[A-Za-z0-9._-]{1,253}$/;
-  const PlatformSuffixes = ["-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key"];
+  const PlatformSuffixes = ["-db", "-cluster-tls", "-service-tls", "-database-tls", "-secret-key", "-mount-tls", "-storage"];
 
   route("PUT", "/projects/{projectId}/secrets/{name}", (c, p, body) => {
     const { project, org } = requireProject(c, p.projectId);
@@ -770,7 +797,16 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
   route("PUT", "/services/{projectId}/{name}", (c, p, body) => {
     const { org } = requireProject(c, p.projectId);
     requireWrite(org);
-    const d = body as { name?: string; service?: { image?: string; resources?: { autoscaling?: { minInstances?: number } } } };
+    const d = body as {
+      name?: string;
+      service?: {
+        image?: string;
+        resources?: { autoscaling?: { minInstances?: number } };
+        provisionObjectStorage?: boolean;
+        exposeObjectStorage?: boolean;
+        env?: { name: string }[];
+      };
+    };
     if (d?.name !== p.name) throw new HttpError(400, `descriptor names service '${d?.name ?? ""}' but was applied to '${p.name}'`);
     const problems: string[] = [];
     if (!NameRule.test(p.name)) problems.push(`service name '${p.name}' is invalid: lowercase letters, digits and '-', starting with a letter`);
@@ -1100,6 +1136,9 @@ export async function fakeControlPlane(options: FakeControlPlaneOptions = {}): P
           processPort: s.processPort,
           broker: s.broker,
           undeclaredTopics: s.undeclaredTopics,
+          provisionObjectStorage: s.provisionObjectStorage,
+          exposeObjectStorage: s.exposeObjectStorage,
+          ownObjectStore: s.ownObjectStore,
         });
       }
       for (const t of seed.topics ?? []) {

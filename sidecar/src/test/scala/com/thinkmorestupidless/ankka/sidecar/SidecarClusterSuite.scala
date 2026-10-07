@@ -77,9 +77,10 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       "accounts"
     )
 
-  private var k3s: K3sContainer     = null
-  private var k8s: KubernetesClient = null
-  private var operator: Operator    = null
+  private var k3s: K3sContainer                                                        = null
+  private var k8s: KubernetesClient                                                    = null
+  private var operator: Operator                                                       = null
+  private var store: com.thinkmorestupidless.ankka.operator.ObjectStoreStack.Installed = null
 
   private val settings =
     OperatorSettings.default.copy(
@@ -167,7 +168,11 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
       deployPostgres("postgres-accounts")
       deployKeys()
 
-      operator = new Operator(k8s, settings, ServiceReconciler(k8s, settings))
+      // The installation's object store (feature 034), for the hostings' object storage cases.
+      store =
+        com.thinkmorestupidless.ankka.operator.ObjectStoreStack.install(k3s, k8s, repositoryRoot)
+      val withStore = settings.copy(objectStore = Some(store.settings))
+      operator = new Operator(k8s, withStore, ServiceReconciler(k8s, withStore))
       operator.start()
 
   // The authentication cases' services are used by no other case, and one of them never starts on
@@ -183,6 +188,7 @@ class SidecarClusterSuite extends munit.FunSuite with LogCapturing:
   override def afterAll(): Unit =
     if k3s != null then authIssuer.stop()
     if operator != null then operator.close()
+    if store != null then store.close()
     if k8s != null then k8s.close()
     if k3s != null then k3s.stop()
 
@@ -1308,4 +1314,57 @@ spec:
     }
     assert(published.exists(_.contains("graph-c1")), published.mkString("\n"))
     resources.withName(GraphService).delete(): Unit
+  }
+
+  // ── features/object-storage/hostings.feature ─────────────────────────────
+
+  test("the variables of a bucket are given to the process and not to the platform's own program") {
+    val name = "reports"
+    applyAs(name, spec().copy(serviceName = name, provisionObjectStorage = true))
+    waitFor(300.seconds)(readyReplicasOf(name) >= 1)
+    val pod             = podsOf(name).head.getMetadata.getName
+    val (_, sidecarEnv) = kubectl("exec", "-n", Namespace, pod, "-c", name, "--", "env")
+    val (_, appEnv)     = kubectl("exec", "-n", Namespace, pod, "-c", s"$name-app", "--", "env")
+    for variable <- Vector(
+        "ANKKA_S3_ENDPOINT",
+        "ANKKA_S3_REGION",
+        "ANKKA_S3_BUCKET",
+        "ANKKA_S3_ACCESS_KEY",
+        "ANKKA_S3_SECRET_KEY"
+      )
+    do assert(appEnv.linesIterator.exists(_.startsWith(s"$variable=")), s"$variable: $appEnv")
+    assert(appEnv.contains(s"ANKKA_S3_BUCKET=$Project.$name"), appEnv)
+    assert(!sidecarEnv.contains("ANKKA_S3_"), sidecarEnv)
+    resources.withName(name).delete(): Unit
+  }
+
+  test("a module that asks for a variable of its bucket is told its value") {
+    onlyWithRust()
+    applyAs(
+      RustService,
+      wasmSpec(RustService, RustImage, instances = 1, restarts = 2)
+        .copy(provisionObjectStorage = true)
+    )
+    // The pod template changes, so the instances roll; the new ones answer the bucket's name. Asked
+    // from inside the module's own pod, with its own certificate, so the case needs no other service.
+    var lastAnswer = ""
+    try
+      waitFor(300.seconds) {
+        podsOf(RustService).exists { pod =>
+          val (code, body) = com.thinkmorestupidless.ankka.operator.InPod.curl(
+            k3s,
+            Namespace,
+            pod.getMetadata.getName,
+            s"https://$RustService.$Namespace.svc.cluster.local:9000/conformance/config/ANKKA_S3_BUCKET",
+            container = Some(RustService)
+          )
+          lastAnswer = s"${pod.getMetadata.getName}: $code $body"
+          code == 200 && body.contains(s"$Project.$RustService")
+        }
+      }
+    catch
+      case e: Throwable =>
+        val (_, described) = kubectl("get", "pods", "-n", Namespace, "-o", "wide")
+        val status         = statusOf(RustService).map(_.toString).getOrElse("no status")
+        fail(s"${e.getMessage}\nlast answer: $lastAnswer\nstatus: $status\n$described")
   }

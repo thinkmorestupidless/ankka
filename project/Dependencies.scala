@@ -45,6 +45,12 @@ object Dependencies {
     val bouncyCastle = "1.86"
 
     /**
+     * Test scope only: an S3 client nobody here wrote, to sign and send requests to the object
+     * store the way a service's own client would (feature 034, R20). Never on a main classpath.
+     */
+    val awsSdk = "2.55.11"
+
+    /**
      * The WebAssembly runtime the sidecar hosts a module with (`sidecar/wasm`): pure JVM, no native
      * code. In `sidecar` only, never `runtime`, so no published library carries it.
      */
@@ -155,8 +161,15 @@ object Dependencies {
   val testcontainersK3s   = "org.testcontainers" % "k3s"                  % V.testcontainers
 
   // ── Control plane, operator ──────────────────────────────────────────────
-  val fabric8 = "io.fabric8"    % "kubernetes-client" % V.fabric8
-  val decline = "com.monovore" %% "decline"           % V.decline
+  val fabric8 = "io.fabric8" % "kubernetes-client" % V.fabric8
+
+  /**
+   * The synchronous S3 client alone: the Netty-based async client is excluded, as nothing uses it.
+   */
+  val awsS3: ModuleID =
+    ("software.amazon.awssdk" % "s3" % V.awsSdk)
+      .exclude("software.amazon.awssdk", "netty-nio-client")
+  val decline = "com.monovore" %% "decline" % V.decline
 
   // ── gRPC: the sidecar protocol (feature 009) and gRPC endpoints (feature 020) ──
   // grpc-java with ScalaPB, not pekko-grpc: pekko-grpc runs on pekko-http and every artifact it

@@ -137,6 +137,32 @@ enum Action:
   )
 
   /**
+   * Ensures a service's bucket exists in the installation's object store (feature 034): read, made
+   * when absent, never deleted. When the bucket shows no key allowed — a bucket the service deleted
+   * and the operator made again — the keys named for the service are allowed on it once more.
+   */
+  case EnsureBucket(bucket: String)
+
+  /**
+   * Ensures a service's storage credential: a key issued by the store, allowed on `bucket` alone
+   * and written into the Secret `secretName`, once (`StorageCredential`). It carries no key itself
+   * — this value is printed by `describe` and logged — so the key exists only inside the executor.
+   */
+  case EnsureStorageCredential(
+      namespace: String,
+      secretName: String,
+      labels: Map[String, String],
+      bucket: String
+  )
+
+  /**
+   * Lets the routes of one project's namespace name the object store's Service (feature 034): a
+   * `ReferenceGrant` in the store's namespace. No owner and never removed: a grant permits nothing
+   * by itself, and a project's id is never used again once it is deleted.
+   */
+  case EnsureReferenceGrant(grant: GenericKubernetesResource)
+
+  /**
    * Must be ensured before the [[EnsureDatabase]] it will own — CNPG rejects a database whose owner
    * role does not exist yet (research R4).
    */
@@ -220,6 +246,11 @@ enum Action:
       s"ensure credentials ${s.getMetadata.getNamespace}/${s.getMetadata.getName} (create-if-absent)"
     case EnsureSecretKey(ns, name, _)          => s"ensure secret key $ns/$name (create-if-absent)"
     case EnsureTelemetrySecret(ns, name, _, _) => s"ensure telemetry secret $ns/$name"
+    case EnsureBucket(bucket)                  => s"ensure bucket $bucket"
+    case EnsureStorageCredential(ns, name, _, bucket) =>
+      s"ensure storage credential $ns/$name for bucket $bucket (create-if-absent)"
+    case EnsureReferenceGrant(g) =>
+      s"ensure referencegrant ${g.getMetadata.getNamespace}/${g.getMetadata.getName}"
     case EnsureDatabaseRole(r) =>
       s"ensure database role ${r.getMetadata.getNamespace}/${r.getMetadata.getName}"
     case EnsureDatabase(d) =>

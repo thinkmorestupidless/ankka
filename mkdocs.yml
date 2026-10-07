@@ -213,6 +213,7 @@ nav:
       - The console: platform/console.md
       - Databases: platform/databases.md
       - The broker: platform/broker.md
+      - Object storage: platform/object-storage.md
       - Secrets on the platform: platform/secrets.md
       - Networking and TLS: platform/networking.md
   - Reference:

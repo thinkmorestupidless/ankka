@@ -889,6 +889,47 @@ class OperatorClusterSuite extends munit.FunSuite:
           .withName("probe-peers")
           .get() != null
       )
+
+      // Feature 034: a storage credential, under the same real identity. Its Secret is written with
+      // `create` alone, a conflict is how an existing one is learned of, and no `get` is ever sent —
+      // so this holds with the grant as it is and after the grant loses `get`.
+      val root =
+        Iterator
+          .iterate(java.nio.file.Paths.get("").toAbsolutePath)(_.getParent)
+          .find(p => java.nio.file.Files.exists(p.resolve("build.sbt")))
+          .get
+      val store = ObjectStoreStack.install(k3s, client, root)
+      try
+        val garage = GarageStore(store.settings.adminUrl, store.settings.adminToken)
+        val labels = Labels.identity("probe", "probe")
+        val credential =
+          Action.EnsureStorageCredential(probeNamespace, "probe-storage", labels, "probe.probe")
+        def secret = client.secrets().inNamespace(probeNamespace).withName("probe-storage").get()
+        val first  = new Fabric8Executor(restricted, store = Some(garage))
+        for _ <- 1 to 2 do
+          first.execute(Action.EnsureBucket("probe.probe"))
+          first.execute(credential)
+        assert(secret != null, "the operator's own ServiceAccount could not write a credential")
+        assertEquals(
+          secret.getData.keySet.asScala.toSet,
+          Set(StorageCredential.AccessKeyEntry, StorageCredential.SecretKeyEntry)
+        )
+        val written = (secret.getMetadata.getUid, secret.getMetadata.getResourceVersion)
+        // Another process — an operator restarted — meets the Secret by its conflict, and changes
+        // nothing: the credential a running service holds is made once.
+        val restarted = new Fabric8Executor(restricted, store = Some(garage))
+        restarted.execute(Action.EnsureBucket("probe.probe"))
+        restarted.execute(credential)
+        assertEquals((secret.getMetadata.getUid, secret.getMetadata.getResourceVersion), written)
+        assertEquals(
+          garage.keysNamed("probe.probe").size,
+          1,
+          "a key was left whose secret no Secret holds"
+        )
+        assert(
+          secret.getMetadata.getOwnerReferences == null || secret.getMetadata.getOwnerReferences.isEmpty
+        )
+      finally store.close()
     finally restricted.close()
   }
 

@@ -373,6 +373,8 @@
 
 # ensure secret key ankka-checkout/cart-secret-key (create-if-absent)
 
+# remove httproute ankka-checkout/cart-storage if owned
+
 # ensure certificate ankka-checkout/cart-cluster
 {
   "apiVersion" : "cert-manager.io/v1",

@@ -1667,6 +1667,41 @@ declared. The platform checks a statement by the tables it reads when the servic
 service does not start with one that is not a single query of the view's own table.
 
 Avoid: SQL
+## Object storage
+
+### object store
+Where an installation keeps buckets. The platform makes buckets in the installation's own; a
+service may instead have one of its own, outside the platform, which its descriptor gives the
+variables of.
+
+Avoid: storage service
+
+### bucket
+A named place in an object store where a service keeps objects. The platform makes one for a
+service whose descriptor asks for it, names it from the project and the service, and never
+deletes it. A service applied again under the name of one deleted is given the bucket it had.
+
+Avoid: container
+
+### object
+Something a service keeps in a bucket under a name and reads back by that name, such as a
+document a person gave it.
+
+Avoid: file, blob
+
+### storage credential
+The credential the platform makes for a service's bucket. It reaches that bucket and no other.
+The platform makes it once, gives it to the service's instances when they start, and can never
+read it back. It is not a service secret, and it is not an entry of a project secret.
+
+Avoid: access key, secret access key
+
+### signed URL
+An address for one object that a service makes with its storage credential and gives to a
+browser. Whoever holds it can read that object, or keep it, until the signed URL expires, without
+holding the storage credential. It works only while the bucket is reachable from the internet.
+
+Avoid: presigned URL
 
 ## Everyday words
 

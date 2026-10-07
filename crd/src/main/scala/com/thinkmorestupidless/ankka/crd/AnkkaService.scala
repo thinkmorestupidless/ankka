@@ -163,7 +163,20 @@ final case class AnkkaServiceSpec(
      * `provisionDatabase` is. `true` does not mean the installation has a broker: the operator
      * knows that.
      */
-    provisionBroker: Boolean = true
+    provisionBroker: Boolean = true,
+    /**
+     * Whether the platform gives this service a bucket and a storage credential that reaches it
+     * alone (feature 034). Set by the control plane from the descriptor. `false` says nothing about
+     * whether the service has an object store of its own: that is an `ANKKA_S3_` variable in `env`,
+     * which the operator reads, so the two cannot disagree.
+     */
+    provisionObjectStorage: Boolean = false,
+    /**
+     * Whether that bucket is reachable from the internet, for URLs the service signs. Only with
+     * `provisionObjectStorage`; the control plane refuses it otherwise. The bucket's name and
+     * address are never in the resource: the operator derives them (`Buckets`).
+     */
+    exposeObjectStorage: Boolean = false
 )
 
 /** One mount of a web-hosted service: a path, and the service of its project that answers it. */
@@ -223,6 +236,27 @@ final case class DatabaseStatus(
 )
 
 /**
+ * What the platform did about one service's bucket (feature 034), in the shape of `DatabaseStatus`
+ * and with its phases.
+ */
+@JsonInclude(JsonInclude.Include.NON_ABSENT)
+final case class ObjectStorageStatus(
+    /** "Waiting", "Provisioned", "Recovered", "Supplied" or "Failed". */
+    phase: String = "",
+    /** The bucket's name; empty when the service has an object store of its own. */
+    bucket: String = "",
+    /** Where the bucket is on the internet, when its descriptor asked that it be reachable. */
+    publicAddress: Option[String] = None,
+    /**
+     * True when the bucket is older than this incarnation of the resource: a service of the same
+     * name had it before and was deleted. Buckets are never deleted by the platform.
+     */
+    recovered: Boolean = false,
+    /** Why it is waiting or failed. Never contains a secret. */
+    detail: Option[String] = None
+)
+
+/**
  * What the platform did about one service's credential on the installation's broker (feature 027):
  * reported or absent as a unit, as `DatabaseStatus` is. A project's topics are reported on its
  * `AnkkaProject`.
@@ -272,7 +306,12 @@ final case class AnkkaServiceStatus(
      * What the platform did about this service's credential on the installation's broker. Absent
      * for a web-hosted service, and in an installation with no broker.
      */
-    broker: Option[BrokerStatus] = None
+    broker: Option[BrokerStatus] = None,
+    /**
+     * What the platform did about this service's bucket (feature 034). Absent only when the service
+     * neither asks for one nor gives an object store of its own.
+     */
+    objectStorage: Option[ObjectStorageStatus] = None
 ):
   /** Equality for the purpose of "has anything actually changed", ignoring the clock. */
   def sameReport(other: AnkkaServiceStatus): Boolean =

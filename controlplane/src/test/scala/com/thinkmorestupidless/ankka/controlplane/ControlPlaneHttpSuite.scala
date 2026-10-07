@@ -270,6 +270,52 @@ class ControlPlaneHttpSuite extends munit.FunSuite with LogCapturing:
     assert(body.contains("unknown instanceType 'huge'"), body)
   }
 
+  test("a descriptor that asks for a bucket is refused when the service's name cannot name one") {
+    // Feature 034: `checkout.` and a 60-character service name is 69, over a bucket name's 63.
+    val name = "r" * 60
+    val asks =
+      s"""{"name":"$name","service":{"image":"r:1","provisionObjectStorage":true}}"""
+    val (status, body) = send("PUT", s"/services/checkout/$name", Some(asks))
+    assertEquals(status, 400, body)
+    assert(body.contains("63 character limit for a bucket's name"), body)
+  }
+
+  test("a service that asks for a bucket is named it alike by its status and by its listing") {
+    val asks = """{"name":"reports","service":{"image":"r:1","provisionObjectStorage":true}}"""
+    val (status, body) = send("PUT", "/services/checkout/reports", Some(asks))
+    assertEquals(status, 200, body)
+    assert(body.contains("\"bucket\":\"checkout.reports\""), body)
+    val (_, got) = send("GET", "/services/checkout/reports")
+    assert(got.contains("\"bucket\":\"checkout.reports\""), got)
+    // The listing is a projection: wait for the value, not for the row.
+    eventually("the listing names the bucket") {
+      val (code, listing) = send("GET", "/services/checkout")
+      Option.when(code == 200 && listing.contains("\"bucket\":\"checkout.reports\""))(listing)
+    }: Unit
+    val (deleted, _) = send("DELETE", "/services/checkout/reports")
+    assert(deleted == 204 || deleted == 200, deleted.toString)
+  }
+
+  test("a bucket reachable from the internet has its address, in the status and in the listing") {
+    val asks =
+      """{"name":"exports","service":{"image":"e:1","provisionObjectStorage":true,""" +
+        """"exposeObjectStorage":true}}"""
+    val (status, body) = send("PUT", "/services/checkout/exports", Some(asks))
+    assertEquals(status, 200, body)
+    val address = "\"bucketAddress\":\"https://storage.example.test/checkout.exports\""
+    assert(body.contains(address), body)
+    eventually("the listing has the bucket's address") {
+      val (code, listing) = send("GET", "/services/checkout")
+      Option.when(code == 200 && listing.contains(address))(listing)
+    }: Unit
+    // Applied again without asking, the bucket has no address.
+    val again = """{"name":"exports","service":{"image":"e:1","provisionObjectStorage":true}}"""
+    val (_, after) = send("PUT", "/services/checkout/exports", Some(again))
+    assert(!after.contains("bucketAddress"), after)
+    val (deleted, _) = send("DELETE", "/services/checkout/exports")
+    assert(deleted == 204 || deleted == 200, deleted.toString)
+  }
+
   test("re-applying bumps the generation and the reported image") {
     val (status, body) =
       send("PUT", "/services/checkout/cart", Some(descriptor("cart", "cart:2.0")))

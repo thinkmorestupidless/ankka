@@ -1,6 +1,6 @@
 ---
 name: ankka-platform
-description: Install, configure and operate the ankka platform itself — a local kind installation with deploy-local.sh, a production kustomize overlay on a real cluster (load balancer, DNS-01 wildcard certificate, base domain, registry images), the control plane and operator, Keycloak identity (users, platform administrators, machine accounts, the issuer), organizations, projects, members and roles, per-service CloudNativePG databases, and the gateway, routes, ports and TLS. Use when the task is about running or administering the platform rather than a service on it — kustomize overlays, Keycloak, CNPG, Envoy Gateway, cert-manager, organizations, invitations, or the control plane's HTTP API.
+description: Install, configure and operate the ankka platform itself — a local kind installation with deploy-local.sh, a production kustomize overlay on a real cluster (load balancer, DNS-01 wildcard certificate, base domain, registry images), the control plane and operator, Keycloak identity (users, platform administrators, machine accounts, the issuer), organizations, projects, members and roles, per-service CloudNativePG databases and object storage buckets, and the gateway, routes, ports and TLS. Use when the task is about running or administering the platform rather than a service on it — kustomize overlays, Keycloak, CNPG, Envoy Gateway, cert-manager, organizations, invitations, or the control plane's HTTP API.
 pages:
   - platform/install-local.md
   - platform/install-cloud.md
@@ -10,6 +10,7 @@ pages:
   - operate/console.md
   - platform/databases.md
   - platform/broker.md
+  - platform/object-storage.md
   - platform/secrets.md
   - platform/networking.md
   - concepts/tenancy-and-access.md

@@ -18,7 +18,9 @@ class ProjectSecretsSuite extends munit.FunSuite:
         "payments-service-tls",
         "payments-database-tls",
         "payments-secret-key",
-        "payments-telemetry"
+        "payments-telemetry",
+        "payments-storage",
+        "payments-mount-tls"
       )
     do
       val problems = ProjectSecrets.nameProblems(name)

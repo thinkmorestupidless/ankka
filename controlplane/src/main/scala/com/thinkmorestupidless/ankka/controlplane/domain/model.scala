@@ -433,7 +433,12 @@ final case class Service(
      * Never part of a reply but the two that return one descriptor: `desiredState` crosses nodes
      * for every service on every sweep, inside a frame that fifty large descriptors would overflow.
      */
-    kept: Vector[KeptDescriptor] = Vector.empty
+    kept: Vector[KeptDescriptor] = Vector.empty,
+    /**
+     * The operator's last-reported object storage phase, verbatim (feature 034). The bucket's name
+     * and address are not stored: both are derived when a status is built.
+     */
+    objectStorage: Option[String] = None
 ):
   def name: String      = key.name
   def projectId: String = key.projectId
@@ -629,7 +634,8 @@ final case class Service(
         detail = event.detail,
         confirmed = event.confirmed,
         database = event.database,
-        broker = event.broker
+        broker = event.broker,
+        objectStorage = event.objectStorage
       )
 
   def onExposed: Service   = copy(exposed = true)
@@ -693,7 +699,10 @@ final case class Service(
         descriptor.toVector.flatMap(_.service.mounts).map(m => MountStatus(m.path, m.service)),
       callers = descriptor.toVector.flatMap(_.service.callers),
       processPort = descriptor.flatMap(_.service.resolvedProcessPort),
-      broker = broker.map(Service.brokerPhrase)
+      broker = broker.map(Service.brokerPhrase),
+      objectStorage = objectStorage.map(Service.objectStoragePhrase),
+      bucket = Service.bucketOf(projectId, name, descriptor),
+      bucketAddress = Service.bucketPathOf(projectId, name, descriptor)
     )
 
 /** An applied descriptor and the generation that applied it (feature 033). */
@@ -785,6 +794,43 @@ object Service:
     case "Supplied"    => "supplied"
     case "Failed"      => "broker provisioning failed"
     case other         => other
+
+  /**
+   * The operator's reported object storage phase as a phrase (feature 034). The one function the
+   * entity's status and the listing's row both use, so the two cannot say different things.
+   */
+  def objectStoragePhrase(phase: String): String = phase match
+    case "Waiting"     => "waiting for object storage"
+    case "Provisioned" => "provisioned"
+    case "Recovered"   => "recovered existing bucket"
+    case "Supplied"    => "supplied"
+    case "Failed"      => "object storage provisioning failed"
+    case other         => other
+
+  /** The bucket a descriptor asks for, named as the operator names it. */
+  def bucketOf(
+      projectId: String,
+      name: String,
+      descriptor: Option[ServiceDescriptor]
+  ): Option[String] =
+    descriptor
+      .filter(_.service.provisionObjectStorage)
+      .map(_ => com.thinkmorestupidless.ankka.crd.Buckets.name(projectId, name))
+
+  /**
+   * The path of a bucket its descriptor asks to be reachable from the internet. The endpoint puts
+   * the store's address in front of it (`DeployConfig.bucketAddressFor`), as it puts the hostname
+   * on a service: the base domain is configuration, which neither the entity nor the listing has.
+   */
+  def bucketPathOf(
+      projectId: String,
+      name: String,
+      descriptor: Option[ServiceDescriptor]
+  ): Option[String] =
+    descriptor
+      .filter(d => d.service.provisionObjectStorage && d.service.exposeObjectStorage)
+      .flatMap(_ => bucketOf(projectId, name, descriptor))
+      .map("/" + _)
 
   def empty(key: ServiceKey): Service =
     Service(

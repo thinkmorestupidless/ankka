@@ -57,6 +57,14 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
   });
 }
 
+/** A service's bucket, that it has a store of its own, or none — and a phrase while it waits or failed. */
+function objectStorage(s: { objectStorage?: string; bucket?: string }): string {
+  if (s.objectStorage && /waiting|failed/.test(s.objectStorage)) return s.objectStorage;
+  if (s.bucket) return s.bucket;
+  if (s.objectStorage === "supplied") return "Its own";
+  return "None";
+}
+
 function Operation({ intent, label, operation, danger, entity }: { intent: string; label: string; operation: Operation; danger?: boolean; entity?: unknown }) {
   const { shows } = useConsole();
   return (
@@ -94,7 +102,7 @@ export default function Service() {
       <details className="ac-more" open={deleteRefused || undefined}>
         <summary>Delete</summary>
         <div className="ac-danger-zone">
-          <p>Deleting {s.name} stops it and removes it from the project. Its database is kept: applying a descriptor with this name again brings the service back with its data.</p>
+          <p>Deleting {s.name} stops it and removes it from the project. Its database is kept, and so is its bucket if it has one: applying a descriptor with this name again brings the service back with its data.</p>
           <Operation intent="delete" label="Delete service" operation="service.delete" danger entity={s} />
           <Refused intent="delete" />
         </div>
@@ -132,6 +140,11 @@ export default function Service() {
           <dd>{s.hostname ? <a href={s.hostname}>{s.hostname}</a> : s.exposed ? "Exposed; the platform has no address for it yet" : "Not exposed"}</dd>
           <dt>Database</dt>
           <dd>{s.hosting === "web" ? "None" : (s.database ?? "Nothing reported yet")}</dd>
+          <dt>Object storage</dt>
+          <dd>
+            {objectStorage(s)}
+            {s.bucketAddress ? <span className="ac-hint" data-bucket-address> {s.bucketAddress}</span> : null}
+          </dd>
           {s.broker ? (
             <>
               <dt>Broker</dt>

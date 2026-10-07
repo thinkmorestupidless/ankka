@@ -55,6 +55,14 @@ trait Executor:
   def resourceCreatedAt(namespace: String, name: String): Option[Instant]
 
   /**
+   * Everything `ObjectStorage.decide` needs about one bucket (feature 034). A store that cannot be
+   * reached is an answer, not a failure: the pass goes on and the status says why it waits. An
+   * executor with no store has nothing to say.
+   */
+  def observeObjectStorage(@scala.annotation.unused bucket: String): ObjectStorageObservation =
+    ObjectStorageObservation.empty
+
+  /**
    * What `BrokerProvisioning.decide` needs: the service's user and each of `topics`, by the name
    * the broker holds it under, in the broker's namespace (feature 027).
    */
@@ -97,10 +105,13 @@ trait Executor:
  * @param telemetryHeaders
  *   what the installation sends with its telemetry, which `EnsureTelemetrySecret` writes into each
  *   service's own Secret: held here and in no action, since actions are printed.
+ * @param store
+ *   the installation's object store (feature 034), which the bucket and credential actions reach
  */
 final class Fabric8Executor(
     client: KubernetesClient,
-    telemetryHeaders: Option[Settings.Credential] = None
+    telemetryHeaders: Option[Settings.Credential] = None,
+    store: Option[ObjectStore] = None
 ) extends Executor:
 
   private val log: Logger = LoggerFactory.getLogger("ankka.operator.executor")
@@ -124,6 +135,40 @@ final class Fabric8Executor(
   private val credentialsKnown =
     java.util.concurrent.ConcurrentHashMap.newKeySet[(String, String)]()
   private val random = new java.security.SecureRandom()
+
+  /**
+   * The storage credentials this process has issued or found issued (feature 034). Only the
+   * `create` of a Secret is ever sent; whether it met one is the only thing learned about it.
+   */
+  private val storageCredentials = store.map(s =>
+    StorageCredential(
+      s,
+      new SecretWriter:
+        def create(secret: io.fabric8.kubernetes.api.model.Secret): SecretWriter.Outcome =
+          try
+            client.resource(secret).create(): Unit
+            SecretWriter.Outcome.Created
+          catch case e: KubernetesClientException if e.getCode == 409 => SecretWriter.Outcome.Exists
+        def patch(namespace: String, name: String, entries: Map[String, String]): Unit =
+          val body = new io.fabric8.kubernetes.api.model.SecretBuilder()
+            .withStringData(entries.asJava)
+            .build()
+          client
+            .secrets()
+            .inNamespace(namespace)
+            .withName(name)
+            .patch(
+              io.fabric8.kubernetes.client.dsl.base.PatchContext
+                .of(io.fabric8.kubernetes.client.dsl.base.PatchType.JSON_MERGE),
+              body
+            ): Unit
+    )
+  )
+
+  private def requireStore(): ObjectStore =
+    store.getOrElse(
+      throw new IllegalStateException("an object storage action was rendered with no store")
+    )
 
   def execute(action: Action): Unit = action match
     case Action.NoAction => ()
@@ -383,6 +428,39 @@ final class Fabric8Executor(
         "ensured database {}/{}",
         database.getMetadata.getNamespace,
         database.getMetadata.getName
+      )
+
+    case Action.EnsureBucket(bucket) =>
+      val s = requireStore()
+      s.bucket(bucket) match
+        case None =>
+          s.createBucket(bucket): Unit
+          log.info("made bucket {}", bucket)
+        case Some(info) if info.allowedKeys.isEmpty =>
+          // Made again after its service deleted it: the service's keys reach it once more.
+          s.keysNamed(bucket).foreach(s.allow(info.id, _))
+        case Some(_) => ()
+
+    case Action.EnsureStorageCredential(namespace, name, labels, bucket) =>
+      requireStore(): Unit
+      storageCredentials.get.ensure(namespace, name, labels, bucket) match
+        case StorageCredential.Result.Created =>
+          log.info("issued the storage credential {}/{}", namespace, name)
+        case StorageCredential.Result.Replaced =>
+          log.warn(
+            "the object store held no key for {}/{}; a new one was written, and running " +
+              "instances read it when they restart",
+            namespace,
+            name
+          )
+        case StorageCredential.Result.Unchanged => ()
+
+    case Action.EnsureReferenceGrant(grant) =>
+      val _ = client.resource(grant).fieldManager(FieldManager).forceConflicts().serverSideApply()
+      log.debug(
+        "ensured referencegrant {}/{}",
+        grant.getMetadata.getNamespace,
+        grant.getMetadata.getName
       )
 
     case Action.EnsureCertificate(certificate) =>
@@ -667,6 +745,21 @@ final class Fabric8Executor(
         found.flatMap(t => Option(t.getSpec)).map(_.partitions)
       )
     }.toMap
+
+  override def observeObjectStorage(bucket: String): ObjectStorageObservation =
+    store.fold(ObjectStorageObservation.empty) { s =>
+      try
+        s.bucket(bucket) match
+          case None => ObjectStorageObservation.empty
+          case Some(info) =>
+            ObjectStorageObservation(
+              bucketCreated = Some(info.created),
+              keyAllowed = info.allowedKeys.nonEmpty
+            )
+      catch
+        case e: ObjectStoreUnavailable =>
+          ObjectStorageObservation(unreachable = Some(e.getMessage))
+    }
 
   override def resourceCreatedAt(namespace: String, name: String): Option[Instant] =
     Option(client.resources(classOf[AnkkaService]).inNamespace(namespace).withName(name).get())

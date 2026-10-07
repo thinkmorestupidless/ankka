@@ -100,6 +100,8 @@ settings, so one descriptor can be applied to several projects.
 | `mounts` | array of `{ "path", "service" }` | `[]` | With `web` hosting only: paths answered by another service of the project. See [web hosting](#web-hosting). |
 | `callers` | array of strings | `[]` | With `web` hosting only: the services admitted beside the internet. |
 | `processPort` | integer | `8080` | With `web` hosting only: the port the process listens on, told to it as `PORT`. |
+| `provisionObjectStorage` | boolean | `false` | Whether the platform gives the service a bucket and a credential that reaches it. See [object storage](#object-storage). |
+| `exposeObjectStorage` | boolean | `false` | Whether that bucket is reachable from the internet, for URLs the service signs. Only with `provisionObjectStorage`. |
 
 ### image
 
@@ -297,6 +299,33 @@ declares any variable whose name starts with `ANKKA_DB_` is bringing its own dat
 provisioned, and `ankka services get` reports the database as `supplied`. The check is on the variable's
 name, so a value from a `secretKeyRef` counts.
 
+### Object storage
+
+`provisionObjectStorage` gives the service a bucket of its own and five variables any S3 client needs:
+`ANKKA_S3_ENDPOINT`, `ANKKA_S3_REGION`, `ANKKA_S3_BUCKET`, `ANKKA_S3_ACCESS_KEY` and `ANKKA_S3_SECRET_KEY`,
+on the developer's own program in every hosting. `exposeObjectStorage` adds `ANKKA_S3_PUBLIC_ENDPOINT`, the
+address URLs for a browser are signed against. A descriptor whose `env` declares any variable whose name
+starts with `ANKKA_S3_` has an object store of its own instead: nothing is provisioned, and `ankka services
+get` reports `supplied`. See [Object storage](../platform/object-storage.md).
+
+| The descriptor | Refused with |
+|---|---|
+| sets `provisionObjectStorage` and declares `ANKKA_S3_X` | `provisionObjectStorage cannot be combined with env var 'ANKKA_S3_X', which supplies an object store of the service's own` |
+| sets `exposeObjectStorage` without `provisionObjectStorage` | `exposeObjectStorage needs provisionObjectStorage: only a bucket the platform made can be reached from outside the cluster` |
+| asks for a bucket whose name, `<project>.<service>`, would be over 63 characters | `bucket name '<name>' is N characters, over the 63 character limit for a bucket's name; a shorter service name or project id is the only fix` |
+| takes a variable from a Secret named `<service>-storage` | `env var '<name>': secret '<secret>' is issued by the platform and cannot be read by a service` |
+
+```json title="service.json"
+{
+  "name": "reports",
+  "service": {
+    "image": "registry.example.com/acme/reports:1.0.0",
+    "provisionObjectStorage": true,
+    "exposeObjectStorage": true
+  }
+}
+```
+
 ### Variables in a process-hosted service
 
 With `"hosting": "process"` the pod has two containers, and the platform splits `env` between them by
@@ -353,6 +382,8 @@ stopped. Changing the count adds or removes pods without restarting the existing
 
 - **A database.** One is provisioned per service, except a web-hosted one, which has none. See
   [Databases](../platform/databases.md).
+- **A bucket's name or address.** A bucket is named from the project and the service, and reached at the
+  store's hostname; neither is chosen. See [Object storage](../platform/object-storage.md).
 - **A route, a rewrite or a header rule.** A web-hosted service's mounts pass whole paths to a service of
   its project; the platform has no other routing.
 - **Ports beyond one, or protocols other than HTTP.** A service has one HTTP port.

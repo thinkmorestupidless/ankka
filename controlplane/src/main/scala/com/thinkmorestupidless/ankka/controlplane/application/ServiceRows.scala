@@ -44,6 +44,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 mounts = descriptor.service.mounts.map(m => MountStatus(m.path, m.service)),
                 callers = descriptor.service.callers,
                 processPort = descriptor.service.resolvedProcessPort,
+                bucket = Service.bucketOf(row.projectId, row.name, Some(descriptor)),
+                bucketAddress = Service.bucketPathOf(row.projectId, row.name, Some(descriptor)),
                 generation = generation,
                 lifecycle =
                   if row.paused then ServiceLifecycle.Paused
@@ -100,7 +102,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                 detail,
                 confirmed,
                 database,
-                broker
+                broker,
+                objectStorage
               ) =>
             // Same staleness guard as the entity's fold. The view is fed the entity's
             // journal in order, so this only fires for an observation the entity itself
@@ -124,7 +127,8 @@ final class ServiceRowsView extends View[ServiceEvent, ServiceStatus]:
                   database = database,
                   broker = broker.map(
                     com.thinkmorestupidless.ankka.controlplane.domain.Service.brokerPhrase
-                  )
+                  ),
+                  objectStorage = objectStorage.map(Service.objectStoragePhrase)
                 )
               )
 

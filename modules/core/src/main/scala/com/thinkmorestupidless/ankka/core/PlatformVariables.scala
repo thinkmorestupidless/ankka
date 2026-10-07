@@ -114,6 +114,16 @@ private[ankka] object PlatformVariables:
   def shared(name: String): Boolean = SharedPrefixes.exists(name.startsWith)
 
   /**
+   * The developer's program's own, never the platform's: where its bucket is and how to reach it
+   * (feature 034). In none of the lists above, so they reach a process and a module unwithheld. A
+   * descriptor that gives one has an object store of its own, and cannot also ask the platform for
+   * a bucket.
+   */
+  val ObjectStoragePrefix: String = "ANKKA_S3_"
+
+  def objectStorage(name: String): Boolean = name.startsWith(ObjectStoragePrefix)
+
+  /**
    * What a module's `config` import answers as absent. A module runs in the platform's own
    * container, so its environment holds every variable the platform's program reads; this is the
    * read-time version of the split the operator makes for a process.

@@ -343,6 +343,11 @@ ankka-shop
 cart-secret-key
 Map(app.kubernetes.io/managed-by -> ankka, app.kubernetes.io/name -> cart, ankka.thinkmorestupidless.com/project -> shop, ankka.thinkmorestupidless.com/service -> cart)
 ---
+# RemoveHttpRoute
+ankka-shop
+cart-storage
+00000000-0000-0000-0000-000000000001
+---
 # EnsureCertificate
 {
   "apiVersion" : "cert-manager.io/v1",

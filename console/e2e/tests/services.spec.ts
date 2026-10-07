@@ -52,7 +52,7 @@ test("US3-2 a service shows every status field and its attributed history", asyn
   const { project } = await tenancy(page, target, signIn, unique);
   await apply(page, target, project, { name: "orders", service: { image: "orders:2" } });
   await page.waitForURL(`${target.url}/projects/${project}/services/orders`);
-  for (const label of ["Instances", "Image", "Generation", "Address", "Database", "Runs as", "Stopped by", "Report"]) {
+  for (const label of ["Instances", "Image", "Generation", "Address", "Database", "Object storage", "Runs as", "Stopped by", "Report"]) {
     await expect(page.locator("dt", { hasText: label })).toBeVisible();
   }
   await sections(page).getByRole("link", { name: "History" }).click();
@@ -267,5 +267,39 @@ test("RB-4 the console shows the image of each generation that was applied", asy
   await generationRow(page, 1).getByRole("link", { name: "Generation 1's descriptor" }).click();
   await page.waitForURL(/\/services\/apply\?name=cart&generation=1$/);
   await expect(page.getByLabel("Descriptor", { exact: true })).toHaveValue(/"image": "cart:1"/);
+});
+
+// features/object-storage/console.feature: the console shows what a service has for object storage
+// beside its database, one test per row of the outline.
+for (const [state, seed, shown] of [
+  ["with a bucket", { provisionObjectStorage: true }, (project: string) => `${project}.reports`],
+  ["with an object store of its own", { ownObjectStore: true }, () => "Its own"],
+  ["that asked for no bucket", {}, () => "None"],
+] as const) {
+  test(`the console shows what a service has for object storage beside its database: ${state}`, async ({ page, target, signIn, unique, audit }) => {
+    test.skip(target.kind !== "fake", "object storage is seeded on the fake");
+    const org = unique("store-org");
+    const project = unique("store-proj");
+    seedTenancy(target, { org, project });
+    target.controlPlane!.seed({ services: [{ projectId: project, name: "reports", ...seed }] });
+    await signIn(page, "owner", `/projects/${project}/services/reports`);
+    const fact = (label: string) => page.locator("dt", { hasText: label }).locator("xpath=following-sibling::dd[1]");
+    await expect(fact("Object storage")).toHaveText(shown(project));
+    await expect(fact("Database")).toBeVisible();
+    await audit(page);
+  });
+}
+
+test("a bucket reachable from the internet shows its address beneath its name", async ({ page, target, signIn, unique, audit }) => {
+  test.skip(target.kind !== "fake", "object storage is seeded on the fake");
+  const org = unique("store-org");
+  const project = unique("store-proj");
+  seedTenancy(target, { org, project });
+  target.controlPlane!.seed({
+    services: [{ projectId: project, name: "reports", provisionObjectStorage: true, exposeObjectStorage: true }],
+  });
+  await signIn(page, "owner", `/projects/${project}/services/reports`);
+  await expect(page.locator("[data-bucket-address]")).toHaveText(new RegExp(`/${project}\\.reports$`));
+  await audit(page);
 });
 

@@ -428,7 +428,7 @@ lazy val operator = project
     // point, and leaving it to discovery is one new `@main` away from an ambiguous-main
     // build failure that has nothing to do with what changed.
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.operator.Main"),
-    libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test),
+    libraryDependencies ++= Seq(fabric8, logback, testcontainersK3s % Test, awsS3 % Test),
     // The one declaration of which variables are the platform's lives in `core`, read there by the
     // control plane and the sidecar. The operator compiles the same file rather than depending on
     // `core`, so "its only ankka dependency is the resource contract" stays a build-level fact. The
@@ -498,7 +498,7 @@ lazy val controlPlane = project
     publish / skip      := true,
     Compile / mainClass := Some("com.thinkmorestupidless.ankka.controlplane.runControlPlane"),
     dockerExposedPorts  := Seq(9000),
-    libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test),
+    libraryDependencies ++= Seq(fabric8, testcontainersK3s % Test, awsS3 % Test),
     // SampleDeploymentClusterSuite deploys the *real* shopping cart, so something has to build its
     // image before the suite starts, and `sbt test` has to keep working with no preparatory step.
     //

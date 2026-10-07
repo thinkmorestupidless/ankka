@@ -246,3 +246,31 @@ class ServiceProjectionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(with_.imagePullSecret, Some("ankka-registry"))
     assert(!with_.toString.contains("ghcr.io"), with_.toString)
   }
+
+  // Object storage (feature 034).
+
+  test("a descriptor that asks for a bucket is projected so, and its database is unchanged") {
+    val asks = descriptor().copy(service = descriptor().service.copy(provisionObjectStorage = true))
+    val Right(spec) = ServiceProjection.project(service(d = asks), config): @unchecked
+    assertEquals(spec.provisionObjectStorage, true)
+    assertEquals(spec.provisionDatabase, true)
+    val Right(plain) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(plain.provisionObjectStorage, false)
+  }
+
+  test("a bucket whose name would be over 63 characters is not projected, and says why") {
+    val asks = descriptor().copy(service = descriptor().service.copy(provisionObjectStorage = true))
+    val Left(problems) =
+      ServiceProjection.project(service(projectId = "p" * 59, d = asks), config): @unchecked
+    assert(problems.exists(_.contains("63 character limit for a bucket's name")), problems)
+  }
+
+  test("asking that the bucket be reachable from the internet is projected") {
+    val both = descriptor().copy(service =
+      descriptor().service.copy(provisionObjectStorage = true, exposeObjectStorage = true)
+    )
+    val Right(spec) = ServiceProjection.project(service(d = both), config): @unchecked
+    assertEquals(spec.exposeObjectStorage, true)
+    val Right(plain) = ServiceProjection.project(service(), config): @unchecked
+    assertEquals(plain.exposeObjectStorage, false)
+  }

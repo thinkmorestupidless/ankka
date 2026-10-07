@@ -54,6 +54,7 @@ Feature: Project secrets
       | payments-cluster-tls  |
       | payments-service-tls  |
       | payments-database-tls |
+      | payments-storage      |
 
   Scenario: a variable taken from a project secret reaches the service
     Given the entry "STRIPE_KEY" of the project secret "checkout" is set to "sk_live_1"

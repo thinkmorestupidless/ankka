@@ -289,7 +289,12 @@ enum ServiceEvent:
        * `com.thinkmorestupidless.ankka.crd.BrokerStatus.phase`. `None` when there is nothing to
        * report and for events from before this field existed.
        */
-      broker: Option[String] = None
+      broker: Option[String] = None,
+      /**
+       * The operator's reported object storage phase, verbatim (feature 034). `None` for a service
+       * with none and for events from before it existed.
+       */
+      objectStorage: Option[String] = None
   )
 
   case ServiceDeleted(actor: Option[Actor] = None, at: Option[Instant] = None)
@@ -321,7 +326,8 @@ final case class ServiceObservation(
     detail: Option[String] = None,
     confirmed: Boolean = true,
     database: Option[String] = None,
-    broker: Option[String] = None
+    broker: Option[String] = None,
+    objectStorage: Option[String] = None
 )
 
 /**

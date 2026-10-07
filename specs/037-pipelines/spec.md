@@ -73,10 +73,12 @@ specified here. This specification says what ankka must have before that can hap
   contract by name and the schema it was built against, and the platform refuses a side whose
   schema is not the declared one. A member fetches a topic's schema from the project to build
   against it. Messages are not checked against the schema at runtime.
-- [NEEDS CLARIFICATION: how the graph merge sink is delivered — as a service image the platform
-  publishes, which a member deploys into a project like any service, with the store's address and
-  credential in its descriptor; or as a component kind the runtime implements, so a developer
-  registers a sink in a service of their own?]
+- Q: How is the graph merge sink delivered — a service image the platform publishes, or a
+  component kind a developer registers in a service of their own? → A: Both, layered: the sink is
+  a component in a module of its own, which a developer may register in a Scala service, and the
+  platform publishes a service image built from that component, which a member deploys into a
+  project with the topic, the store's address, a project secret for its credential and a version.
+  A sink inside a process-hosted service's own process is not provided.
 - Q: Is reading partitions in parallel the default, or asked for? → A: Asked for. A topic
   source that says nothing reads one message at a time as today; one that asks for it reads the
   partitions its instance holds at once.
@@ -144,16 +146,20 @@ it compacted; declaring an existing topic compacted changes it; `topics list` sh
 A member fills a Neo4j store from a delta topic with something ankka provides: the sink reads the
 topic from its start, applies each delta only when its version is newer than the element's in the
 store, refuses a delta that breaks a delta's rules and says so, and is rebuilt from the topic's
-start at a higher version. The graph documentation tells the whole story, from publishing deltas
-to a filled store, and no page points at ankka-flow.
+start at a higher version. It is a component in a module of its own, which a developer registers
+in a Scala service when the sink belongs beside their other components, and the platform
+publishes a service image built from it, which a member deploys into a project like any service
+when it does not. The graph documentation tells the whole story, from publishing deltas to a
+filled store, and no page points at ankka-flow.
 
 **Why this priority**: Graph deltas are an ankka feature whose second half lives in ankka-flow;
 retiring ankka-flow without this breaks ankka's graph story.
 
-**Independent Test**: The shopping cart publishes deltas to `cart-deltas`; the sink, deployed into
-the project against a Neo4j, fills the store with every cart and item; a refused delta is named
-in the sink's log and status; redeployed at a higher version, the sink empties and refills the
-store from the topic.
+**Independent Test**: The shopping cart publishes deltas to `cart-deltas`; the platform's sink
+image, deployed into the project against a Neo4j, fills the store with every cart and item; a
+refused delta is named in the sink's log and status; redeployed at a higher version, the sink
+empties and refills the store from the topic; a Scala service registering the sink component
+fills the same store the same way.
 
 **Acceptance Scenarios**:
 
@@ -162,6 +168,8 @@ store from the topic.
 - added `features/graph-deltas/sink.feature`: the sink refuses a delta that breaks the rules and says which
 - added `features/graph-deltas/sink.feature`: the sink at a higher version builds the store again from the topic
 - added `features/graph-deltas/sink.feature`: the sink's fixtures are ankka's own
+- added `features/graph-deltas/sink.feature`: a developer registers the sink in a service of their own
+- added `features/graph-deltas/sink.feature`: the platform's sink image is a service built from the component
 - changed `features/graph-deltas/documentation.feature`: the documentation describes publishing deltas and the rules of a delta
 - added `features/graph-deltas/documentation.feature`: the documentation tells the graph story to the end without ankka-flow
 
@@ -281,8 +289,9 @@ learn whether a pipeline keeps up.
   its type; no message is checked against the schema as it flows.
 - **FR-005**: A declared topic MAY be compacted; the platform MUST make it so, for a new topic and
   for one already made.
-- **FR-006**: ankka MUST provide the graph merge sink: a Neo4j store filled from a delta topic
-  under the delta rules, rebuilt at a higher version, with its fixtures held here.
+- **FR-006**: ankka MUST provide the graph merge sink as a component in a module of its own and
+  as a service image built from it: a Neo4j store filled from a delta topic under the delta
+  rules, rebuilt at a higher version, with its fixtures held here.
 - **FR-007**: A project MAY declare a broker by name, with its address and a project secret; a
   component MAY name a declared broker for a topic; the credential MUST reach only the platform's
   container.
@@ -306,7 +315,7 @@ learn whether a pipeline keeps up.
 - **declared broker**: a broker a project names, with an address and a project secret, which a
   component may name for a topic.
 - **sink**: as already defined: the part of a pipeline that applies deltas to a store; now a
-  thing ankka provides.
+  component ankka provides, and a service image built from it.
 - **topic settings**: a declared topic's partitions and whether it is compacted.
 
 ## Success Criteria *(mandatory)*
@@ -328,8 +337,6 @@ learn whether a pipeline keeps up.
 
 - **A schema is a JSON Schema document**, the format ankka's messages already have; how an SDK
   tells which schema a component was built against is a planning decision.
-- **The sink is a service image**, unless clarified otherwise, deployed into a project by a
-  member like any service.
 - **The stage-without-a-database case may already work**; if `provisionDatabase: false` with no
   supplied database already runs a consumer-only service, its scenario is the proof and no change
   is needed.

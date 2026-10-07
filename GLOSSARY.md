@@ -1511,7 +1511,7 @@ What reads a topic outside the service and writes what it reads somewhere else, 
 *Proposed.* The streaming pipeline platform that ran beside ankka until its capabilities became ankka's, and was retired.
 
 ### sink
-The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it, and a member deploys it into a project.
+The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it as a component a developer registers in a service, and as a service image built from that component, which a member deploys into a project.
 
 ## Calling other services
 
@@ -1800,4 +1800,4 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment, breaks, fetches, fetched, built, parallel, after, another
+comment, breaks, fetches, fetched, built, parallel, after, another, registers, beside

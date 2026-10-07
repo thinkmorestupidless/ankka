@@ -510,9 +510,11 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   of them this feature's), and `buildAll` with cluster tests off: every suite green but three.
   `ComponentDescriptorsSuite` and the cart's `CartTopologySuite` pinned the agent runtime's components
   and connections and now name the six blueprint components and the runs view's edge; both pass.
-  `PythonTemplateSuite` fails with `InvokeReply has no "approval" field` from the Python SDK's
-  generated protocol, which predates spec 029's approvals and is not this feature's; it is left for
-  the Python SDK.
+  `PythonTemplateSuite` failed with `InvokeReply has no "approval" field`: the Python SDK's
+  generated stubs are not in git and the suite wrote them only when absent, so stubs generated
+  before spec 029's approvals stayed stale on a developer's machine while CI, starting with none,
+  passed. Not this feature's; the suite now regenerates stubs older than the protocol (PR #94),
+  and with them it passes.
 - Review (R24–R26): the graph scheduler, the three-part step and the call step are built; the
   patterns suites to come (Phase 5) build the combinators once for every action. `CallStepSuite`
   shows a handler given what the step reads and told its run, and a failing handler failing the

@@ -26,8 +26,9 @@ Feature: The sink is ankka's
     Given the sink is deployed into "shop" reading "cart-deltas" into the store
     When a delta for a relationship whose node the store does not hold is published to "cart-deltas"
     Then the sink's log names the delta's key and the rule it breaks
-    And the status of the sink counts one refused delta
-    And the sink reads on
+    And the status of the sink names the refused delta
+    And the delta is handed to the sink again
+    And the sink's other partitions read on
 
   Scenario: the sink at a higher version builds the store again from the topic
     Given the sink is deployed into "shop" at version 1 and the store holds every element the topic describes

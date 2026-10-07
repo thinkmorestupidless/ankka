@@ -284,9 +284,10 @@ learn whether a pipeline keeps up.
   service's status names the broker, as a database that cannot be reached is named.
 - **A sink whose store is unreachable.** Reads nothing, commits nothing, retries; its status says
   so.
-- **A delta the sink refuses.** Named in the log and status with its key and the rule it broke;
-  the sink moves on to the next, as ankka-flow's sink does, because a delta that can never apply
-  would otherwise hold the store forever.
+- **A delta the sink refuses.** The change fails: the delta is named in the log and the status
+  with its key and the rule it broke, and it is handed to the sink again, as any change a consumer
+  cannot handle is, so the partition it is on waits and the others read on. ankka's SDKs refuse to
+  describe such an element, so only a writer outside ankka can produce one. Nothing is skipped.
 
 ## Requirements *(mandatory)*
 

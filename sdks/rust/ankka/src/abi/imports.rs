@@ -27,6 +27,9 @@ pub enum Import {
     Schedule,
     /// `cancel`: `CancelRequest` in, `Empty` out.
     Cancel,
+    /// `schedule_recurring`: `ScheduleRecurringRequest` in, `ScheduleRecurringReply` out. Called
+    /// through [`call_schedule_recurring`].
+    ScheduleRecurring,
     /// `config`: `ConfigRequest` in, `ConfigReply` out.
     Config,
     /// `get_secret`: `GetSecretRequest` in, `GetSecretReply` out. Called through [`call_secret`].
@@ -99,6 +102,13 @@ pub fn random(buf: &mut [u8]) {
     }
 }
 
+/// Calls `schedule_recurring`. Apart from [`call`] for the reason [`call_secret`] is: a module that
+/// never sets a recurring timer must not import it, or it would need a runtime that offers one
+/// (protocol 1.12).
+pub fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
+    host::call_schedule_recurring(request)
+}
+
 /// Sends a line to the runtime's log, under the module's logger.
 pub fn log(level: Level, text: &str) {
     host::log(level, text)
@@ -150,6 +160,13 @@ mod host {
         fn random_import(ptr: u32, len: u32);
     }
 
+    // Reached only from `call_schedule_recurring`, so a module that sets no recurring timer does
+    // not import it.
+    #[link(wasm_import_module = "ankka1")]
+    unsafe extern "C" {
+        fn schedule_recurring(ptr: u32, len: u32) -> u64;
+    }
+
     pub(super) fn call(import: Import, request: &[u8]) -> Vec<u8> {
         let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
         // SAFETY: the request outlives the call; the runtime reads it and writes its reply into a
@@ -167,6 +184,9 @@ mod host {
                     panic!("the secret store's imports are called through call_secret")
                 }
                 Import::Request => panic!("request is called through call_request"),
+                Import::ScheduleRecurring => {
+                    panic!("schedule_recurring is called through call_schedule_recurring")
+                }
             }
         };
         let (rptr, rlen) = memory::unpack(packed);
@@ -194,6 +214,15 @@ mod host {
         let (ptr, len) = (asked.as_ptr() as usize as u32, asked.len() as u32);
         // SAFETY: as for `call`.
         let packed = unsafe { request(ptr, len) };
+        let (rptr, rlen) = memory::unpack(packed);
+        // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
+        unsafe { memory::take(rptr as i32, rlen as i32) }
+    }
+
+    pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
+        let (ptr, len) = (request.as_ptr() as usize as u32, request.len() as u32);
+        // SAFETY: as for `call`.
+        let packed = unsafe { schedule_recurring(ptr, len) };
         let (rptr, rlen) = memory::unpack(packed);
         // SAFETY: the runtime allocated the reply through ankka1_alloc(rlen) and wrote it in full.
         unsafe { memory::take(rptr as i32, rlen as i32) }
@@ -447,12 +476,21 @@ mod native {
                 }
                 .encode_to_vec()
             }
-            Import::Schedule | Import::Cancel => panic!("{NO_RUNTIME} (a timer was {import:?}d)"),
+            Import::Schedule | Import::Cancel => {
+                panic!("{NO_RUNTIME} (a timer was {import:?}d)")
+            }
+            Import::ScheduleRecurring => {
+                panic!("{NO_RUNTIME} (a recurring timer was scheduled)")
+            }
             Import::GetSecret | Import::PutSecret | Import::DeleteSecret => {
                 call_secret(import, request)
             }
             Import::Request => call_request(request),
         }
+    }
+
+    pub(super) fn call_schedule_recurring(request: &[u8]) -> Vec<u8> {
+        call(Import::ScheduleRecurring, request)
     }
 
     pub(super) fn log(level: Level, text: &str) {

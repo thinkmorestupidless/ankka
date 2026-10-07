@@ -190,11 +190,13 @@ See [Workflows](../build/workflows.md).
 | Companion | `TimedAction.Companion[A](componentId)` |
 | Must define | `create(ctx: TimedActionContext)` |
 | Handlers | `handler(name)(_.method)`, with one argument or none |
-| In a handler | `timerContext` (`timerName`, `previousAttempts`, `componentClient`) |
+| In a handler | `timerContext` (`timerName`, `previousAttempts`, `dueTime`, `componentClient`) |
 | Effects | `effects.done()`, `effects.error(msg)`, `effects.error(msg, code)` |
-| Scheduling | `TimerRuntime().timerScheduler`: `createSingleTimer(name, delay, handle.deferred(input))`, `delete(name)`, `exists(name)` |
+| Scheduling | `TimerRuntime().timerScheduler`: `createSingleTimer(name, delay, handle.deferred(input))`, `createRecurringTimer(name, delay, period, handle.deferred(input))`, `delete(name)`, `exists(name)` |
+| Testing | `TimerProbe()` as `TimerRuntime(pollInterval, observer = probe)`: `fired(name)`, `dueTimes(name)`, and `scheduled(name)` once `probe.bind(testKit)` |
 
-Scheduling twice under one name replaces the earlier timer. See [Timers](../build/timers.md).
+Scheduling twice under one name replaces the earlier timer, except that a recurring timer set again for
+the same handler with the same period keeps its next due time. See [Timers](../build/timers.md).
 
 ## Agent
 

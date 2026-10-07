@@ -396,9 +396,18 @@ object ConformanceReference:
         .invoke("reminded")
       effects.done()
 
+    /** Records the due time it was run for, as the runtime told it. */
+    def tick(id: String): Effect =
+      val _ = context.componentClient
+        .forEventSourcedEntity(EntityId(id))
+        .call(Conformance.record)
+        .invoke(s"due:${context.dueTime.toEpochMilli}")
+      effects.done()
+
   object Reminder extends TimedAction.Companion[Reminder](ComponentId("reminder")):
     def create(context: TimedActionContext) = new Reminder(context)
     val remind                              = handler("remind")(_.remind)
+    val tick                                = handler("tick")(_.tick)
 
   // ── assistant: an agent whose tool acts through the client ──
 
@@ -740,6 +749,37 @@ object ConformanceReference:
     get("/checkout/{id}")((id: String) => checkout(id).call(Checkout.status).invoke())
     post[String, Done]("/remind/{id}") { (id: String) =>
       timers().createSingleTimer(s"remind-$id", 1.second, Reminder.remind.deferred(id))
+      Done
+    }
+    // A recurring timer: due at once, then every second.
+    post[String, Done]("/recur/{id}") { (id: String) =>
+      timers().createRecurringTimer(
+        s"recur-$id",
+        Duration.Zero,
+        1.second,
+        Reminder.tick.deferred(id)
+      )
+      Done
+    }
+    // The same timer set again, with a delay a replacement would be first due after.
+    post[String, Done]("/recur/{id}/again") { (id: String) =>
+      timers().createRecurringTimer(s"recur-$id", 60.seconds, 1.second, Reminder.tick.deferred(id))
+      Done
+    }
+    post[String, Done]("/recur/{id}/cancel") { (id: String) =>
+      timers().delete(s"recur-$id")
+      Done
+    }
+    post[String, Done]("/recur-refused/{id}") { (id: String) =>
+      try
+        timers().createRecurringTimer(
+          s"recur-$id",
+          Duration.Zero,
+          Duration.Zero,
+          Reminder.tick.deferred(id)
+        )
+      catch
+        case e: IllegalArgumentException => throw CommandError(e.getMessage, ErrorCode.BadRequest)
       Done
     }
     postBody("/ask/{session}") { (session: String, question: String) =>

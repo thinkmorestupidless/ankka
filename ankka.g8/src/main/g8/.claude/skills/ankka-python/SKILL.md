@@ -35,7 +35,7 @@ skill holds what differs.
    "shopping-cart", "c1").call("add-item").invoke(item, reply=Done)`; `for_key_value_entity`,
    `for_workflow`, `for_agent(...).call(name).stream(input)`, `views.get(view_id, key, Row)`,
    `views.all(view_id, Row)`, `timers.schedule(timer_id, delay, component_id, name, input)`,
-   `timers.cancel`. A refusal raises `ankka.client.CommandError` with `error.code`. The client comes as a
+   `timers.schedule_recurring(timer_id, delay, period, component_id, name, input)`, `timers.cancel`. A refusal raises `ankka.client.CommandError` with `error.code`. The client comes as a
    constructor argument in an endpoint, `self.context.client` in a step, `self.client` elsewhere.
 5. **Pass the request's metadata on.** In an endpoint, `self.client.with_metadata(self.request.metadata)`
    makes the handler's calls children of the request's trace. `self.request` has `query_param`,

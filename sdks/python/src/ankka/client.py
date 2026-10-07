@@ -249,6 +249,25 @@ class Views:
         return [codec.decode(json.dumps(d).encode("utf-8")) for d in documents]
 
 
+RECURRING_TIMERS_SINCE = "1.12"
+MAX_PERIOD = timedelta(days=36500)
+
+
+def _millis(duration: timedelta) -> int:
+    # Exact, unlike total_seconds() * 1000, which a float rounds for a long period.
+    return (duration.days * 86_400_000) + (duration.seconds * 1000) + (duration.microseconds // 1000)
+
+
+def period_problem(timer_id: str, period: timedelta) -> str | None:
+    """What is wrong with a recurring timer's period, if anything: the runtime's own rule and words."""
+    if period < timedelta(milliseconds=1) or period > MAX_PERIOD:
+        return (
+            f"timer '{timer_id}' has a period of {_millis(period)} milliseconds; a period is from 1 millisecond "
+            f"to {MAX_PERIOD.days} days"
+        )
+    return None
+
+
 @dataclass(frozen=True)
 class Timers:
     _stub: client_pb2_grpc.ClientStub
@@ -276,6 +295,54 @@ class Timers:
                 payload=_payload(in_codec, input),
             )
         )
+
+    async def schedule_recurring(
+        self,
+        timer_id: str,
+        delay: timedelta,
+        period: timedelta,
+        component_id: str,
+        name: str,
+        input: Any = None,
+        *,
+        codec: Codec[Any] | None = None,
+    ) -> None:
+        """Schedules timed action ``name`` on ``component_id`` first after ``delay`` and then every
+        ``period`` from each due time, until cancelled. A delay of zero or less is due at once.
+
+        Setting it again with the same handler and period keeps its next due time, so a service may
+        set its recurring timers every time it starts; anything else under the id replaces it. A
+        period outside 1 millisecond to 36,500 days is refused with ``CommandError``
+        (``BAD_REQUEST``) and nothing is sent."""
+        problem = period_problem(timer_id, period)
+        if problem is not None:
+            raise CommandError(Error(problem, ErrorCode.BAD_REQUEST))
+        in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
+        try:
+            reply = await self._stub.ScheduleRecurring(
+                client_pb2.ScheduleRecurringRequest(
+                    timer_id=timer_id,
+                    delay_millis=int(delay.total_seconds() * 1000),
+                    period_millis=_millis(period),
+                    component_id=component_id,
+                    name=name,
+                    payload=_payload(in_codec, input),
+                )
+            )
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                from ankka.service import PROTOCOL_VERSION
+
+                raise CommandError(
+                    Error(
+                        f"the runtime beside this process does not offer recurring timers, which need protocol "
+                        f"{RECURRING_TIMERS_SINCE} (this SDK speaks {PROTOCOL_VERSION}): {failure.details()}",
+                        ErrorCode.INTERNAL,
+                    )
+                ) from failure
+            raise
+        if reply.HasField("error"):
+            raise CommandError(_error(reply.error))
 
     async def cancel(self, timer_id: str) -> None:
         await self._stub.Cancel(client_pb2.CancelRequest(timer_id=timer_id))

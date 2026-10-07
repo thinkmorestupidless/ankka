@@ -675,6 +675,7 @@ impl<G: GraphConsumer> GraphConsumerTestKit<G> {
 pub struct TimedActionTestKit<C: TimedAction> {
     registration: Box<dyn Registered>,
     runtime: Option<Rc<InMemory>>,
+    metadata: Metadata,
     marker: std::marker::PhantomData<C>,
 }
 
@@ -690,6 +691,7 @@ impl<C: TimedAction> TimedActionTestKit<C> {
         TimedActionTestKit {
             registration: <C as ComponentOf<kinds::TimedAction>>::registration(),
             runtime: None,
+            metadata: Metadata::new(),
             marker: std::marker::PhantomData,
         }
     }
@@ -700,13 +702,28 @@ impl<C: TimedAction> TimedActionTestKit<C> {
         self
     }
 
+    /// Its actions run with `key` set to `value` in their metadata, as the runtime sets
+    /// `ankka.due`, `ankka.timer` and `ankka.attempts`.
+    pub fn with_metadata(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> TimedActionTestKit<C> {
+        self.metadata = self.metadata.set(key, value);
+        self
+    }
+
     /// Fires action `name` with `input`, as its timer would.
     pub fn fire<In: Serialize + 'static>(&self, name: &str, input: In) -> Result<(), CommandError> {
         let request = proto::TimedActionRequest {
             component_id: C::COMPONENT_ID.to_string(),
             name: name.to_string(),
             payload: Some(encoded(&input, "the input")),
-            metadata: None,
+            metadata: if self.metadata.entries().is_empty() {
+                None
+            } else {
+                Some(self.metadata.to_proto())
+            },
         };
         let registration = &self.registration;
         let effect = hosted(&self.runtime, || registration.timed_action(request))

@@ -247,6 +247,15 @@ class Reminder(TimedAction):
         await self.client.for_event_sourced_entity("conformance", id).call("record").invoke("reminded", reply=str)
         return self.effects.done()
 
+    @action("tick")
+    async def tick(self, id: str) -> TimedActionEffect:
+        """Records the due time it was run for, as the runtime told it."""
+        assert self.client is not None
+        due = self.metadata.get("ankka.due")
+        assert due is not None, "a timed action is run with ankka.due"
+        await self.client.for_event_sourced_entity("conformance", id).call("record").invoke(f"due:{int(due)}", reply=str)
+        return self.effects.done()
+
 
 # ── assistant: an agent whose tool acts through the client ──
 
@@ -576,6 +585,29 @@ class ConformanceEndpoint(Endpoint):
     @post("/remind/{id}")
     async def remind(self, id: str) -> Done:
         await self.client.timers.schedule(f"remind-{id}", timedelta(seconds=1), "reminder", "remind", id)
+        return DONE
+
+    # A recurring timer: due at once, then every second.
+    @post("/recur/{id}")
+    async def recur(self, id: str) -> Done:
+        await self.client.timers.schedule_recurring(f"recur-{id}", timedelta(0), timedelta(seconds=1), "reminder", "tick", id)
+        return DONE
+
+    # The same timer set again, with a delay a replacement would be first due after.
+    @post("/recur/{id}/again")
+    async def recur_again(self, id: str) -> Done:
+        await self.client.timers.schedule_recurring(f"recur-{id}", timedelta(seconds=60), timedelta(seconds=1), "reminder", "tick", id)
+        return DONE
+
+    @post("/recur/{id}/cancel")
+    async def recur_cancel(self, id: str) -> Done:
+        await self.client.timers.cancel(f"recur-{id}")
+        return DONE
+
+    # A period of zero: the SDK refuses it with BAD_REQUEST, which the endpoint answers as a 400.
+    @post("/recur-refused/{id}")
+    async def recur_refused(self, id: str) -> Done:
+        await self.client.timers.schedule_recurring(f"recur-{id}", timedelta(0), timedelta(0), "reminder", "tick", id)
         return DONE
 
     @post("/ask/{session}")

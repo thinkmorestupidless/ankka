@@ -31,6 +31,12 @@ service Client {
   // waited would have been — the answer, or requests still or newly awaiting — or an autonomous
   // agent's, answered once it is recorded. A refusal is an Error in the reply.
   rpc Decide       (DecideRequest)       returns (InvokeReply);
+
+  // A recurring timer (protocol 1.12): first due after the delay, then once every period, each due the
+  // one before plus the period, until it is cancelled or replaced. `Cancel` cancels one. A runtime
+  // older than 1.12 answers UNIMPLEMENTED, so a timer meant to recur is never scheduled as one that
+  // fires once. A refusal is an Error in the reply, as for the secret store.
+  rpc ScheduleRecurring (ScheduleRecurringRequest) returns (ScheduleRecurringReply);
 }
 
 message InvokeRequest {
@@ -97,6 +103,21 @@ message ScheduleRequest {
 }
 
 message CancelRequest { string timer_id = 1; }
+
+// Both a delay and a period are given. There is no `kind` and no `entity_id`: a timer's target is a
+// handler of a timed action. Scheduling again under a `timer_id` that already holds a recurring
+// timer for the same `component_id`, `name` and `period_millis` keeps its next due and takes the
+// payload, and `delay_millis` is not used; anything else under the id replaces it.
+message ScheduleRecurringRequest {
+  string timer_id = 1;
+  int64 delay_millis = 2;    // from now to the first due; 0 or less is due at once
+  int64 period_millis = 3;   // from each due to the next; from 1 to 36,500 days' worth
+  string component_id = 4;   // a timed action
+  string name = 5;           // one of its handlers
+  Payload payload = 6;
+}
+
+message ScheduleRecurringReply { Error error = 1; }   // unset: scheduled
 
 message GetSecretRequest { string name = 1; }
 

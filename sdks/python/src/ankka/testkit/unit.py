@@ -782,13 +782,16 @@ class TimedActionTestKit:
     def of(cls, action_cls: type[TimedAction]) -> TimedActionTestKit:
         return cls(action_cls)
 
-    def call(self, name: str, input: Any = None) -> TimedActionEffect:
+    def call(self, name: str, input: Any = None, *, metadata: Mapping[str, str] | None = None) -> TimedActionEffect:
+        """Runs handler ``name`` with ``input``, and with ``metadata`` as the runtime would send it —
+        ``ankka.due``, ``ankka.attempts`` and ``ankka.timer``, say. None is no metadata at all."""
         spec = self.action_cls.handlers().get(name)
         if spec is None:
             raise AssertionError(f"{self.action_cls.__name__} has no handler {name!r}")
         input_bytes = spec.input_codec.encode(input) if spec.input_type is not None else b""
         action = self.action_cls(_NoClient())
-        return typing.cast(TimedActionEffect, _run(action._run(spec, input_bytes, Metadata())))
+        md = Metadata(tuple((metadata or {}).items()))
+        return typing.cast(TimedActionEffect, _run(action._run(spec, input_bytes, md)))
 
 
 class AutonomousAgentTestKit:

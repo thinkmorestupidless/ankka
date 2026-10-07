@@ -66,7 +66,9 @@ The host sets two kinds of metadata entry on every request that carries `Metadat
 runtime's clock as epoch milliseconds when it made the call, and the trace entries it sets for a
 process. A module has no clock of its own: it asks for the time through the `now` import. `ankka.now`
 is what a guest library from before that import (1.10) reads, and the host goes on setting it, on
-every such request, at least until the minor after 1.10. An entity or workflow command's metadata also
+every such request, at least until the minor after 1.10. A timed action's request also carries
+`ankka.timer`, `ankka.attempts` and `ankka.due`, the due time the run is for, in epoch milliseconds as
+`ankka.now` is. An entity or workflow command's metadata also
 carries `ankka.sequence`, the journal sequence the state it is handed reflects. A consumer's request
 carries `ankka.sequence` for the change it is handed and `ankka.protocol`, the protocol version the
 host speaks: a guest answers `produce_all` only when that entry is `1.3` or later, and fails the
@@ -85,7 +87,8 @@ declared.
 | `invoke_stream(ptr, len) -> i64` | `InvokeRequest` | `StreamTokens` (the tokens collected; a streaming reply is delivered whole) | |
 | `query(ptr, len) -> i64` | `QueryRequest` | `QueryReply` | |
 | `schedule(ptr, len) -> i64` | `ScheduleRequest` | `Empty` | |
-| `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | |
+| `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | cancels a timer of either kind |
+| `schedule_recurring(ptr, len) -> i64` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | `Client.ScheduleRecurring`: a recurring timer, since 1.12; blocks the calling instance. A refusal is the reply's `Error`, not a trap |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | `Client.GetSecret`: the service's secret store, since 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | `Client.PutSecret`, since 1.6 |
@@ -97,7 +100,9 @@ declared.
 
 The three secret imports answer every refusal and fault in the reply's `Error`, and answer
 `Error(UNAVAILABLE)` before the service has started, as `invoke` does. A module that never calls the
-secret store imports none of them, and so runs on a runtime that predates them.
+secret store imports none of them, and so runs on a runtime that predates them. `schedule_recurring`
+is the same: it answers in the reply and `Error(UNAVAILABLE)` before the service has started, and a
+module that never sets a recurring timer does not import it.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
 blocking import parks it and no other instance is affected. The guest may call an import only from

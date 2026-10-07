@@ -7,7 +7,8 @@ import { createClient } from "@connectrpc/connect"
 import { Ankka, RegistrationError } from "../src/service.ts"
 import { noClient } from "../src/client.ts"
 import { Workflow } from "../src/workflow.ts"
-import { command } from "../src/handlers.ts"
+import { action, command } from "../src/handlers.ts"
+import { TimedAction } from "../src/timedAction.ts"
 import { jsonCodec } from "../src/codec.ts"
 import { Consumer } from "../src/consumer.ts"
 import { Done, done, s, type Infer } from "../src/schema.ts"
@@ -265,6 +266,26 @@ describe("consumers and timed actions", () => {
     const failed = await kit.invoke("remind", "bad")
     assert.equal(failed.kind, "fail")
     assert.equal((await kit.invoke(Reminder.actions.ping)).kind, "done")
+  })
+
+  test("a timed action is told the due time it is run for, or nothing on an older runtime", async () => {
+    const seen: (Date | undefined)[] = []
+    class Ticker extends TimedAction {
+      static readonly componentId = "ticker"
+      static readonly actions = {
+        tick: action("tick", (t: Ticker) => {
+          seen.push(t.dueTime)
+          return t.effects.done()
+        }),
+      }
+    }
+    const kit = TimedActionTestKit.of(Ticker)
+    assert.equal((await kit.invoke(Ticker.actions.tick, undefined, { "ankka.due": "1790000000123" })).kind, "done")
+    assert.equal((await kit.invoke(Ticker.actions.tick)).kind, "done")
+    assert.equal(seen.length, 2)
+    assert.ok(seen[0] instanceof Date)
+    assert.equal(seen[0].getTime(), 1790000000123)
+    assert.equal(seen[1], undefined)
   })
 })
 

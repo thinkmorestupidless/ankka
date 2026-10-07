@@ -17,10 +17,10 @@ use prost::Message;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::abi::imports::{Import, call};
+use crate::abi::imports::{Import, call, call_schedule_recurring};
 use crate::codec::time::Duration;
 use crate::codec::{EncodingError, decode_payload, encode_payload};
-use crate::components::ComponentOf;
+use crate::components::{ComponentOf, kinds};
 use crate::context::Metadata;
 use crate::effects::{CommandError, ErrorCode};
 use crate::proto::{self, Kind};
@@ -39,6 +39,22 @@ pub struct Client {
 
 fn encoding(e: EncodingError) -> CommandError {
     CommandError::new(ErrorCode::BadRequest, e.0)
+}
+
+/// The longest period a recurring timer may have, in days: a century.
+const MAX_PERIOD_DAYS: i64 = 36_500;
+
+/// Why `period` cannot be a recurring timer's period, in the runtime's words.
+fn period_problem(timer_id: &str, period: Duration) -> Option<String> {
+    let longest = Duration::of_hours(MAX_PERIOD_DAYS * 24);
+    if period < Duration::of_millis(1) || period > longest {
+        Some(format!(
+            "timer '{timer_id}' has a period of {period}; a period is from 1 millisecond to \
+             {MAX_PERIOD_DAYS} days"
+        ))
+    } else {
+        None
+    }
 }
 
 fn answer<T: Message + Default>(import: Import, request: impl Message) -> T {
@@ -251,6 +267,61 @@ impl Client {
         };
         let _: proto::Empty = answer(Import::Schedule, request);
         Ok(())
+    }
+
+    /// Schedules handler `name` of the timed action `component` to run after `delay` and then
+    /// every `period` until it is cancelled, under `timer_id`. Setting the same recurring timer
+    /// again, with the same handler and period, keeps its next due, so a service may set its
+    /// recurring timers every time it starts; anything else under the id replaces it. A period
+    /// from 1 millisecond to 36,500 days is accepted; any other is refused with `BadRequest`
+    /// before anything is sent. A delay of zero or less is due at once.
+    #[allow(clippy::too_many_arguments)]
+    pub fn schedule_recurring<C, P>(
+        &self,
+        timer_id: &str,
+        delay: Duration,
+        period: Duration,
+        component: C,
+        name: &str,
+        payload: P,
+    ) -> Result<(), CommandError>
+    where
+        C: ComponentOf<kinds::TimedAction>,
+        P: Serialize + 'static,
+    {
+        let _ = component;
+        self.schedule_recurring_by_name(timer_id, delay, period, C::component_id(), name, payload)
+    }
+
+    /// Schedules a recurring call to a timed action named by its id.
+    pub fn schedule_recurring_by_name<P: Serialize + 'static>(
+        &self,
+        timer_id: &str,
+        delay: Duration,
+        period: Duration,
+        component_id: &str,
+        name: &str,
+        payload: P,
+    ) -> Result<(), CommandError> {
+        if let Some(problem) = period_problem(timer_id, period) {
+            return Err(CommandError::new(ErrorCode::BadRequest, problem));
+        }
+        let request = proto::ScheduleRecurringRequest {
+            timer_id: timer_id.to_string(),
+            delay_millis: delay.to_millis(),
+            period_millis: period.to_millis(),
+            component_id: component_id.to_string(),
+            name: name.to_string(),
+            payload: Some(encode_payload(&payload).map_err(encoding)?),
+        };
+        let reply = call_schedule_recurring(&request.encode_to_vec());
+        let reply = proto::ScheduleRecurringReply::decode(reply.as_slice()).unwrap_or_else(|e| {
+            panic!("the runtime's answer to ScheduleRecurring does not decode: {e}")
+        });
+        match reply.error {
+            Some(error) => Err(CommandError::from_proto(&error)),
+            None => Ok(()),
+        }
     }
 
     /// Cancels the timer `timer_id`, if it has not fired.

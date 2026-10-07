@@ -15,9 +15,21 @@ export abstract class TimedAction {
   #metadata: Metadata = {}
   #client: ComponentClient | undefined
 
-  /** `ankka.timer` is the timer's id, `ankka.attempts` how many times it has fired. */
+  /** `ankka.timer` is the timer's id, `ankka.attempts` how many times it has fired, `ankka.due` the due time in epoch milliseconds. */
   get metadata(): Metadata {
     return this.#metadata
+  }
+
+  /**
+   * The due time this run is for, from `ankka.due`: the same on every retry of one due time, and for a
+   * recurring timer a whole number of periods after the one before. `undefined` on a runtime older
+   * than protocol 1.12, which does not send it.
+   */
+  get dueTime(): Date | undefined {
+    const raw = this.#metadata["ankka.due"]
+    if (raw === undefined || !/^-?\d+$/.test(raw.trim())) return undefined
+    const date = new Date(Number(raw.trim()))
+    return Number.isNaN(date.getTime()) ? undefined : date
   }
 
   get client(): ComponentClient {

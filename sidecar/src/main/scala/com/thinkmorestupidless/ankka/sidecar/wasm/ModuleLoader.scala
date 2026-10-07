@@ -57,8 +57,9 @@ object ModuleLoader:
   /**
    * The functions a module may import, all from the module named `ankka1`: exactly the ones
    * `HostImports.values` provides, which `WasmHostSuite` holds. The secret store's three arrived
-   * with protocol 1.4; a module that does not use the store does not import them. `request`, `now`
-   * and `random` arrived with 1.10, each imported only by a module that calls it.
+   * with protocol 1.6; a module that does not use the store does not import them. `request`, `now`
+   * and `random` arrived with 1.10 and `schedule_recurring` with 1.12, each imported only by a
+   * module that calls it.
    */
   val Imports: Set[String] =
     Set(
@@ -75,7 +76,8 @@ object ModuleLoader:
       "delete_secret",
       "request",
       "now",
-      "random"
+      "random",
+      "schedule_recurring"
     )
 
   private val Versioned = """ankka(\d+)_.*""".r

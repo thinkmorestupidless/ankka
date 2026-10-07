@@ -10,6 +10,11 @@ paths:
 
 ## Traps
 
+- **A behaviour an older runtime must refuse is a new call, not a new field.** A protobuf field the
+  runtime does not know is read as absent, so a period added to `ScheduleRequest` would have been a timer
+  that fires once, silently. `ScheduleRecurring` is its own rpc (1.12), which an older runtime answers
+  `UNIMPLEMENTED` and each SDK reports as too old.
+
 - **A Python endpoint without its own `__init__` was handed a client and failed its first request**:
   `object.__init__`'s `*args` counted as a parameter. The private endpoint never reached its handler,
   so nothing noticed until the conformance suite's caller cases.

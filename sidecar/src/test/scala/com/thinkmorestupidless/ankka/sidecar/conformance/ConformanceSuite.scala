@@ -675,6 +675,84 @@ class ConformanceSuite extends munit.FunSuite with LogCapturing:
     assume(false, "needs a process the suite controls; proven by RemoteProjectionSuite")
   }
 
+  // ── Recurring timers ───────────────────────────────────────────────────────
+  //
+  // `features/timers/languages.feature`, one scenario per case. The target's `reminder.tick`
+  // records `due:<ankka.due>` on the conformance entity it is given; the timer is `recur-<id>`, due
+  // at once and every second.
+
+  /** The due times a target's `tick` recorded for `id`, oldest first. */
+  private def ticks(id: String): Vector[Long] =
+    journal(s"conformance|$id")
+      .map(_._3)
+      .flatMap(e => """due:(\d+)""".r.findFirstMatchIn(e))
+      .map(_.group(1).toLong)
+
+  /** The due time the next run of `recur-<id>` is for, as the timer table holds it. */
+  private def nextDue(id: String): Option[Long] =
+    given ActorSystem[?] = target.system
+    Await.result(
+      Database().queryOne(
+        SqlFragment.raw(s"SELECT due_for FROM ankka_timers WHERE timer_name = 'recur-$id'")
+      )(_.get("due_for", classOf[java.time.Instant]).toEpochMilli),
+      10.seconds
+    )
+
+  private def spacedBySecond(dues: Vector[Long]): Unit =
+    dues.zip(dues.tail).foreach((a, b) => assertEquals(b - a, 1000L, dues.toString))
+
+  // a recurring timer fires once for each period in every language
+  test("timer.recurring.cadence") {
+    assertEquals(post("/conformance/recur/rc1").status, 204)
+    val dues = eventually(15.seconds)(Some(ticks("rc1")).filter(_.size >= 3))
+    spacedBySecond(dues)
+    assertEquals(post("/conformance/recur/rc1/cancel").status, 204)
+  }
+
+  // a handler is told the due time of the timer that ran it in every language
+  test("timer.recurring.due-time") {
+    assertEquals(post("/conformance/recur/rd1").status, 204)
+    val told = eventually(15.seconds)(Some(ticks("rd1")).filter(_.size >= 2))
+    val next = nextDue("rd1").getOrElse(fail("no timer recur-rd1"))
+    // What the handler was told is the runtime's own cadence: the table's next due is on the same
+    // grid, and after everything the handler has been told.
+    assertEquals((next - told.head) % 1000L, 0L, s"next due $next is off the grid of $told")
+    assert(next > told.last, s"next due $next is not after $told")
+    spacedBySecond(told)
+    assertEquals(post("/conformance/recur/rd1/cancel").status, 204)
+  }
+
+  // a recurring timer set again keeps its next due time in every language
+  test("timer.recurring.set-again") {
+    assertEquals(post("/conformance/recur/rs1").status, 204)
+    val _ = eventually(15.seconds)(Some(ticks("rs1")).filter(_.nonEmpty))
+    // Set again with a delay of a minute: a replacement would not run again for a minute.
+    assertEquals(post("/conformance/recur/rs1/again").status, 204)
+    val seen = ticks("rs1").size
+    val dues = eventually(10.seconds)(Some(ticks("rs1")).filter(_.size >= seen + 2))
+    spacedBySecond(dues)
+    assertEquals(post("/conformance/recur/rs1/cancel").status, 204)
+  }
+
+  // a cancelled recurring timer does not fire again in every language
+  test("timer.recurring.cancel") {
+    assertEquals(post("/conformance/recur/rx1").status, 204)
+    val _ = eventually(15.seconds)(Some(ticks("rx1")).filter(_.nonEmpty))
+    assertEquals(post("/conformance/recur/rx1/cancel").status, 204)
+    assertEquals(nextDue("rx1"), None)
+    val after = ticks("rx1").size
+    Thread.sleep(3000)
+    // One run may already have been under way when it was cancelled; none starts after.
+    assert(ticks("rx1").size <= after + 1, s"recur-rx1 went on firing: ${ticks("rx1")}")
+  }
+
+  test("timer.recurring.refused") {
+    val reply = post("/conformance/recur-refused/rr1")
+    assertEquals(reply.status, 400, reply.body)
+    assert(reply.body.contains("recur-rr1"), reply.body)
+    assertEquals(nextDue("rr1"), None)
+  }
+
   // ── HTTP endpoints ─────────────────────────────────────────────────────────
 
   test("http.path-params-bind") {

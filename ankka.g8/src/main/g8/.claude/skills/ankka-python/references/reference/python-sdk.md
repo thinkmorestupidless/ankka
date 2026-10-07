@@ -163,11 +163,12 @@ failed over. See [Workflows](../build/workflows.md).
 | Base class | `ankka.timed_action.TimedAction` |
 | Class attributes | `component_id` |
 | Decorators | `@action("name")` from `ankka.timed_action` |
-| In a handler | `self.metadata` (the timer's name and attempt count), `self.client`, `self.effects` |
+| In a handler | `self.metadata` (the timer's name and attempt count), `self.due_time` (the due time the run is for, a UTC `datetime`), `self.client`, `self.effects` |
 | Effects | `done()`, `fail(msg, code)` |
-| Scheduling | `await client.timers.schedule(timer_id, timedelta, component_id, action, input)`, `await client.timers.cancel(timer_id)` |
+| Scheduling | `await client.timers.schedule(timer_id, timedelta, component_id, action, input)`, `await client.timers.schedule_recurring(timer_id, delay, period, component_id, action, input)`, `await client.timers.cancel(timer_id)` |
 
-Scheduling twice under one id replaces the earlier timer. See [Timers](../build/timers.md).
+Scheduling twice under one id replaces the earlier timer, except that a recurring timer set again for
+the same handler with the same period keeps its next due time. See [Timers](../build/timers.md).
 
 ## Agent
 

@@ -42,7 +42,8 @@ skill holds what differs.
    declaration; `forEventSourcedEntity("shopping-cart", id).call("add-item", LineItem, Done)` is the form
    by name. `forKeyValueEntity`, `forWorkflow`, `forAgent(...).call(...).stream(input)`, `views.get(viewId,
    key, Row)`, `views.all`, `timers.schedule(id, Duration, { component: Cls, handler: Cls.actions.x },
-   input)`, `timers.cancel`. A refusal rejects with `CommandError` carrying `code`. Inside an endpoint
+   input)`, `timers.scheduleRecurring(id, delay, period, { component: Cls, handler: Cls.actions.x }, input)`,
+   `timers.cancel`. A refusal rejects with `CommandError` carrying `code`. Inside an endpoint
    `this.client` is already scoped to the request's trace.
 6. **Endpoints declare `acl` and their routes' shapes.** `static readonly acl = Acl.allowAll |
    Acl.denyAll | Acl.authenticated` is required (it does not compile without). `post("/{cartId}/items",

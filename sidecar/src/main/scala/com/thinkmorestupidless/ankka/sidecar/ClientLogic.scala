@@ -394,6 +394,40 @@ final class ClientLogic(
           case _ =>
             Future.failed(CommandError("invalid component or handler name", ErrorCode.BadRequest))
 
+  /**
+   * A recurring timer (protocol 1.12). A refusal is the reply's `Error` rather than a failed call,
+   * so a module's import can carry it as a process's gRPC reply does: a period out of bounds, an
+   * empty id or an oversized payload is the scheduler's own `IllegalArgumentException`, with its
+   * message.
+   */
+  def scheduleRecurring(request: ScheduleRecurringRequest): Future[ScheduleRecurringReply] =
+    def refused(code: pb.ErrorCode, message: String) =
+      ScheduleRecurringReply(Some(pb.Error(message, code)))
+    timers() match
+      case None => Future.successful(refused(pb.ErrorCode.UNAVAILABLE, "timers are not running"))
+      case Some(scheduler) =>
+        (ComponentId.parse(request.componentId), MethodName.parse(request.name)) match
+          case (Right(componentId), Right(method)) =>
+            Future {
+              try
+                val bytes = request.payload.map(_.toByteArray).getOrElse(Array.emptyByteArray)
+                scheduler.createRecurringTimer(
+                  request.timerId,
+                  request.delayMillis.millis,
+                  request.periodMillis.millis,
+                  DeferredCall(componentId, method, bytes)
+                )
+                ScheduleRecurringReply()
+              catch
+                case e: IllegalArgumentException => refused(pb.ErrorCode.BAD_REQUEST, e.getMessage)
+                case e: CommandError             => ScheduleRecurringReply(Some(error(e)))
+                case e: Throwable                => refused(pb.ErrorCode.UNAVAILABLE, e.getMessage)
+            }(using AnkkaExecutors.virtual)
+          case _ =>
+            Future.successful(
+              refused(pb.ErrorCode.BAD_REQUEST, "invalid component or handler name")
+            )
+
   def cancel(request: CancelRequest): Future[pb.Empty] =
     timers() match
       case None => Future.successful(pb.Empty())

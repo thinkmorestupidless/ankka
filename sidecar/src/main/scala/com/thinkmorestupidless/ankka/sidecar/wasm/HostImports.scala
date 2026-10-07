@@ -86,6 +86,7 @@ final class HostImports(
     .addFunction(bytes("request")(request))
     .addFunction(nowFunction)
     .addFunction(randomFunction)
+    .addFunction(bytes("schedule_recurring")(scheduleRecurring))
     .addFunction(logFunction)
     .build()
 
@@ -149,6 +150,19 @@ final class HostImports(
 
   private def cancel(request: Array[Byte]): Array[Byte] =
     await(client.cancel(CancelRequest.parseFrom(request)), commandTimeout).toByteArray
+
+  /**
+   * A recurring timer (protocol 1.12). Unlike `schedule`, a refusal — a period out of bounds, say —
+   * is the reply's `Error`, which a handler can read, not a trap that discards the instance.
+   */
+  private[sidecar] def scheduleRecurring(request: Array[Byte]): Array[Byte] =
+    logic match
+      case None => ScheduleRecurringReply(Some(notReady)).toByteArray
+      case Some(c) =>
+        await(
+          c.scheduleRecurring(ScheduleRecurringRequest.parseFrom(request)),
+          commandTimeout
+        ).toByteArray
 
   // The secret store (protocol 1.6). A refusal is the reply's `Error`, as for `invoke`.
 

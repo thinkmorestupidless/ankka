@@ -76,7 +76,9 @@ The host sets two kinds of metadata entry on every request that carries `Metadat
 runtime's clock as epoch milliseconds when it made the call, and the trace entries it sets for a
 process. A module has no clock of its own: it asks for the time through the `now` import. `ankka.now`
 is what a guest library from before protocol 1.10 reads, and the host goes on setting it on every such
-request, so a module built with one still reads the time. An entity or workflow command's metadata also
+request, so a module built with one still reads the time. A timed action's request also carries
+`ankka.timer`, `ankka.attempts` and `ankka.due`, the due time the run is for, in epoch milliseconds as
+`ankka.now` is. An entity or workflow command's metadata also
 carries `ankka.sequence`, the journal sequence the state it is handed reflects. A consumer's request
 carries `ankka.sequence` for the change it is handed and `ankka.protocol`, the protocol version the host
 speaks. A guest answers `produce_all`, several messages for one change, only when that entry is `1.3` or
@@ -91,7 +93,8 @@ see [the sidecar protocol](sidecar-protocol.md#stateless-conversations) for the 
 | `invoke_stream(ptr, len) -> i64` | `InvokeRequest` | `StreamTokens` (the tokens collected; a streaming reply is delivered whole) | |
 | `query(ptr, len) -> i64` | `QueryRequest` | `QueryReply` | |
 | `schedule(ptr, len) -> i64` | `ScheduleRequest` | `Empty` | |
-| `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | |
+| `cancel(ptr, len) -> i64` | `CancelRequest` | `Empty` | cancels a timer of either kind |
+| `schedule_recurring(ptr, len) -> i64` | `ScheduleRecurringRequest` | `ScheduleRecurringReply` | a recurring timer, since protocol 1.12; a refusal is the reply's `Error`, not a trap |
 | `config(ptr, len) -> i64` | `ConfigRequest` | `ConfigReply` | a descriptor variable; reserved names answer absent, the service's secret key (`ANKKA_SECRET_KEY`) among them |
 | `get_secret(ptr, len) -> i64` | `GetSecretRequest` | `GetSecretReply` | the service's secret store, since protocol 1.6; blocks the calling instance |
 | `put_secret(ptr, len) -> i64` | `PutSecretRequest` | `PutSecretReply` | since 1.6 |
@@ -101,8 +104,9 @@ see [the sidecar protocol](sidecar-protocol.md#stateless-conversations) for the 
 | `random(ptr, len)` | | | fills the `len` bytes at `ptr`, which the guest owns, from the runtime's secure source; `len` is at most 65,536; from any export, since 1.10 |
 | `log(level: i32, ptr, len)` | UTF-8 text | | to the runtime's log under the logger `ankka.module`; `level` is 0 trace, 1 debug, 2 info, 3 warn, 4 error (anything else is error) |
 
-The secret imports answer every refusal in the reply's `Error`. A module that never calls the secret
-store imports none of them, so it runs on a runtime that predates them; the Rust crate calls them through
+The secret imports and `schedule_recurring` answer every refusal in the reply's `Error`. A module that
+never calls the secret store imports none of them, and one that never sets a recurring timer does not
+import `schedule_recurring`, so it runs on a runtime that predates them; the Rust crate calls them through
 a function of their own for exactly that reason.
 
 An import runs on the thread that called the export, which in the runtime is a virtual thread; a
@@ -211,7 +215,7 @@ guest does not use is not needed). A changed signature or memory rule is `ankka2
 The runtime reads the module once at start, compiles it once, and builds instances of it as it needs
 them.
 
-![How the runtime hosts a WebAssembly module: one container runs one JVM, the runtime, with the module read once and compiled once. The entity and workflow hosts hold each loaded entity's encoded state and call ankka1_handle and ankka1_fold on a command pool of reused instances: a stateless command takes any free instance, a stateful entity is pinned to one, and a trapped instance is discarded and replaced while the held state survives for the next call. Workflow steps, views, consumers, timed actions, HTTP routes, an agent's plan, tools and guardrails, and an autonomous agent's result check each run on a fresh instance built for the call and discarded after it. From inside an export the module calls back through the ankka1 imports — invoke, send and query for the component client, invoke_stream, schedule and cancel, config with reserved names answered absent, and log — which reach the rest of the runtime while the calling virtual thread parks. Every call crosses the instance's linear memory as protobuf: the runtime writes the request through ankka1_alloc and calls the export with its pointer and length, and the guest returns the reply's pointer and length packed into one i64.](../assets/diagrams/wasm-hosting.svg)
+![How the runtime hosts a WebAssembly module: one container runs one JVM, the runtime, with the module read once and compiled once. The entity and workflow hosts hold each loaded entity's encoded state and call ankka1_handle and ankka1_fold on a command pool of reused instances: a stateless command takes any free instance, a stateful entity is pinned to one, and a trapped instance is discarded and replaced while the held state survives for the next call. Workflow steps, views, consumers, timed actions, HTTP routes, an agent's plan, tools and guardrails, and an autonomous agent's result check each run on a fresh instance built for the call and discarded after it. From inside an export the module calls back through the ankka1 imports — invoke, send and query for the component client, invoke_stream, schedule, schedule_recurring and cancel, config with reserved names answered absent, and log — which reach the rest of the runtime while the calling virtual thread parks. Every call crosses the instance's linear memory as protobuf: the runtime writes the request through ankka1_alloc and calls the export with its pointer and length, and the guest returns the reply's pointer and length packed into one i64.](../assets/diagrams/wasm-hosting.svg)
 
 Two pools serve calls:
 

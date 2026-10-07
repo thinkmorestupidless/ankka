@@ -192,6 +192,11 @@ feature also says what that feature does not do.
   consumer's deletion handler runs, and a graph consumer's elements for it are not tombstoned.
 - **A topic source has no sequence number.** A change from a topic reads as sequence zero, and a graph
   consumer over a topic must state the version of each element it publishes.
+- **A recurring timer's period is a length of time.** A period is a length of time, never a time of day
+  or a day of the week: there are no calendars, time zones or cron expressions. Work out the first delay
+  to align a timer, and give a period from there. A recurring timer whose due times passed while it could
+  not run fires once and goes on, and never catches the missed ones up. The local console does not list
+  timers.
 - **Only agents stream.** Entities and workflows refuse a streaming request.
 - **A socket carries text frames only.** A frame that is not text closes the socket `1003`, not text.
 - **The platform keeps nothing of a socket.** No frame is stored and nothing records who holds a socket

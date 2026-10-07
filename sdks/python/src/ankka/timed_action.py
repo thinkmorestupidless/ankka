@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import typing
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timedelta, timezone
 from typing import Any, ClassVar
 
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
@@ -16,6 +17,9 @@ from ankka.services import HasServices
 
 if typing.TYPE_CHECKING:
     from ankka.client import ComponentClient
+
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def action(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -41,6 +45,16 @@ class TimedAction(HasSecrets, HasServices):
     @property
     def metadata(self) -> Metadata:
         return self._metadata
+
+    @property
+    def due_time(self) -> datetime | None:
+        """The due time this run is for (``ankka.due``), timezone-aware in UTC: the same on every
+        retry of one due time, and for a recurring timer a whole number of periods from the last.
+        None when the runtime did not say, which a runtime older than protocol 1.12 does not."""
+        value = self._metadata.get("ankka.due")
+        if value is None:
+            return None
+        return _EPOCH + timedelta(milliseconds=int(value))
 
     @classmethod
     def handlers(cls) -> dict[str, HandlerSpec]:

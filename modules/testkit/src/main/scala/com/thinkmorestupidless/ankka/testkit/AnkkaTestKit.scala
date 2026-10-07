@@ -137,10 +137,18 @@ final class AnkkaTestKit private (
    *
    * The service keeps its secret key unless `secretKey` says otherwise: another key is what a
    * careless rotation looks like, and `None` is a service started with none.
+   *
+   * `downFor` keeps the service stopped that long before it starts again, so a test can see what an
+   * outage does — to a timer whose due times pass while nothing is running, say. The database stays
+   * up throughout, as it would.
    */
-  def restartService(secretKey: Option[String] = currentKey): Unit =
+  def restartService(
+      secretKey: Option[String] = currentKey,
+      downFor: FiniteDuration = scala.concurrent.duration.Duration.Zero
+  ): Unit =
     current.terminate()
     scala.concurrent.Await.ready(current.whenTerminated, readyTimeout): Unit
+    if downFor > scala.concurrent.duration.Duration.Zero then Thread.sleep(downFor.toMillis)
     currentKey = secretKey
     current = AnkkaTestKit.hostService(
       descriptors,

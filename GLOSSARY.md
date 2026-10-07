@@ -1573,6 +1573,41 @@ for them. A module has none of its own.
 *Proposed.* Of a module: stopped by the platform part way through what it is doing. A module
 cannot be, so the platform stops waiting for one and never stops the module itself.
 
+## Timers
+
+### due time
+When a timer is to fire. The platform fires a timer at its due time or shortly after,
+never before. A timer that fires again after a failure fires for the same due time. A handler
+is told the due time of the timer that ran it.
+
+Avoid: fire time
+
+### period
+How long after one due time a recurring timer's next due time is. It is a length of
+time and nothing else: it says nothing of a time of day or a day of the week.
+
+Avoid: interval, schedule
+
+### recurring timer
+A timer with a period. The platform fires it for one due time after another until it
+is cancelled or replaced, and never for a due time that has passed: when several have, it
+fires once and goes on from the first still to come. Set again with the same handler and the
+same period it is not replaced: it keeps its next due time. A timer with no period fires once
+and is removed.
+
+Avoid: repeating timer, periodic timer, cron
+
+### cancel
+Of a timer: remove it by its name, so that it does not fire. A handler cancels a timer; the
+platform removes one whose handler has run. Setting a timer again does not cancel it.
+
+### backoff
+How long the platform waits before it fires again a timer whose handler failed:
+"3 seconds" after the first failure, and twice as long after each failure that follows, up to
+"30 seconds". It is not a period, and a period never shortens it.
+
+Avoid: retry delay
+
 ## Everyday words
 
 read, reads, reading, show, shows, shown, write, written, language, every, same, connected, whose,
@@ -1641,4 +1676,4 @@ scrolls, sideways, pauses, saying, overview, open, reloaded, audited, visible, k
 point, least, brighter, shipped, colour, accord, blur, opaque, readable, border, outline, forces,
 edge, clipped, below, facts, controls, prefers, preference, dark, light, fetches, mounts, mounted,
 small, brightness, ratio, centre, screen, bright, enough, front, width, would, choose, whoever,
-clear, declaration, large, unread, crosses, older, quiet, requires, requiring, working, day
+clear, declaration, large, unread, crosses, older, quiet, requires, requiring, working, day, week, length

@@ -12,7 +12,7 @@ Feature: What the documentation says of publishing several messages and deltas
     When a reader looks up publishing deltas in the documentation
     Then the documentation shows a consumer publishing nodes, relationships and tombstones
     And the documentation states the rules a consumer that publishes deltas keeps
-    And the documentation says the topic must be compacted and that the pipeline reading it makes it so
+    And the documentation says the topic must be declared compacted on the project
     And the documentation says where the sink and building a store again are documented
 
   Scenario: the documentation says what to do when events do not carry an element's whole state
@@ -23,3 +23,8 @@ Feature: What the documentation says of publishing several messages and deltas
     When a reader looks up a consumer's handler in the documentation's reference
     Then the documentation describes publishing several messages for one change
     And the documentation describes how a handler describes nodes, relationships and tombstones
+
+  Scenario: the documentation tells the graph story to the end without ankka-flow
+    When a reader follows the documentation from publishing deltas to a store holding them
+    Then every page they need is the documentation's own
+    And no page depends on ankka-flow

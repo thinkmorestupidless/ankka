@@ -1,0 +1,40 @@
+Feature: A topic on a declared broker
+  A member declares a broker on a project, with its address and the project secret holding its
+  credential, and a component names that broker for a topic it reads or publishes to. The service
+  keeps the installation's broker for every other topic. The credential reaches only the
+  platform's container.
+
+  Background:
+    Given an installation with a broker
+    And a project "shop"
+    And a broker outside the installation holding the topic "events"
+
+  Scenario: a broker is declared on a project with its credential in a project secret
+    Given the project secret "legacy-credential" on "shop" holds the credential of the outside broker
+    When a member declares the broker "legacy" on "shop" with the address of the outside broker and the project secret "legacy-credential"
+    Then the brokers of "shop" show "legacy"
+
+  Scenario: a topic source names a declared broker and reads from it
+    Given the broker "legacy" is declared on "shop"
+    And a ready service "intake" whose consumer reads "events" from the broker "legacy"
+    When a message is produced to "events" on the outside broker
+    Then the consumer of "intake" is handed the message
+
+  Scenario: a consumer reads from a declared broker and publishes to the installation's
+    Given the broker "legacy" is declared on "shop"
+    And the topic "orders" is declared on "shop"
+    And a ready service "intake" whose consumer reads "events" from the broker "legacy" and publishes to "orders"
+    When a message is produced to "events" on the outside broker
+    Then a message is read from the topic "orders" of "shop" on the installation's broker
+
+  Scenario: a component naming a broker the project has not declared is refused
+    Given a service "intake" whose consumer reads "events" from the broker "legacy"
+    When a member applies the descriptor for "intake"
+    Then the consumer neither reads nor publishes
+    And the status of "intake" says the broker "legacy" is not declared on "shop"
+
+  Scenario: a declared broker's credential never reaches the process
+    Given the broker "legacy" is declared on "shop"
+    And a ready service "intake", hosted as a process, whose consumer reads "events" from the broker "legacy"
+    When the process's environment and mounts are read
+    Then neither holds the credential of the outside broker

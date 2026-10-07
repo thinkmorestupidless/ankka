@@ -1,0 +1,332 @@
+# Feature Specification: Pipelines Are Services — What ankka Gains So That ankka-flow Can Retire
+
+**Feature Branch**: `037-pipelines`
+
+**Created**: 2026-10-07
+
+**Status**: Draft
+
+**Input**: User description: "Bring ankka-flow into ankka. A streaming pipeline — a stage in any
+language that reads one topic and writes another, wired over topics, for ingestion from an outside
+system into a project, for streams between services and between projects — is another tool in the
+ankka toolbox rather than a second platform with its own operator, CLI, docs and SDKs. An ankka
+consumer that reads a topic and publishes to another is already that stage; ankka-flow wraps a set
+of them into a deployable unit, and ankka already has that unit, the service and the project. So
+rather than carry ankka-flow's machinery across, give ankka the few things it lacks that ankka-flow
+had, as ordinary ankka features, and retire ankka-flow."
+
+## Context
+
+ankka-flow was built beside ankka as a separate platform: streamlets in any language, each a
+process with a platform sidecar owning Kafka, wired by a file over topics into a pipeline, with its
+own operator, resource, CLI, MCP server, documentation site and two SDKs. Joining it to ankka — a
+pipeline reading what a service publishes — turned out to need ankka-flow to learn a copy of what
+ankka already has: the project, the broker and its credentials, the topic declarations. The
+questions that integration raised were the cost of the separation made visible.
+
+Set side by side, a streamlet and an ankka consumer over a topic source are the same machine. A
+process in any of ankka's four languages reads one topic under its own group, handles each
+message, publishes to another topic, and the broker's offset is committed only once every message
+it published has been accepted. A message that cannot be handled is redelivered until it can be.
+Ordering is the broker's, by key. The consumer lives in a project, on the installation's broker,
+with its certificate, its topology, its logs, the console and the MCP server. A pipeline as a
+deployable unit is a service with several consumers, or several services.
+
+What ankka-flow has that ankka's consumer does not is a short list, and each item is worth more as
+an ankka feature than as a flow feature, because it then serves services too:
+
+- **A contract on a topic, checked when the sides are declared.** ankka-flow refuses two
+  streamlets that disagree on a topic's contract before the pipeline runs. ankka has no contracts:
+  a declared topic is a name and a partition count, and the wire's type header is the constant
+  `message` for every ordinary message.
+- **Topic settings.** A declared topic has partitions and nothing else; graph deltas need a
+  compacted topic, and ankka's own graph page still says the ankka-flow pipeline creates one.
+- **A topic on another broker.** A service has one broker, the installation's or one it brings;
+  ankka-flow mixes brokers per topic. Ingestion from an outside broker into a project is the gap.
+- **Partitions in parallel.** A streamlet reads the partitions it holds in parallel and is handed
+  batches; ankka handles messages one at a time per subscription.
+- **The graph merge sink**, ankka-flow's one built-in stage, which fills a Neo4j store from a
+  delta topic. ankka's graph documentation ends by pointing at ankka-flow for it.
+- **The weight of a stage.** A streamlet pod is a process and a sidecar; a service's process
+  container is fixed at 100m and 128Mi with no way to ask for more.
+- **Lag and reset.** ankka-flow shows how far a pipeline is behind; ankka has the metric but not
+  the line in a service's status. Reset exists in ankka as a topic source's version.
+
+What is deliberately not carried: a second workload kind, a second sidecar, a second protocol, a
+second pair of SDKs, batches handed to a handler (an aggregation across messages belongs in an
+entity or a view, which is durable where a batch is not), a wiring file (a topic's name is where
+two components meet, and a project's declared topics are the wiring), managed topics created and
+deleted with a deployment (the platform keeps what it made, by design), and ankka-flow's
+vocabulary ("blueprint" is a reasoning pattern here; "pipeline" and "sink" already mean what
+ankka-flow meant by them).
+
+The retirement itself — archiving the ankka-flow repository, its final SDK versions pointing here,
+its formula and plugin withdrawn, its site redirected — is ankka-flow's own change and is not
+specified here. This specification says what ankka must have before that can happen.
+
+## Clarifications
+
+### Session 2026-10-07
+
+- [NEEDS CLARIFICATION: what a contract is — a name alone (`order.v1`), which the project
+  declares and each side states, so the check is that the names agree; or a name with a schema the
+  platform holds, so the check is that the schema each side was built against is the same one?]
+- [NEEDS CLARIFICATION: how the graph merge sink is delivered — as a service image the platform
+  publishes, which a member deploys into a project like any service, with the store's address and
+  credential in its descriptor; or as a component kind the runtime implements, so a developer
+  registers a sink in a service of their own?]
+- [NEEDS CLARIFICATION: whether reading partitions in parallel is how every topic source reads
+  from now on, or something a topic source asks for — a service written against today's one-at-
+  a-time handling would see two of its partitions handled at once?]
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - A declared topic carries a contract, and every side is checked (Priority: P1)
+
+A member declares a topic's contract with the topic. A component that reads the topic or
+publishes to it states the contract it expects, and a service whose component states a different
+one — or none, where the topic has one — is refused before it reads or publishes a message,
+naming the topic, what the project declares and what the component states. A topic declared
+without a contract is checked against nothing, so every project as it is today is unaffected. The
+contract travels on the wire as each message's type, so a reader outside ankka can tell what a
+topic carries.
+
+**Why this priority**: It is the one idea ankka-flow had that ankka lacks, and the reason two
+sides of a topic can disagree silently today.
+
+**Independent Test**: A project declares `orders` with the contract `order.v1`; a service whose
+consumer publishes `order.v1` to it becomes Ready and its messages carry that type; a service
+whose consumer states `order.v2` is refused with both names in its status; the same service on a
+project whose `orders` has no contract becomes Ready.
+
+**Acceptance Scenarios**:
+
+- added `features/topics/contracts.feature`: a topic is declared with a contract
+- added `features/topics/contracts.feature`: a component that states the declared contract is accepted
+- added `features/topics/contracts.feature`: a component that states another contract is refused, naming both
+- added `features/topics/contracts.feature`: a component that states no contract on a topic that has one is refused
+- added `features/topics/contracts.feature`: a topic without a contract checks nothing
+- added `features/topics/contracts.feature`: a published message carries the contract as its type
+- added `features/topics/contracts.feature`: a contract is shown with the topic
+
+---
+
+### User Story 2 - A declared topic has settings (Priority: P1)
+
+A member declares a topic compacted, with its partitions, and the platform makes it so on the
+installation's broker, whether the topic is new or already made. A delta topic is declared
+compacted by the project that owns it, and nothing else creates topics.
+
+**Why this priority**: Without it a graph's delta topic cannot exist in an installation that
+makes its own topics, and the documentation's answer is ankka-flow.
+
+**Independent Test**: A member declares `cart-deltas` compacted with 3 partitions; the broker holds
+it compacted; declaring an existing topic compacted changes it; `topics list` shows it.
+
+**Acceptance Scenarios**:
+
+- added `features/broker/compaction.feature`: a topic declared compacted is made compacted
+- added `features/broker/compaction.feature`: a topic already made is compacted when its declaration says so
+- added `features/broker/compaction.feature`: a compacted topic keeps the last message under each key
+- added `features/broker/compaction.feature`: the topics of a project show which are compacted
+
+---
+
+### User Story 3 - The graph merge sink is ankka's (Priority: P1)
+
+A member fills a Neo4j store from a delta topic with something ankka provides: the sink reads the
+topic from its start, applies each delta only when its version is newer than the element's in the
+store, refuses a delta that breaks a delta's rules and says so, and is rebuilt from the topic's
+start at a higher version. The graph documentation tells the whole story, from publishing deltas
+to a filled store, and no page points at ankka-flow.
+
+**Why this priority**: Graph deltas are an ankka feature whose second half lives in ankka-flow;
+retiring ankka-flow without this breaks ankka's graph story.
+
+**Independent Test**: The shopping cart publishes deltas to `cart-deltas`; the sink, deployed into
+the project against a Neo4j, fills the store with every cart and item; a refused delta is named
+in the sink's log and status; redeployed at a higher version, the sink empties and refills the
+store from the topic.
+
+**Acceptance Scenarios**:
+
+- added `features/graph-deltas/sink.feature`: the sink fills a store from a delta topic
+- added `features/graph-deltas/sink.feature`: the sink applies a delta only when its version is newer
+- added `features/graph-deltas/sink.feature`: the sink refuses a delta that breaks the rules and says which
+- added `features/graph-deltas/sink.feature`: the sink at a higher version builds the store again from the topic
+- added `features/graph-deltas/sink.feature`: the sink's fixtures are ankka's own
+- changed `features/graph-deltas/documentation.feature`: the documentation describes publishing deltas and the rules of a delta
+- added `features/graph-deltas/documentation.feature`: the documentation tells the graph story to the end without ankka-flow
+
+---
+
+### User Story 4 - A topic on another broker (Priority: P2)
+
+A member declares a broker on a project — its address and the project secret holding its
+credential — and a component names that broker for a topic it reads or publishes to. The service
+keeps the installation's broker for every other topic. Messages from an outside system's Kafka
+flow into a project's topics through one consumer, with no second broker configured on the whole
+service.
+
+**Why this priority**: Ingestion from outside is the first pipeline anyone builds, and today it
+needs a service that lives wholly on the outside broker.
+
+**Independent Test**: A project declares the broker `legacy`; a consumer reads `events` from
+`legacy` and publishes to the project's `orders`; messages produced on the outside Kafka arrive on
+`orders`; the consumer's group on `legacy` is the project's by name.
+
+**Acceptance Scenarios**:
+
+- added `features/topics/brokers.feature`: a broker is declared on a project with its credential in a project secret
+- added `features/topics/brokers.feature`: a topic source names a declared broker and reads from it
+- added `features/topics/brokers.feature`: a consumer reads from a declared broker and publishes to the installation's
+- added `features/topics/brokers.feature`: a component naming a broker the project has not declared is refused
+- added `features/topics/brokers.feature`: a declared broker's credential never reaches the process
+
+---
+
+### User Story 5 - A topic source reads its partitions in parallel (Priority: P2)
+
+A consumer or view over a topic handles the partitions its instance holds at once, each partition
+in order, and commits a partition's offset only once the message's effects are accepted. Order
+within a key is kept; throughput grows with partitions, as it does for a streamlet.
+
+**Why this priority**: It is the one place a streamlet outperforms a consumer, and the difference
+matters for ingestion at volume.
+
+**Independent Test**: A consumer over a 4-partition topic with a slow handler handles four
+messages at once; messages under one key arrive in order; a failed message holds its partition
+and no other; a crash mid-batch redelivers only what was not committed.
+
+**Acceptance Scenarios**:
+
+- added `features/topics/parallelism.feature`: partitions held by one instance are handled at once
+- added `features/topics/parallelism.feature`: messages under one key are handled in order
+- added `features/topics/parallelism.feature`: a message that cannot be handled holds its partition and no other
+- added `features/topics/parallelism.feature`: a partition's offset is committed only after its message's publications are accepted
+
+---
+
+### User Story 6 - A process is sized by its descriptor, and a stage needs no database (Priority: P3)
+
+A descriptor says what the process container gets, so a stage that does real work is not held at
+the platform's minimum, and a service with no entity, view or workflow — a consumer alone — is
+deployed without a database being provisioned for it.
+
+**Why this priority**: A pipeline stage is cheap in ankka-flow; the same stage in ankka should
+not cost a database it never opens.
+
+**Independent Test**: A process-hosted descriptor asking for 1 CPU and 1 GiB renders a process
+container with those; a consumer-only service deployed without a database becomes Ready and reads
+its topic.
+
+**Acceptance Scenarios**:
+
+- added `features/deploying/process-resources.feature`: a descriptor sizes the process container
+- added `features/deploying/process-resources.feature`: a descriptor that says nothing keeps the platform's size
+- added `features/deploying/process-resources.feature`: a service with only consumers runs without a database
+
+---
+
+### User Story 7 - A service says how far behind each topic source is (Priority: P3)
+
+`services get`, the console and the MCP server show each topic source of a service with its
+group, its start position, its version and how far behind it is, so nobody needs the broker to
+learn whether a pipeline keeps up.
+
+**Acceptance Scenarios**:
+
+- added `features/topics/status.feature`: a service's status lists each topic source with how far behind it is
+- added `features/topics/status.feature`: the console and the server show the same
+
+### Edge Cases
+
+- **A contract declared on a topic services already use without one.** Each service is checked
+  at its next start, not stopped where it runs; the project's topic listing names services that
+  have not been checked against the new contract.
+- **A contract changed on a topic.** A new name; every side stating the old one is refused at
+  its next start. Compatibility between names is out of scope.
+- **A topic declared compacted whose partitions are reduced.** Refused, as today: never fewer
+  partitions.
+- **A declared broker that cannot be reached.** The topic source retries with backoff and the
+  service's status names the broker, as a database that cannot be reached is named.
+- **A sink whose store is unreachable.** Reads nothing, commits nothing, retries; its status says
+  so.
+- **A delta the sink refuses.** Named in the log and status with its key and the rule it broke;
+  the sink moves on to the next, as ankka-flow's sink does, because a delta that can never apply
+  would otherwise hold the store forever.
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+- **FR-001**: A declared topic MAY carry a contract, set and shown with the topic.
+- **FR-002**: A component MUST be able to state the contract of each topic it reads or publishes
+  to, in every SDK and through the sidecar's discovery.
+- **FR-003**: A service with a component whose stated contract differs from the project's, or
+  states none where the project declares one, MUST be refused before the component reads or
+  publishes, with both names in the service's status.
+- **FR-004**: A message published to a topic with a contract MUST carry the contract as its type.
+- **FR-005**: A declared topic MAY be compacted; the platform MUST make it so, for a new topic and
+  for one already made.
+- **FR-006**: ankka MUST provide the graph merge sink: a Neo4j store filled from a delta topic
+  under the delta rules, rebuilt at a higher version, with its fixtures held here.
+- **FR-007**: A project MAY declare a broker by name, with its address and a project secret; a
+  component MAY name a declared broker for a topic; the credential MUST reach only the platform's
+  container.
+- **FR-008**: A topic source MUST handle the partitions an instance holds in parallel and each
+  partition in order, committing a partition only after its message's publications are accepted.
+- **FR-009**: A descriptor MUST be able to size the process container; a service with no stateful
+  component MUST be deployable without a provisioned database.
+- **FR-010**: A service's status MUST list each topic source with its lag, shown by the CLI, the
+  console and the MCP server.
+- **FR-011**: No page of the documentation MAY depend on ankka-flow for any part of the graph,
+  topic or pipeline story.
+- **FR-012**: Every existing suite MUST pass; a project with no contracts, no compacted topics and
+  no declared brokers MUST behave as it does today.
+
+### Key Entities
+
+- **contract**: the name of what a topic carries, declared on the topic, stated by each side,
+  carried as a message's type.
+- **declared broker**: a broker a project names, with an address and a project secret, which a
+  component may name for a topic.
+- **sink**: as already defined: the part of a pipeline that applies deltas to a store; now a
+  thing ankka provides.
+- **topic settings**: a declared topic's partitions and whether it is compacted.
+
+## Success Criteria *(mandatory)*
+
+### Measurable Outcomes
+
+- **SC-001**: Two services disagreeing on a declared topic's contract cannot both be Ready.
+- **SC-002**: The shopping cart's graph is filled and rebuilt with nothing from ankka-flow
+  deployed.
+- **SC-003**: Messages from a Kafka outside the installation reach a project's topic through one
+  consumer, with no change to the rest of the service.
+- **SC-004**: A consumer over N partitions with a handler of fixed cost handles N messages in the
+  time it handled one.
+- **SC-005**: `grep -ri ankka-flow docs/` finds nothing but the contributing page's note on the
+  shared docs tool.
+- **SC-006**: Every existing feature and suite passes unchanged.
+
+## Assumptions
+
+- **A contract is a name**, unless clarified otherwise; its check is equality.
+- **Partition parallelism is the default**, unless clarified otherwise; a handler that needs
+  one-at-a-time handling across partitions is asking for something Kafka never promised.
+- **The sink is a service image**, unless clarified otherwise, deployed into a project by a
+  member like any service.
+- **The stage-without-a-database case may already work**; if `provisionDatabase: false` with no
+  supplied database already runs a consumer-only service, its scenario is the proof and no change
+  is needed.
+- **ankka-flow's retirement follows this feature's release**, in its own repository: a final
+  note, archive, and its SDKs' last versions pointing here.
+
+## Out of Scope
+
+- A pipeline resource, a wiring file, or any grouping beyond the project.
+- Batches handed to a handler; windows; state in the process.
+- Schema registries, Avro or Protobuf contracts, compatibility between contract names.
+- Topic retention and other settings beyond compaction.
+- Publishing from one message to several brokers at once.

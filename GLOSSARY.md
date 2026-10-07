@@ -1505,10 +1505,13 @@ The key a delta is published under: "node:" or "edge:" followed by its element i
 Of a topic: kept by the broker as the last message under each key, so that it holds every element's latest delta and not every change.
 
 ### pipeline
-What reads a topic outside the service and writes what it reads somewhere else, such as into a store. It declares the topics it owns.
+What reads a topic outside the service and writes what it reads somewhere else, such as into a store: a service with consumers, or several. Its topics are declared on its project.
+
+### ankka-flow
+*Proposed.* The streaming pipeline platform that ran beside ankka until its capabilities became ankka's, and was retired.
 
 ### sink
-The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one.
+The part of a pipeline that applies the deltas on a topic to a store, each only when its version is newer than the element's there, and refuses a delta that breaks the rules of one. The platform provides it, and a member deploys it into a project.
 
 ## Calling other services
 
@@ -1531,6 +1534,25 @@ divide a topic's partitions between them. A descriptor says how many a topic it 
 topic may be given more and never fewer.
 
 Avoid: shard
+
+### contract
+*Proposed.* The name of what a topic carries, declared on the topic with it, stated by each
+component that reads the topic or publishes to it, and carried as the type of every message
+published to it. Two sides of a topic must state the declared one.
+
+Avoid: format
+
+### declared broker
+*Proposed.* A broker a member declares on a project by name, with its address and the project
+secret holding its credential, which a component may name for one topic it reads or publishes to.
+
+Avoid: external broker
+
+### lag
+*Proposed.* How far behind a topic source is: how many messages the topic holds past the last one
+it has handled.
+
+Avoid: backlog, offset lag
 
 ### declared topic
 A topic a member declares on a project, once, with the partitions it has, which the platform makes
@@ -1772,4 +1794,4 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment
+comment, breaks

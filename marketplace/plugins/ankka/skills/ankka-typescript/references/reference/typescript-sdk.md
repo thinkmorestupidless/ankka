@@ -125,12 +125,23 @@ See [Key value entities](../build/key-value-entities.md).
 | Part | API |
 |---|---|
 | Base class | `View<E, Row>` |
-| Statics | `componentId`, `source` (a component class) or `topic`, `events`, `row`, optionally `queries` (`["get", "all"]` by default) |
+| Statics | `componentId`, `source` (a component class) or `topic`, `events`, `row`, optionally `queries` (`["get", "all"]` by default), `declared` (`declaredQuery(name, statement)`) and `version` |
 | Must define | `onChange(event): ViewEffect<Row>` |
 | May override | `onDelete(): ViewEffect<Row>`, which deletes the row by default |
 | In a handler | `this.row` (the current row or `null`), `this.subject`, `this.metadata`, `this.effects` |
 | Effects | `updateRow(row)`, `deleteRow()`, `ignore()` |
-| Querying | `client.views.get(viewId, key, Row)`, `client.views.all(viewId, Row)`, `client.views.query(viewId, name, key, Row)` |
+| Querying | `client.views.get(viewId, key, Row)`, `client.views.all(viewId, Row)`, `client.views.query(viewId, name, key, Row)`, `client.views.ask(viewId, name, values, Row, limit?)` |
+| Table name | `tableOf(componentId)`, for a statement to name |
+
+## Keyed view
+
+| Part | API |
+|---|---|
+| Base class | `KeyedView<Row>` |
+| Statics | `componentId`, `row`, `sources` (`on(Entity, Events, handler, { deleted? })` each), optionally `declared` and `version` |
+| In a handler | `this.subject`, `this.metadata`, `this.rows.get(key)`, `this.rows.ask(name, values)`, `this.effects` |
+| Effects | `updateRow(key, row)`, `deleteRow(key)`, `updateRows(...)`, `deleteRows(keys)`, `ignore()`, `all(...)` to combine |
+| Testing | `KeyedViewTestKit.of(View)` |
 
 See [Views](../build/views.md).
 

@@ -38,7 +38,8 @@ runtime version, retrying with backoff until the process answers or `ANKKA_SIDEC
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
-  and settings for a workflow; the source, row manifest and queries for a view; the source and topic for a
+  and settings for a workflow; the source (or, for a keyed view, the sources), row manifest, queries and
+  declared queries for a view; the source and topic for a
   consumer; the tools, with descriptions and JSON Schemas, and guardrails for an agent; and for an
   autonomous agent its whole definition — description, instructions, tools, guardrails, model, task types
   with their result schemas and rule names, and the types it accepts with their iteration budgets;
@@ -256,6 +257,18 @@ These are part of the protocol, and an SDK that ignores one misbehaves in ways t
   the metadata entry `ce-subject`, and the change's sequence number as `ankka.sequence`: an event's sequence
   number, a key value entity's revision, and `0` for a topic's message. A deletion has a sequence number
   of its own, above every earlier change to the entity, for both kinds of entity.
+- **A keyed view's change names its source and carries no row.** A view declared with `sources` rather than
+  `source` is sent each change with `source_id`, the component it came from, and answers `rows`: the rows to
+  write and to delete, by key, in order, a later change to a key winning; an empty list is nothing. It reads
+  its own rows through `Client.Query` — `get` by key, or one of its declared queries by name with `values`.
+  The runtime handles one of its changes at a time and writes all of a change's rows together or none.
+- **A declared query is asked by name with its values.** `QueryRequest.name` names one of the view's
+  declared queries and `values` gives each `:name` the statement holds, as text; `limit` bounds the rows,
+  1000 when absent. The statement is the runtime's to check when the process is discovered: a process sends
+  it as the developer wrote it and parses nothing.
+- **An SDK refuses a runtime older than what it declares.** One that declares a keyed view, a declared query
+  or a version on a view that reads entities refuses discovery from a runtime below 1.11, as one that
+  declares a start position refuses a runtime below 1.7: an older runtime would ignore the declaration.
 - **An SDK answers `produce_all` only to a runtime that says it accepts it.** A consumer's request carries
   the metadata entry `ankka.protocol`, the protocol version the runtime speaks. A runtime that does not know
   a reply reads it as no effect and records the change as handled, so an SDK about to answer `produce_all`

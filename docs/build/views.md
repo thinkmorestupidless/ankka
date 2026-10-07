@@ -1,6 +1,6 @@
 ---
 title: Views
-description: Build a queryable projection of entities' or a topic's changes, keep one row per source id or name the rows by key from several sources, declare the queries a view answers, walk a tree with a recursive query, and rebuild a view by raising its version.
+description: Build a queryable projection of entities' or a topic's changes, one row per source id or rows named by key from several sources, with declared and recursive queries, rebuilt by raising its version.
 kind: guide
 languages: [scala, python, typescript]
 components: [view]
@@ -479,12 +479,41 @@ in the data ends the walk instead of running until the timeout.
 ## Keyed views
 
 A keyed view reads one or more entities, each through a handler of its own, and every handler names the
-rows it writes and deletes by key. The view below keeps one row per shipment: the shipment's handler writes
-it, and the customer's handler finds every row holding that customer by asking the view's own declared
-query, and writes each.
+rows it writes and deletes by key. The view below reads two entities. An event of the left entity names a
+row and the right entity it holds, and the left's handler writes that row from what it held before. The
+right's handler finds every row holding it by asking the view's own declared query, and writes each.
 
-<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/views/KeyedKit.scala#keyed-view -->
+<!-- include: sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/ConformanceReference.scala#keyed-view -->
 ```scala
+/** A row the left writes under the key it names, holding a right entity's id. */
+final case class JoinedRow(key: String, holding: String, notes: Vector[String])
+
+final class JoinedRowsView extends KeyedView[JoinedRow]:
+
+  /** The left names a row `key|holding`, and writes it from what it held, noting itself. */
+  def onLeft(event: Noted, change: Change): Effect =
+    val Array(key, holding) = event.text.split('|')
+    val held                = change.rows.get(key).fold(Vector.empty[String])(_.notes)
+    effects.updateRow(key, JoinedRow(key, holding, held :+ "left"))
+
+  /** The right finds every row holding it by asking the view's own query, and notes itself. */
+  def onRight(@scala.annotation.unused event: Noted, change: Change): Effect =
+    val theirs = change.rows.ask(JoinedRows.ofRight, "holding" -> change.subject)
+    effects.updateRows(theirs.map(row => row.key -> row.copy(notes = row.notes :+ "right")))
+
+object JoinedRows
+    extends KeyedView.Companion[JoinedRowsView, JoinedRow](
+      ComponentId("joined-rows"),
+      Codecs.serializer[JoinedRow]("joined-row")
+    ):
+  val lefts  = source(ChangeSource.eventsOf(JoinedLeft))(_.onLeft)
+  val rights = source(ChangeSource.eventsOf(JoinedRight))(_.onRight)
+
+  /** The rows holding one right entity, by key: the same statement in every language. */
+  val ofRight = query("of-right")(
+    s"SELECT payload FROM $table WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key"
+  )
+  def create(ctx: ViewComponentContext) = new JoinedRowsView
 ```
 
 A handler is handed the change and a handle on the view's own rows: `change.rows.get(key)` and
@@ -585,8 +614,22 @@ row round-trips through the view's serializer. A declared query is SQL and there
 so the test says what each query answers; a handler that asks a query the test has not answered fails the
 test, naming the query. Building the kit checks the view's declared statements as a service's start would.
 
-<!-- include: modules/testkit/src/test/scala/com/thinkmorestupidless/ankka/testkit/views/KeyedViewTestKitSuite.scala#keyed-view-test -->
+<!-- include: sidecar/src/test/scala/com/thinkmorestupidless/ankka/sidecar/conformance/JoinedRowsSuite.scala#keyed-view-test -->
 ```scala
+test("the right's change notes every row holding it, found by the view's own query") {
+  val kit = KeyedViewTestKit(JoinedRows)
+  kit.change(JoinedRows.lefts, "a", Noted("r1|b"))
+  kit.change(JoinedRows.lefts, "a", Noted("r2|b"))
+  kit.change(JoinedRows.lefts, "a", Noted("r3|c"))
+  // The query is the database's to run; the test says what it answers.
+  kit.answering(JoinedRows.ofRight)(values =>
+    kit.rows.values.filter(_.holding == values("holding")).toVector
+  )
+  kit.change(JoinedRows.rights, "b", Noted("anything"))
+  assertEquals(kit.row("r1").map(_.notes), Some(Vector("left", "right")))
+  assertEquals(kit.row("r2").map(_.notes), Some(Vector("left", "right")))
+  assertEquals(kit.row("r3").map(_.notes), Some(Vector("left")))
+}
 ```
 
 Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape.

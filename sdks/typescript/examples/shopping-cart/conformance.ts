@@ -179,6 +179,21 @@ export class TopicRows extends View<Infer<typeof Fanned>, Infer<typeof Fanned>> 
   }
 }
 
+/** Republishes what it reads, from the latest: none of what the topic held when it started. */
+export class TopicRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
+  static readonly componentId = "topic-relay"
+  static readonly topic = "conformance-topic"
+  static readonly startFrom = StartFrom.latest
+  static readonly message = jsonCodec(Fanned, "fanned")
+  static readonly out = jsonCodec(Fanned, "fanned")
+  static readonly producesTo = "conformance-topic-relayed"
+
+  onMessage(message: Infer<typeof Fanned>) {
+    return this.effects.produce(message)
+  }
+}
+// docs:end topic-sources
+
 // ── tree-node and tree-rows: a tree, walked by a declared recursive query ──
 
 export const TreePlaced = s.record("TreePlaced", { under: s.option(s.string) })
@@ -330,20 +345,6 @@ export class JoinedEndpoint extends Endpoint {
   }
 }
 
-/** Republishes what it reads, from the latest: none of what the topic held when it started. */
-export class TopicRelay extends Consumer<Infer<typeof Fanned>, Infer<typeof Fanned>> {
-  static readonly componentId = "topic-relay"
-  static readonly topic = "conformance-topic"
-  static readonly startFrom = StartFrom.latest
-  static readonly message = jsonCodec(Fanned, "fanned")
-  static readonly out = jsonCodec(Fanned, "fanned")
-  static readonly producesTo = "conformance-topic-relayed"
-
-  onMessage(message: Infer<typeof Fanned>) {
-    return this.effects.produce(message)
-  }
-}
-// docs:end topic-sources
 
 // ── cart-graph: the cart as graph deltas ──
 

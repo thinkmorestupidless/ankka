@@ -125,7 +125,6 @@ object ShipmentRow:
       plain.toBytes(row)
     def fromBytes(bytes: Array[Byte]): ShipmentRow = plain.fromBytes(bytes)
 
-// docs:start keyed-view
 final class ShipmentsView(view: String) extends KeyedView[ShipmentRow]:
 
   /** Every source's handler: what the event's script says, from the rows as they are. */
@@ -199,7 +198,6 @@ object Shipments
     SELECT payload FROM $table WHERE row_key = (SELECT max(n)::text FROM counting)""")
 
   def create(ctx: ViewComponentContext) = new ShipmentsView(ctx.componentId.toString)
-// docs:end keyed-view
 
 /** A keyed view of a key value entity's state, beside an event sourced entity's events. */
 object AccountShipments

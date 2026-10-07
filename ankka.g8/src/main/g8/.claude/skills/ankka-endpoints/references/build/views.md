@@ -1,20 +1,32 @@
 # Views
 
-> Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python and TypeScript.
+> Build a queryable projection of entities' or a topic's changes, one row per source id or rows named by key from several sources, with declared and recursive queries, rebuilt by raising its version.
 
 Source: https://docs.ankka.cloud/build/views/
-A view is a queryable table built from one source's changes. An entity can only be found by its id, so
-any other question — which carts contain this product, which orders are unpaid, which are the largest —
-needs a view. The runtime reads the source's changes in order, hands each one to the view's handler with
-the current row for that source id, and stores the row the handler returns.
+A view is a queryable table built from changes. An entity can only be found by its id, so any other
+question — which carts contain this product, which orders are unpaid, everything under this node of a tree
+— needs a view.
 
-A view keeps one row per source id. The row's key is always the id of the entity the change came from,
-and every other way of finding rows is a query, not a second key. Re-keying a row by an attribute would
-silently orphan the old row the first time the attribute changed.
+A view comes in two shapes:
+
+| | Plain view | Keyed view |
+|---|---|---|
+| Reads | one source: an entity's events, a key value entity's state, or a topic | one or more entities' events or states |
+| Row key | the id of the entity the change came from, always | whatever the handler names |
+| The current row | handed to the handler | read by the handler, by key or by a declared query |
+| Rows one change writes | at most one | any number |
+| Changes handled at once | many, in slices of the source | one, across every source and instance |
+
+Use a plain view wherever one will do. A plain view keeps one row per source id, and every other way of
+finding rows is a query, not a second key: re-keying a row by an attribute would silently orphan the old row
+the first time the attribute changed. A keyed view is for the questions a plain view cannot answer: a row
+that two entities keep up to date, such as a shipment that shows its customer's current name, or one change
+that updates many rows, such as a customer's rename reaching every one of their shipments. See
+[Keyed views](#keyed-views).
 
 ## Sources
 
-A view reads exactly one source:
+A plain view reads exactly one source; a [keyed view](#keyed-views) reads one or more entities:
 
 | Source | Scala | Python | TypeScript | Delivery |
 |---|---|---|---|---|
@@ -319,8 +331,211 @@ row = await self.client.views.get("cart-rows", cart_id, CartRow)     # one row, 
 rows = await self.client.views.all("cart-rows", CartRow)             # every row, up to 1000
 ```
 
-These are the only two queries a view in a Python service answers. SQL conditions over the rows are
-available only to a Scala service today.
+Beyond those two, a view in any language answers the queries it declares; see
+[Declared queries](#declared-queries). Conditions built at the call with `sql"…"` are a Scala service's
+alone.
+
+## Declared queries
+
+A view declares the questions it can be asked beyond one row and every row. Each declared query has a
+name and one SQL statement over the view's own table, and the values the statement takes are the `:name`s
+it holds. A caller asks the query by name and gives the values; each value is bound as a parameter and is
+never part of the statement's text, so nothing a caller gives can change what the statement does.
+
+**Scala**
+
+Declare a query as a `val` of the view's companion, naming the view's table with `table`:
+
+```scala
+/** Every row under the row `row`, to any depth. */
+val under = query("under")(s"""
+  WITH RECURSIVE below AS (
+    SELECT row_key, payload FROM \$table WHERE payload::jsonb->>'under' = :row
+    UNION
+    SELECT n.row_key, n.payload FROM \$table n JOIN below b ON n.payload::jsonb->>'under' = b.row_key
+  )
+  SELECT payload FROM below""")
+```
+
+Ask it through the view client, with each value it takes by name:
+
+```scala
+val under = clients.viewClient.forView(Nodes).ask(Nodes.under, "row" -> nodeId)
+val first = clients.viewClient.forView(Nodes).ask(Nodes.under, 100, "row" -> nodeId)   // at most 100 rows
+```
+
+**Python**
+
+```python
+from ankka.view import query, table_of
+
+class Nodes(View[NodeEvent, NodeRow]):
+    component_id = "nodes"
+    source = NodeEntity
+    event_codec = NODE_EVENTS
+    row_codec = NODE_ROW
+    under = query("under", f"""
+        WITH RECURSIVE below AS (
+          SELECT row_key, payload FROM {table_of("nodes")} WHERE payload::jsonb->>'under' = :row
+          UNION
+          SELECT n.row_key, n.payload FROM {table_of("nodes")} n
+            JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
+        SELECT payload FROM below""")
+
+rows = await self.client.views.ask("nodes", "under", NodeRow, {"row": node_id})
+```
+
+**TypeScript**
+
+```ts
+import { declaredQuery, tableOf } from "ankka"
+
+export class Nodes extends View<NodeEvent, NodeRow> {
+  static readonly componentId = "nodes"
+  static readonly declared = [
+    declaredQuery("under", `
+      WITH RECURSIVE below AS (
+        SELECT row_key, payload FROM \${tableOf("nodes")} WHERE payload::jsonb->>'under' = :row
+        UNION
+        SELECT n.row_key, n.payload FROM \${tableOf("nodes")} n
+          JOIN below b ON n.payload::jsonb->>'under' = b.row_key)
+      SELECT payload FROM below`),
+  ]
+  // ...
+}
+
+const rows = await client.views.ask("nodes", "under", { row: nodeId }, NodeRowShape)
+```
+
+The statement must select the rows' `payload` column: the answer is rows of the view's own row type. A
+value is text; a statement that needs a number casts it, as `(:depth)::int`. A query answers with at most
+1000 rows unless the caller gives another limit, in the order the statement gives them.
+
+### What stops a service from starting
+
+Every declared statement is checked when the service starts, by reading the parsed statement, never the
+text, so a table named in a comment or a string is no table. A service whose view declares any of these
+does not start, and the problem names the view, the query and what is wrong:
+
+- a statement that cannot be read as SQL, or no statement;
+- more than one statement;
+- a statement that is not a `SELECT` (an `UPDATE`, a `DELETE`, an `INSERT`), or a `WITH` item that is not
+  one;
+- `SELECT … INTO`, or a locking clause such as `FOR UPDATE`;
+- a table that is not the view's own, named in the `FROM`, a join, a subquery or a `WITH` item's body —
+  the problem names that table;
+- a table named with its schema, even the view's own;
+- a function that reads a query or a relation given as text (`query_to_xml`, `table_to_xml` and their
+  kin), reads a file (`pg_read_file`), reaches another database (`dblink`) or a large object (`lo_…`),
+  takes an advisory lock, changes a setting (`set_config`), or reaches another connection;
+- a value written as `\$1` or `?` rather than `:name`, or a name that is not `[a-z][a-z0-9_]*`;
+- a query named like a fixed way of asking (`get`, `all`, `where`, `ordered`, `count`, `by-id`,
+  `by-key`), or two queries with one name.
+
+The check holds a developer's statement to one read of the view's own table; it is a guard for the
+developer who wrote it, not a wall against them, since a service's database is its own. What a statement
+does when it runs is the database's to hold: a declared query runs in a read-only transaction, so it cannot
+write whatever it calls, and the database ends it when the service's ask timeout runs out, answering the
+caller with a timeout rather than leaving it running.
+
+### Walking a tree
+
+A recursive query follows rows to any depth in one statement. A view of a tree keeps one row per node
+holding its parent's key, and the `under` query above answers every row under a node, however deep the
+tree. Write it with `UNION` rather than `UNION ALL`: rows already found are not followed again, so a cycle
+in the data ends the walk instead of running until the timeout.
+
+## Keyed views
+
+A keyed view reads one or more entities, each through a handler of its own, and every handler names the
+rows it writes and deletes by key. The view below reads two entities. An event of the left entity names a
+row and the right entity it holds, and the left's handler writes that row from what it held before. The
+right's handler finds every row holding it by asking the view's own declared query, and writes each.
+
+```scala
+/** A row the left writes under the key it names, holding a right entity's id. */
+final case class JoinedRow(key: String, holding: String, notes: Vector[String])
+
+final class JoinedRowsView extends KeyedView[JoinedRow]:
+
+  /** The left names a row `key|holding`, and writes it from what it held, noting itself. */
+  def onLeft(event: Noted, change: Change): Effect =
+    val Array(key, holding) = event.text.split('|')
+    val held                = change.rows.get(key).fold(Vector.empty[String])(_.notes)
+    effects.updateRow(key, JoinedRow(key, holding, held :+ "left"))
+
+  /** The right finds every row holding it by asking the view's own query, and notes itself. */
+  def onRight(@scala.annotation.unused event: Noted, change: Change): Effect =
+    val theirs = change.rows.ask(JoinedRows.ofRight, "holding" -> change.subject)
+    effects.updateRows(theirs.map(row => row.key -> row.copy(notes = row.notes :+ "right")))
+
+object JoinedRows
+    extends KeyedView.Companion[JoinedRowsView, JoinedRow](
+      ComponentId("joined-rows"),
+      Codecs.serializer[JoinedRow]("joined-row")
+    ):
+  val lefts  = source(ChangeSource.eventsOf(JoinedLeft))(_.onLeft)
+  val rights = source(ChangeSource.eventsOf(JoinedRight))(_.onRight)
+
+  /** The rows holding one right entity, by key: the same statement in every language. */
+  val ofRight = query("of-right")(
+    s"SELECT payload FROM \$table WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key"
+  )
+  def create(ctx: ViewComponentContext) = new JoinedRowsView
+```
+
+A handler is handed the change and a handle on the view's own rows: `change.rows.get(key)` and
+`change.rows.ask(query, values*)`, with `change.subject`, the id of the entity the change came from. It
+reads no other view. It returns row changes: `effects.updateRow(key, row)`, `effects.deleteRow(key)`, their
+plural forms, and `++` to say several things at once. In Python a keyed view's handlers are methods marked
+`@on(Entity, codec)`, in TypeScript `static sources = [on(Entity, Events, handler)]`, and in Rust
+`Sources::new().on(...)`; each reads its rows through `rows` and answers the same row changes.
+
+The rules a keyed view keeps:
+
+- **The platform deletes no row a view did not name.** Moving a row is the handler's to say: delete it
+  under its old key and write it under its new one, in the same effect. A row moved any other way is
+  left behind under its old key.
+- **A row written by two sources is written whole by each**, from the row as it stands, which the handler
+  reads before it writes. The view handles one change at a time, so what a handler reads is what it writes
+  over: nothing another change writes falls in between, and no write is lost.
+- **The rows one change names are written together or not at all.** A change one of whose rows cannot be
+  written writes none of them, and is handled again.
+- **A source is read in order, and once.** Over an event sourced entity a change's rows and the record of
+  how far the source has been read are written in one transaction, so the change is applied exactly once.
+  Over a key value entity the record is made afterwards, and a change may be handled again, as it may for
+  any view of a key value entity: a key value entity keeps no history to make it otherwise.
+- **A keyed view reads entities only.** A topic and an entity may not be sources of one view, and a service
+  that declares one does not start.
+
+Handling one change at a time is the price of these rules: a keyed view has one writer, whatever the number
+of instances, and its throughput is its handlers'. A handler that waits on its own view's read longer than
+the service's ask timeout fails its change, which is handled again. One change's rows may weigh at most
+4 MiB together, and a row's key is at least one character.
+
+## Rebuilding by version
+
+A view declares a version, and raising it rebuilds the view: its table is emptied, once, however many
+instances start, and every source is read again from its beginning, so the table holds only rows written by
+the view as it is now. For a view that reads entities, that is every event and every state change they ever
+recorded; for a view that reads a topic, as far back as the broker retains (see
+[Broker topics](topics.md#rebuilding-by-version)). A view that declares no version is at version 1 and is
+never rebuilt.
+
+```scala
+object Shipments extends KeyedView.Companion[ShipmentsView, ShipmentRow](...):
+  override def version = Some(2)
+```
+
+While it is rebuilt, the view answers from the rows written so far. During a rolling update, an instance
+declaring the lower version stops writing to the view as soon as the higher one has rebuilt it, and says so
+in its log; a part of the view's work held by such an instance waits until it leaves, so the view may lag
+until the update completes, and no row the lower version writes survives. A service rolled back to a lower
+version leaves the rows as they are and writes nothing to them. A consumer that reads an entity declares no version.
+
+Raise a view's version only in a deploy after the one that brought every instance of the service to a
+release that knows versions of views that read entities: an instance from before then cannot be told to stop
+writing. See [Upgrading](../deploy/upgrading.md).
 
 ## Consistency
 
@@ -339,10 +554,10 @@ a race; it is the consistency model the view actually has.
 
 ## Limits
 
-- A view reads one source and writes one table. Joining two sources into one view is not supported;
-  project each into its own view and combine the results where they are read.
-- A view over an entity does not rebuild its rows when its code changes. A changed handler applies to
-  changes from then on.
+- A view writes one table, its own, and a query reads that table alone: there is no query across two
+  views' tables.
+- A topic and an entity may not be sources of one view, and a keyed view reads no topic.
+- A keyed view handles one change at a time; its throughput does not grow with instances.
 - A view over a topic starts at the earliest message the broker holds unless it says otherwise, and is
   rebuilt by raising its version, as far back as the broker retains. See
   [Broker topics](topics.md#rebuilding-by-version).
@@ -361,8 +576,33 @@ assert kit.get("c1") == CartRow("c1", {"p1": 2}, False)
 assert isinstance(kit.on_delete("c1"), UpdateRow)
 ```
 
-In Scala, a view is tested with the integration testkit, which runs the real projection against a real
-database:
+A keyed view's handlers are tested with `KeyedViewTestKit`, with no actor system and no database. A change
+of a source goes to that source's handler, the rows it names are written to a map the test reads, and every
+row round-trips through the view's serializer. A declared query is SQL and there is no database to run it,
+so the test says what each query answers; a handler that asks a query the test has not answered fails the
+test, naming the query. Building the kit checks the view's declared statements as a service's start would.
+
+```scala
+test("the right's change notes every row holding it, found by the view's own query") {
+  val kit = KeyedViewTestKit(JoinedRows)
+  kit.change(JoinedRows.lefts, "a", Noted("r1|b"))
+  kit.change(JoinedRows.lefts, "a", Noted("r2|b"))
+  kit.change(JoinedRows.lefts, "a", Noted("r3|c"))
+  // The query is the database's to run; the test says what it answers.
+  kit.answering(JoinedRows.ofRight)(values =>
+    kit.rows.values.filter(_.holding == values("holding")).toVector
+  )
+  kit.change(JoinedRows.rights, "b", Noted("anything"))
+  assertEquals(kit.row("r1").map(_.notes), Some(Vector("left", "right")))
+  assertEquals(kit.row("r2").map(_.notes), Some(Vector("left", "right")))
+  assertEquals(kit.row("r3").map(_.notes), Some(Vector("left")))
+}
+```
+
+Python, TypeScript and Rust have a `KeyedViewTestKit` of the same shape.
+
+In Scala, a plain view is tested with the integration testkit, which runs the real projection against a
+real database:
 
 ```scala
 testKit = AnkkaTestKit.start(

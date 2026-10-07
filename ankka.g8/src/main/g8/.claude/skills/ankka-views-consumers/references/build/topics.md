@@ -320,9 +320,10 @@ A consumer keeps no rows. Its version changes only its group, so a consumer star
 reads the topic again from its start position and acts on every message the broker still holds. During a
 rolling update both versions' groups are live, so a message published during it is delivered under each.
 
-A version applies to a topic source only. A view or consumer that reads an entity and declares one is
-refused when the service starts: a view over an entity is not rebuilt when its code changes, and a version
-that did nothing would say otherwise.
+A view that reads entities declares a version too, and raising it rebuilds the view from every event and
+state its entities recorded; see [Rebuilding by version](views.md#rebuilding-by-version). A consumer that
+reads an entity declares none: it has no group to change and no rows to rebuild, and a version that did
+nothing would say otherwise, so one is refused when the service starts.
 
 ## Consumer groups
 

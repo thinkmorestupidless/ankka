@@ -10,7 +10,6 @@ class KeyedViewTestKitSuite extends munit.FunSuite:
   private def script(ops: Scripts.Op*): Recorded.Ran =
     Recorded.Ran(Scripts.add(Scripts.Script("noted", ops.toVector)))
 
-  // docs:start keyed-view-test
   test("a change of either source writes the rows its handler names") {
     val kit = KeyedViewTestKit(Shipments)
     kit.change(Shipments.shipments, "s1", script(Scripts.Op.Touch(Vector("s1"), Some("c1"))))
@@ -22,7 +21,6 @@ class KeyedViewTestKitSuite extends munit.FunSuite:
     assertEquals(kit.row("s1").map(_.notes), Some(Vector("noted", "noted")))
     assertEquals(kit.row("s2").map(_.notes), Some(Vector("noted", "noted")))
   }
-  // docs:end keyed-view-test
 
   test(
     "a row is moved by deleting its old key and writing its new one, and nothing else is deleted"

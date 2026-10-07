@@ -1,55 +1,67 @@
 ---
 name: ankka-views-consumers
-description: Build the read side and the reactions of an ankka service in Scala, Python, TypeScript or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a consumer that reacts to each change by calling components or publishing one or several messages to a Kafka topic, a graph consumer that publishes entities as graph deltas, and the CloudEvents framing, record keys, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, a graph, nodes and edges, graph deltas, or "find all X where".
+description: Build the read side and the reactions of an ankka service in Scala, Python, TypeScript or Rust — a view that projects an entity's or a topic's changes into a queryable table (one row per source id, SQL queries with jsonText/jsonNumber, tombstones), a keyed view that reads several entities and names its rows by key, declared and recursive queries, rebuilding a view by its version, a consumer that reacts to each change by calling components or publishing one or several messages to a Kafka topic, a graph consumer that publishes entities as graph deltas, and the CloudEvents framing, record keys, ordering and at-least-once rules of broker topics. Use when the task names a view, a row, a projection, a keyed view, a declared or recursive query, a tree, a consumer, ChangeSource, a topic, Kafka, ProjectionRuntime, a graph, nodes and edges, graph deltas, or "find all X where".
 ---
 
 # ankka views and consumers
 
 An entity answers questions about itself, by id. Every other question ("which carts contain this
-product", "the ten largest accounts") is a **view**: a table with one row per source id, maintained from
-the source's changes and queried by attributes. Anything that should *happen* because something changed
-is a **consumer**: it calls other components or publishes to a topic. Both read one source in order and
-run only in a service with the projection runtime registered.
+product", "the ten largest accounts", "everything under this node") is a **view**: a table maintained
+from changes and queried by attributes. A plain view has one row per source id; a **keyed view** reads
+several entities and names its rows by key. Anything that should *happen* because something changed is a
+**consumer**: it calls other components or publishes to a topic. Every source is read in order, and only
+in a service with the projection runtime registered.
 
 ## Rules
 
-1. **One source, one table, one row per source id.** The row key is always the source entity's id.
-   Re-keying by an attribute silently orphans the old row when the attribute changes; every other way
-   of finding rows is a query. Joining two sources in one view is not supported: project each and combine
-   where they are read.
-2. **Build the new row from the current one.** The handler sees one change and `rowState`
+1. **A plain view: one source, one table, one row per source id.** The row key is always the source
+   entity's id. Re-keying by an attribute silently orphans the old row when the attribute changes; every
+   other way of finding rows is a query. Prefer a plain view wherever one will do.
+2. **A keyed view when one row is kept by two entities, or one change updates many rows.**
+   `KeyedView` (Scala), `KeyedView` with `@on` (Python), `KeyedView` with `static sources` (TypeScript),
+   `KeyedView` with `Sources` (Rust): a handler per entity source, each returning row changes by key, each
+   reading the view's own rows (`change.rows.get`, `change.rows.ask`). The platform deletes no row the
+   handler did not name: move a row by deleting its old key and writing its new one in one effect. Write a
+   row whole, from the row as it stands. It handles one change at a time — one writer, whatever the
+   instances. A topic and an entity may not be sources of one view.
+3. **Declare the queries a view answers.** `query("name")(statement)` on the companion
+   (`ankka.view.query`, `declaredQuery`, `query(...)` in Rust), values as `:name`, the table as `table` /
+   `table_of` / `tableOf`; ask with `ask`. The statement is checked at startup: one `SELECT` of the view's
+   own table, no writes, no schema-qualified or other tables — a statement that breaks this stops the
+   service. A recursive query (`WITH RECURSIVE … UNION`) walks a tree in one statement.
+4. **Build the new row from the current one.** The handler sees one change and `rowState`
    (`self.row`); the row is its only memory. Return `updateRow(row)`, `deleteRow()` or `ignore()`.
-3. **A view is eventually consistent; an entity is not.** A reply is sent when the events are persisted
+5. **A view is eventually consistent; an entity is not.** A reply is sent when the events are persisted
    and the view catches up shortly after, with no bound. Read your own write from the entity; use a view
    to find things; never make a decision that must be exact on view data. In a test, poll for the
    expected row until a deadline: that is the consistency model, not a workaround.
-4. **Delivery depends on the source.** Events of an event sourced entity: every event, in order, exactly
+6. **Delivery depends on the source.** Events of an event sourced entity: every event, in order, exactly
    once (the row and the offset commit in one transaction). State of a key value entity: the latest value,
    with intermediate values skippable. A topic: at least once. A consumer is at least once from every
    source, because its offset is recorded only after the handler returns.
-5. **Failure is not an effect for a consumer.** A handler that throws does not advance, and the change is
+7. **Failure is not an effect for a consumer.** A handler that throws does not advance, and the change is
    redelivered. That is the retry mechanism, and it is also why a handler that fails the same way forever
    stops the consumer at that change. Return `done()` or `ignore()` for a change that needs nothing.
-6. **Make every reaction safe to repeat.** Make the target idempotent (set, do not add); key the effect by
+8. **Make every reaction safe to repeat.** Make the target idempotent (set, do not add); key the effect by
    the source id and the change's sequence number (`messageContext.sequenceNumber`,
    `self.metadata.sequence_number`, `this.sequenceNumber`, `ctx.sequence()`); or let the receiver
    deduplicate on what the message carries. Never deduplicate on the CloudEvents `ce-id`: it is
    regenerated on every publish.
-7. **Publish a stable message type, not the entity's events.** A consumer that produces to a topic
+9. **Publish a stable message type, not the entity's events.** A consumer that produces to a topic
    declares its own output type and serializer (`produceTo` + `outputSerializer` in Scala,
    `produces_to` + `out_codec` in Python, `producesTo` + `out` in TypeScript; one without the other is refused) so the domain's events can
    change without breaking listeners.
-8. **Register `ProjectionRuntime()`** (Scala) or every command succeeds and every view stays empty
-   forever. A topic source or output also needs a broker: `ProjectionRuntime.withKafka(servers)`, or
-   `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Python, TypeScript or Rust service's descriptor `env`. A component
-   that needs a broker in a service with none is refused at startup.
-9. **Several messages for one change are one effect.** `effects.produceAll(messages)` (`produce_all` in
-   Python and Rust) publishes them in order to the consumer's one topic; each may name a **record key**,
-   and one that names none is keyed by its subject. The key and the subject are separate: naming a key
-   never changes `ce-subject`. The change is handled when the broker has accepted all of them; if one is
-   refused the change comes again and all are published again, so a reader may see a repeat and never a
-   gap. An empty list is `done`. One change's messages are at most 4 MiB together.
-10. **A graph is published by a graph consumer, never by hand.** `GraphConsumer` handlers return elements
+10. **Register `ProjectionRuntime()`** (Scala) or every command succeeds and every view stays empty
+    forever. A topic source or output also needs a broker: `ProjectionRuntime.withKafka(servers)`, or
+    `ANKKA_KAFKA_BOOTSTRAP_SERVERS` in a Python, TypeScript or Rust service's descriptor `env`. A component
+    that needs a broker in a service with none is refused at startup.
+11. **Several messages for one change are one effect.** `effects.produceAll(messages)` (`produce_all` in
+    Python and Rust) publishes them in order to the consumer's one topic; each may name a **record key**,
+    and one that names none is keyed by its subject. The key and the subject are separate: naming a key
+    never changes `ce-subject`. The change is handled when the broker has accepted all of them; if one is
+    refused the change comes again and all are published again, so a reader may see a repeat and never a
+    gap. An empty list is `done`. One change's messages are at most 4 MiB together.
+12. **A graph is published by a graph consumer, never by hand.** `GraphConsumer` handlers return elements
     — `graph.node(…)`, `graph.edge(…)`, `graph.tombstoneNode(…)` — and each is published as a delta of
     `ankka.graph-delta.v1` under its element key (`node:<id>`, `edge:<id>`), at the change's sequence
     number or revision. The author keeps four rules nothing checks: an element is its **whole** state; an
@@ -65,18 +77,20 @@ run only in a service with the projection runtime registered.
 - **What happens when the source is deleted?** The default removes the row. Override `onDelete`
   (`on_delete`) to keep a tombstone when the row outlives the entity, as an order history keeps a
   checked-out cart.
-- **Is the source rebuildable?** A view over an entity's events can be replayed from the journal; a view
-  over a topic sees only what is published after it starts and cannot be rebuilt. A view does not rebuild
-  rows when its code changes: a changed handler applies from then on.
+- **How will it be rebuilt when its rows change shape?** Raise the view's `version`: the table is emptied
+  once and every source read again — all of an entity's changes, or as much of a topic as the broker
+  retains. A view with no version is at version 1 and never rebuilt; a consumer that reads an entity has no
+  version. Raise it only once every instance runs a release that knows versions of views that read
+  entities.
 - **Which fields will queries filter or order on?** In Scala, queries are SQL over the row's JSON with
   `sql"…"` and `jsonText("field")`, `jsonNumber("total")`, `jsonContains("members", "x")`; values are
   bound parameters, never spliced. `jsonText` compares as text, so a boolean compares against `"true"`
   and a number needs `jsonNumber`. A hot query needs a Postgres expression index on the same term. In
-  Python and TypeScript a view answers only `get(key)` and `all()`.
+  Python, TypeScript and Rust a view answers `get(key)`, `all()` and the queries it declares.
 
 ## Before writing a consumer
 
-- **What does it do, and is that harmless twice?** If not, restructure until it is (see rule 6).
+- **What does it do, and is that harmless twice?** If not, restructure until it is (see rule 8).
 - **From which source kind?** Anything that must react to *every* change needs an event sourced source;
   a key value source may skip intermediate values.
 - **Does the target have its own rules?** A consumer that changes something should call an entity
@@ -166,7 +180,7 @@ Open the one a task needs; each is one topic and stands alone.
 
 ### Build
 
-- `references/build/views.md` — Build a queryable projection of an entity's or a topic's changes, keep one row per source id, and query the rows with SQL in Scala or by key in Python and TypeScript.
+- `references/build/views.md` — Build a queryable projection of entities' or a topic's changes, one row per source id or rows named by key from several sources, with declared and recursive queries, rebuilt by raising its version.
 - `references/build/consumers.md` — React to every change from an entity or a topic, call other components or publish one or several messages onward to a topic, and make the reaction safe to repeat under at-least-once delivery.
 - `references/build/topics.md` — Read views and consumers from a Kafka topic and publish to one — where a source starts, the group it reads under, rebuilding by version as far back as the broker retains, headers, ordering, and an in-memory broker for tests.
 - `references/build/graph.md` — Publish a service's entities as nodes and edges with a graph consumer, which writes versioned graph deltas to a topic for a graph database to follow, with no key, version or JSON written by hand.

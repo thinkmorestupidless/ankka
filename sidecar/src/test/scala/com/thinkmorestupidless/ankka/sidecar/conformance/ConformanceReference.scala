@@ -304,6 +304,7 @@ object ConformanceReference:
   object JoinedLeft  extends JoiningCompanion("joined-left")
   object JoinedRight extends JoiningCompanion("joined-right")
 
+  // docs:start keyed-view
   /** A row the left writes under the key it names, holding a right entity's id. */
   final case class JoinedRow(key: String, holding: String, notes: Vector[String])
 
@@ -333,6 +334,7 @@ object ConformanceReference:
       s"SELECT payload FROM $table WHERE payload::jsonb->>'holding' = :holding ORDER BY row_key"
     )
     def create(ctx: ViewComponentContext) = new JoinedRowsView
+  // docs:end keyed-view
 
   final class CheckoutRecorder(context: ConsumerContext)
       extends Consumer[ShoppingCartEvent, Nothing]:

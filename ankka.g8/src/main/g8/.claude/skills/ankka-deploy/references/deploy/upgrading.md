@@ -59,6 +59,15 @@ This deletes local data. A deployed service needs none of this: the platform app
 runtime the platform ships to each service's database every time an instance starts, and that is safe to
 repeat.
 
+## Raise a view's version after the upgrade
+
+A view that reads entities may declare a version, and raising it rebuilds the view. While it is rebuilt,
+an instance declaring the lower version is told to stop writing to the view, which only an instance of a
+release that knows versions of views that read entities can be. Raise a view's version in a deploy after
+the one that brought every instance of the service to such a release: an older instance left running beside
+the rebuild would go on writing rows, and a row it wrote after the rebuild had read past its entity would
+stay until that entity changed again.
+
 ## Schema changes are additive
 
 Within a supported range, ankka's schema only ever gains tables and columns. A running service never loses

@@ -31,8 +31,9 @@ Expected: every scenario of `features/views/declared-queries.feature` and
 - the cycle case ends with `Timeout` and `pg_stat_activity` shows no statement still running.
 
 **Break it once** (the cheapest proof each check can fail): remove Q6 from `QueryCheck` and the
-"reads another view's table" scenario must go red; remove `SET LOCAL statement_timeout` and the
-cycle scenario must hang to the suite's own timeout.
+"reads another view's table" scenario must go red; set `statement_timeout` to 0 (none) and the
+cycle scenario must go red: the caller is still answered `Timeout` by its own ask, but the statement is
+left running in the database, which the scenario checks.
 
 ## User Story 2 — a keyed view
 
@@ -64,8 +65,9 @@ Expected: `rebuilding.feature`'s seven scenarios as named cases; 024's `ViewVers
 unchanged and green; `TopicSourceRulesSuite`'s refusal case renamed to "a version on a consumer
 that reads an entity is refused" and asserting a view is *not* refused.
 
-**Break it once**: drop the guard from the plain view's write and the rolling-update case must
-find a row written at version 1.
+**Break it once**: let the plain view write whatever its guard says (recover the guard's refusal)
+and the plain view's rolling-update case must find a row written at the lower version. The keyed
+view's rolling-update case cannot see this: it is the keyed view's guard.
 
 ## Every language
 

@@ -201,6 +201,30 @@ class EntityViewVersionSuite extends munit.FunSuite with LogCapturing:
     assertEquals(kit.service.viewClient.forView(Rebuilt).get("s1").map(_.version), Some(4))
   }
 
+  test("during a rolling update the instance at the lower version stops writing a plain view") {
+    // A plain view's slices are spread across the instances, so the one at the lower version holds
+    // some of them while the roll lasts; enough new entities that some of their changes reach it.
+    val behind = EntityVersions.plain.getOrElse(1)
+    EntityVersions.keyed = 4
+    EntityVersions.plain = Some(behind + 1)
+    val more = (1 to 32).map(n => s"c-roll-$n")
+    val peer = kit.startPeer(Seq(runtime()))
+    try
+      eventually("the new instance has rebuilt the plain view")(
+        recorded("rebuilt-plain") == Some(behind + 1)
+      )
+      more.foreach(id => record(Customer, id, peer.componentClient))
+      Thread.sleep(3000)
+      assertEquals(
+        rows("rebuilt-plain").map(_.version).distinct.filter(_ != behind + 1),
+        Vector.empty,
+        "a row written by the instance at the lower version"
+      )
+    finally peer.stop()
+    restartAt(4)
+    holds("rebuilt-plain", 2 + more.size, version = behind + 1)
+  }
+
 object EntityViewVersionSuite:
 
   /** The versions each view declares when an instance of the service starts. */

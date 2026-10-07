@@ -121,7 +121,7 @@ class SchemaInitSuite extends munit.FunSuite:
       r.setSpec(spec)
       r
     }
-    val plan       = ProvisioningPlan.Waiting(true, true, true, true, None)
+    val plan       = ProvisioningPlan.Waiting(true, true, true, None)
     val deployment = Rendering.deployment(resource, spec, "ankka-checkout", plan)
     val podSpec    = deployment.getSpec.getTemplate.getSpec
 

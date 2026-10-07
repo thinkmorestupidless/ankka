@@ -92,9 +92,6 @@ feature also says what that feature does not do.
   its installer.
 - **The installation's root authorities do not rotate.** Workload certificates rotate every eight hours;
   the two roots they are issued from are valid for ten years and replacing one is a manual job.
-- **The operator's grant on Secrets is broader than it uses.** It reads one Secret per provisioned
-  database by name, and the same grant would let it read any Secret whose name it knows, including an
-  issued certificate's. It never does.
 - **A supplied database's credential is its owner's.** A service that brings its own database through
   `ANKKA_DB_*` variables can connect with TLS and a client certificate, but the platform issues and
   rotates nothing for it.

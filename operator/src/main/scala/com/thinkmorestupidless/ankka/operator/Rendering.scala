@@ -781,15 +781,17 @@ object Rendering:
         Action.EnsureNetworkPolicy(CnpgRendering.databasePolicy(namespace)),
         Action.EnsureCertificate(ZeroTrust.Database.clientCertificate(resource, spec, namespace))
       )
+    // On every pass that provisions, because the operator never reads a Secret to learn whether it
+    // is there: a `create` answered with a conflict is how it finds out, once per process.
+    def credentials: Action =
+      Action.EnsureCredentials(
+        CnpgRendering.credentialSecret(spec, namespace, CnpgRendering.projectClusterName)
+      )
     plan match
       case ProvisioningPlan.NotNeeded | ProvisioningPlan.Supplied => Vector.empty
-      case ProvisioningPlan.Waiting(_, needsCredentials, needsRole, needsDatabase, _) =>
+      case ProvisioningPlan.Waiting(_, needsRole, needsDatabase, _) =>
         tls ++ Vector(
-          Option.when(needsCredentials)(
-            Action.EnsureCredentials(
-              CnpgRendering.credentialSecret(spec, namespace, CnpgRendering.projectClusterName)
-            )
-          ),
+          Some(credentials),
           Option.when(needsRole)(
             Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
           ),
@@ -803,7 +805,7 @@ object Rendering:
         // the schema ConfigMap is kept current on every pass so a schema change reaches an
         // existing project namespace automatically. Never a credential or a database; a role only
         // for the one migration to certificates.
-        tls ++
+        (tls :+ credentials) ++
           Option.when(migrateRole)(
             Action.EnsureDatabaseRole(CnpgRendering.databaseRole(spec, namespace))
           ) :+

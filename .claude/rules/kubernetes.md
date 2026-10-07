@@ -174,9 +174,11 @@ The journal and projection scripts are taken verbatim from the Pekko projects.
   `ClassCastException` on every reconcile — found only by the k3s suite. Such a field carries
   `@JsonDeserialize(contentAs = classOf[java.lang.Long])`, and a test uses the value as a `Long`.
 
-- **The operator's `secrets: get` reads any Secret by name**, including an issued certificate's,
-  whose name is derivable. Its code never does; narrowing the grant means the credential Secret
-  becoming a ConfigMap (it holds nothing secret since feature 014).
+- **The operator has no `get` on Secrets, and must never need one.** It writes a Secret with `create`
+  and learns from a 409 that one is already there (`EnsureCredentials`, `EnsureSecretKey`), remembering
+  it per process; whether a database was recovered is read from its CNPG `Database`, not from its
+  credential Secret. `OperatorClusterSuite` mints the operator's own token and asserts a `get` is
+  refused. Code that reads a Secret fails there, on a real API server, and nowhere offline.
 - **Every k3s suite that runs the operator needs `PkiStack.install`**: the operator asks cert-manager
   for every workload's certificates and a pod starts only once they exist. And a plain `wget` from
   the node reaches no service any more — `InPod.curl` runs `curl` inside a service pod (the images

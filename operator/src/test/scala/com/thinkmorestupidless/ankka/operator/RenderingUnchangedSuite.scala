@@ -25,7 +25,10 @@ import java.nio.file.{Files, Path, Paths}
  * as a side effect of anything else: only `-Dankka.rendering.pin=true` rewrites them, deliberately,
  * and `ankka.docs.update`, which other suites share, does not. They have been repinned once since,
  * on purpose: the secret store (feature 023) gives every service a secret key, its Secret and the
- * variable naming it, and the table in its schema — a change meant to reach every service.
+ * variable naming it, and the table in its schema — a change meant to reach every service. And
+ * again when the operator lost `get` on Secrets: a provisioned database's credential is ensured on
+ * every pass, by a `create` an existing Secret refuses, so a ready service's actions gained that
+ * one action, and no object changed.
  */
 class RenderingUnchangedSuite extends munit.FunSuite:
 

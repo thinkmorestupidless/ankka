@@ -32,7 +32,6 @@ class ProvisioningSuite extends munit.FunSuite:
     // Even an observation that would otherwise decide Failed, and either value of the flag.
     val failing = DatabaseObservation(
       clusterReadyInstances = 1,
-      secretExists = true,
       role = CnpgObjectState(exists = true, applied = false, message = Some("boom"))
     )
     assertEquals(Provisioning.decide(web, failing), ProvisioningPlan.NotNeeded)
@@ -65,7 +64,6 @@ class ProvisioningSuite extends munit.FunSuite:
       plan,
       ProvisioningPlan.Waiting(
         needsCluster = true,
-        needsCredentials = true,
         needsRole = true,
         needsDatabase = true,
         detail = None
@@ -76,20 +74,14 @@ class ProvisioningSuite extends munit.FunSuite:
 
   test("rule 4: a cluster that exists but is not ready yet is the same as no cluster") {
     val plan = Provisioning.decide(spec, DatabaseObservation(clusterReadyInstances = 0))
-    assertEquals(plan, ProvisioningPlan.Waiting(true, true, true, true, None))
+    assertEquals(plan, ProvisioningPlan.Waiting(true, true, true, None))
   }
 
-  test("rule 5: capacity ready, no credentials yet") {
+  test("rule 6: capacity exists, role and database not created yet") {
+    // No rule for the credential Secret: the operator reads no Secret, and ensures that one on
+    // every pass instead, which the rendering suites hold.
     val plan = Provisioning.decide(spec, DatabaseObservation(clusterReadyInstances = 1))
-    assertEquals(plan, ProvisioningPlan.Waiting(false, true, true, true, None))
-  }
-
-  test("rule 6: capacity and credentials exist, role and database not created yet") {
-    val plan = Provisioning.decide(
-      spec,
-      DatabaseObservation(clusterReadyInstances = 1, secretExists = true)
-    )
-    assertEquals(plan, ProvisioningPlan.Waiting(false, false, true, true, None))
+    assertEquals(plan, ProvisioningPlan.Waiting(false, true, true, None))
   }
 
   test("rule 7a: the role reports the transient 'forbidden' message — waiting, not failed") {
@@ -99,11 +91,10 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = false, message = Some(message))
       )
     )
-    assertEquals(plan, ProvisioningPlan.Waiting(false, false, true, true, Some(message)))
+    assertEquals(plan, ProvisioningPlan.Waiting(false, true, true, Some(message)))
     assertEquals(plan.reportedPhase, "Waiting")
   }
 
@@ -115,12 +106,11 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = true),
         database = CnpgObjectState(exists = true, applied = false, message = Some(message))
       )
     )
-    assertEquals(plan, ProvisioningPlan.Waiting(false, false, false, true, Some(message)))
+    assertEquals(plan, ProvisioningPlan.Waiting(false, false, true, Some(message)))
   }
 
   test("rule 8a: a real rejection on the role is Failed") {
@@ -129,7 +119,6 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = false, message = Some(message))
       )
     )
@@ -143,7 +132,6 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = true),
         database = CnpgObjectState(exists = true, applied = false, message = Some(message))
       )
@@ -156,7 +144,6 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role =
           CnpgObjectState(exists = true, applied = false, message = Some("ERROR: real failure")),
         database = CnpgObjectState(exists = false)
@@ -170,27 +157,25 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = true),
         database = CnpgObjectState(exists = true, applied = true),
         resourceCreatedAt = Some(Instant.parse("2026-09-17T10:00:00Z")),
-        secretCreatedAt = Some(Instant.parse("2026-09-17T10:00:05Z")) // after the resource
+        databaseCreatedAt = Some(Instant.parse("2026-09-17T10:00:05Z")) // after the resource
       )
     )
     assertEquals(plan, ProvisioningPlan.Ready(recovered = false))
     assertEquals(plan.reportedPhase, "Provisioned")
   }
 
-  test("rule 9: everything applied, the secret predates this resource — Recovered") {
+  test("rule 9: everything applied, the database predates this resource — Recovered") {
     val plan = Provisioning.decide(
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = true),
         database = CnpgObjectState(exists = true, applied = true),
         resourceCreatedAt = Some(Instant.parse("2026-09-17T10:00:00Z")),
-        secretCreatedAt = Some(Instant.parse("2026-09-10T08:00:00Z")) // well before the resource
+        databaseCreatedAt = Some(Instant.parse("2026-09-10T08:00:00Z")) // well before the resource
       )
     )
     assertEquals(plan, ProvisioningPlan.Ready(recovered = true))
@@ -202,7 +187,6 @@ class ProvisioningSuite extends munit.FunSuite:
       spec,
       DatabaseObservation(
         clusterReadyInstances = 1,
-        secretExists = true,
         role = CnpgObjectState(exists = true, applied = true),
         database = CnpgObjectState(exists = true, applied = true)
       )
@@ -215,7 +199,6 @@ class ProvisioningSuite extends munit.FunSuite:
     // the write-count assertion against a real target belongs in the cluster suite (T028/US1).
     val steady = DatabaseObservation(
       clusterReadyInstances = 1,
-      secretExists = true,
       role = CnpgObjectState(exists = true, applied = true),
       database = CnpgObjectState(exists = true, applied = true)
     )
@@ -228,7 +211,6 @@ class ProvisioningSuite extends munit.FunSuite:
   test("a ready database whose role still has a password is ready, and due its migration") {
     val observed = com.thinkmorestupidless.ankka.operator.cnpg.DatabaseObservation(
       clusterReadyInstances = 1,
-      secretExists = true,
       role = com.thinkmorestupidless.ankka.operator.cnpg.CnpgObjectState(true, true, None),
       database = com.thinkmorestupidless.ankka.operator.cnpg.CnpgObjectState(true, true, None),
       roleHasPassword = true

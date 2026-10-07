@@ -343,6 +343,14 @@ object BlueprintCheck:
           "timers",
           "a schedule needs the service's timers: register TimerRuntime"
         )
+      // A scheduled run's input is its period, so the input shape must admit one.
+      val period = bp.input.check(Period.example.json)
+      if period.nonEmpty then
+        problem(
+          "input",
+          "period",
+          s"a scheduled blueprint's input is the period, which this input shape does not admit: ${period.mkString("; ")}"
+        )
     }
     bp.runBudget.foreach(b =>
       if b <= 0 then problem("runBudget", "run-budget", "a run budget is above nought")

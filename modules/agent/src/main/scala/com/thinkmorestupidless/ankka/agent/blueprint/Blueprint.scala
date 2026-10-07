@@ -1,18 +1,11 @@
 package com.thinkmorestupidless.ankka.agent.blueprint
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{
-  readFromString,
-  writeToString,
-  JsonReader,
-  JsonValueCodec,
-  JsonWriter
-}
+import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString, JsonValueCodec}
 import com.thinkmorestupidless.ankka.agent.Json
 import com.thinkmorestupidless.ankka.core.Codecs
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.time.{DayOfWeek, LocalTime, ZoneId}
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 
@@ -216,44 +209,6 @@ object Step:
     /** A critique step: one worker drafts until a verdict passes. */
     def critique(drafter: String, verdict: Verdict, rounds: Int, keepLast: Boolean = false): Step =
       Step(name, Action.Ask(Some(drafter)), Over.Once, Some(Until(verdict, rounds, keepLast)))
-
-/** How often a schedule's due times come. */
-enum Cadence:
-  case EveryHours(hours: Int)
-  case EveryDays(days: Int)
-
-  /** `day` is a `DayOfWeek` name; `time` is `HH:mm`, local to the schedule's zone. */
-  case Weekly(day: String, time: String)
-
-/** What due times missed in an outage start: one run covering them all, or one run each. */
-enum CatchUp:
-  case One, Each
-
-object CatchUp:
-  /** A fieldless enum would otherwise be written as `{"type":"One"}`. */
-  given JsonValueCodec[CatchUp] = new JsonValueCodec[CatchUp]:
-    def decodeValue(in: JsonReader, default: CatchUp): CatchUp = in.readString(null) match
-      case "one"  => One
-      case "each" => Each
-      case other  => in.decodeError(s"catchUp must be 'one' or 'each', not '$other'")
-    def encodeValue(x: CatchUp, out: JsonWriter): Unit = out.writeVal(x match
-      case One  => "one"
-      case Each => "each")
-    def nullValue: CatchUp = null
-
-/** A blueprint's cadence and zone, from which its due times follow. */
-final case class Schedule(cadence: Cadence, zone: String, catchUp: CatchUp = CatchUp.One):
-  /** One run per missed due time after an outage, instead of one covering them all. */
-  def perMissedPeriod: Schedule = copy(catchUp = CatchUp.Each)
-  def zoneId: Option[ZoneId]    = Try(ZoneId.of(zone)).toOption
-
-object Schedule:
-  def weekly(day: DayOfWeek, time: LocalTime, zone: ZoneId): Schedule =
-    Schedule(Cadence.Weekly(day.name, time.toString.take(5)), zone.getId)
-  def everyHours(hours: Int, zone: ZoneId = ZoneId.of("UTC")): Schedule =
-    Schedule(Cadence.EveryHours(hours), zone.getId)
-  def everyDays(days: Int, zone: ZoneId = ZoneId.of("UTC")): Schedule =
-    Schedule(Cadence.EveryDays(days), zone.getId)
 
 /**
  * A description of workers and the steps between them, which a service registers and the platform

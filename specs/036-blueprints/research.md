@@ -458,6 +458,22 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   treats the timed-out call as a turn still in progress and watches the session for its answer or
   its approval request, up to fifteen minutes; asking again would make a second turn and a second
   set of model calls (R18). `LongTurnSuite` holds it.
+- Phase 6 (T043–T047): `schedules.feature` passes, 10 scenarios, each after the first on a service
+  started again with a fresh clock at 1 October 2026, since a `MovableClock` moves forward only and
+  the scenarios' dates do not. Three platform additions, none of them blueprint words: a
+  `TimedActionContext` gives its handler the service's `timers` and the sweeper's `clock`, which is
+  how the schedule timer sets the next occurrence and reads now (R12, R14) without a static holder;
+  `AnkkaService.extension[E]` finds an extension by type, which is how the agent runtime takes the
+  `TimerRuntime`'s clock; the testkit gains `stopService`, `startService(extensions)` and
+  `restartService(extensions, whileStopped)`, for an outage with a clock moved in it. The feature's
+  clock-change scenario named the wrong due time: the 169-hour period is the one ending on 25
+  October, when the clocks go back, not the one after; the scenario now reaches that date. Interval
+  cadences are local: every so many hours counts from midnight within each day of the zone, every so
+  many days is midnight on days whose epoch day divides, so the day the clocks change is 23 or 25
+  hours, as a week is 167 or 169. A scheduled blueprint's input shape must admit a period, which
+  the check now says (rule `period`). A pending occurrence that has passed is left to fire when a
+  version is registered: its handler reads the version current then, which is what the catch-up
+  version scenario asks.
 - Review (R24–R26): the graph scheduler, the three-part step and the call step are built; the
   patterns suites to come (Phase 5) build the combinators once for every action. `CallStepSuite`
   shows a handler given what the step reads and told its run, and a failing handler failing the

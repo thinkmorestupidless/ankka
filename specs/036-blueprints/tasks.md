@@ -155,16 +155,16 @@ existing suite can see.
 
 ### Tests first
 
-- [ ] T043 [P] [US4] `BPU/ScheduleSuite.scala`: due times for `Every(6.hours)`, `Every(1.day)` and `Weekly(SUNDAY, 20:00, Europe/London)`; across 25 October 2026 the local time stays 20:00 and the period is 169 hours; `missed(lastEnd, now)` lists every due time passed; `one` gives one period from the last end to the latest, `each` one per due time in order, and periods meet; a schedule's first period starts one cadence before its first due time.
-- [ ] T044 [P] [US4] `BPT/ScheduleFeatures.scala`: `GherkinSuite` over `features/blueprints/schedules.feature` with `TimerRuntime(pollInterval = 200.millis, clock = movableClock)`; the outage scenarios stop the service with the kit, move the clock, and start it again; the catch-up version scenario needs the service started again with a registry carrying version 2, so the kit gains `restartService(extensions)` (or the suite starts a second kit on the same database) and T032 adds it; the instances scenario uses `startPeer` for a second and third instance.
+- [X] T043 [P] [US4] `BPU/ScheduleSuite.scala`: due times for `Every(6.hours)`, `Every(1.day)` and `Weekly(SUNDAY, 20:00, Europe/London)`; across 25 October 2026 the local time stays 20:00 and the period is 169 hours; `missed(lastEnd, now)` lists every due time passed; `one` gives one period from the last end to the latest, `each` one per due time in order, and periods meet; a schedule's first period starts one cadence before its first due time.
+- [X] T044 [P] [US4] `BPT/ScheduleFeatures.scala`: `GherkinSuite` over `features/blueprints/schedules.feature` with `TimerRuntime(pollInterval = 200.millis, clock = movableClock)`; the outage scenarios stop the service with the kit, move the clock, and start it again; the catch-up version scenario needs the service started again with a registry carrying version 2, so the kit gains `restartService(extensions)` (or the suite starts a second kit on the same database) and T032 adds it; the instances scenario uses `startPeer` for a second and third instance.
 
 ### Implementation
 
-- [ ] T045 [US4] Due times in `BP/Schedule.scala` (or beside `Schedule` in `BP/Blueprint.scala`): `next(after, schedule)`, `missed(lastEnd, now, schedule)`, `periods(lastEnd, missed, catchUp)`, pure, with `java.time` in the schedule's zone (R12, R13). Make T043 pass.
-- [ ] T046 [US4] `ScheduleTimer` (`ankka-blueprint-schedule`, platform timed action) in `BP/ScheduleTimer.scala`: timer `schedule:<blueprint>:<due epoch millis>`; on firing, read the blueprint, compute the missed due times under the current version's schedule with the runtime's clock, start each run under `schedule:<blueprint>:<due epoch millis>` with the period as input and the current version (R13), record `ScheduleAdvanced`, create the next occurrence's timer (R12).
-- [ ] T047 [US4] Registering a version (T017, T019): a version with a schedule creates the next occurrence's timer when none is pending, the first period starting at the last period end or, for a first schedule, one cadence before the first due time; a version without one deletes the pending timer and records `ScheduleStopped` (FR-024). A service carrying a scheduled blueprint without `TimerRuntime` is refused at start. Register `ScheduleTimer` in `AgentRuntime.descriptors`; take the clock from `TimerRuntime`. Make T044 pass.
+- [X] T045 [US4] Due times in `BP/Schedule.scala` (or beside `Schedule` in `BP/Blueprint.scala`): `next(after, schedule)`, `missed(lastEnd, now, schedule)`, `periods(lastEnd, missed, catchUp)`, pure, with `java.time` in the schedule's zone (R12, R13). Make T043 pass.
+- [X] T046 [US4] `ScheduleTimer` (`ankka-blueprint-schedule`, platform timed action) in `BP/ScheduleTimer.scala`: timer `schedule:<blueprint>:<due epoch millis>`; on firing, read the blueprint, compute the missed due times under the current version's schedule with the runtime's clock, start each run under `schedule:<blueprint>:<due epoch millis>` with the period as input and the current version (R13), record `ScheduleAdvanced`, create the next occurrence's timer (R12).
+- [X] T047 [US4] Registering a version (T017, T019): a version with a schedule creates the next occurrence's timer when none is pending, the first period starting at the last period end or, for a first schedule, one cadence before the first due time; a version without one deletes the pending timer and records `ScheduleStopped` (FR-024). A service carrying a scheduled blueprint without `TimerRuntime` is refused at start. Register `ScheduleTimer` in `AgentRuntime.descriptors`; take the clock from `TimerRuntime`. Make T044 pass.
 
-**Checkpoint**: quickstart §3.
+**Checkpoint**: quickstart §3. ✅ 2026-10-07: `ScheduleSuite` (7) and `ScheduleFeatures` (10 scenarios) pass; the clock-change scenario now reaches the due time on 25 October, whose period is the one that crosses the change.
 
 ---
 
@@ -207,6 +207,7 @@ existing suite can see.
 - [ ] T060 `APIT/BlueprintsDocumentationSuite.scala`: one test per scenario of `features/documentation/blueprints.feature`, reading the published pages as `ServiceCallsDocumentationSuite` does.
 - [ ] T061 Glossary: once T006 and T039–T040 have used them, settle **for-each step**, **work step** and **input shape** (remove *Proposed.* or rename across features, spec and glossary), and record the outcome in the spec's Clarifications.
 - [ ] T062 `just docs-sync && just docs`, `just features`, `sbt scalafmtAll scalafmtSbt`, then `caffeinate -i sbt -Dankka.cluster.tests=off buildAll`; record in `research.md`'s *Verified during implementation* what each verify-first item showed.
+- [ ] T063 [P] `DOCS/build/timers.md`: a handler's `timerContext.timers` and `timerContext.clock` (the sweeper's, which the testkit's `MovableClock` moves), and `AnkkaService.extension[E]`; `DOCS/build/testing.md` (or where the testkit is documented): `stopService`, `startService`, `restartService(extensions, whileStopped)` and `MovableClock`.
 
 ---
 

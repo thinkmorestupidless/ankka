@@ -162,16 +162,23 @@ final class AgentRuntime private (
       )
     }
 
-    // Approval time limits are kept as timers, which need the service's TimerRuntime to fire.
+    // Approval time limits and schedules are kept as timers, which need the service's TimerRuntime
+    // to fire; its clock is the one they are set by, so a test that moves it moves them (R14).
+    val clock: java.time.Clock =
+      service
+        .extension[com.thinkmorestupidless.ankka.runtime.TimerRuntime]
+        .map(_.clock)
+        .getOrElse(java.time.Clock.systemUTC())
     val timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] =
       Option.when(service.extensionNames.contains("timers"))(
         com.thinkmorestupidless.ankka.runtime.DatabaseTimerScheduler(
-          com.thinkmorestupidless.ankka.runtime.Database()
+          com.thinkmorestupidless.ankka.runtime.Database(),
+          clock
         )
       )
 
     // Blueprints first: the autonomous hosts resolve a work step's task against the registry.
-    startBlueprints(service, timers)
+    startBlueprints(service, timers, clock)
     startAutonomous(service, timers)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
@@ -244,7 +251,8 @@ final class AgentRuntime private (
    */
   private def startBlueprints(
       service: AnkkaService,
-      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler],
+      clock: java.time.Clock
   )(using system: ActorSystem[?]): Unit =
     blueprintsBuilder.foreach { build =>
       val context = new blueprint.BlueprintContext:
@@ -255,7 +263,7 @@ final class AgentRuntime private (
       val declared = build(context).withTimers(timers.isDefined)
       val mcpTools = connectMcp(ComponentId("ankka-blueprints"), declared.servers, service, timers)
       val registry = declared.withMcpTools(mcpTools)
-      val calls    = blueprint.BlueprintCalls(service.componentClient, registry)
+      val calls    = blueprint.BlueprintCalls(service.componentClient, registry, timers, clock)
       declared.carried.foreach { carried =>
         val registered =
           try calls.register(carried)
@@ -512,7 +520,8 @@ object AgentRuntime:
       blueprint.RunEntity.descriptor,
       blueprint.AskAgent.platformDescriptor,
       blueprint.WorkerAgent.platformDescriptor,
-      blueprint.RunsView.platformDescriptor
+      blueprint.RunsView.platformDescriptor,
+      blueprint.ScheduleTimer.platformDescriptor
     )
 
 /**

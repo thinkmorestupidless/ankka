@@ -29,7 +29,7 @@ import scala.jdk.CollectionConverters.*
  */
 final class AnkkaTestKit private (
     descriptors: Seq[ComponentDescriptor],
-    extensions: Seq[RuntimeExtension],
+    private var extensions: Seq[RuntimeExtension],
     configure: ServiceBuilder => ServiceBuilder,
     config: Config,
     database: TestDatabase,
@@ -168,11 +168,34 @@ final class AnkkaTestKit private (
    */
   def restartService(
       secretKey: Option[String] = currentKey,
-      downFor: FiniteDuration = scala.concurrent.duration.Duration.Zero
+      downFor: FiniteDuration = scala.concurrent.duration.Duration.Zero,
+      /** The extensions the fresh service starts with: a registry carrying another version, say. */
+      extensions: Seq[RuntimeExtension] = this.extensions,
+      /**
+       * Run between the stop and the start: what happens while the service is down, as moving a
+       * clock.
+       */
+      whileStopped: => Unit = ()
   ): Unit =
+    stopService()
+    if downFor > scala.concurrent.duration.Duration.Zero then Thread.sleep(downFor.toMillis)
+    whileStopped
+    startService(extensions, secretKey)
+
+  /**
+   * Terminates the service and leaves it stopped, as an outage does; `startService` ends it. The
+   * kit's clients are not usable in between.
+   */
+  def stopService(): Unit =
     current.terminate()
     scala.concurrent.Await.ready(current.whenTerminated, readyTimeout): Unit
-    if downFor > scala.concurrent.duration.Duration.Zero then Thread.sleep(downFor.toMillis)
+
+  /** Starts a fresh service against the same database, after `stopService`. */
+  def startService(
+      extensions: Seq[RuntimeExtension] = this.extensions,
+      secretKey: Option[String] = currentKey
+  ): Unit =
+    this.extensions = extensions
     currentKey = secretKey
     current = AnkkaTestKit.hostService(
       descriptors,

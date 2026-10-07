@@ -118,23 +118,7 @@ final class RunCalls private[ankka] (
       input: Json,
       runId: String,
       startedBy: String
-  ): RunSnapshot =
-    val deadline = held.timeLimit.map(t => System.currentTimeMillis() + t.toMillis)
-    val record = entity(runId)
-      .call(RunEntity.start)
-      .invoke(RunEntity.Start(held.name, version, input.render, startedBy, deadline))
-    // Wake the host; a host that was remembered is awake already, and a poke does it no harm.
-    ComponentClient.await(
-      client.transportRef.ask(
-        RunHost.ComponentId,
-        EntityId(runId),
-        MethodName(RunHost.Start),
-        Array.emptyByteArray,
-        Metadata.empty
-      ),
-      client.transportRef.askTimeout
-    ): Unit
-    RunSnapshot.of(record)
+  ): RunSnapshot = RunCalls.startHeld(client, held, version, input, runId, startedBy)
 
   def get(runId: String): RunSnapshot = RunSnapshot.of(entity(runId).call(RunEntity.get).invoke())
 
@@ -184,3 +168,33 @@ final class RunCalls private[ankka] (
             SqlSyntax.jsonText("blueprint") ++ sql" = $name",
             SqlSyntax.jsonNumber("startedAt")
           )
+
+object RunCalls:
+  /**
+   * Starts a run of a version already read, its input already checked; the schedule's way in too.
+   */
+  private[ankka] def startHeld(
+      client: ComponentClient,
+      held: Blueprint,
+      version: Int,
+      input: Json,
+      runId: String,
+      startedBy: String
+  ): RunSnapshot =
+    val deadline = held.timeLimit.map(t => System.currentTimeMillis() + t.toMillis)
+    val record = client
+      .forEventSourcedEntity(EntityId(runId))
+      .call(RunEntity.start)
+      .invoke(RunEntity.Start(held.name, version, input.render, startedBy, deadline))
+    // Wake the host; a host that was remembered is awake already, and a poke does it no harm.
+    ComponentClient.await(
+      client.transportRef.ask(
+        RunHost.ComponentId,
+        EntityId(runId),
+        MethodName(RunHost.Start),
+        Array.emptyByteArray,
+        Metadata.empty
+      ),
+      client.transportRef.askTimeout
+    ): Unit
+    RunSnapshot.of(record)

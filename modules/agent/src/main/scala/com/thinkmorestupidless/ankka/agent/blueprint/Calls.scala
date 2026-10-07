@@ -2,8 +2,9 @@ package com.thinkmorestupidless.ankka.agent.blueprint
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString, JsonValueCodec}
 import com.thinkmorestupidless.ankka.core.{Codecs, CommandError, EntityId, ErrorCode}
-import com.thinkmorestupidless.ankka.sdk.ComponentClient
+import com.thinkmorestupidless.ankka.sdk.{ComponentClient, TimerScheduler}
 
+import java.time.Clock
 import scala.util.Try
 
 /** What registering a blueprint gave: its version, whether that version is new, and any notes. */
@@ -19,7 +20,9 @@ final case class VersionInfo(number: Int, digest: String, registeredAt: Long)
  */
 final class BlueprintCalls private[ankka] (
     client: ComponentClient,
-    val registry: BlueprintRegistry
+    val registry: BlueprintRegistry,
+    timers: Option[TimerScheduler],
+    clock: Clock
 ):
 
   private def entity(name: String) = client.forEventSourcedEntity(EntityId(name))
@@ -45,6 +48,8 @@ final class BlueprintCalls private[ankka] (
     val accepted = entity(blueprint.name)
       .call(BlueprintEntity.register)
       .invoke(BlueprintEntity.Register(blueprint.canonical, blueprint.digest))
+    // Every registration, new version or not: a schedule whose timer was lost is set again.
+    ScheduleTimer.onRegistered(client, timers, clock, blueprint)
     Registered(blueprint.name, accepted.number, accepted.isNew, notes)
 
   /** Every version of a blueprint, oldest first; none for a name never registered. */

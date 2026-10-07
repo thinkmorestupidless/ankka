@@ -38,7 +38,7 @@ Feature: Runs on a schedule
 
   Scenario: a weekly cadence keeps its time of day across a change of the clocks
     Given the clocks in "Europe/London" go back on "2026-10-25"
-    When the clock reaches the due time on "2026-11-01"
+    When the clock reaches the due time on "2026-10-25"
     Then the run of "digest" is started at "20:00" in "Europe/London"
     And its period is one hour longer than a week
 

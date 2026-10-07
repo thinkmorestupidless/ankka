@@ -50,6 +50,15 @@ trait TimedActionContext extends ComponentContext:
   /** Other services, called as this one. */
   def services: ServiceClients
 
+  /** The service's timers, so a handler can schedule what comes next under another name. */
+  def timers: TimerScheduler
+
+  /**
+   * The clock the sweeper fired this timer by: what a handler reads as now, so a test that moves
+   * the sweeper's clock moves the handler's too.
+   */
+  def clock: java.time.Clock
+
 private[ankka] final case class SimpleTimedActionContext(
     componentId: ComponentId,
     componentClient: ComponentClient,
@@ -57,7 +66,9 @@ private[ankka] final case class SimpleTimedActionContext(
     previousAttempts: Int,
     dueTime: java.time.Instant,
     secrets: SecretStore,
-    services: ServiceClients
+    services: ServiceClients,
+    timers: TimerScheduler,
+    clock: java.time.Clock
 ) extends TimedActionContext
 
 /**

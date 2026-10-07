@@ -28,8 +28,9 @@ enum BlueprintEvent:
   case VersionRegistered(number: Int, canonical: String, digest: String, registeredAt: Long)
 
   /**
-   * A scheduled run started, covering up to `periodEnd`; the next due time, if the schedule goes
-   * on.
+   * Where the schedule stands: periods are covered up to `periodEnd`, and `nextDue` is the due time
+   * pending, if the schedule goes on. A schedule's first record has the period end one cadence
+   * before its first due time, and no run.
    */
   case ScheduleAdvanced(periodEnd: Long, nextDue: Option[Long])
   case ScheduleStopped(at: Long)

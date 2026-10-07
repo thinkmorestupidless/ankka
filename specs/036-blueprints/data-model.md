@@ -188,7 +188,14 @@ Row: `runId`, `blueprint`, `version`, `status`, `startedAt`, `endedAt`. Source: 
 
 ## `ankka-blueprint-schedule` (timed action, platform)
 
-Timer `schedule:<blueprint>:<due epoch millis>`, payload the blueprint name and the due time.
+Timer `schedule:<blueprint>:<due epoch millis>`, payload the blueprint name and the due time. Its
+handler reads the current version; with no schedule it stops the schedule; with the record's
+`nextDue` elsewhere it only makes sure that occurrence's timer is set; otherwise it finds the due
+times after `lastPeriodEnd` (or one cadence before this due time, for a first) up to now, starts a
+run per period under `schedule:<blueprint>:<period end millis>` with `startedBy = "schedule"`,
+advances the schedule and sets the next timer. Registering a version with a schedule sets the
+next due time's timer when none is pending or the pending one is neither passed nor the schedule's
+next; one without a schedule deletes the pending timer and stops the schedule.
 
 ### TaskDefinition (on `ankka-task`, for a work step)
 

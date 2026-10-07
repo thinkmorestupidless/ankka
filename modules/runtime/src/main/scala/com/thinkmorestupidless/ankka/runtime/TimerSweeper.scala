@@ -294,7 +294,9 @@ private[ankka] final class Sweep(
       timer.attempts,
       timer.told,
       secrets,
-      services
+      services,
+      new DatabaseTimerScheduler(database, clock),
+      clock
     )
 
     // Handlers may block on ComponentClient, so they run on a virtual thread.

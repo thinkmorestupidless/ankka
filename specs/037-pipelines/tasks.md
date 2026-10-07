@@ -59,7 +59,7 @@ in the SDK and the remote descriptors, the declarations file, the refusal path.
 - [X] T014 [P] Python SDK: `PY/contract.py` (`Contract.from_file`, `Contract.from_bytes`, JCS via `rfc8785`), `topic(name, start=, contract=, broker=, parallel=)` and `Publication` in `PY/consumer.py`/`PY/view.py`, discovery carries them, `PROTOCOL_VERSION = "1.14"` in `PY/service.py`; tests in `sdks/python/tests/test_contract.py` against `fingerprints.json` and `tests/test_discovery.py` for the fields
 - [X] T015 [P] TypeScript SDK: `TS/contract.ts` (`Contract.fromFile`, `canonicalize`), `topic({...})` options and `Publication` in `TS/consumer.ts`/`TS/view.ts`, `TS/spec.ts` to 1.14; tests `sdks/typescript/test/contract.test.ts`, `discovery.test.ts`
 - [X] T016 [P] Rust SDK: `RS/contract.rs` (`Contract::from_file`, `serde_jcs`), `Source::topic(...).contract(..).broker(..).parallel()` and `Publication` in `RS/consumer.rs`/`RS/view.rs`, `PROTOCOL_VERSION` in `RS/service.rs`; tests in `sdks/rust/ankka/tests/contract.rs`, `discovery.rs`
-- [ ] T017 Conformance: the reference streamlets in `SCT/conformance/` and each SDK's conformance service declare a consumer with a contract, a broker and `parallel`; `SCT/ConformanceSuite.scala` cases assert discovery carries them for every SDK (`ankka.conformance.shape`)
+- [X] T017 Conformance: the reference streamlets in `SCT/conformance/` and each SDK's conformance service declare a consumer with a contract, a broker and `parallel`; `SCT/ConformanceSuite.scala` cases assert discovery carries them for every SDK (`ankka.conformance.shape`)
 
 **Checkpoint**: `sbt core/test runtime/test sidecar/test` green; the three SDKs' tests green; every discovery path carries the new fields; nothing checks them yet.
 
@@ -179,7 +179,7 @@ after the message's publications; a source that does not ask reads as today.
 ### Tests
 
 - [X] T061 [P] [US5] `TKT/KafkaSuite.scala` cases, one per scenario: four partitions handled within two seconds by a one-second handler; ten keyed messages in order; a failing message on partition 2 holds only partition 2; a stop between the handler and the broker's acceptance redelivers; a non-parallel consumer handles the four one after another
-- [ ] T062 [P] [US5] `SCT/ConformanceSuite.scala` case: a parallel remote consumer receives two `Consumer.Handle` calls concurrently and every SDK's server answers both (`ankka.conformance.shape`)
+- [X] T062 [P] [US5] `SCT/ConformanceSuite.scala` case: a parallel remote consumer receives two `Consumer.Handle` calls concurrently and every SDK's server answers both (`ankka.conformance.shape`)
 
 ### Implementation
 

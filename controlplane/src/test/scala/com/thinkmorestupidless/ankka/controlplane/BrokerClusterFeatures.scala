@@ -186,7 +186,9 @@ abstract class BrokerClusterFeatures(feature: String, area: String = "broker")
           deployConfig,
           auth = Some(identity.config()),
           logs = Some(new PodLogs(k8s, Prefix)),
-          topics = Some(projector)
+          secrets = Some(projector),
+          topics = Some(projector),
+          schemas = Some(projector)
         )*
       )
       testKit = AnkkaTestKit.start(

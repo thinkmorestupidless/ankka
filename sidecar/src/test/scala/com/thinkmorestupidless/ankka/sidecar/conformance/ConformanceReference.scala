@@ -1128,6 +1128,7 @@ object ConformanceReference:
     "checkout-fanout",
     "topic-rows",
     "topic-relay",
+    "contract-relay",
     "tree-node",
     "tree-rows",
     "joined-left",

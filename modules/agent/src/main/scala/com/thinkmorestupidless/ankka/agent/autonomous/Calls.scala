@@ -25,6 +25,7 @@ private[ankka] object HostProtocol:
   val Resume: MethodName        = MethodName("resume")
   val Terminate: MethodName     = MethodName("terminate")
   val Notifications: MethodName = MethodName("notifications")
+  val Decide: MethodName        = MethodName("decide")
 
   final case class AssignRequest(taskIds: Vector[String])
   final case class RunSingle(taskId: String)
@@ -33,6 +34,8 @@ private[ankka] object HostProtocol:
   val assignRequest: Serializer[AssignRequest] = Codecs.serializer[AssignRequest]("agent-assign")
   val runSingle: Serializer[RunSingle]         = Codecs.serializer[RunSingle]("agent-run-single")
   val dequeue: Serializer[DequeueRequest]      = Codecs.serializer[DequeueRequest]("agent-dequeue")
+  val decide: Serializer[com.thinkmorestupidless.ankka.agent.Decision] =
+    Codecs.serializer[com.thinkmorestupidless.ankka.agent.Decision]("agent-decide")
   val assignResult: Serializer[AssignResult] =
     Codecs.serializer[AssignResult]("agent-assign-result")
 
@@ -247,6 +250,16 @@ final class AutonomousAgentCalls private[autonomous] (
    */
   def terminate(): Done              = await(terminateAsync())
   def terminateAsync(): Future[Done] = done(ask(HostProtocol.Terminate, Array.emptyByteArray))
+
+  /**
+   * Sends a decision on one of the instance's approval requests. Answers once it is recorded; the
+   * task goes on — the tool run, or the model told it was refused — as its notifications show.
+   */
+  def decide(decision: com.thinkmorestupidless.ankka.agent.Decision): Done =
+    await(decideAsync(decision))
+
+  def decideAsync(decision: com.thinkmorestupidless.ankka.agent.Decision): Future[Done] =
+    done(ask(HostProtocol.Decide, HostProtocol.decide.toBytes(decision)))
 
   /**
    * Where the instance has got to. Read from its record, so asking does not wake an instance that

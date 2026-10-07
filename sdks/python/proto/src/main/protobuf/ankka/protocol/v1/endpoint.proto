@@ -65,7 +65,18 @@ message HttpResponse {
   repeated HttpRequest.Pair headers = 4;
 }
 
-message StreamFrame { oneof frame { string text = 1; Empty completed = 2; Error failed = 3; } }
+message StreamFrame {
+  oneof frame {
+    string text = 1;
+    Empty completed = 2;
+    Error failed = 3;
+    SseEvent event = 4;   // 1.11: a server-sent event with a name, its data JSON text on one line
+  }
+}
+
+// 1.11: an event a stream route sends under a name of its own — an agent turn that stops for approval
+// ends its stream with one named `approval` — rather than as text. `data` is JSON text on one line.
+message SseEvent { string name = 1; string data = 2; }
 
 // What the sidecar sends on a socket's stream: `open` once and first, then a `frame` for each
 // frame the client sent, in order, then `closed` last, after which it half-closes. A message with

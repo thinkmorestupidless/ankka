@@ -465,7 +465,18 @@ object ConformanceReference:
           val entity = context.componentClient.forEventSourcedEntity(EntityId(id))
           val _      = entity.call(Conformance.record).invoke("looked-up")
           s"count for $id is ${entity.call(Conformance.count).invoke()}"
+        },
+      // Waits for a person before it runs; what it records is counted as a run.
+      FunctionTool
+        .named("sensitive_lookup")
+        .describedAs("Looks up what was recorded under an id. A person approves every one.")
+        .param[String]("id", "The id to look up.")
+        .handle { id =>
+          val entity = context.componentClient.forEventSourcedEntity(EntityId(id))
+          val _      = entity.call(Conformance.record).invoke("sensitive")
+          s"sensitive count for $id is ${entity.call(Conformance.count).invoke()}"
         }
+        .requiresApproval
     )
 
   object Answerer extends autonomous.AutonomousAgent.Companion[Answerer](ComponentId("answerer")):
@@ -475,6 +486,75 @@ object ConformanceReference:
         .describedAs("Answers questions")
         .guardrails(Guardrail.forbidding("no-secrets", "sk-".r))
         .capability(autonomous.TaskAcceptance.of(AnswerType).maxIterationsPerTask(4))
+
+  // ── approver: an agent whose tools wait for a person, with two MCP servers ──
+
+  final class Approver(context: AgentContext) extends Agent:
+    // docs:start approver-tool
+    private val refund = FunctionTool
+      .named("refund")
+      .describedAs("Refunds what was recorded under an id. A person approves every refund.")
+      .param[String]("id", "The id to refund.")
+      .handle { id =>
+        val entity = context.componentClient.forEventSourcedEntity(EntityId(id))
+        val _      = entity.call(Conformance.record).invoke("refunded")
+        s"refunded $id"
+      }
+      .requiresApproval
+    // docs:end approver-tool
+    // docs:start tool-calls-service
+    // A tool calls another service as this service: the called service's ACL can admit it by name.
+    private val askScripted = FunctionTool
+      .named("ask_scripted")
+      .describedAs("Asks the scripted service for what is at a path.")
+      .param[String]("path", "The path to ask for.")
+      .handle(path => context.services("scripted").getText(path))
+    // docs:end tool-calls-service
+    def ask(question: String): Effect[String] =
+      effects
+        .systemMessage("You approve refunds.")
+        .userMessage(question)
+        .tools(refund, askScripted)
+        .thenReply()
+
+  object Approver extends Agent.Companion[Approver](ComponentId("approver")):
+    // Both found at ANKKA_MCP_<NAME>_URL; every tool of `guarded` waits for a person.
+    override def mcpServers: Vector[mcp.McpServer] = Vector(
+      mcp.McpServer.named("tickets"),
+      mcp.McpServer.named("guarded").requiresApproval
+    )
+    override def resultGuardrails: Vector[Guardrail] = Vector(
+      Guardrail.forbidding("no-instructions", "(?i)ignore what you were told".r)
+    )
+    def create(context: AgentContext) = new Approver(context)
+    val ask                           = command("ask")(_.ask)
+
+  /**
+   * An outcome as every reference renders it: `{"answered": text}`, or `{"awaiting": [{"id",
+   * "tool", "arguments"}]}` — the request's own fields, so the suite reads the same JSON from every
+   * language.
+   */
+  def renderOutcome(outcome: AgentOutcome[String]): String = outcome match
+    case AgentOutcome.Answered(text) => Json.obj("answered" -> Json.Str(text)).render
+    case AgentOutcome.AwaitingApproval(requests) =>
+      Json
+        .obj(
+          "awaiting" -> Json.Arr(
+            requests.map(r =>
+              Json
+                .obj("id" -> Json.Str(r.id), "tool" -> Json.Str(r.tool), "arguments" -> r.arguments)
+            )
+          )
+        )
+        .render
+
+  /** A decision from `{"approved": bool, "by": name, "note": text}`, on the request `id`. */
+  def decisionFrom(id: String, body: String): Decision =
+    val json = Json.parse(body).fold(p => throw HttpProblem.badRequest(p), identity)
+    val by   = json("by").flatMap(_.asString).getOrElse("")
+    val note = json("note").flatMap(_.asString).getOrElse("")
+    if json("approved").flatMap(_.asBoolean).getOrElse(false) then Decision.approved(id, by)
+    else Decision.refused(id, by, note)
 
   // ── Endpoints ──
 
@@ -665,6 +745,16 @@ object ConformanceReference:
     postBody("/ask/{session}") { (session: String, question: String) =>
       agent(session).call(Assistant.ask).invoke(question)
     }
+    // docs:start approver-routes
+    // A turn that may wait: the model's answer, or the approval requests it waits on.
+    postBody("/approver/{session}") { (session: String, question: String) =>
+      renderOutcome(agent(session).ask(Approver.ask).invoke(question))
+    }
+    // A person's decision, answered as the turn's caller would have been once the turn goes on.
+    postBody("/approver/{session}/decide/{id}") { (session: String, id: String, body: String) =>
+      renderOutcome(agent(session).decide(Approver.ask)(decisionFrom(id, body)))
+    }
+    // docs:end approver-routes
     sse("/stream-ask/{session}") { (session: String) =>
       agent(session).stream(Assistant.streamAsk)(query.raw("q").getOrElse(""))
     }
@@ -743,6 +833,9 @@ object ConformanceReference:
         .notifications()
         .map(n => String(Notification.serializer.toBytes(n), "UTF-8"))
     }
+    postBody("/instances/{instance}/decide/{id}") { (instance: String, id: String, body: String) =>
+      client.forAutonomousAgent(Answerer)(instance).decide(decisionFrom(id, body))
+    }
     get("/instances/{instance}/state") { (instance: String) =>
       String(
         AgentState.serializer.toBytes(client.forAutonomousAgent(Answerer)(instance).state()),
@@ -815,7 +908,8 @@ object ConformanceReference:
     "profile-graph",
     "reminder",
     "assistant",
-    "answerer"
+    "answerer",
+    "approver"
   )
 
   def descriptors: Seq[ComponentDescriptor] = Seq(
@@ -832,7 +926,8 @@ object ConformanceReference:
     ProfileGraph.descriptor,
     Reminder.descriptor,
     Assistant.descriptor,
-    Answerer.descriptor
+    Answerer.descriptor,
+    Approver.descriptor
   )
 
   def endpoints(

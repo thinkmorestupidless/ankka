@@ -30,7 +30,8 @@ class CartTopologySuite extends munit.FunSuite:
     "CartAssistant"      -> CartAssistant.descriptor,
     "CartAnswerer"       -> CartAnswerer.descriptor,
     "CartGraph"          -> CartGraph.descriptor,
-    "CartContentsGraph"  -> CartContentsGraph.descriptor
+    "CartContentsGraph"  -> CartContentsGraph.descriptor,
+    "ServiceCaller"      -> ServiceCaller.descriptor
   )
 
   private def registeredByMain: Set[String] =

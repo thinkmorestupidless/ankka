@@ -21,6 +21,17 @@ A component that carries out a task by talking to a model. A handler returns an 
 messages, tools and guardrails; the runtime runs the loop of model calls and tool calls. Agents are addressed
 by session.
 
+### Approval
+
+A person's "yes" to a tool call before it runs. A tool, or an MCP server, that requires approval is one
+whose tool calls wait for it. See [Agents](../build/agents.md#tools-that-wait-for-a-person).
+
+### Approval request
+
+What an agent records, and gives its caller instead of an answer, when its model calls a tool that requires
+approval: an id, the tool and the arguments the model proposed. It awaits a decision until a person decides
+it, or until its time limit passes and the platform refuses it.
+
 ### AnkkaService resource
 
 The Kubernetes custom resource, short name `asvc`, through which the control plane tells the operator what
@@ -117,6 +128,12 @@ ankka service. The CLI is its client.
 A topic a member declares on a project, once, with its partitions, which the platform makes on the
 installation's broker. Every service of the project publishes to it and reads it by its name; no service
 declares it. See [Broker topics](../build/topics.md#declaring-a-topic).
+
+### Decision
+
+A person's answer to an approval request: approved or refused, with who decided and an optional note the
+model is told. A request is decided once. Who decided is recorded; who may decide is the ACL of the route
+the decision is sent through.
 
 ### Delta
 
@@ -236,6 +253,12 @@ sessions.
 The name stored beside a serialized value in the journal, such as `shopping-cart-event`, which says which codec
 reads it. Changing a manifest leaves existing data unreadable.
 
+### MCP server
+
+A program outside the service that offers tools over the Model Context Protocol. An agent lists the servers
+whose tools its model is offered, each as `mcp__<server>__<tool>`, with the credential the platform sends
+it. See [MCP servers](../build/mcp-servers.md).
+
 ### Member
 
 A person or machine identity that belongs to an organization, as an owner or a member. The `member` role may
@@ -352,6 +375,11 @@ reflection admits.
 A handler's deliberate "no", returned as an error effect with a message and an error code. Nothing is persisted
 and nothing is retried. It differs from a failure, which is a handler that threw.
 
+### Result guardrail
+
+A guardrail an agent declares for what an MCP server's tool answers. It runs before the model is told the
+result; a result it refuses is never told to the model, which is told of an error instead.
+
 ### Row
 
 One record of a view, keyed by its source's subject and stored as JSON in the view's table.
@@ -453,8 +481,9 @@ delta arriving late cannot bring it back.
 
 ### Tool
 
-A function an agent's model may call, with a name, a description and a schema for its arguments. The runtime
-calls it with the model's arguments and hands the result back to the model.
+A function an agent's model may call, with a name, a description and a schema for its arguments: one of the
+agent's own, or one an MCP server has. The runtime calls it with the model's arguments and hands the result
+back to the model; a tool that requires approval waits for a person's decision first.
 
 ### Topic
 

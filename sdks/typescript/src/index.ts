@@ -37,6 +37,8 @@ export {
 export { TimedAction, type TimedActionClass } from "./timedAction.ts"
 export { AgentEffects, type AgentEffect } from "./effects/agent.ts"
 export { Agent, type AgentClass } from "./agent.ts"
+export { ApprovalAwaited, APPROVALS_SINCE, type AgentOutcome, type Approval, type ApprovalRequest, type DecisionInput } from "./approvals.ts"
+export { mcpServer, resultGuardrail, toolName, type McpServerOptions, type McpServerRef, type ResultGuardrailRef } from "./mcp.ts"
 export {
   AutonomousAgent,
   AutonomousAgentCalls,
@@ -61,7 +63,7 @@ export {
 } from "./autonomous.ts"
 export { Endpoint, type EndpointClass } from "./endpoint.ts"
 export { type Socket, SocketClosed } from "./socket.ts"
-export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
+export { Acl, Callers, type CallerMatcher, type CallersAcl, HttpProblem, get, post, put, patch, del, sse, sseEvent, type SseEvent, socket, type RouteRef, type RouteOptions, type RouteTable, type Params, type ParamNames, type HttpMethod } from "./routes.ts"
 export { type CommandContext, type RequestContext, type Principal, type Caller, Query, Headers } from "./context.ts"
 export { ComponentClient, Calls, TypedCalls, Invocation, Views, Timers, Secrets, InMemorySecrets, noSecrets, type TimerTarget, type ComponentRef } from "./client.ts"
 export {

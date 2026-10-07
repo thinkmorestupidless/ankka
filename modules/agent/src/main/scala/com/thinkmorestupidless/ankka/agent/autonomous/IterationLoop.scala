@@ -26,12 +26,17 @@ import org.slf4j.LoggerFactory
  *   2. the model is called;
  *   3. its response is appended to the task's session;
  *   4. the instance records that iteration n completed;
- *   5. the tools the response asked for run and their results are appended — or, for the built-in
- *      `complete_task` and `fail_task`, the task's record is written.
+ *   5. an approval request is recorded for each tool call that requires approval;
+ *   6. the other tools the response asked for run and their results are appended — or, for the
+ *      built-in `complete_task` and `fail_task`, the task's record is written;
+ *   7. as each approval request is decided, its call is run, or answered as refused, and its result
+ *      appended with the decision on it. Until every call has a result the instance waits: no model
+ *      call, no iteration, no failure counted.
  *
- * A model call that was recorded is never made again. A tool may be: a crash between 3 and 5 runs
+ * A model call that was recorded is never made again. A tool may be: a crash between 3 and 6 runs
  * the recorded response's tools again on resumption, so tools are run at least once, not exactly
- * once, and one with a side effect should tolerate a repeat.
+ * once, and one with a side effect should tolerate a repeat. An approved tool follows the same
+ * rule.
  */
 private[ankka] final class IterationLoop(
     definition: AutonomousAgentDefinition,
@@ -41,14 +46,19 @@ private[ankka] final class IterationLoop(
     model: ModelProvider,
     modelTimeout: FiniteDuration,
     judgments: Judgments,
-    emit: Notification => Unit
+    emit: Notification => Unit,
+    timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
+    spans: ToolSpans = ToolSpans.none,
+    mcpTools: Seq[FunctionTool] = Nil
 ):
   import IterationLoop.*
 
   private val componentId = agent.context.componentId
   private val role        = componentId.toString
-  private val tools       = agent.tools.map(t => t.name -> t).toMap
-  private val log         = LoggerFactory.getLogger(getClass)
+  // The agent's own tools, then those its MCP servers had when the service started.
+  private val allTools = agent.tools ++ mcpTools
+  private val tools    = allTools.map(t => t.name -> t).toMap
+  private val log      = LoggerFactory.getLogger(getClass)
 
   private def instance =
     client.forEventSourcedEntity(InstanceEntity.idFor(componentId, instanceId))
@@ -63,13 +73,13 @@ private[ankka] final class IterationLoop(
   // ── Where to pick up ──────────────────────────────────────────────────────
 
   /**
-   * Where the work on a task stands, read from the instance's record and the last message in the
-   * task's session. Only the last message is read, so compaction — which keeps recent messages
-   * verbatim — cannot confuse it.
+   * Where the work on a task stands, read from the instance's record and the end of the task's
+   * session: its last model response and the results after it. Only that much is read, so
+   * compaction — which keeps recent messages verbatim — cannot confuse it.
    */
   def resumePoint(working: Working): ResumePoint =
-    val tail =
-      session(working.taskId).call(SessionMemoryEntity.history).invoke().messages.lastOption
+    val messages = session(working.taskId).call(SessionMemoryEntity.history).invoke().messages
+    val tail     = messages.lastOption
     def landed = tail.exists {
       case m: SessionMessage.AiMessage => m.timestamp >= working.iterationStartedAt
       case _                           => false
@@ -80,8 +90,11 @@ private[ankka] final class IterationLoop(
       if landed then ResumePoint.RecordCompletion(working.iteration)
       else ResumePoint.CallModel(working.iteration)
     else
-      tail match
-        case Some(m: SessionMessage.AiMessage) if m.toolCalls.nonEmpty =>
+      // The response's calls each have a result once the iteration is over. One without — a stop
+      // before the tools landed, or a call awaiting a decision — is settled before anything else.
+      val (after, response) = lastResponse(messages)
+      response match
+        case Some(m) if m.toolCalls.exists(c => !after.contains(c.id)) =>
           ResumePoint.RunTools(working.iteration, m)
         case _ => ResumePoint.NextIteration(working.iteration + 1)
 
@@ -114,6 +127,14 @@ private[ankka] final class IterationLoop(
         completeIteration(record, taskType, n, response, TokenUsage.zero)
       case ResumePoint.RunTools(n, message) =>
         runTools(record, taskType, n, message)
+
+  /** The last model response in `messages`, and the ids of the results recorded after it. */
+  private def lastResponse(
+      messages: Vector[SessionMessage]
+  ): (Set[String], Option[SessionMessage.AiMessage]) =
+    val since    = messages.reverse.takeWhile(!_.isInstanceOf[SessionMessage.AiMessage])
+    val answered = since.collect { case r: SessionMessage.ToolResultMessage => r.callId }.toSet
+    (answered, messages.reverse.collectFirst { case m: SessionMessage.AiMessage => m })
 
   private def workingStartedAt(): Long =
     instance.call(InstanceEntity.get).invoke().current.map(_.iterationStartedAt).getOrElse(now())
@@ -148,7 +169,7 @@ private[ankka] final class IterationLoop(
       settings = ModelSettings(model.modelName),
       systemMessage = Some(systemMessage(taskType, n, budget)),
       messages = firstTurn(taskRecord, dependencies) +: PromptReplay.replay(history(taskRecord.id)),
-      tools = agent.tools.map(_.spec).toVector ++ builtIns(taskType)
+      tools = allTools.map(_.spec).toVector ++ builtIns(taskType)
     )
     val response =
       try Right(Await.result(model.complete(request), modelTimeout))
@@ -234,10 +255,98 @@ private[ankka] final class IterationLoop(
                 n,
                 s"checking the result failed: ${Option(failure.getMessage).getOrElse(failure.toString)}"
               )
-      case None =>
-        val results = calls.map(c => PromptReplay.runTool(tools, c))
-        appendResults(taskRecord.id, results)
-        IterationResult.Continue
+      case None => settle(taskRecord.id, n, calls)
+
+  /**
+   * Gives every call of the response that has no result yet one, as far as decisions allow.
+   *
+   * Approval requests are recorded first, for every call that requires one, before any tool runs: a
+   * stop between the two then finds the requests and settles the rest. A call whose request is
+   * decided runs, or is answered as refused; one that needs no approval runs; one awaiting a
+   * decision waits, and so does the task.
+   */
+  private def settle(taskId: String, n: Int, calls: Vector[ToolCall]): IterationResult =
+    // An MCP server's results pass the result guardrails before the model is told them. One that
+    // cannot decide has refused nothing: the iteration failed, and is tried again — nothing of it
+    // was appended, so the same calls are settled again.
+    val spent  = Guardrails.Spent()
+    val checks = ResultChecks(definition.resultGuardrails, judgments, spent)
+    try settleWith(taskId, calls, checks)
+    catch
+      case failure: Guardrails.GuardrailCheckFailed => failed(taskId, n, failure.getMessage)
+      case failure: JudgmentScriptFailed =>
+        IterationResult.Ended(TaskOutcome.Failed(failure.getMessage))
+    finally recordJudgmentUsage(taskId, spent.usage)
+
+  private def settleWith(
+      taskId: String,
+      calls: Vector[ToolCall],
+      checks: ResultChecks
+  ): IterationResult =
+    val (answered, _) = lastResponse(history(taskId))
+    val open          = calls.filterNot(c => answered.contains(c.id))
+    val recorded = instance
+      .call(InstanceEntity.get)
+      .invoke()
+      .current
+      .map(_.approvals.map(r => r.callId -> r).toMap)
+      .getOrElse(Map.empty)
+
+    val asked = open.filter(c => needsApproval(c) && !recorded.contains(c.id)).map { call =>
+      val at = now()
+      val request = ApprovalRequest(
+        id = Approvals.newId(),
+        callId = call.id,
+        tool = call.name,
+        arguments = call.arguments,
+        requestedAt = at,
+        expiresAt = tools(call.name).approval.flatMap(_.within).map(at + _.toMillis)
+      )
+      // Scheduled before the request is recorded: a timer that finds nothing is done, while a
+      // request with no timer would wait for ever.
+      for
+        scheduler <- timers
+        expiresAt <- request.expiresAt
+      do
+        ApprovalExpiry.schedule(
+          scheduler,
+          ApprovalExpiry.Due(ApprovalExpiry.AutonomousAgent, componentId, instanceId, request.id),
+          expiresAt
+        )
+      record(InstanceEvent.ApprovalRequested(request))
+      emit(
+        Notification.ApprovalRequested(
+          role,
+          instanceId,
+          taskId,
+          request.id,
+          request.tool,
+          request.arguments.render,
+          request.expiresAt,
+          at
+        )
+      )
+      call.id -> request
+    }
+    val requests = recorded ++ asked
+
+    val settled = open.flatMap { call =>
+      requests.get(call.id) match
+        case None => Some(ToolRunner.run(tools, call, spans, checks) -> None)
+        case Some(request) =>
+          request.decision.map { decision =>
+            val result =
+              if decision.approved then ToolRunner.run(tools, call, spans, checks)
+              else ToolResult(call.id, call.name, Approvals.refusal(decision), isError = true)
+            result -> Some(decision)
+          }
+    }
+    appendResults(taskId, settled.map(_._1), settled.flatMap((r, d) => d.map(r.callId -> _)).toMap)
+    if open.exists(c => requests.get(c.id).exists(_.awaiting)) then IterationResult.Waiting
+    else IterationResult.Continue
+
+  private def needsApproval(call: ToolCall): Boolean =
+    tools.get(call.name).exists(_.approval.isDefined)
 
   private def complete(
       taskRecord: TaskRecord,
@@ -266,11 +375,23 @@ private[ankka] final class IterationLoop(
             IterationResult.Rejected(because)
           case None => IterationResult.Completed(encoded)
 
-  private def appendResults(taskId: String, results: Vector[ToolResult]): Unit =
+  private def appendResults(
+      taskId: String,
+      results: Vector[ToolResult],
+      decisions: Map[String, Decision] = Map.empty
+  ): Unit =
     if results.nonEmpty then
       val at = now()
       val messages = results.map(r =>
-        SessionMessage.ToolResultMessage(at, r.callId, r.name, r.content, r.isError, role)
+        SessionMessage.ToolResultMessage(
+          at,
+          r.callId,
+          r.name,
+          r.content,
+          r.isError,
+          role,
+          decisions.get(r.callId)
+        )
       )
       session(taskId)
         .call(SessionMemoryEntity.append)
@@ -401,7 +522,10 @@ private[ankka] object IterationLoop:
     /** Iteration n's response landed but its completion was not recorded. */
     case RecordCompletion(n: Int)
 
-    /** Iteration n completed and its tools did not all land: run them again. */
+    /**
+     * Iteration n completed and its calls do not all have results: settle them — run those that did
+     * not land, and those whose approval is decided — or wait for a decision.
+     */
     case RunTools(n: Int, response: SessionMessage.AiMessage)
 
   enum StartCheck:
@@ -427,3 +551,9 @@ private[ankka] object IterationLoop:
 
     /** The task ended without a result. */
     case Ended(outcome: TaskOutcome)
+
+    /**
+     * A tool call of the iteration awaits an approval decision. The instance waits: it makes no
+     * model call, starts no iteration and counts no failure until it is decided.
+     */
+    case Waiting

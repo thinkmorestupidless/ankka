@@ -1,5 +1,6 @@
 package com.thinkmorestupidless.ankka.agent
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{readFromArray, writeToArray}
 import com.thinkmorestupidless.ankka.agent.judgment.{JudgmentProvider, Judgments}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.runtime.{
@@ -14,8 +15,10 @@ import com.thinkmorestupidless.ankka.runtime.{
 }
 import org.apache.pekko.NotUsed
 import com.thinkmorestupidless.ankka.sdk.{
+  CommandHandle,
   ComponentClient,
   HandlerBinding,
+  NoArgHandle,
   SecretStore,
   ServiceClients
 }
@@ -29,7 +32,7 @@ import org.apache.pekko.cluster.sharding.typed.ClusterShardingSettings
 import org.apache.pekko.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success}
 
 /**
@@ -43,10 +46,19 @@ final class AgentRuntime private (
     defaultModel: Option[ModelProvider],
     modelTimeout: FiniteDuration,
     compaction: Option[(CompactionSettings, Summariser)],
-    judgments: Judgments
+    judgments: Judgments,
+    variables: String => Option[String] = sys.env.get
 ) extends RuntimeExtension:
 
   def name: String = "agents"
+
+  /**
+   * Where the runtime reads the variables an agent's MCP servers name — their addresses and their
+   * credentials. The process's environment unless a test gives its own, so a test sets them without
+   * touching the environment of the JVM it runs in.
+   */
+  def withVariables(read: String => Option[String]): AgentRuntime =
+    new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, read)
 
   /**
    * Enables compaction: long sessions get their oldest messages replaced by a summary.
@@ -67,7 +79,13 @@ final class AgentRuntime private (
             "AgentRuntime.withDefaultModel, or pass one explicitly"
         )
       case Some(summary) =>
-        new AgentRuntime(defaultModel, modelTimeout, Some(settings -> summary), judgments)
+        new AgentRuntime(
+          defaultModel,
+          modelTimeout,
+          Some(settings -> summary),
+          judgments,
+          variables
+        )
 
   /**
    * Supplies a judgment provider, so an agent can ask typed questions of a state and a judged
@@ -82,7 +100,13 @@ final class AgentRuntime private (
   ): AgentRuntime =
     if timeout.length <= 0 then
       throw IllegalArgumentException("withJudgments needs a positive timeout")
-    new AgentRuntime(defaultModel, modelTimeout, compaction, Judgments(Some(provider), timeout))
+    new AgentRuntime(
+      defaultModel,
+      modelTimeout,
+      compaction,
+      Judgments(Some(provider), timeout),
+      variables
+    )
 
   /**
    * Everything this runtime needs registered.
@@ -106,7 +130,15 @@ final class AgentRuntime private (
       )
     }
 
-    startAutonomous(service)
+    // Approval time limits are kept as timers, which need the service's TimerRuntime to fire.
+    val timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] =
+      Option.when(service.extensionNames.contains("timers"))(
+        com.thinkmorestupidless.ankka.runtime.DatabaseTimerScheduler(
+          com.thinkmorestupidless.ankka.runtime.Database()
+        )
+      )
+
+    startAutonomous(service, timers)
 
     val agents = service.registry.components.collect { case a: AgentDescriptor[?] => a }
     if agents.isEmpty then system.log.debug("no agents registered")
@@ -115,7 +147,8 @@ final class AgentRuntime private (
       val client   = service.componentClient
 
       agents.foreach { descriptor =>
-        val typed = descriptor.asInstanceOf[AgentDescriptor[Agent]]
+        val typed    = descriptor.asInstanceOf[AgentDescriptor[Agent]]
+        val mcpTools = connectMcp(typed.componentId, typed.mcpServers, service, timers)
         val _ = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](typed.componentId)) { ctx =>
             AgentHost.behavior(
@@ -126,7 +159,9 @@ final class AgentRuntime private (
               modelTimeout,
               judgments,
               service.secrets,
-              service.services
+              service.services,
+              timers,
+              mcpTools
             )
           }
         )
@@ -163,6 +198,41 @@ final class AgentRuntime private (
       }
 
   /**
+   * An agent's MCP servers, connected, as tools. Done once per agent when the service starts; a
+   * server that cannot be used fails the start, naming it and the agent.
+   */
+  private def connectMcp(
+      agentId: ComponentId,
+      servers: Vector[mcp.McpServer],
+      service: AnkkaService,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
+  )(using system: ActorSystem[?]): Vector[FunctionTool] =
+    if servers.isEmpty then Vector.empty
+    else
+      val config = system.settings.config
+      def duration(path: String) =
+        scala.concurrent.duration.FiniteDuration(config.getDuration(path).toMillis, "ms")
+      val tools = mcp.McpTools.connect(
+        agentId.toString,
+        servers,
+        variables,
+        service.services,
+        timers.isDefined,
+        mcp.McpTools.Settings(
+          duration("ankka.agent.mcp.connect-timeout"),
+          duration("ankka.agent.mcp.call-timeout"),
+          com.thinkmorestupidless.ankka.core.BuildInfo.version
+        )
+      )
+      system.log.info(
+        "agent '{}' offers {} tool(s) from MCP server(s) {}",
+        agentId,
+        tools.size,
+        servers.map(_.name).mkString(", ")
+      )
+      tools
+
+  /**
    * Hosts every autonomous agent, one sharded instance per instance id.
    *
    * The entity type remembers its entities: an instance working a task has no caller to wake it
@@ -171,7 +241,10 @@ final class AgentRuntime private (
    * instance leaves memory only when it passivates itself, which it does when it has nothing to do
    * and nobody is watching.
    */
-  private def startAutonomous(service: AnkkaService)(using system: ActorSystem[?]): Unit =
+  private def startAutonomous(
+      service: AnkkaService,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler]
+  )(using system: ActorSystem[?]): Unit =
     val autonomousAgents = service.registry.components.collect {
       case a: autonomous.AutonomousAgentDescriptor[?] => a
     }
@@ -193,7 +266,13 @@ final class AgentRuntime private (
             service.services
           )
         )
-        val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools)
+        val mcpTools =
+          connectMcp(descriptor.componentId, descriptor.definition.mcpServers, service, timers)
+        val limited = probe.tools.find(_.approval.exists(_.within.isDefined))
+        val problems = autonomous.AutonomousAgentDefinition.toolProblems(probe.tools) ++
+          limited
+            .filter(_ => timers.isEmpty)
+            .map(t => ApprovalExpiry.needsTimers(s"tool '${t.name}'"))
         if problems.nonEmpty then
           throw IllegalArgumentException(
             problems.mkString(
@@ -232,7 +311,9 @@ final class AgentRuntime private (
               modelTimeout,
               judgments,
               service.secrets,
-              service.services
+              service.services,
+              timers,
+              mcpTools
             )
           }.withStopMessage(autonomous.AutonomousAgentHost.Stop)
             .withSettings(
@@ -311,7 +392,8 @@ object AgentRuntime:
       SessionMemoryEntity.descriptor,
       autonomous.TaskEntity.descriptor,
       autonomous.InstanceEntity.descriptor,
-      autonomous.TaskCascade.descriptor
+      autonomous.TaskCascade.descriptor,
+      ApprovalExpiry.platformDescriptor
     )
 
 /**
@@ -341,7 +423,9 @@ private[agent] object AgentHost:
       modelTimeout: FiniteDuration,
       judgments: Judgments,
       secrets: SecretStore,
-      services: ServiceClients
+      services: ServiceClients,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler] = None,
+      mcpTools: Vector[FunctionTool] = Vector.empty
   ): Behavior[EntityProtocol.Command] =
     Behaviors.setup { ctx =>
       Behaviors.withStash(StashCapacity) { stash =>
@@ -359,7 +443,10 @@ private[agent] object AgentHost:
           sessionId,
           componentClient,
           modelTimeout,
-          judgments
+          judgments,
+          timers,
+          ToolSpans(Some(Observability(ctx.system)), descriptor.componentId.toString),
+          mcpTools
         )
 
         def idle: Behavior[EntityProtocol.Command] = Behaviors.receiveMessage {
@@ -378,6 +465,11 @@ private[agent] object AgentHost:
               case Some(handle) =>
                 startStream(ctx, descriptor, context, loop, handle, request)
                 busy
+
+          case invoke: EntityProtocol.Invoke if invoke.method == Approvals.DecideMethod =>
+            // A decision holds the session as a request does: it may run tools and the model.
+            startDecide(ctx, descriptor, context, loop, componentClient, sessionId, timers, invoke)
+            busy
 
           case invoke: EntityProtocol.Invoke =>
             descriptor.handler(MethodName(invoke.method)) match
@@ -474,11 +566,169 @@ private[agent] object AgentHost:
           try binding.decodeAndInvoke(agent, invoke.payload).asInstanceOf[AgentEffect[Any]]
           finally agent._setContext(None)
 
-        loop.run(effect) match
-          case Right(value) =>
-            EntityProtocol.Succeeded(binding.encodeReply(value), Vector.empty)
-          case Left(rejection) =>
-            EntityProtocol.Rejected(rejection)
+        reply(
+          loop.run(effect, TurnOrigin(invoke.method, streaming = false, invoke.payload)),
+          binding.encodeReply
+        )
+      }
+    }(using AnkkaExecutors.virtual)
+
+    ctx.pipeToSelf(execution) {
+      case Success(reply) => Finished(invoke.replyTo, reply)
+      case Failure(failure) =>
+        Finished(
+          invoke.replyTo,
+          EntityProtocol.Rejected(
+            CommandError(
+              Option(failure.getMessage).getOrElse(failure.toString),
+              ErrorCode.Internal
+            )
+          )
+        )
+    }
+
+  /**
+   * A turn's outcome as a reply: an answer encoded by the handler's own serializer, or approval
+   * requests marked as such in the reply's metadata. The envelope is the one every node reads, so
+   * no serializer changes for it.
+   */
+  private def reply[R](
+      outcome: Either[CommandError, AgentOutcome[R]],
+      encode: Any => Array[Byte]
+  ): EntityProtocol.Reply =
+    outcome match
+      case Right(AgentOutcome.Answered(value)) =>
+        EntityProtocol.Succeeded(encode(value), Vector.empty)
+      case Right(AgentOutcome.AwaitingApproval(requests)) =>
+        EntityProtocol.Succeeded(
+          writeToArray(Approvals.Awaiting(requests)),
+          Vector(MetaEntry(Approvals.OutcomeKey, Approvals.OutcomeValue))
+        )
+      case Left(rejection) => EntityProtocol.Rejected(rejection)
+
+  /**
+   * Records a decision and, when it was the turn's last awaited one, goes on with the turn.
+   *
+   * The decision is recorded before anything acts on it. The turn's effect is rebuilt by running
+   * the handler that began it on the request it was given — safe, because building an effect does
+   * no I/O — and the loop resumes from what the turn recorded. The caller is answered as the
+   * handler's own caller would have been: the model's answer, or requests still or newly awaiting.
+   */
+  private def startDecide[A <: Agent](
+      ctx: ActorContext[EntityProtocol.Command],
+      descriptor: AgentDescriptor[A],
+      context: AgentContext,
+      loop: AgentLoop,
+      componentClient: ComponentClient,
+      sessionId: SessionId,
+      timers: Option[com.thinkmorestupidless.ankka.sdk.TimerScheduler],
+      invoke: EntityProtocol.Invoke
+  ): Unit =
+    val observability = Observability(ctx.system)
+    val incoming      = MetaEntry.toMetadata(invoke.metadata)
+    val component     = descriptor.componentId.toString
+    val memory        = componentClient.forEventSourcedEntity(EntityId(sessionId))
+
+    def awaiting(requests: Vector[ApprovalRequest]) =
+      reply(Right(AgentOutcome.AwaitingApproval(requests)), _ => Array.emptyByteArray)
+
+    def run(): EntityProtocol.Reply =
+      val request = readFromArray[Approvals.DecideRequest](invoke.payload)
+      val before  = memory.call(SessionMemoryEntity.history).invoke()
+      before.suspended match
+        case Some(turn) if request.handler.nonEmpty && request.handler != turn.handler =>
+          EntityProtocol.Rejected(
+            CommandError(
+              s"the turn awaiting a decision in session '$sessionId' was begun by handler " +
+                s"'${turn.handler}', not '${request.handler}'",
+              ErrorCode.BadRequest
+            )
+          )
+        case _ =>
+          // A suspended turn with nothing awaiting was cut off after its last decision; it ends
+          // here, and its decisions, never written to a result, are not found.
+          if before.suspended.exists(_.awaiting.isEmpty) then
+            memory.call(SessionMemoryEntity.endTurn).invoke(): Unit
+          val turn = memory.call(SessionMemoryEntity.decideApproval).invoke(request.decision)
+          timers.foreach(
+            ApprovalExpiry.forget(
+              _,
+              ApprovalExpiry.Due(
+                ApprovalExpiry.RequestAgent,
+                descriptor.componentId,
+                sessionId,
+                request.decision.approvalId
+              )
+            )
+          )
+          if turn.awaiting.nonEmpty then awaiting(turn.awaiting)
+          else resume(turn)
+
+    def resume(turn: SuspendedTurn): EntityProtocol.Reply =
+      val method = MethodName(turn.handler)
+      val agent  = descriptor.create(context)
+      agent._setContext(Some(context))
+      val rebuilt =
+        try
+          descriptor.handler(method) match
+            case Some(binding) =>
+              Some(
+                binding.decodeAndInvoke(agent, turn.payloadBytes).asInstanceOf[AgentEffect[Any]] ->
+                  binding.encodeReply
+              )
+            case None =>
+              descriptor.streamHandler(method).map { handle =>
+                val effect = handle
+                  .asInstanceOf[StreamHandle[A, Any]]
+                  .decodeAndInvoke(agent, turn.payloadBytes)
+                  .effect
+                effect.asInstanceOf[AgentEffect[Any]] ->
+                  ((value: Any) => value.toString.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+              }
+        finally agent._setContext(None)
+      rebuilt match
+        case None =>
+          memory.call(SessionMemoryEntity.endTurn).invoke(): Unit
+          EntityProtocol.Rejected(
+            CommandError(
+              s"agent '${descriptor.componentId}' has no handler '${turn.handler}' to go on with " +
+                "the turn that awaited a decision; the turn is ended",
+              ErrorCode.Internal
+            )
+          )
+        case Some((effect, encode)) => reply(loop.resume(effect, turn), encode)
+
+    // A decision is the work of the handler whose turn it decides: a tool it runs is that
+    // handler's call, as it would have been had the turn not waited. The name is taken from the
+    // request only when the agent declares it, so nothing a caller sends grows the names table.
+    val handlerName =
+      scala.util
+        .Try(readFromArray[Approvals.DecideRequest](invoke.payload).handler)
+        .toOption
+        .filter(h =>
+          h.nonEmpty && (descriptor.handler(MethodName(h)).isDefined ||
+            descriptor.streamHandler(MethodName(h)).isDefined)
+        )
+        .getOrElse(invoke.method)
+
+    val execution = Future {
+      observability.invocation[EntityProtocol.Reply](component, handlerName, incoming)(
+        Observability.outcomeOf
+      ) {
+        try run()
+        catch
+          case error: CommandError                  => EntityProtocol.Rejected(error)
+          case scala.util.control.NonFatal(failure) =>
+            // Whatever stopped the turn after its decision was recorded, it is over: the
+            // approved tools are run at most once.
+            try memory.call(SessionMemoryEntity.endTurn).invoke(): Unit
+            catch case scala.util.control.NonFatal(_) => ()
+            EntityProtocol.Rejected(
+              CommandError(
+                Option(failure.getMessage).getOrElse(failure.toString),
+                ErrorCode.Internal
+              )
+            )
       }
     }(using AnkkaExecutors.virtual)
 
@@ -522,7 +772,7 @@ private[agent] object AgentHost:
     val execution = Future {
       // One call, however many tokens it answers with: counted when the stream ends, with how it
       // ended and how long it ran.
-      observability.invocation[Either[CommandError, Unit]](
+      observability.invocation[Either[CommandError, Option[Vector[ApprovalRequest]]]](
         component,
         request.method,
         incoming,
@@ -535,9 +785,19 @@ private[agent] object AgentHost:
               .decodeAndInvoke(agent, request.payload)
           finally agent._setContext(None)
 
-        val ended = loop.runStreaming(effect, text => request.tokens ! EntityProtocol.Token(text))
+        val ended = loop.runStreaming(
+          effect,
+          text => request.tokens ! EntityProtocol.Token(text),
+          TurnOrigin(request.method, streaming = true, request.payload)
+        )
         ended match
-          case Right(())       => request.tokens ! EntityProtocol.StreamCompleted
+          case Right(None)           => request.tokens ! EntityProtocol.StreamCompleted
+          case Right(Some(requests)) =>
+            // The text the model wrote before its tool call has been sent; the stream ends
+            // with what it waits for, never by hanging.
+            request.tokens ! EntityProtocol.StreamAwaiting(
+              writeToArray(Approvals.Awaiting(requests))
+            )
           case Left(rejection) => request.tokens ! EntityProtocol.StreamFailed(rejection)
         ended
       }
@@ -557,29 +817,152 @@ private[agent] object AgentHost:
         StreamFinished
     }
 
+/**
+ * A resolved, not-yet-issued call to an agent's handler, answered with `R`.
+ *
+ * `call` answers with the handler's value and throws `ApprovalAwaited` when the turn waits; `ask`
+ * answers with an `AgentOutcome`, which says which of the two it was.
+ */
+final class AgentInvocation[I, R] private[agent] (
+    send: (I, Metadata) => Future[R],
+    timeout: FiniteDuration,
+    metadata: Metadata = Metadata.empty
+):
+  def withMetadata(metadata: Metadata): AgentInvocation[I, R] =
+    AgentInvocation(send, timeout, metadata)
+
+  /** Issues the call and waits. Throws `CommandError` if the handler rejected it. */
+  def invoke(input: I): R = ComponentClient.await(invokeAsync(input), timeout)
+
+  def invokeAsync(input: I): Future[R] = send(input, metadata)
+
+/** As `AgentInvocation`, for a handler that takes no argument. */
+final class AgentNoArgInvocation[R] private[agent] (
+    send: Metadata => Future[R],
+    timeout: FiniteDuration,
+    metadata: Metadata = Metadata.empty
+):
+  def withMetadata(metadata: Metadata): AgentNoArgInvocation[R] =
+    AgentNoArgInvocation(send, timeout, metadata)
+
+  def invoke(): R = ComponentClient.await(invokeAsync(), timeout)
+
+  def invokeAsync(): Future[R] = send(metadata)
+
 /** Calls to agents, addressed by session. */
 final class AgentCalls private[agent] (
     transport: com.thinkmorestupidless.ankka.sdk.CallTransport,
     sessionId: SessionId
 ):
-  def call[A <: Agent, I, O](
-      handle: com.thinkmorestupidless.ankka.sdk.CommandHandle[A, I, O]
-  ): com.thinkmorestupidless.ankka.sdk.Invocation[I, O] =
-    com.thinkmorestupidless.ankka.sdk.Invocation(transport, EntityId(sessionId), handle)
+  private given ExecutionContext = ExecutionContext.parasitic
+  private val entity             = EntityId(sessionId)
 
-  def call[A <: Agent, O](
-      handle: com.thinkmorestupidless.ankka.sdk.NoArgHandle[A, O]
-  ): com.thinkmorestupidless.ankka.sdk.NoArgInvocation[O] =
-    com.thinkmorestupidless.ankka.sdk.NoArgInvocation(transport, EntityId(sessionId), handle)
+  /** Calls a handler for its value; throws `ApprovalAwaited` when the turn waits for approval. */
+  def call[A <: Agent, I, O](handle: CommandHandle[A, I, O]): AgentInvocation[I, O] =
+    AgentInvocation(
+      (input, md) => send(handle, handle.inputSerializer.toBytes(input), md).map(valueOf),
+      transport.askTimeout
+    )
+
+  def call[A <: Agent, O](handle: NoArgHandle[A, O]): AgentNoArgInvocation[O] =
+    AgentNoArgInvocation(md => sendNoArg(handle, md).map(valueOf), transport.askTimeout)
+
+  /** Calls a handler for its outcome: the answer, or the approval requests the turn awaits. */
+  def ask[A <: Agent, I, O](handle: CommandHandle[A, I, O]): AgentInvocation[I, AgentOutcome[O]] =
+    AgentInvocation(
+      (input, md) => send(handle, handle.inputSerializer.toBytes(input), md),
+      transport.askTimeout
+    )
+
+  def ask[A <: Agent, O](handle: NoArgHandle[A, O]): AgentNoArgInvocation[AgentOutcome[O]] =
+    AgentNoArgInvocation(md => sendNoArg(handle, md), transport.askTimeout)
+
+  /**
+   * Sends a decision on one of the session's approval requests.
+   *
+   * `handle` is the handler that was called — what gives the answer its type. When this was the
+   * turn's last awaited decision the turn goes on, and this answers as the handler's own caller
+   * would have been answered: with the model's answer, or with approval requests still or newly
+   * awaiting a decision.
+   */
+  def decide[A <: Agent, I, O](handle: CommandHandle[A, I, O])(
+      decision: Decision
+  ): AgentOutcome[O] =
+    ComponentClient.await(decideAsync(handle)(decision), transport.askTimeout)
+
+  def decideAsync[A <: Agent, I, O](handle: CommandHandle[A, I, O])(
+      decision: Decision
+  ): Future[AgentOutcome[O]] =
+    sendDecision(
+      handle.componentId,
+      handle.name.toString,
+      decision,
+      handle.outputSerializer.fromBytes
+    )
+
+  def decide[A <: Agent, O](handle: NoArgHandle[A, O])(decision: Decision): AgentOutcome[O] =
+    ComponentClient.await(
+      sendDecision(
+        handle.componentId,
+        handle.name.toString,
+        decision,
+        handle.outputSerializer.fromBytes
+      ),
+      transport.askTimeout
+    )
+
+  /** A turn that began as a stream is answered whole once decided: the text, or more requests. */
+  def decide[A <: Agent, I](handle: StreamHandle[A, I])(decision: Decision): AgentOutcome[String] =
+    ComponentClient.await(
+      sendDecision(
+        handle.componentId,
+        handle.name.toString,
+        decision,
+        String(_, java.nio.charset.StandardCharsets.UTF_8)
+      ),
+      transport.askTimeout
+    )
+
+  /**
+   * The platform's own decision — an expiry — which names no handler: it goes to whichever turn
+   * holds the request, and nobody is waiting for what the model says next.
+   */
+  private[ankka] def decideAsPlatform(componentId: ComponentId, decision: Decision): Unit =
+    ComponentClient.await(
+      sendDecision(componentId, "", decision, _ => ()),
+      transport.askTimeout
+    ): Unit
+
+  /** The session's approval requests that are awaiting a decision. */
+  def approvals(): Vector[ApprovalRequest] =
+    ComponentClient(transport)
+      .forEventSourcedEntity(entity)
+      .call(SessionMemoryEntity.history)
+      .invoke()
+      .awaiting
 
   /**
    * Streams a handler's reply.
    *
    * The `Source` is materialised by the caller and its actor ref sent to the agent, so tokens flow
    * directly from wherever the session is sharded to wherever this was called. Nothing buffers the
-   * whole reply.
+   * whole reply. When the turn waits for approval the source fails with `ApprovalAwaited` once the
+   * text before it has arrived; `streamParts` delivers the requests as its last element instead.
    */
   def stream[A <: Agent, I](handle: StreamHandle[A, I])(input: I): Source[String, NotUsed] =
+    tokens(handle, input).map {
+      case AgentPart.Text(text)                 => text
+      case AgentPart.AwaitingApproval(requests) => throw ApprovalAwaited(requests)
+    }
+
+  /** Streams a handler's reply as parts: text, then, if the turn waits, its approval requests. */
+  def streamParts[A <: Agent, I](handle: StreamHandle[A, I])(input: I): Source[AgentPart, NotUsed] =
+    tokens(handle, input)
+
+  private def tokens[A <: Agent, I](
+      handle: StreamHandle[A, I],
+      input: I
+  ): Source[AgentPart, NotUsed] =
     // The call is made when the source is run, which is often on another thread: an endpoint
     // hands the source back and the server runs it. It is still the call of whoever asked for the
     // stream, so who that is is taken here, where they asked.
@@ -597,7 +980,7 @@ final class AgentCalls private[agent] (
         Trace.resume(asked) {
           transport.tell(
             handle.componentId,
-            EntityId(sessionId),
+            entity,
             EntityProtocol.InvokeStream(
               handle.name,
               handle.inputSerializer.toBytes(input),
@@ -608,7 +991,55 @@ final class AgentCalls private[agent] (
         }
         NotUsed
       }
-      .collect { case EntityProtocol.Token(text) => text }
+      .collect {
+        case EntityProtocol.Token(text) => AgentPart.Text(text)
+        case EntityProtocol.StreamAwaiting(payload) =>
+          AgentPart.AwaitingApproval(readFromArray[Approvals.Awaiting](payload).requests)
+      }
+      // The requests are a stream's last part: the host sends nothing after them.
+      .takeWhile(!_.isInstanceOf[AgentPart.AwaitingApproval], inclusive = true)
+
+  private def send[O](
+      handle: CommandHandle[?, ?, O],
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[AgentOutcome[O]] =
+    transport
+      .askWithMetadata(handle.componentId, entity, handle.name, payload, metadata)
+      .map(outcomeOf(handle.outputSerializer.fromBytes))
+
+  private def sendNoArg[O](handle: NoArgHandle[?, O], metadata: Metadata): Future[AgentOutcome[O]] =
+    transport
+      .askWithMetadata(handle.componentId, entity, handle.name, Array.emptyByteArray, metadata)
+      .map(outcomeOf(handle.outputSerializer.fromBytes))
+
+  private def sendDecision[O](
+      componentId: ComponentId,
+      handler: String,
+      decision: Decision,
+      decode: Array[Byte] => O
+  ): Future[AgentOutcome[O]] =
+    transport
+      .askWithMetadata(
+        componentId,
+        entity,
+        MethodName(Approvals.DecideMethod),
+        writeToArray(Approvals.DecideRequest(handler, decision)),
+        Metadata.empty
+      )
+      .map(outcomeOf(decode))
+
+  private def outcomeOf[O](decode: Array[Byte] => O)(
+      reply: (Array[Byte], Metadata)
+  ): AgentOutcome[O] =
+    val (bytes, metadata) = reply
+    if metadata.get(Approvals.OutcomeKey).contains(Approvals.OutcomeValue) then
+      AgentOutcome.AwaitingApproval(readFromArray[Approvals.Awaiting](bytes).requests)
+    else AgentOutcome.Answered(decode(bytes))
+
+  private def valueOf[O](outcome: AgentOutcome[O]): O = outcome match
+    case AgentOutcome.Answered(value)            => value
+    case AgentOutcome.AwaitingApproval(requests) => throw ApprovalAwaited(requests)
 
 /**
  * Adds `forAgent` to `ComponentClient`.

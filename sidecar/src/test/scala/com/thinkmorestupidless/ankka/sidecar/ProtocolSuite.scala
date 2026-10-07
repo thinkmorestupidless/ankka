@@ -127,10 +127,11 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
   }
 
   test("discovery: an SDK on an earlier minor is admitted, since a minor only adds") {
-    // The double declares 1.0; the sidecar speaks 1.10 (1.1 added the caller, 1.2 the autonomous
+    // The double declares 1.0; the sidecar speaks 1.11 (1.1 added the caller, 1.2 the autonomous
     // agent, 1.3 a consumer's several messages, 1.4 metadata on the requests a handler's work is
     // sent in, 1.5 a principal's claims, 1.6 the secret store, 1.7 where a topic source starts,
-    // 1.8 a call to another service, 1.9 socket routes, 1.10 three imports for a module).
+    // 1.8 a call to another service, 1.9 socket routes, 1.10 three imports for a module, 1.11
+    // approvals and MCP servers).
     // Earlier minors are admitted.
     assertEquals(spec.protocolVersion, "1.0")
     withDouble(spec)((double, _, _) =>
@@ -148,7 +149,7 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
         Discovery.validate(double.toSpec, Discovery.ProtocolVersion, authConfigured = true).isRight
       )
     )
-    assertEquals(Discovery.ProtocolVersion, "1.10")
+    assertEquals(Discovery.ProtocolVersion, "1.11")
   }
 
   test(
@@ -208,6 +209,71 @@ class ProtocolSuite extends munit.FunSuite with LogCapturing:
     assert(problems.exists(_.contains("GET /a 2 times")), problems)
     assert(problems.exists(_.contains("unsupported method 'FETCH'")), problems)
     assertEquals(problems.size, 5)
+  }
+
+  // ── Approvals and MCP servers (protocol 1.11) ────────────────────────────────
+
+  test("an agent's MCP servers, approvals and result guardrails are checked in discovery") {
+    import ankka.protocol.v1.discovery.{AgentDetail, Approval, McpServer as PbMcpServer, Tool}
+    val agent = Component(
+      Kind.AGENT,
+      "helper",
+      Vector(Handler("ask", false, false)),
+      Component.Detail.Agent(
+        AgentDetail(
+          tools = Vector(
+            Tool("mcp__tickets__create", "squats an MCP tool's name", "{}"),
+            Tool("refund", "waits a negative time", "{}", Some(Approval(Some(-1L))))
+          ),
+          mcpServers = Vector(
+            PbMcpServer(name = "Tickets"),
+            PbMcpServer(name = "search").withHeaders(
+              Vector(PbMcpServer.Header("Authorization", "SEARCH_TOKEN"))
+            ),
+            PbMcpServer(name = "docs"),
+            PbMcpServer(name = "docs")
+          ),
+          resultGuardrails = Vector("no-injection", "no-injection")
+        )
+      )
+    )
+    val problems = Discovery
+      .validate(Spec("1.11", None, Vector(agent), Vector.empty), "1.11", authConfigured = true)
+      .left
+      .toOption
+      .getOrElse(fail("discovery accepted what the agent's definition would refuse"))
+    Vector(
+      "[a-z0-9-]",                      // a server's name
+      "ANKKA_MCP_",                     // a header's variable
+      "MCP server 'docs' is listed 2",  // one name twice
+      "mcp__tickets__create",           // an own tool named as an MCP tool
+      "must be positive",               // a time limit
+      "result guardrail 'no-injection'" // declared twice
+    ).foreach(word => assert(problems.exists(_.contains(word)), s"$word: $problems"))
+  }
+
+  test("a tool's approval and an agent's servers reach the descriptor the sidecar hosts") {
+    import ankka.protocol.v1.discovery.{AgentDetail, Approval, McpServer as PbMcpServer, Tool}
+    val agent = Component(
+      Kind.AGENT,
+      "helper",
+      Vector(Handler("ask", false, false)),
+      Component.Detail.Agent(
+        AgentDetail(
+          tools = Vector(Tool("refund", "refunds", "{}", Some(Approval(Some(60000L))))),
+          mcpServers = Vector(PbMcpServer(name = "tickets", approval = Some(Approval()))),
+          resultGuardrails = Vector("no-injection")
+        )
+      )
+    )
+    val spec = RemoteAgent.spec(agent).toOption.get
+    assertEquals(
+      spec.tools("refund").approval,
+      Some(com.thinkmorestupidless.ankka.agent.Approval(Some(1.minute)))
+    )
+    assertEquals(spec.mcpServers.map(_.name), Vector("tickets"))
+    assert(spec.mcpServers.head.approval.isDefined)
+    assertEquals(spec.resultGuardrails, Vector("no-injection"))
   }
 
   // ── Topic sources (protocol 1.7) ────────────────────────────────────────────

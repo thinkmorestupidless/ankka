@@ -2,8 +2,11 @@ package com.thinkmorestupidless.ankka.sidecar
 
 import ankka.protocol.v1.client.*
 import ankka.protocol.v1.payload as pb
+import com.github.plokhotnyuk.jsoniter_scala.core.{readFromArray, writeToArray}
 import com.google.protobuf.ByteString
 import ankka.protocol.v1.endpoint.{HttpRequest as PbHttpRequest, HttpResponse as PbHttpResponse}
+import com.thinkmorestupidless.ankka.agent.{Approvals, Decision}
+import com.thinkmorestupidless.ankka.agent.autonomous.HostProtocol
 import com.thinkmorestupidless.ankka.core.{
   CommandError,
   ComponentKind,
@@ -134,20 +137,19 @@ final class ClientLogic(
       bytes: Array[Byte],
       metadata: Metadata,
       attempt: Int = 0
-  ): Future[Array[Byte]] =
+  ): Future[(Array[Byte], Metadata)] =
     // Each attempt is a call, and is counted as one where it lands or where it goes unanswered.
     asCaller(metadata)(
-      transport.askHandler(
-        queries.contains((componentId, method)),
-        componentId,
-        entityId,
-        method,
-        bytes,
-        metadata
-      )
+      // A query may be sent again if it goes unanswered, and never waits for approval; a command is
+      // sent once, and its reply's metadata says whether its turn waits.
+      if queries.contains((componentId, method)) then
+        transport
+          .askQuery(componentId, entityId, method, bytes, metadata)
+          .map(reply => (reply, Metadata.empty))(using ExecutionContext.parasitic)
+      else transport.askWithMetadata(componentId, entityId, method, bytes, metadata)
     ).recoverWith {
       case e: CommandError if e.code == ErrorCode.Unavailable && attempt < RetryDelays.size =>
-        val promise = scala.concurrent.Promise[Array[Byte]]()
+        val promise = scala.concurrent.Promise[(Array[Byte], Metadata)]()
         val _ = system.scheduler.scheduleOnce(
           RetryDelays(attempt),
           () =>
@@ -169,7 +171,7 @@ final class ClientLogic(
       method <- Future.fromTry(
         MethodName.parse(request.name).left.map(IllegalArgumentException(_)).toTry
       )
-      bytes <- askWithRetry(
+      reply <- askWithRetry(
         componentId,
         entityId,
         method,
@@ -180,25 +182,102 @@ final class ClientLogic(
       // The reply's manifest and content type come back the same way; the transport hands back
       // only bytes, so the remote host's reply metadata is where they are. Absent (an in-process
       // target), the caller gets the bytes under its own manifest.
-      InvokeReply(
-        InvokeReply.Result.Reply(
-          pb.Outcome.Reply(
-            Some(
-              pb.Payload(
-                request.payload.map(_.contentType).getOrElse(""),
-                manifest(request.payload),
-                ByteString.copyFrom(bytes)
-              )
-            ),
-            None
+      val (bytes, replyMetadata) = reply
+      awaitingIn(bytes, replyMetadata).getOrElse(
+        InvokeReply(
+          InvokeReply.Result.Reply(
+            pb.Outcome.Reply(
+              Some(
+                pb.Payload(
+                  request.payload.map(_.contentType).getOrElse(""),
+                  manifest(request.payload),
+                  ByteString.copyFrom(bytes)
+                )
+              ),
+              None
+            )
           )
         )
-      )).recover {
+      )
+    ).recover {
       case e: CommandError => InvokeReply(InvokeReply.Result.Error(error(e)))
       case e: IllegalArgumentException =>
         InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.BAD_REQUEST)))
       case e => InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
     }
+
+  /**
+   * A decision on an approval request (protocol 1.11), sent as the process's handler.
+   *
+   * An agent's is answered as the handler whose turn waited would have answered: the answer, under
+   * the text manifest a process's agent replies with, or the requests still or newly awaiting. An
+   * autonomous agent's is answered once it is recorded. Refusals travel in the reply.
+   */
+  def decide(request: DecideRequest): Future[InvokeReply] =
+    val decision = Decision(
+      request.approvalId,
+      request.approved,
+      request.by,
+      request.note.filter(_.nonEmpty),
+      System.currentTimeMillis()
+    )
+    val carried = metadata(request.metadata)
+    (for
+      componentId <- Future.fromTry(
+        ComponentId.parse(request.componentId).left.map(IllegalArgumentException(_)).toTry
+      )
+      entityId <- Future.fromTry(
+        EntityId.parse(request.entityId).left.map(IllegalArgumentException(_)).toTry
+      )
+      reply <- request.kind match
+        case ankka.protocol.v1.discovery.Kind.AUTONOMOUS_AGENT =>
+          asCaller(carried)(
+            transport.ask(
+              componentId,
+              entityId,
+              HostProtocol.Decide,
+              HostProtocol.decide.toBytes(decision),
+              carried
+            )
+          ).map(_ => InvokeReply(InvokeReply.Result.Reply(pb.Outcome.Reply(None, None))))
+        case _ =>
+          asCaller(carried)(
+            transport.askWithMetadata(
+              componentId,
+              entityId,
+              MethodName(Approvals.DecideMethod),
+              writeToArray(Approvals.DecideRequest(request.name, decision)),
+              carried
+            )
+          ).map { (bytes, replyMetadata) =>
+            awaitingIn(bytes, replyMetadata).getOrElse(
+              InvokeReply(
+                InvokeReply.Result.Reply(
+                  pb.Outcome.Reply(
+                    Some(pb.Payload("text/plain", "string", ByteString.copyFrom(bytes))),
+                    None
+                  )
+                )
+              )
+            )
+          }
+    yield reply).recover {
+      case e: CommandError => InvokeReply(InvokeReply.Result.Error(error(e)))
+      case e: IllegalArgumentException =>
+        InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.BAD_REQUEST)))
+      case e => InvokeReply(InvokeReply.Result.Error(pb.Error(e.getMessage, pb.ErrorCode.INTERNAL)))
+    }
+
+  /** The approval requests a reply carries, when its metadata says it is one. */
+  private def awaitingIn(bytes: Array[Byte], replyMetadata: Metadata): Option[InvokeReply] =
+    Option.when(replyMetadata.get(Approvals.OutcomeKey).contains(Approvals.OutcomeValue))(
+      InvokeReply(InvokeReply.Result.Approval(awaited(bytes)))
+    )
+
+  private def awaited(bytes: Array[Byte]): ApprovalAwaited =
+    ApprovalAwaited(readFromArray[Approvals.Awaiting](bytes).requests.map { r =>
+      ApprovalRequest(r.id, r.tool, r.arguments.render, r.requestedAt, r.expiresAt)
+    })
 
   /**
    * Streams a handler's tokens to `emit`, ending with exactly one `completed` or `failed` token,
@@ -221,6 +300,10 @@ final class ClientLogic(
               Behaviors.stopped
             case failed: EntityProtocol.StreamFailed =>
               emit(StreamToken(StreamToken.Token.Failed(error(failed.toCommandError))))
+              Behaviors.stopped
+            case awaiting: EntityProtocol.StreamAwaiting =>
+              // The stream's last token: what the turn waits on, never an open stream.
+              emit(StreamToken(StreamToken.Token.Approval(awaited(awaiting.payload))))
               Behaviors.stopped
           },
           s"callback-stream-${java.util.UUID.randomUUID()}"

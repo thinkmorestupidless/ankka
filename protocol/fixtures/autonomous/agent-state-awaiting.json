@@ -1,0 +1,6 @@
+{
+  "manifest": "agent-state",
+  "content_type": "application/json",
+  "bytes_base64": "eyJjb21wb25lbnRJZCI6Im9wZXJhdG9yIiwiaW5zdGFuY2VJZCI6ImktMSIsInBoYXNlIjoid29ya2luZyIsInN1c3BlbmRlZCI6ZmFsc2UsInRlcm1pbmF0ZWQiOmZhbHNlLCJjdXJyZW50VGFzayI6eyJ0YXNrSWQiOiJ0LTEiLCJpdGVyYXRpb24iOjEsImJ1ZGdldCI6NH0sInF1ZXVlZCI6W10sInVzYWdlIjp7ImlucHV0VG9rZW5zIjoxMjAsIm91dHB1dFRva2VucyI6MzB9LCJ0YXNrVXNhZ2UiOnsiaW5wdXRUb2tlbnMiOjEyMCwib3V0cHV0VG9rZW5zIjozMH0sImF3YWl0aW5nIjpbeyJpZCI6ImEtMSIsImNhbGxJZCI6ImNhbGwtMSIsInRvb2wiOiJyZXN0YXJ0X3NlcnZpY2UiLCJhcmd1bWVudHMiOnsic2VydmljZSI6ImNhcnQifSwicmVxdWVzdGVkQXQiOjUsImV4cGlyZXNBdCI6MTgwNX1dfQ==",
+  "value": {"componentId":"operator","instanceId":"i-1","phase":"working","suspended":false,"terminated":false,"currentTask":{"taskId":"t-1","iteration":1,"budget":4},"queued":[],"usage":{"inputTokens":120,"outputTokens":30},"taskUsage":{"inputTokens":120,"outputTokens":30},"awaiting":[{"id":"a-1","callId":"call-1","tool":"restart_service","arguments":{"service":"cart"},"requestedAt":5,"expiresAt":1805}]}
+}

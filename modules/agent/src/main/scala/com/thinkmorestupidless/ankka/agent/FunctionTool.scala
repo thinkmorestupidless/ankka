@@ -1,6 +1,21 @@
 package com.thinkmorestupidless.ankka.agent
 
+import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.util.control.NonFatal
+
+/**
+ * That a tool waits for a person's decision before it runs, and how long it waits. With no limit it
+ * waits until it is decided, or its turn or task is over.
+ */
+final case class Approval(within: Option[FiniteDuration])
+
+/**
+ * Where a tool came from: written by the agent's developer, or read from an MCP server when the
+ * service started. Only an MCP server's results are checked by result guardrails.
+ */
+enum ToolOrigin:
+  case Own
+  case Mcp(server: String)
 
 /**
  * A function the model may decide to call.
@@ -12,10 +27,34 @@ import scala.util.control.NonFatal
  */
 final class FunctionTool private[agent] (
     val spec: ToolSpec,
-    private val invoker: Json => Either[String, String]
+    private val invoker: Json => Either[String, String],
+    val approval: Option[Approval] = None,
+    val origin: ToolOrigin = ToolOrigin.Own
 ):
 
   def name: String = spec.name
+
+  /**
+   * This tool, waiting for a person's decision before it runs.
+   *
+   * The model is offered it exactly as before — `spec` is unchanged — so nothing tells the model it
+   * will wait. When it calls the tool, the agent records an approval request instead of running it.
+   */
+  def requiresApproval: FunctionTool = withApproval(Approval(None))
+
+  /**
+   * As `requiresApproval`, refused by the platform when `within` passes with no decision. Needs the
+   * service's `TimerRuntime`, because a deadline has to outlive the process that set it.
+   */
+  def requiresApproval(within: FiniteDuration): FunctionTool =
+    if within <= Duration.Zero then
+      throw IllegalArgumentException(
+        s"tool '${spec.name}' needs a positive time limit for approval, not $within"
+      )
+    else withApproval(Approval(Some(within)))
+
+  private[ankka] def withApproval(approval: Approval): FunctionTool =
+    new FunctionTool(spec, invoker, Some(approval), origin)
 
   /**
    * Runs the tool against the model's arguments.
@@ -39,8 +78,12 @@ object FunctionTool:
    * tools run in another process and arrive with the schema that process declared. `invoke` gets
    * the model's arguments as they came and answers as `FunctionTool.invoke` does.
    */
-  private[ankka] def raw(spec: ToolSpec)(invoke: Json => Either[String, String]): FunctionTool =
-    new FunctionTool(spec, invoke)
+  private[ankka] def raw(
+      spec: ToolSpec,
+      approval: Option[Approval] = None,
+      origin: ToolOrigin = ToolOrigin.Own
+  )(invoke: Json => Either[String, String]): FunctionTool =
+    new FunctionTool(spec, invoke, approval, origin)
 
   /** Starts declaring a tool. */
   def named(name: String): NamedBuilder =

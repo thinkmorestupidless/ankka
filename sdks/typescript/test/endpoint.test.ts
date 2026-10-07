@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 import { Ankka } from "../src/service.ts"
 import { noClient } from "../src/client.ts"
 import { Endpoint } from "../src/endpoint.ts"
-import { Acl, HttpProblem, del, get, post, sse } from "../src/routes.ts"
+import { Acl, HttpProblem, del, get, post, sse, sseEvent } from "../src/routes.ts"
 import { Done, done, s } from "../src/schema.ts"
 import { CommandError, ErrorCode } from "../src/effects/common.ts"
 import { Endpoint_Acl } from "../src/_proto/ankka/protocol/v1/discovery_pb.ts"
@@ -40,6 +40,10 @@ class Things extends Endpoint {
       yield `start ${req.params.id}`
       yield " leading space"
       yield "two\nlines"
+    }),
+    turn: sse("/{id}/turn", async function* () {
+      yield "checking"
+      yield sseEvent("approval", [{ id: "a-1", tool: "refund" }])
     }),
   }
 
@@ -137,6 +141,19 @@ describe("the Http servicer", () => {
     }
     assert.deepEqual(frames, ["start e1", " leading space", "two\nlines"])
     assert.ok(completed)
+  })
+
+  test("a named event is sent as its own frame after the text", async () => {
+    const kinds: string[] = []
+    let event: { name: string; data: string } | undefined
+    for await (const f of started.http.handleStream(request("turn", ["t1"]))) {
+      kinds.push(f.frame.case ?? "")
+      if (f.frame.case === "event") event = f.frame.value
+    }
+    assert.deepEqual(kinds, ["text", "event", "completed"])
+    assert.equal(event?.name, "approval")
+    assert.deepEqual(JSON.parse(event?.data ?? "null"), [{ id: "a-1", tool: "refund" }])
+    assert.throws(() => sseEvent("two\nlines", 1), /one non-empty line/)
   })
 
   test("this.request is refused outside a handler", () => {

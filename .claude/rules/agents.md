@@ -47,6 +47,34 @@ working instance comes back after a crash with nothing sent to it (proven by `Re
 the sidecar the definition arrives whole in discovery; the process runs tools, guardrails and
 `CheckTaskResult` (decode as the type, then every rule, in one call).
 
+A tool can **require approval** (feature 029, `FunctionTool.requiresApproval`, `agent/Approvals.scala`).
+In a request agent the loop stops before running such a call and records a **suspended turn** in session
+memory (the `suspend-turn` command: the handler, its encoded input, the turn's messages so far and the requests), and the
+caller is answered `AgentOutcome.AwaitingApproval`. A decision (`AgentCalls.decide`, the reserved method
+`ankka:decide`) is recorded first (`decide-approval`), and when it was the turn's last the turn is resumed
+by **running the handler again** on the recorded input — safe because building an effect does no I/O — and
+`AgentLoop.resume` goes on from the recorded messages. An approved tool runs at most once: a turn cut off
+after its last decision is ended, not resumed. The session refuses a new turn while one is suspended, and a
+second decision is `Conflict` found through `approvalId` on the recorded tool result. An autonomous agent
+records its requests on the instance record (`Working.approvals`, cleared when the next iteration starts),
+makes no model call while any awaits, and passivates while it waits; `IterationLoop` settles the calls of
+the last response before anything else. A time limit is a platform timed action, `ankka-approval-expiry`
+(in `AgentRuntime.descriptors`), scheduled **before** the request is recorded and decided as the platform
+(`Decision.Platform`), so a service with a limit needs a `TimerRuntime`. The decide path records its span
+under the handler the request names, when the agent declares it, so a call an approved tool makes is that
+handler's.
+
+An agent can list **MCP servers** (`agent/mcp`): `McpTools.connect` connects each when `AgentRuntime`
+starts (Streamable HTTP, protocol `2025-06-18`), and their tools become `FunctionTool`s named
+`mcp__<server>__<tool>` carrying the server's approval and an `Mcp` origin. Addresses and header values
+come from `ANKKA_MCP_` variables read through `AgentRuntime.withVariables` (the environment unless a test
+gives a map), which `PlatformVariables` routes to the platform's program only. **Result guardrails** are a
+separate list, run by `ResultChecks` in `ToolRunner` on an MCP result that is not an error; a refusal
+replaces the result, so the text reaches neither the model nor the session. In the sidecar `RemoteMcp`
+turns the declarations into the Scala agent's, the process answers `CheckGuardrail` at stage `RESULT`, and
+`Decide` on `Client` (protocol 1.9) carries a decision; the process is never asked to run an MCP tool nor
+a call that awaits a decision. `TestMcpServer` (agent module, main scope) is the scripted server.
+
 ## Traps
 
 - **One `TestModelProvider` cannot serve both an agent and an async consumer.** The
@@ -88,3 +116,12 @@ the sidecar the definition arrives whole in discovery; the process runs tools, g
   an anonymous `Guardrail`, `val name: String = name` is the val naming itself — null, and a
   `GuardrailRequest` that cannot be serialized; grpc-java reports that as `CANCELLED: Failed to
   stream message`, which reads like a network fault and is a NullPointerException in a field.
+- **A handler name a call carries is believed only when it is declared**, and the reserved `ankka:`
+  methods are not. The decide path first recorded its span as `ankka:decide`, so everything an approved
+  tool called was counted from the unknown caller — invisible to every approval suite, found by the
+  conformance suite's `topology.call-attributed` once an approved tool recorded a call. Work done on a
+  handler's behalf through a reserved method is recorded as that handler's.
+- **Two suspended-turn shapes must agree on the turn's input.** The turn is resumed by decoding the
+  recorded payload with the handler's own serializer; a streaming handler's input is the stream handle's.
+  A handler renamed between the suspension and the decision is answered `Internal` and the turn ended,
+  never run as another handler.

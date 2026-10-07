@@ -23,3 +23,5 @@ agent-instance-event {"type":"TaskEnded","taskId":"t-1","outcome":{"type":"Cance
 agent-instance-event {"type":"Suspended","at":11}
 agent-instance-event {"type":"Resumed","at":12}
 agent-instance-event {"type":"Terminated","at":13}
+agent-instance-event {"type":"ApprovalRequested","request":{"id":"a-1","callId":"c-1","tool":"restart_service","arguments":{"service":"cart"},"requestedAt":14,"expiresAt":1814}}
+agent-instance-event {"type":"ApprovalDecided","approvalId":"a-1","decision":{"approvalId":"a-1","approved":false,"by":"dana","note":"not now","at":15}}

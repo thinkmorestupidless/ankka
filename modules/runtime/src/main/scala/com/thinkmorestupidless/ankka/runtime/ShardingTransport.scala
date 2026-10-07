@@ -55,6 +55,17 @@ private[ankka] final class ShardingTransport(
       payload: Array[Byte],
       metadata: Metadata
   ): Future[Array[Byte]] =
+    askWithMetadata(componentId, entityId, method, payload, metadata).map(_._1)(using
+      ExecutionContext.parasitic
+    )
+
+  override def askWithMetadata(
+      componentId: ComponentId,
+      entityId: EntityId,
+      method: MethodName,
+      payload: Array[Byte],
+      metadata: Metadata
+  ): Future[(Array[Byte], Metadata)] =
     val call = Call(componentId, entityId, method, payload, metadata)
     answered(call, send(call, askTimeout))
 
@@ -84,7 +95,7 @@ private[ankka] final class ShardingTransport(
         send(call, resendAfter).recoverWith { case _: java.util.concurrent.TimeoutException =>
           attempt()
         }
-    answered(call, attempt())
+    answered(call, attempt()).map(_._1)(using ExecutionContext.parasitic)
 
   /** One call, as made on the calling thread: what it carries, and who made it. */
   private final class Call(
@@ -108,11 +119,15 @@ private[ankka] final class ShardingTransport(
         EntityProtocol.Invoke(call.method, call.payload, MetaEntry.from(call.carried), replyTo)
       )(using Timeout(within))
 
-  private def answered(call: Call, reply: Future[EntityProtocol.Reply]): Future[Array[Byte]] =
+  /** The reply's bytes, with the metadata it carried; a refusal or no answer as a failure. */
+  private def answered(
+      call: Call,
+      reply: Future[EntityProtocol.Reply]
+  ): Future[(Array[Byte], Metadata)] =
     val observability = Observability(system)
     reply.transform {
-      case Success(EntityProtocol.Succeeded(reply, _)) =>
-        Success(reply)
+      case Success(EntityProtocol.Succeeded(reply, replyMetadata)) =>
+        Success((reply, MetaEntry.toMetadata(replyMetadata)))
 
       case Success(rejected: EntityProtocol.Rejected) =>
         Failure(rejected.toCommandError)

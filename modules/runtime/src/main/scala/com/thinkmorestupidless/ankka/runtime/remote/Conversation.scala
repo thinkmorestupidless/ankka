@@ -162,8 +162,15 @@ enum ConsumerOutcome:
  * because a runtime that does not know a reply drops it: an SDK reads the entry before it answers
  * with anything an earlier runtime would not understand.
  */
+/** One part of a stream route's answer. */
+enum StreamPart:
+  case Text(text: String)
+
+  /** A server-sent event under a name of its own; `data` is JSON text on one line. */
+  case Event(name: String, data: String)
+
 object WireProtocol:
-  val Version: String     = "1.10"
+  val Version: String     = "1.11"
   val MetadataKey: String = "ankka.protocol"
 
 /**
@@ -205,6 +212,9 @@ final case class RemotePlan(
 
 enum GuardrailStage:
   case Input, Output
+
+  /** What an MCP server's tool answered (protocol 1.11), and which tool, when it is known. */
+  case Result(tool: Option[String])
 
 final case class RemotePrincipal(
     subject: String,
@@ -300,6 +310,13 @@ trait Conversation:
 
   def handleHttp(request: HttpForward): Future[Either[ProcessFailure, HttpResult]]
   def handleHttpStream(request: HttpForward): Source[String, NotUsed]
+
+  /**
+   * A stream route's parts as the process sends them: text, or (protocol 1.11) a named event whose
+   * data is JSON. A conversation whose process sends only text — a module's — need not override it.
+   */
+  def handleHttpEvents(request: HttpForward): Source[StreamPart, NotUsed] =
+    handleHttpStream(request).map(StreamPart.Text(_))
 
   /**
    * Opens a socket route's socket in the process: `request` is the request that opened it, with no

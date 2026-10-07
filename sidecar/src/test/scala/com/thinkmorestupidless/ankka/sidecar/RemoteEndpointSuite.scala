@@ -74,6 +74,22 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
         "/{id}/events",
         streaming = true,
         frames = _ => Vector(" leading space", "two\nlines", "end")
+      ),
+      ProcessDouble.Route(
+        "turn",
+        "GET",
+        "/{id}/turn",
+        streaming = true,
+        frames = _ => Vector("checking"),
+        events = _ => Vector("approval" -> """[{"id":"a-1","tool":"refund"}]""")
+      ),
+      ProcessDouble.Route(
+        "broken-event",
+        "GET",
+        "/{id}/broken-event",
+        streaming = true,
+        frames = _ => Vector("before"),
+        events = _ => Vector("approval" -> "{\n}")
       )
     )
   )
@@ -243,6 +259,34 @@ class RemoteEndpointSuite extends munit.FunSuite with LogCapturing:
     val data =
       r.body.linesIterator.filter(_.startsWith("data:")).map(_.stripPrefix("data:").trim).toVector
     assertEquals(data, Vector("\" leading space\"", "\"two\\nlines\"", "\"end\""))
+  }
+
+  /** The events of an SSE body, each as its set of field lines: field order in an event is free. */
+  private def events(body: String): Vector[Set[String]] =
+    body
+      .split("\n\n")
+      .toVector
+      .map(_.linesIterator.map(_.trim).filter(_.nonEmpty).toSet)
+      .filter(_.nonEmpty)
+
+  test("a named event from the process is served under its name, its data as the process sent it") {
+    val r = get("/carts/c1/turn")
+    assertEquals(r.statusCode, 200)
+    assertEquals(
+      events(r.body),
+      Vector(
+        Set("data:\"checking\""),
+        Set("event:approval", """data:[{"id":"a-1","tool":"refund"}]""")
+      )
+    )
+  }
+
+  test("an event whose data would break the stream's framing ends the stream, and is not sent") {
+    // The stream fails where the event would be, so the response is cut off mid-body.
+    val body =
+      try get("/carts/c1/broken-event").body
+      catch case _: java.io.IOException => ""
+    assert(!body.contains("event:approval"), body)
   }
 
   test("an unknown route is the router's 404, not the process's") {

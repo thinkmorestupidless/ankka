@@ -22,6 +22,7 @@ import ankka.protocol.v1.endpoint.{
   SocketFrame,
   SocketIn,
   SocketOut,
+  SseEvent,
   StreamFrame
 }
 import ankka.protocol.v1.event_sourced.{EventSourcedGrpc, EventSourcedIn, EventSourcedOut}
@@ -91,6 +92,8 @@ object ProcessDouble:
       handler: HttpRequest => Either[Throwable, HttpResponse] = _ =>
         Right(HttpResponse(200, "text/plain", ByteString.copyFromUtf8("ok"))),
       frames: HttpRequest => Vector[String] = _ => Vector.empty,
+      // Sent after the text frames, each as a named event: its name and its JSON data.
+      events: HttpRequest => Vector[(String, String)] = _ => Vector.empty,
       socket: Boolean = false,
       onSocket: SocketScript = SocketScript.Echo
   )
@@ -247,7 +250,12 @@ object ProcessDouble:
       tools: Map[String, (String, String) => Either[String, String]] = Map.empty,
       guardrails: Map[String, (GuardrailRequest.Stage, String) => Option[String]] = Map.empty,
       role: String = "",
-      maxToolCallSteps: Int = 0
+      maxToolCallSteps: Int = 0,
+      // 1.11: tools that wait for a person, the MCP servers the sidecar connects to, and the
+      // guardrails (by name, answered from `guardrails`) checked on those servers' results.
+      approvals: Set[String] = Set.empty,
+      mcpServers: Vector[ankka.protocol.v1.discovery.McpServer] = Vector.empty,
+      resultGuardrails: Vector[String] = Vector.empty
   )
 
   /**
@@ -522,16 +530,21 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
             ),
           Component.Detail.Agent(
             AgentDetail(
-              a.role,
-              a.maxToolCallSteps,
-              a.tools.keys.toVector.sorted.map(n =>
+              role = a.role,
+              maxToolCallSteps = a.maxToolCallSteps,
+              tools = a.tools.keys.toVector.sorted.map(n =>
                 Tool(
-                  n,
-                  s"the $n tool",
-                  """{"type":"object","properties":{"id":{"type":"string"}}}"""
+                  name = n,
+                  description = s"the $n tool",
+                  inputSchemaJson = """{"type":"object","properties":{"id":{"type":"string"}}}""",
+                  approval = Option.when(a.approvals.contains(n))(
+                    ankka.protocol.v1.discovery.Approval()
+                  )
                 )
               ),
-              a.guardrails.keys.toVector.sorted
+              guardrails = a.guardrails.keys.toVector.sorted.filterNot(a.resultGuardrails.contains),
+              mcpServers = a.mcpServers,
+              resultGuardrails = a.resultGuardrails
             )
           )
         )
@@ -1138,6 +1151,10 @@ final class ProcessDouble(spec: ProcessDouble.DoubleSpec)(using ec: ExecutionCon
           out.onCompleted()
         case Some(r) =>
           r.frames(request).foreach(f => out.onNext(StreamFrame(StreamFrame.Frame.Text(f))))
+          r.events(request)
+            .foreach((name, data) =>
+              out.onNext(StreamFrame(StreamFrame.Frame.Event(SseEvent(name, data))))
+            )
           out.onNext(StreamFrame(StreamFrame.Frame.Completed(pb.Empty())))
           out.onCompleted()
 

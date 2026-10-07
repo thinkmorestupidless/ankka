@@ -24,7 +24,7 @@ import { CommandError, ErrorCode, httpStatusOf } from "../effects/common.ts"
 import type { Endpoint } from "../endpoint.ts"
 import { DecodingError } from "../json.ts"
 import { errorCodeToProto } from "../kinds.ts"
-import { HttpProblem, type RouteRef } from "../routes.ts"
+import { HttpProblem, type RouteRef, type SseEvent } from "../routes.ts"
 import { done, resolve, type Schema } from "../schema.ts"
 import { SocketClosed, socketOf } from "../socket.ts"
 import type { RegisteredEndpoint } from "../service.ts"
@@ -188,8 +188,11 @@ export function createHttpDispatcher(ctx: ServerContext): HttpDispatcher {
       const queue = new AsyncQueue<StreamFrame>()
       void withRequest(request, async () => {
         try {
-          const frames = (await route.run(instance, request, undefined)) as AsyncIterable<string>
-          for await (const text of frames) queue.push(create(StreamFrameSchema, { frame: { case: "text", value: text } }))
+          const frames = (await route.run(instance, request, undefined)) as AsyncIterable<string | SseEvent>
+          for await (const part of frames) {
+            if (typeof part === "string") queue.push(create(StreamFrameSchema, { frame: { case: "text", value: part } }))
+            else queue.push(create(StreamFrameSchema, { frame: { case: "event", value: { name: part.name, data: JSON.stringify(part.value, (_k, v) => (typeof v === "bigint" ? v.toString() : v)) } } }))
+          }
           queue.push(create(StreamFrameSchema, { frame: { case: "completed", value: {} } }))
         } catch (e) {
           const code = e instanceof CommandError ? e.code : ErrorCode.Internal

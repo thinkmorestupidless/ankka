@@ -104,7 +104,10 @@ final class RemoteAgent(
     val declared  = spec.tools(name)
     val session   = sessionId
     val component = spec.componentId
-    FunctionTool.raw(ToolSpec(name, declared.description, declared.inputSchema)) { arguments =>
+    FunctionTool.raw(
+      ToolSpec(name, declared.description, declared.inputSchema),
+      declared.approval
+    ) { arguments =>
       // Run by the loop, on the thread the host made the agent's: the tool is told the trace and
       // the handler it runs for, so that a call it makes is the agent's.
       Await.result(
@@ -148,7 +151,11 @@ final class RemoteAgent(
 
 object RemoteAgent:
 
-  final case class Tool(description: String, inputSchema: Json)
+  final case class Tool(
+      description: String,
+      inputSchema: Json,
+      approval: Option[com.thinkmorestupidless.ankka.agent.Approval] = None
+  )
 
   /** What discovery said about one agent. */
   final case class Spec(
@@ -158,7 +165,9 @@ object RemoteAgent:
       tools: Map[String, Tool],
       guardrails: Set[String],
       handlers: Vector[MethodName],
-      streams: Vector[MethodName]
+      streams: Vector[MethodName],
+      mcpServers: Vector[com.thinkmorestupidless.ankka.agent.mcp.McpServer] = Vector.empty,
+      resultGuardrails: Vector[String] = Vector.empty
   )
 
   def spec(component: Component): Either[String, Spec] =
@@ -169,11 +178,17 @@ object RemoteAgent:
         if detail.role.isEmpty then id else detail.role,
         if detail.maxToolCallSteps > 0 then detail.maxToolCallSteps else 100,
         detail.tools.map { t =>
-          t.name -> Tool(t.description, Json.parse(t.inputSchemaJson).getOrElse(Json.obj()))
+          t.name -> Tool(
+            t.description,
+            Json.parse(t.inputSchemaJson).getOrElse(Json.obj()),
+            RemoteMcp.approval(t)
+          )
         }.toMap,
         detail.guardrails.toSet,
         component.handlers.filterNot(_.streaming).map(h => MethodName(h.name)).toVector,
-        component.handlers.filter(_.streaming).map(h => MethodName(h.name)).toVector
+        component.handlers.filter(_.streaming).map(h => MethodName(h.name)).toVector,
+        RemoteMcp.servers(detail.mcpServers),
+        detail.resultGuardrails.toVector
       )
     }
 
@@ -210,5 +225,23 @@ object RemoteAgent:
       spec.maxToolCallSteps,
       _ => new RemoteAgent(spec, conversation, models, planTimeout, toolTimeout),
       handlers,
-      streams
+      streams,
+      spec.mcpServers,
+      // Checked on the loop's thread after a tool answered; no session is known there, and the
+      // process's check is given the result and the guardrail's name.
+      spec.resultGuardrails.map { name =>
+        RemoteMcp.resultGuardrail(name) { text =>
+          Await.result(
+            conversation.checkGuardrail(
+              spec.componentId,
+              "",
+              name,
+              GuardrailStage.Result(None),
+              text,
+              Trace.outbound(Metadata.empty)
+            ),
+            planTimeout
+          )
+        }
+      }
     )

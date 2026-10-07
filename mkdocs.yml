@@ -110,6 +110,7 @@ extra:
           - { path: modules/http/src/main/resources/reference.conf, scope: every service }
           - { path: modules/grpc/src/main/resources/reference.conf, scope: a service that serves gRPC }
           - { path: modules/telemetry-otlp/src/main/resources/reference.conf, scope: a service that exports telemetry }
+          - { path: modules/agent/src/main/resources/reference.conf, scope: a service with agents }
           - { path: modules/runtime/src/main/resources/ankka-cluster-local.conf, scope: local mode }
           - { path: modules/runtime/src/main/resources/ankka-cluster-kubernetes.conf, scope: kubernetes mode }
         prefix: ankka.
@@ -178,6 +179,7 @@ nav:
       - Streaming responses: build/streaming.md
       - Multi-agent orchestration: build/multi-agent-orchestration.md
       - Autonomous agents: build/autonomous-agents.md
+      - MCP servers: build/mcp-servers.md
       - HTTP endpoints: build/http-endpoints.md
       - Calling other services: build/calling-services.md
       - gRPC endpoints: build/grpc-endpoints.md

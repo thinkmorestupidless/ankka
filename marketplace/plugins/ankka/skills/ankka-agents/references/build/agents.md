@@ -312,6 +312,120 @@ fixing its arguments. The loop allows 100 tool round trips per request by defaul
 Tools run after the handler has returned, inside the runtime's loop. Read anything a tool needs from the
 session — its id, for instance — in the handler, and capture it in the tool's closure.
 
+## Tools that wait for a person
+
+A tool can require **approval**: when the model calls it, the tool does not run. The agent records an
+**approval request** — an id, the tool and the arguments the model proposed — and answers the caller
+with it instead of an answer. The turn waits in the session until a person decides. Approved, the tool
+runs once and the model is told its result; refused, the tool never runs and the model is told who
+refused it and their note, then goes on.
+
+```scala
+val issueRefund: FunctionTool = FunctionTool
+  .named("issue_refund")
+  .describedAs("Refunds an order. A supervisor approves every refund before it is made.")
+  .param[String]("order", "The order to refund.")
+  .param[Int]("amount", "The amount to refund.")
+  .handle { (order, amount) =>
+    runs.add(s"issue_refund($order,$amount)"): Unit
+    s"refunded $amount on $order"
+  }
+  .requiresApproval
+```
+
+A time limit makes the platform decide for the person: when it passes with no decision, the request is
+refused, as `ankka` with a note saying it expired. A service with a time limit on any tool registers a
+`TimerRuntime`, or it does not start.
+
+```scala
+val closeAccount: FunctionTool = FunctionTool
+  .named("close_account")
+  .describedAs("Closes a customer's account.")
+  .param[String]("customer", "The customer whose account to close.")
+  .handle { customer =>
+    runs.add(s"close_account($customer)"): Unit
+    s"closed $customer"
+  }
+  .requiresApproval(2.seconds)
+```
+
+A caller that may meet an approval asks for the turn's **outcome** rather than a value: `ask` answers
+`AgentOutcome.Answered` with the model's answer, or `AgentOutcome.AwaitingApproval` with the requests.
+A decision goes to the session through `decide`, naming the handler that was called; when it was the
+turn's last awaited decision, the turn goes on and `decide` answers as `ask` would have.
+
+```scala
+val session = componentClient.forAgent(SessionId("s-42"))
+val answer = session.ask(ApprovalAgent.ask).invoke("refund order o-7") match
+  case AgentOutcome.Answered(text)             => text
+  case AgentOutcome.AwaitingApproval(requests) =>
+    // In a real service the requests are shown to a person, and the decision arrives later,
+    // from whatever route they make it through; that route's ACL is who may decide.
+    val decision = Decision.approved(requests.head.id, by = "dana")
+    session.decide(ApprovalAgent.ask)(decision) match
+      case AgentOutcome.Answered(text)         => text
+      case AgentOutcome.AwaitingApproval(more) => s"still waiting on ${more.size}"
+```
+
+The rules a decision follows:
+
+- **Who decided is required.** A decision names who made it (`by`), and a decision that names nobody is
+  refused with `BadRequest` and decides nothing. The name is recorded and shown; it is not what
+  authorizes the decision. Who *may* decide is the ACL of the route the decision is sent through.
+- **A request is decided once.** A second decision is `Conflict`, whether the first approved or refused
+  it. An id the session never held is `NotFound`.
+- **A session waiting for a decision takes no new request.** A new message is `Conflict` until every
+  request of the waiting turn is decided.
+- **An approved tool runs at most once.** The decision is recorded before the tool runs; if the service
+  stops between the two, the turn is ended and the tool is not run again.
+- **The wait survives a restart.** The request is part of the session, so a decision sent after the
+  service restarted, or to another node, goes on with the same turn. The turn's effect is rebuilt by
+  running the handler again on the message it was given, which is safe because building an effect does
+  no I/O.
+
+`call` and `stream`, which answer only with a value, throw `ApprovalAwaited` carrying the requests when
+the turn waits. `streamParts` answers a stream's text, then one `AgentPart.AwaitingApproval` last. An HTTP
+endpoint can send that as a server-sent event of its own name, so a browser knows the stream ended
+waiting rather than finished:
+
+```scala
+sseEvents("/support/{session}") { (session: String) =>
+  client
+    .forAgent(SessionId(session))
+    .streamParts(ApprovalAgent.chat)("refund order o-7")
+    .map {
+      case AgentPart.Text(text)                 => SseEvent.text(text)
+      case AgentPart.AwaitingApproval(requests) => SseEvent.json("approval", requests)
+    }
+}
+```
+
+## A tool that calls another service
+
+A tool can call another ankka service through the context's `services`, as an endpoint does. The call
+is made as this service: on the platform it presents this service's certificate, so the called
+service's ACL admits it by name, and the call is recorded inside the tool call's span.
+
+```scala
+/** A support agent whose tool reads a balance from the wallet service, as its own service. */
+final class WalletAgent(context: AgentContext) extends Agent:
+
+  private val readBalance = FunctionTool
+    .named("read_balance")
+    .describedAs("Reads a customer's wallet balance.")
+    .param[String]("customer", "The customer whose balance to read.")
+    .handle(customer => context.services("wallet").getText(s"/wallet/balances/$customer"))
+```
+
+A refusal, or no answer, is the tool's error: the model is told it and goes on. See
+[Calling other services](calling-services.md) for the client itself.
+
+## MCP servers
+
+An agent can list MCP servers, whose tools are offered to the model beside its own as
+`mcp__<server>__<tool>`, each server with its own credential, approval and result guardrails. See
+[MCP servers](mcp-servers.md).
+
 ## Guardrails
 
 A guardrail checks the text going into the model and the text coming out. Input guardrails run before any
@@ -517,6 +631,45 @@ The effect has the same shape as the Scala one, with each SDK's spelling:
 | `then_reply()` | Reply with the text. |
 | `then_reply_json()` | Reply with the model's JSON, decoded by the handler's reply type. |
 | `self.effects.error(message, code)` | Refuse without calling a model. |
+
+A tool that waits for a person is declared with `approval`: `Tool(..., approval=True)` or
+`Tool(..., approval=Approval(within=timedelta(minutes=30)))` in Python, `tool(..., run, { approval: true })`
+or `{ approval: { withinMs: 1_800_000 } }` in TypeScript. A caller asks for the outcome and decides
+through the same invocation:
+
+**Python**
+
+```python
+@post("/approver/{session}")
+async def ask_approver(self, session: str, question: str) -> str:
+    """A turn that may wait: the model's answer, or the approval requests it waits on."""
+    return _render_outcome(await self._scoped().for_agent("approver", session).call("ask").ask(question))
+
+@post("/approver/{session}/decide/{id}")
+async def decide_approval(self, session: str, id: str, body: str) -> str:
+    """A person's decision, answered as the turn's caller would have been once it goes on."""
+    return _render_outcome(await self._scoped().for_agent("approver", session).call("ask").decide(id, **_decision(body)))
+```
+
+**TypeScript**
+
+```ts
+// A turn that may wait: the model's answer, or the approval requests it waits on.
+askApprover: post("/approver/{session}", s.string, s.string, async (ep: ConformanceEndpoint, req, question) =>
+  renderOutcome(await ep.client.of(Approver, req.params.session).call(Approver.handlers.ask).ask(question)),
+),
+// A person's decision, answered as the turn's caller would have been once it goes on.
+decideApproval: post("/approver/{session}/decide/{id}", s.string, s.string, async (ep: ConformanceEndpoint, req, body) =>
+  renderOutcome(await ep.client.of(Approver, req.params.session).call(Approver.handlers.ask).decide(req.params.id, decisionOf(body))),
+),
+```
+
+`invoke` and `stream` raise (or reject with) `ApprovalAwaited` when the turn waits, and `stream_parts`
+(`streamParts`) yields the text and then the awaited requests. An `@sse` (`sse`) route can pass those on
+as a server-sent event of its own name by yielding `SseEvent("approval", requests)` in Python or
+`sseEvent("approval", requests)` in TypeScript after the text: the value is sent as JSON, as the Scala
+endpoint's `SseEvent.json` sends it. The rules of a decision are the same as
+in Scala, and the sidecar enforces them: the process is never asked to run a tool that awaits a decision.
 
 A handler declared with `@stream` in Python, or `stream` in TypeScript, streams its reply; see
 [Streaming responses](streaming.md). The class attributes `role` and `max_tool_call_steps` match the

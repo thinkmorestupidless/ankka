@@ -105,7 +105,7 @@ export interface RouteRef<Ep = unknown, P = unknown, B = unknown, R = unknown> {
   /** Answered by opening a socket (protocol 1.9); `run`'s third argument is then the `Socket`. */
   readonly socket: boolean
   readonly acl: Acl | undefined
-  readonly run: (self: Ep, request: RequestContext<P>, body: B) => MaybePromise<R> | AsyncIterable<string>
+  readonly run: (self: Ep, request: RequestContext<P>, body: B) => MaybePromise<R> | AsyncIterable<string | SseEvent>
 }
 
 const TEMPLATE = /^(\/(?:[^/{}]+|\{[A-Za-z_][A-Za-z0-9_]*\})?)*$/
@@ -189,10 +189,26 @@ export const patch = withBody("PATCH")
 /** A DELETE route; `delete` is a reserved word, so `del`. */
 export const del = withBody("DELETE")
 
-/** A server-sent-events route: the handler returns an `AsyncIterable<string>`, one frame per string. */
+/**
+ * A server-sent event under a name of its own, which an `sse` handler may yield beside text: an agent
+ * turn that stops for approval ends its stream with `sseEvent("approval", requests)`. `value` is sent as
+ * JSON. Needs protocol 1.11 of the runtime.
+ */
+export interface SseEvent {
+  readonly kind: "sse-event"
+  readonly name: string
+  readonly value: unknown
+}
+
+export function sseEvent(name: string, value: unknown): SseEvent {
+  if (typeof name !== "string" || name === "" || /[\r\n]/.test(name)) throw new TypeError(`an event name must be one non-empty line, not ${JSON.stringify(name)}`)
+  return Object.freeze({ kind: "sse-event", name, value })
+}
+
+/** A server-sent-events route: the handler returns an `AsyncIterable<string | SseEvent>`, one frame per string, and may yield an `SseEvent` among them. */
 export function sse<Ep, T extends string, PS extends Readonly<Record<string, Schema>> = {}>(
   template: T,
-  run: (self: Ep, request: RequestContext<Params<T, PS>>) => AsyncIterable<string> | Promise<AsyncIterable<string>>,
+  run: (self: Ep, request: RequestContext<Params<T, PS>>) => AsyncIterable<string | SseEvent> | Promise<AsyncIterable<string | SseEvent>>,
   options?: RouteOptions<PS>,
 ): RouteRef<Ep, Params<T, PS>, undefined, never> {
   return route("GET", template, undefined, undefined, run as RouteRef<Ep, Params<T, PS>, undefined, never>["run"], options, true)

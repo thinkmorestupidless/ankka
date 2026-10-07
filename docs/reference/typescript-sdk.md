@@ -220,15 +220,21 @@ Scheduling twice under one id replaces the earlier timer. See [Timers](../build/
 | Part | API |
 |---|---|
 | Base class | `Agent` |
-| Statics | `componentId`, `handlers`, optionally `role`, `maxToolCallSteps`, `tools`, `guardrails` |
-| Declarations | `command(...)` and `stream(name, input?, run)` in `handlers`; `tool(name, description, Input, run)` in `tools`; `guardrail(name, check)` in `guardrails` |
+| Statics | `componentId`, `handlers`, optionally `role`, `maxToolCallSteps`, `tools`, `guardrails`, `mcpServers`, `resultGuardrails` |
+| Declarations | `command(...)` and `stream(name, input?, run)` in `handlers`; `tool(name, description, Input, run, { approval })` in `tools`; `guardrail(name, check)` in `guardrails`; `mcpServer(name, { url, service, project, path, headers, approval })` in `mcpServers`; `resultGuardrail(name, (tool, text) => …)` in `resultGuardrails` |
+| Approval | `{ approval: true }`, or `{ approval: { withinMs } }` for a time limit |
+| Calling | `.ask(input)` → `{ kind: "answered", value }` or `{ kind: "awaiting-approval", requests }`; `.decide(approvalId, { approved, by, note })`, answered as `ask`; `.streamParts(input)`; `.invoke` and `.stream` reject with `ApprovalAwaited` |
 | In a handler | `this.sessionId`, `this.metadata`, `this.client`, `this.effects` |
 | Effects | `systemMessage(t)`, `userMessage(t)`, `model(name)`, then `.withModel(name)`, `.withContext(t)`, `.memory(bool)`, `.tools(...names)`, `.guardrails(...names)`, `.thenReply()`, `.thenReplyJson<R>()`; `error(msg, code)` |
 
 A handler returns a plan; the sidecar runs the model loop, calls tools back in the process with the model's
 arguments decoded by the tool's input shape, and checks guardrails. A tool's input shape is also the JSON
-Schema the model sees. A guardrail's `check(stage, text)` returns `null` to pass or a reason to block.
-See [Agents](../build/agents.md).
+Schema the model sees. A guardrail's `check(stage, text)` returns `null` to pass or a reason to block. The
+sidecar connects to the MCP servers and enforces approval, so the process never runs a server's tool nor a
+tool that awaits a decision. The unit kit takes scripted servers, `AgentTestKit.of(Agent, sessionId, model,
+client, { mcp })`; `ask` answers text and rejects with `ApprovalAwaited` when the turn waits, `outcome`
+answers the outcome, and `decide` goes on. See [Agents](../build/agents.md) and
+[MCP servers](../build/mcp-servers.md).
 
 ## Autonomous agent
 
@@ -236,9 +242,9 @@ See [Agents](../build/agents.md).
 |---|---|
 | Task type | `taskType(name, description, { result: Schema, rules: [taskRule(name, check)] })`; a check returns `accepted()` or `rejected(reason)` |
 | Base class | `AutonomousAgent` |
-| Statics | `componentId`, `description`, `accepts: [taskAcceptance(type, { maxIterations })]`, optionally `instructions`, `tools`, `guardrails`, `model`, `settings` |
+| Statics | `componentId`, `description`, `accepts: [taskAcceptance(type, { maxIterations })]`, optionally `instructions`, `tools`, `guardrails`, `model`, `settings`, `mcpServers`, `resultGuardrails` |
 | In a tool | `this.client`, `this.taskId` |
-| Calling | `client.tasks.create(type, instructions, { id, attachments, dependsOn })`; `client.forTask(id).get(type)`, `.wait(type)`, `.cancel()`; `client.forAutonomousAgent(Agent, instanceId).assign(...)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()`, `.notifications()`; `client.forAutonomousAgent(Agent).runSingleTask(type, instructions)` |
+| Calling | `client.tasks.create(type, instructions, { id, attachments, dependsOn })`; `client.forTask(id).get(type)`, `.wait(type)`, `.cancel()`; `client.forAutonomousAgent(Agent, instanceId).assign(...)`, `.suspend()`, `.resume()`, `.terminate()`, `.state()` (with `awaiting`), `.notifications()`, `.decide(approvalId, { approved, by, note })`; `client.forAutonomousAgent(Agent).runSingleTask(type, instructions)` |
 
 The TypeScript SDK declares autonomous agents and calls them. Its unit testkit does not yet script one:
 test an autonomous agent's behaviour end to end, through a sidecar with `ANKKA_MODEL_SCRIPT`. See
@@ -248,6 +254,7 @@ test an autonomous agent's behaviour end to end, through a sidecar with `ANKKA_M
 
 | Part | API |
 |---|---|
+| Named events | an `sse` handler may yield `sseEvent(name, value)` among its text, sent as an event of that name with the value as JSON (protocol 1.11) |
 | Base class | `Endpoint` |
 | Statics | `prefix`, `acl` (required: `Acl.allowAll`, `Acl.denyAll`, `Acl.authenticated` or `Acl.allowCallers(...)`), `routes` |
 | Declarations | `get(template, reply, run, options?)`, `post`/`put`/`patch`/`del(template, body?, reply, run, options?)`, `sse(template, run, options?)`, `socket(template, (self, req, socket) => Promise<void>, options?)`; `options` may carry `acl` for that route alone and `params` schemas narrowing path parameters |

@@ -100,6 +100,13 @@ object EntityProtocol:
 
   case object StreamCompleted extends StreamToken
 
+  /**
+   * Ends a stream in place of `StreamCompleted` when what was asked has stopped to wait — an agent
+   * turn whose model called a tool that requires approval. `payload` is the module's own encoding
+   * of what it waits for; the runtime only carries it.
+   */
+  final case class StreamAwaiting(payload: Array[Byte]) extends StreamToken
+
   final case class StreamFailed(message: String, code: String) extends StreamToken:
     def toCommandError: CommandError =
       CommandError(

@@ -191,6 +191,14 @@ trait Guardrail:
     val _ = text
     Right(())
 
+  /**
+   * Checks what an MCP server's tool answered, before the model is told it. Run only for an agent
+   * that declares this guardrail among its result guardrails.
+   */
+  def checkResult(text: String): Either[String, Unit] =
+    val _ = text
+    Right(())
+
 object Guardrail:
 
   /**
@@ -198,7 +206,7 @@ object Guardrail:
    * `onInput` and `onOutput`. It is answered by the service's judgment provider unless given one.
    */
   def judged(name: String): judgment.JudgedGuardrail =
-    judgment.JudgedGuardrail(name, Vector.empty, Vector.empty, None)
+    judgment.JudgedGuardrail(name, Vector.empty, Vector.empty, None, Vector.empty)
 
   /** Rejects input longer than `maxChars`, before it costs a model call. */
   def maxInputLength(maxChars: Int): Guardrail = new Guardrail:
@@ -207,7 +215,7 @@ object Guardrail:
       if text.length <= maxChars then Right(())
       else Left(s"input is ${text.length} characters, over the $maxChars limit")
 
-  /** Rejects input or output matching `pattern`. */
+  /** Rejects input, output or an MCP server's result matching `pattern`. */
   def forbidding(guardName: String, pattern: scala.util.matching.Regex): Guardrail =
     new Guardrail:
       val name = guardName
@@ -217,6 +225,9 @@ object Guardrail:
       override def checkOutput(text: String): Either[String, Unit] =
         if pattern.findFirstIn(text).isEmpty then Right(())
         else Left(s"output rejected by $guardName")
+      override def checkResult(text: String): Either[String, Unit] =
+        if pattern.findFirstIn(text).isEmpty then Right(())
+        else Left(s"result rejected by $guardName")
 
 /**
  * A description of a streaming interaction.

@@ -15,6 +15,8 @@
 // A tool may run more than once for one request of the model — after a crash, the last recorded
 // request's tools run again — so a tool with a side effect should tolerate a repeat.
 
+import { requestFromJson, type ApprovalRequest, type DecisionInput } from "./approvals.ts"
+import type { McpServerRef, ResultGuardrailRef } from "./mcp.ts"
 import { secretsFor, type ComponentClient, type Secrets } from "./client.ts"
 import type { GuardrailRef, ToolRef } from "./handlers.ts"
 import { decodeJsonValue, reviver } from "./json.ts"
@@ -151,6 +153,10 @@ export interface AutonomousAgentClass<C extends AutonomousAgent = AutonomousAgen
   readonly guardrails?: Readonly<Record<string, GuardrailRef>>
   readonly accepts: readonly TaskAcceptance[]
   readonly settings?: AutonomousSettings
+  /** MCP servers whose tools are offered beside the agent's own, as `mcp__<server>__<tool>`. */
+  readonly mcpServers?: Readonly<Record<string, McpServerRef>>
+  /** Checks on what an MCP server's tool answered, before the model is told it. */
+  readonly resultGuardrails?: Readonly<Record<string, ResultGuardrailRef>>
 }
 
 /** The discovery form of a result schema. */
@@ -183,6 +189,8 @@ export interface AgentState {
   readonly currentTask: string | undefined
   readonly iteration: number
   readonly queued: readonly string[]
+  /** The approval requests the current task's tool calls await; while any does, the instance calls no model. */
+  readonly awaiting: readonly ApprovalRequest[]
 }
 
 /** One thing an instance did: `type` names it, and the rest of its fields are as sent. */
@@ -320,9 +328,18 @@ export class AutonomousAgentCalls {
 
   async state(): Promise<AgentState> {
     const r = (await this.#client._raw("event-sourced", INSTANCE, `${this.componentId}/${this.#instance()}`, "get")) as Record<string, any>
-    const current = r.current as { taskId: string; iteration: number } | undefined
+    const current = r.current as { taskId: string; iteration: number; approvals?: Record<string, any>[] } | undefined
     const phase = r.terminated ? "terminated" : r.suspended ? "suspended" : current ? "working" : (r.queue ?? []).length > 0 ? "waiting" : "idle"
-    return Object.freeze({ phase, currentTask: current?.taskId, iteration: current?.iteration ?? 0, queued: [...(r.queue ?? [])] })
+    const awaiting = (current?.approvals ?? []).filter((a) => a.decision === undefined || a.decision === null).map(requestFromJson)
+    return Object.freeze({ phase, currentTask: current?.taskId, iteration: current?.iteration ?? 0, queued: [...(r.queue ?? [])], awaiting })
+  }
+
+  /**
+   * Decides one of the instance's approval requests. `by` names who decided and is required. Approved, the
+   * tool runs and the task goes on; refused, the model is told so. A request already decided is a conflict.
+   */
+  async decide(approvalId: string, decision: DecisionInput): Promise<void> {
+    await this.#client._decide("autonomous-agent", this.componentId, this.#instance(), "", approvalId, decision)
   }
 
   /** What the instance does from now on, as it happens. Nothing is replayed. */

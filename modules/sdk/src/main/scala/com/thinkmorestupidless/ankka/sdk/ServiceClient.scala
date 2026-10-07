@@ -122,3 +122,11 @@ trait ServiceClients:
 
   /** A service in another project; whether it admits this one is its own ACL's decision. */
   def apply(project: String, name: String): ServiceClient
+
+object ServiceClients:
+
+  /** For a context built with no service to call from: every call fails, naming its target. */
+  val unavailable: ServiceClients = new ServiceClients:
+    def apply(name: String): ServiceClient =
+      throw IllegalStateException(s"no service client is configured; cannot call '$name'")
+    def apply(project: String, name: String): ServiceClient = apply(name)

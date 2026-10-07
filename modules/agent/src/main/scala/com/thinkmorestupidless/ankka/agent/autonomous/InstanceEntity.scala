@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.agent.autonomous
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{JsonReader, JsonValueCodec, JsonWriter}
-import com.thinkmorestupidless.ankka.agent.TokenUsage
+import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Decision, TokenUsage}
 import com.thinkmorestupidless.ankka.core.*
 import com.thinkmorestupidless.ankka.sdk.*
 
@@ -48,6 +48,10 @@ enum TaskOutcome:
  * already in the task's session. Together they are how an instance that stopped mid-iteration tells
  * what landed: a model response in the session at or after `iterationStartedAt` is this
  * iteration's.
+ *
+ * `approvals` are the approval requests of the tool calls in the current iteration's response,
+ * recorded before any tool of that response runs and cleared when the next iteration starts. While
+ * one is awaiting a decision the instance makes no model call and starts no iteration.
  */
 final case class Working(
     taskId: String,
@@ -56,8 +60,10 @@ final case class Working(
     iterationStartedAt: Long,
     started: Boolean,
     consecutiveFailures: Int,
-    warned: Set[Struggle]
-)
+    warned: Set[Struggle],
+    approvals: Vector[ApprovalRequest] = Vector.empty
+):
+  def awaiting: Vector[ApprovalRequest] = approvals.filter(_.awaiting)
 
 /**
  * One instance of an autonomous agent, as a durable record.
@@ -125,6 +131,12 @@ enum InstanceEvent:
   case Resumed(at: Long)
   case Terminated(at: Long)
 
+  /** A tool call of the current iteration requires approval; recorded before any tool runs. */
+  case ApprovalRequested(request: ApprovalRequest)
+
+  /** A decision on one of the current iteration's approval requests. */
+  case ApprovalDecided(approvalId: String, decision: Decision)
+
 final class InstanceEntity(context: EventSourcedEntityContext)
     extends EventSourcedEntity[InstanceRecord, InstanceEvent]:
 
@@ -156,7 +168,8 @@ final class InstanceEntity(context: EventSourcedEntityContext)
       case E.TaskStarted(_, at) =>
         working(_.copy(started = true)).copy(lastActiveAt = at)
       case E.IterationStarted(n, at) =>
-        working(_.copy(iteration = n, iterationStartedAt = at)).copy(lastActiveAt = at)
+        working(_.copy(iteration = n, iterationStartedAt = at, approvals = Vector.empty))
+          .copy(lastActiveAt = at)
       case E.IterationFailed(_, _, at) =>
         working(w => w.copy(consecutiveFailures = w.consecutiveFailures + 1))
           .copy(lastActiveAt = at)
@@ -174,6 +187,14 @@ final class InstanceEntity(context: EventSourcedEntityContext)
       case E.Resumed(at)   => touch(at).copy(suspended = false)
       case E.Terminated(at) =>
         touch(at).copy(terminated = true, suspended = false, current = None, queue = Vector.empty)
+      case E.ApprovalRequested(request) =>
+        working(w => w.copy(approvals = w.approvals :+ request))
+      case E.ApprovalDecided(id, decision) =>
+        working(w =>
+          w.copy(approvals =
+            w.approvals.map(r => if r.id == id then r.copy(decision = Some(decision)) else r)
+          )
+        )
 
   /** Records what the host did, refusing what cannot have happened. */
   def record(event: InstanceEvent): Effect[InstanceRecord] =
@@ -188,6 +209,9 @@ final class InstanceEntity(context: EventSourcedEntityContext)
   private def redundant(s: InstanceRecord, event: InstanceEvent): Boolean = event match
     case _: E.Created    => s.created
     case _: E.Terminated => s.terminated
+    // Settling a response again after a stop finds its requests already recorded.
+    case E.ApprovalRequested(request) =>
+      s.current.exists(_.approvals.exists(_.callId == request.callId))
     case E.StruggleNoted(struggle, reset) =>
       s.current.forall(w => w.warned.contains(struggle) != reset)
     case _ => false
@@ -218,8 +242,15 @@ final class InstanceEntity(context: EventSourcedEntityContext)
       case E.TaskStarted(id, _)     => needsTask(Some(id))
       case E.TaskEnded(id, _, _, _) => needsTask(Some(id))
       case _: E.IterationStarted | _: E.IterationFailed | _: E.IterationCompleted |
-          _: E.StruggleNoted =>
+          _: E.StruggleNoted | _: E.ApprovalRequested =>
         needsTask(None)
+      case E.ApprovalDecided(id, decision) =>
+        Decision.problem(decision).map(_ -> BadRequest).orElse {
+          s.current.flatMap(_.approvals.find(_.id == id)) match
+            case None                   => Some(s"it holds no approval request '$id'" -> NotFound)
+            case Some(r) if !r.awaiting => conflict(s"approval request '$id' is decided")
+            case Some(_)                => None
+        }
       case _ => None
 
 object InstanceEntity

@@ -17,6 +17,7 @@ import grpc
 import grpc.aio
 
 from ankka._proto.ankka.protocol.v1 import client_pb2, client_pb2_grpc, discovery_pb2, payload_pb2
+from ankka.approvals import APPROVALS_SINCE, Answered, ApprovalAwaited, AwaitingApproval, awaiting_of
 from ankka.codec import DONE_CODEC, UNIT, Codec, Done, default_codec_for
 from ankka.context import Metadata
 from ankka.effects.common import Error, ErrorCode
@@ -43,6 +44,45 @@ def _payload(codec: Codec[Any], value: Any) -> payload_pb2.Payload:
 
 def _error(pb: payload_pb2.Error) -> Error:
     return Error(pb.message, ErrorCode.from_pb(pb.code))
+
+
+def decide_request(
+    kind: Any,
+    component_id: str,
+    entity_id: str,
+    name: str,
+    approval_id: str,
+    approved: bool,
+    by: str,
+    note: str | None,
+    metadata: Metadata,
+) -> client_pb2.DecideRequest:
+    request = client_pb2.DecideRequest(
+        kind=kind,
+        component_id=component_id,
+        entity_id=entity_id,
+        name=name,
+        approval_id=approval_id,
+        approved=approved,
+        by=by,
+        metadata=metadata.to_pb(),
+    )
+    if note:
+        request.note = note
+    return request
+
+
+def decide_unimplemented(failure: grpc.aio.AioRpcError) -> CommandError:
+    """What a runtime before approvals answers a decision with, said as what it is."""
+    from ankka.service import PROTOCOL_VERSION
+
+    return CommandError(
+        Error(
+            f"the runtime beside this process cannot record a decision on an approval request, which needs "
+            f"protocol {APPROVALS_SINCE} (this SDK speaks {PROTOCOL_VERSION}): {failure.details()}",
+            ErrorCode.INTERNAL,
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -74,10 +114,57 @@ class Invocation:
         reply_codec: Codec[Any] | None = None,
     ) -> Any:
         """Calls the handler and returns its decoded reply. ``reply`` is the reply's type (its
-        default codec decodes it) unless ``reply_codec`` is given. A refusal raises CommandError."""
+        default codec decodes it) unless ``reply_codec`` is given. A refusal raises CommandError;
+        an agent's turn that waits for a person raises ``ApprovalAwaited`` (``ask`` answers it)."""
         in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
         out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
-        request = client_pb2.InvokeRequest(
+        outcome = await self._outcome(self._request(input, in_codec), out_codec)
+        if isinstance(outcome, AwaitingApproval):
+            raise ApprovalAwaited(outcome.requests)
+        return outcome.value
+
+    async def ask(
+        self,
+        input: Any = None,
+        *,
+        reply: Any = str,
+        codec: Codec[Any] | None = None,
+        reply_codec: Codec[Any] | None = None,
+    ) -> Answered[Any] | AwaitingApproval:
+        """Calls an agent's handler for its outcome: ``Answered(value)``, or ``AwaitingApproval``
+        with the requests the turn waits on when the model called a tool that requires approval."""
+        in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
+        out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
+        return await self._outcome(self._request(input, in_codec), out_codec)
+
+    async def decide(
+        self,
+        approval_id: str,
+        *,
+        approved: bool,
+        by: str,
+        note: str | None = None,
+        reply: Any = str,
+        reply_codec: Codec[Any] | None = None,
+    ) -> Answered[Any] | AwaitingApproval:
+        """Decides one of the session's approval requests; this invocation names the handler whose
+        turn waits. ``by`` names who decided and is required. When it was the turn's last awaited
+        decision the turn goes on, and this answers as ``ask`` would have: the model's answer, or
+        requests still or newly awaiting. A request already decided is a conflict."""
+        out_codec = reply_codec or (DONE_CODEC if reply is Done else default_codec_for(reply))
+        request = decide_request(
+            self.kind, self.component_id, self.entity_id, self.name, approval_id, approved, by, note, self.metadata
+        )
+        try:
+            answer = await self._stub.Decide(request)
+        except grpc.aio.AioRpcError as failure:
+            if failure.code() == grpc.StatusCode.UNIMPLEMENTED:
+                raise decide_unimplemented(failure) from failure
+            raise
+        return self._read(answer, out_codec)
+
+    def _request(self, input: Any, in_codec: Codec[Any]) -> client_pb2.InvokeRequest:
+        return client_pb2.InvokeRequest(
             kind=self.kind,
             component_id=self.component_id,
             entity_id=self.entity_id,
@@ -85,27 +172,37 @@ class Invocation:
             payload=_payload(in_codec, input),
             metadata=self.metadata.to_pb(),
         )
-        answer = await self._stub.Invoke(request)
+
+    async def _outcome(self, request: client_pb2.InvokeRequest, out_codec: Codec[Any]) -> Answered[Any] | AwaitingApproval:
+        return self._read(await self._stub.Invoke(request), out_codec)
+
+    @staticmethod
+    def _read(answer: client_pb2.InvokeReply, out_codec: Codec[Any]) -> Answered[Any] | AwaitingApproval:
         if answer.HasField("error"):
             raise CommandError(_error(answer.error))
-        return out_codec.decode(answer.reply.payload.data)
+        if answer.HasField("approval"):
+            return awaiting_of(answer.approval)
+        return Answered(out_codec.decode(answer.reply.payload.data))
 
     async def stream(self, input: Any = None, *, codec: Codec[Any] | None = None) -> AsyncIterator[str]:
-        """Calls a streaming handler and yields its tokens as they arrive."""
+        """Calls a streaming handler and yields its tokens as they arrive. A turn that stops to
+        wait for a person raises ``ApprovalAwaited`` after its last token."""
+        async for part in self.stream_parts(input, codec=codec):
+            if isinstance(part, AwaitingApproval):
+                raise ApprovalAwaited(part.requests)
+            yield part
+
+    async def stream_parts(self, input: Any = None, *, codec: Codec[Any] | None = None) -> AsyncIterator[str | AwaitingApproval]:
+        """As ``stream``, ending with one ``AwaitingApproval`` when the turn waits."""
         in_codec = codec or (UNIT if input is None else default_codec_for(type(input)))
-        request = client_pb2.InvokeRequest(
-            kind=self.kind,
-            component_id=self.component_id,
-            entity_id=self.entity_id,
-            name=self.name,
-            payload=_payload(in_codec, input),
-            metadata=self.metadata.to_pb(),
-        )
-        async for token in self._stub.InvokeStream(request):
+        async for token in self._stub.InvokeStream(self._request(input, in_codec)):
             if token.HasField("text"):
                 yield token.text
             elif token.HasField("failed"):
                 raise CommandError(_error(token.failed))
+            elif token.HasField("approval"):
+                yield awaiting_of(token.approval)
+                return
             else:
                 return
 

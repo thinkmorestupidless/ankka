@@ -26,6 +26,11 @@ service Client {
   // never holds a key. A refusal or a fault is in the reply, never a gRPC status, so that a
   // module's import can carry it the same way.
   rpc Request (ServiceRequest) returns (ServiceReply);
+
+  // A decision on an approval request (protocol 1.11): an agent's, answered as the handler that
+  // waited would have been — the answer, or requests still or newly awaiting — or an autonomous
+  // agent's, answered once it is recorded. A refusal is an Error in the reply.
+  rpc Decide       (DecideRequest)       returns (InvokeReply);
 }
 
 message InvokeRequest {
@@ -37,9 +42,45 @@ message InvokeRequest {
   Metadata metadata = 6;
 }
 
-message InvokeReply { oneof result { Outcome.Reply reply = 1; Error error = 2; } }
+message InvokeReply {
+  oneof result {
+    Outcome.Reply reply = 1;
+    Error error = 2;
+    ApprovalAwaited approval = 3;   // 1.11: an agent's turn waits for a person's decision
+  }
+}
 
-message StreamToken { oneof token { string text = 1; Empty completed = 2; Error failed = 3; } }
+message StreamToken {
+  oneof token {
+    string text = 1;
+    Empty completed = 2;
+    Error failed = 3;
+    ApprovalAwaited approval = 4;   // 1.11: terminal, in place of completed
+  }
+}
+
+// 1.11: the approval requests an agent's turn waits on.
+message ApprovalAwaited { repeated ApprovalRequest requests = 1; }
+
+message ApprovalRequest {
+  string id = 1;
+  string tool = 2;
+  string arguments_json = 3;
+  int64 requested_at_millis = 4;
+  optional int64 expires_at_millis = 5;
+}
+
+message DecideRequest {
+  Kind kind = 1;                  // AGENT or AUTONOMOUS_AGENT
+  string component_id = 2;
+  string entity_id = 3;           // the session, or the instance
+  string name = 4;                // AGENT: the handler that was called, whose turn waits
+  string approval_id = 5;
+  bool approved = 6;
+  string by = 7;                  // who decided; required
+  optional string note = 8;
+  Metadata metadata = 9;
+}
 
 // `metadata` (1.3): what the handler asking was given, as on `InvokeRequest`.
 message QueryRequest { string view_id = 1; string name = 2; Payload payload = 3; Metadata metadata = 4; }

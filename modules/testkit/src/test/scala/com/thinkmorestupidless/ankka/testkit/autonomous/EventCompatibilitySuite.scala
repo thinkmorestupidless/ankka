@@ -1,7 +1,7 @@
 package com.thinkmorestupidless.ankka.testkit.autonomous
 
 import com.thinkmorestupidless.ankka.testkit.LogCapturing
-import com.thinkmorestupidless.ankka.agent.TokenUsage
+import com.thinkmorestupidless.ankka.agent.{ApprovalRequest, Decision, Json, TokenUsage}
 import com.thinkmorestupidless.ankka.agent.autonomous.*
 import com.thinkmorestupidless.ankka.core.Serializer
 
@@ -58,7 +58,21 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       TaskEnded("t-1", TaskOutcome.Cancelled("cancelled by caller"), 2, 10L),
       Suspended(11L),
       Resumed(12L),
-      Terminated(13L)
+      Terminated(13L),
+      ApprovalRequested(
+        ApprovalRequest(
+          "a-1",
+          "c-1",
+          "restart_service",
+          Json.obj("service" -> Json.str("cart")),
+          14L,
+          expiresAt = Some(1814L)
+        )
+      ),
+      ApprovalDecided(
+        "a-1",
+        Decision("a-1", approved = false, by = "dana", note = Some("not now"), at = 15L)
+      )
     )
 
   private def lines[A](label: String, values: Vector[A], s: Serializer[A]): Vector[String] =
@@ -95,9 +109,20 @@ class EventCompatibilitySuite extends munit.FunSuite with LogCapturing:
       taskEvents.map(_.ordinal).distinct.sorted.indices.toVector
     )
     assertEquals(TaskEvent.Cancelled("", 0L).ordinal, taskEvents.map(_.ordinal).max)
-    assertEquals(InstanceEvent.Terminated(0L).ordinal, instanceEvents.map(_.ordinal).max)
-    assertEquals(
-      instanceEvents.map(_.ordinal).distinct.size,
-      InstanceEvent.Terminated(0L).ordinal + 1
-    )
+    val last = InstanceEvent.ApprovalDecided("", Decision("", approved = true, by = "x", at = 0L))
+    assertEquals(last.ordinal, instanceEvents.map(_.ordinal).max)
+    assertEquals(instanceEvents.map(_.ordinal).distinct.size, last.ordinal + 1)
+  }
+
+  test("an instance working on a task recorded before approvals reads with none") {
+    // A `Working` as the journal held it before an iteration could wait for approval.
+    val before =
+      """{"componentId":"answerer","instanceId":"i-1","created":true,"terminateWhenDone":false,""" +
+        """"queue":[],"current":{"taskId":"t-1","iteration":2,"completed":2,""" +
+        """"iterationStartedAt":7,"started":true,"consecutiveFailures":0,"warned":[]},""" +
+        """"suspended":false,"terminated":false,"usage":{},"taskUsage":{},"lastActiveAt":9}"""
+    val read = InstanceEntity.stateSerializer.fromBytes(before.getBytes("UTF-8"))
+    assertEquals(read.current.map(_.approvals), Some(Vector.empty))
+    val written = String(InstanceEntity.stateSerializer.toBytes(read), "UTF-8")
+    assert(!written.contains("approvals"), written)
   }

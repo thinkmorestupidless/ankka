@@ -97,6 +97,20 @@ object Agent:
     /** How many tool round-trips one request may take before the loop gives up. */
     def maxToolCallSteps: Int = 100
 
+    /**
+     * MCP servers whose tools this agent offers its model, beside the tools of every effect its
+     * handlers return. Connected when the service starts; one that cannot be reached fails it.
+     */
+    def mcpServers: Vector[mcp.McpServer] = Vector.empty
+
+    /**
+     * Checks on what an MCP server answers, run on every result of a tool call to one of its tools
+     * before the model is told it. A result one refuses never reaches the model or the session: the
+     * model is told, as the tool's error, that it was refused and why. The results of the agent's
+     * own tools are not checked.
+     */
+    def resultGuardrails: Vector[Guardrail] = Vector.empty
+
     protected final def command[I, O](name: String)(
         f: A => I => AgentEffect[O]
     )(using in: Serializer[I], out: Serializer[O]): CommandHandle[A, I, O] =
@@ -140,9 +154,20 @@ object Agent:
       val clashes = (bindings.map(_.name) ++ streams.map(_.name)).groupBy(identity).collect {
         case (name, bs) if bs.sizeIs > 1 => s"handler '$name' registered ${bs.size} times"
       }
-      if clashes.nonEmpty then
+      // The platform reaches an agent's host by names of its own — a decision on an approval
+      // request among them — so a handler may not take one.
+      val reserved = (bindings.map(_.name) ++ streams.map(_.name)).collect {
+        case name if name.toString.startsWith(Approvals.ReservedPrefix) =>
+          s"handler '$name' takes the prefix '${Approvals.ReservedPrefix}', which is the platform's"
+      }
+      val doubled = resultGuardrails.groupBy(_.name).collect {
+        case (name, gs) if gs.sizeIs > 1 => s"result guardrail '$name' is declared ${gs.size} times"
+      }
+      val problems = clashes ++ reserved ++ mcp.McpServer.problems(mcpServers, Vector.empty) ++
+        doubled
+      if problems.nonEmpty then
         throw IllegalArgumentException(
-          clashes.mkString(s"invalid agent '$componentId':\n  - ", "\n  - ", "")
+          problems.mkString(s"invalid agent '$componentId':\n  - ", "\n  - ", "")
         )
       if maxToolCallSteps <= 0 then
         throw IllegalArgumentException(s"agent '$componentId' needs a positive maxToolCallSteps")
@@ -153,7 +178,9 @@ object Agent:
         maxToolCallSteps,
         create,
         bindings.map(b => b.name -> b).toMap,
-        streams.map(h => h.name -> h).toMap
+        streams.map(h => h.name -> h).toMap,
+        mcpServers,
+        resultGuardrails
       )
 
 /** The registered form of an agent. */
@@ -163,7 +190,9 @@ final case class AgentDescriptor[A <: Agent](
     maxToolCallSteps: Int,
     create: AgentContext => A,
     handlers: Map[MethodName, HandlerBinding[A]],
-    streams: Map[MethodName, StreamHandle[A, ?]]
+    streams: Map[MethodName, StreamHandle[A, ?]],
+    mcpServers: Vector[mcp.McpServer] = Vector.empty,
+    resultGuardrails: Vector[Guardrail] = Vector.empty
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.Agent
 

@@ -818,6 +818,7 @@ impl<C: Agent> AgentTestKit<C> {
                 Stage::Input => proto::guardrail_request::Stage::Input as i32,
                 Stage::Output => proto::guardrail_request::Stage::Output as i32,
             },
+            tool: None,
             text: text.to_string(),
             metadata: None,
         };
@@ -976,6 +977,7 @@ impl<C: AutonomousAgent> AutonomousAgentTestKit<C> {
                 Stage::Input => proto::guardrail_request::Stage::Input as i32,
                 Stage::Output => proto::guardrail_request::Stage::Output as i32,
             },
+            tool: None,
             text: text.to_string(),
             metadata: None,
         };

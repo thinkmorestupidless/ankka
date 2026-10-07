@@ -70,22 +70,31 @@ final class JudgedGuardrail private[ankka] (
     val name: String,
     private[ankka] val input: Vector[Refusal[?]],
     private[ankka] val output: Vector[Refusal[?]],
-    private[ankka] val own: Option[JudgmentProvider]
+    private[ankka] val own: Option[JudgmentProvider],
+    private[ankka] val result: Vector[Refusal[?]] = Vector.empty
 ) extends Guardrail:
 
   /** Rules for the text going into the model: a request's message, a task's instructions. */
   def onInput(rules: Refusal[?]*): JudgedGuardrail =
-    JudgedGuardrail(name, JudgedGuardrail.distinct(name, input ++ rules), output, own)
+    JudgedGuardrail(name, JudgedGuardrail.distinct(name, input ++ rules), output, own, result)
 
   /** Rules for the text coming out: a model's reply, a task's completed result. */
   def onOutput(rules: Refusal[?]*): JudgedGuardrail =
-    JudgedGuardrail(name, input, JudgedGuardrail.distinct(name, output ++ rules), own)
+    JudgedGuardrail(name, input, JudgedGuardrail.distinct(name, output ++ rules), own, result)
+
+  /**
+   * Rules for what an MCP server's tool answered, checked before the model is told it, when the
+   * agent declares this among its result guardrails.
+   */
+  def onResult(rules: Refusal[?]*): JudgedGuardrail =
+    JudgedGuardrail(name, input, output, own, JudgedGuardrail.distinct(name, result ++ rules))
 
   /** Asks this provider rather than the service's default. */
   def provider(provider: JudgmentProvider): JudgedGuardrail =
-    JudgedGuardrail(name, input, output, Some(provider))
+    JudgedGuardrail(name, input, output, Some(provider), result)
 
-  private[ankka] def hasRules: Boolean       = input.nonEmpty || output.nonEmpty
+  private[ankka] def hasRules: Boolean =
+    input.nonEmpty || output.nonEmpty || result.nonEmpty
   private[ankka] def hasOwnProvider: Boolean = own.isDefined
 
   /**
@@ -97,6 +106,9 @@ final class JudgedGuardrail private[ankka] (
 
   override def checkOutput(text: String): Either[String, Unit] =
     direct(text, Guardrails.Direction.Output)
+
+  override def checkResult(text: String): Either[String, Unit] =
+    direct(text, Guardrails.Direction.Result)
 
   private def direct(text: String, direction: Guardrails.Direction): Either[String, Unit] =
     own match

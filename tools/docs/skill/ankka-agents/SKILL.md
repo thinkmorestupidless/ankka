@@ -10,6 +10,7 @@ pages:
   - build/multi-agent-orchestration.md
   - concepts/autonomous-agents.md
   - build/autonomous-agents.md
+  - build/mcp-servers.md
   - build/workflows.md
   - build/component-client.md
   - build/testing.md
@@ -29,7 +30,7 @@ probabilities behind each answer — for a decision whose answer is one of a kno
 
 1. **Decide whether an agent is right before writing one.** A decision that needs a model is an agent; a
    fixed sequence is a workflow whose steps call agents; a rule about one thing is an entity the agent's
-   tool calls. An agent handler cannot pause, wait for a person, or run for hours. Work through
+   tool calls. A tool can wait for a person's approval, but an agent handler cannot run for hours. Work through
    `references/concepts/designing-agents.md` for a new agent.
 2. **`withContext` for anything retrieved, `userMessage` for what the user said.** Memory records the
    user's turn only, so retrieved documents and entity state do not fill the next turn's history. An

@@ -27,7 +27,7 @@ class HttpSseSuite extends munit.FunSuite with LogCapturing:
   override def beforeAll(): Unit =
     server = HttpServer.at("127.0.0.1", 0)(clients => ChatEndpoint(clients.componentClient))
     testKit = AnkkaTestKit.start(
-      Seq(WeatherAgent.descriptor) ++ AgentRuntime.descriptors,
+      Seq(WeatherAgent.descriptor, ApprovalAgent.descriptor) ++ AgentRuntime.descriptors,
       Seq(AgentRuntime.withDefaultModel(model), server)
     )
     baseUrl = s"http://127.0.0.1:${server.boundPort.getOrElse(fail("server did not bind"))}"
@@ -62,6 +62,40 @@ class HttpSseSuite extends munit.FunSuite with LogCapturing:
         Json.parse(json).flatMap(_.asString.toRight("not a string")).fold(fail(_), identity)
       )
       .toVector
+
+  test("a stream ends with the approval request as its last part") {
+    model.expect(
+      ModelResponse(
+        text = "Let me ask a supervisor.",
+        toolCalls = Vector(
+          ToolCall(
+            "call-refund",
+            "issue_refund",
+            Json.obj("order" -> Json.str("o-7"), "amount" -> Json.num(40))
+          )
+        ),
+        stopReason = StopReason.ToolUse
+      )
+    ): Unit
+    ApprovalAgent.runs.clear()
+
+    val (status, body, _) = get("/chat/support/s-stream-approval")
+
+    assertEquals(status, 200)
+    val frames           = body.split("\n\n").toVector.map(_.trim).filter(_.nonEmpty)
+    val (named, unnamed) = frames.partition(_.linesIterator.exists(_.startsWith("event:")))
+    // The text the model wrote before its tool call came first, as ordinary events.
+    assertEquals(dataLines(unnamed.mkString("\n")).mkString, "Let me ask a supervisor.")
+    // Then one event named `approval`, last, carrying the request; then the stream ended.
+    assertEquals(named.size, 1, frames.mkString("\n---\n"))
+    assertEquals(frames.last, named.head)
+    assert(
+      named.head.linesIterator.exists(_.replace(" ", "") == "event:approval"),
+      named.head
+    )
+    assert(named.head.contains("\"tool\":\"issue_refund\""), named.head)
+    assertEquals(ApprovalAgent.runsOf("issue_refund"), Vector.empty)
+  }
 
   test("a plain source is served as server-sent events") {
     val (status, body, contentType) = get("/chat/fixed/s-1")

@@ -220,7 +220,7 @@ feature also says what that feature does not do.
   the image as a volume, which would need a container runtime newer than every cluster it targets.
 - **Autonomous agents do not coordinate yet.** There is no delegating a subtask to another agent, handing a
   task on, leading a team over a shared backlog, or moderating a conversation between agents; coordinate
-  several from a workflow instead. There are no MCP tools and no per-instance overrides of a definition.
+  several from a workflow instead. There are no per-instance overrides of a definition.
 - **An autonomous agent's tools run at least once.** A tool whose result had not been recorded when a task's
   process stopped runs again when the task resumes. Write tools with side effects to tolerate a repeat.
 - **An attachment by reference is not fetched.** The model is shown the reference; a tool fetches it.
@@ -236,6 +236,15 @@ feature also says what that feature does not do.
 - **A session that recorded judgment tokens is unreadable by an older runtime.** While a service is being
   rolled onto its first version that uses judgments, an instance still running the previous version cannot
   replay a session in which a judgment's tokens have been recorded, until the roll completes.
+- **MCP servers are reached over Streamable HTTP only.** There is no stdio or other transport, so a server
+  that runs as a local program is reached through a small HTTP bridge. Only a server's tools are used —
+  not its resources or prompts — and a server is listed in code, not discovered.
+- **An MCP server's credential is a header from a variable, read at start.** There is no OAuth flow, and a
+  credential cannot be given or changed while the service runs; a new one takes a restart.
+- **An approval is decided whole.** A person approves or refuses a tool call as the model made it; there
+  is no editing its arguments, and a decision is not streamed back to a caller still connected.
+- **A module's agents take no part in approvals or MCP servers.** A WebAssembly module declares neither,
+  and its client answers a call that would wait for a person as a conflict.
 - **Output guardrails cannot unsay a stream.** On a streaming agent handler, output guardrails run after the
   tokens have been delivered. They can stop the reply being written to memory, but not un-send it. Use input
   guardrails for anything that must never be shown.

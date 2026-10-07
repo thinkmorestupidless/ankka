@@ -161,7 +161,8 @@ object TimedAction:
 final case class TimedActionDescriptor[A <: TimedAction](
     componentId: ComponentId,
     create: TimedActionContext => A,
-    handlers: Map[MethodName, (A, Array[Byte]) => TimedActionEffect]
+    handlers: Map[MethodName, (A, Array[Byte]) => TimedActionEffect],
+    override val platform: Boolean = false
 ) extends ComponentDescriptor:
   val kind: ComponentKind = ComponentKind.TimedAction
 

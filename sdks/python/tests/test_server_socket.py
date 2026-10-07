@@ -42,7 +42,7 @@ async def test_discovery_marks_a_socket_route() -> None:
         spec = await discovery_pb2_grpc.DiscoveryStub(channel).Discover(discovery_pb2.SidecarInfo(protocol_version="1.9"))
         routes = {r.id: r for e in spec.endpoints if e.id == "RoomsEndpoint" for r in e.routes}
         assert routes["chat"].socket and routes["chat"].method == "GET" and not routes["chat"].has_body
-        assert spec.protocol_version == "1.9"
+        assert spec.protocol_version == "1.11"
     await server.stop()
 
 

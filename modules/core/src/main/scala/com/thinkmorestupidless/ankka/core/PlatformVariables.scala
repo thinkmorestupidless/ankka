@@ -77,13 +77,13 @@ private[ankka] object PlatformVariables:
   /**
    * For the platform's program and never the developer's. A descriptor may give them — a model's
    * key, a database it supplies, a secret key of its own, the issuers it accepts tokens from, how
-   * long a call to another service waits, a socket's limits — and they go to the platform's
-   * container only: the sidecar runs the agent loop, connects to the database, holds the secret
-   * store, verifies tokens, calls other services and holds sockets, handing the process only the
-   * principal, the answers and the frames.
+   * long a call to another service waits, a socket's limits, an MCP server's address and credential
+   * — and they go to the platform's container only: the sidecar runs the agent loop, connects to
+   * the database and to MCP servers, holds the secret store, verifies tokens, calls other services
+   * and holds sockets, handing the process only the principal, the answers and the frames.
    */
   val RuntimeOnlyPrefixes: Vector[String] =
-    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_", "ANKKA_SOCKET_")
+    Vector("ANTHROPIC_", "ANKKA_MODEL_", "ANKKA_DB_", "ANKKA_AUTH_", "ANKKA_SOCKET_", "ANKKA_MCP_")
   val RuntimeOnlyNames: Set[String] = Set(SecretKey, ServiceClientTimeout)
 
   /** Where a web-hosted service's program listens. */

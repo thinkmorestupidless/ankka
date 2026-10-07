@@ -41,7 +41,8 @@ final class ClientService(
       request,
       token =>
         out.onNext(token)
-        if token.token.isCompleted || token.token.isFailed then out.onCompleted()
+        if token.token.isCompleted || token.token.isFailed || token.token.isApproval then
+          out.onCompleted()
     )
 
   def query(request: QueryRequest): Future[QueryReply] = logic.query(request)
@@ -57,6 +58,7 @@ final class ClientService(
   def deleteSecret(request: DeleteSecretRequest): Future[DeleteSecretReply] =
     logic.deleteSecret(request)
   def request(request: ServiceRequest): Future[ServiceReply] = logic.request(request)
+  def decide(request: DecideRequest): Future[InvokeReply]    = logic.decide(request)
 
   private val status: PartialFunction[Throwable, Future[pb.Empty]] = { case e: CommandError =>
     val s = e.code match

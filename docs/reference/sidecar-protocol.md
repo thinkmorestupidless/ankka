@@ -39,7 +39,7 @@ Discovery is the first conversation. The sidecar calls `Discovery.Discover` with
 runtime version, retrying with backoff until the process answers or `ANKKA_SIDECAR_DISCOVERY_TIMEOUT`
 (60 seconds by default) passes. The process answers with a `Spec`:
 
-- its protocol version, `"1.9"`;
+- its protocol version, `"1.11"`;
 - its SDK's name and version;
 - every component: its kind, its component id, and its handlers, each with a wire name and whether it is
   read-only or streaming, plus the kind's details — snapshot frequency for an event sourced entity; steps
@@ -75,6 +75,7 @@ The table is generated from the `.proto` files.
 | `Client` | `PutSecret` | `PutSecretRequest` | `PutSecretReply` | `client.proto` |
 | `Client` | `DeleteSecret` | `DeleteSecretRequest` | `DeleteSecretReply` | `client.proto` |
 | `Client` | `Request` | `ServiceRequest` | `ServiceReply` | `client.proto` |
+| `Client` | `Decide` | `DecideRequest` | `InvokeReply` | `client.proto` |
 | `Consumer` | `Handle` | `ConsumerRequest` | `ConsumerEffect` | `consumer.proto` |
 | `Discovery` | `Discover` | `SidecarInfo` | `Spec` | `discovery.proto` |
 | `Discovery` | `ReportError` | `Problem` | `Empty` | `discovery.proto` |
@@ -194,7 +195,7 @@ made, and a failure is a handler that could not decide. See [Error codes](error-
 
 ## Versioning
 
-The protocol version is `MAJOR.MINOR`, currently `1.10`, and both sides state it in discovery. `1.1` added
+The protocol version is `MAJOR.MINOR`, currently `1.11`, and both sides state it in discovery. `1.1` added
 the caller to forwarded requests and caller-naming ACLs; `1.2` added the autonomous agent; `1.3` added a
 consumer's reply of several messages, each with an optional record key, and the `ankka.protocol` entry
 on a consumer's request; `1.4` added metadata to a workflow step, a tool call, a guardrail check, a result
@@ -211,7 +212,14 @@ reports as the runtime being too old to call another service; a process that dec
 and sends one all the same is refused, naming both versions. `1.9` added socket routes: `Route.socket`
 in discovery and `Http.HandleSocket`. A socket route is refused from both ends across that line: the
 sidecar refuses a `Spec` declaring one under an earlier minor, naming the route and both versions, and an
-SDK refuses to answer discovery with one to a runtime that states an earlier version. `1.10` changed no message: it added three imports for a WebAssembly module, `request`, `now` and `random`, which the [WebAssembly ABI](wasm-abi.md) describes. A process is the same at `1.9` and `1.10`.
+SDK refuses to answer discovery with one to a runtime that states an earlier version. `1.10` changed no message: it added three imports for a WebAssembly module, `request`, `now` and `random`, which the [WebAssembly ABI](wasm-abi.md) describes. A process is the same at `1.9` and `1.10`. `1.11` added approvals, MCP servers and result
+guardrails to agents: a tool's `approval` and an agent's `mcp_servers` and `result_guardrails` in discovery,
+the `RESULT` stage of `CheckGuardrail` with the MCP tool it checks, the `approval` case of `InvokeReply` and
+`StreamToken` that answers a turn waiting for a person, and `Decide` on `Client`, which sends a person's
+decision, and the `event` case of `StreamFrame`, which sends a server-sent event under a name of its own — an
+approval request, say — from a stream route. The sidecar connects to the MCP servers and enforces approval itself: a process is never asked to
+run an MCP server's tool, nor a tool that awaits a decision. A process built for `1.11` that decides on an
+earlier runtime is answered `UNIMPLEMENTED`, which each SDK reports as the runtime being too old.
 
 - Adding an optional field, a message, an RPC or a fixture is a minor change. A sidecar speaking a later minor
   accepts an SDK that declares an earlier one.

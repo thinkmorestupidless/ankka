@@ -16,10 +16,13 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, get_args, get_origin, get_type_hints
 
 from ankka._proto.ankka.protocol.v1 import discovery_pb2
+from ankka.approvals import Approval, approval_to_pb
 from ankka.codec import Codec, default_codec_for
 from ankka.context import Metadata
 from ankka.effects.agent import AgentEffect, AgentEffects
 from ankka.event_sourced_entity import HandlerSpec, RegistrationError, collect_handlers
+from ankka.mcp import McpServer, ResultGuardrail
+from ankka.mcp import problems as mcp_problems
 from ankka.secrets import HasSecrets
 from ankka.services import HasServices
 
@@ -43,14 +46,26 @@ def stream(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
 class Tool:
     """A function the model may call. ``input`` is a dataclass (or ``None``) the model's arguments
     decode into — its fields are the schema the model sees — and ``run`` answers text for the
-    model. An exception is a tool error, fed back to the model, which usually corrects itself."""
+    model. An exception is a tool error, fed back to the model, which usually corrects itself.
+
+    With ``approval`` (``True``, or an ``Approval`` with a time limit) the tool waits for a person's
+    decision before it runs: the caller is answered with an approval request instead of an answer,
+    and the turn goes on when someone decides it."""
 
     description: str
     run: Callable[..., Any]
     input: Any = None
+    approval: bool | Approval = False
 
     def input_schema(self) -> str:
         return json.dumps(_schema_for(self.input) if self.input is not None else {"type": "object", "properties": {}})
+
+    def to_pb(self, name: str) -> discovery_pb2.Tool:
+        pb = discovery_pb2.Tool(name=name, description=self.description, input_schema_json=self.input_schema())
+        approval = approval_to_pb(self.approval)
+        if approval is not None:
+            pb.approval.CopyFrom(approval)
+        return pb
 
 
 @dataclass(frozen=True)
@@ -97,13 +112,17 @@ def _schema_for(tp: Any) -> dict[str, Any]:
 class Agent(HasSecrets, HasServices):
     """Subclass this: ``component_id``, ``tools = {name: Tool(...)}``, ``guardrails = {name:
     Guardrail(...)}``, and handlers decorated ``@command`` or ``@stream`` that return an
-    ``AgentEffect`` built from ``self.effects``."""
+    ``AgentEffect`` built from ``self.effects``. ``mcp_servers = {name: McpServer(...)}`` lists the
+    servers whose tools are offered beside the agent's own, and ``result_guardrails = {name:
+    ResultGuardrail(...)}`` checks what they answer."""
 
     component_id: ClassVar[str]
     role: ClassVar[str | None] = None
     max_tool_call_steps: ClassVar[int] = 100
     tools: ClassVar[dict[str, Tool]] = {}
     guardrails: ClassVar[dict[str, Guardrail]] = {}
+    mcp_servers: ClassVar[dict[str, McpServer]] = {}
+    result_guardrails: ClassVar[dict[str, ResultGuardrail]] = {}
     _handlers: ClassVar[dict[str, HandlerSpec]]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
@@ -130,6 +149,9 @@ class Agent(HasSecrets, HasServices):
                 raise RegistrationError(f"{cls.__name__}: tool '{name}' needs a description; the model decides by it")
         if cls.max_tool_call_steps <= 0:
             raise RegistrationError(f"{cls.__name__}: max_tool_call_steps must be positive")
+        problems = mcp_problems(cls.tools, cls.mcp_servers, cls.result_guardrails)
+        if problems:
+            raise RegistrationError(f"{cls.__name__}: " + "; ".join(problems))
 
     def __init__(self, client: ComponentClient | None = None) -> None:
         self.effects = AgentEffects()
@@ -158,11 +180,10 @@ class Agent(HasSecrets, HasServices):
             agent=discovery_pb2.AgentDetail(
                 role=cls.role or "",
                 max_tool_call_steps=cls.max_tool_call_steps,
-                tools=[
-                    discovery_pb2.Tool(name=n, description=t.description, input_schema_json=t.input_schema())
-                    for n, t in sorted(cls.tools.items())
-                ],
+                tools=[t.to_pb(n) for n, t in sorted(cls.tools.items())],
                 guardrails=sorted(cls.guardrails),
+                mcp_servers=[s.to_pb(n) for n, s in sorted(cls.mcp_servers.items())],
+                result_guardrails=sorted(cls.result_guardrails),
             ),
         )
 
@@ -197,6 +218,14 @@ class Agent(HasSecrets, HasServices):
     async def _check_guardrail(self, name: str, stage: str, text: str, session_id: str) -> str | None:
         self._session_id = session_id
         result = type(self).guardrails[name].check(stage, text)
+        if isinstance(result, Awaitable):
+            result = await result
+        return result
+
+    async def _check_tool_result(self, name: str, tool: str, text: str, session_id: str) -> str | None:
+        """A result guardrail's verdict on what an MCP server's ``tool`` answered."""
+        self._session_id = session_id
+        result = type(self).result_guardrails[name].check(tool, text)
         if isinstance(result, Awaitable):
             result = await result
         return result

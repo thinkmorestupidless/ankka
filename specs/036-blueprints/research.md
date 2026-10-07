@@ -358,3 +358,17 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   (`TaskCascade`), but no test subscribes from user code (R2, R11).
 - The approval resume re-runs the `ankka-blueprint-ask` handler from its recorded payload with the
   same tools when the registry is unchanged (R5, R16).
+
+## Verified during implementation
+
+- 2026-10-07, baseline (T001): `agent/test` 174 passed, the named testkit suites 130 passed, the
+  planner sample 10 passed; every new path is claimed by a CI filter.
+- V1 (T002, `CanonicalSuite`): the shared codec config writes a case class's fields in declaration
+  order; a `Map`'s order is its own, so the canonical form writes any map as pairs sorted by key
+  and never a `Map` (R3 holds, with that rule).
+- V2 (T003, `TimerStoreClockSuite`): `TimerStore.due(now, limit)` returns a timer due at `t` for
+  `now = t` and not for `now = t - 1s`, a year ahead of the wall clock; the query reads only its
+  parameter (R14 holds).
+- V3 (T004, `PlatformEntityConsumerSuite`): a consumer declared in a package outside `ankka`
+  subscribes to `ankka-task`'s events with `ChangeSource.eventsOf(TaskEntity)` and receives
+  `Created` first and `Completed` last for a task, in order (R2, R11 and FR-026 hold).

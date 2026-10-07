@@ -42,12 +42,12 @@ holds, add a line to a `## Verified during implementation` section at the end of
 
 **Purpose**: a green baseline, and the facts the plan read from code.
 
-- [ ] T001 Record the baseline: `sbt 'agent/test' 'testkit/testOnly *AutonomousAgentSuite *ResumePointSuite *EventCompatibilitySuite *TimerSuite *WorkflowSuite *JudgmentAgentSuite *ApprovalSuite'` and `sbt multiAgentPlanner/test` pass before any change. Run `git add -N features/blueprints features/documentation/blueprints.feature samples/research-digest specs/036-blueprints && python3 .github/ci-coverage.py` and confirm every new path is claimed by a filter.
-- [ ] T002 [P] V1: in `BPU/CanonicalSuite.scala`, encode a case class with fields in declaration order and a `Map` with shared codec config and assert the field order is declaration order and the map's is not guaranteed; record which in `research.md` (R3).
-- [ ] T003 [P] V2: in `RTT/TimerStoreClockSuite.scala` (testkit's Postgres if needed: put it in `TKT/TimerStoreClockSuite.scala`), insert a timer due at `t`, call `TimerStore.due(t - 1s)` and `TimerStore.due(t)` and assert the timer is returned only by the second; confirms `due` reads only its `now` (`RT/TimerRuntime.scala:126-129`).
-- [ ] T004 [P] V3: in `TKT/PlatformEntityConsumerSuite.scala`, register a consumer declared outside the `ankka` package over `ChangeSource.eventsOf(TaskEntity)` with `ProjectionRuntime()`, run one task, and assert the consumer receives `Created` and `Completed` in order. If it does not, stop: FR-026 needs a different seam.
+- [X] T001 Record the baseline: `sbt 'agent/test' 'testkit/testOnly *AutonomousAgentSuite *ResumePointSuite *EventCompatibilitySuite *TimerSuite *WorkflowSuite *JudgmentAgentSuite *ApprovalSuite'` and `sbt multiAgentPlanner/test` pass before any change. Run `git add -N features/blueprints features/documentation/blueprints.feature samples/research-digest specs/036-blueprints && python3 .github/ci-coverage.py` and confirm every new path is claimed by a filter.
+- [X] T002 [P] V1: in `BPU/CanonicalSuite.scala`, encode a case class with fields in declaration order and a `Map` with shared codec config and assert the field order is declaration order and the map's is not guaranteed; record which in `research.md` (R3).
+- [X] T003 [P] V2: in `RTT/TimerStoreClockSuite.scala` (testkit's Postgres if needed: put it in `TKT/TimerStoreClockSuite.scala`), insert a timer due at `t`, call `TimerStore.due(t - 1s)` and `TimerStore.due(t)` and assert the timer is returned only by the second; confirms `due` reads only its `now` (`RT/TimerRuntime.scala:126-129`).
+- [X] T004 [P] V3: in `TKT/PlatformEntityConsumerSuite.scala`, register a consumer declared outside the `ankka` package over `ChangeSource.eventsOf(TaskEntity)` with `ProjectionRuntime()`, run one task, and assert the consumer receives `Created` and `Completed` in order. If it does not, stop: FR-026 needs a different seam.
 
-**Checkpoint**: baseline green; V1–V3 confirmed or the plan is paused.
+**Checkpoint**: baseline green; V1–V3 confirmed or the plan is paused. ✅ 2026-10-07: all three hold; see research.md, *Verified during implementation*.
 
 ---
 

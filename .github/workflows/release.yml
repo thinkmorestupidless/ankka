@@ -281,7 +281,11 @@ jobs:
           # rewritten by the build would dirty the tree and turn the release into a snapshot.
           sed -i "s/\"version\": \"0.0.0\"/\"version\": \"$version\"/" marketplace/plugins/ankka/.claude-plugin/plugin.json
           grep -n "\"version\": \"$version\"" marketplace/plugins/ankka/.claude-plugin/plugin.json
-          git clone --depth 1 "$remote" "$RUNNER_TEMP/marketplace"
+          # A full clone, not --depth 1: when another project's release lands between the clone and
+          # the push, the retry rebases, and git refuses to push a tag from a shallow clone across
+          # that boundary ("missing necessary objects" — ankka-flow v0.5.0 hit it). The marketplace
+          # is small; its history is cheap.
+          git clone "$remote" "$RUNNER_TEMP/marketplace"
           cd "$RUNNER_TEMP/marketplace"
           git config user.name "ankka release"
           git config user.email "release@ankka.invalid"

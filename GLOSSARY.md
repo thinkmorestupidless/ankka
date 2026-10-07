@@ -1536,9 +1536,15 @@ topic may be given more and never fewer.
 Avoid: shard
 
 ### contract
-*Proposed.* The name of what a topic carries, declared on the topic with it, stated by each
-component that reads the topic or publishes to it, and carried as the type of every message
-published to it. Two sides of a topic must state the declared one.
+*Proposed.* A name and the schema of what a topic carries, declared on the topic and held by the
+project, stated by each component that reads the topic or publishes to it with the schema it was
+built against, and whose name is carried as the type of every message published to it. Two sides
+of a topic must state the declared one.
+
+### schema
+*Proposed.* The document that says the shape of what a topic carries, held by the project with the
+topic's contract, which a member fetches to build against. A message is not checked against it as
+it flows.
 
 Avoid: format
 
@@ -1794,4 +1800,4 @@ blur, opaque, readable, border, outline, forces, edge, clipped, below, facts, co
 preference, dark, light, fetches, mounts, mounted, small, brightness, ratio, centre, screen, bright,
 enough, front, width, would, choose, whoever, clear, declaration, large, unread, crosses, older,
 quiet, requires, requiring, working, day, week, length, decision, note, move, beginning, deep,
-comment, breaks
+comment, breaks, fetches, fetched, built, parallel, after, another

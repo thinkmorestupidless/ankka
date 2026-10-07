@@ -68,42 +68,49 @@ specified here. This specification says what ankka must have before that can hap
 
 ### Session 2026-10-07
 
-- [NEEDS CLARIFICATION: what a contract is — a name alone (`order.v1`), which the project
-  declares and each side states, so the check is that the names agree; or a name with a schema the
-  platform holds, so the check is that the schema each side was built against is the same one?]
+- Q: What is a contract — a name alone, or a name with a schema the platform holds? → A: A name
+  with a schema. The project holds the schema with the declaration; a component states the
+  contract by name and the schema it was built against, and the platform refuses a side whose
+  schema is not the declared one. A member fetches a topic's schema from the project to build
+  against it. Messages are not checked against the schema at runtime.
 - [NEEDS CLARIFICATION: how the graph merge sink is delivered — as a service image the platform
   publishes, which a member deploys into a project like any service, with the store's address and
   credential in its descriptor; or as a component kind the runtime implements, so a developer
   registers a sink in a service of their own?]
-- [NEEDS CLARIFICATION: whether reading partitions in parallel is how every topic source reads
-  from now on, or something a topic source asks for — a service written against today's one-at-
-  a-time handling would see two of its partitions handled at once?]
+- Q: Is reading partitions in parallel the default, or asked for? → A: Asked for. A topic
+  source that says nothing reads one message at a time as today; one that asks for it reads the
+  partitions its instance holds at once.
 
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A declared topic carries a contract, and every side is checked (Priority: P1)
 
-A member declares a topic's contract with the topic. A component that reads the topic or
-publishes to it states the contract it expects, and a service whose component states a different
-one — or none, where the topic has one — is refused before it reads or publishes a message,
-naming the topic, what the project declares and what the component states. A topic declared
-without a contract is checked against nothing, so every project as it is today is unaffected. The
-contract travels on the wire as each message's type, so a reader outside ankka can tell what a
-topic carries.
+A member declares a topic's contract with the topic: a name and the schema of what the topic
+carries, which the project holds. A member fetches the schema from the project to build against
+it. A component that reads the topic or publishes to it states the contract by name and the
+schema it was built against, and a service whose component states a different name, a different
+schema, or none where the topic has a contract, is refused before it reads or publishes a
+message, naming the topic, what the project declares and what the component states. A topic
+declared without a contract is checked against nothing, so every project as it is today is
+unaffected. The contract's name travels on the wire as each message's type, so a reader outside
+ankka can tell what a topic carries. No message is checked against the schema as it flows.
 
 **Why this priority**: It is the one idea ankka-flow had that ankka lacks, and the reason two
 sides of a topic can disagree silently today.
 
-**Independent Test**: A project declares `orders` with the contract `order.v1`; a service whose
-consumer publishes `order.v1` to it becomes Ready and its messages carry that type; a service
-whose consumer states `order.v2` is refused with both names in its status; the same service on a
-project whose `orders` has no contract becomes Ready.
+**Independent Test**: A project declares `orders` with the contract `order.v1` and its schema; a
+service whose consumer publishes `order.v1`, built against that schema, becomes Ready and its
+messages carry that type; a service whose consumer states `order.v2`, or `order.v1` built against
+another schema, is refused with both sides named in its status; the same service on a project
+whose `orders` has no contract becomes Ready.
 
 **Acceptance Scenarios**:
 
-- added `features/topics/contracts.feature`: a topic is declared with a contract
+- added `features/topics/contracts.feature`: a topic is declared with a contract and its schema
+- added `features/topics/contracts.feature`: a member fetches a topic's schema from the project
 - added `features/topics/contracts.feature`: a component that states the declared contract is accepted
 - added `features/topics/contracts.feature`: a component that states another contract is refused, naming both
+- added `features/topics/contracts.feature`: a component built against another schema is refused, naming both
 - added `features/topics/contracts.feature`: a component that states no contract on a topic that has one is refused
 - added `features/topics/contracts.feature`: a topic without a contract checks nothing
 - added `features/topics/contracts.feature`: a published message carries the contract as its type
@@ -187,9 +194,10 @@ needs a service that lives wholly on the outside broker.
 
 ### User Story 5 - A topic source reads its partitions in parallel (Priority: P2)
 
-A consumer or view over a topic handles the partitions its instance holds at once, each partition
-in order, and commits a partition's offset only once the message's effects are accepted. Order
-within a key is kept; throughput grows with partitions, as it does for a streamlet.
+A consumer or view over a topic that asks for it handles the partitions its instance holds at
+once, each partition in order, and commits a partition's offset only once the message's effects
+are accepted. Order within a key is kept; throughput grows with partitions, as it does for a
+streamlet. A topic source that does not ask reads one message at a time, as today.
 
 **Why this priority**: It is the one place a streamlet outperforms a consumer, and the difference
 matters for ingestion at volume.
@@ -200,7 +208,8 @@ and no other; a crash mid-batch redelivers only what was not committed.
 
 **Acceptance Scenarios**:
 
-- added `features/topics/parallelism.feature`: partitions held by one instance are handled at once
+- added `features/topics/parallelism.feature`: partitions held by one instance are handled at once when asked for
+- added `features/topics/parallelism.feature`: a topic source that does not ask reads one message at a time
 - added `features/topics/parallelism.feature`: messages under one key are handled in order
 - added `features/topics/parallelism.feature`: a message that cannot be handled holds its partition and no other
 - added `features/topics/parallelism.feature`: a partition's offset is committed only after its message's publications are accepted
@@ -260,13 +269,16 @@ learn whether a pipeline keeps up.
 
 ### Functional Requirements
 
-- **FR-001**: A declared topic MAY carry a contract, set and shown with the topic.
+- **FR-001**: A declared topic MAY carry a contract, a name with a schema, set and shown with the
+  topic; a member MUST be able to fetch the schema from the project.
 - **FR-002**: A component MUST be able to state the contract of each topic it reads or publishes
-  to, in every SDK and through the sidecar's discovery.
-- **FR-003**: A service with a component whose stated contract differs from the project's, or
-  states none where the project declares one, MUST be refused before the component reads or
-  publishes, with both names in the service's status.
-- **FR-004**: A message published to a topic with a contract MUST carry the contract as its type.
+  to, by name and by the schema it was built against, in every SDK and through the sidecar's
+  discovery.
+- **FR-003**: A service with a component whose stated contract differs from the project's in name
+  or schema, or states none where the project declares one, MUST be refused before the component
+  reads or publishes, with both sides named in the service's status.
+- **FR-004**: A message published to a topic with a contract MUST carry the contract's name as
+  its type; no message is checked against the schema as it flows.
 - **FR-005**: A declared topic MAY be compacted; the platform MUST make it so, for a new topic and
   for one already made.
 - **FR-006**: ankka MUST provide the graph merge sink: a Neo4j store filled from a delta topic
@@ -274,8 +286,9 @@ learn whether a pipeline keeps up.
 - **FR-007**: A project MAY declare a broker by name, with its address and a project secret; a
   component MAY name a declared broker for a topic; the credential MUST reach only the platform's
   container.
-- **FR-008**: A topic source MUST handle the partitions an instance holds in parallel and each
-  partition in order, committing a partition only after its message's publications are accepted.
+- **FR-008**: A topic source that asks for it MUST handle the partitions an instance holds in
+  parallel and each partition in order, committing a partition only after its message's
+  publications are accepted; one that does not ask MUST read as today.
 - **FR-009**: A descriptor MUST be able to size the process container; a service with no stateful
   component MUST be deployable without a provisioned database.
 - **FR-010**: A service's status MUST list each topic source with its lag, shown by the CLI, the
@@ -287,8 +300,9 @@ learn whether a pipeline keeps up.
 
 ### Key Entities
 
-- **contract**: the name of what a topic carries, declared on the topic, stated by each side,
-  carried as a message's type.
+- **contract**: a name and the schema of what a topic carries, declared on the topic and held by
+  the project, stated by each side with the schema it was built against, its name carried as a
+  message's type.
 - **declared broker**: a broker a project names, with an address and a project secret, which a
   component may name for a topic.
 - **sink**: as already defined: the part of a pipeline that applies deltas to a store; now a
@@ -312,9 +326,8 @@ learn whether a pipeline keeps up.
 
 ## Assumptions
 
-- **A contract is a name**, unless clarified otherwise; its check is equality.
-- **Partition parallelism is the default**, unless clarified otherwise; a handler that needs
-  one-at-a-time handling across partitions is asking for something Kafka never promised.
+- **A schema is a JSON Schema document**, the format ankka's messages already have; how an SDK
+  tells which schema a component was built against is a planning decision.
 - **The sink is a service image**, unless clarified otherwise, deployed into a project by a
   member like any service.
 - **The stage-without-a-database case may already work**; if `provisionDatabase: false` with no
@@ -327,6 +340,7 @@ learn whether a pipeline keeps up.
 
 - A pipeline resource, a wiring file, or any grouping beyond the project.
 - Batches handed to a handler; windows; state in the process.
-- Schema registries, Avro or Protobuf contracts, compatibility between contract names.
+- Checking messages against a schema as they flow; Avro or Protobuf schemas; compatibility
+  between contract names or schema versions; a registry outside the project.
 - Topic retention and other settings beyond compaction.
 - Publishing from one message to several brokers at once.

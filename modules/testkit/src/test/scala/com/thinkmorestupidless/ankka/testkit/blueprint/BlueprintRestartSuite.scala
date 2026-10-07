@@ -109,10 +109,12 @@ class BlueprintRestartSuite extends munit.FunSuite with LogCapturing:
 
     val writer = Worker("writer").instructions("Write.").tools("gate").budget(4)
     val shape  = Shape.obj("text" -> Shape.string)
-    val brief = steps
-      .foldLeft(Blueprint("restart-brief").worker(writer))((bp, s) =>
-        bp.step(Step(s).ask("writer").reads("input").result(shape))
-      )
+    // Each step reads the one before, so the run is three steps in a row, restarted once in each;
+    // steps that read only the input would run at once, which is another scenario's.
+    val brief = steps.zipWithIndex
+      .foldLeft(Blueprint("restart-brief").worker(writer)) { case (bp, (s, i)) =>
+        bp.step(Step(s).ask("writer").reads(if i == 0 then "input" else steps(i - 1)).result(shape))
+      }
     agents.blueprints.register(brief): Unit
 
     val runId = "restart-run"

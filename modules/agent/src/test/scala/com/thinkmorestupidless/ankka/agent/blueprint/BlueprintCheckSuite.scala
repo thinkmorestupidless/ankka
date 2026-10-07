@@ -18,6 +18,7 @@ class BlueprintCheckSuite extends munit.FunSuite:
       Question.yesNo("ok", "Is it fine?"),
       Question.score("mood", "How is it?")("low", "high")
     )
+    .handlers(BlueprintHandler("echo")((_, json) => json))
     .withTimers(false)
 
   private def ok(name: String) =
@@ -42,8 +43,11 @@ class BlueprintCheckSuite extends munit.FunSuite:
     "verdict"           -> (_.step(Step("sv").critique("w", Verdict.judgment("mood"), rounds = 1))),
     "worker"            -> (_.step(Step("sw").ask("nobody"))),
     "reserved-name"     -> (_.step(Step("input").ask("w"))),
-    "zone"              -> (_.schedule(Schedule(Cadence.EveryDays(1), "Mars/Olympus"))),
-    "run-budget"        -> (_.runBudget(0))
+    "handler"           -> (_.step(Step("sh").call("nowhere"))),
+    "over"              -> (_.step(Step("sx").judge("ok").times(2))),
+    "until"      -> (_.step(Step("su").call("echo").until(Verdict.judgment("ok"), rounds = 1))),
+    "zone"       -> (_.schedule(Schedule(Cadence.EveryDays(1), "Mars/Olympus"))),
+    "run-budget" -> (_.runBudget(0))
   )
 
   test("SC-003 a blueprint with N problems is refused with exactly N, for every N") {
@@ -67,26 +71,38 @@ class BlueprintCheckSuite extends munit.FunSuite:
     assertEquals(notes.map(_.message), Vector("no step uses the worker 'spare'"))
   }
 
+  test("any action may repeat over a list, and any turn may draft until a verdict") {
+    val wide = sound
+      .worker(ok("d"))
+      .step(Step("list").ask("w").result(Shape.arr(Shape.string)))
+      .step(Step("deep").work("d").each("list"))
+      .step(Step("judged").judge("ok").each("list"))
+      .step(Step("kept").call("echo").each("list"))
+      .step(Step("drafted").work("d").until(Verdict.judgment("ok"), rounds = 2))
+    assertEquals(BlueprintCheck.check(wide, registry)._1, Vector.empty)
+  }
+
   test("a schedule in a service with timers is held") {
-    val scheduled = sound.schedule(
-      Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London"))
-    )
+    val scheduled =
+      sound.schedule(
+        Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London"))
+      )
     assertEquals(BlueprintCheck.check(scheduled, registry.withTimers(true))._1, Vector.empty)
     assertEquals(BlueprintCheck.check(scheduled, registry)._1.map(_.rule), Vector("timers"))
   }
 
-  test("a pattern the platform does not have is found by the step that names it") {
+  test("an action the platform does not have is found by the step that names it") {
     val json =
       s"""{"name":"vote","input":{"type":"object","properties":{},"required":[]},"workers":[],
-         |"steps":[{"name":"decide","pattern":{"type":"Vote","workers":["w"]},"reads":[],"result":{"type":"string"}}]}""".stripMargin
+         |"steps":[{"name":"decide","does":{"type":"Vote","workers":["w"]},"reads":[],"result":{"type":"string"}}]}""".stripMargin
     assertEquals(
       BlueprintCheck.fromJson(json, registry).left.map(_.map(p => (p.path, p.rule))),
-      Left(Vector(("steps[0].pattern", "pattern")))
+      Left(Vector(("steps[0].does", "action")))
     )
     assert(
       BlueprintCheck
         .fromJson(json, registry)
         .left
-        .exists(_.head.message.contains("step 'decide' uses the pattern 'Vote'"))
+        .exists(_.head.message.contains("step 'decide' does 'Vote'"))
     )
   }

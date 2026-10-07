@@ -1,3 +1,3 @@
-blueprint-event {"type":"VersionRegistered","number":1,"canonical":"{\"name\":\"digest\",\"steps\":[{\"name\":\"findings\",\"pattern\":{\"type\":\"Ask\",\"worker\":\"reader\"},\"reads\":[\"input\"]}],\"workers\":[{\"budget\":3,\"instructions\":\"Say what this paper finds.\",\"name\":\"reader\"}]}","digest":"9cb0081f2c6b08584dcdad675c5c6d82eb6bfe233db9725b68ec231bb6d21ae3","registeredAt":1}
+blueprint-event {"type":"VersionRegistered","number":1,"canonical":"{\"name\":\"digest\",\"steps\":[{\"does\":{\"type\":\"Ask\",\"worker\":\"reader\"},\"name\":\"findings\",\"reads\":[\"input\"]}],\"workers\":[{\"budget\":3,\"instructions\":\"Say what this paper finds.\",\"name\":\"reader\"}]}","digest":"788863876e4d213a4bbc91117972460133b43fc7f1fa82902b6c3a14bf147564","registeredAt":1}
 blueprint-event {"type":"ScheduleAdvanced","periodEnd":2,"nextDue":3}
 blueprint-event {"type":"ScheduleStopped","at":4}

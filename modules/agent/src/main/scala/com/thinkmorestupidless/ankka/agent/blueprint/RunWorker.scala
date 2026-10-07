@@ -5,15 +5,18 @@ import com.thinkmorestupidless.ankka.core.{CommandError, EntityId, ErrorCode, Se
 import com.thinkmorestupidless.ankka.sdk.ComponentClient
 import org.slf4j.LoggerFactory
 
-import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
+import java.util.concurrent.{ConcurrentHashMap, LinkedBlockingQueue, TimeUnit}
 import scala.concurrent.duration.*
+import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
 /**
- * Carries a run out, step by step, on one virtual thread. The record is re-read at every boundary
- * and nothing is kept in memory across one, so a worker that stops anywhere picks up from the
- * record: an ended step is never done again, and an ask turn already ended in its session is taken
- * as the answer without a call.
+ * Carries a run out on one virtual thread, with one more for each step in flight. A blueprint's
+ * steps form a graph, each reading the run's input or steps before it; a step runs once everything
+ * it reads has ended, so steps that read only what has ended run at once, and the blueprint's order
+ * breaks ties. The record is re-read at every boundary and nothing is kept in memory across one, so
+ * a worker that stops anywhere picks up from the record: an ended step is never done again, and an
+ * ask turn already ended in its session is taken as the answer without a call.
  */
 private[ankka] final class RunWorker(
     runId: String,
@@ -23,8 +26,9 @@ private[ankka] final class RunWorker(
 ):
   import RunEvent as E
 
-  private val log  = LoggerFactory.getLogger("ankka.blueprints")
-  private val wake = LinkedBlockingQueue[Unit]()
+  private val log      = LoggerFactory.getLogger("ankka.blueprints")
+  private val wake     = LinkedBlockingQueue[Unit]()
+  private val inFlight = ConcurrentHashMap.newKeySet[String]()
 
   @volatile private var running        = true
   @volatile private var thread: Thread = null
@@ -57,7 +61,7 @@ private[ankka] final class RunWorker(
               log.info("run '{}' has ended ({}); the worker stops", runId, run.status.wire)
               running = false
               reportStopped()
-            case run => step(run)
+            case run => schedule(run)
         catch
           case e: CommandError if e.code == ErrorCode.NotFound =>
             pause(1.second) // woken by a caller before its record was written
@@ -68,27 +72,52 @@ private[ankka] final class RunWorker(
     catch case _: InterruptedException => ()
     finally log.info("run '{}': worker stopped", runId)
 
-  // ── One step at a time ──────────────────────────────────────────────────────
+  // ── The graph ─────────────────────────────────────────────────────────────
 
-  private def step(run: RunRecord): Unit =
+  /** Starts every step whose reads have ended, then waits for one to end or for a poke. */
+  private def schedule(run: RunRecord): Unit =
     val blueprint = blueprintOf(run)
-    val next      = blueprint.steps.find(s => !run.step(s.name).exists(_.ended))
-    if !endIfDue(run, blueprint, next) then
-      next match
-        case None => end(RunStatus.Completed, None)
-        case Some(s) =>
+    val ended     = run.steps.filter(_.ended).map(_.name).toSet
+    val left      = blueprint.steps.filterNot(s => ended(s.name))
+    if !endIfDue(run, blueprint, left.nonEmpty) then
+      if left.isEmpty then end(RunStatus.Completed, None)
+      else
+        val ready = left
+          .filterNot(s => inFlight.contains(s.name))
+          .filter(_.allReads.forall(r => r == "input" || ended(sourceOf(r))))
+        ready.foreach { s =>
+          inFlight.add(s.name): Unit
           if run.step(s.name).isEmpty then
             log.info("run '{}': step '{}' starts", runId, s.name)
             record(E.StepStarted(s.name, now()))
-          s.pattern match
-            case Pattern.Ask(workerName) => askStep(run, blueprint, s, workerName)
-            case other =>
-              val name =
-                BlueprintCheck.PatternNames.getOrElse(other.productPrefix, other.productPrefix)
-              end(RunStatus.Failed, Some(s"${s.name}: the pattern $name is not built yet"))
+          Thread.ofVirtual().name(s"run-$runId-${s.name}").start { () =>
+            try stepOnce(run, blueprint, s)
+            catch
+              case e: CommandError if e.code == ErrorCode.Conflict =>
+                log.debug("run '{}': step '{}' ended after the run did", runId, s.name)
+              case _: InterruptedException => ()
+              case NonFatal(e) =>
+                log.warn(s"run '$runId': step '${s.name}' hit a fault", e)
+            finally
+              inFlight.remove(s.name): Unit
+              poke()
+          }: Unit
+        }
+        if ready.isEmpty && inFlight.isEmpty then
+          // Every step left reads something that will never end; the check refuses this, so it
+          // is a fault of the record, and the run cannot go on.
+          end(
+            RunStatus.Failed,
+            Some(
+              s"no step can start: ${left.map(_.name).mkString(", ")} wait on what has not ended"
+            )
+          )
+        else pause(1.second)
+
+  private def sourceOf(read: String): String = read.split("\\.", 2).head
 
   /** Cancelled, past the deadline, or over budget with steps left: ends the run and says so. */
-  private def endIfDue(run: RunRecord, blueprint: Blueprint, next: Option[Step]): Boolean =
+  private def endIfDue(run: RunRecord, blueprint: Blueprint, stepsLeft: Boolean): Boolean =
     run.cancelRequested match
       case Some(by) =>
         refuseWaiting(run, s"run '$runId' was cancelled by $by")
@@ -98,7 +127,7 @@ private[ankka] final class RunWorker(
         refuseWaiting(run, s"run '$runId' passed its time limit")
         end(RunStatus.Failed, Some("the run passed its time limit"))
         true
-      case None if next.isDefined && blueprint.runBudget.exists(_ <= run.modelCalls) =>
+      case None if stepsLeft && blueprint.runBudget.exists(_ <= run.modelCalls) =>
         end(
           RunStatus.Failed,
           Some(s"the run budget of ${blueprint.runBudget.get} model calls is spent")
@@ -109,6 +138,16 @@ private[ankka] final class RunWorker(
   private def end(status: RunStatus, reason: Option[String]): Unit =
     log.info("run '{}' ends {}{}", runId, status.wire, reason.fold("")(r => s": $r"))
     record(E.Ended(status, reason, now()))
+
+  // ── One step ──────────────────────────────────────────────────────────────
+
+  /** Carries one step out, by what it does, how it repeats and until what. */
+  private def stepOnce(run: RunRecord, blueprint: Blueprint, step: Step): Unit =
+    (step.does, step.over, step.until) match
+      case (Action.Ask(Some(workerName)), Over.Once, None) =>
+        askStep(run, blueprint, step, workerName)
+      case (Action.Call(handler), Over.Once, None) => callStep(run, step, handler)
+      case _ => end(RunStatus.Failed, Some(s"${step.name}: this shape of step is not built yet"))
 
   private def askStep(run: RunRecord, blueprint: Blueprint, step: Step, workerName: String): Unit =
     val worker =
@@ -136,6 +175,42 @@ private[ankka] final class RunWorker(
             now()
           )
         )
+
+  /** A registered handler, given what the step reads; what it returns is the step's result. */
+  private def callStep(run: RunRecord, step: Step, handlerName: String): Unit =
+    val handler =
+      registry
+        .handler(handlerName)
+        .getOrElse(throw IllegalStateException(s"no handler '$handlerName'"))
+    val ref   = RunRef(runId, step.name, run.blueprint, run.version)
+    val input = Reads.values(step, run)
+    val result =
+      try Right(RunContext.within(ref)(handler.run(ref, input)))
+      catch case NonFatal(e) => Left(Option(e.getMessage).getOrElse(e.toString))
+    result match
+      case Left(failure) =>
+        end(RunStatus.Failed, Some(s"${step.name}: the handler '$handlerName' failed: $failure"))
+      case Right(json) =>
+        val problems = step.result.check(json)
+        if problems.nonEmpty then
+          end(
+            RunStatus.Failed,
+            Some(
+              s"${step.name}: the handler '$handlerName' did not answer with the step's shape: ${problems.mkString("; ")}"
+            )
+          )
+        else
+          record(
+            E.StepEnded(
+              step.name,
+              json.render,
+              Vector.empty,
+              TokenUsage.zero,
+              TokenUsage.zero,
+              0,
+              now()
+            )
+          )
 
   // ── Shared by the patterns ────────────────────────────────────────────────
 
@@ -170,7 +245,7 @@ private[ankka] final class RunWorker(
     var delay                    = 1.second
     var outcome: Option[Boolean] = None
     while running && outcome.isEmpty do
-      pause(delay)
+      Thread.sleep(delay.toMillis)
       val latest = read()
       if latest.cancelRequested.isDefined || latest.deadline.exists(_ <= now()) then
         outcome = Some(false)
@@ -200,6 +275,8 @@ private[ankka] final class RunWorker(
       }
       record(E.ApprovalsRefused(s.name, s.waiting.map(_.approvalId), now()))
     }
+
+  private[blueprint] def stepsInFlight: Set[String] = inFlight.asScala.toSet
 
 private[blueprint] object RunWorker:
   /** `after` less `before`, field by field: what a step spent, read from its session's totals. */

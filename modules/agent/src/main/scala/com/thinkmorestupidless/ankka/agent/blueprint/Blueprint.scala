@@ -40,7 +40,7 @@ object Worker:
   /** The runtime's default model, under the one name every service has. */
   val DefaultModel = "default"
 
-/** What passes a critique's draft or returns it with reasons. */
+/** What passes a draft or returns it with reasons. */
 enum Verdict:
   /** Another worker answers with `{ "passed": boolean, "reasons": [string] }`. */
   case Critic(worker: String)
@@ -56,80 +56,138 @@ object Verdict:
   val shape: Shape = Shape.obj("passed" -> Shape.boolean, "reasons" -> Shape.arr(Shape.string))
 
 /**
- * One of the ways the platform has for a step to use workers. A read is `input` for the run's
- * input, a step's name for its result, or `step.field` for one field of it.
+ * What a step does once. A worker's name is left out when the step's `over` names the workers.
  */
-enum Pattern:
-  /** One worker answers the step's input once, running its tools. */
-  case Ask(worker: String)
+enum Action:
+  /** One worker answers the step's input once, running its tools, as a request agent does. */
+  case Ask(worker: Option[String] = None)
 
   /** One worker iterates on the step's input until it completes, gives up or spends its budget. */
-  case Work(worker: String)
-
-  /** One worker is given each item of the list `over` reads, at most `limit` at once. */
-  case ForEach(worker: String, over: String, limit: Int = 4, keepGoing: Boolean = false)
-
-  /**
-   * Several workers, or one worker `times` times, given the same input at once. `chosenBy` reads a
-   * list of names from an earlier step; then only those among `workers` run.
-   */
-  case Gather(workers: Vector[String], times: Option[Int] = None, chosenBy: Option[String] = None)
+  case Work(worker: Option[String] = None)
 
   /** The named judgment questions, asked about the step's input. */
   case Judge(questions: Vector[String])
 
-  /** `drafter` drafts; `verdict` passes it or returns it with reasons; up to `rounds` rounds. */
-  case Critique(drafter: String, verdict: Verdict, rounds: Int, keepLast: Boolean = false)
+  /** A handler the service registers for blueprints, given what the step reads. */
+  case Call(handler: String)
 
-  /** Every worker this pattern names. */
-  def namedWorkers: Vector[String] = this match
-    case Ask(w)                               => Vector(w)
-    case Work(w)                              => Vector(w)
-    case ForEach(w, _, _, _)                  => Vector(w)
-    case Gather(ws, _, _)                     => ws
-    case Judge(_)                             => Vector.empty
-    case Critique(d, Verdict.Critic(c), _, _) => Vector(d, c)
-    case Critique(d, _, _, _)                 => Vector(d)
+  /** The worker the action names, when it names one. */
+  def namedWorker: Option[String] = this match
+    case Ask(w)  => w
+    case Work(w) => w
+    case _       => None
 
-  /** Every judgment question this pattern names. */
-  def namedQuestions: Vector[String] = this match
-    case Judge(qs)                              => qs
-    case Critique(_, Verdict.Judgment(q), _, _) => Vector(q)
-    case _                                      => Vector.empty
+  /** Whether this is a worker's turn, which `over` and `until` may repeat. */
+  def isTurn: Boolean = this match
+    case Ask(_) | Work(_) => true
+    case _                => false
 
-  /** The reads this pattern makes beyond the step's own. */
-  def extraReads: Vector[String] = this match
-    case ForEach(_, over, _, _) => Vector(over)
-    case Gather(_, _, Some(by)) => Vector(by)
-    case _                      => Vector.empty
+/**
+ * How many times a step does its action, and over what. A read is `input`, a step's name for its
+ * result, or `step.field` for one field of it.
+ */
+enum Over:
+  /** Once, with what the step reads. */
+  case Once
 
-/** One unit of a run's work: a pattern, what it reads, and the shape of its result. */
+  /** Once per item of the list `read` gives, at most `limit` at once. */
+  case Each(read: String, limit: Int = 4, keepGoing: Boolean = false)
+
+  /**
+   * Once per worker, each given the same input at once. `chosenBy` reads a list of names from an
+   * earlier step; then only those among `workers` run.
+   */
+  case Workers(workers: Vector[String], chosenBy: Option[String] = None)
+
+  /** `n` times, the same worker given the same input at once. */
+  case Times(n: Int)
+
+  /** The reads this makes beyond the step's own. */
+  def reads: Vector[String] = this match
+    case Each(read, _, _)     => Vector(read)
+    case Workers(_, Some(by)) => Vector(by)
+    case _                    => Vector.empty
+
+/** Drafts go back with the verdict's reasons until one passes, up to `rounds` rounds. */
+final case class Until(verdict: Verdict, rounds: Int, keepLast: Boolean = false)
+
+/**
+ * One unit of a run's work: what it does, how many times and over what, until what, what it reads,
+ * and the shape of its result. The common shapes have names: an ask step, a work step, a for-each
+ * step, a gather step, a judge step, a critique step, a call step.
+ */
 final case class Step(
     name: String,
-    pattern: Pattern,
+    does: Action,
+    over: Over = Over.Once,
+    until: Option[Until] = None,
     reads: Vector[String] = Vector.empty,
     result: Shape = Shape.string
 ):
   def reads(names: String*): Step = copy(reads = reads ++ names)
   def result(shape: Shape): Step  = copy(result = shape)
+  def each(read: String, limit: Int = 4, keepGoing: Boolean = false): Step =
+    copy(over = Over.Each(read, limit, keepGoing))
+  def overWorkers(workers: String*): Step = copy(over = Over.Workers(workers.toVector))
+  def chosenBy(read: String): Step = over match
+    case Over.Workers(ws, _) => copy(over = Over.Workers(ws, Some(read)))
+    case _                   => copy(over = Over.Workers(Vector.empty, Some(read)))
+  def times(n: Int): Step = copy(over = Over.Times(n))
+  def until(verdict: Verdict, rounds: Int, keepLast: Boolean = false): Step =
+    copy(until = Some(Until(verdict, rounds, keepLast)))
+
+  /** Every worker this step names. */
+  def namedWorkers: Vector[String] =
+    does.namedWorker.toVector ++ (over match
+      case Over.Workers(ws, _) => ws
+      case _                   => Vector.empty) ++ until.toVector.flatMap(_.verdict match
+      case Verdict.Critic(c) => Vector(c)
+      case _                 => Vector.empty)
+
+  /** Every judgment question this step names. */
+  def namedQuestions: Vector[String] =
+    (does match
+      case Action.Judge(qs) => qs
+      case _                => Vector.empty
+    ) ++ until.toVector.flatMap(_.verdict match
+      case Verdict.Judgment(q) => Vector(q)
+      case _                   => Vector.empty)
+
+  /** The handler this step calls, when it does. */
+  def namedHandler: Option[String] = does match
+    case Action.Call(h) => Some(h)
+    case _              => None
+
+  /** Everything this step reads: its own reads and its `over`'s. */
+  def allReads: Vector[String] = (reads ++ over.reads).distinct
 
 object Step:
-  /** `Step("name").ask("worker")` and the other patterns. */
+  /** `Step("name").ask("worker")` and the other common shapes. */
   def apply(name: String): Start = Start(name)
 
   final case class Start(name: String):
-    def ask(worker: String): Step  = Step(name, Pattern.Ask(worker))
-    def work(worker: String): Step = Step(name, Pattern.Work(worker))
+    def ask(worker: String): Step       = Step(name, Action.Ask(Some(worker)))
+    def work(worker: String): Step      = Step(name, Action.Work(Some(worker)))
+    def judge(questions: String*): Step = Step(name, Action.Judge(questions.toVector))
+    def call(handler: String): Step     = Step(name, Action.Call(handler))
+
+    /** A for-each step: one worker, once per item. */
     def forEach(worker: String, over: String, limit: Int = 4, keepGoing: Boolean = false): Step =
-      Step(name, Pattern.ForEach(worker, over, limit, keepGoing))
-    def gather(workers: String*): Step = Step(name, Pattern.Gather(workers.toVector))
+      Step(name, Action.Ask(Some(worker)), Over.Each(over, limit, keepGoing))
+
+    /** A gather step: several workers, the same input. */
+    def gather(workers: String*): Step =
+      Step(name, Action.Ask(None), Over.Workers(workers.toVector))
     def gather(workers: Seq[String], chosenBy: String): Step =
-      Step(name, Pattern.Gather(workers.toVector, chosenBy = Some(chosenBy)))
+      Step(name, Action.Ask(None), Over.Workers(workers.toVector, Some(chosenBy)))
+
+    /** A gather step: one worker several times. */
     def gather(worker: String, times: Int): Step =
-      Step(name, Pattern.Gather(Vector(worker), Some(times)))
-    def judge(questions: String*): Step = Step(name, Pattern.Judge(questions.toVector))
+      Step(name, Action.Ask(Some(worker)), Over.Times(times))
+
+    /** A critique step: one worker drafts until a verdict passes. */
     def critique(drafter: String, verdict: Verdict, rounds: Int, keepLast: Boolean = false): Step =
-      Step(name, Pattern.Critique(drafter, verdict, rounds, keepLast))
+      Step(name, Action.Ask(Some(drafter)), Over.Once, Some(Until(verdict, rounds, keepLast)))
 
 /** How often a schedule's due times come. */
 enum Cadence:
@@ -171,8 +229,9 @@ object Schedule:
 
 /**
  * A description of workers and the steps between them, which a service registers and the platform
- * runs. It is held, never deployed; a changed blueprint is a new version. It has no conditions and
- * no loops of its own: every repetition is inside a pattern and bounded by it.
+ * runs. It is held, never deployed; a changed blueprint is a new version. Its steps form a graph:
+ * each reads the run's input or steps before it, and runs once what it reads has ended. It has no
+ * conditions and no loops of its own: every repetition is inside a step and bounded by it.
  */
 final case class Blueprint(
     name: String,

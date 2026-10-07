@@ -319,6 +319,61 @@ into endpoints and workflows".
 **Alternatives considered**: `client.blueprints(registry)` (rejected: a component rarely holds the
 registry); checking inside the entity (rejected in R2).
 
+## R24. A blueprint's steps are scheduled as the graph they are
+
+**Decision**: a step runs once everything it reads has ended. The worker starts every ready step
+at once, each on a virtual thread of its own, and waits for one to end or for a poke; the
+blueprint's order breaks ties and is otherwise not an order of execution. The record already holds
+one `StepRecord` per step, so nothing in the data changes.
+
+**Rationale**: the steps were a graph from the start (`reads` are the edges, pointing backwards by
+the check), and running them as a list was the one place the graph was ignored. Two steps that
+read only the input are independent, and a run that waits for one before the other pays for
+nothing. A step's events are its own, so steps in flight do not contend; a step that ends after
+the run has (cancelled, or failed by another step) is refused by the record with `Conflict`, which
+the step's thread treats as the end it is.
+
+**Alternatives considered**: a list in order (rejected: a graph run as a list wastes the graph);
+an explicit `after` edge list (rejected: `reads` already says it, and a step that reads nothing of
+another has no reason to wait for it).
+
+## R25. A step is an action, an over and an until
+
+**Decision**: `Step(name, does: Action, over: Over, until: Option[Until], reads, result)`. The
+actions are `Ask(worker)`, `Work(worker)`, `Judge(questions)` and `Call(handler)`; the overs are
+`Once`, `Each(read, limit, keepGoing)`, `Workers(workers, chosenBy)` and `Times(n)`; the until is
+a `Verdict` within `rounds`. The named patterns are builders for the common combinations and words
+in the glossary; the check refuses the combinations that mean nothing (a judgment or a call repeated
+over workers, or drafting until a verdict), and allows the rest, so a for-each of work tasks or a
+critique whose drafter is an autonomous worker is a combination, not a new pattern.
+
+**Rationale**: the six patterns were three primitives wired to three combinators, each wiring a
+name. The vocabulary is data held in every blueprint version's canonical text, so widening it later
+would be a compatibility matter; factored now, it widens by combination. The names people use stay.
+
+**Alternatives considered**: six closed patterns (rejected: each new wiring a new name and a new
+journal form); a service-defined pattern as code (rejected: a pattern's durability is the
+platform's promise; the call step gives code its place without taking that on).
+
+## R26. A call step
+
+**Decision**: `Action.Call(handler)` runs a `BlueprintHandler` the service registers for blueprints
+(`registry.handlers(BlueprintHandler("keep_paper")((run, input) => …))`), on the worker's thread,
+with what the step reads as one object and the run it serves in `RunContext`; what it returns is
+checked against the step's shape and recorded as the step's result, with no session and no model
+calls. A handler that throws fails the step, naming it. A handler may be run again after a restart,
+as a tool may, and tolerates a repeat.
+
+**Rationale**: every other action is model-driven; nothing let a blueprint do something in code
+with the run's durability. A call is the general node: an entity command, a workflow started, a
+service called through the service client, anything the handler's closure reaches. Registering
+handlers keeps the check's rule that a blueprint names only what the service registers.
+
+**Alternatives considered**: a step that calls an arbitrary component handler by wire name
+(rejected: inputs and outputs would need the component's serializers, and the check could not see
+them; a registered function is typed by the service that writes it); sub-blueprints (left out:
+blueprints compose through records, and a handler can start a run if someone must).
+
 ## R19. The research digest sample
 
 **Decision**: `samples/research-digest`, an sbt project like `multiAgentPlanner` (`build.sbt:880-884`)
@@ -387,6 +442,15 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   blueprint registered by two services at once would serialise on the entity, and the restart case
   showed a carried blueprint re-registered at start adds no version. The calls moved to the
   `AgentRuntime` (R23).
+- Review, found by running three steps at once (R24): the platform's ask waits ten seconds
+  (`ankka.ask-timeout`), and an ask turn whose tool takes longer outlives its call. The worker
+  treats the timed-out call as a turn still in progress and watches the session for its answer or
+  its approval request, up to fifteen minutes; asking again would make a second turn and a second
+  set of model calls (R18). `LongTurnSuite` holds it.
+- Review (R24–R26): the graph scheduler, the three-part step and the call step are built; the
+  patterns suites to come (Phase 5) build the combinators once for every action. `CallStepSuite`
+  shows a handler given what the step reads and told its run, and a failing handler failing the
+  run; `runs.feature` gains the scenario that two steps reading only the input run at once.
 - Phase 4 (T021–T033): `runs.feature` passes, 23 scenarios; SC-002 holds (`BlueprintRestartSuite`:
   a run restarted once in each of three steps completes, each step's turn started twice and ended
   once, nine model calls in all); V4 holds (`AskApprovalSuite`: a turn suspended on an approval is

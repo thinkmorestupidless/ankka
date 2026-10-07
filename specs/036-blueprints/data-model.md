@@ -33,21 +33,41 @@ string codec in their companion, as `TaskStatus` has. New fields on existing rec
 
 | Field | Type | Rule |
 |---|---|---|
-| `name` | String | |
-| `pattern` | Pattern | |
-| `reads` | Vector[String] | `input` or names of earlier steps |
+| `name` | String | unique; not `input` |
+| `does` | Action | |
+| `over` | Over | default `Once` |
+| `until` | Option[Until] | only with an ask or a work |
+| `reads` | Vector[String] | `input` or names of earlier steps, optionally `.field` |
 | `result` | Shape | |
 
-### Pattern
+### Action (what the step does once)
 
 | Case | Fields | Rule |
 |---|---|---|
-| `Ask` | `worker` | |
-| `Work` | `worker` | |
-| `ForEach` | `worker`, `over` (a read, optionally `.field`), `limit` (default 4), `keepGoing` (default false) | `over` resolves to an array shape |
-| `Gather` | `workers` or (`worker`, `times`); `chosenBy` (optional read) | at least two answers when not chosen by; `chosenBy` resolves to an array of strings (R22) |
-| `Judge` | `questions` | names in the registry |
-| `Critique` | `drafter`, `verdict` (`Critic(worker)` or `Judgment(question)`), `rounds`, `keepLast` (default false) | rounds positive; a judgment verdict names a yes/no question |
+| `Ask` | `worker` (optional) | a worker, unless `over` is `Workers` |
+| `Work` | `worker` (optional) | as `Ask` |
+| `Judge` | `questions` | at least one, each in the registry; not over workers |
+| `Call` | `handler` | in the registry; not over workers |
+
+### Over (how many times, over what)
+
+| Case | Fields | Rule |
+|---|---|---|
+| `Once` | | |
+| `Each` | `read`, `limit` (default 4), `keepGoing` (default false) | `read` resolves to an array shape |
+| `Workers` | `workers`, `chosenBy` (optional read) | at least two, or one with `chosenBy`; `chosenBy` resolves to an array of strings (R22); the action names no worker |
+| `Times` | `n` | above one |
+
+### Until (a verdict within rounds)
+
+| Field | Type | Rule |
+|---|---|---|
+| `verdict` | `Critic(worker)` or `Judgment(question)` | a critic is not the drafter; a judgment is a yes/no question |
+| `rounds` | Int | positive |
+| `keepLast` | Boolean | default false |
+
+The named patterns are builders: `ask`, `work`, `judge`, `call`, `forEach` (an ask over each item),
+`gather` (an ask over workers, or one worker so many times), `critique` (an ask until a verdict).
 
 ### Schedule
 

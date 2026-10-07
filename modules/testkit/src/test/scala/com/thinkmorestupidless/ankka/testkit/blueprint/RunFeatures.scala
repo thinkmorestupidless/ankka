@@ -220,6 +220,34 @@ class RunFeatures extends GherkinSuite("../../features/blueprints/runs.feature")
     assertEquals(Vector(a, b, c), Vector("outline", "draft", "polish"))
   }
 
+  Given("the blueprint {string} whose steps {string} and {string} both read only the run's input") {
+    (_: String, a: String, b: String) =>
+      // Both steps call the gate, so both can be seen in flight before either ends.
+      val writer = Worker("writer").instructions("Write briefly.").tools("gate").budget(4)
+      val pair = Blueprint(named("pair"))
+        .input(Shape.obj("topic" -> Shape.string))
+        .worker(writer)
+        .step(Step(a).ask("writer").reads("input").result(text))
+        .step(Step(b).ask("writer").reads("input").result(text))
+      blueprints.register(pair): Unit
+      gate = CountDownLatch(1)
+      gateReached = CountDownLatch(2)
+      model.respondWhen(r => (step(r, a) || step(r, b)) && !lastIsToolResult(r))(_ => call("gate"))
+      model.respondWhen(r => (step(r, a) || step(r, b)) && lastIsToolResult(r))(_ =>
+        answer("""{"text":"done"}""")
+      )
+  }
+
+  When("a run of {string} is started") { (name: String) =>
+    runs.start(named(name), input, runId): Unit
+  }
+
+  Then("the steps {string} and {string} are both in progress at once") { (a: String, b: String) =>
+    assert(gateReached.await(60, TimeUnit.SECONDS), "both steps did not reach the gate")
+    val run = runs.get(runId)
+    assert(run.steps.map(_.name).toSet == Set(a, b) && run.steps.forall(!_.ended), run.toString)
+  }
+
   Given("a run of {string} in progress at blueprint version 1")((_: String) => inProgress())
   Given("a run of {string} in progress")((_: String) => inProgress())
 

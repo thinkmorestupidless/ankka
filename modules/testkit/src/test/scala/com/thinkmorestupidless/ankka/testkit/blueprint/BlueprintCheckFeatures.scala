@@ -123,12 +123,12 @@ class BlueprintCheckFeatures
       )
   }
 
-  When("the service registers a blueprint with a step whose pattern is {string}") {
-    (pattern: String) =>
+  When("the service registers a blueprint with a step whose action is {string}") {
+    (action: String) =>
       registerJson(
         s"""{"name":"${named("vote")}","input":{"type":"object","properties":{},"required":[]},
          |"workers":[{"name":"searcher","instructions":"Search.","model":"default","tools":["search"],"guardrails":[],"budget":4}],
-         |"steps":[{"name":"decide","pattern":{"type":"$pattern","workers":["searcher"]},"reads":[],"result":{"type":"string"}}]}""".stripMargin,
+         |"steps":[{"name":"decide","does":{"type":"$action","worker":"searcher"},"reads":[],"result":{"type":"string"}}]}""".stripMargin,
         named("vote")
       )
   }
@@ -198,8 +198,17 @@ class BlueprintCheckFeatures
 
   Then("the service is refused, naming both steps")(() => refusedNaming("step 'first'", "'second'"))
 
-  Then("the service is refused, naming the step and the pattern {string}") { (pattern: String) =>
-    refusedNaming("step 'decide'", s"pattern '$pattern'")
+  Then("the service is refused, naming the step and the action {string}") { (action: String) =>
+    refusedNaming("step 'decide'", s"does '$action'")
+  }
+
+  When("the service registers a blueprint with a call step calling the handler {string}") {
+    (handler: String) =>
+      register(Blueprint(named("call")).step(Step("keep").call(handler).reads("input")))
+  }
+
+  Then("the service is refused, naming the step and the handler {string}") { (handler: String) =>
+    refusedNaming("step 'keep'", s"handler '$handler'")
   }
 
   Then("the service is refused, naming the for-each step and the step it reads") { () =>

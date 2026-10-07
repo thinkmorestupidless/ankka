@@ -1,16 +1,20 @@
 package com.thinkmorestupidless.ankka.agent.blueprint
 
 import com.thinkmorestupidless.ankka.agent.*
-import com.thinkmorestupidless.ankka.core.CommandError
+import com.thinkmorestupidless.ankka.core.{CommandError, ErrorCode}
+
+import scala.concurrent.duration.*
 
 /** What a step is given: the run's input and the results it reads, as one JSON object. */
 private[blueprint] object Reads:
 
+  /** What a step reads, as one object keyed by each read. */
+  def values(step: Step, run: RunRecord): Json =
+    Json.Obj(step.reads.map(read => read -> resolve(read, run)).toMap)
+
   /** The message a worker is given for a step: the step's name and what it reads. */
   def message(step: Step, run: RunRecord): String =
-    val values = step.reads.map(read => read -> resolve(read, run))
-    val body   = if values.isEmpty then "{}" else Json.Obj(values.toMap).render
-    s"Step '${step.name}'.\n$body"
+    s"Step '${step.name}'.\n${values(step, run).render}"
 
   /** `input`, a step's result, or one field of it. */
   def resolve(read: String, run: RunRecord): Json =
@@ -60,6 +64,45 @@ private[blueprint] object Turns:
           .collect { case SessionMessage.AiMessage(_, text, _, calls) if calls.isEmpty => text }
           .lastOption
 
+  /** How long a turn may go on after the call to it timed out, before the step gives up on it. */
+  private val TurnBound = 15.minutes
+
+  /**
+   * The call timed out, and the agent is still at work on the turn: a tool may take minutes, and
+   * the platform's ask waits seconds. The turn's end reaches its session, so the session is watched
+   * for the answer, or for an approval request, until the run is cancelled, passes its deadline, or
+   * the turn has gone on too long to be believed in. Asking again would make a second turn.
+   */
+  private def afterTimeout(
+      worker: RunWorker,
+      session: String,
+      asked: String,
+      stepName: String
+  ): Either[Outcome, String] =
+    val until                                  = System.currentTimeMillis() + TurnBound.toMillis
+    var delay                                  = 2.seconds
+    var found: Option[Either[Outcome, String]] = None
+    while found.isEmpty && System.currentTimeMillis() < until do
+      Thread.sleep(delay.toMillis)
+      val latest = worker.read()
+      if latest.cancelRequested.isDefined || latest.deadline.exists(_ <= System.currentTimeMillis())
+      then found = Some(Left(Interrupted))
+      else
+        val history = worker.history(session)
+        answered(history, asked) match
+          case Some(value) => found = Some(Right(value))
+          case None if history.awaiting.nonEmpty =>
+            found = Some(
+              if worker.waitForDecision(stepName, session, history.awaiting) then
+                answered(worker.history(session), asked)
+                  .toRight(Failed("the turn did not end after the decision"))
+              else Left(Interrupted)
+            )
+          case None => delay = (delay * 2).min(30.seconds)
+    found.getOrElse(
+      Left(Failed(s"the worker's turn did not end within $TurnBound of its call timing out"))
+    )
+
   /**
    * The worker's answer for one turn, as JSON of the step's shape. An answer already in the session
    * for this message is taken without a call (R18). An answer not of the shape goes back to the
@@ -95,7 +138,12 @@ private[blueprint] object Turns:
                     answered(worker.history(session), asked)
                       .toRight(Failed("the turn did not end after the decision"))
                   else Left(Interrupted)
-            catch case e: CommandError => Left(Failed(e.getMessage))
+            catch
+              case _: java.util.concurrent.TimeoutException =>
+                afterTimeout(worker, session, asked, stepName)
+              case e: CommandError if e.code == ErrorCode.Timeout =>
+                afterTimeout(worker, session, asked, stepName)
+              case e: CommandError => Left(Failed(e.getMessage))
       text match
         case Left(ended) => outcome = Some(ended)
         case Right(value) =>

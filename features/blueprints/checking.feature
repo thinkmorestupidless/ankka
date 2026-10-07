@@ -26,9 +26,13 @@ Feature: Checking a blueprint before it is held
     When the service registers a blueprint whose first step reads the result of its second step
     Then the service is refused, naming both steps
 
-  Scenario: a step naming a pattern the platform does not have is refused
-    When the service registers a blueprint with a step whose pattern is "vote"
-    Then the service is refused, naming the step and the pattern "vote"
+  Scenario: a step doing something the platform does not have is refused
+    When the service registers a blueprint with a step whose action is "vote"
+    Then the service is refused, naming the step and the action "vote"
+
+  Scenario: a call step naming a handler the service does not have is refused
+    When the service registers a blueprint with a call step calling the handler "archive"
+    Then the service is refused, naming the step and the handler "archive"
 
   Scenario: a step whose pattern needs a list and reads something else is refused
     When the service registers a blueprint whose for-each step reads a step whose result is not a list

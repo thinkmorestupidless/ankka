@@ -24,19 +24,21 @@ object BlueprintCheck:
   private val Name = "^[a-z0-9][a-z0-9-]*$".r
   private val Time = "^([01][0-9]|2[0-3]):[0-5][0-9]$".r
 
-  /** The patterns as a blueprint written in JSON names them, and as the glossary does. */
-  val PatternNames: Map[String, String] = Map(
-    "Ask"      -> "ask",
-    "Work"     -> "work",
-    "ForEach"  -> "for-each",
-    "Gather"   -> "gather",
-    "Judge"    -> "judge",
-    "Critique" -> "critique"
+  /** The actions as a blueprint written in JSON names them, and as the glossary does. */
+  val ActionNames: Map[String, String] =
+    Map("Ask" -> "ask", "Work" -> "work", "Judge" -> "judge", "Call" -> "call")
+
+  /** The ways a step repeats its action, as JSON names them. */
+  val OverNames: Map[String, String] = Map(
+    "Once"    -> "once",
+    "Each"    -> "each item of a list",
+    "Workers" -> "each of several workers",
+    "Times"   -> "several times"
   )
 
   /**
-   * A blueprint written in JSON, checked. A pattern the platform does not have cannot be decoded
-   * into `Pattern`, so it is found first, by the step that names it.
+   * A blueprint written in JSON, checked. An action or an `over` the platform does not have cannot
+   * be decoded, so each is found first, by the step that names it.
    */
   def fromJson(
       text: String,
@@ -45,21 +47,37 @@ object BlueprintCheck:
     Json.parse(text) match
       case Left(error) => Left(Vector(Problem("$", "json", s"not JSON: $error")))
       case Right(json) =>
-        val unknownPatterns =
+        val unknown =
           json("steps").flatMap(_.asArray).getOrElse(Vector.empty).zipWithIndex.flatMap {
             (step, i) =>
-              val name    = step("name").flatMap(_.asString).getOrElse(s"#${i + 1}")
-              val pattern = step("pattern").flatMap(_("type")).flatMap(_.asString)
-              pattern.filterNot(PatternNames.contains).map { p =>
-                Problem(
-                  s"steps[$i].pattern",
-                  "pattern",
-                  s"step '$name' uses the pattern '$p', which the platform does not have " +
-                    s"(${PatternNames.values.toVector.sorted.mkString(", ")})"
-                )
-              }
+              val name = step("name").flatMap(_.asString).getOrElse(s"#${i + 1}")
+              val does = step("does")
+                .flatMap(_("type"))
+                .flatMap(_.asString)
+                .filterNot(ActionNames.contains)
+                .map { a =>
+                  Problem(
+                    s"steps[$i].does",
+                    "action",
+                    s"step '$name' does '$a', which the platform does not have " +
+                      s"(${ActionNames.values.toVector.sorted.mkString(", ")})"
+                  )
+                }
+              val over = step("over")
+                .flatMap(_("type"))
+                .flatMap(_.asString)
+                .filterNot(OverNames.contains)
+                .map { o =>
+                  Problem(
+                    s"steps[$i].over",
+                    "over",
+                    s"step '$name' repeats over '$o', which the platform does not have " +
+                      s"(${OverNames.values.toVector.sorted.mkString(", ")})"
+                  )
+                }
+              does.toVector ++ over.toVector
           }
-        if unknownPatterns.nonEmpty then Left(unknownPatterns)
+        if unknown.nonEmpty then Left(unknown)
         else
           Blueprint.fromJson(text) match
             case Left(error) => Left(Vector(Problem("$", "json", error)))
@@ -149,68 +167,72 @@ object BlueprintCheck:
           "a step cannot be named 'input', which is the run's input"
         )
 
-      step.pattern.namedWorkers.distinct.foreach { w =>
+      step.namedWorkers.distinct.foreach { w =>
         if !workerNames.contains(w) then
           problem(
-            s"$at.pattern",
+            at,
             "worker",
             s"step '${step.name}' names the worker '$w', which is not one of the blueprint's workers"
           )
       }
-      step.pattern.namedQuestions.distinct.foreach { q =>
+      step.namedQuestions.distinct.foreach { q =>
         if registry.question(q).isEmpty then
           problem(
-            s"$at.pattern",
+            at,
             "judgment-question",
             s"step '${step.name}' asks the judgment question '$q', which is not registered for blueprints"
           )
       }
-      (step.reads ++ step.pattern.extraReads).distinct.foreach { read =>
+      step.namedHandler.foreach { h =>
+        if registry.handler(h).isEmpty then
+          problem(
+            s"$at.does",
+            "handler",
+            s"step '${step.name}' calls the handler '$h', which is not registered for blueprints"
+          )
+      }
+      step.allReads.foreach { read =>
         resolve(i, read).left.foreach((rule, why) =>
           problem(s"$at.reads", rule, s"step '${step.name}' $why")
         )
       }
 
-      step.pattern match
-        case Pattern.ForEach(_, over, limit, _) =>
+      // What the action does once, and how it repeats, have to fit.
+      (step.does, step.over) match
+        case (a, Over.Workers(_, _)) if a.isTurn && a.namedWorker.isDefined =>
+          problem(
+            s"$at.does",
+            "worker",
+            s"step '${step.name}' names a worker and also several workers; the workers it repeats over are the ones that run"
+          )
+        case (a, o) if a.isTurn && a.namedWorker.isEmpty && !o.isInstanceOf[Over.Workers] =>
+          problem(s"$at.does", "worker", s"step '${step.name}' names no worker")
+        case (a, Over.Workers(_, _) | Over.Times(_)) if !a.isTurn =>
+          problem(
+            s"$at.over",
+            "over",
+            s"step '${step.name}' repeats over workers, and a ${ActionNames(a.productPrefix)} has no worker"
+          )
+        case _ => ()
+
+      step.over match
+        case Over.Each(read, limit, _) =>
           if limit <= 0 then
-            problem(
-              s"$at.pattern.limit",
-              "limit",
-              s"step '${step.name}' needs a limit above nought"
-            )
-          resolve(i, over).foreach { shape =>
+            problem(s"$at.over.limit", "limit", s"step '${step.name}' needs a limit above nought")
+          resolve(i, read).foreach { shape =>
             if !shape.isArray then
               problem(
-                s"$at.pattern.over",
+                s"$at.over.read",
                 "list",
-                s"for-each step '${step.name}' needs a list, and '$over' gives ${describe(shape)}"
+                s"for-each step '${step.name}' needs a list, and '$read' gives ${describe(shape)}"
               )
           }
-        case Pattern.Gather(workers, times, chosenBy) =>
+        case Over.Workers(workers, chosenBy) =>
           if workers.isEmpty then
+            problem(s"$at.over.workers", "workers", s"gather step '${step.name}' names no worker")
+          else if chosenBy.isEmpty && workers.sizeIs < 2 then
             problem(
-              s"$at.pattern.workers",
-              "workers",
-              s"gather step '${step.name}' names no worker"
-            )
-          times.foreach { n =>
-            if n <= 1 then
-              problem(
-                s"$at.pattern.times",
-                "times",
-                s"gather step '${step.name}' needs times above one, or several workers"
-              )
-            if workers.sizeIs > 1 then
-              problem(
-                s"$at.pattern.times",
-                "times",
-                s"gather step '${step.name}' gives times and several workers; one or the other"
-              )
-          }
-          if times.isEmpty && chosenBy.isEmpty && workers.sizeIs < 2 then
-            problem(
-              s"$at.pattern.workers",
+              s"$at.over.workers",
               "workers",
               s"gather step '${step.name}' needs at least two workers, or one worker several times"
             )
@@ -218,45 +240,58 @@ object BlueprintCheck:
             resolve(i, by).foreach { shape =>
               if !shape.isStringArray then
                 problem(
-                  s"$at.pattern.chosenBy",
+                  s"$at.over.chosenBy",
                   "chosen-by",
                   s"gather step '${step.name}' is chosen by '$by', which gives ${describe(shape)} and not a list of names"
                 )
             }
           }
-        case Pattern.Judge(questions) =>
-          if questions.isEmpty then
+        case Over.Times(n) =>
+          if n <= 1 then
             problem(
-              s"$at.pattern.questions",
-              "questions",
-              s"judge step '${step.name}' asks no question"
+              s"$at.over.n",
+              "times",
+              s"gather step '${step.name}' needs times above one, or several workers"
             )
-        case Pattern.Critique(drafter, verdict, rounds, _) =>
-          if rounds <= 0 then
-            problem(
-              s"$at.pattern.rounds",
-              "rounds",
-              s"critique step '${step.name}' needs rounds above nought"
-            )
-          verdict match
-            case Verdict.Critic(c) if c == drafter =>
-              problem(
-                s"$at.pattern.verdict",
-                "verdict",
-                s"critique step '${step.name}' has '$drafter' judge its own draft"
-              )
-            case Verdict.Judgment(q) =>
-              registry.question(q).foreach {
-                case _: YesNoQuestion => ()
-                case _ =>
-                  problem(
-                    s"$at.pattern.verdict",
-                    "verdict",
-                    s"critique step '${step.name}' needs a yes-or-no question as its verdict, and '$q' is not one"
-                  )
-              }
-            case _ => ()
+        case Over.Once => ()
+
+      step.does match
+        case Action.Judge(questions) if questions.isEmpty =>
+          problem(s"$at.does.questions", "questions", s"judge step '${step.name}' asks no question")
         case _ => ()
+
+      step.until.foreach { u =>
+        if !step.does.isTurn then
+          problem(
+            s"$at.until",
+            "until",
+            s"step '${step.name}' drafts until a verdict, and a ${ActionNames(step.does.productPrefix)} drafts nothing"
+          )
+        if u.rounds <= 0 then
+          problem(
+            s"$at.until.rounds",
+            "rounds",
+            s"critique step '${step.name}' needs rounds above nought"
+          )
+        u.verdict match
+          case Verdict.Critic(c) if step.does.namedWorker.contains(c) =>
+            problem(
+              s"$at.until.verdict",
+              "verdict",
+              s"critique step '${step.name}' has '$c' judge its own draft"
+            )
+          case Verdict.Judgment(q) =>
+            registry.question(q).foreach {
+              case _: YesNoQuestion => ()
+              case _ =>
+                problem(
+                  s"$at.until.verdict",
+                  "verdict",
+                  s"critique step '${step.name}' needs a yes-or-no question as its verdict, and '$q' is not one"
+                )
+            }
+          case _ => ()
+      }
     }
 
     // ── schedule and limits ───────────────────────────────────────────────────
@@ -294,7 +329,7 @@ object BlueprintCheck:
     )
 
     // ── notes ───────────────────────────────────────────────────────────────
-    val used = bp.steps.flatMap(_.pattern.namedWorkers).toSet
+    val used = bp.steps.flatMap(_.namedWorkers).toSet
     val notes = bp.workers.zipWithIndex.collect {
       case (w, i) if !used.contains(w.name) =>
         Note(s"workers[$i]", s"no step uses the worker '${w.name}'")

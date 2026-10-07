@@ -1,6 +1,6 @@
 package com.thinkmorestupidless.ankka.agent.blueprint
 
-import com.thinkmorestupidless.ankka.agent.{FunctionTool, Guardrail, ModelProvider}
+import com.thinkmorestupidless.ankka.agent.{FunctionTool, Guardrail, Json, ModelProvider}
 import com.thinkmorestupidless.ankka.agent.judgment.Question
 import com.thinkmorestupidless.ankka.agent.mcp.McpServer
 import com.thinkmorestupidless.ankka.sdk.{ComponentClient, SecretStore, ServiceClients}
@@ -19,9 +19,22 @@ trait BlueprintContext:
   def hasTimers: Boolean
 
 /**
- * What a blueprint may name: the tools, MCP servers, models, guardrails and judgment questions a
- * service registers for its blueprints, and the blueprints it carries in its code. Nothing lists a
- * service's agents' tools — an agent chooses them inside its handler — so this is declared.
+ * A handler a call step runs: given which run it serves and what the step reads, it answers the
+ * step's result. It may be run again after a restart, as a tool may, so it tolerates a repeat.
+ */
+final class BlueprintHandler private (val name: String, val run: (RunRef, Json) => Json):
+  override def toString: String = s"BlueprintHandler($name)"
+
+object BlueprintHandler:
+  def apply(name: String)(run: (RunRef, Json) => Json): BlueprintHandler =
+    if name.isEmpty then throw IllegalArgumentException("a handler needs a name")
+    else new BlueprintHandler(name, run)
+
+/**
+ * What a blueprint may name: the tools, MCP servers, models, guardrails, judgment questions and
+ * handlers a service registers for its blueprints, and the blueprints it carries in its code.
+ * Nothing lists a service's agents' tools — an agent chooses them inside its handler — so this is
+ * declared.
  *
  * A plain class with fields named apart from its builders, as `AgentEffect` is: a field called
  * `tools` would shadow `tools(...)`.
@@ -32,6 +45,7 @@ final class BlueprintRegistry private (
     val modelsByName: Map[String, ModelProvider],
     val guardrailsByName: Map[String, Guardrail],
     val questionsByName: Map[String, Question[?]],
+    val handlersByName: Map[String, BlueprintHandler],
     val carried: Vector[Blueprint],
     val hasTimers: Boolean
 ):
@@ -42,6 +56,7 @@ final class BlueprintRegistry private (
       modelsByName: Map[String, ModelProvider] = modelsByName,
       guardrailsByName: Map[String, Guardrail] = guardrailsByName,
       questionsByName: Map[String, Question[?]] = questionsByName,
+      handlersByName: Map[String, BlueprintHandler] = handlersByName,
       carried: Vector[Blueprint] = carried,
       hasTimers: Boolean = hasTimers
   ): BlueprintRegistry =
@@ -51,6 +66,7 @@ final class BlueprintRegistry private (
       modelsByName,
       guardrailsByName,
       questionsByName,
+      handlersByName,
       carried,
       hasTimers
     )
@@ -91,6 +107,10 @@ final class BlueprintRegistry private (
   def questions(more: Question[?]*): BlueprintRegistry =
     copy(questionsByName = adding("judgment question", questionsByName, more.map(q => q.id -> q)))
 
+  /** Handlers a call step may run, given what the step reads. */
+  def handlers(more: BlueprintHandler*): BlueprintRegistry =
+    copy(handlersByName = adding("handler", handlersByName, more.map(h => h.name -> h)))
+
   /** Blueprints carried in the service's code, registered when it starts. */
   def carrying(more: Blueprint*): BlueprintRegistry = copy(carried = carried ++ more)
 
@@ -99,9 +119,10 @@ final class BlueprintRegistry private (
 
   private[ankka] def withTimers(present: Boolean): BlueprintRegistry = copy(hasTimers = present)
 
-  def tool(name: String): Option[FunctionTool]    = toolsByName.get(name)
-  def guardrail(name: String): Option[Guardrail]  = guardrailsByName.get(name)
-  def question(name: String): Option[Question[?]] = questionsByName.get(name)
+  def tool(name: String): Option[FunctionTool]        = toolsByName.get(name)
+  def guardrail(name: String): Option[Guardrail]      = guardrailsByName.get(name)
+  def question(name: String): Option[Question[?]]     = questionsByName.get(name)
+  def handler(name: String): Option[BlueprintHandler] = handlersByName.get(name)
 
   /** `default` is answered by the runtime, which holds that model. */
   def hasModel(name: String): Boolean = name == Worker.DefaultModel || modelsByName.contains(name)
@@ -111,6 +132,7 @@ object BlueprintRegistry:
     new BlueprintRegistry(
       Map.empty,
       Vector.empty,
+      Map.empty,
       Map.empty,
       Map.empty,
       Map.empty,

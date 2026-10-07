@@ -1,7 +1,7 @@
 Feature: Patterns: the ways a step uses workers
-  Each step uses one pattern, and the patterns are the platform's: an ask step, a work step, a
-  for-each step, a gather step, a judge step and a critique step. Every repetition in a run is inside a
-  pattern and bounded by it.
+  A step is what it does once, how many times and over what, and until what. The common shapes have
+  names: an ask step, a work step, a for-each step, a gather step, a judge step, a critique step and
+  a call step. Every repetition in a run is inside a step and bounded by it.
 
   Background:
     Given a service with a scripted model and a scripted judgment provider
@@ -91,6 +91,18 @@ Feature: Patterns: the ways a step uses workers
     Given a critique step with the drafting worker "writer", the critic "editor", "2" rounds and the last draft kept
     When "editor" returns both drafts
     Then the step's result is the second draft, marked as not passed, with the reasons "editor" gave
+
+  Scenario: a call step runs a handler with what it reads and keeps what it returns
+    Given a call step calling the handler "keep_paper" and reading the step "papers"
+    When a run reaches the step
+    Then the handler "keep_paper" is given the result of "papers" and told the run, the step and the version
+    And the step's result is what the handler returned
+
+  Scenario: a for-each step may drive work tasks
+    Given a for-each step whose action is a work task for the worker "digger", over a list of three items
+    When a run reaches the step
+    Then "digger" works a task for each of the three items
+    And the step's result is the three results in the list's order
 
   Scenario: each worker in a step has a session of its own
     Given a gather step with the workers "optimist" and "sceptic"

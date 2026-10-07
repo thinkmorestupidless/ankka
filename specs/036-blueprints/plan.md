@@ -36,6 +36,13 @@ Planning found three things the spec did not have, and the spec is amended for e
 - **Each item of a for-each or gather is an ask turn.** The spec left open whether an item could be
   a work loop; in this feature it cannot, and *Not in this feature* says so (R5).
 
+A second review, on how general the patterns are (R24–R26), made a blueprint's steps the graph
+they already were, scheduled as one: a step runs once what it reads has ended, so independent
+steps run at once. A step became three parts, an **action** (ask, work, judge, call), an **over**
+(once, each item of a list, each of several workers, so many times) and an **until** (a verdict
+within rounds), with the named patterns as the common combinations; and a **call step** runs a
+handler the service registers, the one node from which anything else is built in code.
+
 A review of the spec and plan found seven more, each amended in the spec with its reason in
 `research.md`: a gather chosen by an earlier step (R22, without which SC-001 could not hold); an
 ask turn interrupted by a restart runs again from its start (R18); a run that ends while waiting
@@ -133,15 +140,15 @@ The acceptance scenarios are in `features/blueprints/` (seven files) and
 
 ```text
 modules/agent/…/agent/blueprint/
-├── Blueprint.scala           # new: Blueprint, Worker, Step, Pattern, Schedule, builder, JSON, canonical
+├── Blueprint.scala           # new: Blueprint, Worker, Step (Action, Over, Until), Schedule, builder, JSON, canonical
 ├── Shape.scala               # new: the JSON Schema subset and its check (R9)
-├── BlueprintRegistry.scala   # new: built from a context: tools, MCP servers, models, guardrails, questions, carried blueprints (R6)
+├── BlueprintRegistry.scala   # new: built from a context: tools, MCP servers, models, guardrails, questions, handlers (R26), carried blueprints (R6)
 ├── BlueprintCheck.scala      # new: every problem in one pass (FR-004)
 ├── BlueprintEntity.scala     # new: ankka-blueprint (R2)
 ├── RunEntity.scala           # new: ankka-run, RunStatus, events
 ├── RunHost.scala             # new: ankka-run-host, the actor shell (R1)
-├── RunWorker.scala           # new: the worker thread: steps, items, rounds, waits, budget, deadline
-├── Patterns.scala            # new: one function per pattern over the run's record
+├── RunWorker.scala           # new: the graph scheduler (R24) and one thread per step in flight; waits, budget, deadline
+├── Patterns.scala            # new: the overs and the until, once for every action (R25)
 ├── AskAgent.scala            # new: ankka-blueprint-ask (R5)
 ├── WorkerAgent.scala         # new: ankka-blueprint-worker (R4)
 ├── RunsView.scala            # new: ankka-blueprint-runs (R11)
@@ -214,6 +221,9 @@ the platform's surface, each with the simpler thing that was rejected.
 | `platform` on `ViewDescriptor` and `AgentDescriptor` | The topology marks platform components; these two kinds had none (R5, R11) | Leaving them unmarked would show platform parts as the service's own |
 | The run host polls a session while a run waits for a decision | A decision is made on the session, and nothing tells the run (R16) | Passivating the host would leave nothing to wake it; the poll backs off to 30 s |
 | A gather chosen by an earlier step's result (FR-018, amended) | The planner's selection, the one dynamic shape the docs teach, could not otherwise be a blueprint (R22) | A fixed gather consults every specialist every run and SC-001 would not hold |
+| Steps scheduled as a graph, one thread per step in flight (FR-008, amended) | The steps were a graph; running them as a list wasted it (R24) | A list in order: simpler to read, and every independent step waits for nothing it needs |
+| A step as action, over and until (FR-003, amended) | Six closed patterns were three primitives wired to three combinators; each new wiring would be a new name in held data (R25) | Six closed patterns, with a for-each of work tasks a feature of its own |
+| A call step and registered handlers (FR-029) | Nothing let a blueprint do something in code with the run's durability (R26) | Leaving code to tools, which a model has to decide to call |
 
 ## Not in this feature (from the spec, restated for the tasks)
 

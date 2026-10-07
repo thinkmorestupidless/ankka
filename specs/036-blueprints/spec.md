@@ -90,6 +90,14 @@ Found while planning, with the reason in [research.md](research.md):
 - A worker's budget bounds one turn; the run budget bounds the run (R7).
 - A schedule in a service without timers is a problem the check names, whether the blueprint is carried or registered by a call (R6).
 
+### Review 2026-10-07
+
+Found on asking how general the patterns are, with the reasons in [research.md](research.md):
+
+- A blueprint's steps are a graph: each reads the run's input or earlier steps, and a step runs once what it reads has ended, so steps that read only what has ended run at once; the blueprint's order breaks ties (R24).
+- A step is what it does once (an action: ask, work, judge, call), how many times and over what (once, each item of a list, each of several workers, several times), and until what (a verdict within so many rounds). The named patterns are the common combinations; any action may repeat, and any worker's turn may draft until a verdict (R25).
+- A call step runs a handler the service registers for blueprints, with what the step reads: the one node from which anything else is built in code (R26).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Register a blueprint and have it checked (Priority: P1)
@@ -122,7 +130,8 @@ nothing held.
 - added `features/blueprints/checking.feature`: a worker naming a tool the service does not have is refused
 - added `features/blueprints/checking.feature`: a worker naming a model the service does not have is refused
 - added `features/blueprints/checking.feature`: a step reading a step that comes after it is refused
-- added `features/blueprints/checking.feature`: a step naming a pattern the platform does not have is refused
+- added `features/blueprints/checking.feature`: a step doing something the platform does not have is refused
+- added `features/blueprints/checking.feature`: a call step naming a handler the service does not have is refused
 - added `features/blueprints/checking.feature`: a step whose pattern needs a list and reads something else is refused
 - added `features/blueprints/checking.feature`: a worker with no budget is refused
 - added `features/blueprints/checking.feature`: a step naming a judgment question the service does not have is refused
@@ -155,6 +164,7 @@ new version during the run and find that the run kept the old one.
 **Acceptance Scenarios** *(each names a scenario in a living feature; none is written here)*:
 
 - added `features/blueprints/runs.feature`: a run carries out a blueprint's steps in order and holds each step's result
+- added `features/blueprints/runs.feature`: steps that read only what has ended are carried out at once
 - added `features/blueprints/runs.feature`: a run keeps the version that was current when it started
 - added `features/blueprints/runs.feature`: a run started twice under one id is one run
 - added `features/blueprints/runs.feature`: a run id used again for a different blueprint or input is refused
@@ -180,28 +190,36 @@ new version during the run and find that the run kept the old one.
 
 ### User Story 3 - Steps that use workers in the well-known ways (Priority: P1)
 
-Each step uses one pattern, and the patterns are the platform's:
+A step is three things, each from a short list the platform has. What it **does** once:
 
 - **ask**: one worker answers the step's input once, running its tools as a request agent does.
 - **work**: one worker works the step's input on its own, iteration after iteration, until it
   completes with a result, gives up, or spends its budget, recording every iteration as an
   autonomous agent does.
-- **for-each**: one worker is given each item of a list, all at once, and the step's result is their
-  results in the list's order.
-- **gather**: several workers, or one worker several times, are given the same input at once, and
-  the step's result is all of their results together. A gather may be chosen by an earlier step's
-  result: a list of names picking which of the workers the step names run this time. The step's
-  list is the limit; the earlier step chooses within it.
 - **judge**: typed questions about the step's input are answered by a judgment, with the
   probabilities behind each answer.
-- **critique**: one worker drafts; a verdict, from a judgment's yes or no or from a critic with
-  its reasons, passes the draft or returns it with the reasons; the worker drafts again,
-  up to a number of rounds the step names. A draft that has not passed after the last round fails
-  the step, or is kept marked as not passed, as the step says.
+- **call**: a handler the service registers for blueprints is given what the step reads, and what
+  it returns is the result.
+
+How many times, and **over** what: once; once per item of a list an earlier step gives, at most so
+many at once, with one failed item failing the step unless the step keeps going; once per worker
+of several, each given the same input at once, optionally **chosen by** an earlier step's result, a
+list of names picking which of them run this time (the step's list is the limit, the earlier step
+chooses within it); or so many times, the same worker given the same input at once.
+
+And **until** what: nothing; or a verdict, from a judgment's yes or no or from a critic with its
+reasons, that passes the draft or returns it with the reasons, the worker drafting again up to so
+many rounds. A draft that has not passed after the last round fails the step, or is kept marked as
+not passed, as the step says.
+
+The common combinations have names: an **ask step**, a **work step**, a **for-each step** (an action
+once per item), a **gather step** (once per worker), a **judge step**, a **critique step** (a turn
+until a verdict) and a **call step**. Any action may repeat; any worker's turn may draft.
 
 **Why this priority**: The patterns are what a developer no longer writes. Each is the shape of a
 well-known way of reasoning: work is a loop of thinking and acting, gather is several answers put
-together, for-each and ask are map and reduce, critique is a draft and its critique.
+together, for-each and ask are map and reduce, critique is a draft and its critique. Composing them
+from three parts means a new shape is a combination, not a new pattern.
 
 **Independent Test**: In the testkit with a scripted model and a scripted judgment provider, run a
 blueprint with one step of each pattern and read each step's result; for for-each, give a list of five
@@ -219,6 +237,8 @@ find three drafts in the step's sessions and the third as the result.
 - added `features/blueprints/patterns.feature`: one failed item fails a for-each step unless the step keeps going
 - added `features/blueprints/patterns.feature`: a gather step gives every worker the same input and keeps every result
 - added `features/blueprints/patterns.feature`: a gather step chosen by an earlier step runs only the workers it names
+- added `features/blueprints/patterns.feature`: a call step runs a handler with what it reads and keeps what it returns
+- added `features/blueprints/patterns.feature`: a for-each step may drive work tasks
 - added `features/blueprints/patterns.feature`: a judge step's result is the judgment's answers with their probabilities
 - added `features/blueprints/patterns.feature`: a critique step drafts again with the check's reasons until the draft passes
 - added `features/blueprints/patterns.feature`: a critique step's check may be a judgment
@@ -382,12 +402,15 @@ named in the watch's run while the others are kept.
   registers for blueprints, a list of the tools it registers for blueprints (its own functions and
   MCP servers' tools), guardrails it registers for blueprints, and a budget of model calls for one turn of the worker (an
   item, a round, or the task of a work step).
-- **FR-003**: A step MUST name one pattern (ask, work, for-each, gather, judge, critique), the workers or
-  judgment questions it uses, the run's input or the earlier steps it reads, the shape of its
-  result, and the pattern's parameters. A blueprint MUST have no other conditions, branches or
-  loops.
-- **FR-004**: A blueprint MUST be checked whole before it is held: every tool, model, guardrail and
-  judgment question it names is registered by the service for blueprints; every step reads only the run's input or
+- **FR-003**: A step MUST name what it does once (ask, work, judge or call), with the worker,
+  judgment questions or handler that takes; how many times and over what (once; each item of a list
+  an earlier step gives; each of several workers, optionally chosen by an earlier step; or so many
+  times); until what (nothing, or a verdict within so many rounds); the run's input or the earlier
+  steps it reads; and the shape of its result. A blueprint MUST have no other conditions, branches
+  or loops.
+- **FR-004**: A blueprint MUST be checked whole before it is held: every tool, model, guardrail,
+  judgment question and handler it names is registered by the service for blueprints; what a step
+  does and how it repeats fit (a judgment or a call has no worker to repeat over, and drafts nothing); every step reads only the run's input or
   steps before it; every pattern exists and is given what it needs (a list for a for-each step, a check to
   critique with); every worker has a budget; worker and step names are unique and no step is named `input`; a
   judgment verdict names a yes-or-no question; a gather chosen by a read reads a list of strings; the
@@ -406,8 +429,9 @@ named in the watch's run while the others are kept.
   MUST be the run already held, and with a different blueprint or input MUST be refused. Run ids
   starting `schedule:` are the platform's. The run MUST use the version current when it started, to
   its end.
-- **FR-008**: A run MUST carry out its steps in the order the blueprint gives, each given the run's
-  input and the results it reads, and MUST hold each step's result when the step ends.
+- **FR-008**: A run MUST carry out each step once everything it reads has ended, each given the
+  run's input and the results it reads, so steps that read only what has ended run at once, with
+  the blueprint's order breaking ties; and MUST hold each step's result when the step ends.
 - **FR-009**: A reader MUST be able to read a run at any time: its blueprint and version, its input,
   the step it is on, each ended step's result, the session of each worker in each step, the model
   and judgment usage of each step and of the run, its status, who or which schedule started it, when
@@ -433,24 +457,28 @@ named in the watch's run while the others are kept.
 
 **Patterns**
 
-- **FR-015**: ask MUST be one worker's answer to the step's input, running its tools.
-- **FR-016**: work MUST iterate one worker until it completes with a result, gives up, or spends its
-  budget, recording each iteration so that a restart resumes it as an autonomous agent's task
+- **FR-015**: An ask MUST be one worker's answer to the step's input, running its tools.
+- **FR-016**: A work MUST iterate one worker until it completes with a result, gives up, or spends
+  its budget, recording each iteration so that a restart resumes it as an autonomous agent's task
   resumes.
-- **FR-017**: for-each MUST give each item of a list to the worker, with at most the step's limit at
-  once, and its result MUST be the items' results in the list's order; an empty list MUST give an
-  empty result. A failed item MUST fail the step unless the step says to keep going, when the
-  result marks each failed item.
-- **FR-018**: gather MUST give the same input to each named worker, or to one worker a named number
-  of times, at once, and its result MUST be every result, each with the worker that gave it. A
-  gather MAY be chosen by a read of an earlier step's result, a list of strings; then only the named
-  workers among the step's run, in the step's order, and an empty list gives an empty result.
-- **FR-019**: judge MUST ask the named judgment questions about the step's input and its result
+- **FR-017**: A step over each item of a list MUST do its action once per item, with at most the
+  step's limit at once, and its result MUST be the items' results in the list's order; an empty
+  list MUST give an empty result. A failed item MUST fail the step unless the step says to keep
+  going, when the result marks each failed item.
+- **FR-018**: A step over several workers MUST give the same input to each, or to one worker a
+  named number of times, at once, and its result MUST be every result, each with the worker that
+  gave it. It MAY be chosen by a read of an earlier step's result, a list of strings; then only the
+  named workers among the step's run, in the step's order, and an empty list gives an empty result.
+- **FR-019**: A judge MUST ask the named judgment questions about the step's input and its result
   MUST be the judgment's answers with their probabilities.
-- **FR-020**: critique MUST have one worker draft, check the draft with a judgment's yes or no or
-  another worker's verdict and reasons, and return a draft that does not pass to the drafting worker
-  with the reasons, up to the step's number of rounds. After the last round a draft that has not
-  passed MUST fail the step, or be kept marked as not passed when the step says so.
+- **FR-020**: A step until a verdict MUST have its worker draft, check the draft with a judgment's
+  yes or no or another worker's verdict and reasons, and return a draft that does not pass to the
+  worker with the reasons, up to the step's number of rounds. After the last round a draft that has
+  not passed MUST fail the step, or be kept marked as not passed when the step says so.
+- **FR-029**: A call MUST give the handler the step names what the step reads and which run, step
+  and version it serves, and its result MUST be what the handler returns, checked against the step's
+  shape; a handler that fails or answers another shape fails the step. A handler MAY be run again
+  after a restart, as a tool may.
 - **FR-021**: Each worker in each step MUST have a session of its own, and the run MUST name it.
 
 **Schedules**
@@ -493,8 +521,13 @@ named in the watch's run while the others are kept.
 - **Blueprint version**: one registration of a blueprint, numbered, never changed.
 - **Worker**: an agent a blueprint defines by data: instructions, a model, tools, guardrails and a
   budget. It is not a component.
-- **Pattern**: one of the ways the platform has for a step to use workers: ask, work, for-each, gather
-  (optionally chosen by an earlier step), judge, critique.
+- **Step**: what it does once (an action: ask, work, judge, call), how many times and over what
+  (once; each item of a list; each of several workers, optionally chosen by an earlier step; so many
+  times), until what (nothing, or a verdict within so many rounds), what it reads, and its result's
+  shape.
+- **Pattern**: a common combination of those, with a name: ask step, work step, for-each step,
+  gather step, judge step, critique step, call step.
+- **Handler**: code the service registers for blueprints, which a call step runs with what it reads.
 - **Run**: one carrying out of one blueprint version, under an id: its input, each step's result,
   the workers' sessions, usage, and its status.
 - **Run status**: where a run stands: running, waiting for a decision, or ended completed, failed
@@ -574,7 +607,6 @@ named in the watch's run while the others are kept.
   requires approval.
 - Models named by a blueprint that the service does not register for blueprints, and tools defined
   in a blueprint.
-- A work loop for each item of a for-each or gather step; each item is one ask turn.
 - Cost in money; usage is in tokens, as elsewhere.
 - Speech from a script.
 - Python and TypeScript services, and the sidecar protocol calls they would need: a follow-up

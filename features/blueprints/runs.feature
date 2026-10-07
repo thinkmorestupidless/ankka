@@ -13,6 +13,12 @@ Feature: Runs of a blueprint
     And each step's result is held when the step ends
     And the run is completed
 
+  Scenario: steps that read only what has ended are carried out at once
+    Given the blueprint "pair" whose steps "left" and "right" both read only the run's input
+    When a run of "pair" is started
+    Then the steps "left" and "right" are both in progress at once
+    And the run is completed
+
   Scenario: a run keeps the version that was current when it started
     Given a run of "brief" in progress at blueprint version 1
     When the service registers blueprint version 2 of "brief"

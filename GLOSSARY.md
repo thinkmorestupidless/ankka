@@ -1647,9 +1647,23 @@ An agent a blueprint defines by data: instructions, a model, tools, guardrails a
 budget. It is not a component, and not an agent instance.
 Avoid: role
 
+### action
+What a step does once: ask, work, judge or call.
+
+### over
+How many times a step does its action, and over what: once; each item of a list an earlier step
+gives; each of several workers, optionally chosen by an earlier step; or so many times.
+
+### until
+What a step's worker drafts until: a verdict within so many rounds.
+
 ### pattern
-One of the ways the platform has for a step of a run to use workers: ask, work, for-each,
-gather, judge and critique.
+A common combination of an action, an over and an until, with a name: an ask step, a work step, a
+for-each step, a gather step, a judge step, a critique step, a call step.
+
+### call step
+A step whose action runs a handler the service registers for blueprints, with what the step reads,
+and keeps what it returns.
 
 ### ask step
 A step in which one worker answers the step's input once, running the tools its model
@@ -1660,19 +1674,19 @@ asks for.
 gives up, or spends the budget, as an autonomous agent does.
 
 ### for-each step
-*Proposed.* A step in which one worker is given each item of a list, at most the step's limit at
-once, and whose result is their results in the list's order.
+*Proposed.* A step whose action is done once per item of a list, at most the step's limit at once,
+and whose result is the items' results in the list's order.
 
 ### gather step
-A step in which several workers, or one worker several times, are given the same input
-at once, and whose result is every result with the worker that gave it.
+A step whose action is done once per worker of several, or so many times by one, each given the
+same input at once, and whose result is every result with the worker that gave it.
 
 ### judge step
 A step whose result is a judgment's answers to typed questions about its input.
 
 ### critique step
-A step in which a drafting worker drafts, a critic or a judgment gives a verdict, and a
-draft that does not pass goes back with the reasons, up to the step's number of rounds.
+A step whose worker drafts until a verdict: a critic or a judgment passes the draft, or it goes
+back with the reasons, up to the step's number of rounds.
 
 ### draft
 What the drafting worker of a critique step produces in one round.

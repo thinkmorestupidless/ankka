@@ -13,6 +13,7 @@ val registry: BlueprintContext => BlueprintRegistry = ctx =>
     .models("large" -> AnthropicProvider.fromEnv("claude-opus-5-5"))        // "default" is the runtime's
     .guardrails("no-urls" -> Guardrail.forbidding("no-urls", "https?://".r))
     .questions(namesAPaper)                                                  // Question[?]*
+    .handlers(BlueprintHandler("keep_paper")((run, input) => keep(run, input)))   // (RunRef, Json) => Json, for a call step
     .carrying(Blueprint.fromResource("blueprints/watch.json"),
               Blueprint.fromResource("blueprints/digest.json"))
 
@@ -37,7 +38,11 @@ val digest =
     .worker(Worker("writer").instructions("Write a podcast script …").tools("papers_found_between").budget(6))
     .step(Step("papers").ask("writer").reads("input").result(Shape.arr(Paper.shape)))
     .step(Step("findings").forEach("reader", over = "papers", limit = 8).result(Shape.arr(Finding.shape)))
-    // a gather chosen by an earlier step: .gather("weather", "activity", "budget", chosenBy = "select.specialists")
+    // a gather chosen by an earlier step: .gather(Seq("weather", "activity", "budget"), chosenBy = "select.specialists")
+    // a step is an action, an over and an until; the named shapes are the common ones:
+    //   Step("deep").work("digger").each("papers")              a for-each of work tasks
+    //   Step("keep").call("keep_paper").reads("papers")         a call step
+    //   Step("relevant").judge("relevant").each("papers")       a judgment per item
     .step(Step("script").critique("writer", verdict = Verdict.judgment("names-a-paper"), rounds = 3)
             .reads("findings").result(Script.shape))
     .schedule(Schedule.weekly(DayOfWeek.SUNDAY, LocalTime.of(20, 0), ZoneId.of("Europe/London")))

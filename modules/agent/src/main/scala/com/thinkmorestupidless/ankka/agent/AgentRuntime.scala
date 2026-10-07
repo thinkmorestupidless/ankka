@@ -52,6 +52,7 @@ final class AgentRuntime private (
 ) extends RuntimeExtension:
 
   @volatile private var blueprintCalls: Option[blueprint.BlueprintCalls] = None
+  @volatile private var runCalls: Option[blueprint.RunCalls]             = None
 
   def name: String = "agents"
 
@@ -65,11 +66,19 @@ final class AgentRuntime private (
   ): AgentRuntime =
     new AgentRuntime(defaultModel, modelTimeout, compaction, judgments, variables, Some(build))
 
-  /** Calls about blueprints and runs. Available once the service has started. */
+  /** Calls about blueprints. Available once the service has started. */
   def blueprints: blueprint.BlueprintCalls =
     blueprintCalls.getOrElse(
       throw IllegalStateException(
         "blueprints are not available: the service has not started, or withBlueprints(...) was not called"
+      )
+    )
+
+  /** Calls about runs. Available once the service has started. */
+  def runs: blueprint.RunCalls =
+    runCalls.getOrElse(
+      throw IllegalStateException(
+        "runs are not available: the service has not started, or withBlueprints(...) was not called"
       )
     )
 
@@ -171,7 +180,13 @@ final class AgentRuntime private (
       val client   = service.componentClient
 
       agents.foreach { descriptor =>
-        val typed    = descriptor.asInstanceOf[AgentDescriptor[Agent]]
+        val typed = descriptor.asInstanceOf[AgentDescriptor[Agent]] match
+          // The one agent every worker's turn goes to builds each turn from the service's registry.
+          case ask if ask.componentId == blueprint.AskAgent.componentId =>
+            blueprintCalls.fold(ask)(calls =>
+              blueprint.AskAgent.hosted(calls.registry).asInstanceOf[AgentDescriptor[Agent]]
+            )
+          case other => other
         val mcpTools = connectMcp(typed.componentId, typed.mcpServers, service, timers)
         val _ = sharding.init(
           Entity(EntityTypeKey[EntityProtocol.Command](typed.componentId)) { ctx =>
@@ -257,6 +272,23 @@ final class AgentRuntime private (
         )
       }
       blueprintCalls = Some(calls)
+      val views = Option.when(service.extensionNames.contains("projections"))(service.viewClient)
+      runCalls = Some(blueprint.RunCalls(service.componentClient, calls, views))
+
+      // One host per run, remembered: a run working when its node stopped is started again by
+      // sharding itself, from its record, with nothing sent to it.
+      val _ = ClusterSharding(system).init(
+        Entity(EntityTypeKey[EntityProtocol.Command](blueprint.RunHost.ComponentId)) { ctx =>
+          blueprint.RunHost.behavior(ctx.entityId, ctx.shard, service.componentClient, registry)
+        }.withStopMessage(blueprint.RunHost.Stop)
+          .withSettings(
+            ClusterShardingSettings(system)
+              .withRememberEntities(true)
+              .withRememberEntitiesStoreMode(
+                ClusterShardingSettings.RememberEntitiesStoreModeEventSourced
+              )
+          )
+      )
       if !service.registry.components.exists(_.componentId == blueprint.BlueprintEntity.componentId)
       then
         system.log.warn(
@@ -462,7 +494,10 @@ object AgentRuntime:
       autonomous.InstanceEntity.descriptor,
       autonomous.TaskCascade.descriptor,
       ApprovalExpiry.platformDescriptor,
-      blueprint.BlueprintEntity.descriptor
+      blueprint.BlueprintEntity.descriptor,
+      blueprint.RunEntity.descriptor,
+      blueprint.AskAgent.platformDescriptor,
+      blueprint.RunsView.platformDescriptor
     )
 
 /**

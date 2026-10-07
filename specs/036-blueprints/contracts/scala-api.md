@@ -62,10 +62,12 @@ agents.blueprints.versions(name): Vector[VersionInfo]  // VersionInfo(number, di
 agents.blueprints.version(name, number): Blueprint
 BlueprintRefusal.problemsOf(error): Option[Vector[Problem]]
 
-agents.runs.start(name, input: Json, runId: String): RunSnapshot   // Conflict when the id is held with another blueprint or input
+agents.runs.start(name, input: Json, runId: String, startedBy = "caller"): RunSnapshot
+                                                        // Conflict when the id is held with another blueprint or input;
+                                                        // BadRequest when the input lacks the shape or the id starts "schedule:"
 agents.runs.get(runId): RunSnapshot
 agents.runs.await(runId, timeout = 30.minutes): RunSnapshot
-agents.runs.cancel(runId): RunSnapshot
+agents.runs.cancel(runId, by = "caller"): RunSnapshot
 agents.runs.list(name): Vector[RunSummary]             // needs ProjectionRuntime
 ```
 

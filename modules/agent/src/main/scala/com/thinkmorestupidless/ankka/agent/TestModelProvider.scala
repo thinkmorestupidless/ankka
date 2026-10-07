@@ -25,8 +25,9 @@ import scala.jdk.CollectionConverters.*
 final class TestModelProvider(val modelName: String = "test-model") extends ModelProvider:
 
   private val scripted = ConcurrentLinkedQueue[ModelResponse]()
-  private val rules    = CopyOnWriteArrayList[(ModelRequest => Boolean, ModelResponse)]()
-  private val seen     = ConcurrentLinkedQueue[ModelRequest]()
+  private val rules =
+    CopyOnWriteArrayList[(ModelRequest => Boolean, ModelRequest => ModelResponse)]()
+  private val seen = ConcurrentLinkedQueue[ModelRequest]()
 
   def name: String = "test"
 
@@ -109,7 +110,16 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
 
   /** A standing rule, used once the script runs out. */
   def whenRequest(matches: ModelRequest => Boolean)(response: ModelResponse): TestModelProvider =
-    rules.add(matches -> response): Unit
+    respondWhen(matches)(_ => response)
+
+  /**
+   * A standing rule whose response is worked out when it fires, from the request and whatever the
+   * test knows then: for a test whose Givens decide, after the rules are set, how a step answers.
+   */
+  def respondWhen(matches: ModelRequest => Boolean)(
+      respond: ModelRequest => ModelResponse
+  ): TestModelProvider =
+    rules.add(matches -> respond): Unit
     this
 
   /** A standing rule keyed on the latest user message. */
@@ -144,7 +154,7 @@ final class TestModelProvider(val modelName: String = "test-model") extends Mode
       case Some(response) => Future.successful(response)
       case None =>
         rules.asScala.collectFirst {
-          case (matches, response) if matches(request) => response
+          case (matches, respond) if matches(request) => respond(request)
         } match
           case Some(response) => Future.successful(response)
           case None           =>

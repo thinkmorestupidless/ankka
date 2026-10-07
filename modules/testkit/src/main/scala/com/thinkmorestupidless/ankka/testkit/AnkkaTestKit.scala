@@ -124,6 +124,14 @@ final class AnkkaTestKit private (
    * HTTP server holds its listener), so the peer cannot share this node's. A scripted model can be
    * shared, since one instance of any component is running on one node at a time.
    */
+
+  /** Waits for a run of a blueprint to end; `Timeout` when it has not by then. */
+  def awaitRun(
+      runs: com.thinkmorestupidless.ankka.agent.blueprint.RunCalls,
+      runId: String,
+      within: FiniteDuration = 30.seconds
+  ): com.thinkmorestupidless.ankka.agent.blueprint.RunSnapshot =
+    runs.await(runId, within)
   def startPeer(extensions: Seq[RuntimeExtension]): AnkkaTestKit.Peer =
     val seed = org.apache.pekko.cluster.Cluster(current.system).selfMember.address.toString
     // Stating the formation makes ClusterConfig pass this config through rather than layering the

@@ -387,6 +387,16 @@ blueprints entry: Scala only, no branching search, no person as a step of its ow
   blueprint registered by two services at once would serialise on the entity, and the restart case
   showed a carried blueprint re-registered at start adds no version. The calls moved to the
   `AgentRuntime` (R23).
+- Phase 4 (T021–T033): `runs.feature` passes, 23 scenarios; SC-002 holds (`BlueprintRestartSuite`:
+  a run restarted once in each of three steps completes, each step's turn started twice and ended
+  once, nine model calls in all); V4 holds (`AskApprovalSuite`: a turn suspended on an approval is
+  rebuilt from its payload and the tool runs once). Two things learnt: the answer a session holds
+  for a turn is its **last** assistant message after the user message, since the ones before asked
+  for tools (R18); and the time limit needs no actor timer, since the worker is alive to check it at
+  every boundary and in every wait (R17). `RunContext` is bound to each tool when the ask agent
+  chooses it (R15), because a tool runs after its handler has returned. A scripted model's standing
+  rule can now compute its response when it fires (`TestModelProvider.respondWhen`), which a suite
+  whose Givens shape a step's answer needs.
 - V3 (T004, `PlatformEntityConsumerSuite`): a consumer declared in a package outside `ankka`
   subscribes to `ankka-task`'s events with `ChangeSource.eventsOf(TaskEntity)` and receives
   `Created` first and `Completed` last for a task, in order (R2, R11 and FR-026 hold).

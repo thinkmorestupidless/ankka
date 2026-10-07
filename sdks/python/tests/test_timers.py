@@ -14,6 +14,7 @@ import pytest
 from ankka import ErrorCode
 from ankka._proto.ankka.protocol.v1 import client_pb2, payload_pb2
 from ankka.client import CommandError, Timers
+from ankka.service import PROTOCOL_VERSION
 from ankka.effects.timed_action import Done, Failed, TimedActionEffect
 from ankka.testkit.unit import TimedActionTestKit
 from ankka.timed_action import TimedAction, action
@@ -104,7 +105,7 @@ def test_a_runtime_without_recurring_timers_is_reported_as_too_old_naming_both_v
     message = refused.value.error.message
     assert "recurring timers" in message
     assert "1.12" in message
-    assert "this SDK speaks 1.12" in message
+    assert f"this SDK speaks {PROTOCOL_VERSION}" in message
 
 
 class Ticker(TimedAction):

@@ -86,7 +86,7 @@ test("a sidecar too old for declared queries is refused, naming the view and bot
   assert.ok(why !== undefined)
   assert.match(why, /nodes/)
   assert.match(why, /1\.7/)
-  assert.match(why, /1\.11/)
+  assert.match(why, /1\.13/)
   assert.equal(refusal(spec, "1.13"), undefined)
   assert.equal(refusal(specOf(nodes(undefined)), "1.7"), undefined)
 })
